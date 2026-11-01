@@ -6,7 +6,7 @@ import os
 os.chdir("/workspace/development/frappe-bench/sites")
 import frappe  # noqa: E402
 
-frappe.init(site="localhost")
+frappe.init(site=os.environ.get("ENV_SYNC_SITE", "localhost"))  # dev2: env_sync.sh passes it
 frappe.connect()
 
 

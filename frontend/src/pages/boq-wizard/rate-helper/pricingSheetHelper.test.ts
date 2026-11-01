@@ -747,7 +747,11 @@ describe("makePricingSheetHelper -- EA-4a point_wiring assembly", () => {
     expect(r.values.combined_rate).toBe(2604);
     // per-component build-up surfaced (the bill), not just the total
     const supplySection = r.workings.sections?.find((s) => s.label.toLowerCase().includes("supply"));
-    expect((supplySection?.matchedRows ?? []).some((m) => m.includes("wire1") && m.includes("750"))).toBe(true);
+    // ELR-2 (owner R-WORD; mechanical authority): WAS a line naming the internal key ("wire1: ... = 750"). NOW the wire's
+    // 750 line is still in the bill, and NO line names the key. This test's local config predates v68's display labels, so
+    // the line is the plain fallback; the shipped asset's wording is pinned in attributeWorkingLines.test.ts.
+    expect((supplySection?.matchedRows ?? []).some((m) => m.endsWith("= 750"))).toBe(true);
+    expect((supplySection?.matchedRows ?? []).some((m) => m.includes("wire1"))).toBe(false);
     // defaulted attrs surfaced
     expect(r.workings.derivation.some((d) => d.includes("defaulted"))).toBe(true);
   });
@@ -4273,8 +4277,11 @@ describe("Calculator slice 1 / TWO -- the copy value is the BARE number", () => 
     expect(src).not.toMatch(/toLocaleString|Intl\.NumberFormat|₹/);
     // the three figures render from DISPLAY_RATE_KINDS inside the SECTION block, each with the control
     expect(src).toContain("DISPLAY_RATE_KINDS.map(");
-    expect(src).toContain("<CopyFigureButton value={v}");
-    expect(src).toMatch(/typeof v === "number" \? v : "—"/); // an absent kind is the em dash, never 0
+    // INVERTED at ELR-4c (owner R-FLOAT / P6 "Q3 a": money to 2 decimals, the copy carries the shown value) by mechanical
+    // authority. BEFORE: toContain("<CopyFigureButton value={v}") and toMatch(/typeof v === "number" \? v : "—"/).
+    expect(src).toContain("<CopyFigureButton value={moneyValue(v)}");
+    expect(src).not.toContain("<CopyFigureButton value={v}");
+    expect(src).toMatch(/typeof v === "number" \? moneyValue\(v\) : "—"/); // an absent kind is the em dash, never 0
     // the header block is UNCHANGED: it still renders the single `computed` figure / the stacked headlines
     expect(src).toContain("const computed = result.values[kind!]");
     expect(src).toContain("h.values[kind!]");

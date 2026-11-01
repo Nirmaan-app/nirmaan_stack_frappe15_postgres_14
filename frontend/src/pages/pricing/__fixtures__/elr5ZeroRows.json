@@ -1,0 +1,1099 @@
+{
+ "BOQ-26-00102|Electrical|112": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "1M Blanker"
+   },
+   "box_modules_stated": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply and fixing of 1no. of single module dummy plate suitable to fix on above front plate.",
+  "headings": [
+   "SWITCH AND SOCKETS",
+   "Supply, fixing, testing and commissioning of Modular Switch & Socket combination in suitable modular box and Metal Clad sockets with MCB in Open/Recessed system.The necessary civil works shall be done for connected works and no extra payment will be made for the same. (On non availability of specified rating industrial sockets, immediate higher rating socket must be provided with given control breakers)."
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00298|ELECTRICAL BOQ |603": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply & Installation , Testing and Commissioning of male connector of weiland make or equivalent make",
+  "headings": [
+   "4P MCB BOX with Polycarbonate enclosures (Indoor - IP 52)",
+   "VAV & FIRE EXIT SINAGES Circuit & looping:"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00298|ELECTRICAL BOQ |605": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply & Installation , Testing and Commissioning of female connector of weiland make or equivalent make",
+  "headings": [
+   "4P MCB BOX with Polycarbonate enclosures (Indoor - IP 52)",
+   "VAV & FIRE EXIT SINAGES Circuit & looping:"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00298|ELECTRICAL BOQ |607": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply & Installation , Testing and Commissioning of 1 in 2 out connector of weiland make or equivalent make",
+  "headings": [
+   "4P MCB BOX with Polycarbonate enclosures (Indoor - IP 52)",
+   "VAV & FIRE EXIT SINAGES Circuit & looping:"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00298|ELECTRICAL BOQ |609": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply & Installation , Testing and Commissioning of 1 in 3 out connector of weiland make or equivalent make",
+  "headings": [
+   "4P MCB BOX with Polycarbonate enclosures (Indoor - IP 52)",
+   "VAV & FIRE EXIT SINAGES Circuit & looping:"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00298|ELECTRICAL BOQ |611": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply & Installation , Testing and Commissioning of 1 in 5 out connector of weiland make or equivalent make",
+  "headings": [
+   "4P MCB BOX with Polycarbonate enclosures (Indoor - IP 52)",
+   "VAV & FIRE EXIT SINAGES Circuit & looping:"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00305|Cost Sheet|75": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supplying & fixing stepped type electronic fan regulator on the existing modular plate switch box including connections but excluding modular plate etc. As required.",
+  "headings": [],
+  "unit": "Each"
+ },
+ "BOQ-26-00306|EXTERNAL ELECTRICAL WORKS|414": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Installation, testing, commissioning of pre-wired, flourescent fitting / compact flourscent fitting of all types ,complete with all accessories and tube etc. including supplying directly on ceiling / wall including connection with 1.5 sq mm PVC insulated FRLS copper conductor single core cable and earthing etc. as required.",
+  "headings": [
+   "STREET LIGHTING"
+  ],
+  "unit": "Each"
+ },
+ "BOQ-26-00306|EXTERNAL ELECTRICAL WORKS|415": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Installation testing and commissioning of ceiling fan including wiring down rods of standard length ( up to 30 cm.) with 1.5 sq mm FRLS PVC insulated copper conductor single core cable etc, including providing & fixing phenolic laminated sheet cover on the fan box etc as required",
+  "headings": [
+   "STREET LIGHTING"
+  ],
+  "unit": "Each"
+ },
+ "BOQ-26-00306|EXTERNAL ELECTRICAL WORKS|416": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supplying and fixing two module stepped type electronic fan regulator on the existing modular plate switch box including connections but excluding modular plate etc. as required.",
+  "headings": [
+   "STREET LIGHTING"
+  ],
+  "unit": "Each"
+ },
+ "BOQ-26-00328|BOQ|177": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.85,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.85,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply , laying,termination of RG-6 co-axial cable for TV in existing conduit complete as required.",
+  "headings": [
+   "CONDUITS AND MS. CHANNELS FOR STRUCTURED CABLING"
+  ],
+  "unit": "RM"
+ },
+ "BOQ-26-00364|Internal Electrical Works|212": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "1M Blanker"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.3,
+    "corroborated": false,
+    "value": null
+   },
+   "plate_qty": {
+    "confidence": 0.3,
+    "corroborated": false,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket1_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.8,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply and fixing of Blankplates",
+  "headings": [
+   "SWITCHES AND SOCKETS"
+  ],
+  "unit": "Nos"
+ }
+}

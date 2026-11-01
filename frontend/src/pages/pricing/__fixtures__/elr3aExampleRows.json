@@ -1,0 +1,1482 @@
+{
+ "_source": "ELR-3a: 7 real stored point_wiring rows (E1-E7, ELR-R1 F6); expect = HEAD 60ae6cd30 on Electrical v68",
+ "rows": [
+  {
+   "id": "E1",
+   "key": "BOQ-26-00196|ELECTRICAL|281",
+   "excel_row": 281,
+   "description": "I. Primary light point means wiring from first switch control to the first light out let.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.8,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": "1M & 2M",
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": 1,
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 1926,
+     "install_rate": 389.2,
+     "combined_rate": 2315.2
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 1926",
+       "(never asked at extraction -- config default applied; re-run the sheet to read it): Circuit wiring included=No, Circuit wire 1 - thickness (sqmm)=None, Circuit wire 2 - thickness (sqmm)=None"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 15 = 1,500",
+       "Conduit: PVC 25 x 5 = 210",
+       "Switch: Switch 16A 1 WAY SWITCH White x 1 = 106",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 66",
+       "Back box: Back Box 1M x 1 = 44"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 389.2",
+       "(never asked at extraction -- config default applied; re-run the sheet to read it): Circuit wiring included=No, Circuit wire 1 - thickness (sqmm)=None, Circuit wire 2 - thickness (sqmm)=None"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 15 = 300",
+       "Conduit: PVC 25 x 5 = 45",
+       "Switch: Switch 16A 1 WAY SWITCH White x 1 = 21.2",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 14",
+       "Back box: Back Box 1M x 1 = 9"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "Worked out: 15 + (1 - 1) x 5 = 15 m"
+     }
+    ]
+   }
+  },
+  {
+   "id": "E2",
+   "key": "BOQ-26-00258|ELECTRICAL BOQ|426",
+   "excel_row": 426,
+   "description": "Two (2) light points controlled by one(1) 10A modular type switch.",
+   "unit": "No.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "points": {
+     "value": 2,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": 1,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 2463,
+     "install_rate": 497.8,
+     "combined_rate": 2960.8
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 2463"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 20 = 2,000",
+       "Conduit: PVC 25 x 7 = 294",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 59",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 66",
+       "Back box: Back Box 1M x 1 = 44"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 497.8"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 20 = 400",
+       "Conduit: PVC 25 x 7 = 63",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 11.8",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 14",
+       "Back box: Back Box 1M x 1 = 9"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "Worked out: 15 + (2 - 1) x 5 = 20 m"
+     }
+    ]
+   }
+  },
+  {
+   "id": "E3",
+   "key": "BOQ-26-00273|Electrical|328",
+   "excel_row": 328,
+   "description": "10 light point controlled by a 6A switch with 1.5Sqmm wire",
+   "unit": "no.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2.0,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "points": {
+     "value": 10,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "MS",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.85,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 8029,
+     "install_rate": 2794.8,
+     "combined_rate": 10823.8
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 8029"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 60 = 4,020",
+       "Wire 2: COPPER UNARMOURED 1 1.5 x 60 = 2,040",
+       "Conduit: MS 25 x 30 = 1,800",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 59",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 66",
+       "Back box: Back Box 1M x 1 = 44"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 2794.8"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 60 = 1,200",
+       "Wire 2: COPPER UNARMOURED 1 1.5 x 60 = 1,200",
+       "Conduit: MS 25 x 30 = 360",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 11.8",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 14",
+       "Back box: Back Box 1M x 1 = 9"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "Worked out: 15 + (10 - 1) x 5 = 60 m"
+     }
+    ]
+   }
+  },
+  {
+   "id": "E4",
+   "key": "BOQ-26-00242|LT Electrical works|39",
+   "excel_row": 39,
+   "description": "Supply, Laying, Testing and Commisiosning of 3R 1.5Sqmm PVC insulated FRLS copper wire with 20mm dia MS conduit along with other associated accessories as required as per the site conditions.",
+   "unit": "Nos",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 3,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.97,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.8,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "MS",
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "point_type": {
+     "value": "Secondary",
+     "confidence": 1.0,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 745,
+     "install_rate": 149,
+     "combined_rate": 894
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 745"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 5 = 500",
+       "Conduit: MS 25 x 3 = 180",
+       "Back box: Back Box 3M x 1 = 65"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 149"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 5 = 100",
+       "Conduit: MS 25 x 3 = 36",
+       "Back box: Back Box 3M x 1 = 13"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "Point type Secondary read as 5"
+     }
+    ]
+   }
+  },
+  {
+   "id": "E5",
+   "key": "BOQ-26-00157|Electrical |15",
+   "excel_row": 15,
+   "description": "First point controlled by one no. 6 amp switch.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 3,
+     "confidence": 0.92,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "MS",
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "Yes",
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.92,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.75,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.85,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.85,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "point_type": {
+     "value": "Primary",
+     "confidence": 1.0,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 5149,
+     "install_rate": 1030.8,
+     "combined_rate": 6179.8
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 5149"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 15 = 1,500",
+       "Conduit: MS 25 x 8 = 480",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 59",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 66",
+       "Back box: Back Box 1M x 1 = 44",
+       "Circuit wire 1: COPPER UNARMOURED 1 1.5 x 30 = 3,000"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 1030.8"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 15 = 300",
+       "Conduit: MS 25 x 8 = 96",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 11.8",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 14",
+       "Back box: Back Box 1M x 1 = 9",
+       "Circuit wire 1: COPPER UNARMOURED 1 1.5 x 30 = 600"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "Point type Primary read as 15"
+     }
+    ]
+   }
+  },
+  {
+   "id": "E6",
+   "key": "BOQ-26-00386|ELECTRICAL BOQ|46",
+   "excel_row": 46,
+   "description": "Primary Circuit Wiring for 6A/16A Power Points with 2X4 sq.mm+1x2.5sqmm FRLS PVC Insulated Stranded Copper Wires in Rigid Heavy Duty PVC Conduit 25mm including concealed/surface fixing, accessories, supports & ceiling junction box. SPECIFICATION: As primary light-point wiring standard at higher conductor size (2x4+1x2.5 sq.mm) for dedicated power circuits, MCB-protected at source (billed under DB item). MEASUREMENT BASIS: Running metre from DB way to first outlet along actual routed length (not straight-line distance); conduit, wire, junction boxes and fixing accessories included.",
+   "unit": "Rmt",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 4,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.95,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.55,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.55,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": "No",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "point_type": {
+     "value": "Primary",
+     "confidence": 1.0,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 3821,
+     "install_rate": 685,
+     "combined_rate": 4506
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 3821"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 4 x 15 = 2,595",
+       "Wire 2: COPPER UNARMOURED 1 2.5 x 15 = 825",
+       "Conduit: PVC 25 x 8 = 336",
+       "Back box: Back Box 3M x 1 = 65"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 685"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 4 x 15 = 300",
+       "Wire 2: COPPER UNARMOURED 1 2.5 x 15 = 300",
+       "Conduit: PVC 25 x 8 = 72",
+       "Back box: Back Box 3M x 1 = 13"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "Point type Primary read as 15"
+     }
+    ]
+   }
+  },
+  {
+   "id": "E7",
+   "key": "BOQ-26-00336|ELECTRICAL|206",
+   "excel_row": 206,
+   "description": "One Switch Controlled by one Lights (Max : 3Mtr)",
+   "unit": "Nos",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": 3,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "MS",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": "None",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.85,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": 1,
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "Flexible",
+     "confidence": 0.75,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "point_type": {
+     "value": "Primary",
+     "confidence": 1.0,
+     "corroborated": false
+    }
+   },
+   "expect": {
+    "values": {
+     "supply_rate": 589,
+     "install_rate": 118.8,
+     "combined_rate": 707.8
+    },
+    "sections": [
+     {
+      "label": "Point Wiring — Supply",
+      "derivation": [
+       "Supply = 589"
+      ],
+      "rows": [
+       "Unarmoured cable discount = 57%",
+       "Unarmoured cable supply markup = 40%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 3 = 300",
+       "Conduit: MS 25 x 2 = 120",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 59",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 66",
+       "Back box: Back Box 1M x 1 = 44"
+      ]
+     },
+     {
+      "label": "Point Wiring — Install",
+      "derivation": [
+       "Install = 118.8"
+      ],
+      "rows": [
+       "Cable installation markup = 100%",
+       "Conduit discount = 50%",
+       "Conduit supply markup = 40%",
+       "Conduit installation share = 20%",
+       "Switch & socket discount = 75%",
+       "Switch & socket supply markup = 45%",
+       "Point wiring switch installation share = 20%",
+       "Point wiring accessory installation share = 20%",
+       "Wire 1: COPPER UNARMOURED 1 1.5 x 3 = 60",
+       "Conduit: MS 25 x 2 = 24",
+       "Switch: Switch 10A 1 WAY SWITCH White x 1 = 11.8",
+       "Frame/Face plate: Grid and Face Plates 1M White x 1 = 14",
+       "Back box: Back Box 1M x 1 = 9"
+      ]
+     }
+    ],
+    "circuit_length_note": [
+     {
+      "kind": "landed",
+      "how": "As the row states"
+     }
+    ]
+   }
+  }
+ ]
+}

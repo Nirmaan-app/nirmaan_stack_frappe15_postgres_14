@@ -51,7 +51,7 @@ import {
  */
 const NO_GEOMETRY_NOTE = "priced per girth -- edit a value above to see sample sizes";
 
-export type PanelShape = "pair" | "installation_share" | "installation_markup" | "bcs_only" | "flat_adder";
+export type PanelShape = "pair" | "installation_share" | "installation_markup" | "bcs_only" | "flat_adder" | "assembly_only";
 
 /** Which leg of the price this input moves -- the list's column header (owner item 10). */
 export type MovedLeg = "boq_supply" | "boq_install" | "bcs";
@@ -70,7 +70,56 @@ export const NOT_MOVED_NOTE: Record<PanelShape, string> = {
   installation_markup: "The BCS install rate is not impacted.",
   bcs_only: "The BoQ rate is not impacted.",
   flat_adder: "This is added to the row — no SKU's own rate is scaled.",
+  // ELR-3a (owner Q7): the panel says the whole sentence, naming the category -- `assemblyOnlySentence`
+  assembly_only: "This number moves no SKU's own rate.",
 };
+
+/**
+ * ELR-3a (owner R-9, Q7) -- THE ASSEMBLY-ONLY SENTENCE, for an input that reaches no SKU and is read by the rules that
+ * build a row's price (point wiring's lengths and conduit fills; HVAC's flexible duct length per piece). It REPLACES the
+ * pair shape's "The BCS rate moves too — open a SKU to see both legs.", which was untrue for such an input: there is no
+ * SKU to open. Every category that reads the input is named, in the pricer's words.
+ */
+export function assemblyOnlySentence(categoryNames: readonly string[], hasExamples: boolean): string {
+  const names = categoryNames.length ? categoryNames.join(" and ") : "the rules";
+  return `This number moves no SKU's own rate. It changes how ${names} builds its price${hasExamples ? " - worked examples below." : "."}`;
+}
+
+/**
+ * ELR-3a (owner R-R1 Q4) -- what the panel says when a typed value is outside the input's range. WORD FOR WORD the
+ * server's refusal (`csv_importer.validate_pricing_input_value` with the input's name and column), so the page shows the
+ * reason before Save and the save endpoint and the file upload refuse the same value in the same words. Null = no
+ * refusal (in range, or an input no assembly step reads).
+ * ELR-4c (owner R-ELR2 (h), "check the range first"; P6 "Q2 a"): a NEGATIVE value on a ranged input is refused here in the
+ * range's own words too -- the server now checks the range before "cannot be negative", so the two still agree.
+ */
+export function pricingInputRangeRefusal(
+  range: "length" | "fill" | undefined, inputName: string, field: string, value: number | undefined,
+): string | null {
+  if (!range || typeof value !== "number" || !Number.isFinite(value)) return null;
+  const label = `${inputName} (${field})`;
+  if (range === "length" && !(value > 0)) return `${label}: a length must be more than 0 (got ${value}).`;
+  if (range === "fill" && !(value > 0 && value <= 1)) return `${label}: a conduit fill must be more than 0 and at most 1 (got ${value}).`;
+  return null;
+}
+
+/** ELR-3a: one example leg, before and after -- the change and the % the examples show. The figures themselves come
+ * from the product's compute (pricingInputExamples.ts); this is the only arithmetic an example needs. */
+export interface ExampleLegChange {
+  before: number; after: number; change: number; pct: number | null; moved: boolean;
+  /** "+411" and "+17.8%" -- the text the panel shows, so the view renders strings and does no arithmetic */
+  changeText: string; pctText: string | null;
+}
+export function exampleLegChange(before: number, after: number): ExampleLegChange {
+  const change = after - before;
+  const pct = before === 0 ? null : (change / before) * 100;
+  const sign = (n: number) => (n > 0 ? "+" : "");
+  return {
+    before, after, change, pct, moved: Math.abs(change) > 1e-9,
+    changeText: `${sign(change)}${change.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`,
+    pctText: pct === null ? null : `${sign(pct)}${Math.round(pct * 10) / 10}%`,
+  };
+}
 
 const PERCENT_KEYS = ["discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share"] as const;
 
@@ -85,6 +134,12 @@ const PERCENT_KEYS = ["discount", "supply_markup", "installation_markup", "bcs_m
 export function panelShapeOf(rates: Record<string, unknown> | null | undefined, reach: InputReach | null | undefined): PanelShape {
   const keys = new Set(Object.keys(rates ?? {}));
   if (reach?.isFlatAdder || keys.has("amount")) return "flat_adder";
+  // ELR-3a (owner R-9, Q7): READ by a category's rules, yet no SKU's rate moves and no candidate SKU exists -- the
+  // number builds the assembly. Flat adders keep their own shape (above). Measured at P3: on HVAC v54 / Electrical v68
+  // exactly one input lands here (flexible_duct_length_m); Cross-talk depth has 6 confirmed SKUs and stays "pair".
+  if (reach && reach.readByCategories.length > 0 && reach.distinctSkus.length === 0 && (reach.candidateSkus ?? []).length === 0) {
+    return "assembly_only";
+  }
   if (keys.has("share")) return "installation_share";
   if (keys.has("ratio") || keys.has("bcs_markup")) return "bcs_only";
   if (keys.has("installation_markup")) return "installation_markup";

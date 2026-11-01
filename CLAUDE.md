@@ -72,6 +72,19 @@ bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_pric
 bench --site localhost run-tests --app nirmaan_stack      # the whole app -- the in-container runner refuses without --site
 ```
 
+**Parallel BoQ Python set** (in-container, from the bench directory). The same `run-tests --module` command per
+module, run together wherever the locks measured in `scripts/parallel_test_plan.json` allow (a shared naming series or
+table never overlaps). The serial loop above, one module after another, stays the comparison. A test module missing
+from the plan is refused by name until `--measure` adds it. **It runs Python only: vitest and tsc run on their own,
+before or after it, never beside it** -- beside the Python lanes a vitest DOM worker misses vitest's fixed 60 s
+worker-start limit and its test file is silently dropped; the runner refuses to start while a vitest or tsc run is going.
+
+```bash
+env/bin/python -I apps/nirmaan_stack/scripts/run_tests_parallel.py --out /tmp/<dir>                          # the full BoQ Python set
+env/bin/python -I apps/nirmaan_stack/scripts/run_tests_parallel.py --out /tmp/<dir> --modules m.txt          # a targeted set
+env/bin/python -I apps/nirmaan_stack/scripts/run_tests_parallel.py --out /tmp/<dir> --measure --modules new.txt   # a new module joins the plan
+```
+
 `python -m unittest <module>` fails at import: `services/boq_ai_assist.py` calls `frappe.logger("boq_ai")` at
 module load, which opens `/workspace/development/logs/boq_ai.log` before a bench context exists.
 

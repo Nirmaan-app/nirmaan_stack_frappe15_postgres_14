@@ -83,9 +83,17 @@ does not keep any connection open.
 
 **How the session survives without SSH.** A process started inside an SSH session on the desktop dies when that session
 closes (measured 2026-10-23), and Claude's background service starts on demand under whichever process first asks for it.
-So `desktop/start_task.ps1` gives the launch to Task Scheduler: a task (`envsync-claude-launch`, Interactive logon,
-limited rights, no time limit) runs `desktop/launch.ps1` in the owner's logged-on console session, as if it were typed
-there. The background service and the session then run in that session.
+So `desktop/start_task.ps1` gives the launch to Task Scheduler: a task (Interactive logon, limited rights, no time
+limit) runs `desktop/launch.ps1` in the owner's logged-on console session, as if it were typed there. The background
+service and the session then run in that session. There is one task per environment, named after the folder that holds
+`development\frappe-bench`: `envsync-claude-launch-frappe_docker` for main dev, `envsync-claude-launch-frappe_docker_dev2`
+for dev2. Each launch re-registers its own task with its own arguments, so a main launch and a dev2 launch never
+overwrite each other. `start_task.ps1 -Name N -PrintOnly` prints the task name and arguments and registers nothing.
+The task registered before this naming, `envsync-claude-launch`, is no longer used and is left in place.
+
+**How the scripts reach the desktop.** `ensure_stage` copies `remote/*` and `desktop/*.ps1` from the laptop's checkout
+into `<bench>\envsync\` on both machines on every staged command (status, to-/from-desktop, db-pull, db-push, watch,
+session-*). A change to those scripts takes effect on the desktop at the first such command after the laptop holds it.
 
 **Requirements:**
 - The owner must be logged on at the desktop console. The launch says so if not.
@@ -147,9 +155,64 @@ safety backup instead, in the handover block-50 order. The full hand procedure i
 | `session-wait --name N [--pull-back] [--interval S] [--idle-limit K]` | poll until DONE / BLOCKED / FAILED / stalled (see above) |
 | `session-send --name N --message FILE` | relay the owner's answer and resume the session |
 | `session-stop --name N` | stop the session (its conversation is kept) |
+| `print` | the settings this checkout resolves to, `env.local` included; runs nothing |
 
 Overrides for hosts, paths and container names go in the git-ignored `.claude/state/env.local` (the `ENV_SYNC_*`
-variables at the top of the script).
+variables at the top of the script). `scripts/env_sync/tests/test_env_sync.sh` (bash and git only; docker, ssh and scp
+are stubs) proves main's commands unchanged against a base revision and that a dev2 `env.local` reaches every command.
+
+## Second environment (dev2)
+
+A second, separate dev environment runs beside main dev for parallel work on its own branch (owner R-LANE, 2026-10-29).
+It is its own docker compose project `frappe_dev2` in `C:\Users\<user>\Documents\frappe_docker_dev2` on each machine:
+containers `frappe_dev2-{frappe,postgresql,redis-cache,redis-queue}-1`, site `dev2.localhost`, host ports 8100 (bench),
+8180 (vite) and 9100 (socket.io), its own checkout and bench under `development\frappe-bench`. The same loop applies
+(the desktop is dev2's master too); the laptop holds one environment at a time, so its after-commit syncs take turns
+between the two lanes (R-DEV2R0 (7)).
+
+**Tooling.** The same `env_sync.sh`, run from the dev2 checkout, with a git-ignored `.claude/state/env.local` there:
+
+```bash
+# <dev2 checkout>/.claude/state/env.local
+ENV_SYNC_DESKTOP_BENCH=C:/Users/USER/Documents/frappe_docker_dev2/development/frappe-bench
+ENV_SYNC_FRAPPE_CONTAINER=frappe_dev2-frappe-1
+ENV_SYNC_PG_CONTAINER=frappe_dev2-postgresql-1
+ENV_SYNC_SITE=dev2.localhost
+ENV_SYNC_VITE_PORT=8180
+ENV_SYNC_START_BENCH=/workspace/dev2_scripts/start_bench.sh
+ENV_SYNC_START_VITE=/workspace/dev2_scripts/start_vite.sh
+```
+
+| Setting | Main's default | What it changes |
+|---|---|---|
+| `ENV_SYNC_SITE` | `localhost` | the site every remote script works on (backup, destale, restore, db name, fingerprint); `wait_ping` sends `Host: <site>` |
+| `ENV_SYNC_START_BENCH` | `<bench>/envsync/start_bench.sh` (bench, then vite) | the script `start_services` runs with `docker exec -d` |
+| `ENV_SYNC_START_VITE` | none | a separate vite start script, run once :8000 is open |
+| `ENV_SYNC_VITE_PORT` | `8080` | the port probe, the start wait and the stop check |
+| `ENV_SYNC_STOP_PATTERN` | `remote/stop_bench.sh`'s pattern | the processes `stop_bench.sh` kills; dev2's processes already match the default |
+
+A setting reaches a container (`docker exec -e`) only when it differs from main's default, so main's commands are
+exactly what they were. Run `env_sync.sh print` in the dev2 checkout before its first sync: it must name
+`dev2.localhost`, 8180, the dev2 start scripts, the `frappe_dev2-*` containers and the launcher task
+`envsync-claude-launch-frappe_docker_dev2`. The dev2 start scripts live outside the repo, in the docker folder's
+`dev2_scripts\` (bound at `/workspace/dev2_scripts` in dev2's container).
+
+**Isolation.** dev2's data is a copy of main's (R-DEV2R0 (5)), so the in-database guards travel with it (email accounts
+off, the ruled stopped jobs, blank push tokens, removed token cache and asset secrets, rotated api secrets). The
+site-config flags do not: add `mute_emails`, `disable_push`, `disable_cloud_upload` (each 1) and `nirmaan_env: "dev"` to
+`sites/dev2.localhost/site_config.json` before the first bench start, then run
+`scripts/dev_isolate.py --site dev2.localhost --stopped-file <ruled list> --verify` in dev2's frappe container.
+`dev_isolate.py` accepts `localhost` and `dev2.localhost` only; production is refused by the `nirmaan_env` marker,
+developer_mode and db_host checks whatever its name.
+
+**Scheduler OFF in dev2** by ruling (R-DEV2R0 (3)): `enable_scheduler` 0 and no `bench schedule` process. Main keeps
+its own scheduler setting.
+
+**Frontend.** dev2's vite exports `VITE_SOCKET_PORT=9100`; `App.tsx` passes it to `FrappeProvider` as `socketPort`.
+Unset (main), the provider uses its default port 9000. dev2 carries no local edit to `App.tsx`.
+
+**Bench commands in dev2** take `--site dev2.localhost`; a brief for dev2 says so, because CLAUDE.md and the test helpers
+say `--site localhost`.
 
 ## Recovery
 

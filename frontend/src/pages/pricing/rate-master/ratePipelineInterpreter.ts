@@ -219,6 +219,75 @@ export function bindCtxParams(
 }
 
 /**
+ * ELR-3a (owner R-9; ELR-R1 F2 option A) -- THE FOUR ASSEMBLY-STEP ARMS. A step that builds an assembly reads a
+ * Pricing Input IN PLACE OF one of its literals:
+ *   map_attribute    `table_from_ctx` {source value: ctx key} replaces `table`; `default_from_ctx` replaces `default`
+ *   derive_attribute `constants_from_ctx` {constant: ctx key} replaces `constants`
+ *   circuit_fit      `usable_from_ctx` {conduit type: [ctx key per size]} replaces `usable`
+ * fed by the `rate_ref` preamble the hoist evaluates first. Each REPLACES its literal: a step carrying both is a
+ * config error and refuses (the validator refuses it at save), because letting one silently win is how a migrated
+ * value keeps its old number. ABSENT => the literal is read exactly as before, so every config without these keys
+ * is byte-identical.
+ */
+export const ASSEMBLY_CTX_ARMS: Readonly<Record<string, readonly string[]>> = {
+  map_attribute: ["table_from_ctx", "default_from_ctx"],
+  derive_attribute: ["constants_from_ctx"],
+  circuit_fit: ["usable_from_ctx"],
+};
+
+/** Every ctx key one of the four arms names, at any depth (a key string, a map of them, or a map of lists). */
+export function assemblyArmCtxKeys(step: { step?: string; params?: unknown } | null | undefined): string[] {
+  const out: string[] = [];
+  const arms = ASSEMBLY_CTX_ARMS[String(step?.step ?? "")] ?? [];
+  const p = (step?.params ?? {}) as Record<string, unknown>;
+  const walk = (v: unknown) => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v as Record<string, unknown>).forEach(walk);
+  };
+  for (const arm of arms) walk(p[arm]);
+  return out;
+}
+
+/**
+ * ELR-3a (owner Q2 a, 2026-10-28) -- the `rate_ref` results a pipeline reads ONLY through the four assembly arms.
+ * Such an input is a length or a conduit fill: it moves no SKU's own rate, so it adds no working line on the BoQ
+ * panel or the calculator (`pricingSheetHelper`), which stay exactly as they were before the literals moved. A key
+ * that is ALSO read anywhere else (a `_from_ctx` param, a rate stage, a scale's target) is not in the set and keeps
+ * its line.
+ */
+export function assemblyOnlyCtxKeys(pipeline: { steps?: readonly unknown[] } | null | undefined): Set<string> {
+  const viaArms = new Set<string>();
+  const elsewhere = new Set<string>();
+  const walkParams = (b: unknown) => {
+    for (const [k, v] of Object.entries((b ?? {}) as Record<string, unknown>)) {
+      if (k.endsWith(CTX_PARAM_SUFFIX) && typeof v === "string") elsewhere.add(v);
+    }
+  };
+  for (const raw of pipeline?.steps ?? []) {
+    const s = (raw ?? {}) as {
+      step?: unknown; target?: unknown; params?: unknown;
+      rate_stages?: Array<{ mult_from_ctx?: unknown } | null>; conditions?: Array<{ params?: unknown } | null>;
+    };
+    if (ASSEMBLY_CTX_ARMS[String(s.step)]) {
+      assemblyArmCtxKeys({ step: String(s.step), params: s.params }).forEach((k) => viaArms.add(k));
+      continue;
+    }
+    if (typeof s.target === "string") elsewhere.add(s.target);
+    walkParams(s.params);
+    for (const st of s.rate_stages ?? []) if (typeof st?.mult_from_ctx === "string") elsewhere.add(st.mult_from_ctx);
+    for (const c of s.conditions ?? []) walkParams(c?.params);
+  }
+  for (const k of elsewhere) viaArms.delete(k);
+  return viaArms;
+}
+
+/** A conduit fill a `usable_from_ctx` key may carry: more than 0 and at most 1 (owner R-R1 Q4). */
+export function conduitFillInRange(v: number): boolean {
+  return Number.isFinite(v) && v > 0 && v <= 1;
+}
+
+/**
  * SLICE 12b(A) -- THE HOIST. The PRICING-INPUT PREAMBLE of a pipeline is evaluated BEFORE every
  * other step, whatever position the config declares it in; the remaining steps keep their original
  * relative order, and so does the preamble internally.
@@ -798,6 +867,13 @@ function readableCondition(when: Record<string, string | number>, params: Record
 
 /** Run one pipeline for the selected attributes. Never throws on data shape -- it
  * returns a status ("ok" | "no_match" | "unsupported") + traces. */
+/** ELR-4d: the sentence of a `sum_components` `none_refusal` that refused this run, else undefined (the one reader). */
+export function noneRefusalOf(res: PipelineResult): string | undefined {
+  if (res.status !== "no_match") return undefined;
+  const last = res.steps[res.steps.length - 1];
+  return last?.step === "sum_components" ? last.matchedCondition : undefined;
+}
+
 export function runPipeline(
   pipelineId: string,
   pipeline: Pipeline,
@@ -821,6 +897,9 @@ export function runPipeline(
   const steps: StepTrace[] = [];
   let matchedItem: RateMasterItem | undefined;
   const components: Record<string, number> = {};
+  // ELR-4d (owner R-DB-MANUAL): the components a `none_skips` zeroed, for `sum_components`' `none_refusal`;
+  // ELR-5 (owner "Q1 a, Q2 c"): and the ones their own `if_attr` switched off (Back box = No)
+  const noneSkipped = new Set<string>();
   // SLICE 2: STRING-valued bindings produced by module_fit (a ladder's fitted LABEL, e.g. "12M").
   // `ctx` is numbers-only, and a plate/box size is a catalog label, so it needs its own scope. A
   // component_ref's "@<name>" resolves here BEFORE falling back to the selection -- so a bind whose
@@ -1029,6 +1108,10 @@ export function runPipeline(
         // statement as "the inputs could not be read", so it stays its own honest refusal.
         return bail("derive_attribute declares no result_attr / formula -- no value computed");
       }
+      // ELR-3a: `constants_from_ctx` REPLACES `constants` -- both on one step is a config error, never a merge.
+      if (p.constants !== undefined && p.constants_from_ctx !== undefined) {
+        return bail("derive_attribute carries both 'constants' and 'constants_from_ctx' -- no value computed");
+      }
 
       // (a) STATED WINS -- no floor, no warning (owner-locked). The pricer's own number is
       // authoritative and is adopted VERBATIM; the terms are not even read, so a row that states a
@@ -1076,6 +1159,17 @@ export function runPipeline(
         }
         env[k] = cv;
       }
+      // ELR-3a: each constant read from a Pricing Input the preamble loaded. A key that was never computed is an
+      // honest no-compute NAMING it -- never the old literal, never a guess.
+      const ctxConstants: Record<string, number> = {};
+      for (const [k, key] of Object.entries(p.constants_from_ctx ?? {})) {
+        const cv = ctx[String(key)];
+        if (typeof cv !== "number" || !Number.isFinite(cv)) {
+          return bail(`derive_attribute constant '${k}' reads '${String(key)}', which was not computed -- no value computed`);
+        }
+        env[k] = cv;
+        ctxConstants[k] = cv;
+      }
 
       // (c) compute. An unbound identifier throws out to the Option-C wrapper (honest `unsupported`).
       const derived = evalFormula(p.formula, env);
@@ -1094,7 +1188,12 @@ export function runPipeline(
         // into both the wire and the conduit. Substitution reuses the ONE tokenizer -- and runs only
         // AFTER evalFormula succeeded, so it can never be the thing that throws.
         matchedCondition: `${termParts.join(", ")} -> ${p.result_attr} = ${substituteFormula(p.formula, env)} = ${fmtNum(derived)}${p.unit ? ` ${p.unit}` : ""}`,
-        derivedAttr: { attr: p.result_attr, value: derived, stated: false, ...(p.unit ? { unit: p.unit } : {}) },
+        // ELR-3a (owner Q1 a): the constants a Pricing Input supplied ride on the outcome, so the panel's "Worked
+        // out" note substitutes the number pricing USED -- the config holds a ctx key there, not a number.
+        derivedAttr: {
+          attr: p.result_attr, value: derived, stated: false, ...(p.unit ? { unit: p.unit } : {}),
+          ...(p.constants_from_ctx !== undefined ? { constants: ctxConstants } : {}),
+        },
         produced: { key: p.result_attr, value: derived },
         runningValues: snapshot(),
       });
@@ -1117,6 +1216,36 @@ export function runPipeline(
       }
       const isStated = (v: string | number | undefined) =>
         v !== undefined && v !== null && v !== "" && v !== NONE_SENTINEL;
+
+      // ELR-3a: the EFFECTIVE table and default -- a Pricing Input's value where the config names one. Resolved
+      // HERE, before every later read, because the None-pick rule's condition (ii) below tests the default: an
+      // unresolved `default_from_ctx` would read as "no default" and a stated "None" stretch would stop being kept
+      // (ELR-R1's trap). Both on one step is a config error and refuses -- a REPLACEMENT, never a merge.
+      if (p.table !== undefined && p.table_from_ctx !== undefined) {
+        return bail("map_attribute carries both 'table' and 'table_from_ctx' -- no value computed");
+      }
+      if (p.default !== undefined && p.default_from_ctx !== undefined) {
+        return bail("map_attribute carries both 'default' and 'default_from_ctx' -- no value computed");
+      }
+      let table: Record<string, string | number> | undefined = p.table;
+      if (p.table_from_ctx !== undefined) {
+        table = {};
+        for (const [tk, key] of Object.entries(p.table_from_ctx)) {
+          const tv = ctx[String(key)];
+          if (typeof tv !== "number" || !Number.isFinite(tv)) {
+            return bail(`map_attribute table entry '${tk}' reads '${String(key)}', which was not computed -- no value computed`);
+          }
+          table[tk] = tv;
+        }
+      }
+      let dflt: string | number | undefined = p.default;
+      if (p.default_from_ctx !== undefined) {
+        const dv = ctx[String(p.default_from_ctx)];
+        if (typeof dv !== "number" || !Number.isFinite(dv)) {
+          return bail(`map_attribute default reads '${String(p.default_from_ctx)}', which was not computed -- no value computed`);
+        }
+        dflt = dv;
+      }
 
       // THE NONE-PICK RULE (owner ruling 2026-09-09: "the none selection is inert now" -> "ok. proceed
       // with build"). `isStated` above EXCLUDES the "None" sentinel on purpose -- for a map that fills
@@ -1141,7 +1270,7 @@ export function runPipeline(
       // This rule is NOT guessable from the config -- the pins named for each condition are the guard.
       const noneIsADecision =
         typeof p.prefer_attr === "string" && p.prefer_attr === p.result_attr &&   // (i)
-        p.default !== undefined && p.default !== NONE_SENTINEL;                   // (ii)
+        dflt !== undefined && dflt !== NONE_SENTINEL;                             // (ii)
 
       // (a) STATED-WINS, checked FIRST -- before the source is even read, so a stated value resolves
       // even when the attribute the table would have mapped is blank or unreadable.
@@ -1164,11 +1293,11 @@ export function runPipeline(
       let mapped: string | number | undefined;
       let how = "";
       const src = p.from_attr ? selected[p.from_attr] : undefined;
-      if (p.table && isStated(src) && Object.prototype.hasOwnProperty.call(p.table, String(src))) {
-        mapped = p.table[String(src)];
+      if (table && isStated(src) && Object.prototype.hasOwnProperty.call(table, String(src))) {
+        mapped = table[String(src)];
         how = `${p.from_attr} ${String(src)} -> ${String(mapped)}`;
-      } else if (p.default !== undefined) {
-        mapped = p.default;
+      } else if (dflt !== undefined) {
+        mapped = dflt;
         how = `nothing stated -> ${String(mapped)} (default)`;
       }
 
@@ -1218,6 +1347,11 @@ export function runPipeline(
       }
       const isStated = (v: string | number | undefined) =>
         v !== undefined && v !== null && v !== "";
+      // ELR-4d (owner R-W6, "the same way as ... the conduit category"): a `hop_only` fit acts ONLY on a stated number the
+      // catalogue does not stock at the row's `where`: the next size up (with the same `fit_up` note), or above the largest
+      // the row does not price. Every other case -- stocked, None, blank, nothing named -- leaves no trace and binds nothing,
+      // so the step after it reads exactly what it read before. Read through `unknown`: not on the CatalogFitStep type.
+      const hopOnly = (p as unknown as { hop_only?: unknown }).hop_only === true;
 
       // SLICE 2d -- the attribute ids behind this step's `where` "@" references, collected ONCE and in
       // config order. Computed here, before any early return, so the stated and absent paths publish
@@ -1296,12 +1430,14 @@ export function runPipeline(
         }
       }
       if (whereMiss !== null) {
+        if (hopOnly) continue;
         return bail(`'${whereMiss}' not provided -- no ${p.bind} computed`);
       }
 
       // (d) the value being fitted.
       const rawFit = selected[p.fit_from.attr];
       const want = typeof rawFit === "number" ? rawFit : Number(rawFit);
+      if (hopOnly && (!isStated(rawFit) || !Number.isFinite(want))) continue;
       if (!isStated(rawFit) || !Number.isFinite(want)) {
         // SLICE 2b (owner ruling A-ii): a category may OPT IN to treating an unreadable fact as
         // POSITIVE ABSENCE rather than a refusal. Refusing discards the rest of the row -- the socket
@@ -1332,9 +1468,11 @@ export function runPipeline(
         kind: p.kind, where: resolvedWhere, label_attr: p.label_attr, size_from: p.size_from,
       });
       if (!rungs.length) {
+        if (hopOnly) continue;
         return bail(`no '${p.kind}' rows match -- no ${p.bind} computed`);
       }
       const fit = fitModuleLadder(rungs, want, p.direction);
+      if (hopOnly && fit?.exact) continue;
       if (!fit) {
         // A MISS IS NOT AUTOMATICALLY FATAL. `on_miss: "none"` binds the sentinel so the rest of the
         // row still prices -- a missing MCB leaves the socket un-paired, it does not make the socket
@@ -1353,7 +1491,8 @@ export function runPipeline(
         continue;
       }
 
-      fitLabels[p.bind] = fit.label;
+      // ELR-4d: a hop-only bind is read by a component_ref's strict match on the NUMBER, so it goes through `fit_into` alone
+      if (!hopOnly) fitLabels[p.bind] = fit.label;
       // SLICE 3a -- THE NUMERIC HALF. `fitLabels` is string-typed by contract (a rung's LABEL), and
       // `match_master_row` compares `selected` values with `===` against the stored attribute. A
       // category whose ladder attribute IS its match key (cable tray's `width_mm`, stored as a
@@ -1506,7 +1645,35 @@ export function runPipeline(
         overallDia += Math.sqrt(thick / Math.PI) * 2 * core * absentMeansOne(selected, runsAttr);
       }
       const ctype = selected[p.conduit_type_attr];
-      const usable = ctype != null ? p.usable[String(ctype)] : undefined;
+      // ELR-3a: `usable_from_ctx` REPLACES `usable`, conduit type for conduit type and size for size. Both on one
+      // step refuses. A fill outside (0, 1] (owner R-R1 Q4) refuses NAMING the input, so a bad stored value can
+      // never size a conduit -- the write paths refuse it too; this is the last line.
+      const cfBail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (p.usable !== undefined && p.usable_from_ctx !== undefined) {
+        return cfBail("circuit_fit carries both 'usable' and 'usable_from_ctx' -- no value computed");
+      }
+      let usableMap: Record<string, number[]> = p.usable ?? {};
+      if (p.usable_from_ctx !== undefined) {
+        usableMap = {};
+        for (const [ct, keys] of Object.entries(p.usable_from_ctx)) {
+          const vals: number[] = [];
+          for (const key of keys ?? []) {
+            const fv = ctx[String(key)];
+            if (typeof fv !== "number" || !Number.isFinite(fv)) {
+              return cfBail(`conduit fill '${String(key)}' was not computed -- no value computed`);
+            }
+            if (!conduitFillInRange(fv)) {
+              return cfBail(`conduit fill '${String(key)}' is ${fmtNum(fv)}; a fill must be more than 0 and at most 1 -- no value computed`);
+            }
+            vals.push(fv);
+          }
+          usableMap[ct] = vals;
+        }
+      }
+      const usable = ctype != null ? usableMap[String(ctype)] : undefined;
       const length = Number(selected[p.length_attr]);
       if (miss !== null) {
         steps.push({ step: stepType, label: `attribute '${miss}' missing or non-positive -- no value computed`, runningValues: snapshot() });
@@ -2139,6 +2306,7 @@ export function runPipeline(
           )
         ) {
           components[s.name] = 0;
+          noneSkipped.add(s.name);
           steps.push({
             step: stepType,
             label: s.explain || `component: ${s.name}`,
@@ -2234,6 +2402,9 @@ export function runPipeline(
         }
         const value = rate * qty;
         components[s.name] = value;
+        // ELR-5: a part its own Yes/No switched off is absent, for `none_refusal` only: nothing else reads this set, and a
+        // part named at quantity 0 (`from_attr` / `from_fit`) stays a part
+        if (s.none_skips && qty === 0 && typeof s.qty === "object" && "if_attr" in s.qty) noneSkipped.add(s.name);
         steps.push({
           step: stepType,
           label: s.explain || `component: ${s.name}`,
@@ -2241,6 +2412,8 @@ export function runPipeline(
           matchedCondition:
             `rate ${fmtNum(rate)} x qty ${fmtNum(qty)}` +
             (stageNotes.length ? ` (${stageNotes.join("; ")})` : ""),
+          // ELR-2 (owner Q4 (a), display-only): the quantity as a number, so the working line never reads the prose above
+          qty,
           produced: { key: s.name, value },
           runningValues: { ...snapshot(), ...componentEntries(components) },
         });
@@ -2441,6 +2614,16 @@ export function runPipeline(
       });
     } else if (stepType === "sum_components") {
       const s = raw as import("./rateMasterTypes").SumComponentsStep;
+      // ELR-4d (owner R-DB-MANUAL 2026-07-31: "a WHOLE-row no-match returns all slots null (fully manual)"): a pipeline that
+      // declares `none_refusal` refuses, in those words, when EVERY component is positively absent (ELR-5: a None, or its
+      // own Yes/No switched off) -- never Rs 0. A part named
+      // at quantity 0 is not absent. Read through `unknown`: not on the SumComponentsStep type.
+      const noneRefusal = (s as unknown as { none_refusal?: unknown }).none_refusal;
+      const componentNames = Object.keys(components);
+      if (typeof noneRefusal === "string" && noneRefusal !== "" && componentNames.length > 0 && componentNames.every((n) => noneSkipped.has(n))) {
+        steps.push({ step: stepType, label: s.explain || "sum components", matchedCondition: noneRefusal, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
       const value = Object.values(components).reduce((a, b) => a + b, 0);
       ctx[s.result] = value;
       steps.push({

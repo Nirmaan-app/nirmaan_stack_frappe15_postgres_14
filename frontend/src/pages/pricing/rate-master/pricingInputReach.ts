@@ -110,6 +110,13 @@ export interface InputReach {
   /** the categories whose rules read this input at all, even where no SKU rate is scaled */
   readByCategories: string[];
   /**
+   * ELR-3a -- present when an ASSEMBLY step reads this input through one of the four arms (`table_from_ctx`,
+   * `default_from_ctx`, `constants_from_ctx`, `usable_from_ctx`): "length" (a map / derive arm) or "fill"
+   * (circuit_fit's usable; a fill read anywhere wins). It is the range the input must stay in (owner R-R1 Q4) --
+   * a length more than 0, a fill more than 0 and at most 1 -- the Python `pricing_input_ranges` twin.
+   */
+  assemblyRange?: "length" | "fill";
+  /**
    * The PIPELINES that read this input, so the panel can run the REAL interpreter over them rather
    * than re-implementing what they do. Re-implementation is what made the panel disagree with the
    * product for a share and an adder; running the pipeline cannot drift from it.
@@ -190,16 +197,22 @@ function ctxOwners(pipeline: { steps?: any[] } | null | undefined): Record<strin
   return own;
 }
 
-/** every pricing-input id a step READS, via any `*_from_ctx` param at any of its three depths */
+/** every pricing-input id a step READS, via any `*_from_ctx` param at any of its three depths. ELR-3a: an
+ * assembly arm's value is a MAP of keys (or a map of lists, `usable_from_ctx`), so every key string inside it counts
+ * -- a string-valued param reads exactly as before. */
 function inputsRead(step: any, owners: Record<string, Set<string>>): Set<string> {
   const out = new Set<string>();
   const blobs: any[] = [step?.params ?? {}];
   for (const st of step?.rate_stages ?? []) blobs.push(st ?? {});
   for (const c of step?.conditions ?? []) blobs.push(c?.params ?? {});
+  const add = (v: unknown) => {
+    if (typeof v === "string") for (const id of owners[v] ?? []) out.add(id);
+    else if (Array.isArray(v)) v.forEach(add);
+    else if (v && typeof v === "object") Object.values(v as Record<string, unknown>).forEach(add);
+  };
   for (const b of blobs) {
     for (const [k, v] of Object.entries(b ?? {})) {
-      if (!k.endsWith("_from_ctx") || typeof v !== "string") continue;
-      for (const id of owners[v] ?? []) out.add(id);
+      if (k.endsWith("_from_ctx")) add(v);
     }
   }
   return out;
@@ -351,6 +364,7 @@ export function computePricingInputReach(
   const sawColumn = new Set<string>();
   const adders = new Map<string, AdderSpec>();
   const pipesBy = new Map<string, Set<string>>();   // inputId -> "category|pipelineId"
+  const assemblyRange = new Map<string, "length" | "fill">();   // ELR-3a: inputId -> the range its arm implies
   /**
    * SLICE 12e-2b (12e-2 cert finding 2, AC8) -- A FAMILY'S OWN PIPELINE PRICES THAT FAMILY'S SKUs.
    *
@@ -431,7 +445,20 @@ export function computePricingInputReach(
         const st = s?.step;
         if (st === "rate_ref" || s?.pricing_input === true) continue;
 
-        if (st === "match_master_row" || st === "catalog_fit") {
+        if (st === "map_attribute" || st === "derive_attribute" || st === "circuit_fit") {
+          /**
+           * ELR-3a -- AN ASSEMBLY STEP READS A LENGTH OR A FILL, AND THAT MOVES NO SKU's OWN RATE. The input is noted
+           * as READ (its category, its pipelines, so the panel can price worked examples through them) with NO
+           * column: the four point-wiring numbers build the assembly, they do not scale a catalogue rate. Before this
+           * branch the walk did not visit these steps at all, so such an input had no reach entry -- "read by nothing".
+           */
+          const ids = inputsRead(s, owners);
+          note(ids, []);
+          for (const id of ids) {
+            if (st === "circuit_fit") assemblyRange.set(id, "fill");
+            else if (!assemblyRange.has(id)) assemblyRange.set(id, "length");
+          }
+        } else if (st === "match_master_row" || st === "catalog_fit") {
           driving = s?.params?.kind;
           drivingWhere = literalWhere(s?.params?.where);
         } else if (st === "component_ref") {
@@ -624,6 +651,7 @@ export function computePricingInputReach(
       isFlatAdder: adders.has(id),
       adder: adders.get(id),
       readByCategories: Array.from(readBy.get(id) ?? []).sort(),
+      ...(assemblyRange.has(id) ? { assemblyRange: assemblyRange.get(id) } : {}),
       pipelines: Array.from(pipesBy.get(id) ?? []).sort().map((s2) => {
         const [category, pipelineId] = s2.split("|");
         return { category, pipelineId };

@@ -493,8 +493,9 @@ export function NewSidebar() {
         label: w.label,
       }))
       : []),
-    // Rate Master (RM-2) -- one static flat item beside the pricing workbooks, same access gate.
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
+    // Rate Master (RM-2) -- one static flat item beside the pricing workbooks. RM-ACCESS-1 (owner
+    // 2026-10-20): ADMIN ONLY, narrower than the workbooks above -- the same check as its route guard.
+    ...(isNirmaanAdmin(role, user_id)
       ? [{ key: "/rate-master", icon: Table2, label: "Rate Master" }]
       : []),
 

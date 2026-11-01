@@ -1,0 +1,5867 @@
+{
+ "_source": "ELR-3b: real stored rows from the 2026-10-29 replay dump (Electrical v69); before = HEAD c8792f669, after = the ELR-3b plate-quantity default (R-V1 / R-V1b / R-V1c)",
+ "rows": [
+  {
+   "group": "declared",
+   "key": "BOQ-26-00187|Internal Electrical|117",
+   "category": "switches_sockets",
+   "excel_row": 117,
+   "description": "RJ-11",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "RJ 11 Telephone",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 210,
+     "install_rate": 50,
+     "combined_rate": 260
+    },
+    "derivation": [
+     "Supply = 210",
+     "Install = 50",
+     "Combined = supply + install = 260",
+     "(defaulted -- no positive text identification): Socket 1 qty=1, Plate qty=1, Colour=White, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|212",
+   "category": "switches_sockets",
+   "excel_row": 212,
+   "description": "Set of 4 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 4,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 970,
+     "install_rate": 200,
+     "combined_rate": 1170
+    },
+    "derivation": [
+     "Supply = 970",
+     "Install = 200",
+     "Combined = supply + install = 1170",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|213",
+   "category": "switches_sockets",
+   "excel_row": 213,
+   "description": "Set of 3 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 800,
+     "install_rate": 160,
+     "combined_rate": 960
+    },
+    "derivation": [
+     "Supply = 800",
+     "Install = 160",
+     "Combined = supply + install = 960",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|214",
+   "category": "switches_sockets",
+   "excel_row": 214,
+   "description": "Set of 2 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 600,
+     "install_rate": 120,
+     "combined_rate": 720
+    },
+    "derivation": [
+     "Supply = 600",
+     "Install = 120",
+     "Combined = supply + install = 720",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|215",
+   "category": "switches_sockets",
+   "excel_row": 215,
+   "description": "Set of 1 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 360,
+     "install_rate": 80,
+     "combined_rate": 440
+    },
+    "derivation": [
+     "Supply = 360",
+     "Install = 80",
+     "Combined = supply + install = 440",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|216",
+   "category": "switches_sockets",
+   "excel_row": 216,
+   "description": "Set of 1 x 6A Round Pin Socket controlled with 6A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.75,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 260,
+     "install_rate": 60,
+     "combined_rate": 320
+    },
+    "derivation": [
+     "Supply = 260",
+     "Install = 60",
+     "Combined = supply + install = 320",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|217",
+   "category": "switches_sockets",
+   "excel_row": 217,
+   "description": "2 No of 6A Round Pin Socket controlled with 2 No of 6A Switch and configuration of type A & Type C.(for height adjustable table & Mobile Charger)",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "USB Charger - A+C Type",
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 1900,
+     "install_rate": 380,
+     "combined_rate": 2280
+    },
+    "derivation": [
+     "Supply = 1900",
+     "Install = 380",
+     "Combined = supply + install = 2280",
+     "(defaulted -- no positive text identification): Socket 2 qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|218",
+   "category": "switches_sockets",
+   "excel_row": 218,
+   "description": "Set of 1 x 6/16A Round Pin Socket controlled with 16A Switch (IP65/67) For Kitchen equipment",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 360,
+     "install_rate": 80,
+     "combined_rate": 440
+    },
+    "derivation": [
+     "Supply = 360",
+     "Install = 80",
+     "Combined = supply + install = 440",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|222",
+   "category": "switches_sockets",
+   "excel_row": 222,
+   "description": "Set of 4 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 4,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 1140,
+     "install_rate": 230,
+     "combined_rate": 1370
+    },
+    "derivation": [
+     "Supply = 1140",
+     "Install = 230",
+     "Combined = supply + install = 1370",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|223",
+   "category": "switches_sockets",
+   "excel_row": 223,
+   "description": "Set of 3 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 930,
+     "install_rate": 190,
+     "combined_rate": 1120
+    },
+    "derivation": [
+     "Supply = 930",
+     "Install = 190",
+     "Combined = supply + install = 1120",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|224",
+   "category": "switches_sockets",
+   "excel_row": 224,
+   "description": "Set of 2 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 700,
+     "install_rate": 140,
+     "combined_rate": 840
+    },
+    "derivation": [
+     "Supply = 700",
+     "Install = 140",
+     "Combined = supply + install = 840",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|225",
+   "category": "switches_sockets",
+   "excel_row": 225,
+   "description": "Set of 1 x 6/16A Round Pin Socket controlled with 16A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 430,
+     "install_rate": 90,
+     "combined_rate": 520
+    },
+    "derivation": [
+     "Supply = 430",
+     "Install = 90",
+     "Combined = supply + install = 520",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|226",
+   "category": "switches_sockets",
+   "excel_row": 226,
+   "description": "Set of 1 x 6 Round Pin Socket controlled with 6A Switch",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.75,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 320,
+     "install_rate": 70,
+     "combined_rate": 390
+    },
+    "derivation": [
+     "Supply = 320",
+     "Install = 70",
+     "Combined = supply + install = 390",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|227",
+   "category": "switches_sockets",
+   "excel_row": 227,
+   "description": "2 No of 6A Round Pin Socket controlled with 1 No of 6A Switch and configuration of type A & Type C.(for height adjustable table & Mobile Charger)",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "USB Charger - A+C Type",
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 1840,
+     "install_rate": 370,
+     "combined_rate": 2210
+    },
+    "derivation": [
+     "Supply = 1840",
+     "Install = 370",
+     "Combined = supply + install = 2210",
+     "(defaulted -- no positive text identification): Socket 2 qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|228",
+   "category": "switches_sockets",
+   "excel_row": 228,
+   "description": "Set of 1 x 6/16A Round Pin Socket controlled with 16A Switch (IP65/67) For Kitchen equipment",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 430,
+     "install_rate": 90,
+     "combined_rate": 520
+    },
+    "derivation": [
+     "Supply = 430",
+     "Install = 90",
+     "Combined = supply + install = 520",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00224|ELECTRICAL|229",
+   "category": "switches_sockets",
+   "excel_row": 229,
+   "description": "6/10A Switch for Lighting control",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": null,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 170,
+     "install_rate": 40,
+     "combined_rate": 210
+    },
+    "derivation": [
+     "Supply = 170",
+     "Install = 40",
+     "Combined = supply + install = 210",
+     "(defaulted -- no positive text identification): Switch qty=1, Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|119",
+   "category": "switches_sockets",
+   "excel_row": 119,
+   "description": "1 nos 6A Round Pin socket controlled by 1nos 6A Sp switch with cover plate but with out box .( Switch , socket Faceplate Different Colour as per Architect Choice)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 260,
+     "install_rate": 60,
+     "combined_rate": 320
+    },
+    "derivation": [
+     "Supply = 260",
+     "Install = 60",
+     "Combined = supply + install = 320",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|120",
+   "category": "switches_sockets",
+   "excel_row": 120,
+   "description": "1 nos 6/16A Round Pin socket controlled by 1nos 16A Spswitch with cover plate but with out box .( Switch , socket Faceplate Different Colour as per Architect Choice)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 360,
+     "install_rate": 80,
+     "combined_rate": 440
+    },
+    "derivation": [
+     "Supply = 360",
+     "Install = 80",
+     "Combined = supply + install = 440",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|121",
+   "category": "switches_sockets",
+   "excel_row": 121,
+   "description": "2 nos 6/16A Round Pin socket controlled by 1nos 16A Sp switch with cover plate but with out box .( Switch , socket Faceplate Different Colour as per Architect Choice)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 600,
+     "install_rate": 120,
+     "combined_rate": 720
+    },
+    "derivation": [
+     "Supply = 600",
+     "Install = 120",
+     "Combined = supply + install = 720",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|122",
+   "category": "switches_sockets",
+   "excel_row": 122,
+   "description": "2 nos 6/16A Round Pin socket controlled by 2nos 16A Sp switch with cover plate but with out box .( Switch , socket Faceplate Different Colour as per Architect Choice)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 670,
+     "install_rate": 140,
+     "combined_rate": 810
+    },
+    "derivation": [
+     "Supply = 670",
+     "Install = 140",
+     "Combined = supply + install = 810",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|123",
+   "category": "switches_sockets",
+   "excel_row": 123,
+   "description": "3 nos 6/16A Round Pin socket controlled by 1nos 16A Sp switch with cover plate but with out box . ( Switch , socket Faceplate Different Colour as per Architect Choice)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 3,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 800,
+     "install_rate": 160,
+     "combined_rate": 960
+    },
+    "derivation": [
+     "Supply = 800",
+     "Install = 160",
+     "Combined = supply + install = 960",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|124",
+   "category": "switches_sockets",
+   "excel_row": 124,
+   "description": "1 nos 6/16A Round pin socket controlled by 1nos 16A Sp switch with different cover plate Back box .(Wether Proof IP:65 )",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 430,
+     "install_rate": 90,
+     "combined_rate": 520
+    },
+    "derivation": [
+     "Supply = 430",
+     "Install = 90",
+     "Combined = supply + install = 520",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|126",
+   "category": "switches_sockets",
+   "excel_row": 126,
+   "description": "1 nos 6A Round PIN socket controlled by 1nos 6A Sp switch with cover plate but with out out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 260,
+     "install_rate": 60,
+     "combined_rate": 320
+    },
+    "derivation": [
+     "Supply = 260",
+     "Install = 60",
+     "Combined = supply + install = 320",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|127",
+   "category": "switches_sockets",
+   "excel_row": 127,
+   "description": "1nos 6/16A, Round PIN Socket with 16 A switch with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 360,
+     "install_rate": 80,
+     "combined_rate": 440
+    },
+    "derivation": [
+     "Supply = 360",
+     "Install = 80",
+     "Combined = supply + install = 440",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|128",
+   "category": "switches_sockets",
+   "excel_row": 128,
+   "description": "2 nos 6A, Round PIN Socket controlled by 16A Sp switch with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 480,
+     "install_rate": 100,
+     "combined_rate": 580
+    },
+    "derivation": [
+     "Supply = 480",
+     "Install = 100",
+     "Combined = supply + install = 580",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|129",
+   "category": "switches_sockets",
+   "excel_row": 129,
+   "description": "3 nos 6A, Round PIN Socket controlled by 16A Sp switch with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 3,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 630,
+     "install_rate": 130,
+     "combined_rate": 760
+    },
+    "derivation": [
+     "Supply = 630",
+     "Install = 130",
+     "Combined = supply + install = 760",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|130",
+   "category": "switches_sockets",
+   "excel_row": 130,
+   "description": "3 nos 6/16A Round PIN socket controlled by 1nos 16A Sp switch with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 3,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 800,
+     "install_rate": 160,
+     "combined_rate": 960
+    },
+    "derivation": [
+     "Supply = 800",
+     "Install = 160",
+     "Combined = supply + install = 960",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|131",
+   "category": "switches_sockets",
+   "excel_row": 131,
+   "description": "4 nos 6/16A Round PIN socket controlled by 1nos 16A Sp switch with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 4,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 970,
+     "install_rate": 200,
+     "combined_rate": 1170
+    },
+    "derivation": [
+     "Supply = 970",
+     "Install = 200",
+     "Combined = supply + install = 1170",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|132",
+   "category": "switches_sockets",
+   "excel_row": 132,
+   "description": "1 USB charging port (C & A TYPE ) 40W-60W A with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "USB Charger - A+C Type",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 1350,
+     "install_rate": 270,
+     "combined_rate": 1620
+    },
+    "derivation": [
+     "Supply = 1350",
+     "Install = 270",
+     "Combined = supply + install = 1620",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|133",
+   "category": "switches_sockets",
+   "excel_row": 133,
+   "description": "2 USB charging port (C & A TYPE ) 40W-60W A with cover plate but with out box .",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "USB Charger - A+C Type",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "No",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 2630,
+     "install_rate": 530,
+     "combined_rate": 3160
+    },
+    "derivation": [
+     "Supply = 2630",
+     "Install = 530",
+     "Combined = supply + install = 3160",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|135",
+   "category": "switches_sockets",
+   "excel_row": 135,
+   "description": "1 nos. 6/16A round pin socket controlled by 16A DP Modular MCB wih back Box",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Switch, Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Switch -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|142",
+   "category": "switches_sockets",
+   "excel_row": 142,
+   "description": "Power strip Ms powder coated factory fabricated type with 6nos 6/16A Round pin socket Controlled by one nos of 32A DP MCB D curve type . ( rack mounted type )",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "32A DP SWITCH - With Indicator",
+     "confidence": 0.55,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 6,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 1900,
+     "install_rate": 380,
+     "combined_rate": 2280
+    },
+    "derivation": [
+     "Supply = 1900",
+     "Install = 380",
+     "Combined = supply + install = 2280",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00232|Internal  office|90",
+   "category": "point_wiring",
+   "excel_row": 90,
+   "description": "1no 6/10A Switch with Back box",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.9,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Wire 1 - thickness (sqmm), Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Wire 1 - thickness (sqmm) -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00242|LT Electrical works|46",
+   "category": "switches_sockets",
+   "excel_row": 46,
+   "description": "Supply, Fixing, Testing and Commisiosning of 3 nos 6A socket and 1 no 16A switch with moulded front plate GI anodised enclosure and other associated accessories in the work station as required as per the site conditions.(for UPS POWER)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 3,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 760,
+     "install_rate": 160,
+     "combined_rate": 920
+    },
+    "derivation": [
+     "Supply = 760",
+     "Install = 160",
+     "Combined = supply + install = 920",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00242|LT Electrical works|47",
+   "category": "switches_sockets",
+   "excel_row": 47,
+   "description": "Supply, Fixing, Testing and Commisiosning of 2 nos 6A socket and 2 no 10A switch with moulded front plate GI anodised enclosure and other associated accessories in the work station as required as per the site conditions.(for RAW POWER)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 2,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "Grey",
+     "confidence": 0.55,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 790,
+     "install_rate": 160,
+     "combined_rate": 950
+    },
+    "derivation": [
+     "Supply = 790",
+     "Install = 160",
+     "Combined = supply + install = 950",
+     "(defaulted -- no positive text identification): Plate qty=1, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00242|LT Electrical works|48",
+   "category": "switches_sockets",
+   "excel_row": 48,
+   "description": "Supply, Fixing, Testing and Commisiosning of 2 nos 6A socket and 1 no 16A switch with moulded front plate GI anodised enclosure and other associated accessories in the work station as required as per the site conditions.",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 2,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 580,
+     "install_rate": 120,
+     "combined_rate": 700
+    },
+    "derivation": [
+     "Supply = 580",
+     "Install = 120",
+     "Combined = supply + install = 700",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00242|LT Electrical works|49",
+   "category": "switches_sockets",
+   "excel_row": 49,
+   "description": "Supply, Fixing, Testing and Commisiosning of 1 no 16/6A spalsh proof switched socket with moulded front plate GI anodised enclosure and other associated accessories as per the site conditions.(for RAW POWER)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "Grey",
+     "confidence": 0.55,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 500,
+     "install_rate": 100,
+     "combined_rate": 600
+    },
+    "derivation": [
+     "Supply = 500",
+     "Install = 100",
+     "Combined = supply + install = 600",
+     "(defaulted -- no positive text identification): Plate qty=1, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00242|LT Electrical works|50",
+   "category": "switches_sockets",
+   "excel_row": 50,
+   "description": "Supply, Fixing, Testing and Commisiosning of 1 no 16/6A switched socket with moulded front plate GI anodised enclosure and other associated accessories as per the site conditions.",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 430,
+     "install_rate": 90,
+     "combined_rate": 520
+    },
+    "derivation": [
+     "Supply = 430",
+     "Install = 90",
+     "Combined = supply + install = 520",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "declared",
+   "key": "BOQ-26-00242|LT Electrical works|51",
+   "category": "switches_sockets",
+   "excel_row": 51,
+   "description": "Supply, Fixing, Testing and Commisiosning of 1 no 16/6A switched socket with moulded front plate GI anodised enclosure and other associated accessories including chasing embedding rough plastering as required as per the site conditions. (with indicator)",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH- With Indicator",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "6A/16A 3-Pin Socket",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket3_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket4_qty": {
+     "value": null,
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.55,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 470,
+     "install_rate": 100,
+     "combined_rate": 570
+    },
+    "derivation": [
+     "Supply = 470",
+     "Install = 100",
+     "Combined = supply + install = 570",
+     "(defaulted -- no positive text identification): Plate qty=1, Colour=White, Back box=Yes"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": null
+    }
+   }
+  },
+  {
+   "group": "empty_box",
+   "key": "BOQ-26-00185|Electrical|198",
+   "category": "switches_sockets",
+   "excel_row": 198,
+   "description": "Supply, installation, testing & commissioning of 2 Module GI metal back bax for networking.",
+   "unit": "Nos.",
+   "attributes": {
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.85,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00206|BOQ -ELEC|213",
+   "category": "point_wiring",
+   "excel_row": 213,
+   "description": "Secondary light point means extention of light outlet from existing primary point. Same to be controlled by the existing switch/Sensors of primary point & the cost shall include Ceiling flexible conduit shall be included at the drop of light fixture.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00206|BOQ -ELEC|219",
+   "category": "point_wiring",
+   "excel_row": 219,
+   "description": "Secondary light point means extention of light outlet from existing primary point. Same to be controlled by the existing switch/Sensors of primary point & the cost shall include Ceiling flexible conduit shall be included at the drop of light fixture.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00206|BOQ -ELEC|231",
+   "category": "point_wiring",
+   "excel_row": 231,
+   "description": "Primary light point means wiring from DB to first light point. The cost shall include Ceiling flexible conduit at the drop of light fixture.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00206|BOQ -ELEC|234",
+   "category": "point_wiring",
+   "excel_row": 234,
+   "description": "Secondary light point means extention of light outlet from existing primary point. The cost shall include Ceiling flexible conduit at the drop of light fixture.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00206|BOQ -ELEC|237",
+   "category": "point_wiring",
+   "excel_row": 237,
+   "description": "Primary light point means wiring from DB to first light point. The cost shall include Ceiling flexible conduit at the drop of light fixture.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00206|BOQ -ELEC|240",
+   "category": "point_wiring",
+   "excel_row": 240,
+   "description": "Secondary light point means extention of light outlet from existing primary point. The cost shall include Ceiling flexible conduit at the drop of light fixture.",
+   "unit": "Nos.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "PVC",
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00342|Electrical BOQ|284",
+   "category": "point_wiring",
+   "excel_row": 284,
+   "description": "Loop point in side the coffer",
+   "unit": "Nos",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 2,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 1.5,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "MS",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "Flexible",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": "No",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "point_type": {
+     "value": "Secondary",
+     "confidence": 1.0,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "pw_plate_only",
+   "key": "BOQ-26-00342|Electrical BOQ|287",
+   "category": "point_wiring",
+   "excel_row": 287,
+   "description": "Emergency Light point with 3 Nos of 2.5 sqmm PVC insulated , CU conductor FRLS inside metal conduits from first point to further loop point & ON. .",
+   "unit": "Nos",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire1_runs": {
+     "value": 3,
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "wire2_core": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire2_runs": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "points": {
+     "value": 1,
+     "confidence": 0.7,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_length_m": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "conduit_type": {
+     "value": "MS",
+     "confidence": 0.85,
+     "corroborated": false
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_runs": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_runs": {
+     "value": 1,
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "switch_item": {
+     "value": "None",
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": null,
+     "confidence": 0.4,
+     "corroborated": false
+    },
+    "socket_item": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "socket_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": null,
+     "confidence": 0.5,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": null,
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.6,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "conduit_handoff": {
+     "value": "No",
+     "confidence": 0.6,
+     "corroborated": false
+    },
+    "other_conduit": {
+     "value": "Flexible",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "conduit_price_excluded": {
+     "value": "No",
+     "confidence": 0.6,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   },
+   "after": {
+    "values": {},
+    "derivation": [
+     "Missing to price: Plate qty -- fill them to compute a rate."
+    ],
+    "plate_qty": {
+     "value": "",
+     "defaulted": false,
+     "confidence": 0.3
+    }
+   }
+  },
+  {
+   "group": "priced_c6",
+   "key": "BOQ-26-00183|Electrical Works|12",
+   "category": "switches_sockets",
+   "excel_row": 12,
+   "description": "One no. 5/15 amps one way switch with modular face plate",
+   "unit": "Sets",
+   "attributes": {
+    "switch_item": {
+     "value": "10A 1 WAY SWITCH",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "switch_qty": {
+     "value": 1,
+     "confidence": 0.9,
+     "corroborated": false
+    },
+    "socket1_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket1_qty": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "socket2_item": {
+     "value": "None",
+     "confidence": 0.8,
+     "corroborated": false
+    },
+    "socket2_qty": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "blank_item": {
+     "value": "None",
+     "confidence": 0.7,
+     "corroborated": false
+    },
+    "blank_qty": {
+     "value": 1,
+     "confidence": 0.3,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "plate_item": {
+     "value": "1M & 2M",
+     "confidence": 0.3,
+     "corroborated": false
+    },
+    "plate_qty": {
+     "value": 1,
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "colour": {
+     "value": "White",
+     "confidence": 0.4,
+     "defaulted": true,
+     "corroborated": false
+    },
+    "back_box": {
+     "value": "Yes",
+     "confidence": 0.5,
+     "defaulted": true,
+     "corroborated": false
+    }
+   },
+   "before": {
+    "values": {
+     "supply_rate": 170,
+     "install_rate": 40,
+     "combined_rate": 210
+    },
+    "derivation": [
+     "Supply = 170",
+     "Install = 40",
+     "Combined = supply + install = 210",
+     "(defaulted -- no positive text identification): Socket 3=None, Socket 4=None, Blank plate qty=1, Plate qty=1, Colour=White, Back box=Yes",
+     "(never asked at extraction -- config default applied; re-run the sheet to read it): Socket 3=None, Socket 4=None"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": 0.5
+    }
+   },
+   "after": {
+    "values": {
+     "supply_rate": 170,
+     "install_rate": 40,
+     "combined_rate": 210
+    },
+    "derivation": [
+     "Supply = 170",
+     "Install = 40",
+     "Combined = supply + install = 210",
+     "(defaulted -- no positive text identification): Socket 3=None, Socket 4=None, Blank plate qty=1, Plate qty=1, Colour=White, Back box=Yes",
+     "(never asked at extraction -- config default applied; re-run the sheet to read it): Socket 3=None, Socket 4=None"
+    ],
+    "plate_qty": {
+     "value": "1",
+     "defaulted": true,
+     "confidence": 0.5
+    }
+   }
+  }
+ ]
+}

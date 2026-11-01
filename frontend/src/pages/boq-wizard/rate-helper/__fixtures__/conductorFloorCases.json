@@ -1,0 +1,29 @@
+{
+  "_": "ELR-4d (R-3C, R-3C-CALC): the table both floors must agree on. `inputs` are a row's effective values; `raised` is every slot the floor writes. Read by conductorFloor.test.ts (the TS floor) and test_conductor_floor_parity.py (extraction.apply_conductor_floor).",
+  "groups": {
+    "point": [["wire1_thickness_sqmm", "wire1_core", "wire1_runs"], ["wire2_thickness_sqmm", "wire2_core", "wire2_runs"]],
+    "circuit": [["circuit_wire1_thickness_sqmm", "circuit_wire1_core", "circuit_wire1_runs"], ["circuit_wire2_thickness_sqmm", "circuit_wire2_core", "circuit_wire2_runs"]]
+  },
+  "cases": [
+    { "id": "single-core 1 run -> 3 runs", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 1 }, "raised": { "wire1_runs": 3 } },
+    { "id": "single-core 2 runs -> 3 runs", "inputs": { "wire1_thickness_sqmm": 2.5, "wire1_core": 1, "wire1_runs": 2 }, "raised": { "wire1_runs": 3 } },
+    { "id": "a typed value arrives as text", "inputs": { "wire1_thickness_sqmm": "1.5", "wire1_core": "1", "wire1_runs": "1" }, "raised": { "wire1_runs": 3 } },
+    { "id": "core and runs blank count as 1 each", "inputs": { "wire1_thickness_sqmm": 1.5 }, "raised": { "wire1_runs": 3 } },
+    { "id": "runs 0 counts as 1", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 0 }, "raised": { "wire1_runs": 3 } },
+    { "id": "two single-core wires: the bigger takes the runs", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 1, "wire2_thickness_sqmm": 2.5, "wire2_core": 1, "wire2_runs": 1 }, "raised": { "wire2_runs": 2 } },
+    { "id": "two single-core wires of one size: the first takes the runs", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 1, "wire2_thickness_sqmm": 1.5, "wire2_core": 1, "wire2_runs": 1 }, "raised": { "wire1_runs": 2 } },
+    { "id": "every wire multi-core: a 1-core wire of the same size is added", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 2, "wire1_runs": 1 }, "raised": { "wire2_thickness_sqmm": 1.5, "wire2_core": 1, "wire2_runs": 1 } },
+    { "id": "the added wire overwrites a wire 2 answered None", "inputs": { "wire1_thickness_sqmm": 4, "wire1_core": 2, "wire1_runs": 1, "wire2_thickness_sqmm": "None" }, "raised": { "wire2_thickness_sqmm": 4, "wire2_core": 1, "wire2_runs": 1 } },
+    { "id": "a single-core wire 2 beside a 2-core wire 1 is already three", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 2, "wire1_runs": 1, "wire2_thickness_sqmm": 1.5, "wire2_core": 1, "wire2_runs": 1 }, "raised": {} },
+    { "id": "three-core one run is already three", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 3, "wire1_runs": 1 }, "raised": {} },
+    { "id": "three runs stands", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 3 }, "raised": {} },
+    { "id": "a value stating more is never reduced", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 4 }, "raised": {} },
+    { "id": "two runs plus one run is three", "inputs": { "wire1_thickness_sqmm": 2.5, "wire1_core": 1, "wire1_runs": 2, "wire2_thickness_sqmm": 1.5, "wire2_core": 1, "wire2_runs": 1 }, "raised": {} },
+    { "id": "a None wire's runs default is not a conductor", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 1, "wire1_runs": 2, "wire2_thickness_sqmm": "None", "wire2_runs": 1 }, "raised": { "wire1_runs": 3 } },
+    { "id": "no thickness at all: nothing is invented", "inputs": { "wire1_core": 1, "wire1_runs": 1 }, "raised": {} },
+    { "id": "circuit wires: one single-core wire", "inputs": { "circuit_wire1_thickness_sqmm": 6, "circuit_wire1_core": 1, "circuit_wire1_runs": 1 }, "raised": { "circuit_wire1_runs": 3 } },
+    { "id": "circuit wires: a multi-core wire takes a second wire", "inputs": { "circuit_wire1_thickness_sqmm": 6, "circuit_wire1_core": 2, "circuit_wire1_runs": 1 }, "raised": { "circuit_wire2_thickness_sqmm": 6, "circuit_wire2_core": 1, "circuit_wire2_runs": 1 } },
+    { "id": "the groups are independent", "inputs": { "wire1_thickness_sqmm": 1.5, "wire1_core": 3, "wire1_runs": 1, "circuit_wire1_thickness_sqmm": 6, "circuit_wire1_core": 1, "circuit_wire1_runs": 2 }, "raised": { "circuit_wire1_runs": 3 } },
+    { "id": "no free slot: left as it is", "groups": { "one": [["t", "c", "r"]] }, "inputs": { "t": 1.5, "c": 2, "r": 1 }, "raised": {} }
+  ]
+}
