@@ -108,8 +108,9 @@ class TestTheFixturesOpenLines(unittest.TestCase):
         self.assertEqual((credit.amount, credit.direction), (Decimal("9000"), DIRECTION_CREDIT))
 
     def test_the_open_lines_are_the_two_unpaired_refunds_and_the_wallet_credit(self):
+        # The unpaired Collect payments are open lines too (#1595, `test_cashbook_collect`); here only money in.
         self.assertEqual(
-            [r.transfer_id for r in self.plan.opening],
+            [r.transfer_id for r in self.plan.opening if r.row_kind != "Collect Payment"],
             ["REF-" + PART_SPEND, WALLET_CREDIT, EARLIER_REFUND],
         )
         self.assertFalse(set(self.plan.opening) & set(self.plan.skipping))
@@ -123,9 +124,10 @@ class TestTheFixturesOpenLines(unittest.TestCase):
                     (ACTION_SKIP, SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL),
                 )
 
-    def test_an_unpaired_collect_payment_is_left_as_it_was(self):
-        """#1595 makes it an open line; until then it is skipped as before."""
-        self.assertEqual(_by_id(self.plan, "OBO9000000000002CPNONE").reason, SKIP_NOT_A_SPEND)
+    def test_an_unpaired_collect_payment_is_an_open_line(self):
+        """#1595: open and highlighted, while the one refunded in full is paired (above)."""
+        line = _by_id(self.plan, "OBO9000000000002CPNONE")
+        self.assertEqual((line.action, line.reason), (ACTION_OPEN, "Shop-requested payment, check it."))
 
 
 class TestThePairingRule(unittest.TestCase):

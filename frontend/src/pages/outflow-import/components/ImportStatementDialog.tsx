@@ -1967,7 +1967,8 @@ const CashbookProgress = ({
                         {(status?.bills_not_copied ?? []).map((line) => (
                             <li key={line.transfer_id} className="break-words text-muted-foreground">
                                 <span className="font-medium text-foreground">{line.transfer_id}</span>
-                                {line.expense ? ` (${line.expense})` : ""}: {line.reason}
+                                {/* #1595: an open Collect payment has no Expense yet; its line keeps no stored bill. */}
+                                {line.expense ? ` (${line.expense})` : " (open Collect payment)"}: {line.reason}
                             </li>
                         ))}
                     </ul>

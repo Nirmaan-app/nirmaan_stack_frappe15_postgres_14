@@ -45,6 +45,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
+from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_PAYMENT_NOTE
 from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     COLLECT_ROW_KIND,
     CREDIT_ROW_KINDS,
@@ -115,7 +116,6 @@ SPEND_ROW_KIND = "Wallet Spend"
 # Where a row lands when its text names no type we recognise. It must carry BOTH the `project` and
 # `non_project` flags, because a row on either ledger can reach it.
 FALLBACK_EXPENSE_TYPE = "Petty Cash"
-
 
 # The refund and wallet-credit kinds, their sentences and the pairing walk live in `cashbook_refunds` (#1594).
 ACTION_CREATE = "create"
@@ -320,9 +320,9 @@ def plan_statement(
             template, partner = partner_of[position]
             action, reason, skip_kind = ACTION_SKIP, template.format(partner=partner), SKIP_KIND_CASHBOOK_REFUND_PAIR
             planned.append(PlannedRow(action=action, reason=reason, skip_kind=skip_kind, partner=partner, **base))
-        elif action == ACTION_CREATE:
+        elif action == ACTION_CREATE or base["row_kind"] == COLLECT_ROW_KIND:  # #1595: Create opens pre-filled
             placement = _placement(base["remarks"], index, expense_rules)
-            planned.append(PlannedRow(action=ACTION_CREATE, **base, **placement))
+            planned.append(PlannedRow(action=action, reason=reason, **base, **placement))
         else:
             if action == ACTION_OPEN and base["row_kind"] in REFUND_ROW_KINDS:
                 reason = unpaired_reason(base["transfer_id"], base["amount"], rows)
@@ -344,19 +344,19 @@ def _decide(
 
     By the statement's `Type` (#1594, spec #1585 "Planning (pure module)"):
 
-      * a Wallet Spend creates, unless `_skip_reason` skips it;
+      * a Wallet Spend creates, and a Collect Payment is an OPEN line (#1595), unless `_skip_reason` skips it;
       * a refund (Refund to Wallet, Credit Adjustment) and a Wallet Credit are OPEN lines, unless the same
         repeat / outcome / amount tests skip them. Pairing may then turn a refund and its spend into a skip;
-      * everything else -- Bank → VA, VA → Wallet, Wallet → VA, and a Collect Payment until #1595 -- moves
-        money between our own balances, as before.
+      * everything else -- Bank → VA, VA → Wallet, Wallet → VA -- moves money between our own balances, as before.
 
     The reason of an open refund is filled in after pairing (`cashbook_refunds.unpaired_reason`); a wallet credit's is fixed.
     """
     raw = line.row
     kind = _row_kind(raw)
-    if kind == SPEND_ROW_KIND:
+    if kind in (SPEND_ROW_KIND, COLLECT_ROW_KIND):  # #1595: a Collect payment opens where a spend creates
         reason, skip_kind = _skip_reason(line, amount, booked, moved=bool(getattr(raw, "is_success", False)))
-        return (ACTION_SKIP, reason, skip_kind) if reason else (ACTION_CREATE, "", None)
+        opened = (ACTION_CREATE, "", None) if kind == SPEND_ROW_KIND else (ACTION_OPEN, COLLECT_PAYMENT_NOTE, None)
+        return (ACTION_SKIP, reason, skip_kind) if reason else opened
     if kind in CREDIT_ROW_KINDS:
         if kind in REFUND_ROW_KINDS:
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES

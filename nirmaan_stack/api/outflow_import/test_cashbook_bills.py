@@ -105,8 +105,13 @@ class CashbookBillsCase(FrappeTestCase):
         expenses = [(dt, name) for dt, name in self._targets().values()]
         for doctype, name in expenses:
             frappe.db.delete("File", {"attached_to_doctype": doctype, "attached_to_name": name})
+        # #1595: an open Collect payment's bill is stored on its line.
+        frappe.db.delete("File", {"attached_to_doctype": "Outflow Import Row", "attached_to_name": ["in", self._lines()]})
         frappe.db.commit()
         _purge(self.batch)
+
+    def _lines(self) -> list:
+        return frappe.get_all("Outflow Import Row", filters={"import_batch": self.batch}, pluck="name") or [""]
 
     def _targets(self) -> dict:
         return {
@@ -200,11 +205,12 @@ class TestABillThatCannotBeCopied(CashbookBillsCase):
         self.assertEqual(frappe.db.count("File") - before, self._copied_files())
 
     def _copied_files(self) -> int:
+        """Every bill copied: onto an Expense, or onto an open Collect payment's line (#1595)."""
         return sum(
             1
             for doctype, name in self._targets().values()
             if frappe.db.exists("File", {"attached_to_doctype": doctype, "attached_to_name": name})
-        )
+        ) + frappe.db.count("File", {"attached_to_doctype": "Outflow Import Row", "attached_to_name": ["in", self._lines()]})
 
     def test_a_link_the_guard_refuses_is_never_fetched_and_is_named(self):
         transport_calls = []
