@@ -2511,6 +2511,16 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_match.test_pricing_step": {
+   "seconds": 16.2,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item",
+    "tabBoQ Rate Master Snapshot"
+   ]
+  },
   "nirmaan_stack.services.boq_revision.test_carry": {
    "seconds": 14.2,
    "series": [],
