@@ -66,15 +66,17 @@ class TestBulkApproveTDS(FrappeTestCase):
 		)
 		frappe.db.sql(
 			"""INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, status, total_amount, amount_paid)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 10000000, 0)""",
+				   docstatus, idx, project, vendor, status, total_amount, amount_paid, amount_invoiced)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 10000000, 0, 10000000)""",
 			(cls.sr, U, U, cls.project, cls.vendor),
 		)
+		# Invoiced in full: an approval re-runs the invoice check, which nobody skips (owner, 2026-10-30),
+		# and a batch of two uninvoiced payments would refuse each other before any tax was withheld.
 		frappe.db.sql(
 			"""INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, status, total_amount, amount_paid,
+				   docstatus, idx, project, vendor, status, total_amount, amount_paid, amount_invoiced,
 				   service_category_list)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 10000000, 0, %s)""",
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 10000000, 0, 10000000, %s)""",
 			(
 				cls.sr_misc, U, U, cls.project, cls.vendor,
 				frappe.as_json({"list": [{"name": "Miscellaneous Services"}, {"name": "Transportation Services"}]}),

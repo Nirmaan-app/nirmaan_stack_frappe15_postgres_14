@@ -81,8 +81,10 @@ class PaymentStepCase(FrappeTestCase):
 
     @staticmethod
     def _remove_permission(name):
+        # delete_doc, not frappe.db.delete: only on_trash drops the user's cached permissions, and a stale
+        # entry refuses every later test that acts as this real user on another project.
         frappe.db.rollback()
-        frappe.db.delete("User Permission", {"name": name})
+        frappe.delete_doc("User Permission", name, force=True, ignore_permissions=True, ignore_missing=True)
         frappe.db.commit()
 
     # -- what -----------------------------------------------------------------------------------
