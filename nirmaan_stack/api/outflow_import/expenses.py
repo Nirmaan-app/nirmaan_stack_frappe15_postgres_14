@@ -75,6 +75,10 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
+from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match import (
+    import_created_expense_holding,
+    is_import_created_expense_refusal,
+)
 from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
 from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
@@ -120,6 +124,7 @@ from nirmaan_stack.services.outflow_import.status import (
     RECORDED_ACTION_CREATE,
     RECORDED_ACTION_LINK,
     RECORDED_DUPLICATE,
+    SKIP_REASON_ALREADY_IMPORTED_AS,
     derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
     # `_guard_is_a_debit` is the exact NEGATION of the receipt side's rule, so it must read the
@@ -186,6 +191,27 @@ class RecordedMoneyNeedsConfirmationError(frappe.ValidationError):
     ⚠️ THE SCREEN KEYS ON THIS CLASS NAME (`exc_type`) to offer "... anyway?" and re-call with
     `confirm_mismatch`. Renaming it silently turns the confirmation into a plain refusal.
     """
+
+
+class AlreadyImportedError(frappe.ValidationError):
+    """A hand Create refused because another line already created this Txn Id's Expense (spec #1585 C, #1588).
+
+    The database's one-Expense-per-Txn-Id index refused the match insert; the sentence names the Expense
+    that holds it. Nothing was written."""
+
+
+def already_imported_sentence(transfer_id: str | None) -> str | None:
+    """"Already imported in batch <batch> as <ledger> <name>." for the Expense the import created for this
+    Txn Id, or `None` when none holds it.
+
+    ⚠️ CALL IT AFTER A FULL ROLLBACK of the refused write: inside that transaction's snapshot the other
+    Expense is invisible."""
+    holder = import_created_expense_holding(transfer_id) if transfer_id else None
+    if not holder:
+        return None
+    return SKIP_REASON_ALREADY_IMPORTED_AS.format(
+        batch=holder["import_batch"], records=f"{holder['target_doctype']} {holder['target_name']}"
+    )
 
 
 class ConcurrentAllocationError(frappe.ValidationError):
@@ -1042,7 +1068,9 @@ def create_expense(
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
         # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
         refresh_row_allocation(staged.name, actor, result)
-    except Exception:
+    except Exception as exc:
+        if is_import_created_expense_refusal(exc):
+            _refuse_as_already_imported(staged.transfer_id, exc)
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)
@@ -1051,6 +1079,21 @@ def create_expense(
     frappe.db.commit()
     link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
+
+
+def _refuse_as_already_imported(transfer_id: str, exc: Exception) -> None:
+    """The one-Expense-per-Txn-Id index refused this Create (spec #1585 C): say "Already imported" and name
+    the Expense, never the database error (user story P9).
+
+    ⚠️ A FULL ROLLBACK, NOT THE SAVEPOINT'S. The Expense holding the Txn Id was committed after this request's
+    snapshot -- that is how every guard before the write missed it -- so it can only be read in a new
+    transaction. Nothing of this request is kept: nothing was committed before the write. When nothing holds
+    the Txn Id by the time it is read (the holder was Unreconciled meanwhile), the original error stands."""
+    frappe.db.rollback()
+    sentence = already_imported_sentence(transfer_id)
+    if not sentence:
+        raise exc
+    frappe.throw(sentence, title="Already imported", exc=AlreadyImportedError)
 
 
 def _statement_spender(doc) -> str | None:

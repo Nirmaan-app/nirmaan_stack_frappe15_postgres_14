@@ -39,6 +39,7 @@ the reversal stamp IS the audit.
 
 import frappe
 from frappe.model.document import Document
+from psycopg2.errors import UniqueViolation
 
 _SETTLED = "Settled"
 _REVERSED = "Reversed"
@@ -97,7 +98,7 @@ class OutflowRowMatch(Document):
 
 
 def on_doctype_update():
-    """Three read indexes, one target lookup index, and the PARTIAL unique constraint.
+    """Three read indexes, one target lookup index, and the two PARTIAL unique indexes.
 
     EXPLICIT NAMES throughout. PostgreSQL index names are unique per SCHEMA, not per table, and
     Frappe generates them with no table prefix; `CREATE INDEX IF NOT EXISTS` matches by NAME ONLY,
@@ -121,6 +122,7 @@ def on_doctype_update():
         "Outflow Row Match", ["target_doctype", "target_name"], "ofm_match_target_idx"
     )
     ensure_settled_target_unique()
+    ensure_one_import_created_expense_per_transfer()
 
 
 def ensure_settled_target_unique():
@@ -136,3 +138,85 @@ def ensure_settled_target_unique():
            ON "tabOutflow Row Match" (transfer_id, target_doctype, target_name)
            WHERE match_kind = 'Settled'"""
     )
+
+
+# ⚠️ THE NAME IS HOW A REFUSAL IS RECOGNISED (`is_import_created_expense_refusal`). Renaming the index
+# without renaming this would turn every "Already imported" into a raw database error.
+IMPORT_CREATED_EXPENSE_INDEX = "ofm_match_import_created_expense_unique"
+_IMPORT_CREATED_EXPENSE_PREDICATE = """match_kind = 'Settled' AND created_by_import = 1
+           AND target_doctype IN ('Project Expenses', 'Non Project Expenses')"""
+
+
+def ensure_one_import_created_expense_per_transfer():
+    """ONE EXPENSE PER WALLET TXN ID, enforced by the database (spec #1585 C, #1588).
+
+    At most one Settled match row per `transfer_id` that CREATED an Expense. Every Cashbook create inserts
+    that row in the same transaction as the Expense -- the job (`cashbook._write_one`) and a hand Create
+    (`expenses.create_expense` -> `row_settlement.record_settlement`) -- so a second create of the same Txn
+    Id fails at the match insert and rolls back, Expense included, however it got there: two overlapping
+    confirms, two jobs, a job and a Resume, a job and a person. No lock and no re-check: a Txn Id advisory
+    lock with a re-check reads a snapshot older than the lock at REPEATABLE READ and misses the other
+    Expense (measured; `scripts/formal/cashbook_one_expense/`).
+
+    * EXPENSES ONLY. A Vendor Refund create writes one created row per part, all on one transfer id.
+    * CREATED ONLY. A Link to an existing record (`created_by_import` 0) is not a create, and one bank
+      transfer may legitimately pay several existing records.
+    * SETTLED ONLY. Unreconcile stamps the row Reversed, which frees the key: a reopened line can be
+      created again.
+
+    `IF NOT EXISTS` makes a re-run safe. Called from `on_doctype_update` and from
+    `patches/v3_0/outflow_match_one_created_expense_per_transfer.py`, which first refuses a database
+    that already breaks the rule (`transfers_with_two_import_created_expenses`).
+    """
+    frappe.db.sql(
+        f"""CREATE UNIQUE INDEX IF NOT EXISTS {IMPORT_CREATED_EXPENSE_INDEX}
+           ON "tabOutflow Row Match" (transfer_id)
+           WHERE {_IMPORT_CREATED_EXPENSE_PREDICATE}"""
+    )
+
+
+def transfers_with_two_import_created_expenses() -> list[str]:
+    """The Txn Ids that already hold more than one row the index would cover -- what stops it being built."""
+    return frappe.db.sql(
+        f"""SELECT transfer_id FROM "tabOutflow Row Match"
+           WHERE {_IMPORT_CREATED_EXPENSE_PREDICATE}
+           GROUP BY transfer_id HAVING COUNT(*) > 1
+           ORDER BY transfer_id""",
+        pluck=True,
+    )
+
+
+def import_created_expense_holding(transfer_id: str):
+    """The Expense the import created for this Txn Id and its batch (`target_doctype`, `target_name`,
+    `import_batch`), or `None`.
+
+    ⚠️ READ IT AFTER A FULL ROLLBACK of the refused write. Inside that transaction's snapshot the other
+    Expense is invisible -- the refusal itself is the only sign of it."""
+    rows = frappe.db.sql(
+        f"""SELECT target_doctype, target_name, import_batch FROM "tabOutflow Row Match"
+           WHERE transfer_id = %s AND {_IMPORT_CREATED_EXPENSE_PREDICATE}
+           LIMIT 1""",
+        (transfer_id,),
+        as_dict=True,
+    )
+    return rows[0] if rows else None
+
+
+def is_import_created_expense_refusal(exc: BaseException) -> bool:
+    """True only for a write refused by `IMPORT_CREATED_EXPENSE_INDEX` -- recognised by the index's NAME, so
+    no other database error (another unique key, a deadlock, a lost race) is ever relabelled "Already
+    imported". Follows the cause chain and Frappe's wrapping (`UniqueValidationError(doctype, name, exc)`)."""
+    seen = set()
+    pending = [exc]
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, UniqueViolation):
+            diag = getattr(current, "diag", None)
+            if getattr(diag, "constraint_name", None) == IMPORT_CREATED_EXPENSE_INDEX:
+                return True
+        pending.extend([current.__cause__, current.__context__])
+        pending.extend(arg for arg in getattr(current, "args", ()) if isinstance(arg, BaseException))
+    return False
