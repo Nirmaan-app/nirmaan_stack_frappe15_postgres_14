@@ -117,6 +117,7 @@ from nirmaan_stack.services.outflow_import.cashbook_collect import (
     COLLECT_PAYMENT_SKIP_REFUSAL,
     is_collect_payment_line,
 )
+from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_MOVED_STATUSES, REFUND_ROW_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
@@ -130,6 +131,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     CARD_STATEMENT_SOURCE,
+    CASHBOOK_SOURCE,
     CREATE_GATED_SOURCES,
     CREDITS_DECIDED_ON_THE_MAIN_TABLE,
     PORTER_STATEMENT_SOURCE,
@@ -3104,6 +3106,26 @@ def get_outflow_rows(
     }
 
 
+def _failed_transfer_sql() -> tuple[str, tuple]:
+    """The SQL predicate "this line is a transfer that moved no money", over alias `r`, with its parameters.
+
+    ⚠️ ONE DEFINITION FOR EVERY SUMMARY FIGURE AND THE `failed` FILTER (owner ruling 2026-08-10, option B): the
+    grouped summary query, the settled blocks and `_row_filters(failed=...)` all read it, so the Received tile,
+    the Skipped chip and the Skipped dialog's "refused by the bank" list cannot disagree about a line.
+
+    A line moved money when its bank status is `parser.BANK_SUCCESS_STATUS`. A Cashbook refund (Refund to Wallet,
+    Credit Adjustment) moved money on `cashbook_refunds.REFUND_MOVED_STATUSES`: the wallet writes REFUNDED on a
+    refund that happened, so an Unpaired wallet refund is money received, still to decide (spec #1585 story 42),
+    and a Paired one is a skipped line, never a refused transfer. Every other source is unchanged.
+    """
+    return (
+        "NOT (UPPER(TRIM(COALESCE(r.status_raw, ''))) = %s"
+        " OR (TRIM(COALESCE(r.source, '')) = %s AND TRIM(COALESCE(r.row_kind, '')) IN %s"
+        " AND UPPER(TRIM(COALESCE(r.status_raw, ''))) IN %s))",
+        (BANK_SUCCESS_STATUS, CASHBOOK_SOURCE, tuple(sorted(REFUND_ROW_KINDS)), tuple(sorted(REFUND_MOVED_STATUSES))),
+    )
+
+
 def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None,
                  failed=None, skip_origin=None):
     """The WHERE fragments shared by the page query, its count, and the tab counts.
@@ -3151,10 +3173,9 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # time -- two spellings of the bank's vocabulary is how the chip and the dialog would drift again.
     if failed is not None:
         wanted = str(failed).strip().lower() not in ("0", "false", "no", "")
-        where.append(
-            f"UPPER(COALESCE(r.status_raw, '')) {'<>' if wanted else '='} %s"
-        )
-        params.append(BANK_SUCCESS_STATUS)
+        failed_sql, failed_params = _failed_transfer_sql()
+        where.append(failed_sql if wanted else f"NOT ({failed_sql})")
+        params.extend(failed_params)
 
     # The Skipped popup's "Skipped by hand" segment (#1273). A server filter, like `failed` above, so
     # the page, its count and the export describe the same rows. An origin outside the vocabulary
@@ -4337,10 +4358,11 @@ def _summary_groups(where, params):
     # plain column on the row table, so the shared builder needs no change at all: ONE more
     # `GROUP BY` term, and `derive_import_summary` does the splitting.
     clause = (" WHERE " + " AND ".join(where)) if where else ""
+    failed_sql, failed_params = _failed_transfer_sql()
     return frappe.db.sql(
         f"""
         SELECT r.row_status                                        AS status,
-               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               {failed_sql}                                         AS failed,
                COALESCE(r.direction, '')                           AS direction,
                COUNT(*)                                            AS count,
                COALESCE(SUM(r.amount), 0)                          AS value,
@@ -4363,12 +4385,13 @@ def _summary_groups(where, params):
                                  THEN 1 ELSE 0 END), 0)            AS skipped_by_hand
         FROM "tabOutflow Import Row" r
         {clause}
-        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
+        GROUP BY r.row_status, {failed_sql},
                  COALESCE(r.direction, '')
         """,
-        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
+        failed_params
+        + (ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
         + tuple(params)
-        + (BANK_SUCCESS_STATUS,),
+        + failed_params,
         as_dict=True,
     )
 
@@ -4519,11 +4542,9 @@ def _settled_by_direction(where, params) -> list[dict]:
     read in, which side a blank direction lands on, or whether an empty received block renders at
     all, is decided here.
     """
-    settled_where = where + [
-        "r.row_status = %s",
-        "UPPER(TRIM(COALESCE(r.status_raw, ''))) = %s",
-    ]
-    settled_params = list(params) + [ROW_SETTLED, BANK_SUCCESS_STATUS]
+    failed_sql, failed_params = _failed_transfer_sql()
+    settled_where = where + ["r.row_status = %s", f"NOT ({failed_sql})"]
+    settled_params = list(params) + [ROW_SETTLED, *failed_params]
     clause = " WHERE " + " AND ".join(settled_where)
 
     grouped = frappe.db.sql(

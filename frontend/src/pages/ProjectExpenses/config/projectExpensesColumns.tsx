@@ -47,6 +47,8 @@ import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
+import { invoiceRefExportText, noInvoiceNote } from "@/utils/expenses/noInvoiceView";
+import { NoInvoiceNote } from "@/components/common/NoInvoiceNote";
 
 export interface GetProjectExpenseColumnsOptions {
   statusTab: string;
@@ -348,6 +350,10 @@ export const getProjectExpenseColumns = ({
           </a>
         );
       }
+      // An expense marked No invoice: who, when and why, instead of the ref (story 32).
+      if (!ref && noInvoiceNote(row.original, getUserName)) {
+        return <NoInvoiceNote expense={row.original} userName={getUserName} />;
+      }
       return (
         <div className="font-medium truncate" title={ref}>
           {ref || "--"}
@@ -355,7 +361,7 @@ export const getProjectExpenseColumns = ({
       );
     },
     meta: {
-      exportValue: (row: ProjectExpenses) => row.invoice_ref || "--",
+      exportValue: (row: ProjectExpenses) => invoiceRefExportText(row, getUserName),
     },
   };
 

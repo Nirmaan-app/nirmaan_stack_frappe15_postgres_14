@@ -18,6 +18,7 @@ import {
     pickFitsSingleSelect,
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
+    isMoneyReceivedLine,
     availableDecisionTargets,
     suggestRefundVendor,
     vendorNameKey,
@@ -1613,6 +1614,25 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         expect(confirmDisabledSentence("decision-incomplete", r, undefined)).toMatch(/Pick the record/);
         expect(confirmDisabledSentence("balance-unknown", r, link)).toMatch(/already settled/);
         expect(confirmDisabledSentence("over-allocated", r, link)).toMatch(/untick one/);
+    });
+});
+
+describe("isMoneyReceivedLine", () => {
+    // The Choose dialog's "This transfer is money received" note reads this (spec #1585 story 36).
+    it("is a credit line that offers the money-in choices", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Credit" }))).toBe(true);
+        expect(isMoneyReceivedLine(row({ direction: "Credit", source: "Cashbook", row_kind: "Wallet Credit" }))).toBe(true);
+    });
+
+    it("is never a Collect payment, which is money out and offers only Create expense", () => {
+        const collect = row({ direction: "Debit", source: "Cashbook", row_kind: "Collect Payment" });
+        expect(availableDecisionTargets(collect)).toEqual(["new"]);
+        expect(isMoneyReceivedLine(collect)).toBe(false);
+    });
+
+    it("is never a debit line", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Debit" }))).toBe(false);
+        expect(isMoneyReceivedLine(row({ direction: "" }))).toBe(false);
     });
 });
 

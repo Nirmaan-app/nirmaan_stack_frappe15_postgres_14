@@ -57,7 +57,8 @@ import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { WithheldTdsContext } from "@/hooks/useWithheldTds";
-import { noInvoiceNote } from "./noInvoiceView";
+import { NoInvoiceNote } from "@/components/common/NoInvoiceNote";
+import { invoiceRefExportText, noInvoiceNote } from "@/utils/expenses/noInvoiceView";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -294,14 +295,8 @@ export const getNonProjectExpenseColumns = ({
         );
       }
       // A card spend marked No invoice: who, when and why, instead of the ref (#1570, story 45).
-      const noInvoice = !ref && noInvoiceNote(row.original, getUserName);
-      if (noInvoice) {
-        return (
-          <div className="min-w-0" title={noInvoice.detail}>
-            <div className="font-medium text-amber-700">{noInvoice.label}</div>
-            <div className="truncate text-[11px] text-muted-foreground">{noInvoice.detail}</div>
-          </div>
-        );
+      if (!ref && noInvoiceNote(row.original, getUserName)) {
+        return <NoInvoiceNote expense={row.original} userName={getUserName} />;
       }
       return (
         <div className="font-medium truncate" title={ref}>
@@ -311,10 +306,7 @@ export const getNonProjectExpenseColumns = ({
     },
     meta: {
       exportHeaderName: "Invoice Ref",
-      exportValue: (row: NonProjectExpenses) => {
-        const noInvoice = !row.invoice_ref && noInvoiceNote(row, getUserName);
-        return noInvoice ? `${noInvoice.label} (${noInvoice.detail})` : row.invoice_ref || "--";
-      },
+      exportValue: (row: NonProjectExpenses) => invoiceRefExportText(row, getUserName),
     },
   };
 

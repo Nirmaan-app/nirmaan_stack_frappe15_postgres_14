@@ -104,6 +104,7 @@ import {
     isConfirmable,
     isCreateTarget,
     isCreditRow,
+    isMoneyReceivedLine,
     settlesAPickedRecord,
     ledgerLabel,
     matcherCandidateLine,
@@ -895,7 +896,9 @@ export const DecisionDialog = ({
                         without the record list and the create-expense card reads as a dialog that
                         failed to load. This names the axis -- money in -- and points at the two
                         cards below that DO apply, so the reviewer's next move is on screen. */}
-                    {!canLinkPayment && (
+                    {/* Money in only: an open Collect payment also offers no link list, but it is money out
+                        and carries its own "Pick Create expense, or Skip by hand." (story 36). */}
+                    {isMoneyReceivedLine(row) && (
                         <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                             This transfer is money received, so it is recorded rather than settled
                             against a payable. Choose one of the options below — a project

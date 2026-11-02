@@ -712,6 +712,11 @@ needs one vocabulary rather than one per writer.
     that does not exist. ⚠️ **THE ROW IS STILL STAGED** — that is the whole of what option B chose
     over option A, and the evidence that the bank rejected a transfer survives on it. What was
     removed is its effect on the numbers, never its existence.
+    - ⚠️ **"Failed" is ONE SQL predicate, `review._failed_transfer_sql`** (spec #1585 story 42), read by
+      `_summary_groups`, `_settled_by_direction` and `_row_filters(failed=...)`. Not `SUCCESS` is failed,
+      except a Cashbook refund (Refund to Wallet, Credit Adjustment) on `cashbook_refunds.REFUND_MOVED_STATUSES`:
+      the wallet writes REFUNDED on a refund that happened, so an Unpaired wallet refund counts as Received and
+      Still open, and a Paired one as Skipped. Never write `status_raw <> 'SUCCESS'` into a summary query again.
     - ⚠️ **AMENDED BY [ADR-0031](../../../docs/adr/0031-already-imported-lines-are-not-saved.md)
       (2026-10-01): "still staged" now means its FIRST sighting.** A line the system already holds
       with the **same bank status** -- from an earlier import or earlier in the same file -- is an
@@ -7605,7 +7610,7 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     one) puts a "This spend" / "All N {MERCHANT} spends" toggle under the picker of ANY of them, "Check" ones
     included; with "All" chosen, the type picked is saved on all of them in one call.
     The Non Project Expenses table's Invoice Ref column shows a marked spend (#1570) as "No invoice" with
-    "{who}, {date}: {reason}" (`pages/NonProjectExpenses/config/noInvoiceView.noInvoiceNote`).
+    "{who}, {date}: {reason}" (`utils/expenses/noInvoiceView.noInvoiceNote`).
 
 **Tests.** `services/outflow_import/test_card_statement` (unit, the fixture and a PDF built from it by
 `tests/card_pdf_builder.pdf_from_text`), `api/outflow_import/test_card_import` (DB: upload, refusals, repeats,

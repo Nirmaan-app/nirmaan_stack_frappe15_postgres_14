@@ -24,7 +24,7 @@ past imports by source and month.
   bill storage: seed with `DEVENV script`, running `_cashbook_worker` with `cashbook_bills.fetch_bill` patched.
 - `bit-cashbook-collect` a Cashbook Review shows an amber box `N shop-requested payments to check…` listing each
   Collect payment with `Shop-requested payment, check it.`; after Create each one is a `Not Matched – Outflow` line
-  with that note, whose `Choose` dialog offers Create expense only (no record list), opening pre-filled (Petty Cash, Non Project
+  with that note, whose `Choose` dialog offers Create expense only (no record list, and no `This transfer is money received` note), opening pre-filled (Petty Cash, Non Project
   Expenses for the fixture lines), and whose `Nothing to link?` box skips it with a typed reason for an Admin or
   Accountant Lead only; an Accountant sees `Only an Admin or an Accountant Lead can skip a Collect payment by hand.`
   in its place (#1595, code review S8, S9). With no choice made, its disabled Confirm says `Pick Create expense, or
@@ -33,6 +33,8 @@ past imports by source and month.
 - `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (unpaired wallet refunds, wallet credits)
   and `N paired wallet refunds …`; after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
   offers the card-credit choices (project / non-project inflow, waiting or new vendor refund, Skip transfer) (#1594).
+  The summary's `Received` counts them (all deposits, all undecided) and its counter matches the Inflow tab: a
+  refund's raw status REFUNDED is money that moved, not a failed transfer (story 42).
   A non-project inflow needs the File folders `Home/Attachments`; a template without them refuses it with
   `Could not find Folder` (seed them with `frappe.core.doctype.file.utils.make_home_folder`).
 

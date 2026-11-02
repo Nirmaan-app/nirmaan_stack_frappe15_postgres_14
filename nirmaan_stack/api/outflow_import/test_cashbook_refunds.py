@@ -21,7 +21,12 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.expenses import guard_not_an_own_import_line
 from nirmaan_stack.api.outflow_import.inflows import create_non_project_inflow, create_vendor_refund
-from nirmaan_stack.api.outflow_import.review import SCOPE_NOT_MATCHED_INFLOW, get_outflow_rows, skip_row
+from nirmaan_stack.api.outflow_import.review import (
+    SCOPE_NOT_MATCHED_INFLOW,
+    get_outflow_rows,
+    get_outflow_summary,
+    skip_row,
+)
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, CashbookBillsCase
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import _post
 
@@ -100,6 +105,24 @@ class TestOpenLines(CashbookRefundsCase):
         status = cb.get_cashbook_status(self.batch)
         # 3 money-in lines and the 2 unpaired Collect payments (#1595).
         self.assertEqual((status["open"], status["pending"], status["failed"]), (5, 0, 0))
+
+    def test_the_batch_summary_counts_every_open_money_in_line_as_received_and_undecided(self):
+        """Story 42: an Unpaired wallet refund's raw status is REFUNDED, which on this statement is money that moved."""
+        totals = get_outflow_summary(batch=self.batch)["totals"]
+        # The part refund (11,248), the earlier statement's refund (640) and the wallet credit (9,000).
+        self.assertEqual((totals["received_rows"], float(totals["received_value"])), (3, 20888.0))
+        self.assertEqual((totals["open_received_rows"], float(totals["open_received_value"])), (3, 20888.0))
+        listed = get_outflow_rows(scope=SCOPE_NOT_MATCHED_INFLOW, batch=self.batch)["rows"]
+        self.assertEqual(totals["open_received_rows"], len(listed))
+
+    def test_a_paired_refund_is_a_skipped_line_not_a_failed_transfer(self):
+        totals = get_outflow_summary(batch=self.batch)["totals"]
+        failed = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch, "status_raw": ["not in", ["SUCCESS", "REFUNDED"]]},
+            pluck="name",
+        )
+        self.assertEqual(totals["failed_rows"], len(failed))
 
     def test_internal_movements_are_still_skipped_as_own_balances(self):
         for txn in INTERNAL:

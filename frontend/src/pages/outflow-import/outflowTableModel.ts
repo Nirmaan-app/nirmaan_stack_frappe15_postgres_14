@@ -321,6 +321,17 @@ export function availableDecisionTargets(
     return isCreditRow(row) ? [...RECEIVED_TARGETS] : [...PAID_TARGETS];
 }
 
+/**
+ * Is this a money-in line, worked by recording it (a project inflow, a non-project inflow, a vendor refund)?
+ * The Choose dialog's "This transfer is money received" note reads it (spec #1585 story 36). Not "no link
+ * list offered": an open Collect payment offers no link list either, and it is money out.
+ */
+export function isMoneyReceivedLine(
+    row: Pick<OutflowImportRow, "direction"> & Partial<Pick<OutflowImportRow, "source" | "row_kind">>
+): boolean {
+    return !isCollectPaymentLine(row) && isCreditRow(row);
+}
+
 /** The reviewer's in-progress decision for one row. Client state until they confirm. */
 export interface RowDecision {
     /**
