@@ -78,6 +78,20 @@ export interface CashbookPreviewResult {
     /** #1594: the lines that stay open on the main table (unpaired wallet refunds, wallet credits). */
     open_lines?: CashbookSkippedRow[];
     opening?: number;
+    /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
+    late_bills?: CashbookLateBill[];
+}
+
+/** #1593: a repeat line bringing a bill for an existing Expense that still waits for one. */
+export interface CashbookLateBill {
+    row_number: number;
+    transfer_id: string;
+    amount: number;
+    remarks: string;
+    expense_doctype: string;
+    expense: string;
+    /** How many bill links the line carries: 2 or more are merged into one PDF. */
+    bills: number;
 }
 
 export interface InvoiceCounts {
@@ -102,6 +116,8 @@ export interface CashbookConfirmResult {
     skipping: number;
     /** How many already-imported lines the import left out (ADR-0031). */
     repeats_not_saved: number;
+    /** #1593: how many existing Expenses the job gives a bill. Absent from a server that predates it. */
+    late_bills?: number;
 }
 
 export interface CashbookStatus {
@@ -212,6 +228,24 @@ export const duplicateNotice = (preview: {
     return { tone: preview.warn ? "warn" : "info", text };
 };
 
+/**
+ * Whether Create is offered (#1593): the file creates something, or brings a bill for an existing Expense, and
+ * was not refused. A refusal is said by name so the button never depends on the facts staying in step.
+ */
+export const canConfirm = (preview: {
+    creating?: number;
+    refused?: boolean;
+    late_bills?: readonly CashbookLateBill[];
+}): boolean => !preview.refused && ((preview.creating ?? 0) > 0 || (preview.late_bills?.length ?? 0) > 0);
+
+/** The confirm button: "Create 115 records", or "Add 2 bills" for a file whose only work is late bills (#1593). */
+export const confirmLabel = (preview: { creating?: number; late_bills?: readonly CashbookLateBill[] }): string => {
+    const creating = preview.creating ?? 0;
+    const late = preview.late_bills?.length ?? 0;
+    if (creating > 0 || late === 0) return createLabel(creating);
+    return `Add ${late} ${late === 1 ? "bill" : "bills"}`;
+};
+
 /** "Create 115 records" -- the same verb the completion message uses. */
 export const createLabel = (count: number): string =>
     `Create ${count} ${count === 1 ? "record" : "records"}`;
@@ -318,3 +352,29 @@ export const pairSpendLabel = (pair: CashbookRefundPair): string =>
     [`${pair.spend.row_kind || "Spend"} ${pair.spend.transfer_id}`, pair.spend.beneficiary_name || pair.spend.remarks]
         .filter(Boolean)
         .join(" · ");
+
+/**
+ * The heading over the existing Expenses that get a late bill (#1593), or null when there are none. The line
+ * itself is an exact repeat and is not saved again; only its bills go on.
+ */
+export const lateBillsHeading = (lines: readonly CashbookLateBill[] | undefined): string | null => {
+    const n = lines?.length ?? 0;
+    if (n === 0) return null;
+    return n === 1
+        ? "1 existing Expense will get its bill. Its line is already imported and is not saved again"
+        : `${count(n)} existing Expenses will get their bills. Their lines are already imported and are not saved again`;
+};
+
+/** How one late bill reads: "NPE-0042 · OBO… · Pay to merchant" (the bill count when there is no remark). */
+export const lateBillLabel = (line: CashbookLateBill): string =>
+    [line.expense, line.transfer_id, line.remarks || (line.bills > 1 ? `${line.bills} bills, merged` : "")]
+        .filter(Boolean)
+        .join(" · ");
+
+/** The progress screen's line about the late bills (#1593), or null when there were none. */
+export const lateBillsDoneText = (n: number, running: boolean): string | null => {
+    if (n <= 0) return null;
+    const expenses = `${count(n)} existing ${n === 1 ? "Expense" : "Expenses"}`;
+    if (running) return `Adding bills to ${expenses}…`;
+    return `${n === 1 ? "Bill" : "Bills"} added to ${expenses}, unless someone had already attached an invoice or marked it No invoice.`;
+};

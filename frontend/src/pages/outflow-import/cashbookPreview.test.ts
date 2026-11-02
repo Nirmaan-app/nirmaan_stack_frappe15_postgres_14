@@ -7,14 +7,20 @@ import {
     CashbookPreviewRow,
     CashbookRefundPair,
     CashbookSkippedRow,
+    CashbookLateBill,
     CashbookStatus,
     NON_PROJECT_LEDGER,
     PROJECT_LEDGER,
     billsNotCopiedHeading,
+    canConfirm,
+    confirmLabel,
     createLabel,
     duplicateNotice,
     invoiceCountsText,
     isLoneRow,
+    lateBillLabel,
+    lateBillsDoneText,
+    lateBillsHeading,
     ledgerSections,
     openLinesHeading,
     pairSpendLabel,
@@ -334,6 +340,53 @@ describe("the paired wallet refunds and the open lines on Review (#1594)", () =>
         expect(pairSpendLabel(pair)).toBe("Collect Payment OBO3 · Testshop Collect Three");
         expect(pairSpendLabel({ ...pair, spend: line({ row_kind: undefined, beneficiary_name: "" }) })).toBe(
             "Spend OBO3 · Collect request approved"
+        );
+    });
+});
+
+describe("the existing Expenses that get a late bill (#1593)", () => {
+    const late = (over: Partial<CashbookLateBill> = {}): CashbookLateBill => ({
+        row_number: 2,
+        transfer_id: "OBO2",
+        amount: 70,
+        remarks: "Pay to merchant",
+        expense_doctype: "Non Project Expenses",
+        expense: "NPE-0042",
+        bills: 1,
+        ...over,
+    });
+
+    it("heads the list by how many Expenses get a bill, and says nothing when none do", () => {
+        expect(lateBillsHeading(undefined)).toBeNull();
+        expect(lateBillsHeading([])).toBeNull();
+        expect(lateBillsHeading([late()])).toBe(
+            "1 existing Expense will get its bill. Its line is already imported and is not saved again"
+        );
+        expect(lateBillsHeading([late(), late({ expense: "NPE-0043" })])).toBe(
+            "2 existing Expenses will get their bills. Their lines are already imported and are not saved again"
+        );
+    });
+
+    it("names the Expense, the line and how many bills", () => {
+        expect(lateBillLabel(late())).toBe("NPE-0042 · OBO2 · Pay to merchant");
+        expect(lateBillLabel(late({ remarks: "", bills: 3 }))).toBe("NPE-0042 · OBO2 · 3 bills, merged");
+    });
+
+    it("offers the confirm for a file whose only work is late bills, named for what it does", () => {
+        const onlyLate = { creating: 0, refused: false, late_bills: [late()] };
+        expect(canConfirm(onlyLate)).toBe(true);
+        expect(confirmLabel(onlyLate)).toBe("Add 1 bill");
+        expect(confirmLabel({ ...onlyLate, late_bills: [late(), late()] })).toBe("Add 2 bills");
+        expect(confirmLabel({ creating: 3, late_bills: [late()] })).toBe("Create 3 records");
+        expect(canConfirm({ creating: 0, refused: false, late_bills: [] })).toBe(false);
+        expect(canConfirm({ creating: 3, refused: true })).toBe(false);
+    });
+
+    it("says what became of the late bills once the job is done", () => {
+        expect(lateBillsDoneText(0, false)).toBeNull();
+        expect(lateBillsDoneText(2, true)).toBe("Adding bills to 2 existing Expenses…");
+        expect(lateBillsDoneText(1, false)).toBe(
+            "Bill added to 1 existing Expense, unless someone had already attached an invoice or marked it No invoice."
         );
     });
 });

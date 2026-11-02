@@ -12,6 +12,8 @@ import {
     duplicateNotice,
     invoiceCountsText,
     isLoneRow,
+    lateBillLabel,
+    lateBillsHeading,
     ledgerSections,
     openLinesHeading,
     pairSpendLabel,
@@ -55,6 +57,8 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const openLines = preview.open_lines ?? [];
     const pairsTitle = pairsHeading(pairs);
     const openTitle = openLinesHeading(openLines);
+    const lateBills = preview.late_bills ?? [];
+    const lateTitle = lateBillsHeading(lateBills);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -137,6 +141,23 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                                         {[row.row_kind, row.transfer_id, row.remarks].filter(Boolean).join(" · ")}
                                     </span>
                                 </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1593: existing Expenses that get a bill from a line already imported. */}
+            {lateTitle && (
+                <div className="rounded-md border bg-muted/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{lateTitle}</p>
+                    <div className="border-t">
+                        {lateBills.map((line) => (
+                            <div key={line.expense} className="flex items-baseline gap-3 px-3 py-1.5 text-xs">
+                                <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {formatToRoundedIndianRupee(line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{lateBillLabel(line)}</span>
                             </div>
                         ))}
                     </div>
