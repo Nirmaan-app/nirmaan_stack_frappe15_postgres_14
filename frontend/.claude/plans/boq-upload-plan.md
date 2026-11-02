@@ -50269,3 +50269,82 @@ G6 (a) / G7 (a) / G16 (a) / G22 (a); DEV2-B1 answer 3 (the suites' known writes)
 - RULES on pool rows uses stored readings only; S8's scratch-only paid readings are not in the app (the source of every
   RULES parity difference).
 - The parallel runner still has no --site option (DEV2-B1 Q1 (a)): this slice used the same scratch copy.
+
+## Slice DEV2-B3 - H2 build 3 of 6: the judge, N1b, the bench script and the paid bench run (GO; nothing switched on) - as built 2026-11-03
+
+Desktop session `devb3` on dev2, delegated by the laptop. FIVE commits (owner answer 2 added the fifth): C1 `d84768a4d`
+(size guard; product cost cap removed; one migrate), C2 `4ddd7cc47` (judge + N1b), C3 `95c6ed41a` (the bench script),
+C3b `ecf31836f` (fix: bench trap targets carry their card), C4 (this entry + `boq-rate-master.md`). One migrate (dev2).
+Paid calls: judge only, files only - P2 660 + P2b 260 (the bench) and T4 141 + 206 (one real BoQ). No setting value
+written, no card call, no parse, no browser. Writes outside the repo: the bench data + the bench pool in dev2's
+private folder `boq_rate_match/bench/`, scratch files. Report and ledger: `2026-11-02_DEV2-B3_Report.md` / `_Ledger.md`
+(desktop and laptop: `Historical Rate Suggest\DEV2-B3\`).
+
+Owner rulings carried: R-H2AH (the Haiku judge = DEV2-S8 J10h: J8's prompt + its two changes, short reply; + N1b;
+N2 dropped); G13 / build requirement 3 (colours: SAME green, UNCLEAR amber, CLOSE red, DIFFERENT not shown; never colour
+alone); build requirement 2 (the bench stays a runnable check); NO COST CAP IN THE PRODUCT (2026-11-02 23:23, amends
+R-H2AD: "that $5 limit was just for our purpose...a guideline...it should not be a part of the code or setting");
+R-H2SPEC, R-H2T, R-H2AB, R-H2AC; DEV2-B1 answer 3 (the suites' known writes). Slice answers (relayed):
+- Answer 1 (23:41, to Q1): "option A" - the doctype DEFAULT of `match_reply_max_tokens` 1,024 -> 32,000 in C1 (J10h
+  ran at 32,000; Haiku's short reply costs a median 2,583 output tokens - it reasons first; at 1,024 ~99 % of replies
+  would be cut). No value written.
+- Answer 2 (00:52, to Q2): "option B" - the bench script gave the 260 TRAP targets no card (it read the pool's card
+  index, pool rows only); fix as its own fifth commit; re-run only the traps (P2b), P2 + P2b under P2's $4.
+- Answer 3 (01:28, to Q3): "A" - T4 stopped early on the slice's own test-budget guard (50 in-flight upper bounds of
+  32,000 output tokens reserved ~2.3M tokens against T4's 4M); re-run T4 complete. OPEN for B4: a budget-guard refusal
+  must skip that call and carry on, never be read by the runner as a connection error that stops the run.
+
+### 1. Built
+- C1 - `BOQ Upload Review AI Settings`: + `match_max_request_tokens` (Int, default 100000), - `match_cost_cap_usd`,
+  `match_reply_max_tokens` default 32000. `call_runner`: the SIZE GUARD (a request whose chars / 2 estimate passes the
+  setting is not sent, named in `refused` with reason `too_large`, the run goes on; at the limit it is sent); the cost
+  reservation, the `cost_cap` stop and `run(cap_usd=)` removed; per-call tokens / USD / seconds and run totals kept.
+  `ai_settings`: the getter / `require_match_settings` carry the guard, no cap. `cards`: no BoQ-spend cap
+  (`boq_card_spend` kept for reporting). B1's cap pins inverted (no cost refusal exists; spend recorded).
+- C2 - `judge.py` (one request per target, J10h's byte for byte: `judge_prompt.txt` = J10h's prompt at 20, the count
+  set by its three phrases; blocks `{c, text: the whole Suggest payload, unit, card + values after the rules}`; the
+  shuffle `random.Random(f"{seed}|j8|{id}")`, seed recorded; through the runner with the judge settings; strict parse ->
+  "no verdict" on any missing / extra / repeated / malformed id; N1b; ordered SAME > CLOSE > UNCLEAR > DIFFERENT then
+  the judge's order; the coloured matches with verdict word, N1b note, spend) + `judge_n1b.py` (N1b rules a / b / c and
+  the payload's values after the rules, read from the server pricing step's records - the pool keeps no finals, so the
+  judge prices its rows' sheets once per run).
+- C3 + C3b - `scripts/_instruments/h2_bench.py`: the standing bench (data in the site's private folder, sha-checked
+  manifest); app lanes on the pool as of the bench date (cached beside the data), judge, N1b, S8's X1 scoring, the table,
+  per-target orders, the X3 blind export; `--dry` PLAN, `--archive`, `--selfcheck`, test-budget flags.
+
+### 2. Proofs
+- Judge parity: 660 / 660 requests built from S8's saved lists, seed and row data byte-equal to every J10h request
+  actually sent; 660 / 660 N1b orders (and raw orders) equal to S8's; the app's own data path differs only in "values
+  after the rules": 1,144 SKU names carry the brand word (the browser's catalogue), 2 LMS rows price only with the brand
+  projection, 335 rows have no stored reading (S8 signed them from scratch-only paid readings) - 0 unexplained.
+- Bench scorer: `--selfcheck` on S8's saved orders = S8's table (J10h + N1b bench 180 / 160 of 199, held-out 64 / 57 of 68).
+- P2 (660 calls, $1.585): bench top 5 178 / first 160 of 199, held-out 65 / 57 of 68 -> GO (thresholds 177 / 156 / 63 /
+  54; S8 line 8 = 180 / 160, 64 / 57; minus MEAN 180 / 159, 65 / 56). P2b traps (260 calls, $0.645): size-changed first
+  and SAME 2 / 100 (S8 3), reworded original first 91 / 100 (S8 85), S0 flipped called SAME 0 / 34 (0), added 3 / 26 (5).
+- T4 (BOQ-26-00328, 206 rows, 50 at once; reported apart, answer 3): run 1 stopped on the test-budget guard after 141
+  calls ($0.426; 65 rows not sent, named); the complete re-run: 206 calls, wall 158.4 s (pool load 1.4, the BoQ's own
+  pricing step 10.8, lanes 57.1, prepare 9.1, judge round 64.3), peak RSS 824 MB + node 792 MB, 3.39M tokens, $0.594;
+  rows by first colour green 92 / red 112 / amber 2. Lanes forked from one loaded pool: 1 / 2 / 3 processes 56.4 /
+  33.0 / 23.7 s. Slice spend $3.25 (cap $7).
+- F1: `git archive HEAD` + the full `yarn build` outside the checkout: the bundle and stamp byte-equal to the
+  checkout's (with node_modules copied; a symlinked node_modules makes esbuild print real paths into module labels -
+  the only difference); Parity 1 3 / 3 against it; the served frontend untouched.
+- F2 (report only): the driving-field measure on ALL stored rows - 19 / 21 categories = the 400-row sample; hvac_adp
+  loses neck_mm / size_mm, db_switchgear gains mcb5_qty; 113 V1 rows move; bench lists 299 / 300 equal, recall unchanged.
+- Vacuity (scratch copies): the size guard (runner + judge), the parse's no-verdict path, N1b apply / rule a / rule c
+  (both sides), the DIFFERENT drop, the scorer's first-row count, the trap card - each RED, then GREEN.
+- Suites (Python only; no frontend file changed): targeted before C1 15 modules OK (the 3 changed + every test naming
+  ai_settings / call_runner / cards / the settings doctype); C2 test_judge 14, C3 test_h2_bench 4, C3b 5 (measured into
+  the plan); after the last code commit the FULL Python BoQ set 97 / 97 OK, 4,650 tests (before 92 / 4,560 + B2's 3);
+  changed counts only test_match_settings 10 -> 12, test_call_runner 20 -> 23, test_cards 20 -> 21.
+- Replay 18,106 rows, ac7 56fb5640... / ac7v2 978f871f... equal at D0 and D2.
+
+### 3. Open
+- B4: a budget-guard refusal must skip the call and carry on (answer 3); the runner's no-status exception = connection
+  error rule stays for real network errors.
+- B4: the judge prices its rows' sheets per run (pool rows keep no finals): T4's prepare step 9.1 s; storing the
+  records in the pool is a B2-owned change for a later slice if speed needs it.
+- Lane speed unchanged (~0.28 s a row in one process); forking from a loaded pool: 2 workers 33.0 s, 3 workers 23.7 s
+  for 206 rows (B4 picks).
+- No retry on a malformed reply (S8 re-asked once): P2 had 1 such target (T086), T4 run 1 had 1.
+- The pool cache files are not synced to the laptop (rebuilt on demand); the bench folder is dev2-only until copied.

@@ -31,9 +31,42 @@ is current**: it is the text root `CLAUDE.md` carried until the move, after pass
 **HISTORICAL MATCHING'S MODEL NAMES LIVE IN THE AI SETTINGS, NEVER IN CODE (owner BUILD REQUIREMENTS; DEV2-B1 open
 item 4).** The card model and the judge model are `match_card_model` / `match_judge_model` on `BOQ Upload Review AI
 Settings`, read through `ai_settings.get_boq_match_settings` / `require_match_settings`, with NO code fallback and no
-doctype default: an empty field refuses with a plain message. The same holds for their prices, the calls-at-once, the
-reply caps and the cost cap. A model string in `services/boq_rate_match/` is a defect. (The older `model` field, its
-`claude-sonnet-4-6` fallback and `_DEFAULT_MODEL` serve Suggest / classification and are deliberately left alone, G8.)
+doctype default: an empty field refuses with a plain message. The same holds for their prices; the calls-at-once, the
+reply caps (both 32000: the judge model reasons before its short reply, DEV2-S8 J10h median 2,583 output tokens -
+owner answer 1 to DEV2-B3 Q1) and the size guard (`match_max_request_tokens`, 100000: a request whose chars / 2
+estimate passes it is not sent, reason `too_large`, the run goes on) are settings with doctype defaults. A model string
+in `services/boq_rate_match/` is a defect. (The older `model` field, its `claude-sonnet-4-6` fallback and
+`_DEFAULT_MODEL` serve Suggest / classification and are deliberately left alone, G8.)
+**THERE IS NO COST CAP IN THE PRODUCT (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our
+purpose...a guideline...it should not be a part of the code or setting").** $5 a BoQ is a design guideline the slices
+measure and report; it is never a setting, a constant or a refusal (DEV2-B3 removed B1's `match_cost_cap_usd`, the
+runner's reservation and the cards' BoQ cap). Spend is still RECORDED per call (tokens, USD, seconds) and per run. A
+paid slice's caps are test budgets in its own plan lines (h2_bench.py's `--max-*` flags), not product code.
+
+**THE JUDGE IS DEV2-S8 J10h, BYTE FOR BYTE, AND ITS RESULT IS COLOURED (owner R-H2AH; G13 / build requirement 3).**
+`services/boq_rate_match/judge.py` sends one request per target: `judge_prompt.txt` (J10h's prompt at 20 candidates;
+the count enters by its three phrases), the target and each candidate as `{"c", "text": the whole Suggest payload,
+"unit", "card": the spec card + "values after the pricing rules"}`, shuffled by `random.Random(f"{seed}|j8|{id}")`
+with the seed recorded. Never reword, trim or reorder the prompt or a block without re-running the bench: DEV2-B3
+proved 660 / 660 requests byte-equal to J10h's archive and 660 / 660 N1b orders equal to S8's. A reply that does not
+give every candidate exactly one verdict and every number once in "order" is NO VERDICT for that target - never
+guessed. N1b (`judge_n1b.py`) then turns a SAME into CLOSE when the pricer's own reading (rule a), or for an
+unconfigured target the row's own numbers (rule b), or a number the rules read (rule c) differs. The panel's colour:
+SAME after N1b = green, UNCLEAR = amber, CLOSE = red, DIFFERENT not shown; colour is never the only signal (each match
+carries its verdict word and its N1b note).
+
+**THE H2 BENCH IS THE STANDING CHECK; RUN IT BEFORE ANY MODEL OR PROMPT SWITCH (owner build requirement 2; DEV2-B3).**
+`scripts/_instruments/h2_bench.py` runs the app's lanes, judge and N1b on the 300 bench + 100 held-out + 260 traps and
+scores them exactly as DEV2-S8's X1 (GO: bench top 5 >= 177 and first >= 156 of 199; held-out top 5 >= 63 and first
+>= 54 of 68). Its data lives in the site's private folder `private/boq_rate_match/bench/` (manifest.json with every
+file's sha256; the script refuses a missing or changed file; client BoQ text never enters the repo); copy that folder
+to a site to run it there. Run it, at the settings' prices (about 660 calls, ~11M tokens), before switching the judge
+or card model, changing judge_prompt.txt / card_prompt.txt, the lanes or N1b - and compare with the last table. `--dry`
+prints the PLAN (calls, tokens, $) with no call; `--archive` keeps every request and raw reply; `--selfcheck <orders>`
+re-scores a saved run. Never build a pool (the bench's or production's) while a Python suite runs: test_rate_master's
+re-save moves the pricing stamp mid-build. The `--max-*` budget reserves every in-flight call's upper bound (its input +
+the 32000 reply cap): at 50 calls at once that is ~2.3M tokens / ~$0.9 held, so a budget must sit that far above the
+run's projection, and today a refusal stops the run (the runner reads it as a connection error - B4 fixes that).
 
 **THE SERVER PRICING STEP IS BUILT FROM THE BROWSER'S PRICING SOURCE ON EVERY DEPLOY; IT IS NEVER COPIED, AND ITS PARITY
 VITEST RUNS WHENEVER A PRICING FILE CHANGES (owner G2 option A, DEV2-B2).** Historical matching's RULES lane, the values
