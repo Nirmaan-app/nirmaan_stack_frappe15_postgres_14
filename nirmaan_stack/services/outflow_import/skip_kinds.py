@@ -46,6 +46,10 @@ SKIP_KIND_PORTER_CANCELLED = "Porter order cancelled"
 SKIP_KIND_CARD_PAYMENT = "Card payment received"
 SKIP_KIND_CARD_CASHBACK = "Card cashback"
 SKIP_KIND_CARD_REFUND_PAIR = "Card refund pair"
+# A Cashbook refund that gives back the whole of a spend on the same statement, and that spend (#1594, ADR-0015
+# Amendment B decision 7). GLOSSARY: *Paired wallet refund*. Both lines are skipped, each naming the other. A
+# Cashbook system skip, so it stays skipped (`skip_origin.unskip_refusal`'s Cashbook rule).
+SKIP_KIND_CASHBOOK_REFUND_PAIR = "Paired wallet refund"
 
 # Keyed by the `bank_exclusions` category id as a plain string: this leaf imports nothing, and
 # `status.derive_staged_row_outcome` is handed the id rather than importing `bank_exclusions`. Parity with `SKIP_CATEGORY_IDS` is pinned by test.
@@ -84,6 +88,7 @@ SKIP_KINDS = (
     SKIP_KIND_CARD_PAYMENT,
     SKIP_KIND_CARD_CASHBACK,
     SKIP_KIND_CARD_REFUND_PAIR,
+    SKIP_KIND_CASHBOOK_REFUND_PAIR,
 )
 
 # The kinds a BANK-STATEMENT RULE decided (`bank_exclusions`): the line was read as money moving inside
@@ -109,5 +114,8 @@ SKIP_KIND_RULE_DESCRIPTIONS: dict[str, str] = {
     SKIP_KIND_CARD_BILL: "Paying the credit card bill. The card's own spends are recorded separately.",
     SKIP_KIND_CARD_AUTO_DEBIT: "An automatic debit that services the card or credit facility. Not a purchase.",
     SKIP_KIND_CASHBOOK_INTERNAL: "Money moving between our own Cashbook balances. Not a spend.",
+    SKIP_KIND_CASHBOOK_REFUND_PAIR: (
+        "A wallet refund that gives back the whole of a spend on the same statement. Neither line is recorded."
+    ),
 }
 

@@ -37,6 +37,15 @@ export interface CashbookSkippedRow {
     amount: number;
     remarks: string;
     reason: string;
+    /** #1594: who paid or was paid, and the statement's Type. Absent from a server that predates it. */
+    beneficiary_name?: string;
+    row_kind?: string;
+}
+
+/** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
+export interface CashbookRefundPair {
+    refund: CashbookSkippedRow;
+    spend: CashbookSkippedRow;
 }
 
 export interface CashbookPreviewResult {
@@ -64,6 +73,11 @@ export interface CashbookPreviewResult {
     duplicate_of_batch: string | null;
     /** #1591: the spends to create, by their bills. Absent from a server that predates it. */
     invoices?: InvoiceCounts;
+    /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
+    pairs?: CashbookRefundPair[];
+    /** #1594: the lines that stay open on the main table (unpaired wallet refunds, wallet credits). */
+    open_lines?: CashbookSkippedRow[];
+    opening?: number;
 }
 
 export interface InvoiceCounts {
@@ -274,3 +288,33 @@ export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined)
         ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
         : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
 };
+
+/**
+ * The heading over the Paired wallet refunds on Review (#1594), or null when there are none:
+ * "2 paired wallet refunds: each refund gives back a whole spend, so neither line is recorded".
+ */
+export const pairsHeading = (pairs: readonly CashbookRefundPair[] | undefined): string | null => {
+    const n = pairs?.length ?? 0;
+    if (n === 0) return null;
+    return n === 1
+        ? "1 paired wallet refund: the refund gives back the whole spend, so neither line is recorded"
+        : `${count(n)} paired wallet refunds: each refund gives back a whole spend, so neither line is recorded`;
+};
+
+/**
+ * The heading over the lines that stay open (#1594), or null when there are none. They are decided on the
+ * main table, with the choices a card credit has.
+ */
+export const openLinesHeading = (lines: readonly CashbookSkippedRow[] | undefined): string | null => {
+    const n = lines?.length ?? 0;
+    if (n === 0) return null;
+    return n === 1
+        ? "1 line will stay open for someone to decide on the transactions screen"
+        : `${count(n)} lines will stay open for someone to decide on the transactions screen`;
+};
+
+/** How a pair's spend reads beside its refund: "Collect Payment OBO…3 · Testshop Collect Three". */
+export const pairSpendLabel = (pair: CashbookRefundPair): string =>
+    [`${pair.spend.row_kind || "Spend"} ${pair.spend.transfer_id}`, pair.spend.beneficiary_name || pair.spend.remarks]
+        .filter(Boolean)
+        .join(" · ");

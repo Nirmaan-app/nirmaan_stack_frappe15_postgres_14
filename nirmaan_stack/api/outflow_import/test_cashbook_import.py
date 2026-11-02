@@ -348,8 +348,9 @@ class TestTheWorker(CashbookImportCase):
     def test_the_batch_status_follows_its_rows(self):
         self.assertEqual(frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Draft")
         cb._cashbook_worker(self.batch, "Administrator")
+        # #1594: the sample's wallet credit stays open for a person, so the batch is not Completed yet.
         self.assertEqual(
-            frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Completed"
+            frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Partially Settled"
         )
 
 
@@ -371,7 +372,7 @@ class TestStatus(CashbookImportCase):
     def test_the_counts_account_for_every_staged_row(self):
         cb._cashbook_worker(self.batch, "Administrator")
         status = cb.get_cashbook_status(self.batch)
-        total = status["created"] + status["failed"] + status["skipped"] + status["pending"]
+        total = status["created"] + status["failed"] + status["skipped"] + status["pending"] + status["open"]
         self.assertEqual(total, len(self.parsed.rows))
 
 
@@ -875,7 +876,7 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
             "Outflow Import Row",
             filters={"import_batch": batch},
             fields=["transfer_id", "row_status", "skip_kind", "skip_reason", "skip_origin",
-                    "source", "amount"],
+                    "source", "amount", "direction"],
         )
 
     def _batch(self, batch):
@@ -1007,8 +1008,11 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
     def test_money_totals_describe_only_the_stored_lines(self):
         first = self._stage(self._file(self.data[:3]))
         second = self._stage(self.full)
+        # #1594: an open wallet credit is money IN, so it is not in the gross outflow.
         stored_gross = sum(
-            row.amount for row in self._stored(second) if row.row_status != ROW_SKIPPED
+            row.amount
+            for row in self._stored(second)
+            if row.row_status != ROW_SKIPPED and row.direction != "Credit"
         )
         self.assertEqual(self._batch(second).gross_amount, stored_gross)
         self.assertEqual(self._batch(second).gross_amount, 6750 - (180 + 70 + 6000))
