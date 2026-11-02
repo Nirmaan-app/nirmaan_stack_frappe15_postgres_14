@@ -11,6 +11,8 @@ attached or it is marked *No invoice*. Gates: the list and attach follow the Pen
 (`role_profiles.PENDING_INVOICE_UPLOAD_PROFILES`); No invoice is Admin and Accountant Lead
 (`CARD_NO_INVOICE_PROFILES`). The rules are `services/card_invoices.py`. Both writes re-read the expense
 `FOR UPDATE` and save through the document layer (its `doc_events` run, and `track_changes` keeps a Version).
+The gates and the two writes (`require_profile`, `save_invoice`, `save_no_invoice`) are shared with the Cashbook
+sub-tab (`cashbook_invoices.py`, #1592).
 """
 
 import frappe
@@ -33,15 +35,43 @@ from nirmaan_stack.services.role_profiles import (
 EXPENSE_DOCTYPE = "Non Project Expenses"
 
 
-def _require(profiles, sentence: str) -> str:
+def require_profile(profiles, sentence: str) -> str:
+    """The session user, or a PermissionError with `sentence` when they hold none of `profiles`."""
     user = frappe.session.user
     if not has_role_profile(user, profiles):
         frappe.throw(sentence, frappe.PermissionError, title="Not permitted")
     return user
 
 
-def _require_upload_access() -> str:
-    return _require(PENDING_INVOICE_UPLOAD_PROFILES, "You do not have permission to view pending invoice uploads.")
+def require_upload_access() -> str:
+    """The Pending Invoices Upload gate: the list and attach of every sub-tab that queues expenses."""
+    return require_profile(PENDING_INVOICE_UPLOAD_PROFILES, "You do not have permission to view pending invoice uploads.")
+
+
+def save_invoice(doc, facts, invoice_attachment: str, invoice_ref: str | None, invoice_date: str | None) -> dict:
+    """File the invoice on `doc` (read `FOR UPDATE`, `facts` read from it), refused by `attach_problem`; commits."""
+    problem = attach_problem(facts, invoice_attachment, invoice_date or None, today=nowdate())
+    if problem:
+        frappe.throw(problem)
+    doc.invoice_attachment = invoice_attachment.strip()
+    doc.invoice_ref = (invoice_ref or "").strip() or None
+    doc.invoice_date = invoice_date or None
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"name": doc.name}
+
+
+def save_no_invoice(doc, facts, reason: str | None, user: str) -> dict:
+    """Mark `doc` (read `FOR UPDATE`) *No invoice* by `user`, refused by `no_invoice_problem`; commits."""
+    problem = no_invoice_problem(facts, reason)
+    if problem:
+        frappe.throw(problem)
+    doc.no_invoice_reason = reason.strip()
+    doc.no_invoice_by = user
+    doc.no_invoice_at = now_datetime()
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return {"name": doc.name}
 
 
 @frappe.whitelist()
@@ -53,7 +83,7 @@ def get_card_invoice_queue() -> list[dict]:
     `statement_months` (every "YYYY-MM" its period overlaps, GLOSSARY *Statement month*; a statement always
     has both period dates, the doctype requires them). The screen filters by holder and statement month itself: the list is one or two statements' worth of spends.
     """
-    _require_upload_access()
+    require_upload_access()
     rows = frappe.db.sql(
         """
         SELECT e.name, e.payment_date, e.amount, e.type AS expense_type, e.payment_ref,
@@ -94,17 +124,9 @@ def attach_card_invoice(
 
     Example: `{"expense": "NPE-0042", "invoice_attachment": "/private/files/zomato.pdf"}` -> `{"name": "NPE-0042"}`.
     """
-    _require_upload_access()
+    require_upload_access()
     doc, facts = _locked_facts(expense)
-    problem = attach_problem(facts, invoice_attachment, invoice_date or None, today=nowdate())
-    if problem:
-        frappe.throw(problem)
-    doc.invoice_attachment = invoice_attachment.strip()
-    doc.invoice_ref = (invoice_ref or "").strip() or None
-    doc.invoice_date = invoice_date or None
-    doc.save(ignore_permissions=True)
-    frappe.db.commit()
-    return {"name": doc.name}
+    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -114,14 +136,6 @@ def mark_card_no_invoice(expense: str, reason: str) -> dict:
 
     Example: `{"expense": "NPE-0042", "reason": "Toll booth, no receipt"}` -> `{"name": "NPE-0042"}`.
     """
-    user = _require(CARD_NO_INVOICE_PROFILES, "Only an Admin or an Accountant Lead can mark a card spend No invoice.")
+    user = require_profile(CARD_NO_INVOICE_PROFILES, "Only an Admin or an Accountant Lead can mark a card spend No invoice.")
     doc, facts = _locked_facts(expense)
-    problem = no_invoice_problem(facts, reason)
-    if problem:
-        frappe.throw(problem)
-    doc.no_invoice_reason = reason.strip()
-    doc.no_invoice_by = user
-    doc.no_invoice_at = now_datetime()
-    doc.save(ignore_permissions=True)
-    frappe.db.commit()
-    return {"name": doc.name}
+    return save_no_invoice(doc, facts, reason, user)

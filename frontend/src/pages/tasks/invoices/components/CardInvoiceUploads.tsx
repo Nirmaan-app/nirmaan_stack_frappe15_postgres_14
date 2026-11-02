@@ -11,15 +11,10 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
-import {
-    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-    AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import {
@@ -39,6 +34,7 @@ import {
     filterCardInvoices,
     statementMonthsLabel,
 } from "../utils/cardInvoicesView";
+import { NoInvoiceDialog } from "./NoInvoiceDialog";
 
 const API = "nirmaan_stack.api.expenses.card_invoices";
 
@@ -195,27 +191,15 @@ export const CardInvoiceUploads: React.FC = () => {
                 />
             )}
 
-            <AlertDialog open={!!noInvoiceFor} onOpenChange={(open) => { if (!open && !marking) setNoInvoiceFor(null); }}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Mark No invoice</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            {noInvoiceFor}: this spend will never have an invoice. Your name, the time and the reason
-                            are kept on the expense.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="card_no_invoice_reason">Reason <sup className="text-destructive">*</sup></Label>
-                        <Textarea id="card_no_invoice_reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-                    </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={marking}>Cancel</AlertDialogCancel>
-                        <Button onClick={submitNoInvoice} disabled={marking || !reason.trim()}>
-                            {marking ? "Saving..." : "Mark No invoice"}
-                        </Button>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            <NoInvoiceDialog
+                expense={noInvoiceFor}
+                reason={reason}
+                setReason={setReason}
+                saving={marking}
+                onClose={() => setNoInvoiceFor(null)}
+                onSubmit={submitNoInvoice}
+                inputId="card_no_invoice_reason"
+            />
         </div>
     );
 };
