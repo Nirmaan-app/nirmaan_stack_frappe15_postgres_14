@@ -320,11 +320,12 @@ SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
 SKIP_REASON_ALREADY_IMPORTED_AS = "Already imported in batch {batch} as {records}."
 # A hand Link of a Cashbook line whose Txn Id another line already holds Settled to a DIFFERENT Expense (#1601):
 # the same index refused the Link's match row. `{records}` is "<ledger> <name>", `{target}` the Expense the person
-# picked. A refusal sentence on the screen, never a skip, so it does not start "Already imported".
+# picked. A refusal sentence on the screen, never a skip, so it does not start "Already imported". It does not say
+# "Nothing was linked.": the Link dialog prints that before every refusal.
 LINK_REFUSED_TXN_ID_HELD = (
     "Txn Id {transfer_id} is already recorded as {records}, in batch {batch}, so it cannot be linked to "
-    "{target} as well: one wallet spend has one expense. Nothing was linked. To link it here instead, "
-    "Unreconcile that line first."
+    "{target} as well: one wallet spend has one expense. To link it here instead, Unreconcile that line "
+    "first."
 )
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 # ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
