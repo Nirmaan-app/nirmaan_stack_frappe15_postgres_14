@@ -14,6 +14,8 @@ import {
     ledgerSections,
     progressFraction,
     progressText,
+    showsResume,
+    stoppedText,
     sortGroups,
     typeHint,
     typeLabel,
@@ -46,6 +48,7 @@ const status = (over: Partial<CashbookStatus> = {}): CashbookStatus => ({
     skipped: 0,
     pending: 0,
     running: false,
+    stopped: false,
     batch_status: "Completed",
     ...over,
 });
@@ -160,6 +163,31 @@ describe("the progress line", () => {
 
     it("shows something before the first poll returns", () => {
         expect(progressText(null, 115)).toBe("Creating 115…");
+    });
+});
+
+describe("a job that stopped part-way (#1589)", () => {
+    const stopped = status({ created: 2, pending: 12, stopped: true, batch_status: "Draft" });
+
+    it("says how many lines are still waiting", () => {
+        expect(stoppedText(stopped)).toBe("Stopped: 12 lines still waiting");
+        expect(stoppedText(status({ pending: 1, stopped: true }))).toBe("Stopped: 1 line still waiting");
+    });
+
+    it("is the progress line once the job has stopped", () => {
+        expect(progressText(stopped, 14)).toBe("Stopped: 12 lines still waiting");
+    });
+
+    it("offers Resume only when lines wait and no job is queued or running", () => {
+        expect(showsResume(stopped)).toBe(true);
+        expect(showsResume(status({ pending: 12, running: true }))).toBe(false);
+        expect(showsResume(status({ created: 14 }))).toBe(false);
+        expect(showsResume(null)).toBe(false);
+    });
+
+    it("says nothing about stopping while the job runs or after it finished", () => {
+        expect(stoppedText(status({ pending: 12, running: true }))).toBeNull();
+        expect(stoppedText(status({ created: 14 }))).toBeNull();
     });
 });
 

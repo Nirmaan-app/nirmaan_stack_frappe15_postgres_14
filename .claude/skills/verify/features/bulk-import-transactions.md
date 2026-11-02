@@ -14,6 +14,8 @@ past imports by source and month.
 - `bit-history` `Import history` opens a dialog with one tab per source (`Cashfree`, `Credit Card`,
   `ICICI Bank Statement`, `Cashbook`, `Porter Statement`) and a `Statement month` combobox.
 - `bit-confirm` `Confirm <n> matched` settles the ticked matches (disabled at 0).
+- `bit-cashbook-resume` a pinned Cashbook import whose job stopped part-way shows `Stopped: N lines still waiting`
+  and `Resume` above the tabs; while its job runs, `Creating… X created, N still waiting.` (#1589).
 
 ## How to get to it (user POV)
 
@@ -33,6 +35,11 @@ Preconditions:
 - **Import dialog.** Click `Import statement`. `dialog "Import a bank statement"` opens with `combobox "Source"`.
   Close it with `Escape`.
 - **History.** Click `Import history`. `dialog "Import history"` opens with the source tabs.
+- **Resume a stopped Cashbook import.** Seed one with `DEVENV script`: stage the fixture
+  (`cashbook._stage`) and run `_cashbook_worker` with `_write_one` patched to raise a `BaseException` after two
+  lines. Open it from `Import history` → `Cashbook` → its month → the file name; the page pins it. Press `Resume`.
+  ⚠️ An env runs no RQ worker: drain the queue with `DEVENV run <task> worker --queue long` (it does not exit; wrap
+  it in `timeout`). Delete the batch afterwards (`test_cashbook_import._purge`): its fixture Txn Ids break tests.
 
 ## Gotchas
 

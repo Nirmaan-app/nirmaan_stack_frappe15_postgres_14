@@ -78,7 +78,10 @@ export interface CashbookStatus {
     failed: number;
     skipped: number;
     pending: number;
+    /** The batch's job is queued or running (the queue's answer, not the pending count; #1589). */
     running: boolean;
+    /** Lines still wait and no job is queued or running: the job stopped part-way, Resume finishes it. */
+    stopped: boolean;
     batch_status: string | null;
 }
 
@@ -188,6 +191,8 @@ export const createLabel = (count: number): string =>
  */
 export const progressText = (status: CashbookStatus | null, creating: number): string => {
     if (!status) return `Creating ${creating}…`;
+    const stopped = stoppedText(status);
+    if (stopped) return stopped;
     const done = status.created + status.failed;
     if (status.running) return `Created ${status.created} of ${creating}…`;
     if (status.failed > 0) {
@@ -202,3 +207,18 @@ export const progressFraction = (status: CashbookStatus | null, creating: number
     if (!status) return 0;
     return Math.min(1, (status.created + status.failed) / creating);
 };
+
+export const CASHBOOK_STATUS_METHOD = "nirmaan_stack.api.outflow_import.cashbook.get_cashbook_status";
+export const CASHBOOK_RESUME_METHOD = "nirmaan_stack.api.outflow_import.cashbook.resume_cashbook_import";
+
+/**
+ * Resume is offered when the job stopped part-way: lines still wait and no job is queued or running (#1589).
+ * The server's `stopped` decides it; the server asks every rule again on the press.
+ */
+export const showsResume = (status: CashbookStatus | null | undefined): boolean => Boolean(status?.stopped);
+
+/** "Stopped: N lines still waiting" for a job that stopped part-way; null while it runs or once it is done. */
+export const stoppedText = (status: CashbookStatus | null | undefined): string | null =>
+    status?.stopped
+        ? `Stopped: ${status.pending} ${status.pending === 1 ? "line" : "lines"} still waiting`
+        : null;

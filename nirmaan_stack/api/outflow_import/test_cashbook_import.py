@@ -16,6 +16,7 @@ turn a passing test red.
 """
 
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -340,11 +341,19 @@ class TestTheWorker(CashbookImportCase):
 
 
 class TestStatus(CashbookImportCase):
-    def test_it_reports_running_until_no_row_is_pending(self):
-        """Counted from the rows, which are the durable record -- no Redis marker to disagree."""
-        self.assertTrue(cb.get_cashbook_status(self.batch)["running"])
+    def test_running_is_the_job_and_pending_lines_without_one_are_stopped(self):
+        """#1589: `running` asks the queue, never the pending count -- a job that died part-way leaves
+        lines pending with nothing to write them, which is `stopped`, the state Resume answers."""
+        with patch.object(cb, "is_job_enqueued", return_value=True):
+            status = cb.get_cashbook_status(self.batch)
+        self.assertTrue(status["running"])
+        self.assertFalse(status["stopped"])
+        # Staged, and no job queued for it: stopped.
+        self.assertTrue(cb.get_cashbook_status(self.batch)["stopped"])
         cb._cashbook_worker(self.batch, "Administrator")
-        self.assertFalse(cb.get_cashbook_status(self.batch)["running"])
+        status = cb.get_cashbook_status(self.batch)
+        self.assertFalse(status["running"])
+        self.assertFalse(status["stopped"])
 
     def test_the_counts_account_for_every_staged_row(self):
         cb._cashbook_worker(self.batch, "Administrator")
