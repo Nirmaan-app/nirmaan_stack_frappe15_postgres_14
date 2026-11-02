@@ -164,6 +164,22 @@ class TestAnExpiredLinkIsNotTried(FrappeTestCase):
         self.assertIn("expired on 08-Jan-2026", got.reason)
 
 
+
+class TestRecordingABillProblemNeverRaises(FrappeTestCase):
+    """Third review: the job's "Never raises" holds when writing a line's `bill_problem` itself fails."""
+
+    def test_a_transient_refusal_leaves_the_copy_owed(self):
+        with patch.object(bills, "_write_bill_problem", side_effect=SerializationFailure("concurrent update")):
+            self.assertFalse(bills._record_bill_problem("no-such-line", "Bill not copied: x."))
+
+    def test_any_other_failure_is_logged_and_the_line_is_dealt_with(self):
+        with patch.object(bills, "_write_bill_problem", side_effect=ValueError("boom")), patch.object(
+            bills.frappe, "log_error"
+        ) as logged:
+            self.assertTrue(bills._record_bill_problem("no-such-line", "Bill not copied: x."))
+        logged.assert_called_once()
+
+
 def _refused_once(real, only=lambda *args: True):
     """`real`, except that its first call `only` picks raises Postgres's serialization refusal (another writer got
     there first)."""

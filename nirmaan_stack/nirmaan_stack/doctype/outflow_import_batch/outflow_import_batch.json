@@ -200,7 +200,7 @@
    "read_only": 1
   },
   {
-   "description": "Cashbook Statement only: the bill copies this import's job makes outside its own lines (#1593, #1596), kept so Resume can finish them: {\"late_bills\": [{transfer_id, doctype, expense, links, done, problem}], \"reopened\": [earlier lines]}. Written at confirm; each late bill is marked done (with its problem, if any) by the job. A dict, never a bare list.",
+   "description": "Cashbook Statement only: the bill copies this import's job owes outside its own created lines (#1593, #1595, #1596), kept so Resume can finish them: {\"late_bills\": [{transfer_id, doctype, expense, links, done, problem}], \"collect\": [{line, done}]}. collect names the open Collect payment lines whose bills this import copies onto the line: its own, and the earlier ones it re-opened, which stay in their own import. Written at confirm (cashbook_bills.new_bill_work); the job marks each entry done (a late bill with its problem, if any). A dict, never a bare list; NULL when the import owes no such copy.",
    "fieldname": "cashbook_bill_work",
    "fieldtype": "JSON",
    "label": "Cashbook Bill Work",
@@ -210,7 +210,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-11-02 14:25:48.711724",
+ "modified": "2026-11-02 19:09:53.597001",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Batch",

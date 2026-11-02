@@ -84,7 +84,7 @@ def expired_links_refusal(
     earliest = earliest_link_expiry(rows)
     if earliest is None or earliest - now >= LINK_EXPIRY_MARGIN:
         return None
-    return LINKS_EXPIRED_MESSAGE.format(date=_named(earliest, tz))
+    return LINKS_EXPIRED_MESSAGE.format(date=_expiry_as_text(earliest, tz))
 
 
 def expired_link_reason(url: str, now: datetime, tz: tzinfo = timezone.utc) -> str | None:
@@ -93,9 +93,9 @@ def expired_link_reason(url: str, now: datetime, tz: tzinfo = timezone.utc) -> s
     expires = link_expires_at(url)
     if expires is None or expires > now:
         return None
-    return f"its link expired on {_named(expires, tz)}"
+    return f"its link expired on {_expiry_as_text(expires, tz)}"
 
 
-def _named(moment: datetime, tz: tzinfo) -> str:
+def _expiry_as_text(moment: datetime, tz: tzinfo) -> str:
     """A link's expiry as a person reads it, in the site's zone."""
     return moment.astimezone(tz).strftime("%d-%b-%Y %H:%M")

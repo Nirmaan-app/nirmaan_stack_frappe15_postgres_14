@@ -125,16 +125,13 @@ def copy_created_line_bills(row_name: str) -> None:
     )
     if not dealt_with:
         # Nothing retries a created line's copy (its Expense waits in Pending Invoices Upload), so even a transient
-        # refusal is named in the summary. Should that write be refused too, the Error Log is all that is left: the
-        # job goes on with the next line ("Never raises").
-        try:
-            _write_bill_problem(row_name, not_copied(len(links_of(line)), BILLS_NOT_STORED))
-        except Exception:
-            frappe.db.rollback()
+        # refusal is named in the summary; should that write be refused again, only the Error Log records it.
+        if not _record_bill_problem(row_name, not_copied(len(links_of(line)), BILLS_NOT_STORED)):
             frappe.log_error(
                 title="Cashbook import: could not record a bill not copied",
-                message=f"{row_name}\n\n{frappe.get_traceback()}",
+                message=f"{row_name}: the database refused the write twice",
             )
+            frappe.db.commit()
 
 
 # --- an open Collect payment (#1595) ----------------------------------------------------------------------
@@ -340,10 +337,11 @@ def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[
 def _copy_onto(
     row_name: str, transfer_id: str, links: list[str], attach: Callable, failure: tuple[str, str]
 ) -> bool:
-    """Steps 2 and 3 for one line's bills, with `attach(saved)` as step 3. Returns whether the line was dealt with:
-    `False` only when the database refused it transiently (`is_retried_by_resume`), so nothing is written and the
-    copy can be tried again. Anything else that stops the copy is written on the line's `bill_problem`, and an unexpected error is
-    also logged (`failure` is the Error Log's title and subject)."""
+    """Steps 2 and 3 for one line's bills, with `attach(saved)` as step 3. Never raises. Returns whether the line
+    was dealt with: `False` only when the database refused it transiently (`is_retried_by_resume`), so nothing is
+    written and the copy can be tried again. Anything else that stops the copy is written on the line's
+    `bill_problem` (`_record_bill_problem`), and an unexpected error is also logged (`failure` is the Error Log's
+    title and subject)."""
     if not links:
         return True
     try:
@@ -357,16 +355,27 @@ def _copy_onto(
         title, subject = failure
         frappe.log_error(title=title, message=f"{subject}\n\n{frappe.get_traceback()}")
         problem = not_copied(len(links), BILLS_NOT_STORED)
-    if problem:
-        try:
-            _write_bill_problem(row_name, problem)
-        except Exception as exc:
-            # Writing the reason can meet the same transient refusal; the copy is then still owed, never lost.
-            frappe.db.rollback()
-            if is_retried_by_resume(exc):
-                return False
-            raise
+    if problem and not _record_bill_problem(row_name, problem):
+        return False
     frappe.db.commit()
+    return True
+
+
+def _record_bill_problem(row_name: str, problem: str) -> bool:
+    """Write the line's `bill_problem`. Never raises. Returns `False` when the database refused the write
+    transiently (`is_retried_by_resume`), so the copy is still owed; any other failure is logged, and the line is
+    dealt with all the same (the Error Log is then the only record of its reason)."""
+    try:
+        _write_bill_problem(row_name, problem)
+    except Exception as exc:
+        frappe.db.rollback()
+        if is_retried_by_resume(exc):
+            return False
+        frappe.log_error(
+            title="Cashbook import: could not record a bill not copied",
+            message=f"{row_name}: {problem}\n\n{frappe.get_traceback()}",
+        )
+        frappe.db.commit()
     return True
 
 
