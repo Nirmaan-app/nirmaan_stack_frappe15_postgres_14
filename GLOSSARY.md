@@ -207,6 +207,23 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Unpaired card credit** — a merchant credit with no spend of the same amount on the same statement (a partial refund, or a refund of an earlier month). It is never skipped silently: it is kept as an open line for someone to decide. (Owner, 2026-10-25.)
 
+## Petty-cash wallet (Cashbook)
+
+- **Cashbook Statement** — the petty-cash wallet provider's export of every movement in the company's wallets over a period, one line per movement, with links to the bills employees attached to their spends. Only the export that carries those links is accepted; the older export without them is refused. Its links stop working a week after export, so a statement is uploaded within that week. (Owner, 2026-11-02.)
+  *Avoid*: wallet statement, Obopay report, cashbook upload.
+
+- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet. Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. (Owner, 2026-11-02.)
+
+- **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app. Money left the company, so it is never treated as a move between the company's own balances. It may not be a company spend, so it is never recorded on its own: it is kept as an open line, shown for checking, until someone records it as an Expense or skips it by hand with a reason. One refunded in full on the same statement needs no decision (see *Paired wallet refund*). (Owner, 2026-11-02.)
+
+- **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported arrives with a later statement and is attached then. (Owner, 2026-11-02.)
+
+- **Paired wallet refund** — a refund on a Cashbook Statement that gives back the whole of a spend on the same statement. Both lines are skipped, each naming the other. (Owner, 2026-11-02.)
+
+- **Unpaired wallet refund** — a refund that gives back only part of a spend, or a spend from an earlier statement. It is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+
+- **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.

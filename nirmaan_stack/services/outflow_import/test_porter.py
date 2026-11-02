@@ -108,8 +108,8 @@ class TestTheAdapter(unittest.TestCase):
 
     def test_the_other_sources_keep_nothing_extra(self):
         cashbook = (
-            "Txn Id,Date,Type,Debit,Payment Status,To,Remark\n"
-            "T1,2026-09-01 10:00:00,Wallet Spend,100,SUCCESS,Shop,tea\n"
+            "Txn Id,Date,Type,Debit,Payment Status,To,Remark,Attachments\n"
+            "T1,2026-09-01 10:00:00,Wallet Spend,100,SUCCESS,Shop,tea,\n"
         )
         row = parse_statement(cashbook.encode(), source="Cashbook").rows[0]
         self.assertEqual(row.extra, ())

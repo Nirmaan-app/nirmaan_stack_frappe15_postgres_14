@@ -54,7 +54,8 @@
   "decided_at",
   "decided_by",
   "settlement_origin",
-  "confirm_by_hand"
+  "confirm_by_hand",
+  "bill_links"
  ],
  "fields": [
   {
@@ -397,12 +398,19 @@
    "label": "Card Refund Partner",
    "options": "Outflow Import Row",
    "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: {\"links\": [...]}, the links to the bills attached to this line, in the statement's order (#1590). Written once, at staging. A dict, never a bare list: a list in a JSON field cannot be saved again.",
+   "fieldname": "bill_links",
+   "fieldtype": "JSON",
+   "label": "Bill Links",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-10-25 19:54:04.331794",
+ "modified": "2026-11-02 07:46:42.510344",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

@@ -579,6 +579,120 @@ class TestCashbookXlsx(unittest.TestCase):
         self.assertEqual(len(result.rows), 10)
         self.assertEqual(len([w for w in result.warnings if "no Transfer Id" in w]), 1)
 
+    def test_a_cell_hyperlink_and_a_csv_url_cell_give_the_same_bill_links(self):
+        """The workbook carries each bill link as a cell hyperlink under "View Attachment N"; its CSV
+        twin carries the URL as the cell's text. Both read to the same links."""
+        from_csv = _cashbook()
+        from_xlsx = parse_statement(_load("cashbook_sample.xlsx"), source="Cashbook")
+        self.assertEqual(
+            [r.bill_links for r in from_csv.rows], [r.bill_links for r in from_xlsx.rows]
+        )
+        self.assertEqual(len(_by_transfer(from_xlsx, "DDDDDD").bill_links), 2)
+
+
+# The Cashbook Statement (#1590, ADR-0015 Amendment B). `cashbook_statement.xlsx` is cut from a real
+# Consolidated Company Account Statement, names and Txn Ids kept: 11 real lines (Wallet Spends with 0,
+# 1, 2 and 4 bill links, VA → Wallet, Bank → VA) and the real six-row balances footer. The export it
+# was cut from predates the bill-link columns, so the `Attachments` block (the cell hyperlinks under
+# `Attachments` and the 3 unnamed columns after it) was added in the provider's shape. The kinds that
+# export lacks were made up in its shape, with made-up people and shops: a Collect payment with a link
+# and one without, a full refund pair (Collect payment + `REF-` refund), a part refund (11,248 of a
+# 17,446 spend), a full Credit Adjustment, a wallet credit and a Wallet → VA move.
+#
+# Every link is signed 2026-10-31 11:12 UTC for 7 days, except the first link of the 4-link spend,
+# signed 2026-10-30 09:00 UTC: the file's earliest link expiry is 2026-11-06 09:00 UTC.
+_STATEMENT = "cashbook_statement.xlsx"
+_LINK_HOST = "https://storage.googleapis.com/prod-payments-private/transaction-attachments/"
+
+
+def _statement() -> ParseResult:
+    return parse_statement(_load(_STATEMENT), source="Cashbook")
+
+
+class TestCashbookStatementBillLinks(unittest.TestCase):
+    def test_a_spend_with_one_bill_gets_its_one_link(self):
+        (link,) = _by_transfer(_statement(), "OBO1792735526469DYMYOU").bill_links
+        self.assertTrue(link.startswith(_LINK_HOST + "OBO1792735526469DYMYOU/1.jpeg?"))
+        self.assertIn("X-Goog-Date=20261031T111200Z", link)
+
+    def test_a_spend_with_four_bills_gets_all_four_links_in_order(self):
+        links = _by_transfer(_statement(), "OBO1792735606960QUTNST").bill_links
+        self.assertEqual(
+            [link.split("?")[0].rsplit("/", 1)[1] for link in links],
+            ["1.jpeg", "2.pdf", "3.jpeg", "4.pdf"],
+        )
+
+    def test_a_spend_with_no_bill_gets_no_link(self):
+        self.assertEqual(_by_transfer(_statement(), "OBO17927503221100FHX45").bill_links, ())
+
+    def test_a_collect_payment_keeps_its_link(self):
+        result = _statement()
+        self.assertEqual(len(_by_transfer(result, "OBO9000000000001CPLINK").bill_links), 1)
+        self.assertEqual(_by_transfer(result, "OBO9000000000002CPNONE").bill_links, ())
+
+    def test_only_spends_with_a_link_carry_one(self):
+        linked = {row.transfer_id for row in _statement().rows if row.bill_links}
+        self.assertEqual(
+            linked,
+            {
+                "OBO1792735526469DYMYOU",
+                "OBO1792735606960QUTNST",
+                "OBO1792829273653IUGWK9",
+                "OBO1792829480027FD1N9E",
+                "OBO1793012938587GKAZF5",
+                "OBO9000000000001CPLINK",
+                "OBO9000000000004PARTSP",
+                "OBO9000000000005ADJFUL",
+            },
+        )
+
+
+class TestCashbookStatementCredit(unittest.TestCase):
+    def test_credit_lines_give_their_credit_amount(self):
+        result = _statement()
+        self.assertEqual(_by_transfer(result, "VALOAD-5905490").credit_amount, Decimal("50000"))
+        self.assertEqual(_by_transfer(result, "BUSINESS_USER-520011-0").credit_amount, Decimal("10000"))
+        self.assertEqual(_by_transfer(result, "PTM9000000006").credit_amount, Decimal("9000"))
+        self.assertEqual(
+            _by_transfer(result, "REF-OBO9000000000004PARTSP").credit_amount, Decimal("11248")
+        )
+
+    def test_a_spend_carries_no_credit_and_keeps_its_debit(self):
+        row = _by_transfer(_statement(), "OBO1792735526469DYMYOU")
+        self.assertEqual(row.credit_amount, Decimal("0"))
+        self.assertEqual(row.amount, Decimal("2380"))
+        self.assertEqual(row.direction, DIRECTION_DEBIT)
+
+    def test_a_credit_line_still_reads_no_debit_amount_and_no_direction(self):
+        """Line kinds are unchanged by this ticket: `amount` is still the Debit figure only."""
+        row = _by_transfer(_statement(), "PTM9000000006")
+        self.assertEqual(row.amount, Decimal("0"))
+        self.assertEqual(row.direction, "")
+
+
+class TestCashbookStatementShape(unittest.TestCase):
+    def test_every_line_is_read_and_the_balances_footer_is_dropped_without_a_warning(self):
+        result = _statement()
+        self.assertEqual(len(result.rows), 21)
+        self.assertEqual(result.warnings, ())
+        self.assertFalse(any("Balance" in row.row_kind for row in result.rows))
+
+    def test_names_and_remarks_are_read_as_before(self):
+        row = _by_transfer(_statement(), "OBO1793012938587GKAZF5")
+        self.assertEqual(row.added_by_raw, "Deven Shinde")
+        self.assertEqual(row.beneficiary_name, "MIDDLE EAST")
+        self.assertEqual(row.remarks, "Local material purchase for Qburst - Pin valve")
+
+    def test_the_old_export_without_bill_links_is_refused_by_name(self):
+        """ADR-0015 Amendment B decision 1: one shape only, so a period never arrives twice."""
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(_load("cashbook_old_export.csv"), source="Cashbook")
+        self.assertEqual(
+            str(caught.exception),
+            "This is the old export without bill links. "
+            "Export the Consolidated Company Account Statement.",
+        )
+
 
 class TestCashfreeIsUnaffected(unittest.TestCase):
     """Slice 1 touched shared code. Cashfree must not have moved.
