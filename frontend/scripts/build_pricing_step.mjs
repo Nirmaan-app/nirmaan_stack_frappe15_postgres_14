@@ -32,15 +32,20 @@ const OUT_DIR = outArg > 0 ? resolve(process.argv[outArg + 1]) : resolve(FRONTEN
 const BUNDLE = "pricing_step.mjs";
 const STAMP = "pricing_step.stamp.json";
 
-// rows in on stdin as JSON, results out on stdout as JSON; a failure is one JSON line on stdout and exit code 1
-const GLUE = `import { priceRowsForMatching } from "./${ENTRY}";
+// rows in on stdin as JSON, results out on stdout as JSON (input.mode "driving" -> measureDrivingFields); a failure is one
+// JSON line on stdout and exit code 1
+const GLUE = `import { measureDrivingFields, priceRowsForMatching } from "./${ENTRY}";
 const chunks = [];
 process.stdin.on("data", (c) => chunks.push(c));
 process.stdin.on("end", () => {
   try {
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const result = priceRowsForMatching(input);
-    process.stdout.write(JSON.stringify({ ok: true, rows: result.rows }));
+    if (input.mode === "driving") {
+      process.stdout.write(JSON.stringify({ ok: true, categories: measureDrivingFields(input).categories }));
+    } else {
+      const result = priceRowsForMatching(input);
+      process.stdout.write(JSON.stringify({ ok: true, rows: result.rows }));
+    }
   } catch (e) {
     process.stdout.write(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
     process.exitCode = 1;

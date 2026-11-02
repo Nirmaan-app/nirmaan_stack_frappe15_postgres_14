@@ -9,6 +9,7 @@ frontend/src/pages/boq-wizard/rate-helper/serverPricingStep.parity.test.ts). No 
   fails closed         missing bundle / missing stamp / unreadable stamp / stamp not matching the bundle / node missing /
                        node exits with an error / node crashes / timeout -> available False with the reason, never a raise
   stale -> recomputed  a stored value whose stamp differs (code or asset) is recomputed; a current one is kept as is
+  driving fields      the bundle's measureDrivingFields lists come back per category; the step unavailable -> no lists
 """
 import hashlib
 import json
@@ -25,6 +26,11 @@ from nirmaan_stack.services.boq_rate_match import pricing_step as ps
 ECHO = """
 const c = []; process.stdin.on("data", (d) => c.push(d)); process.stdin.on("end", () => {
   const input = JSON.parse(Buffer.concat(c).toString("utf8"));
+  if (input.mode === "driving") {
+    process.stdout.write(JSON.stringify({ ok: true, categories: { wiring_cabling: { rows: input.rows.length, pricedRows: 2, sampled: Math.min(2, input.sample),
+      fields: [{ id: "core", cls: "needed" }, { id: "brand", cls: "not needed" }], driving: ["core"] } } }));
+    return;
+  }
   const rows = input.rows.map((r) => ({ key: `${r.boq}|${r.sheet_name}|${r.excel_row}`,
     rec: { signature: "SIG:" + r.excel_row, values: { supply_rate: r.excel_row * 10 }, priced: true, cat: r.resolved_category },
     ac7: { key: `${r.boq}|${r.sheet_name}|${r.excel_row}` } }));
@@ -194,3 +200,28 @@ class TestPricingStep(FrappeTestCase):
         branded = [it for items in payload["itemsByDiscipline"].values() for it in items if (it.get("brand") or "").strip()]
         if branded:
             self.assertEqual(branded[0]["attributes"].get("brand"), branded[0]["brand"].strip())
+
+
+class TestDrivingFieldMeasure(FrappeTestCase):
+    """measure_driving_fields: the pricer's own measurement of the price-driving fields (owner answer 3, Q4 (A))."""
+    setUp = TestPricingStep.setUp
+    tearDown = TestPricingStep.tearDown
+    _bundle = TestPricingStep._bundle
+
+    def test_the_bundles_lists_come_back_per_category(self):
+        self._bundle(ECHO)
+        res = ps.measure_driving_fields({}, ROWS, asset=ASSET, sample=400, build_dir=self.dir)
+        self.assertTrue(res["available"], res["reason"])
+        self.assertEqual(res["lists"], {"wiring_cabling": ["core"]})
+        self.assertEqual(res["categories"]["wiring_cabling"]["sampled"], 2)
+        self.assertEqual(res["stamp"], {"code": "code-A", "asset": ASSET[1]})
+
+    def test_unavailable_gives_no_lists_never_a_raise(self):
+        res = ps.measure_driving_fields({}, ROWS, asset=ASSET, build_dir=self.dir)      # no bundle
+        self.assertFalse(res["available"])
+        self.assertIn("bundle missing", res["reason"])
+        self.assertEqual(res["lists"], {})
+        self._bundle(FAIL)
+        res = ps.measure_driving_fields({}, ROWS, asset=ASSET, build_dir=self.dir)
+        self.assertFalse(res["available"])
+        self.assertIn("boom in the pricer", res["reason"])

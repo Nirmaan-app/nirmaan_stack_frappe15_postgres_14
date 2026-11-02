@@ -126,7 +126,7 @@ def _run_bundle(node, bundle, payload, timeout):
         err = (out or {}).get("error") if isinstance(out, dict) else None
         tail = (p.stderr or b"").decode("utf-8", "replace")[-500:]
         raise Unavailable(f"pricing step failed (exit {p.returncode}): {err or tail or 'no output'}")
-    return out["rows"]
+    return out
 
 
 def price_rows(page_rows, rows, asset=None, full=False, timeout=DEFAULT_TIMEOUT_S, build_dir=None):
@@ -138,7 +138,7 @@ def price_rows(page_rows, rows, asset=None, full=False, timeout=DEFAULT_TIMEOUT_
         payload, version = asset if asset is not None else load_asset()
         stamp = current_stamp(code, version)
         bundle = os.path.join(build_dir or BUILD_DIR, BUNDLE)
-        got = _run_bundle(node, bundle, {**payload, "pageRows": page_rows, "rows": list(rows), "full": bool(full)}, timeout)
+        got = _run_bundle(node, bundle, {**payload, "pageRows": page_rows, "rows": list(rows), "full": bool(full)}, timeout)["rows"]
         out = {}
         for r in got:
             rec = r.get("rec") or {}
@@ -149,6 +149,30 @@ def price_rows(page_rows, rows, asset=None, full=False, timeout=DEFAULT_TIMEOUT_
         return {"available": False, "reason": str(e), "stamp": None, "rows": {}}
     except Exception as e:  # noqa: BLE001 -- fail closed on anything; the reason travels with the result
         return {"available": False, "reason": f"pricing step error: {type(e).__name__}: {e}", "stamp": None, "rows": {}}
+
+
+MEASURE_TIMEOUT_S = 3600
+DRIVING_SAMPLE = 400
+
+
+def measure_driving_fields(page_rows, rows, asset=None, sample=DRIVING_SAMPLE, timeout=MEASURE_TIMEOUT_S, build_dir=None):
+    """Each category's price-driving fields, measured BY THE PRICER (the bundle's measureDrivingFields: DEV2-R2's
+    blank / pair-blank + re-price, 50 % rule, up to `sample` stored rows a category; owner answer 3 to DEV2-B2 Q4) on
+    `rows` (the stored readings, as for price_rows). Run at every pool build; nothing is stored in code. Never raises.
+    -> {"available", "reason", "stamp", "lists": {category: [field ids]}, "categories": {category: the measurement}}"""
+    try:
+        code = read_code_stamp(build_dir)
+        node = node_binary()
+        payload, version = asset if asset is not None else load_asset()
+        bundle = os.path.join(build_dir or BUILD_DIR, BUNDLE)
+        got = _run_bundle(node, bundle, {**payload, "mode": "driving", "pageRows": page_rows, "rows": list(rows), "sample": int(sample)}, timeout)
+        cats = got.get("categories") or {}
+        return {"available": True, "reason": None, "stamp": current_stamp(code, version),
+                "lists": {c: list(v.get("driving") or []) for c, v in cats.items()}, "categories": cats}
+    except Unavailable as e:
+        return {"available": False, "reason": str(e), "stamp": None, "lists": {}, "categories": {}}
+    except Exception as e:  # noqa: BLE001
+        return {"available": False, "reason": f"pricing step error: {type(e).__name__}: {e}", "stamp": None, "lists": {}, "categories": {}}
 
 
 def ensure_current(stored, page_rows, rows, asset=None, timeout=DEFAULT_TIMEOUT_S, build_dir=None):

@@ -17,6 +17,9 @@
  * servedVsStoredPricing.test.ts reads them), so the check moves with every mint -- it is in the asset-pin search's list.
  * Coverage is ASSERTED, not described: a default, a ladder-up and a substitution must each occur in the rows.
  *
+ * The second export, `measureDrivingFields` (the pricer's own measure of each category's price-driving fields), is checked
+ * the same way on the same rows (30 a category, to stay quick).
+ *
  * VACUITY: point PRICING_STEP_BUNDLE at a copy of the built bundle with one line broken and this file goes red.
  */
 import { spawnSync } from "node:child_process";
@@ -25,7 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { priceRowsForMatching } from "./serverPricingStep";
+import { measureDrivingFields, priceRowsForMatching } from "./serverPricingStep";
 import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
 
 vi.mock("@/pages/pricing/rate-master/ratePipelineInterpreter", async (importOriginal) => {
@@ -92,28 +95,29 @@ function runSource(): Json[] {
   }
 }
 
-function runBundle(): Json[] {
-  let bundle = process.env.PRICING_STEP_BUNDLE;
+let builtBundle: string | undefined;
+function runBundle(payload: Json = input): Json {
+  let bundle = process.env.PRICING_STEP_BUNDLE ?? builtBundle;
   if (!bundle) {
     const out = mkdtempSync(join(tmpdir(), "pricing-step-"));
     const b = spawnSync(process.execPath, ["scripts/build_pricing_step.mjs", "--out", out], { cwd: FRONTEND, encoding: "utf-8" });
     expect(b.status, `the build failed: ${b.stderr}`).toBe(0);
-    bundle = join(out, "pricing_step.mjs");
+    bundle = builtBundle = join(out, "pricing_step.mjs");
   }
-  const p = spawnSync(process.execPath, [bundle], { input: JSON.stringify(input), maxBuffer: 1 << 30 });
+  const p = spawnSync(process.execPath, [bundle], { input: JSON.stringify(payload), maxBuffer: 1 << 30 });
   // the bundle's stdout is read back through the corpus's own JSON reader (a file, like every other fixture here)
   const file = join(mkdtempSync(join(tmpdir(), "pricing-step-out-")), "out.json");
   writeFileSync(file, p.stdout.length ? p.stdout : "null");
   const out = readJsonFixture<Json>(pathToFileURL(file));
   expect(out?.ok, `the bundle failed: ${out?.error ?? p.stderr.toString("utf-8").slice(-500)}`).toBe(true);
   expect(p.status).toBe(0);
-  return out.rows;
+  return out;
 }
 
 describe("DEV2-B2 Parity 1: the built server pricing step = the browser's pricing source", () => {
   it("prices every corpus class and every configured category identically on both paths", () => {
     const src = runSource();
-    const built = runBundle();
+    const built = runBundle().rows as Json[];
     expect(src.length).toBe(rows.length);
     expect(built.length).toBe(rows.length);
     const differ = src.filter((r, i) => JSON.stringify(r) !== JSON.stringify(built[i])).map((r) => r.key);
@@ -126,6 +130,15 @@ describe("DEV2-B2 Parity 1: the built server pricing step = the browser's pricin
     expect(rules.has("ladder") || rules.has("size_up") || rules.has("rating_up")).toBe(true);
     expect(rules.has("substituted")).toBe(true);
     expect(src.filter((r) => r.rec.priced).length).toBeGreaterThan(1000);
+  }, 600_000);
+
+  it("measures the price-driving fields identically on both paths (the second export, DEV2-B2 Q4 (A))", () => {
+    const payload = { ...input, mode: "driving", sample: 30 };
+    const src = measureDrivingFields(payload);
+    const built = runBundle(payload);
+    expect(JSON.stringify(built.categories)).toBe(JSON.stringify(src.categories));
+    const driving = Object.values(src.categories).flatMap((c) => c.driving);
+    expect(driving.length).toBeGreaterThan(20);                 // the measure finds driving fields, not an empty list
   }, 600_000);
 
   it("refuses to run without a recorder (a signature with no SKU lines is never returned)", () => {

@@ -21,6 +21,13 @@
  * `node` as a child process of `services/boq_rate_match/pricing_step.py`, and is proved equal to the source by
  * `serverPricingStep.parity.test.ts` (Parity 1). Every existing pricing file stays unchanged.
  *
+ * A SECOND EXPORT, `measureDrivingFields` (owner answer 3 to DEV2-B2 Q4, option A): which of a category's fields DRIVE the
+ * price, measured BY THE PRICER on the pool's own stored rows at every pool build -- DEV2-R2's h2_fields2.ts pass 1: blank
+ * one read field (and, for fields never needed alone, pairs) and re-price; "needed" when the price is withheld on half
+ * the sampled rows or more, "either-or" when a pair withholds on half or more. Matching's W1 compares the pricer's values
+ * for those fields (match_index.readings_view). It is statistics ABOUT the pricer, computed through `compute`; no pricing
+ * logic and no stored list.
+ *
  * TYPES: the pricer's intermediate objects are read through the small `*Seen` shapes below -- only the fields this
  * function reads, each optional, values `unknown` where they are only copied out.
  */
@@ -237,4 +244,108 @@ export function priceRowsForMatching(input: PricingStepInput): { rows: PricingSt
     out.push({ key, rec, ac7 });
   }
   return { rows: out };
+}
+
+export interface DrivingFieldStat { id: string; withValue: number; withhold: number; changes: number; pairWithhold: number;
+  withholdShare: number; pairShare: number; changesShare: number; cls: "needed" | "either-or" | "not needed"; movesPrice: boolean }
+export interface DrivingCategory { rows: number; pricedRows: number; sampled: number; fields: DrivingFieldStat[]; driving: string[] }
+
+/**
+ * Measure each category's price-driving fields on `input.rows` (the stored helper-1 rows, as for `priceRowsForMatching`),
+ * at most `input.sample` (default 400) priced rows a category, evenly spread in row order. Per row, every read field is
+ * blanked alone (value -> null, the "asked and blank" state) and re-priced: withheld -> needed on this row; priced at
+ * other values -> it changes the price; else not needed here. The first 14 fields not needed alone are blanked in pairs:
+ * a pair that withholds marks both. A field is "needed" at >= 50 % withheld, else "either-or" at >= 50 % pair-withheld,
+ * else "not needed". `driving` = the fields not "not needed", in id order. (DEV2-R2 h2_fields2.ts pass 1, unchanged.)
+ * A row's notes: its own `ownNotes` / `headingNotes` when sent, else the page's (rowOwnNotes / rowHeadingNotes).
+ */
+export function measureDrivingFields(input: PricingStepInput & { sample?: number }): { categories: Record<string, DrivingCategory> } {
+  const SAMPLE = input.sample ?? 400;
+  const configsByCategory = new Map<string, RateCategoryConfig>(Object.entries(input.configs ?? {}));
+  const byDisc = input.itemsByDiscipline ?? {};
+  const sets: RateMasterItem[][] = input.itemSets ?? [byDisc["Electrical"] ?? [], ...RATE_MASTER_ITEM_DISCIPLINES.map((d) => byDisc[d] ?? [])];
+  const items = mergeItemsByName(...sets);
+  const PAGE_ROWS = input.pageRows ?? {};
+  type Cell = { value?: unknown } & Dict;
+  type Row = PricingStepRow & { ownNotes?: string[]; headingNotes?: string[] };
+  const price = (r: Row, attrs: Dict, its: Array<{ attributes?: Dict }> | undefined) => {
+    const cat = r.resolved_category || r.category_id;
+    const ext: Dict = { excelRow: r.excel_row, description: r.description, attributes: attrs ?? {} };
+    if (its) ext.items = its;
+    const pageRows = PAGE_ROWS[`${r.boq}|${r.sheet_name}`] ?? [];
+    const pr = pageRows.find((x) => x.source_row_number === r.excel_row);
+    const ownNotes = r.ownNotes ?? (pr ? rowOwnNotes(pr, pageRows) : []);
+    const headingNotes = r.headingNotes ?? (pr ? rowHeadingNotes(pr, pageRows) : []);
+    const helper = makePricingSheetHelper({ configsByCategory, items: items as never, extractionByRow: new Map([[r.excel_row, ext]]) } as never);
+    let res: ResultSeen;
+    try {
+      res = helper.compute({ excelRow: r.excel_row, description: r.description, nodeType: "Line Item", category: cat, discipline: r.discipline,
+        rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: r.headings ?? [], ownNotes, headingNotes, unit: r.unit ?? "" } as never, {}) as unknown as ResultSeen;
+    } catch {
+      res = { kind: "error" };
+    }
+    const vals = res.values ?? {};
+    const priced = res.kind === "suggestion" && Object.keys(vals).length > 0 && (res.itemList ? !!res.itemList.rowPriced : true);
+    return { priced, key: JSON.stringify(vals) };
+  };
+  const nonNull = (c: unknown) => {
+    const v = (c as Cell | null)?.value;
+    return !!c && v !== null && v !== undefined && String(v).trim() !== "";
+  };
+  const blanked = (r: Row, ids: string[]) => {
+    const attrs = structuredClone(r.attributes ?? {}) as Record<string, Cell>;
+    for (const id of ids) if (attrs[id]) attrs[id] = { ...attrs[id], value: null };
+    let its: Array<{ attributes?: Record<string, Cell> }> | undefined;
+    if (Array.isArray(r.items)) {
+      its = structuredClone(r.items) as Array<{ attributes?: Record<string, Cell> }>;
+      for (const it of its) for (const id of ids) if (it.attributes?.[id]) it.attributes[id] = { ...it.attributes[id], value: null };
+    }
+    return { attrs, its };
+  };
+  const readIds = (r: Row): string[] => {
+    const s = new Set<string>();
+    for (const [id, c] of Object.entries(r.attributes ?? {})) if (nonNull(c)) s.add(id);
+    for (const it of r.items ?? []) for (const [id, c] of Object.entries(it.attributes ?? {})) if (nonNull(c)) s.add(id);
+    return [...s].sort();
+  };
+  const byCat = new Map<string, Row[]>();
+  for (const r of (input.rows ?? []) as Row[]) {
+    const c = (r.resolved_category || r.category_id) as string;
+    if (!byCat.has(c)) byCat.set(c, []);
+    byCat.get(c)!.push(r);
+  }
+  const out: Record<string, DrivingCategory> = {};
+  for (const [cat, list] of byCat) {
+    const base = list.map((r) => ({ r, b: price(r, r.attributes ?? {}, r.items ?? undefined) })).filter((x) => x.b.priced);
+    const step = Math.max(1, Math.floor(base.length / SAMPLE));
+    const sample = base.filter((_, i) => i % step === 0).slice(0, SAMPLE);
+    const f: Record<string, { withValue: number; withhold: number; changes: number; pairWithhold: number }> = {};
+    const get = (id: string) => (f[id] ??= { withValue: 0, withhold: 0, changes: 0, pairWithhold: 0 });
+    for (const { r, b } of sample) {
+      const ids = readIds(r);
+      const soft: string[] = [];
+      for (const id of ids) {
+        const st = get(id);
+        st.withValue++;
+        const { attrs, its } = blanked(r, [id]);
+        const p = price(r, attrs, its);
+        if (!p.priced) st.withhold++;
+        else { if (p.key !== b.key) st.changes++; soft.push(id); }
+      }
+      const pairOf = soft.slice(0, 14);
+      const hit = new Set<string>();
+      for (let i = 0; i < pairOf.length; i++) for (let j = i + 1; j < pairOf.length; j++) {
+        const { attrs, its } = blanked(r, [pairOf[i], pairOf[j]]);
+        if (!price(r, attrs, its).priced) { hit.add(pairOf[i]); hit.add(pairOf[j]); }
+      }
+      for (const id of hit) get(id).pairWithhold++;
+    }
+    const fields: DrivingFieldStat[] = Object.entries(f).map(([id, st]) => {
+      const w = st.withhold / st.withValue, pw = st.pairWithhold / st.withValue, ch = st.changes / st.withValue;
+      const cls: DrivingFieldStat["cls"] = w >= 0.5 ? "needed" : (pw >= 0.5 ? "either-or" : "not needed");
+      return { id, ...st, withholdShare: +w.toFixed(3), pairShare: +pw.toFixed(3), changesShare: +ch.toFixed(3), cls, movesPrice: cls === "not needed" && ch >= 0.2 };
+    }).sort((a, b) => a.id.localeCompare(b.id));
+    out[cat] = { rows: list.length, pricedRows: base.length, sampled: sample.length, fields, driving: fields.filter((x) => x.cls !== "not needed").map((x) => x.id) };
+  }
+  return { categories: out };
 }
