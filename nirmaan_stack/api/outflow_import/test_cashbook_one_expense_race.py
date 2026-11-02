@@ -7,7 +7,7 @@
 
 ⚠️ EXPECTED TO FAIL ON TODAY'S CODE, AND TO PASS ONCE SPEC #1585 PHASE 1 LANDS. It is the real-code half
 of the formal check in `scripts/formal/cashbook_one_expense/` (skill: `.claude/skills/cashbook-one-expense`):
-the model proves the design closes the race; this proves the code actually takes the lock.
+the model proves the design closes the race; this proves the code actually closes it.
 
 HOW THE RACE IS FORCED, WITHOUT SLEEPS. Frappe runs Postgres at REPEATABLE READ: a transaction reads from a
 snapshot taken at its first statement. The LATE connection makes one read (its snapshot), waits while the
@@ -169,8 +169,9 @@ class TestTwoOverlappingConfirms(OneExpensePerTxnIdCase):
 
         Today: the late confirm plans from its snapshot, so `_already_imported` and `_already_booked` miss the
         early confirm's lines and it stages the six shared Txn Ids again; each batch's job creates them.
-        Phase 1 C: the confirm lock plus a commit makes the late plan see the early batch, so it stages only
-        the five new lines."""
+        Phase 1 C (#1588): confirms are not serialised, so both may stage the shared Txn Ids; the one-Expense-per-
+        Txn-Id index on `Outflow Row Match` refuses the second job's create of each, and that line becomes an
+        "Already imported" skip."""
         batches = []
         self.addCleanup(self._purge_confirmed, batches)
         # The jobs run below, on their own connections, not on the live queue. And `save_file` commits, as it

@@ -67,10 +67,12 @@ any row says `UNEXPECTED`. Expected at the sync commit:
  today_person               FAIL      gap B: a person's Create/Link on a Pending line
  today_overlap              FAIL      gap C: two overlapping confirms at once
  today_crash_rerun          PASS      a crash, then a re-run after it, is safe today
- phase1                     PASS      spec #1585 Phase 1 as written, every scenario at once
- phase1_two_batches         FAIL      FINDING: Phase 1's Txn Id lock does not work at REPEATABLE READ
- phase1_two_batches_fixed   PASS      the same, with the re-check reading after the lock
+ phase1                     PASS      spec #1585 Phase 1 as built (A, B, C's index), every scenario at once; person Creates
+ phase1_two_batches         PASS      two staged batches with one Txn Id, both jobs at once: C's index refuses the second
+ phase1_link                FAIL      FINDING: C's index does not see a person's Link (see Findings 4)
 ```
+
+`phase1` takes about 18 minutes; the others take seconds.
 
 The race test FAILS on today's code (both tests) and must PASS once Phase 1 lands. Its failure message
 lists the Txn Ids that got two expenses.
@@ -112,22 +114,22 @@ The two database rules everything rests on (REPEATABLE READ):
    prints `waiter sees 0` for both shapes.
 2. An UPDATE or `SELECT ... FOR UPDATE` of a row another transaction changed after our snapshot raises a
    serialization failure (SQLSTATE 40001). Nothing else conflicts: inserting a second expense never does.
+3. Phase 1 C (#1588): the partial unique index `ofm_match_import_created_expense_unique` refuses a second
+   Settled, import-created Expense match row for one `transfer_id`. The match row goes in with its Expense,
+   in one transaction, so the second create rolls back whole. A Link (`created_by_import` 0) is not covered.
 
 | Model step | Code | Indivisible because |
 |---|---|---|
 | `Job.ListPendingLines` | `cashbook.py:237` pending-lines query | one statement; the job's first snapshot, shared with its first line |
 | `Job.ReadLine` | `cashbook.py:271` `get_value` (today); start of the `FOR UPDATE` (phase 1) | one statement; snapshot of each later line's transaction |
-| `Job.LockLine` | phase 1 A, like `card_create.py:143` | the `FOR UPDATE` returning (after any wait) |
-| `Job.LockTxnId` | phase 1 C, `pg_advisory_xact_lock(Txn Id)` | one statement; does not refresh the snapshot |
-| `Job.RecheckBooked` | phase 1 C, "no expense with that payment reference" | one SELECT, from the snapshot |
-| `Job.WriteOne` | `cashbook.py:284-336` + commit at `:250` | one transaction |
-| `Job.MarkError` | `cashbook.py:252-263` (blind today; "where still Pending" in phase 1) | one statement + commit |
+| `Job.LockLine` | phase 1 A, `cashbook._lock_pending_line` | the `FOR UPDATE` returning (after any wait) |
+| `Job.WriteOne` | `cashbook._write_one` + the commit in `_cashbook_worker`; phase 1 C: the match insert refused by `ofm_match_import_created_expense_unique` | one transaction |
+| `Job.MarkError` | blind today; phase 1: `_write_failed` -> `_mark_if_still_pending` (index refusal -> "Already imported" skip, else Error) | one statement + commit |
 | `Job.Crash` | worker killed; Postgres rolls back | -- |
-| `Confirm.TakeConfirmLock` | phase 1 C session advisory lock + commit | one statement + commit |
 | `Confirm.Plan` | `cashbook.py:146` `_build_plan` -> `_already_imported` `:401`, `_already_booked` `:424` | reads one snapshot |
 | `Confirm.StageAndEnqueue` | `cashbook.py:160-183`, `_stage` `:567`, enqueue | one transaction after `save_file`'s commit |
 | `Person.OpenLine` | `expenses.py:1091` `_load_settleable_row` + `:1187` `_guard_money_not_recorded` | reads one snapshot |
-| `Person.CreateOrLink` | `create_expense` `:994` / `settle_row` (writes `payment_ref`, `settle.py:643`) | one transaction |
+| `Person.CreateOrLink` | `create_expense` (match row `created_by_import` 1: the index applies; refused -> `AlreadyImportedError`) / `settle_row` (writes `payment_ref`; match row `created_by_import` 0: the index does not apply) | one transaction |
 
 `save_file` commits in production (`frappe_gcp_attachment` `file_upload_to_gcs` calls `frappe.db.commit()`),
 so `_stage` runs in a new transaction. A dev env with the upload off does not commit there; the race test
@@ -160,7 +162,16 @@ A pass covers this model at these bounds, not the system. Assumed or left out:
    cannot see the expense the other holder committed while it waited (`phase1_two_batches`; probe). It is
    harmless only while the confirm lock keeps a Txn Id to one staged line. The fix must make the re-check
    read after the lock: a session-level lock, then a commit, then the line's transaction
-   (`phase1_two_batches_fixed`), or a database-enforced key on the Txn Id.
+   (`phase1_two_batches_fixed`), or a database-enforced key on the Txn Id. **Resolved (#1588):** the spec
+   took the database key (C's partial unique index) and dropped the Txn Id lock and the confirm lock; the
+   model's `phase1` now models the index, and `phase1_two_batches` passes. Breaking the index in the model
+   (`index_refuses` -> `False`) turns `phase1_two_batches` red again (measured).
+4. **C's index does not see a Link** (`phase1_link`, #1588). Confirms are no longer serialised, so two
+   overlapping confirms can stage one Txn Id twice. If one of those lines becomes workable by hand (Error,
+   or reopened) and a person Links it to an existing expense, the other line's job still creates the Txn Id:
+   the Link's match row has `created_by_import` 0. The same happens with no race (a Link first, the job
+   later). It is the spec's out-of-scope "hand-keyed Expense" case reached through a Link; `phase1` checks
+   the person's Create only, and `phase1_link` keeps the Link scenario on record as a FAIL.
 
 ## When the code changes on purpose
 
@@ -170,8 +181,6 @@ A pass covers this model at these bounds, not the system. Assumed or left out:
 - **Another change:** edit the matching step in `CashbookOneExpense.fizz` (keep one step = one statement or
   one transaction), update the step table, run `run.sh`, and update the expected outcomes only when the
   change is meant to alter them. Before trusting a new PASS, break the guard it relies on and watch the
-  config fail. Phase 1's guards overlap: dropping only `LockLine`'s status check still passes, because
-  `RecheckBooked` catches the same case. Breaks that do fail `phase1` (measured): `TakeConfirmLock` no
-  longer waits (`require confirm_lock == ""` -> `pass`); or both the status check and `RecheckBooked`
-  removed. In the real code, removing the status re-check from a `FOR UPDATE`'d `_write_one` turns
-  `TestTwoJobsOnOneBatch` red.
+  config fail. Measured: `index_refuses` -> `False` fails `phase1_two_batches`. In the real code, removing
+  the status re-check from a `FOR UPDATE`'d `_write_one` turns `TestTwoJobsOnOneBatch` red, and without
+  the index `TestTwoOverlappingConfirms` is red.

@@ -53,9 +53,13 @@ import frappe
 from nirmaan_stack.api.outflow_import.expenses import (
     MATCH_DOCTYPE,
     _statement_file_url,
+    already_imported_sentence,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
+from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match import (
+    is_import_created_expense_refusal,
+)
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
@@ -99,6 +103,7 @@ from nirmaan_stack.services.outflow_import.status import (
     SKIP_ORIGIN_SYSTEM,
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_ALREADY_IMPORTED
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -276,7 +281,28 @@ def _write_failed(row_name: str, batch: str, exc: Exception) -> None:
     Error. Every outcome of a failed write goes through this one function: a database refusal that
     means something other than "could not create" (spec #1585 C's index, #1588) is told apart here, by
     `exc`, and written through the same conditional mark -- nowhere else.
+
+    ⚠️ AN INDEX REFUSAL IS NOT AN ERROR (spec #1585 C). Another line already created this Txn Id's Expense
+    -- an overlapping batch, a person -- and the one-Expense-per-Txn-Id index refused this one. The line
+    becomes the "Already imported" system skip naming that Expense, which is read HERE, after the rollback:
+    the failed transaction's snapshot could not see it. No error is logged for it.
     """
+    if is_import_created_expense_refusal(exc):
+        sentence = already_imported_sentence(frappe.db.get_value(ROW_DOCTYPE, row_name, "transfer_id"))
+        if sentence:
+            _mark_if_still_pending(
+                row_name,
+                {
+                    "row_status": ROW_SKIPPED,
+                    "skip_reason": sentence,
+                    "outcome_note": sentence,
+                    "skip_origin": SKIP_ORIGIN_SYSTEM,
+                    "skip_kind": SKIP_KIND_ALREADY_IMPORTED,
+                },
+            )
+            return
+        # `None`: the holder was Unreconciled between the refusal and this read. Nothing holds the Txn Id any
+        # more, so it is an ordinary failure and the line can be retried.
     frappe.log_error(
         title="Cashbook import: could not create an expense",
         message=f"{batch} / {row_name}\n\n{frappe.get_traceback()}",

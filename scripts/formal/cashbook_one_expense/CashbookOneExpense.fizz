@@ -15,8 +15,12 @@
 #      `snap_ver` (the version of the line the snapshot saw).
 #   2. An UPDATE, or a SELECT ... FOR UPDATE, of a row another transaction changed and committed after
 #      our snapshot raises a serialization failure (SQLSTATE 40001) and the transaction rolls back.
-#      In the model: `lines[l].ver != snap_ver`. It is the ONLY conflict REPEATABLE READ gives; an
+#      In the model: `lines[l].ver != snap_ver`. Today it is the ONLY conflict REPEATABLE READ gives: an
 #      INSERT of a new expense conflicts with nothing, because no unique key covers `payment_ref`.
+# Phase 1 C adds a THIRD rule, the one that closes overlap: a partial unique index on `Outflow Row Match`
+# (`ofm_match_import_created_expense_unique`: one Settled, import-created Expense match row per
+# transfer_id). The match row is inserted in the same transaction as the Expense, so a second create of
+# a Txn Id fails at that insert and rolls back, Expense included. In the model: `index_rows`.
 options:
   crash_on_yield: false
   max_actions: 1000
@@ -27,7 +31,8 @@ deadlock_detection: false
 # ---- Configuration. Each .cfg file next to this one overrides these (fizz --preinit-hook-file). ----
 
 # Which code the processes run: "today" (cashbook.py at the sync commit) or "phase1" (spec #1585
-# Phase 1, Implementation Decisions A, B, C and F, as written).
+# Phase 1, Implementation Decisions A, B, C and F, as written: A's row lock and status re-check, B's
+# gate, C's unique index. No Txn Id lock, no confirm lock -- the spec dropped both after this check).
 CODE = "today"
 
 # One statement file per confirm request. All confirms may run at the same moment.
@@ -49,18 +54,18 @@ SECOND_RUN_BATCHES = [0]
 SECOND_RUN_AFTER_FIRST = False
 
 # A person working the main table: one Create or one Link. Both go through `_load_settleable_row`,
-# the same recorded-money guard and the same row update, so the model treats them as one action.
+# the same recorded-money guard and the same row update, so the model treats them as one action --
+# except at phase 1 C's index, which sees a Create's match row and not a Link's.
 PERSON = True
+
+# Which of the two the person may do. A config narrows it to split a scenario, never to hide one.
+PERSON_ACTIONS = ["create", "link"]
 
 # A job may die at any step (worker killed, timeout). Postgres rolls back its open transaction.
 CRASH = True
 
 # Creating an expense may raise (validation, a bad project). `_cashbook_worker` then marks the line.
 WRITE_ERRORS = True
-
-# Candidate fix, NOT in the spec. The job's Txn Id re-check reads a snapshot taken AFTER the Txn Id
-# lock is granted -- e.g. a session-level lock, then a commit, then the line's transaction.
-TXN_RECHECK_AFTER_LOCK = False
 
 
 # ---- helpers ----
@@ -79,8 +84,13 @@ atomic func commit_line(l, status):
 atomic func release_locks(me):
     for l in [k for k in row_lock if row_lock[k] == me]:
         row_lock.pop(l)
-    for t in [k for k in txn_lock if txn_lock[k] == me]:
-        txn_lock.pop(t)
+
+
+atomic func index_refuses(txn):
+    # Phase 1 C: would inserting an import-created Expense match row for this Txn Id hit the unique index?
+    # Today there is no such index. (A concurrent uncommitted insert of the same key makes Postgres wait
+    # and then refuse; every create here is one atomic step, so only committed rows are ever in play.)
+    return CODE == "phase1" and txn in index_rows
 
 
 # ---- the background job: `_cashbook_worker` (cashbook.py:224) ----
@@ -95,12 +105,14 @@ role Job:
         self.cur = -1
         self.snap_ver = -1
         self.snap_exp = -1
+        self.refused = False
 
     atomic func idle(pc):
         # Between lines nothing from the last line matters any more.
         self.cur = -1
         self.snap_ver = -1
         self.snap_exp = -1
+        self.refused = False
         self.pc = pc
         if pc in ("done", "crashed"):
             if self.run == 0:
@@ -146,9 +158,9 @@ role Job:
         else:
             self.pc = "write"
 
-    # Phase 1, A: the FOR UPDATE completes. It waits while another transaction holds the line. Then:
-    # changed after our snapshot -> serialization failure, "another run took it": rollback, no Error.
-    # No longer Pending -> write nothing.
+    # Phase 1, A: `_lock_pending_line`'s FOR UPDATE completes. It waits while another transaction holds the
+    # line. Then: changed after our snapshot -> serialization failure, "another run took it": rollback,
+    # no Error. No longer Pending -> write nothing.
     atomic action LockLine:
         require self.pc == "lock_line"
         require row_lock.get(self.cur, self.me) == self.me
@@ -156,63 +168,52 @@ role Job:
             self.idle("next")
         else:
             row_lock[self.cur] = self.me
-            self.pc = "lock_txn"
-
-    # Phase 1, C: `pg_advisory_xact_lock(<Txn Id>)` inside the line's transaction. It waits for any
-    # other holder. By rule 1 it does NOT refresh the snapshot.
-    atomic action LockTxnId:
-        require self.pc == "lock_txn"
-        txn = lines[self.cur].txn
-        require txn_lock.get(txn, self.me) == self.me
-        txn_lock[txn] = self.me
-        if TXN_RECHECK_AFTER_LOCK:
-            self.snap_exp = len(expenses)
-        self.pc = "recheck"
-
-    # Phase 1, C: "re-checks that no Expense with that payment reference exists. If one does, the
-    # line becomes a system skip". A plain SELECT, so it reads the snapshot.
-    atomic action RecheckBooked:
-        require self.pc == "recheck"
-        booked = booked_in_snapshot(lines[self.cur].txn, self.snap_exp)
-        if booked:
-            commit_line(self.cur, "Skipped")
-            release_locks(self.me)
-            self.idle("next")
-        else:
             self.pc = "write"
 
-    # cashbook.py:284-336, then :250 -- `create_expense_from_row` (an INSERT), the match INSERT, the
-    # line UPDATE to Settled, `frappe.db.commit()`. One transaction, so one step. Rule 2 bites at the
+    # `_write_one`: `create_expense_from_row` (an INSERT), the match INSERT, the line UPDATE to Settled,
+    # then `_cashbook_worker`'s `frappe.db.commit()`. One transaction, so one step. Rule 2 bites at the
     # line UPDATE: if the line changed after our snapshot, everything rolls back, the expense with it.
-    # Or the expense insert raises (WRITE_ERRORS). Either way the except branch at :251 runs.
+    # Rule 3 (phase 1 C) bites at the match INSERT: the Txn Id already holds an import-created Expense
+    # match row, so everything rolls back and the line is to become an "Already imported" skip. Or the
+    # expense insert raises (WRITE_ERRORS). Each way `_cashbook_worker`'s except branch runs.
     atomic action WriteOne:
         require self.pc == "write"
         require row_lock.get(self.cur, self.me) == self.me
         outcomes = ["ok", "raises"] if WRITE_ERRORS else ["ok"]
         outcome = oneof outcomes
+        txn = lines[self.cur].txn
+        # (A fizz function is called only as a statement of its own, never inside a condition.)
+        refused = index_refuses(txn)
         if outcome == "raises" or lines[self.cur].ver != self.snap_ver:
             release_locks(self.me)
             self.pc = "mark_error"
+        elif refused:
+            release_locks(self.me)
+            self.refused = True
+            self.pc = "mark_error"
         else:
-            expenses.append(lines[self.cur].txn)
+            expenses.append(txn)
+            index_rows.append(txn)
             commit_line(self.cur, "Settled")
             release_locks(self.me)
             self.idle("next")
 
-    # cashbook.py:252-263 -- after the rollback, `frappe.db.set_value(line, Error)` and a commit, in a
-    # fresh transaction. Today it is a blind write. Phase 1, A: only "where the line is still Pending".
+    # After the rollback, in a fresh transaction. Today: a blind `set_value(line, Error)` and a commit.
+    # Phase 1, A: `_write_failed` -> `_mark_if_still_pending`, a conditional UPDATE "where the line is
+    # still Pending"; an index refusal (C) is written as the "Already imported" system skip, anything
+    # else as Error.
     atomic action MarkError:
         require self.pc == "mark_error"
         require row_lock.get(self.cur, self.me) == self.me
         if CODE == "today" or lines[self.cur].status == "Pending":
-            commit_line(self.cur, "Error")
+            commit_line(self.cur, "Skipped" if self.refused else "Error")
         self.idle("next")
 
     # The worker dies. Postgres rolls back its open transaction and frees its locks. Lines it had not
     # reached stay Pending (gap F); only another run can take them.
     atomic action Crash:
         require CRASH
-        require self.pc in ("next", "lock_line", "lock_txn", "recheck", "write", "mark_error")
+        require self.pc in ("next", "lock_line", "write", "mark_error")
         release_locks(self.me)
         self.idle("crashed")
 
@@ -225,27 +226,19 @@ role Confirm:
         self.pc = "start"
         self.new = []
 
-    # Phase 1, C: one session-level advisory lock for every Cashbook confirm, then a commit, so the
-    # plan's snapshot is taken after the previous confirm committed.
-    atomic action TakeConfirmLock:
-        require CODE == "phase1"
-        require self.pc == "start"
-        require confirm_lock == ""
-        confirm_lock = self.me
-        self.pc = "plan"
-
-    # cashbook.py:146 `_build_plan` asks `_already_imported` (:401: any stored line with this Txn Id,
-    # in flight or not) and `_already_booked` (:424: any expense with this `payment_ref`), from the
-    # request's snapshot. Today nothing orders two confirms, so both can read "new".
+    # `confirm_cashbook_import` -> `_build_plan` asks `_already_imported` (any stored line with this Txn
+    # Id, in flight or not) and `_already_booked` (any expense with this `payment_ref`), from the
+    # request's snapshot. Nothing orders two confirms, so both can read "new" -- and phase 1 C leaves it
+    # so on purpose: confirms are not serialised, the index refuses the second create instead.
     atomic action Plan:
-        require self.pc == ("plan" if CODE == "phase1" else "start")
+        require self.pc == "start"
         on_lines = [lines[l].txn for l in lines]
         self.new = [t for t in STATEMENTS[self.idx] if t not in on_lines and t not in expenses]
         self.pc = "stage"
 
-    # cashbook.py:160-183 -- `save_file` (commits), `_stage` (:567: one Pending line per new Txn Id;
-    # an exact repeat is not staged), commit, `frappe.enqueue(... deduplicate=True)`. A file of
-    # nothing but repeats is refused and writes nothing. Phase 1 releases its lock in a `finally`.
+    # `save_file` (commits), `_stage` (one Pending line per new Txn Id; an exact repeat is not staged),
+    # commit, `frappe.enqueue(... deduplicate=True)`. A file of nothing but repeats is refused and
+    # writes nothing.
     atomic action StageAndEnqueue:
         require self.pc == "stage"
         if len(self.new) > 0:
@@ -253,8 +246,6 @@ role Confirm:
                 lines[len(lines)] = record(batch=self.idx, txn=t, status="Pending", ver=0)
             staged[self.idx] = True
             enqueued[self.idx] = True
-        if CODE == "phase1":
-            confirm_lock = ""
         self.new = []
         self.pc = "done"
 
@@ -288,19 +279,28 @@ role Person:
             self.snap_exp = len(expenses)
             self.pc = "write"
 
-    # Create: `create_expense_from_row` + `record_settlement` + `refresh_row_allocation` (the line
-    # UPDATE) + commit. Link: `settle_row` writes this Txn Id into the chosen expense's `payment_ref`
-    # (settle.py:643), so that expense now counts for it -- the same effect. Rule 2 at the line UPDATE;
-    # it waits while a Phase 1 job holds the line.
+    # Create: `create_expense_from_row` + `record_settlement` (the match INSERT, `created_by_import` 1) +
+    # `refresh_row_allocation` (the line UPDATE) + commit. Link: `settle_row` writes this Txn Id into the
+    # chosen expense's `payment_ref` (settle.py), so that expense now counts for it, and its match row
+    # has `created_by_import` 0 -- outside C's index. Rule 2 at the line UPDATE; it waits while a Phase 1
+    # job holds the line. Rule 3 refuses a Create of a Txn Id that already holds an import-created
+    # Expense ("Already imported" + the Expense's name, read after the rollback).
     atomic action CreateOrLink:
         require self.pc == "write"
         require row_lock.get(self.cur, "person") == "person"
-        if lines[self.cur].ver == self.snap_ver:
-            expenses.append(lines[self.cur].txn)
+        kind = oneof PERSON_ACTIONS
+        txn = lines[self.cur].txn
+        refused = index_refuses(txn)
+        if lines[self.cur].ver != self.snap_ver:
+            self.pc = "lost_race"
+        elif kind == "create" and refused:
+            self.pc = "refused"
+        else:
+            expenses.append(txn)
+            if kind == "create":
+                index_rows.append(txn)
             commit_line(self.cur, "Settled")
             self.pc = "done"
-        else:
-            self.pc = "lost_race"
         self.cur = -1
         self.snap_ver = -1
         self.snap_exp = -1
@@ -310,8 +310,7 @@ action Init:
     lines = {}
     expenses = []
     row_lock = {}
-    txn_lock = {}
-    confirm_lock = ""
+    index_rows = []
     staged = {}
     enqueued = {}
     first_run_over = {}
