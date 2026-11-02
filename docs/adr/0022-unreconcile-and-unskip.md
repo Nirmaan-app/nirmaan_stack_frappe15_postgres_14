@@ -411,6 +411,12 @@ still Admin + Accountant Lead only (`unreconcile.get_unreconcile_plan`, `unrecon
   ALLOWED and someone outside the module is refused; the Reverse and Unreconcile refusals for a plain
   Accountant are untouched.
 
+> **Narrowed for one line kind by spec #1585 (2026-11-02, story 39):** an open **Collect payment** (a Cashbook
+> line whose stored Type is `Collect Payment`) is skipped by hand by an Admin or an Accountant Lead only, because
+> the skip closes on record money that left the company. `review.skip_row` refuses anyone else
+> (`cashbook_collect.COLLECT_PAYMENT_SKIP_REFUSAL`), and `canSkipByHand(row, mayUndo)` takes the viewer's undo
+> access again, for that kind only. Every other line keeps this amendment.
+
 ## Amendment F — Unreconcile several Settled lines at once (2026-09-25, #1320, parent #1317, owner)
 
 > **Numbering.** #1317 / #1320 call this "Amendment E"; that letter was taken the same day by the
