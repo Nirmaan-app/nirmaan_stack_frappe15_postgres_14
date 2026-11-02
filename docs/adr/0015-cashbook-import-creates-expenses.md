@@ -148,3 +148,36 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
   `suggested_expense_type`, `resolved_project`), and the expense's Paid by is the statement's `From`,
   as the job writes it.
 - The settle reference is the wallet transaction id everywhere, as before (ADR-0020 B9).
+
+## Amendment B — Cashbook spends wait for their invoices, and only the export with bill links is accepted (2026-11-02, owner)
+
+**Status:** Accepted (owner grilling, 2026-11-02). Terms: `GLOSSARY.md` § *Petty-cash wallet (Cashbook)*. Mirrors ADR-0039 decision 8 (card invoices) for the wallet.
+
+**Why.** The wallet provider's newer export, the *Consolidated Company Account Statement*, carries a link to each bill an employee attached. In the sample (2026-04-01 to 2026-10-31), 1,303 of 2,189 spends were linked, with 1,373 files, up to 4 per spend: jpeg 1,331, pdf 35, png 7. It is the old export plus five columns; every Txn Id of an old export reappears in it. The links are signed and all expire 7 days after export. Measuring it also showed three row kinds the import wrongly skips as "moves money between our own balances":
+
+- Collect Payment: 11 rows, a shop-requested payment.
+- Refunds: 4 rows, each naming its spend as `REF-<Txn Id>`.
+- Wallet Credit: 8 rows, money paid in from outside.
+
+**Decision.**
+
+1. **Only the export with bill links is accepted.** A file without the `Attachments` column is refused with a message naming the export to use. Old batches are untouched; no second parser is kept.
+2. **A file whose links have expired, or expire within the hour, is refused**, asking for a fresh export. Chosen over importing without bills, which would leave every bill to attach by hand.
+3. **Bills are copied into the system during the import.**
+   - The guard: only `https`, only `storage.googleapis.com/prod-payments-private/transaction-attachments/`, no redirects, 10 MB at most, and the bytes must be a JPEG, PNG or PDF.
+   - Two or more bills on one spend are merged into one PDF, which becomes the invoice.
+   - A download that still fails after three tries leaves the Expense without an invoice. The import summary names it with its reason; it never stops the import.
+   - Downloads run outside the line's transaction, because saving a file commits. A bill is attached only after locking the Expense and re-checking that it still has no invoice and no No invoice mark.
+4. **Every Cashbook spend without a bill waits** in Vendor Invoice Recon → Pending Invoices Upload → *Cashbook*, Project and Non-Project alike. It waits until an invoice is attached or an Admin or Accountant Lead marks it *No invoice* with a reason (the Credit Card rules). Only Expenses made by this import wait; Expenses made by earlier imports do not.
+5. **A bill that arrives later is attached later.** A repeat line that now carries a link attaches its bill to the existing Expense, old or new, when that Expense has no invoice and is not marked No invoice. A file of only repeats is no longer refused when some bring new links.
+6. **A Collect Payment is decided by a person.** It is kept open and highlighted on Review, with two choices: Create expense (pre-filled, with its bill copied at import) or Skip by hand.
+7. **Refunds and Wallet Credits follow the card rules.** A refund of a whole spend on the same statement skips both lines, each naming the other. Any other refund, and every Wallet Credit, is an open line with the choices an unpaired card credit has.
+8. **Lines an earlier import skipped as "own balances" are re-opened** when a new statement carries them and they are a Collect Payment, a refund or a Wallet Credit.
+
+**Considered options.**
+
+- *Import expired files with no bills (they wait).* Rejected: a fresh export is cheap; 1,303 bills by hand is not.
+- *First bill as invoice, the rest as extra files.* Rejected: the app screens do not show extra files.
+- *Leave old wrong skips alone.* Rejected: real money left the company and was never looked at.
+
+**Open.** The financial year's older Expenses still lack invoices. Decision 5 attaches what each new upload brings; a dedicated catch-up import is future work.

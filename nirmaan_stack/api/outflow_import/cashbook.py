@@ -47,6 +47,8 @@ accountants and administrators and returns 403 for everyone else. Reversing it i
 """
 
 import os
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
@@ -62,6 +64,7 @@ from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match imp
     is_import_created_expense_refusal,
 )
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.bill_links import expired_links_refusal
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
     load_project_aliases,
@@ -539,7 +542,21 @@ def _read_and_parse():
     except StatementFormatError as exc:
         frappe.throw(str(exc), title="Could not read this statement")
 
+    # ADR-0015 Amendment B decision 2: the job must still be able to fetch every bill, so a statement
+    # whose earliest link is dead, or dies within the hour, is refused here -- before confirm's
+    # `save_file`, so a refusal saves nothing.
+    expired = expired_links_refusal(
+        parsed.rows, now=_utc_now(), tz=ZoneInfo(frappe.utils.get_system_timezone())
+    )
+    if expired:
+        frappe.throw(expired, title="Links expired")
+
     return user, filename, content, parsed
+
+
+def _utc_now() -> datetime:
+    """The upload's clock for the bill-link expiry check. One function so a test can set it."""
+    return datetime.now(timezone.utc)
 
 
 def _build_plan(parsed) -> CashbookPlan:
@@ -805,6 +822,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 ),
                 "match_basis": MATCH_BASIS if creating else None,
                 "auto_matched": 1 if creating else 0,
+                # #1590: the line's bill links, in the statement's order, whatever the plan decided.
+                # ⚠️ A DICT, NEVER A BARE LIST: Postgres hands a jsonb list back as a Python list,
+                # and Frappe refuses to save a document holding a list in a non-table field.
+                "bill_links": {"links": list(raw.bill_links)} if raw.bill_links else None,
             }
         )
         doc.insert(ignore_permissions=True)
