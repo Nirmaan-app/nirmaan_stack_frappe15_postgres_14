@@ -55,7 +55,8 @@
   "decided_by",
   "settlement_origin",
   "confirm_by_hand",
-  "bill_links"
+  "bill_links",
+  "bill_problem"
  ],
  "fields": [
   {
@@ -405,12 +406,19 @@
    "fieldtype": "JSON",
    "label": "Bill Links",
    "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: why this line's bills were not copied onto its Expense as the invoice (#1591). Blank when they were copied or the line had none.",
+   "fieldname": "bill_problem",
+   "fieldtype": "Small Text",
+   "label": "Bill Not Copied",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-11-02 07:46:42.510344",
+ "modified": "2026-11-02 08:46:07.198623",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

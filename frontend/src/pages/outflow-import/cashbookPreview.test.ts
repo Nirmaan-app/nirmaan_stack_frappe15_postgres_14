@@ -8,8 +8,10 @@ import {
     CashbookStatus,
     NON_PROJECT_LEDGER,
     PROJECT_LEDGER,
+    billsNotCopiedHeading,
     createLabel,
     duplicateNotice,
+    invoiceCountsText,
     isLoneRow,
     ledgerSections,
     progressFraction,
@@ -248,3 +250,42 @@ describe("the already-imported notice (ADR-0031)", () => {
         );
     });
 });
+
+describe("the invoice counts before Create (#1591)", () => {
+    it("says how many spends carry 1 file, how many are merged, and how many will wait", () => {
+        expect(
+            invoiceCountsText({ creating: 2191, invoices: { one_file: 1243, merged: 62, waiting: 886 } })
+        ).toBe("2,191 spends: 1,243 with 1 file, 62 with 2–4 files (merged), 886 will wait for an invoice");
+    });
+
+    it("uses the singular for one spend", () => {
+        expect(invoiceCountsText({ creating: 1, invoices: { one_file: 0, merged: 0, waiting: 1 } })).toBe(
+            "1 spend: 0 with 1 file, 0 with 2–4 files (merged), 1 will wait for an invoice"
+        );
+    });
+
+    it("says nothing for a server that sends no counts, or nothing to create", () => {
+        expect(invoiceCountsText({ creating: 5 })).toBeNull();
+        expect(invoiceCountsText({ creating: 0, invoices: { one_file: 0, merged: 0, waiting: 0 } })).toBeNull();
+    });
+});
+
+describe("the bills the job could not copy (#1591)", () => {
+    const line = { transfer_id: "OBO1", expense: "PE-1", reason: "Bill not copied: the storage refused it (HTTP 403)." };
+
+    it("is silent while the job runs or when every bill was copied", () => {
+        expect(billsNotCopiedHeading(status({ created: 3, bills_not_copied: [] }))).toBeNull();
+        expect(billsNotCopiedHeading(status({ created: 3, running: true, bills_not_copied: [line] }))).toBeNull();
+        expect(billsNotCopiedHeading(null)).toBeNull();
+    });
+
+    it("counts the spends whose bills were not copied, once the job is done", () => {
+        expect(billsNotCopiedHeading(status({ created: 3, bills_not_copied: [line] }))).toBe(
+            "1 spend's bills were not copied. Its Expense waits for an invoice:"
+        );
+        expect(billsNotCopiedHeading(status({ created: 3, bills_not_copied: [line, line] }))).toBe(
+            "2 spends' bills were not copied. Their Expenses wait for an invoice:"
+        );
+    });
+});
+

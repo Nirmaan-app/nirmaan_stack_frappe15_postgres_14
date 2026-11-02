@@ -333,17 +333,18 @@ export const getProjectExpenseColumns = ({
     cell: ({ row }) => {
       const ref = row.original.invoice_ref;
       const attachment = invoiceAttachmentUrl("Project Expenses", row.original);
-      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab).
-      if (invoiceRefClickable && attachment && ref) {
+      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab). An invoice with
+      // no ref (a Cashbook spend's copied bill, #1591) still gets the link, worded "View invoice".
+      if (invoiceRefClickable && attachment) {
         return (
           <a
             href={SITEURL + attachment}
             target="_blank"
             rel="noreferrer"
-            title={`Open invoice ${ref}`}
+            title={ref ? `Open invoice ${ref}` : "Open invoice"}
             className="block truncate font-medium text-blue-600 underline hover:text-blue-800"
           >
-            {ref}
+            {ref || "View invoice"}
           </a>
         );
       }

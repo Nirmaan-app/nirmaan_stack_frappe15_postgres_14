@@ -10,6 +10,7 @@ import {
     CashbookPreviewResult,
     DuplicateNotice,
     duplicateNotice,
+    invoiceCountsText,
     isLoneRow,
     ledgerSections,
     typeHint,
@@ -46,6 +47,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const [showSkipped, setShowSkipped] = useState(false);
     const sections = ledgerSections(preview.groups);
     const notice = duplicateNotice(preview);
+    const invoices = invoiceCountsText(preview);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -72,6 +74,9 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
             </div>
 
             {notice && <RepeatNotice notice={notice} />}
+
+            {/* #1591: what becomes of the bills, said before Create. */}
+            {invoices && <p className="text-sm text-muted-foreground">{invoices}</p>}
 
             {/* Said once, plainly, because it is the thing a reader most needs to know before
                 clicking: this is the last screen, and the correction happens somewhere else. */}

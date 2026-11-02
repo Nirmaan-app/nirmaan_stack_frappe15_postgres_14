@@ -64,6 +64,7 @@ from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match imp
     is_import_created_expense_refusal,
 )
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.bill_links import expired_links_refusal
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
@@ -74,6 +75,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
     CashbookPlan,
     group_plan,
+    invoice_counts,
     plan_statement,
 )
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
@@ -108,6 +110,8 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_ALREADY_IMPORTED
+from nirmaan_stack.services.reimbursements.receipts import merge_to_pdf
+from nirmaan_stack.services.stored_files import delete_files
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -232,6 +236,16 @@ def get_cashbook_status(batch: str):
         "running": running,
         "stopped": pending > 0 and not running,
         "batch_status": frappe.db.get_value(BATCH_DOCTYPE, batch, "status"),
+        # #1591: every created spend whose bills were not copied onto its Expense, and why.
+        "bills_not_copied": [
+            {"transfer_id": row.transfer_id, "expense": row.suggested_name, "reason": row.bill_problem}
+            for row in frappe.get_all(
+                ROW_DOCTYPE,
+                filters={"import_batch": batch, "bill_problem": ["is", "set"]},
+                fields=["transfer_id", "suggested_name", "bill_problem"],
+                order_by="name asc",
+            )
+        ],
     }
 
 
@@ -293,6 +307,10 @@ def _cashbook_worker(batch: str, actor: str):
     other hundred -- the reviewer has already approved the whole batch, and stopping would leave
     them with no way to tell which rows went through.
 
+    ⚠️ A CREATED LINE'S BILLS ARE COPIED AFTER ITS COMMIT, NEVER INSIDE IT (#1591). `save_file` commits
+    mid-save, so the download and the save run between the line's transaction and a short second one that
+    attaches the invoice (`_copy_bills`). A bill that cannot be copied never fails the line.
+
     ⚠️ THE LIST BELOW IS A SNAPSHOT, NOT A CLAIM (#1586, spec #1585 gap A). Another run, a Resume or a
     person may take a listed line before this run reaches it, so `_write_one` re-reads each line under
     its row lock and writes nothing unless it is still `Pending match run`; a line it did not write is
@@ -319,6 +337,7 @@ def _cashbook_worker(batch: str, actor: str):
             continue
         if written:
             frappe.db.commit()
+            _copy_bills(row_name)
         else:
             # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
             frappe.db.rollback()
@@ -501,6 +520,132 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         update_modified=False,
     )
     return True
+
+
+# --- the bills: steps 2 and 3 of a created line (#1591) -----------------------------------------------
+
+_BILLS_NOT_STORED = "the bills could not be stored"
+_BILLS_NOT_MERGED = "the bills could not be merged into one PDF"
+
+
+def _fetch_bill(url: str) -> BillFile | BillRefused:
+    """THE SEAM tests replace: one bill link through the guard (`bill_download.download_bill`).
+
+    ⚠️ NO NETWORK UNDER TESTS. A test that runs the job without replacing this gets a refusal, never a
+    request: every Cashbook fixture carries real-looking links to the production bucket.
+    """
+    if frappe.flags.in_test:
+        return BillRefused("bill downloads are off under tests")
+    return download_bill(url)
+
+
+def _copy_bills(row_name: str) -> None:
+    """Copy a just-created line's bills onto its Expense as the invoice. Never raises, never fails the line.
+
+    Spec #1585 "Where downloads run", steps 2 and 3. Step 2 downloads every bill (no lock held, no
+    transaction of ours open), merges 2 or more into one PDF, and saves one private File, which commits.
+    Step 3 (`_attach_invoice`) locks the Expense and attaches the File only while it still has no invoice
+    and no No invoice mark. Anything that stops the copy is written on the line as `bill_problem`, which
+    the import summary (`get_cashbook_status`) lists; the Expense simply has no invoice yet.
+    """
+    line = frappe.db.get_value(
+        ROW_DOCTYPE,
+        row_name,
+        ["transfer_id", "suggested_doctype", "suggested_name", "bill_links"],
+        as_dict=True,
+    )
+    links = (frappe.parse_json(line.bill_links) or {}).get("links") or [] if line.bill_links else []
+    if not links:
+        return
+    try:
+        problem = _store_and_attach(line.suggested_doctype, line.suggested_name, line.transfer_id, links)
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(
+            title="Cashbook import: could not copy a bill",
+            message=f"{row_name} / {line.suggested_name}\n\n{frappe.get_traceback()}",
+        )
+        problem = _not_copied(len(links), _BILLS_NOT_STORED)
+    if problem:
+        # Raw: `Outflow Import Row` has no doc_events. The line is Settled by now and only this job writes
+        # the field.
+        frappe.db.sql(
+            """UPDATE "tabOutflow Import Row" SET bill_problem = %s WHERE name = %s""", (problem, row_name)
+        )
+    frappe.db.commit()
+
+
+def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[str]) -> str | None:
+    """Steps 2 and 3 for one Expense. Returns the line's `bill_problem` sentence, or `None` when nothing
+    went wrong (the bills were attached, or a person had already set the invoice or No invoice)."""
+    bills = []
+    for number, link in enumerate(links, start=1):
+        got = _fetch_bill(link)
+        if isinstance(got, BillRefused):
+            which = f"Bill {number} of {len(links)}" if len(links) > 1 else "Bill"
+            return f"{which} not copied: {got.reason}."
+        bills.append(got)
+
+    if len(bills) == 1:
+        content, fname = bills[0].content, f"{transfer_id}.{bills[0].kind}"
+    else:
+        try:
+            content = merge_to_pdf([(f"bill {n}", bill.content) for n, bill in enumerate(bills, start=1)])
+        except ValueError:
+            return _not_copied(len(bills), _BILLS_NOT_MERGED)
+        fname = f"{transfer_id}-bills.pdf"
+
+    from frappe.utils.file_manager import save_file
+
+    # Saved unattached: it is attached in step 3, under the Expense's lock. The URL is read off the returned
+    # doc because the cloud attachment hook rewrites it during insert.
+    saved = save_file(fname=fname, content=content, dt=None, dn=None, is_private=1)
+    frappe.db.commit()
+    try:
+        attached = _attach_invoice(doctype, expense, saved)
+    except Exception:
+        frappe.db.rollback()
+        delete_files({"name": saved.name})
+        frappe.db.commit()
+        raise
+    if not attached:
+        # A person attached an invoice or marked No invoice meanwhile: their choice stands, our copy goes.
+        frappe.db.rollback()
+        delete_files({"name": saved.name})
+        frappe.db.commit()
+    return None
+
+
+def _not_copied(count: int, clause: str) -> str:
+    """The `bill_problem` sentence for a failure of the whole copy, not of one link."""
+    return f"{'Bills' if count > 1 else 'Bill'} not copied: {clause}."
+
+
+def _attach_invoice(doctype: str, expense: str, saved) -> bool:
+    """Step 3: lock the Expense, re-check it still waits for an invoice, and only then attach `saved` as
+    its `invoice_attachment`. Returns whether it attached; the caller commits or discards. The Credit Card
+    queue's attach (`api/expenses/card_invoices.attach_card_invoice`) is the model: `FOR UPDATE`, then a
+    save through the document layer, so `doc_events` run and `track_changes` keeps a Version."""
+    doc = frappe.get_doc(doctype, expense, for_update=True)
+    if doc.invoice_attachment or _marked_no_invoice(doc):
+        return False
+    # The File first, so Frappe's attach-on-save hook finds it and mints no second one.
+    frappe.db.set_value(
+        "File",
+        saved.name,
+        {"attached_to_doctype": doctype, "attached_to_name": expense, "attached_to_field": "invoice_attachment"},
+        update_modified=False,
+    )
+    doc.invoice_attachment = saved.file_url
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    return True
+
+
+def _marked_no_invoice(doc) -> bool:
+    """Whether a person marked this Expense No invoice. Read only where the doctype has the field: `Non
+    Project Expenses` has it; `Project Expenses` gains it in #1592."""
+    return bool(frappe.get_meta(doc.doctype).has_field("no_invoice_by") and doc.get("no_invoice_by"))
 
 
 # --- shared between the three phases -------------------------------------------------------------
@@ -837,6 +982,7 @@ def _preview_payload(
     parsed, plan: CashbookPlan, filename: str, verdict: DuplicateVerdict
 ) -> dict:
     groups = group_plan(plan)
+    invoices = invoice_counts(plan)
     return {
         "preview": True,
         "source": SOURCE,
@@ -857,6 +1003,13 @@ def _preview_payload(
         "warn": verdict.warn,
         "duplicate_of_batch": verdict.earliest_batch,
         "warnings": list(parsed.warnings),
+        # #1591: the spends that will create an Expense, by their bills -- 1 file (the invoice as it is),
+        # 2 or more (merged into one PDF), none (the Expense waits for an invoice).
+        "invoices": {
+            "one_file": invoices.one_file,
+            "merged": invoices.merged,
+            "waiting": invoices.waiting,
+        },
         "groups": [
             {
                 "ledger": group.ledger,
