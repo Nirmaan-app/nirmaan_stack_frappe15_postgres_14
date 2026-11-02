@@ -112,6 +112,11 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // items (listed here, beside Insulation -- the two piped catalogues together, Pricing Inputs last) and
       // is never priced: a Piping BoQ row and the calculator show the "coming soon" card until 12e-2.
       { category_id: "hvac_piping", label: "Piping" },
+      // VRF-1 (2026-11-03, owner R-SRC / R-MISC): the VRF CATALOGUE -- 152 SKUs from the 2 Nov workbook's VRF sheet plus the
+      // four Misc items VRF takes over as the SHARED kind `hvac_misc_item`, with a DATA-ONLY config (no pricing block), so it
+      // holds items (listed here) and never prices: a VRF BoQ row and the calculator keep the "coming soon" text until
+      // VRF-2 / VRF-4.
+      { category_id: "hvac_vrf", label: "VRF" },
       // SLICE 12c (2026-10-03): HVAC's Pricing Inputs -- the seven numbers Insulation's cladding rule
       // reads. BORN CONNECTED, which is the whole point of minting them with the rule in one asset: an
       // input no pipeline reads shows "not used" and a zero-SKU impact panel. It DOES hold items, so

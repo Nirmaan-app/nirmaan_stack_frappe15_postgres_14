@@ -3532,7 +3532,8 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v51.json"`
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v52.json"`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v53.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v54.json"   # ADP-5d: v54 (BEFORE: v53, ADP-5c)
+        # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v54.json"`
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v55.json"   # VRF-1: v55 (BEFORE: v54, ADP-5d)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last
@@ -3578,6 +3579,9 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # normalised out on the NEW side (the `_without_pricing_input_items` idiom) and NAMED here.
         self.assertIn(("HVAC", "hvac_piping"), c33)
         c33 = {k: v for k, v in c33.items() if k[1] != "hvac_piping"}
+        # VRF-1: v55's data-only `hvac_vrf` config, normalised out on the NEW side the same way, NAMED (BEFORE: no second filter)
+        self.assertIn(("HVAC", "hvac_vrf"), c33)
+        c33 = {k: v for k, v in c33.items() if k[1] != "hvac_vrf"}
         self.assertEqual(set(c32), set(c33))
         payload = [extraction._ai_item(self._row())]
         checked = []

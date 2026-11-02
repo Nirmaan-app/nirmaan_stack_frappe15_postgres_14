@@ -105,6 +105,21 @@ function withoutAdp5c(items: RateMasterItem[]): RateMasterItem[] {
 }
 
 /**
+ * VRF-1 (owner R-SRC / R-MISC / R-INPUTS, 2026-11-03): HVAC v55's 152 VRF SKUs, its 4 shared Misc items and its 2 `shared_by: vrf`
+ * Pricing Inputs, which the served fixture predates -- set aside on the stored side, as `withoutAdp5c` does; it throws unless
+ * exactly those 158 are in the stored asset, so it cannot pass vacuously. Every other uid and rate stays under full force.
+ */
+function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
+  const isVrf1 = (it: RateMasterItem) => it.kind === "hvac_vrf_item" || it.kind === "hvac_misc_item"
+    || (it.kind === "hvac_pricing_input" && it.attributes?.shared_by === "vrf");
+  const n = (k: string) => items.filter((it) => isVrf1(it) && it.kind === k).length;
+  if (n("hvac_vrf_item") !== 152 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") !== 2) {
+    throw new Error("VRF-1's 152 + 4 + 2 items are not all in the stored asset");
+  }
+  return items.filter((it) => !isVrf1(it));
+}
+
+/**
  * ELR-3a (owner R-9 / R-R1 Q1, Q2, 2026-10-28): Electrical v69's nine new Pricing Inputs (the point-wiring lengths and the six
  * conduit fills), which the served fixture predates -- set aside on the stored side by name, exactly as `withoutAdp5c` does; it
  * throws if any uid is not in the stored asset, so it cannot pass vacuously. Every other Electrical uid and rate stays under force.
@@ -165,7 +180,9 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     // authority. BEFORE: [["HVAC", servedHvac, withoutAdp1(storedHvac)], ...] -- the VCD Aluminium SKU set aside by name (`withoutAdp5c`)
     // INVERTED at ELR-3a (Electrical v69; the same standing authority) by mechanical authority. BEFORE: [..., ["Electrical",
     // served.items.Electrical, storedItems(ELEC)]] -- the nine new Pricing Inputs set aside by name (`withoutElr3a`)
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(storedHvac))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
+    // INVERTED at VRF-1 (HVAC v55; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
+    // withoutAdp1(withoutAdp5c(storedHvac))], ...] -- the 158 VRF-1 items set aside on the stored side (`withoutVrf1`)
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(storedHvac)))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

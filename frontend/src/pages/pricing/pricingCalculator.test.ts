@@ -167,7 +167,9 @@ describe("Calculator slice 2 / the plumbing is defined ONCE and the BoQ page imp
     // ⚠️ SLICE 12c (21 -> 22): `hvac_pricing_inputs`, the same shape one discipline over.
     // ⚠️ SLICE 12e-1 (22 -> 23): `hvac_piping`, the 40-item Piping CATALOGUE with a data-only config -- it holds
     // items (on the page), is fetched like every other target, and is never priced (owner "(b) accept it", 2026-10-09).
-    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(23);
+    // ⚠️ VRF-1 (23 -> 24; mechanical authority, BEFORE `toBe(23)`): `hvac_vrf`, the VRF CATALOGUE with a data-only config --
+    // it holds items (on the page), is fetched like every other target, and is never priced until VRF-2 / VRF-4.
+    expect(RATE_MASTER_CONFIG_TARGETS.length).toBe(24);
     for (const name of ["export const RATE_MASTER_CONFIG_TARGETS", "export function RateConfigFetcher", "export function useConfigsByCategory", "export function useRateMasterItems"]) {
       expect(PLUMBING_SRC).toContain(name);
     }
@@ -498,9 +500,12 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
   // The six `holds_items: false` entries are untouched, which is what this pin is really about.
   // SLICE 12e-1 INVERTS THE COUNT AGAIN (nine -> ten): `hvac_piping` holds the 40 Piping items (data-only config),
   // listed beside Insulation; the six `holds_items: false` entries are untouched (owner "(b) accept it", 2026-10-09).
-  it("the registry lists ten HVAC categories: ADP, Insulation, Piping and Pricing Inputs hold items, the four vendor-quote and the two alias ones do not", () => {
+  // VRF-1 INVERTS THE COUNT AGAIN (ten -> eleven; mechanical authority, BEFORE the title "the registry lists ten HVAC
+  // categories: ADP, Insulation, Piping and Pricing Inputs hold items, ..." and the list without "hvac_vrf"): `hvac_vrf` holds
+  // the VRF catalogue (data-only config), listed after Piping; the six `holds_items: false` entries are untouched.
+  it("the registry lists eleven HVAC categories: ADP, Insulation, Piping, VRF and Pricing Inputs hold items, the four vendor-quote and the two alias ones do not", () => {
     expect(hvacEntry.categories.map((c) => c.category_id))
-      .toEqual(["hvac_adp", ...noItems, "hvac_insulation", "hvac_piping", "hvac_pricing_inputs"]);
+      .toEqual(["hvac_adp", ...noItems, "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs"]);
     expect(noItems).toHaveLength(6);
     expect(vendor).toHaveLength(4);
     // every vendor entry's CONFIG carries the two messages -- the registry names no message
@@ -521,8 +526,9 @@ describe("SLICE 2 / HVAC calculator: ADP coming soon, the four vendor-quote cate
     // exactly the six `holds_items: false` entries.
     // SLICE 12c: Pricing Inputs holds items too, so the page keeps it as well. The NEGATIVE half --
     // that the filter drops exactly the six and nothing else -- is unchanged, and is the point.
+    // VRF-1 (mechanical authority, BEFORE the list without "hvac_vrf"): + VRF (holds items)
     expect(pageHvac.categories.map((c) => c.category_id))
-      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_pricing_inputs"]);   // 12e-1: + Piping (holds items)
+      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs"]);   // 12e-1: + Piping (holds items)
     const electrical = RATE_MASTER_DISCIPLINES[0];
     expect(electrical.discipline).toBe("Electrical");
     expect(rateMasterPageEntry(electrical)).toBe(electrical);        // reference-identical
@@ -599,7 +605,8 @@ describe("SLICE 3 / HVAC Cables and Raceway price EXACTLY as Electrical wiring a
     }
     expect(rateMasterPageEntry(hvacEntry).categories.map((c) => c.category_id))
       // SLICE 12a: Insulation holds items. SLICE 12c: so does Pricing Inputs.
-      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_pricing_inputs"]);   // 12e-1: + Piping (holds items)
+      // VRF-1 (mechanical authority, BEFORE the list without "hvac_vrf"): + VRF (holds items)
+      .toEqual(["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf", "hvac_pricing_inputs"]);   // 12e-1: + Piping (holds items)
   });
 
   for (const [own, target] of ALIASES) {

@@ -191,6 +191,12 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.api.boq.test_vrf_v55": {
+   "seconds": 15.9,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.api.boq.wizard.test_ai_assist": {
    "seconds": 38.0,
    "series": [
