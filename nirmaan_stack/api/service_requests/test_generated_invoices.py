@@ -114,9 +114,10 @@ class GeneratedInvoiceTestCase(FrappeTestCase):
 
     @staticmethod
     def _remove_permission(name):
-        """Must survive a poisoned transaction: it would otherwise leave a real user on a test project."""
+        """Must survive a poisoned transaction: it would otherwise leave a real user on a test project.
+        delete_doc, not frappe.db.delete: only on_trash drops the user's cached permissions."""
         frappe.db.rollback()
-        frappe.db.delete("User Permission", {"name": name})
+        frappe.delete_doc("User Permission", name, force=True, ignore_permissions=True, ignore_missing=True)
         frappe.db.commit()
 
     def _as(self, user, fn, *args, **kwargs):
