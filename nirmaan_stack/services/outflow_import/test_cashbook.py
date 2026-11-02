@@ -24,6 +24,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
     CashbookPlan,
     group_plan,
+    invoice_counts,
     pick_expense_type,
     plan_statement,
 )
@@ -68,7 +69,8 @@ RULES = {
 
 
 def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Spend",
-         status="SUCCESS", payee="A Payee", spender="A Spender", added_on=date(2026, 8, 1)):
+         status="SUCCESS", payee="A Payee", spender="A Spender", added_on=date(2026, 8, 1),
+         links=()):
     """A parsed Cashbook row. Uses the real `RawRow` so the plan is tested against what it will get."""
     from datetime import datetime
 
@@ -91,6 +93,7 @@ def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Sp
         normalized_account="",
         normalized_reference="",
         row_kind=kind,
+        bill_links=tuple(links),
     )
 
 
@@ -534,6 +537,29 @@ class TestPlanShape(unittest.TestCase):
         row = _plan([_row(payee="Hanuman Hardware", spender="Sowmya T P")]).rows[0]
         self.assertEqual(row.beneficiary_name, "Hanuman Hardware")
         self.assertEqual(row.spent_by, "Sowmya T P")
+
+
+class TestInvoiceCounts(unittest.TestCase):
+    """What Review says about the bills before Create (#1591): 1 file, merged, will wait."""
+
+    def test_spends_are_counted_by_how_many_bills_they_carry(self):
+        plan = _plan(
+            [
+                _row(1, "A", links=["a"]),
+                _row(2, "B", links=["b1", "b2"]),
+                _row(3, "C", links=["c1", "c2", "c3", "c4"]),
+                _row(4, "D"),
+                _row(5, "E"),
+                _row(6, "F", links=["f"]),
+            ]
+        )
+        counts = invoice_counts(plan)
+        self.assertEqual((counts.one_file, counts.merged, counts.waiting), (2, 2, 2))
+
+    def test_a_skipped_line_is_not_counted_whatever_its_links(self):
+        plan = _plan([_row(1, "A", links=["a"]), _row(2, "B", kind="Bank → VA", links=["b"])])
+        counts = invoice_counts(plan)
+        self.assertEqual((counts.one_file, counts.merged, counts.waiting), (1, 0, 0))
 
 
 class TestPurity(unittest.TestCase):

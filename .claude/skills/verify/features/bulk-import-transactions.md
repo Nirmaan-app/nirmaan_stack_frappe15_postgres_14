@@ -16,6 +16,10 @@ past imports by source and month.
 - `bit-confirm` `Confirm <n> matched` settles the ticked matches (disabled at 0).
 - `bit-cashbook-resume` a pinned Cashbook import whose job stopped part-way shows `Stopped: N lines still waiting`
   and `Resume` above the tabs; while its job runs, `Creating… X created, N still waiting.` (#1589).
+- `bit-cashbook-invoices` a Cashbook Review says `N spends: A with 1 file, B with 2–4 files (merged), C will wait for an
+  invoice`; after Create each spend's bills are its Expense's invoice (Paid tab `Edit Inv`, or `View invoice` in the
+  Expenses list), and the finished job lists any spend whose bills were not copied (#1591). An env cannot reach the
+  bill storage: seed with `DEVENV script`, running `_cashbook_worker` with `cashbook._fetch_bill` patched.
 
 ## How to get to it (user POV)
 
