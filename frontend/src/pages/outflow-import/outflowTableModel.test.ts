@@ -1578,6 +1578,16 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         expect(confirmBlocker(row(), {})).toMatch(/Pick the record/);
     });
 
+    it("says a Pending Cashbook line belongs to its import, in the server's own sentence (#1587)", () => {
+        const pending = row({ row_status: "Pending match run", source: "Cashbook" });
+        expect(confirmBlocker(pending, link)).toBe(
+            "The Cashbook import is still creating this line's expense, so it can't be worked by hand yet."
+        );
+        expect(confirmBlocker(row({ row_status: "Mismatched", source: "Cashbook" }), undefined)).toMatch(
+            /Pick the record/
+        );
+    });
+
     it("maps every gate reason, and stays silent while busy or live", () => {
         const r = row({ row_status: "Mismatched" });
         expect(confirmDisabledSentence(null, r, link)).toBeNull();

@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+    CASHBOOK_PENDING_LINE_REFUSAL,
     NEVER_MATCHED_SOURCES,
     OUTFLOW_UNDO_PROFILES,
     SPENDER_NAMED_SOURCES,
@@ -77,10 +78,18 @@ describe("undo access parity -- the screen hides exactly what the server refuses
     });
 
     it("★ the Skip rule refuses a Cashbook line only while its job has not written it", () => {
+        // #1587: the rule moved into `own_import_refusal`, which every main-table write asks, Skip included.
         const skipOrigin = pyFile("services/outflow_import/skip_origin.py");
-        const from = skipOrigin.indexOf("def manual_skip_refusal");
-        const rule = skipOrigin.slice(from, skipOrigin.indexOf("\ndef ", from + 1));
-        expect(rule).toContain("not source_runs_the_matcher(source or \"\") and status == ROW_PENDING_MATCH");
+        const body = (name: string) => {
+            const from = skipOrigin.indexOf(`def ${name}`);
+            return skipOrigin.slice(from, skipOrigin.indexOf("\ndef ", from + 1));
+        };
+        expect(body("manual_skip_refusal")).toContain("return own_import_refusal(");
+        expect(body("own_import_refusal")).toContain(
+            "source == CASHBOOK_SOURCE and (row_status or \"\").strip() == ROW_PENDING_MATCH"
+        );
+        // The Confirm blocker shows the server's own refusal, word for word.
+        expect(skipOrigin).toContain(`"${CASHBOOK_PENDING_LINE_REFUSAL}"`);
     });
 
     it("the undo set is inside the module set -- a plain Accountant is in one and not the other", () => {

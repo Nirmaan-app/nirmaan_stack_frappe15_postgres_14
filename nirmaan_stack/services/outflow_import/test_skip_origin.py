@@ -28,7 +28,7 @@ from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
-    SKIP_REFUSED_CASHBOOK_PENDING,
+    CASHBOOK_PENDING_LINE_REFUSAL,
     SKIP_REFUSED_PARTIALLY_ALLOCATED,
     SKIP_REFUSED_SETTLED,
     UNSKIP_REFUSED_CASHBOOK,
@@ -277,7 +277,7 @@ class TestManualSkipRefusal(unittest.TestCase):
         overwritten by the expense it creates."""
         self.assertEqual(
             manual_skip_refusal(row_status=ROW_PENDING_MATCH, source="Cashbook"),
-            SKIP_REFUSED_CASHBOOK_PENDING,
+            CASHBOOK_PENDING_LINE_REFUSAL,
         )
 
     def test_an_open_card_credit_may_be_skipped_and_a_card_spend_may_not(self):
