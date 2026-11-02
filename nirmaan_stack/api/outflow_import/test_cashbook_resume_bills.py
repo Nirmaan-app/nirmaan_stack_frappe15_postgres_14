@@ -164,7 +164,6 @@ class TestAnExpiredLinkIsNotTried(FrappeTestCase):
         self.assertIn("expired on 08-Jan-2026", got.reason)
 
 
-
 class TestRecordingABillProblemNeverRaises(FrappeTestCase):
     """Third review: the job's "Never raises" holds when writing a line's `bill_problem` itself fails."""
 

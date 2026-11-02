@@ -52,6 +52,7 @@ from nirmaan_stack.services.stored_files import delete_files
 
 BILLS_NOT_STORED = "the bills could not be stored"
 BILLS_NOT_MERGED = "the bills could not be merged into one PDF"
+PROBLEM_NOT_RECORDED = "Cashbook import: could not record a bill not copied"
 
 
 def fetch_bill(url: str) -> BillFile | BillRefused:
@@ -126,10 +127,11 @@ def copy_created_line_bills(row_name: str) -> None:
     if not dealt_with:
         # Nothing retries a created line's copy (its Expense waits in Pending Invoices Upload), so even a transient
         # refusal is named in the summary; should that write be refused again, only the Error Log records it.
-        if not _record_bill_problem(row_name, not_copied(len(links_of(line)), BILLS_NOT_STORED)):
+        problem = not_copied(len(links_of(line)), BILLS_NOT_STORED)
+        if not _record_bill_problem(row_name, problem):
             frappe.log_error(
-                title="Cashbook import: could not record a bill not copied",
-                message=f"{row_name}: the database refused the write twice",
+                title=PROBLEM_NOT_RECORDED,
+                message=f"{row_name}: {problem} (the database refused the write twice)",
             )
             frappe.db.commit()
 
@@ -372,7 +374,7 @@ def _record_bill_problem(row_name: str, problem: str) -> bool:
         if is_retried_by_resume(exc):
             return False
         frappe.log_error(
-            title="Cashbook import: could not record a bill not copied",
+            title=PROBLEM_NOT_RECORDED,
             message=f"{row_name}: {problem}\n\n{frappe.get_traceback()}",
         )
         frappe.db.commit()
