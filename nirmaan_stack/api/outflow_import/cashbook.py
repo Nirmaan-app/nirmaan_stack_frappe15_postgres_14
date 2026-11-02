@@ -460,6 +460,8 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
         payment_by=(doc.get("added_by_raw") or "").strip() or None,
+        # #1592: the marker that makes this wallet spend wait in Pending Invoices Upload -> Cashbook.
+        cashbook_batch=batch,
         # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
         # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
         # fixed THIS write site and left the payment one blank for this source. `_stage` now

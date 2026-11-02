@@ -1,13 +1,18 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A card spend's invoice (spec #1565, #1570, ADR-0039 ruling 8). Pure: no `frappe.db`, no request.
+"""A card spend's invoice (spec #1565, #1570, ADR-0039 ruling 8), and a Cashbook wallet spend's (spec #1585,
+#1592, ADR-0015 Amendment B decision 4). Pure: no `frappe.db`, no request.
 
 Every card spend is a Paid `Non Project Expenses` row carrying `credit_card_statement`. It waits in Vendor
 Invoice Recon -> Pending Invoices Upload -> Credit Card until either its invoice file is attached
 (`invoice_attachment`; number and date optional) or an Admin / Accountant Lead marks it *No invoice* with a
 reason (`no_invoice_reason`, `no_invoice_by`, `no_invoice_at`). These are the refusals both actions share.
 The endpoints are `api/expenses/card_invoices.py`.
+
+A wallet spend the Cashbook import made (a `Project Expenses` or `Non Project Expenses` row carrying
+`cashbook_batch`) waits in the same way in the *Cashbook* sub-tab, under the same refusals; only the first
+one ("not in this queue") names its own kind. Its endpoints are `api/expenses/cashbook_invoices.py`.
 """
 
 from __future__ import annotations
@@ -23,6 +28,27 @@ class CardExpenseFacts(NamedTuple):
     is_card: bool
     invoice_attachment: str | None
     no_invoice_by: str | None
+
+    @property
+    def queue_problem(self) -> str | None:
+        return None if self.is_card else f"{self.name} is not a card spend."
+
+
+class CashbookExpenseFacts(NamedTuple):
+    """The same, for a Cashbook queue expense. `has_cashbook_marker`: `cashbook_batch` is set, so the Cashbook
+    Statement import made it (older Cashbook Expenses carry no marker and never wait)."""
+
+    name: str
+    has_cashbook_marker: bool
+    invoice_attachment: str | None
+    no_invoice_by: str | None
+
+    @property
+    def queue_problem(self) -> str | None:
+        return None if self.has_cashbook_marker else f"{self.name} is not a wallet spend from a Cashbook Statement import."
+
+
+ExpenseFacts = CardExpenseFacts | CashbookExpenseFacts
 
 
 REASON_REQUIRED = "Type the reason this spend has no invoice."
@@ -52,9 +78,9 @@ def statement_months(start, end) -> list[str]:
     return months
 
 
-def _still_waiting_problem(facts: CardExpenseFacts) -> str | None:
-    if not facts.is_card:
-        return f"{facts.name} is not a card spend."
+def _still_waiting_problem(facts: ExpenseFacts) -> str | None:
+    if facts.queue_problem:
+        return facts.queue_problem
     if facts.invoice_attachment:
         return f"{facts.name} already has its invoice."
     if facts.no_invoice_by:
@@ -62,12 +88,12 @@ def _still_waiting_problem(facts: CardExpenseFacts) -> str | None:
     return None
 
 
-def no_invoice_problem(facts: CardExpenseFacts, reason: str | None) -> str | None:
+def no_invoice_problem(facts: ExpenseFacts, reason: str | None) -> str | None:
     """Why this spend may not be marked *No invoice* with `reason`, or None when it may."""
     return _still_waiting_problem(facts) or (None if (reason or "").strip() else REASON_REQUIRED)
 
 
-def attach_problem(facts: CardExpenseFacts, file_url: str | None, invoice_date: str | None, *, today: str) -> str | None:
+def attach_problem(facts: ExpenseFacts, file_url: str | None, invoice_date: str | None, *, today: str) -> str | None:
     """Why `file_url` may not be attached as this spend's invoice, or None. The date (ISO) is optional."""
     problem = _still_waiting_problem(facts)
     if problem:
