@@ -9,7 +9,7 @@
  * challan); these helpers only shape the screen to match.
  */
 
-/** Expense Type a deposit of tax is booked under (`fixtures/expense_type.json`). */
+/** Expense Type a deposit of tax is booked under (a new site gets it from `services/expense_types_seed.json`). */
 export const TDS_PAYMENT_EXPENSE_TYPE = "TDS Payment";
 
 interface ChallanLink {

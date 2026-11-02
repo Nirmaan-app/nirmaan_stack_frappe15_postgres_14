@@ -104,7 +104,7 @@ class ExpenseTdsRule:
 
 
 #: THE rule (spec #1522): Office Rent, 10%, 194-I; the landlord, named by Office Rent's form
-#: (`fixtures/expense_type.json`, pinned by `services/test_expense_tds_rule`).
+#: (a new site's form: `services/expense_types_seed.json`, pinned by `services/test_expense_tds_rule`).
 OFFICE_RENT_TDS = ExpenseTdsRule(
     expense_type="Office Rent",
     rate=10.0,

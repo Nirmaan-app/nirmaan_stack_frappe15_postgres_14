@@ -83,6 +83,8 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 
 #before_install = "nirmaan_stack.install.before_install"
 #after_install = "nirmaan_stack.install.after_install"
+# A new site starts with the seed Expense Types; runs once, after install's fixture sync (Role Profiles).
+after_sync = ["nirmaan_stack.services.expense_type_seed.seed_expense_types"]
 
 # Migration
 # ------------
@@ -91,8 +93,8 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 # named one back in the same migrate. It never drops anything.
 after_migrate = [
     "nirmaan_stack.services.index_manifest.ensure_indexes",
-    # Records without review drops a profile that raises no type, judged on the types the fixture
-    # sync ends with (the sync deletes and re-inserts each type, so its own hooks stand down).
+    # Records without review drops a profile that raises no type, judged on the types the migrate
+    # ends with (a patch may merge or remove types).
     "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
 ]
 
@@ -803,7 +805,6 @@ fixtures = [
     "Workflow Action Master",
     "Portal Menu Item",
     "Print Format",
-    "Expense Type",
     "Nirmaan Item Units",
     "Commission Report Category",
     "Commission Report Tasks",
