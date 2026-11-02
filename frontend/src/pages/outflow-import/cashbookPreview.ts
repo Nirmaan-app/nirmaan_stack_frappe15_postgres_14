@@ -7,6 +7,8 @@
 // placement FINDABLE in about ten seconds. Every ordering decision below serves that and nothing
 // else -- see `sortGroups`.
 
+import type { CollectPaymentLine } from "./cashbookCollect";
+
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
 
@@ -64,6 +66,8 @@ export interface CashbookPreviewResult {
     duplicate_of_batch: string | null;
     /** #1591: the spends to create, by their bills. Absent from a server that predates it. */
     invoices?: InvoiceCounts;
+    /** #1595: the Collect payments left open for a person to decide. Absent from a server that predates it. */
+    collect_payments?: CollectPaymentLine[];
 }
 
 export interface InvoiceCounts {

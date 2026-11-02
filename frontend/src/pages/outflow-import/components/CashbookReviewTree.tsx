@@ -16,6 +16,8 @@ import {
     typeHint,
     typeLabel,
 } from "../cashbookPreview";
+import { collectPaymentsOf } from "../cashbookCollect";
+import { CollectPaymentsReview } from "./CollectPaymentsReview";
 
 /**
  * What a Cashbook statement will create, grouped by where the money is going.
@@ -74,6 +76,9 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
             </div>
 
             {notice && <RepeatNotice notice={notice} />}
+
+            {/* #1595: Collect payments are highlighted, never recorded by the import. */}
+            <CollectPaymentsReview lines={collectPaymentsOf(preview)} />
 
             {/* #1591: what becomes of the bills, said before Create. */}
             {invoices && <p className="text-sm text-muted-foreground">{invoices}</p>}

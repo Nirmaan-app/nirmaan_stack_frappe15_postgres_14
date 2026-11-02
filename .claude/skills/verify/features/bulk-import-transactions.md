@@ -20,6 +20,10 @@ past imports by source and month.
   invoice`; after Create each spend's bills are its Expense's invoice (Paid tab `Edit Inv`, or `View invoice` in the
   Expenses list), and the finished job lists any spend whose bills were not copied (#1591). An env cannot reach the
   bill storage: seed with `DEVENV script`, running `_cashbook_worker` with `cashbook._fetch_bill` patched.
+- `bit-cashbook-collect` a Cashbook Review shows an amber box `N shop-requested payments to check…` listing each
+  Collect payment with `Shop-requested payment, check it.`; after Create each one is a `Not Matched – Outflow` line
+  with that note, whose Create opens pre-filled (Petty Cash, Non Project Expenses for the fixture lines) and whose
+  `Nothing to link?` box skips it with a typed reason (#1595).
 
 ## How to get to it (user POV)
 

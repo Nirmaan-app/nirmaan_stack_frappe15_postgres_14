@@ -56,7 +56,9 @@
   "settlement_origin",
   "confirm_by_hand",
   "bill_links",
-  "bill_problem"
+  "bill_problem",
+  "row_kind",
+  "stored_bill"
  ],
  "fields": [
   {
@@ -413,12 +415,26 @@
    "fieldtype": "Small Text",
    "label": "Bill Not Copied",
    "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: the line's Type as the statement printed it (Wallet Spend, Collect Payment, ...), written at staging (#1595). Set only on lines staged by the Cashbook Statement import, so it also tells such a line from an older Cashbook line.",
+   "fieldname": "row_kind",
+   "fieldtype": "Data",
+   "label": "Statement Type",
+   "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: an open Collect payment's bills, copied at import (merged into one PDF when there are 2 or more) because the links expire in 7 days (#1595). Becomes the invoice of an Expense created from the line.",
+   "fieldname": "stored_bill",
+   "fieldtype": "Attach",
+   "label": "Stored Bill",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-11-02 08:46:07.198623",
+ "modified": "2026-11-02 10:51:42.478237",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

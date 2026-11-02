@@ -73,11 +73,13 @@ from nirmaan_stack.services.outflow_import.candidates import (
 )
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
+    ACTION_OPEN,
     CashbookPlan,
     group_plan,
     invoice_counts,
     plan_statement,
 )
+from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_PAYMENT_NOTE
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
     DuplicateVerdict,
@@ -103,6 +105,7 @@ from nirmaan_stack.services.outflow_import.settlement_reference import (
 )
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
+    ROW_MISMATCHED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -342,6 +345,12 @@ def _cashbook_worker(batch: str, actor: str):
             # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
             frappe.db.rollback()
 
+    # #1595: each open Collect payment's bills are copied onto its line now, while the links still work.
+    # A function-local import: `cashbook_collect` calls back into this module's downloader path.
+    from nirmaan_stack.api.outflow_import.cashbook_collect import store_collect_bills
+
+    store_collect_bills(batch)
+
     refresh_batch_rollup(batch)
     frappe.db.commit()
 
@@ -556,7 +565,7 @@ def _copy_bills(row_name: str) -> None:
         ["transfer_id", "suggested_doctype", "suggested_name", "bill_links"],
         as_dict=True,
     )
-    links = (frappe.parse_json(line.bill_links) or {}).get("links") or [] if line.bill_links else []
+    links = _links_of(line)
     if not links:
         return
     try:
@@ -577,15 +586,33 @@ def _copy_bills(row_name: str) -> None:
     frappe.db.commit()
 
 
+def _links_of(line) -> list[str]:
+    """A staged line's bill links, in the statement's order (`Outflow Import Row.bill_links`, #1590)."""
+    return (frappe.parse_json(line.bill_links) or {}).get("links") or [] if line.bill_links else []
+
+
 def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[str]) -> str | None:
     """Steps 2 and 3 for one Expense. Returns the line's `bill_problem` sentence, or `None` when nothing
     went wrong (the bills were attached, or a person had already set the invoice or No invoice)."""
+    saved, problem = download_and_save_bills(transfer_id, links)
+    if saved is None:
+        return problem
+    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved))
+    return None
+
+
+def download_and_save_bills(transfer_id: str, links: list[str]):
+    """Step 2: download every bill (no lock held), merge 2 or more into one PDF, and save ONE private File,
+    unattached, which commits. Returns `(saved File, None)`, or `(None, the bill_problem sentence)`.
+
+    The one downloader path: the job's created lines (`_store_and_attach`) and an open Collect payment's bill
+    (`cashbook_collect`, #1595) both come through here."""
     bills = []
     for number, link in enumerate(links, start=1):
         got = _fetch_bill(link)
         if isinstance(got, BillRefused):
             which = f"Bill {number} of {len(links)}" if len(links) > 1 else "Bill"
-            return f"{which} not copied: {got.reason}."
+            return None, f"{which} not copied: {got.reason}."
         bills.append(got)
 
     if len(bills) == 1:
@@ -594,28 +621,33 @@ def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[
         try:
             content = merge_to_pdf([(f"bill {n}", bill.content) for n, bill in enumerate(bills, start=1)])
         except ValueError:
-            return _not_copied(len(bills), _BILLS_NOT_MERGED)
+            return None, _not_copied(len(bills), _BILLS_NOT_MERGED)
         fname = f"{transfer_id}-bills.pdf"
 
     from frappe.utils.file_manager import save_file
 
-    # Saved unattached: it is attached in step 3, under the Expense's lock. The URL is read off the returned
+    # Saved unattached: it is attached in step 3, under the target's lock. The URL is read off the returned
     # doc because the cloud attachment hook rewrites it during insert.
     saved = save_file(fname=fname, content=content, dt=None, dn=None, is_private=1)
     frappe.db.commit()
+    return saved, None
+
+
+def store_or_discard(saved, attach) -> None:
+    """Step 3's frame: `attach()` locks its target, re-checks it and attaches `saved`, returning whether it did.
+    When it did not (a person decided meanwhile) or it raised, the copied File is deleted; a raise propagates."""
     try:
-        attached = _attach_invoice(doctype, expense, saved)
+        attached = attach()
     except Exception:
         frappe.db.rollback()
         delete_files({"name": saved.name})
         frappe.db.commit()
         raise
     if not attached:
-        # A person attached an invoice or marked No invoice meanwhile: their choice stands, our copy goes.
+        # A person decided meanwhile: their choice stands, our copy goes.
         frappe.db.rollback()
         delete_files({"name": saved.name})
         frappe.db.commit()
-    return None
 
 
 def _not_copied(count: int, clause: str) -> str:
@@ -928,6 +960,13 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     # `plan.rows` and `plan.split.kept` are the same lines in the same order -- see `CashbookPlan`.
     for raw, planned in zip(stored, plan.rows, strict=True):
         creating = planned.action == ACTION_CREATE
+        # An open line (#1595: an unpaired Collect payment) is staged at `Mismatched`, a status the job never
+        # takes, so it is a person's to decide on the main table from the start (spec #1585 "Phase 2 stages new
+        # open lines away from the job"). Its note says what it is. It keeps the plan's placement, so Create
+        # opens pre-filled (`newExpenseSeed`).
+        opening = planned.action == ACTION_OPEN
+        skipping = not creating and not opening
+        placed = creating or (opening and bool(planned.ledger))
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(
             {
@@ -955,16 +994,19 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                     source=SOURCE,
                 )
                 or None,
-                "row_status": ROW_PENDING_MATCH if creating else ROW_SKIPPED,
-                "skip_reason": None if creating else planned.reason,
+                "row_status": (
+                    ROW_PENDING_MATCH if creating else ROW_MISMATCHED if opening else ROW_SKIPPED
+                ),
+                "skip_reason": planned.reason if skipping else None,
                 # A Cashbook skip is the import plan's decision, never a person's (#1273).
-                "skip_origin": None if creating else SKIP_ORIGIN_SYSTEM,
-                "skip_kind": None if creating else planned.skip_kind,
-                "suggested_doctype": planned.ledger if creating else None,
-                "suggested_expense_type": planned.expense_type if creating else None,
+                "skip_origin": SKIP_ORIGIN_SYSTEM if skipping else None,
+                "skip_kind": planned.skip_kind if skipping else None,
+                "outcome_note": planned.reason if opening else None,
+                "suggested_doctype": planned.ledger if placed else None,
+                "suggested_expense_type": planned.expense_type if placed else None,
                 "resolved_project": (
                     planned.project
-                    if creating and planned.ledger == PROJECT_EXPENSE_DOCTYPE
+                    if placed and planned.ledger == PROJECT_EXPENSE_DOCTYPE
                     else None
                 ),
                 "match_basis": MATCH_BASIS if creating else None,
@@ -973,6 +1015,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 # ⚠️ A DICT, NEVER A BARE LIST: Postgres hands a jsonb list back as a Python list,
                 # and Frappe refuses to save a document holding a list in a non-table field.
                 "bill_links": {"links": list(raw.bill_links)} if raw.bill_links else None,
+                # #1595: the statement's Type. Only this import writes it, so it also marks the line as staged
+                # from a Cashbook Statement (`cashbook_collect.statement_line_create_extras`).
+                "row_kind": (raw.row_kind or "").strip() or None,
             }
         )
         doc.insert(ignore_permissions=True)
@@ -1045,5 +1090,19 @@ def _preview_payload(
                 "reason": row.reason,
             }
             for row in plan.skipping
+        ],
+        # #1595: the Collect payments that will stay open for a person to decide, highlighted on Review.
+        "collect_payments": [
+            {
+                "row_number": row.row_number,
+                "transfer_id": row.transfer_id,
+                "amount": float(row.amount),
+                "remarks": row.remarks,
+                "beneficiary_name": row.beneficiary_name,
+                "spent_by": row.spent_by,
+                "reason": row.reason,
+            }
+            for row in plan.opening
+            if row.reason == COLLECT_PAYMENT_NOTE
         ],
     }

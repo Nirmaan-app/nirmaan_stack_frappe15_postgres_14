@@ -45,6 +45,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
+from nirmaan_stack.services.outflow_import.cashbook_collect import (
+    COLLECT_PAYMENT_NOTE,
+    is_collect_payment,
+)
 from nirmaan_stack.services.outflow_import.duplicates import (
     PriorSighting,
     bank_status_key,
@@ -72,6 +76,7 @@ __all__ = [
     "FALLBACK_EXPENSE_TYPE",
     "ACTION_CREATE",
     "ACTION_SKIP",
+    "ACTION_OPEN",
     "SKIP_ALREADY_BOOKED",
     "SKIP_ALREADY_IMPORTED_STATUS_CHANGED",
     "SKIP_REPEATED_IN_FILE_STATUS_CHANGED",
@@ -96,6 +101,8 @@ FALLBACK_EXPENSE_TYPE = "Petty Cash"
 
 ACTION_CREATE = "create"
 ACTION_SKIP = "skip"
+# An open line: staged at `Mismatched`, a status the job never takes, and decided on the main table.
+ACTION_OPEN = "open"
 
 # Every reason a row is not imported. They are constants because the preview groups by them and a
 # reworded sentence would silently split one group into two.
@@ -161,6 +168,10 @@ class PlannedRow:
         return self.action == ACTION_CREATE
 
     @property
+    def opens(self) -> bool:
+        return self.action == ACTION_OPEN
+
+    @property
     def is_fallback_type(self) -> bool:
         return self.creates and self.expense_type == FALLBACK_EXPENSE_TYPE
 
@@ -194,7 +205,12 @@ class CashbookPlan:
 
     @property
     def skipping(self) -> tuple[PlannedRow, ...]:
-        return tuple(row for row in self.rows if not row.creates)
+        return tuple(row for row in self.rows if row.action == ACTION_SKIP)
+
+    @property
+    def opening(self) -> tuple[PlannedRow, ...]:
+        """The open lines, in file order."""
+        return tuple(row for row in self.rows if row.opens)
 
     @property
     def total_value(self) -> Decimal:
@@ -288,6 +304,12 @@ def plan_statement(
         if skip:
             planned.append(PlannedRow(action=ACTION_SKIP, reason=skip, skip_kind=skip_kind, **base))
             continue
+        if is_collect_payment(raw):
+            # #1595: a Collect payment is never created on its own. It is an open line carrying the placement
+            # a wallet spend would get, so a person's Create opens pre-filled (`cashbook_collect`).
+            placement = _placement(base["remarks"], index, expense_rules)
+            planned.append(PlannedRow(action=ACTION_OPEN, reason=COLLECT_PAYMENT_NOTE, **base, **placement))
+            continue
         planned.append(PlannedRow(action=ACTION_CREATE, **base, **_placement(base["remarks"], index, expense_rules)))
 
     return CashbookPlan(rows=tuple(planned), split=split)
@@ -309,7 +331,8 @@ def _skip_reason(
     always money out).
     """
     raw = line.row
-    if (getattr(raw, "row_kind", "") or "").strip() != SPEND_ROW_KIND:
+    # #1595: a Collect payment is money that left, never own balances; the tests below apply to it as to a spend.
+    if (getattr(raw, "row_kind", "") or "").strip() != SPEND_ROW_KIND and not is_collect_payment(raw):
         return SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL
     now = bank_status_key(getattr(raw, "status_raw", ""))
     if line.earlier:
