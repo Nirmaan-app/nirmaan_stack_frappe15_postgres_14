@@ -32,7 +32,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_import import CashbookImport
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, _Users
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 from nirmaan_stack.services.outflow_import.skip_origin import (
-    SKIP_REFUSED_CASHBOOK_PENDING,
+    CASHBOOK_PENDING_LINE_REFUSAL,
     UNSKIP_REFUSED_CASHBOOK,
 )
 from nirmaan_stack.services.outflow_import.status import (
@@ -235,7 +235,7 @@ class TestSkipAndUnskip(CashbookUndoCase):
         frappe.db.commit()
         with self.assertRaises(frappe.ValidationError) as caught:
             skip_row(row, "not ours")
-        self.assertIn(SKIP_REFUSED_CASHBOOK_PENDING, str(caught.exception))
+        self.assertIn(CASHBOOK_PENDING_LINE_REFUSAL, str(caught.exception))
 
     def test_a_reopened_line_is_skipped_by_hand_and_unskipped_back_to_not_matched(self):
         row, _ = self._reopen()

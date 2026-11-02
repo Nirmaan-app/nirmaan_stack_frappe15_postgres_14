@@ -30,6 +30,7 @@ need the wide identity without being a passbook, or the reverse.
 __all__ = [
     "BANK_STATEMENT_SOURCES",
     "CARD_STATEMENT_SOURCE",
+    "CASHBOOK_SOURCE",
     "CREATE_GATED_SOURCES",
     "CREDITS_DECIDED_ON_THE_MAIN_TABLE",
     "NEVER_MATCHED_SOURCES",
@@ -56,6 +57,11 @@ PORTER_STATEMENT_SOURCE = "Porter Statement"
 #: frontend's `SOURCE_OPTIONS` entry are the same string, pinned together by test. It names the BANK, as
 #: `ICICI Bank Statement` does: a second card issuer needs its own reader and its own string.
 CARD_STATEMENT_SOURCE = "ICICI Credit Card Statement"
+
+#: The petty-cash wallet's statement. Its import job owns a line while it is `Pending match run`, so every
+#: main-table write refuses it then, and only then (#1587, ADR-0015 Amendment A):
+#: `skip_origin.own_import_refusal`. ⚠️ The same string is `api/outflow_import/cashbook.SOURCE`.
+CASHBOOK_SOURCE = "Cashbook"
 
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
 #:
@@ -143,8 +149,9 @@ def line_waits_for_its_own_create(source: str, direction: str) -> bool:
     """Is this LINE worked only by its own import, never from the main table? (#1443, #1567)
 
     Per line, not per source: a Porter line always waits; a card spend waits, a card credit does not.
-    Every main-table guard asks this (`expenses.guard_not_an_own_import_line`,
-    `skip_origin.manual_skip_refusal`), and `review._row_filters` states the same split in SQL.
+    Every main-table guard asks this through `skip_origin.own_import_refusal`
+    (`expenses.guard_not_an_own_import_line`, `skip_origin.manual_skip_refusal`), and
+    `review._row_filters` states the same split in SQL.
     """
     source = (source or "").strip()
     if source not in CREATE_GATED_SOURCES:

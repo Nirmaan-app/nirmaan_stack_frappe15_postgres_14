@@ -81,11 +81,8 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.skip_origin import own_import_line_refusal
-from nirmaan_stack.services.outflow_import.sources import (
-    line_waits_for_its_own_create,
-    source_names_its_spender,
-)
+from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
+from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
@@ -1129,18 +1126,22 @@ def _load_settleable_row(row: str):
 
 
 def guard_not_an_own_import_line(doc) -> None:
-    """Refuse a line whose source creates it through its OWN import, never from the main table (#1443).
+    """Refuse a line its OWN import still owns, never written from the main table (#1443, #1587).
 
     A Porter Statement line is created only by its Porter import, after every Porter Invoice in the file
     has been checked against Porter's PDF (ADR-0032). Creating, linking, allocating or settling it from
     here would bypass that gate, which must never be bypassable -- so every main-table loader asks this
-    first, whatever the line's status. The sentence points to the import that owns the line.
+    first. The sentence points to the import that owns the line.
+
+    A Cashbook line is owned by its job only while `Pending match run` (#1587): a hand write then is
+    written again by the job. At any other open status it is worked here (ADR-0015 Amendment A).
     """
     # Per line (#1567): a card spend waits for the card import's Create; a card credit is decided here.
-    if line_waits_for_its_own_create(doc.get("source"), doc.get("direction")):
-        frappe.throw(
-            own_import_line_refusal(doc.get("source")), ExpenseSettlementError, title="Not a main-table line"
-        )
+    refusal = own_import_refusal(
+        source=doc.get("source"), direction=doc.get("direction"), row_status=doc.get("row_status")
+    )
+    if refusal:
+        frappe.throw(refusal, ExpenseSettlementError, title="Not a main-table line")
 
 
 def _guard_is_a_debit(doc) -> None:

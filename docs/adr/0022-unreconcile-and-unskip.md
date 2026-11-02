@@ -367,7 +367,7 @@ legacy figure on a leftover now uses a deduction row instead. The retirement its
     pre-fills from them), so a reopened line must never be `Pending match run` — the status is the
     only fence. Unreconcile lands `Mismatched`; Unskip below has its own landing.
 - **Skip by hand** is allowed on an open Cashbook line, bar one status: **`Pending match run`**, which on
-  Cashbook means "the Cashbook job has not written this line yet" (`SKIP_REFUSED_CASHBOOK_PENDING`) —
+  Cashbook means "the Cashbook job has not written this line yet" (`CASHBOOK_PENDING_LINE_REFUSAL`, since #1587 the refusal of every main-table write) —
   its worker reads the line list once and would overwrite the skip with the expense it creates.
 - **Unskip** a Cashbook line only when its kind is **Skipped by hand**. Every system kind the Cashbook
   import writes stays locked under one sentence, "Only a Cashbook line skipped by hand can be
