@@ -2398,6 +2398,34 @@ still a part. Back box = Yes on an empty board still prices the 3M box. A blank 
 alone is logged for a later slice. `swsock_bcs` does not declare the sentence (deferred to the BCS build, with R-BCS). Line 5 of the
 tab, "Plate, back box and blanks", shows the sentence from the config.
 
+**VRF-1: THE VRF CATALOGUE IS DATA ONLY; FOUR MISC ITEMS ARE A SHARED KIND; THE TWO CONVERSION FACTORS ARE PRICING INPUTS (owner R-SRC / R-IGNORE / R-INPUTS / R-MISC / R-ITEMNAME / D-6, 2026-11-01..03; HVAC v55).**
+`hvac_vrf` ("VRF") lists two kinds, `hvac_vrf_item` (152 SKUs, one per row 2..153 of the 2 Nov workbook's VRF sheet: Blue Star
+122, Daikin 30) and `hvac_misc_item` (Misc rows 20 BACnet controller, 22 MS angle frame, 24 R-410 gas, 25 hi-wall drain pump),
+and carries NO pricing block (`pipelines` {}, no `list_spec`): `config_is_eligible` is false, so no extraction population and no
+model question; a VRF BoQ row and the calculator show the generic "coming soon" text until VRF-2 / VRF-4 (the same text a VRF row
+showed before the config existed). Brand is the ITEM column ("Blue Star" / "Daikin"), never an attribute; the Misc four carry
+none. Attributes: group, item (the family: outdoor units are ONE family "Outdoor Unit" with `discharge` Top / Side from the
+sheet's Item; the two remotes are "Remote Controller" with `remote_type`), item_name (the sheet's Item, trimmed), cooling (HEAT
+PUMP and Heat Pump are one value), compressor (Standard / Single Compressor, D-6), way (cassettes), capacity + capacity_unit (HP
+outdoor, TR indoor / kit; "12.5 / 15.0TR" stocks at 15; Daikin "18HP+16HP" is one SKU at 34 HP) + capacity_label (the sheet's
+words), model (display only; Daikin "NA" and the one blank are absent), item_detail (Misc). Rates per SKU (R-INPUTS, no per-HP
+derivation): VRF `cost_supply`, `supply_markup`, `boq_install`, `cost_machine_install`, `cost_commissioning`; Misc `cost_supply`,
+`supply_markup`, `cost_install`, `install_markup`, and `boq_install` 350 on the gas row only (the sheet types it). Stored as the
+sheet gives them: no round-up in the mint (R-ROUND rounds at pricing; 12 Daikin BOQ supplies are fractions).
+- **The shared kind (R-MISC "Q8: option B"):** a future Misc category lists `hvac_misc_item` in its own `item_kinds` - the same
+  stored rows, never a copy (the `switch_socket_item` precedent: `popup_boxes` and `switches_sockets` in Electrical). Each item
+  keeps its Misc-sheet markups. `alias_of` cannot do this: it is whole-category.
+- **The two inputs:** `vrf_hp_per_tr` "VRF conversion - HP per TR" `factor` 1.25 (unit "HP per TR") and `vrf_kw_per_tr` "VRF
+  conversion - kW per TR" `factor` 3.517 (unit "kW per TR"), kind `hvac_pricing_input`, `shared_by` "vrf". `factor` is in the
+  NON-percent column set, so the grid and the file show 1.25 / 3.517 as plain numbers. Nothing reads them yet (the impact panel
+  says so); their reader and the live link (R-CONV) are VRF-2 - read in the pricer BEFORE the SKU match, which `rate_ref` cannot.
+- **The mint** is `scripts/_instruments/mint_hvac_v55_vrf.py` (export / build / load / verify); its build refuses a workbook whose
+  sha256 is not R-SRC's, re-checks every sheet figure, carries every v54 item and config byte-identical and proves no item-list
+  extraction request moves. `source` is {sheet, row} only (the loader stores no cell); the column of each value is fixed in the
+  script, and the slice's SKU workbook lists each value's cell.
+- **Two pins read the LIVE catalogue, not the file** (`test_piping_v34` live_04, `test_rate_master` sv_01): they move with the
+  LOAD. A mint whose commit precedes its load leaves them red until the load.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
