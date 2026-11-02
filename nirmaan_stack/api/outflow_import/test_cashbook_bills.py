@@ -28,6 +28,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purg
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import _post
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
 
 STATEMENT = FIXTURE.parent / "cashbook_statement.xlsx"
 ONE_LINK = "OBO1792735526469DYMYOU"  # 1.jpeg
@@ -283,5 +284,6 @@ class TestAPersonGotThereFirst(CashbookBillsCase):
 class TestReviewShowsTheInvoiceCounts(FrappeTestCase):
     def test_the_preview_counts_one_file_merged_and_will_wait(self):
         # The sample's 5 spends: 2 with one bill, 1 with two, 2 with none.
-        payload = _post(cb.preview_cashbook_statement, FIXTURE.read_bytes(), FIXTURE.name)
+        # Posted as the provider's workbook: the endpoint takes only the .xlsx (spec #1585 story 1).
+        payload = _post(cb.preview_cashbook_statement, as_statement_xlsx(FIXTURE.read_bytes()), "statement.xlsx")
         self.assertEqual(payload["invoices"], {"one_file": 2, "merged": 1, "waiting": 2})

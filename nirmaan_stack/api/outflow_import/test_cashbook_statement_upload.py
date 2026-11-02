@@ -23,7 +23,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
+from nirmaan_stack.services.outflow_import.bill_links import LINKS_UNREADABLE_MESSAGE
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
 
 FIXTURES = FIXTURE.parent
 STATEMENT = FIXTURES / "cashbook_statement.xlsx"
@@ -32,6 +34,24 @@ EARLIEST_EXPIRY = datetime(2026, 11, 6, 9, 0, tzinfo=timezone.utc)
 OLD_EXPORT_SENTENCE = (
     "This is the old export without bill links. Export the Consolidated Company Account Statement."
 )
+XLSX_ONLY_SENTENCE = (
+    "The Cashbook import takes the Cashbook Statement as downloaded, an .xlsx file. You uploaded a '.csv'."
+)
+
+
+def _without_hyperlinks(content: bytes) -> bytes:
+    """The statement with every cell hyperlink removed: its "View Attachment" cells keep their text."""
+    import io
+
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(content))
+    for row in book.active.iter_rows():
+        for cell in row:
+            cell.hyperlink = None
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
 
 
 def _post(endpoint, content: bytes, filename: str):
@@ -58,19 +78,47 @@ def _saved_counts():
 
 
 class TestRefusedUploads(FrappeTestCase):
-    def _refused(self, endpoint, path: Path, now: datetime | None = None) -> str:
+    def _refused(self, endpoint, path: Path, now: datetime | None = None, content=None, filename=None) -> str:
         before = _saved_counts()
         clock = patch.object(cb, "_utc_now", return_value=now) if now else nullcontext()
         with clock, self.assertRaises(frappe.ValidationError) as caught:
-            _post(endpoint, path.read_bytes(), path.name)
+            _post(endpoint, content if content is not None else path.read_bytes(), filename or path.name)
         self.assertEqual(_saved_counts(), before)
         return str(caught.exception)
 
+    def _old_export_xlsx(self):
+        return as_statement_xlsx(OLD_EXPORT.read_bytes())
+
     def test_the_old_export_is_refused_on_preview(self):
-        self.assertEqual(self._refused(cb.preview_cashbook_statement, OLD_EXPORT), OLD_EXPORT_SENTENCE)
+        message = self._refused(
+            cb.preview_cashbook_statement, OLD_EXPORT, content=self._old_export_xlsx(), filename="old.xlsx"
+        )
+        self.assertEqual(message, OLD_EXPORT_SENTENCE)
 
     def test_the_old_export_is_refused_on_confirm_and_nothing_is_saved(self):
-        self.assertEqual(self._refused(cb.confirm_cashbook_import, OLD_EXPORT), OLD_EXPORT_SENTENCE)
+        message = self._refused(
+            cb.confirm_cashbook_import, OLD_EXPORT, content=self._old_export_xlsx(), filename="old.xlsx"
+        )
+        self.assertEqual(message, OLD_EXPORT_SENTENCE)
+
+    def test_a_csv_is_refused_on_preview_and_confirm(self):
+        """Spec #1585 story 1: the Cashbook Statement is an .xlsx; a CSV cannot carry its bill links as hyperlinks."""
+        for endpoint in (cb.preview_cashbook_statement, cb.confirm_cashbook_import):
+            with self.subTest(endpoint=endpoint.__name__):
+                self.assertEqual(self._refused(endpoint, FIXTURE), XLSX_ONLY_SENTENCE)
+
+    def test_a_statement_whose_attachment_cells_link_nowhere_is_refused(self):
+        """The `Attachments` header is there, but its "View Attachment" cells lost their hyperlinks."""
+        for endpoint in (cb.preview_cashbook_statement, cb.confirm_cashbook_import):
+            with self.subTest(endpoint=endpoint.__name__):
+                message = self._refused(
+                    endpoint,
+                    STATEMENT,
+                    now=EARLIEST_EXPIRY - timedelta(days=3),
+                    content=_without_hyperlinks(STATEMENT.read_bytes()),
+                    filename="statement.xlsx",
+                )
+                self.assertEqual(message, LINKS_UNREADABLE_MESSAGE)
 
     def test_a_statement_whose_links_expired_is_refused_naming_the_date(self):
         message = self._refused(

@@ -167,6 +167,7 @@ from dataclasses import fields as dataclass_fields
 from datetime import date, datetime
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.bill_links import LINKS_UNREADABLE_MESSAGE
 from nirmaan_stack.services.outflow_import.duplicates import row_identity_of
 from nirmaan_stack.services.outflow_import.normalize import (
     normalize_account,
@@ -618,10 +619,15 @@ class _LinksUnder:
     A cell's link is its hyperlink target or, for a CSV that carries no hyperlinks, the cell's own text
     when that is an http(s) URL. Blank cells are skipped, so the value is the links in the order the
     statement wrote them and nothing else.
+
+    ⚠️ A CELL WITH TEXT AND NO LINK REFUSES THE FILE with `unreadable` (spec #1585 code review S4). It is a
+    "View Attachment N" whose hyperlink was lost -- the workbook re-saved, or its cells copied out as values --
+    and reading it as "no bill" would import every spend as waiting for an invoice without a word.
     """
 
     column: str
     width: int
+    unreadable: str
 
 
 def _link_reader_needed(column_map: dict) -> bool:
@@ -646,6 +652,8 @@ def _links_of_run(marker: _LinksUnder, fieldnames, grid_row: int, grid, links) -
                 target = text
         if target:
             found.append(target)
+        elif column < len(cells) and (cells[column] or "").strip():
+            raise StatementFormatError(marker.unreadable)
     return tuple(found)
 
 
@@ -748,7 +756,7 @@ _CASHBOOK_COLUMNS = {
     # `RawRow.credit_amount` -- so the blank-direction rule above still holds.
     "credit_amount": "Credit",
     # #1590, capability 8: the bill links, "View Attachment 1..4".
-    "bill_links": _LinksUnder(column=CASHBOOK_ATTACHMENTS_COLUMN, width=4),
+    "bill_links": _LinksUnder(column=CASHBOOK_ATTACHMENTS_COLUMN, width=4, unreadable=LINKS_UNREADABLE_MESSAGE),
 }
 
 # ⚠️ `Remark` IS REQUIRED, AND IT IS THE ONE ENTRY HERE THAT IS NOT ABOUT IDENTIFYING A ROW. It is

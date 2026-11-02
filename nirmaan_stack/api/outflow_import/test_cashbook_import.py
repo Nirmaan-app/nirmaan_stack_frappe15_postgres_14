@@ -854,14 +854,19 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
         self.addCleanup(_purge, batch)
         return batch
 
-    def _post(self, endpoint, content: bytes, filename="cashbook.csv"):
-        """Call a real endpoint with `content` as the posted file. Only the transport is faked."""
+    def _post(self, endpoint, content: bytes, filename="cashbook.xlsx"):
+        """Call a real endpoint with `content` (CSV text, posted as the provider's .xlsx) as the posted file. Only
+        the transport is faked."""
         import io
 
         from werkzeug.datastructures import FileStorage, MultiDict
 
+        from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
+
         class _Request:
-            files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
+            files = MultiDict(
+                {"file": FileStorage(stream=io.BytesIO(as_statement_xlsx(content)), filename=filename)}
+            )
 
         previous = getattr(frappe.local, "request", None)
         frappe.set_user("Administrator")

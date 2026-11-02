@@ -60,8 +60,12 @@ class TestLateBills(FrappeTestCase):
 
         from werkzeug.datastructures import FileStorage, MultiDict
 
+        from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
+
         class _Request:
-            files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename="cashbook.csv")})
+            files = MultiDict(
+                {"file": FileStorage(stream=io.BytesIO(as_statement_xlsx(content)), filename="cashbook.xlsx")}
+            )
             host = None  # `save_file` asks the request for its host
 
         previous = getattr(frappe.local, "request", None)

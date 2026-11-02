@@ -35,6 +35,7 @@ from nirmaan_stack.services.outflow_import.parser import (  # noqa: E402
     describe_mapped_columns,
     locate_table,
 )
+from nirmaan_stack.services.outflow_import.bill_links import LINKS_UNREADABLE_MESSAGE  # noqa: E402
 from nirmaan_stack.services.outflow_import.sources import source_has_preamble  # noqa: E402
 
 # The ICICI slice reads two things the other sources have no equivalent of -- a direction label and
@@ -645,6 +646,38 @@ class TestCashbookStatementBillLinks(unittest.TestCase):
                 "OBO9000000000004PARTSP",
                 "OBO9000000000005ADJFUL",
             },
+        )
+
+
+class TestCashbookStatementWithoutItsLinks(unittest.TestCase):
+    """Spec #1585 code review S4: the Cashbook import accepts only the statement that CARRIES bill links. A workbook
+    whose "View Attachment" cells link nowhere (re-saved, or copied out as values) has lost them, and parsing it
+    to no links at all would import every spend as waiting for an invoice, silently."""
+
+    def test_view_attachment_cells_with_no_hyperlink_are_refused(self):
+        import io
+
+        from openpyxl import load_workbook
+
+        book = load_workbook(io.BytesIO(_load(_STATEMENT)))
+        for row in book.active.iter_rows():
+            for cell in row:
+                cell.hyperlink = None
+        stripped = io.BytesIO()
+        book.save(stripped)
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(stripped.getvalue(), source="Cashbook")
+        self.assertEqual(str(caught.exception), LINKS_UNREADABLE_MESSAGE)
+
+    def test_the_csv_fixture_as_a_workbook_reads_the_same_links(self):
+        """The test-support converter the endpoint tests post through gives the parser what the CSV gave it."""
+        from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
+
+        from_csv = _cashbook()
+        from_xlsx = parse_statement(as_statement_xlsx(_load("cashbook_sample.csv")), source="Cashbook")
+        self.assertEqual(
+            [(r.transfer_id, r.amount, r.bill_links) for r in from_csv.rows],
+            [(r.transfer_id, r.amount, r.bill_links) for r in from_xlsx.rows],
         )
 
 

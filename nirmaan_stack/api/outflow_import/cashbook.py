@@ -113,7 +113,9 @@ SOURCE = "Cashbook"
 
 _WORKER = "nirmaan_stack.api.outflow_import.cashbook._cashbook_worker"
 
-_ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
+# Spec #1585 story 1 and code review S4: only the Cashbook Statement as downloaded, whose bill links are cell
+# hyperlinks. A CSV cannot carry a hyperlink, so a .csv is refused before it is read.
+_ALLOWED_EXTENSIONS = frozenset({".xlsx"})
 _MAX_FILE_BYTES = 5 * 1024 * 1024
 
 # Only Won projects are offered. A petty-cash spend is booked against live work; a tendering or
@@ -125,7 +127,7 @@ _WON = "Won"
 def preview_cashbook_statement():
     """Parse a wallet statement and report exactly what confirming it would create. WRITES NOTHING.
 
-    Multipart form: `file` (.csv or .xlsx).
+    Multipart form: `file` (the Cashbook Statement, .xlsx).
     URL: /api/method/nirmaan_stack.api.outflow_import.cashbook.preview_cashbook_statement
 
     The browser re-posts the same file on confirm, as the Cashfree preview already does and for the
@@ -144,7 +146,7 @@ def preview_cashbook_statement():
 def confirm_cashbook_import():
     """Stage the statement and start writing. Returns the batch to watch.
 
-    Multipart form: `file` (.csv or .xlsx).
+    Multipart form: `file` (the Cashbook Statement, .xlsx).
     URL: /api/method/nirmaan_stack.api.outflow_import.cashbook.confirm_cashbook_import
 
     ⚠️ IT RE-PLANS FROM THE RE-POSTED FILE rather than trusting anything the browser computed. The
@@ -582,7 +584,7 @@ def _read_and_parse():
     _, ext = os.path.splitext(filename)
     if ext.lower() not in _ALLOWED_EXTENSIONS:
         frappe.throw(
-            f"We support .csv and .xlsx statements. "
+            "The Cashbook import takes the Cashbook Statement as downloaded, an .xlsx file. "
             f"You uploaded a '{ext or 'file with no extension'}'.",
             title="Unsupported file type",
         )

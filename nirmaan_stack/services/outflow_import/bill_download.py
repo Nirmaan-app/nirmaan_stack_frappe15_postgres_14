@@ -15,8 +15,9 @@ THE GUARD, all of it inside `download_bill` (the first host allowlist in the app
 - at most `MAX_BILL_BYTES`, counted while streaming, so an oversized answer is never held whole;
 - the first bytes must be JPEG, PNG or PDF.
 
-Retries: a timeout, a dropped connection or a 5xx is tried again, 3 times (4 tries in all). A 4xx is
-final at once: an expired or revoked link does not come back.
+Retries: a timeout, a dropped connection or a 5xx is tried again, up to `TRIES` (3) tries in all -- ADR-0015
+Amendment B decision 3 and story 19, "fails to download after three tries". A 4xx is final at once: an expired
+or revoked link does not come back.
 
 A refusal is a value (`BillRefused`), never an exception: the import job records the reason on the line
 and carries on.
@@ -34,13 +35,14 @@ import requests
 __all__ = ["MAX_BILL_BYTES", "BillFile", "BillRefused", "download_bill"]
 
 MAX_BILL_BYTES = 10 * 1024 * 1024
-RETRIES = 3
+#: Tries in all, the first included.
+TRIES = 3
 TIMEOUT_SECONDS = 30
 
 _HOST = "storage.googleapis.com"
 _PATH_PREFIX = "/prod-payments-private/transaction-attachments/"
 _CHUNK = 64 * 1024
-_BACKOFF_SECONDS = (1, 2, 4)
+_BACKOFF_SECONDS = (1, 2)
 
 _MAGIC = ((b"\xff\xd8\xff", "jpeg"), (b"\x89PNG\r\n\x1a\n", "png"), (b"%PDF-", "pdf"))
 
@@ -75,14 +77,14 @@ def download_bill(
         return BillRefused(problem)
     get = get or requests.get
     reason = ""
-    for attempt in range(RETRIES + 1):
+    for attempt in range(TRIES):
         if attempt:
             sleep(_BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)])
         try:
             return _fetch_once(url, get)
         except _Retry as retry:
             reason = retry.reason
-    return BillRefused(f"{reason} after {RETRIES + 1} tries")
+    return BillRefused(f"{reason} after {TRIES} tries")
 
 
 def _link_problem(url: str) -> str | None:

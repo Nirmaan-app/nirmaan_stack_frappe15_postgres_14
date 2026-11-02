@@ -33,6 +33,7 @@ from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
 
 ACTOR = "Administrator"
 
@@ -64,7 +65,9 @@ def _post_confirm(content: bytes):
 
     class _Request:
         host = None
-        files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename="cashbook.csv")})
+        files = MultiDict(
+            {"file": FileStorage(stream=io.BytesIO(as_statement_xlsx(content)), filename="cashbook.xlsx")}
+        )
 
     frappe.local.request = _Request()
     return cb.confirm_cashbook_import()

@@ -13,6 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from nirmaan_stack.services.outflow_import.bill_links import (
+    LINKS_UNREADABLE_MESSAGE,
     earliest_link_expiry,
     expired_links_refusal,
     link_expires_at,
@@ -70,6 +71,19 @@ class TestExpiredLinksRefusal(unittest.TestCase):
     def test_the_date_is_named_in_utc_when_no_zone_is_given(self):
         refusal = expired_links_refusal(_statement_rows(), now=EARLIEST + timedelta(days=1))
         self.assertIn("06-Nov-2026 09:00", refusal)
+
+    def test_a_file_whose_links_carry_no_readable_expiry_is_refused(self):
+        """Spec #1585 code review S4: nothing can be said about when such a link dies, so the import cannot promise
+        to fetch its bill; a statement as the provider exports it signs every link."""
+        from types import SimpleNamespace
+
+        unsigned = "https://storage.googleapis.com/prod-payments-private/transaction-attachments/T/2.jpeg"
+        for links in ((unsigned,), (_link(), unsigned), (_link(lifetime="soon"),)):
+            with self.subTest(links=links):
+                rows = [SimpleNamespace(bill_links=links)]
+                self.assertEqual(
+                    expired_links_refusal(rows, now=EARLIEST - timedelta(days=5)), LINKS_UNREADABLE_MESSAGE
+                )
 
     def test_a_file_with_no_links_has_nothing_to_expire(self):
         rows = [row for row in _statement_rows() if not row.bill_links]

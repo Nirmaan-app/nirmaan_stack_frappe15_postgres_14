@@ -11,8 +11,10 @@ the provider's exports). The upload refuses a statement whose earliest link has 
 within `LINK_EXPIRY_MARGIN` (decision 2), because the import job must still be able to fetch every
 bill.
 
-⚠️ A LINK WHOSE QUERY STRING DOES NOT STATE BOTH IS LEFT OUT OF THE CHECK, not refused. Nothing can
-be said about when it expires; the import's download of it (a later ticket) is what finds out.
+⚠️ A LINK WHOSE QUERY STRING DOES NOT STATE BOTH IS REFUSED (spec #1585 code review S4), with
+`LINKS_UNREADABLE_MESSAGE`. Nothing can be said about when it dies, so the import cannot promise to fetch
+its bill; the provider signs every link it exports. The parser refuses with the same sentence a statement
+whose "View Attachment" cells carry no hyperlink at all (`parser._LinksUnder`).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 __all__ = [
     "LINK_EXPIRY_MARGIN",
     "LINKS_EXPIRED_MESSAGE",
+    "LINKS_UNREADABLE_MESSAGE",
     "link_expires_at",
     "earliest_link_expiry",
     "expired_links_refusal",
@@ -33,6 +36,11 @@ __all__ = [
 LINK_EXPIRY_MARGIN = timedelta(hours=1)
 
 LINKS_EXPIRED_MESSAGE = "Links expired on {date}. Export the statement again."
+
+#: A statement whose bill links were lost (re-saved, copied out as values) or carry no signing date and lifetime.
+#: Neither the old-export sentence (the file has the `Attachments` column) nor the expiry one (there is no date to
+#: name) would be true of it; what is true is that its links cannot be read, and a fresh export fixes it.
+LINKS_UNREADABLE_MESSAGE = "This file's bill links can't be read. Export the statement again and upload it as downloaded."
 
 _SIGNED_AT = "X-Goog-Date"
 _LIFETIME = "X-Goog-Expires"
@@ -65,10 +73,14 @@ def earliest_link_expiry(rows: Iterable) -> datetime | None:
 def expired_links_refusal(
     rows: Iterable, now: datetime, tz: tzinfo = timezone.utc
 ) -> str | None:
-    """The refusal sentence for a statement whose links are dead or about to die, else `None`.
+    """The refusal sentence for a statement whose links are dead or about to die, or whose links do not say when
+    they die (`LINKS_UNREADABLE_MESSAGE`), else `None`.
 
     `now` is timezone-aware. `tz` is the zone the date is named in (the site's own, from the caller).
     """
+    rows = list(rows)
+    if any(link_expires_at(link) is None for row in rows for link in row.bill_links):
+        return LINKS_UNREADABLE_MESSAGE
     earliest = earliest_link_expiry(rows)
     if earliest is None or earliest - now >= LINK_EXPIRY_MARGIN:
         return None
