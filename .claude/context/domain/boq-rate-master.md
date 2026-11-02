@@ -28,6 +28,36 @@ the full corrections-owed list.
 _Moved verbatim from root `CLAUDE.md` when it was cut down to material every task needs (CLAUDE.md restructure, pass 2). CLAUDE.md now carries a one-line pointer here._ Where a rule below differs from an older copy further down this file, **this section
 is current**: it is the text root `CLAUDE.md` carried until the move, after pass 1 pruned it.
 
+**HISTORICAL MATCHING'S MODEL NAMES LIVE IN THE AI SETTINGS, NEVER IN CODE (owner BUILD REQUIREMENTS; DEV2-B1 open
+item 4).** The card model and the judge model are `match_card_model` / `match_judge_model` on `BOQ Upload Review AI
+Settings`, read through `ai_settings.get_boq_match_settings` / `require_match_settings`, with NO code fallback and no
+doctype default: an empty field refuses with a plain message. The same holds for their prices, the calls-at-once, the
+reply caps and the cost cap. A model string in `services/boq_rate_match/` is a defect. (The older `model` field, its
+`claude-sonnet-4-6` fallback and `_DEFAULT_MODEL` serve Suggest / classification and are deliberately left alone, G8.)
+
+**THE SERVER PRICING STEP IS BUILT FROM THE BROWSER'S PRICING SOURCE ON EVERY DEPLOY; IT IS NEVER COPIED, AND ITS PARITY
+VITEST RUNS WHENEVER A PRICING FILE CHANGES (owner G2 option A, DEV2-B2).** Historical matching's RULES lane, the values
+after the rules and the readings view come from `services/boq_rate_match/pricing_step.py`, which runs
+`_build/pricing_step.mjs` under `node`. That file is git-ignored; `frontend/scripts/build_pricing_step.mjs` builds it from
+`rate-helper/serverPricingStep.ts` (re-exports of the pricing functions + `priceRowsForMatching` + `measureDrivingFields`,
+NO pricing logic), and the frontend `build` script runs it - so production's `bench build` rebuilds it from source on
+every deploy, for Node 18. Never port, copy or snapshot pricing logic or pricing knowledge into Python or a committed
+file: not the rules, not their output, not a list of the fields that drive a price (W1's driving fields are MEASURED by
+the pricer at every pool build - owner answer 3 to DEV2-B2 Q4); never edit the built file. Each value carries a stamp
+(the bundle's input-source hash + the asset version: latest snapshot + the served catalogue's hash); a stale stamp is
+recomputed. A missing bundle / bad stamp / no `node` / an error makes the RULES lane "unavailable" with the reason (and
+the readings view empty); the other lanes run on. `serverPricingStep.parity.test.ts` (Parity 1: source vs the
+deploy-built bundle, both exports, the latest assets) joins every targeted set that touches a pricing file, and the
+asset-pin search lists it after every mint (a [prefix] reader). The catalogue it prices with is the BROWSER's:
+`get_rate_master_items` (brand projected into attributes) + `get_rate_category_config`, merged in the page's order -
+NOT the replay dump's raw rows (they differ on brand-reading rows: 7 LMS rows price only with the projection, DEV2-B2
+Parity 2).
+DEPLOY NOTE (DEV2-B2): the frontend build produces the bundle (`yarn build` -> `node scripts/build_pricing_step.mjs`;
+no migrate), and the worker that builds the pool or runs matching needs `node` on its PATH (production's image: Node
+18.18.2 on every service; the bundle targets node18 and builds byte-equal under 18.18.2). The pool rebuild is ONE call,
+`pool.rebuild_pool()` (no arguments, under the pool's FileLock); B4 adds the daily 06:00 IST scheduler entry (cron in
+the site's time zone - confirm it is Asia/Kolkata); `ensure_pool`'s 24 h age check stays as the fallback.
+
 **LMS PRICING IS INVERTED RELATIVE TO ITS OWN FIRST DESIGN, AND THE FACTOR IS 1.3 EITHER WAY
 (owner ruling, asset v55).** For `lighting_mgmt_system`: **BCS = the catalogue `rate`
 EXACTLY AS STORED, unrounded; BoQ = `roundup(rate x 1.3, tens)`.** The original design said the
@@ -2304,7 +2334,8 @@ normaliser, also listed: the new one chains there), a reader of the latest asset
 old count inside an assertion, a digest of the old file. REVIEW - every other latest-asset reader and every other line
 naming the old version (often a deliberate historical pin; never "fix" one of those). A hand grep for the old file name
 and `CURRENT_EALL_ASSET` finds the MUST class only. To check a past mint: `--rev <mint>^ --asset-rev <mint>`.
-Then run the readers it names, and test_rate_master, through the parallel runner (root `CLAUDE.md` § Commands,
+The readers it lists include `serverPricingStep.parity.test.ts` (DEV2-B2 Parity 1, the server pricing step = the
+browser's pricing source on the latest assets; a [prefix] reader): run it after every mint. Then run the readers it names, and test_rate_master, through the parallel runner (root `CLAUDE.md` § Commands,
 `scripts/run_tests_parallel.py --modules <file>`; Python only - vitest and tsc on their own): test_rate_master is the long pole (about 25 minutes, its
 167-test `TestRateMaster` class is 95% of it) and holds the rate-master naming series under `SELECT ... FOR UPDATE` for
 all of it, so it never runs beside another module that inserts rate-master rows - the runner holds those back by their

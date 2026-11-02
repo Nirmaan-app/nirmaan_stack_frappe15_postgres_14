@@ -50176,3 +50176,96 @@ Owner rulings carried (quoted):
 - Production's worker image / Node version must be read by someone with production access before B2's deploy pack
   (P1: dev2's worker finds node v24.13.0).
 - The S8 card runner's in-batch retry and ceiling split are not in cards.py (not asked in B1).
+
+## Slice DEV2-B2 - H2 build 2 of 6: the server pricing step, the pool and the lanes (no caller; nothing switched on) - as built 2026-11-02
+
+Desktop session `devb2` on dev2, delegated by the laptop. Four commits: C1 `6876583b2` (server pricing step), C2
+`f7c814ce3` (pool + index, cached, driving fields measured by the pricer), C3 `354821121` (lanes + merge), C4 (this
+entry + `boq-rate-master.md`). No migrate, no database write, no paid call, no parse, no browser; the one write outside
+the repo is the pool cache file in dev2's site private folder. Report and ledger: `2026-11-02_DEV2-B2_Report.md` /
+`_Ledger.md` (desktop and laptop: `Historical Rate Suggest\DEV2-B2\`).
+
+Owner rulings carried: G2 option A (16:17 "building it to use the same code piece so that ... we gaurantee that
+changes are reflected properly"; 16:20 "ok lets proceed with your recommendation"); R-H2AH (lanes W1 10, RULES 5, CARD 3,
+WORD 3, EXACT first, group de-dup; MEAN dropped, G5); R-H2S "1a 2x"; R-H2F; G15 the app's test-project rule; B0 defaults
+G6 (a) / G7 (a) / G16 (a) / G22 (a); DEV2-B1 answer 3 (the suites' known writes). Slice answers (relayed):
+- Answer 1 (21:24): "Q1:ok" / "Q3:ok" - Q1 (B): the driving-field list must come from the bundle at every pool build,
+  no constant ("a copy of pricing knowledge, which G2 forbids"); Q3 (B): merge in DEV2-S8 t8_final's measured order
+  EXACT, W1, WORD, CARD, RULES.
+- Answer 2 (21:26): "ok go with option A" - split pool.py by the 500-line rule into match_text.py, match_index.py,
+  pool.py (no ratchet change).
+- Answer 3 (21:44, to Q4 BLOCKED 21:33): "can we put te pool build and the option A as a scheduled daily activity which
+  happens everyday at 6:00 AM IST" - (A): DEV2-R2's blank / pair-blank + re-price procedure as a second export of the
+  bundle, run in every pool build; the rebuild as ONE no-argument entry point under the lock; B4 adds the daily 06:00 IST
+  scheduler entry (cron in the site's time zone - confirm it is Asia/Kolkata); the 24 h check stays as the fallback.
+
+### 1. Built
+- C1 - THE SERVER PRICING STEP (G2 option A). `rate-helper/serverPricingStep.ts`: re-exports `makePricingSheetHelper`,
+  `nonBcsPipelines`, `mergeItemsByName`, `RATE_MASTER_ITEM_DISCIPLINES`, `rowHeadingNotes`, `rowOwnNotes`, `priceItemList`,
+  `runPipeline` + `priceRowsForMatching` (DEV2-S3 `s3_sig.ts`'s per-row record and the replay record; typed; refuses
+  without a recorder). `frontend/scripts/build_pricing_step.mjs` (esbuild 0.21.5, vite's bundler): ONE git-ignored file
+  `services/boq_rate_match/_build/pricing_step.mjs`, node18, the two recorder renames (S3's method) asserted once each,
+  a stamp (sha256 over the metafile inputs); the frontend `build` line runs it, so `bench init -> bench build ->
+  esbuild.js --run-build-command -> yarn build` rebuilds it every deploy. `services/boq_rate_match/pricing_step.py`:
+  `node` child process (JSON stdin / stdout, timeout, no shell) on the browser's catalogue (`get_rate_master_items` with
+  the brand projection + `get_rate_category_config`, the page's merge order) and the active run's stored readings
+  (`sheet_inputs` = the replay dump on 18,106 / 18,106 rows); stamped values, stale -> recomputed; fails closed.
+- C2 - THE POOL AND THE INDEX. `pool.py` (499 lines) + `match_text.py` (the normaliser: R2 t2 + S3 w2_norm) +
+  `match_index.py` (readings view, card interface, index): every priced rate-editable row on a current committed sheet
+  (30,766 on dev2); near copies + revision families -> R-H2S's selected version (3 days before `as_of`), 2X, own BoQ
+  out, WIP out, test projects out by the app's rule, groups (SWG assert kept); the readings view over the pricer's
+  values for the driving fields, which `measureDrivingFields` (the bundle's second export = R2's procedure) measures at
+  every build; the index (TF-IDF self / parent / upper, 3-grams, BM25, readings maps, exact-copy, RULES, CARD by head,
+  each row's T2 tokens). Cache `private/boq_rate_match/match_pool_v1.pkl` (24 h, FileLock, stamp check);
+  `rebuild_pool()` = the daily job's entry point. Cards: `StoredCards` (BoQ Row Spec Card by payload sha + prompt
+  version + the settings' card model); a scratch adapter over DEV2-S8's cards for parity only.
+- C3 - THE LANES. `lanes.py`: `score` (t5_score.mjs) + `candidates` (t8_final.py): EXACT, W1, WORD, CARD, RULES, caps
+  10 / 3 / 3 / 5, de-dup by group, representative (a card, then the most recent, then the key); RULES "off" without
+  readings, "unavailable: <reason>" when the step cannot run; `dedupe_targets`. No MEAN, no embedding code, no new
+  dependency.
+
+### 2. Proofs
+- Parity 1 (`serverPricingStep.parity.test.ts`, 3 tests): source vs the deploy-built bundle identical on every class of
+  the committed calculator=panel corpus + a blank row per configured category (latest assets; a default, a ladder-up
+  and a substitution asserted present) and on the driving-field measure; vacuity: a bundle copy with one line broken ->
+  RED.
+- Parity 2: the built step reproduces every saved DEV2-S3 / S5 / S6 signature record (18,959 rows) from the same
+  inputs; under Node 18.18.2 too (the Node 18 build is byte-equal). Live (the browser's catalogue): 8,330 rows differ in
+  label text only (the brand word) and 7 LMS rows price only with the projection; every RULES equality class of S3
+  holds.
+- Driving fields: the bundle's measure on R2's exact inputs = `h2_fieldcheck.json` exactly (21 / 21 categories); the
+  production way differs on 2 fields (switches_sockets socket2_qty in, db_switchgear mcb5_qty out) only because the
+  deterministic row order samples other rows (proved one input at a time).
+- Pool parity at DEV2-S8's date: 30,766 rows, every field equal (groups, selection, 600 per-target 2X extras) except
+  v1 on 39 rows (the 2 sampled fields) and the kept set's G15 rows (143 in from 4 "test ... Ankita" BoQs, 102 out as
+  their near copies; with the retired rule the kept set equals pool_s5 exactly).
+- List parity (1,986 targets; S8 minus MEAN), with S5's kept set: W1 / WORD / CARD / EXACT equal except one W1 case
+  (the sampled fields); RULES differs only where S8 signed rows from scratch-only paid readings (278 groups) and the cap
+  slots they free (131); 0 unexplained. Order-equal to S8's measured order wherever the set is equal. Free recall: bench
+  189 / 199 vs 190 (T017, scratch-only readings), held-out 65 / 68 = 65.
+- Build / load / speed (dev2, one process): pool build 312 s with the driving-field measure, 181 s without; peak RAM
+  1.4 GiB (python) + 0.9 GiB (node); file 192 MB, load 1.9 s. Lanes: BOQ-26-00328 206 rows 56.9 s (~0.28 s a row),
+  -00393 470 rows 120.5 s, -00007 79.5 s, -00019 78.0 s (S8 at 6 processes: 69.6 / 87.7 / 76.0 / 71.8 s); the 30 s aim
+  for 00328 is missed - the scoring loops cost it.
+- Vacuity (scratch copies): stale-stamp recompute, fail-closed, 3-day rule, 2X, the test-project rule, EXACT first, a
+  merge cap, group de-dup, the CARD head index - each RED with one line disabled, GREEN restored.
+- Suites: Python through the scratch runner copy (DEV2-B1 answer 1): targeted before C1 test_pricing_step 16; before C2
+  test_pool 28 + test_pricing_step 18; before C3 test_lanes 19 (each measured into the plan; no existing Python test imports
+  or reads a changed file - searched); after the last code commit the related set = the 3 new modules, 65 tests OK. vitest:
+  targeted (Parity 1 + the two latest-asset readers) 19 / 20 passed (the existing 17 = 17); the FULL BoQ set (package.json
+  changed) before 142 files / 5,919 tests, after 143 / 5,922 (+ Parity 1, 3 tests), all passed. tsc FULL 0 new errors
+  (3,050 = baseline) before and after every commit.
+- Replay 18,106 rows, ac7 56fb5640... / ac7v2 978f871f... equal at D0 and D2 (no price moves).
+
+### 3. Open
+- B4 adds the daily 06:00 IST scheduler entry calling `pool.rebuild_pool()` (cron in the site's time zone - confirm it
+  is Asia/Kolkata); dev2's scheduler stays OFF by ruling.
+- Lane speed: ~0.25-0.3 s a row at one process (206 rows ~57 s) misses the 30 s aim; the TF-IDF / BM25 accumulation is
+  the cost (options for B3 / B4: run the lanes alongside the judge's network wait, or shard).
+- Production's worker image must carry `node` (18.18.2 per docker-bake.hcl) - to be read on production before B2's
+  deploy pack.
+- The tracked replay's dump omits the brand projection (7 LMS rows differ from the page); the replay itself is
+  untouched.
+- RULES on pool rows uses stored readings only; S8's scratch-only paid readings are not in the app (the source of every
+  RULES parity difference).
+- The parallel runner still has no --site option (DEV2-B1 Q1 (a)): this slice used the same scratch copy.
