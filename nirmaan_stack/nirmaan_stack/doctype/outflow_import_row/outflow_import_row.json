@@ -284,7 +284,7 @@
    "fieldname": "skip_kind",
    "fieldtype": "Select",
    "label": "Skip Kind",
-   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair\nPaired wallet refund",
    "read_only": 1
   },
   {

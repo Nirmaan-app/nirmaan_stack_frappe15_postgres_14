@@ -75,11 +75,10 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
     ACTION_OPEN,
     CashbookPlan,
-    group_plan,
-    invoice_counts,
     plan_statement,
 )
-from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_PAYMENT_NOTE
+from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
+from nirmaan_stack.services.outflow_import.cashbook_review import group_plan, invoice_counts
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
     DuplicateVerdict,
@@ -197,6 +196,7 @@ def confirm_cashbook_import():
         "batch": batch.name,
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
+        "opening": len(plan.opening),
         "repeats_not_saved": plan.split.repeats_not_saved,
     }
 
@@ -235,6 +235,8 @@ def get_cashbook_status(batch: str):
         "created": counts.get(ROW_SETTLED, 0),
         "failed": counts.get(ROW_ERROR, 0),
         "skipped": counts.get(ROW_SKIPPED, 0),
+        # #1594: the open lines (unpaired wallet refunds, wallet credits, and any line a person reopened).
+        "open": counts.get(ROW_MISMATCHED, 0),
         "pending": pending,
         "running": running,
         "stopped": pending > 0 and not running,
@@ -960,10 +962,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     # `plan.rows` and `plan.split.kept` are the same lines in the same order -- see `CashbookPlan`.
     for raw, planned in zip(stored, plan.rows, strict=True):
         creating = planned.action == ACTION_CREATE
-        # An open line (#1595: an unpaired Collect payment) is staged at `Mismatched`, a status the job never
-        # takes, so it is a person's to decide on the main table from the start (spec #1585 "Phase 2 stages new
-        # open lines away from the job"). Its note says what it is. It keeps the plan's placement, so Create
-        # opens pre-filled (`newExpenseSeed`).
+        # An open line (#1594: an unpaired wallet refund, a wallet credit; #1595: an unpaired Collect payment) is
+        # staged at `Mismatched`, a status the job never takes, so it is a person's to decide on the main table from
+        # the start (spec #1585 "Phase 2 stages new open lines away from the job"). Its note says what it is. A
+        # Collect payment keeps the plan's placement, so Create opens pre-filled (`newExpenseSeed`).
         opening = planned.action == ACTION_OPEN
         skipping = not creating and not opening
         placed = creating or (opening and bool(planned.ledger))
@@ -974,7 +976,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
                 "source": SOURCE,
                 "transfer_id": raw.transfer_id,
                 "added_on": raw.added_on,
-                "amount": float(raw.amount),
+                # The line's money: its Debit, or its Credit on a refund or a wallet credit (#1594), which
+                # is then money IN (`direction`), so the main table offers it the choices a bank credit has.
+                "amount": float(planned.amount),
+                "direction": planned.direction or None,
                 "status_raw": raw.status_raw,
                 "beneficiary_name": raw.beneficiary_name,
                 "remarks": raw.remarks,
@@ -1039,6 +1044,7 @@ def _preview_payload(
         "total_rows": len(parsed.rows),
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
+        "opening": len(plan.opening),
         "total_value": float(plan.total_value),
         # The Cashfree preview's duplicate keys, with the same meanings (ADR-0031): `duplicate_rows`
         # is the exact repeats that will NOT be saved, `new_rows` what will be. `refused` means the
@@ -1081,28 +1087,30 @@ def _preview_payload(
             }
             for group in groups
         ],
-        "skipped": [
-            {
-                "row_number": row.row_number,
-                "transfer_id": row.transfer_id,
-                "amount": float(row.amount),
-                "remarks": row.remarks,
-                "reason": row.reason,
-            }
-            for row in plan.skipping
+        # The lines of a pair are shown under `pairs`, not here.
+        "skipped": [_preview_line(row) for row in plan.skipping if not row.partner],
+        # #1594: each Paired wallet refund, refund first: both lines are skipped, each naming the other.
+        "pairs": [
+            {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
         ],
+        # #1594: the lines that will stay open on the main table (unpaired wallet refunds, wallet credits). A Collect
+        # payment is listed under `collect_payments` instead, highlighted.
+        "open_lines": [_preview_line(row) for row in plan.opening if row.row_kind != COLLECT_ROW_KIND],
         # #1595: the Collect payments that will stay open for a person to decide, highlighted on Review.
         "collect_payments": [
-            {
-                "row_number": row.row_number,
-                "transfer_id": row.transfer_id,
-                "amount": float(row.amount),
-                "remarks": row.remarks,
-                "beneficiary_name": row.beneficiary_name,
-                "spent_by": row.spent_by,
-                "reason": row.reason,
-            }
-            for row in plan.opening
-            if row.reason == COLLECT_PAYMENT_NOTE
+            {**_preview_line(row), "spent_by": row.spent_by} for row in plan.opening if row.row_kind == COLLECT_ROW_KIND
         ],
+    }
+
+
+def _preview_line(row) -> dict:
+    """One statement line as Review lists it outside the groups: a skip, a pair's line or an open line."""
+    return {
+        "row_number": row.row_number,
+        "transfer_id": row.transfer_id,
+        "amount": float(row.amount),
+        "remarks": row.remarks,
+        "beneficiary_name": row.beneficiary_name,
+        "row_kind": row.row_kind,
+        "reason": row.reason,
     }

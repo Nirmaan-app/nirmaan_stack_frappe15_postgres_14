@@ -24,6 +24,11 @@ past imports by source and month.
   Collect payment with `Shop-requested payment, check it.`; after Create each one is a `Not Matched – Outflow` line
   with that note, whose Create opens pre-filled (Petty Cash, Non Project Expenses for the fixture lines) and whose
   `Nothing to link?` box skips it with a typed reason (#1595).
+- `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (unpaired wallet refunds, wallet credits)
+  and `N paired wallet refunds …`; after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
+  offers the card-credit choices (project / non-project inflow, waiting or new vendor refund, Skip transfer) (#1594).
+  A non-project inflow needs the File folders `Home/Attachments`; a template without them refuses it with
+  `Could not find Folder` (seed them with `frappe.core.doctype.file.utils.make_home_folder`).
 
 ## How to get to it (user POV)
 

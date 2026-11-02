@@ -597,7 +597,8 @@ class TestCashbookXlsx(unittest.TestCase):
 # `Attachments` and the 3 unnamed columns after it) was added in the provider's shape. The kinds that
 # export lacks were made up in its shape, with made-up people and shops: a Collect payment with a link
 # and one without, a full refund pair (Collect payment + `REF-` refund), a part refund (11,248 of a
-# 17,446 spend), a full Credit Adjustment, a wallet credit and a Wallet → VA move.
+# 17,446 spend), a full Credit Adjustment, a wallet credit and a Wallet → VA move. #1594 added one more: a
+# `Refund to Wallet` whose spend (`REF-OBO9000000000008EARLYR`) is not on the statement.
 #
 # Every link is signed 2026-10-31 11:12 UTC for 7 days, except the first link of the 4-link spend,
 # signed 2026-10-30 09:00 UTC: the file's earliest link expiry is 2026-11-06 09:00 UTC.
@@ -673,7 +674,7 @@ class TestCashbookStatementCredit(unittest.TestCase):
 class TestCashbookStatementShape(unittest.TestCase):
     def test_every_line_is_read_and_the_balances_footer_is_dropped_without_a_warning(self):
         result = _statement()
-        self.assertEqual(len(result.rows), 21)
+        self.assertEqual(len(result.rows), 22)
         self.assertEqual(result.warnings, ())
         self.assertFalse(any("Balance" in row.row_kind for row in result.rows))
 

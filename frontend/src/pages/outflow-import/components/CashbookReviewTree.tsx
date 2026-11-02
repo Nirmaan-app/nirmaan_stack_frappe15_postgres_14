@@ -13,6 +13,9 @@ import {
     invoiceCountsText,
     isLoneRow,
     ledgerSections,
+    openLinesHeading,
+    pairSpendLabel,
+    pairsHeading,
     typeHint,
     typeLabel,
 } from "../cashbookPreview";
@@ -50,6 +53,10 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const sections = ledgerSections(preview.groups);
     const notice = duplicateNotice(preview);
     const invoices = invoiceCountsText(preview);
+    const pairs = preview.pairs ?? [];
+    const openLines = preview.open_lines ?? [];
+    const pairsTitle = pairsHeading(pairs);
+    const openTitle = openLinesHeading(openLines);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -115,7 +122,60 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                 ))}
             </div>
 
-            {preview.skipping > 0 && (
+            {/* #1594: money that came in. Lines that stay open are shown, never folded away: each is a
+                decision someone still has to make. */}
+            {openTitle && (
+                <div className="rounded-md border border-amber-300 bg-amber-50/40 dark:border-amber-700 dark:bg-amber-950/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{openTitle}</p>
+                    <div className="border-t">
+                        {openLines.map((row) => (
+                            <div
+                                key={row.transfer_id || row.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums">
+                                    {formatToRoundedIndianRupee(row.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">{row.reason}</span>
+                                    <span className="block truncate text-muted-foreground">
+                                        {[row.row_kind, row.transfer_id, row.remarks].filter(Boolean).join(" · ")}
+                                    </span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1594: each Paired wallet refund, the refund beside the spend it cancels. */}
+            {pairsTitle && (
+                <div className="rounded-md border bg-muted/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{pairsTitle}</p>
+                    <div className="border-t">
+                        {pairs.map((pair) => (
+                            <div
+                                key={pair.refund.transfer_id || pair.refund.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {formatToRoundedIndianRupee(pair.refund.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">
+                                        {pair.refund.row_kind || "Refund"} {pair.refund.transfer_id}
+                                    </span>
+                                    <span className="block truncate text-muted-foreground">
+                                        gives back {pairSpendLabel(pair)}
+                                    </span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {preview.skipped.length > 0 && (
                 <div className="rounded-md border bg-muted/20">
                     <button
                         type="button"
@@ -131,7 +191,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                             Not importing
                         </span>
                         <span className="text-xs text-muted-foreground">
-                            · {preview.skipping} {preview.skipping === 1 ? "row" : "rows"}
+                            · {preview.skipped.length} {preview.skipped.length === 1 ? "row" : "rows"}
                         </span>
                     </button>
                     {showSkipped && (
