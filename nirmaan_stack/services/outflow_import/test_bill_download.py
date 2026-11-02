@@ -132,10 +132,11 @@ class TestTheGuardRefuses(unittest.TestCase):
 
 
 class TestRetries(unittest.TestCase):
-    def test_a_5xx_is_retried_3_times_then_refused(self):
-        result, transport = _download(LINK, *[_Response(503) for _ in range(4)])
-        self.assertEqual(result, BillRefused("the storage failed (HTTP 503) after 4 tries"))
-        self.assertEqual(len(transport.calls), 4)
+    def test_a_5xx_is_tried_three_times_in_all_then_refused(self):
+        """ADR-0015 Amendment B decision 3, story 19: "fails to download after three tries"."""
+        result, transport = _download(LINK, *[_Response(503) for _ in range(3)])
+        self.assertEqual(result, BillRefused("the storage failed (HTTP 503) after 3 tries"))
+        self.assertEqual(len(transport.calls), 3)
 
     def test_a_5xx_then_a_good_answer_succeeds(self):
         result, transport = _download(LINK, _Response(500), _Response(200, PDF))
@@ -147,10 +148,10 @@ class TestRetries(unittest.TestCase):
         self.assertEqual(result.kind, "jpeg")
         self.assertEqual(len(transport.calls), 3)
 
-    def test_timeouts_every_time_are_refused_after_4_tries(self):
-        result, transport = _download(LINK, *[requests.Timeout() for _ in range(4)])
-        self.assertEqual(result, BillRefused("the storage did not answer (timed out) after 4 tries"))
-        self.assertEqual(len(transport.calls), 4)
+    def test_timeouts_every_time_are_refused_after_3_tries(self):
+        result, transport = _download(LINK, *[requests.Timeout() for _ in range(3)])
+        self.assertEqual(result, BillRefused("the storage did not answer (timed out) after 3 tries"))
+        self.assertEqual(len(transport.calls), 3)
 
     def test_a_403_is_not_retried(self):
         result, transport = _download(LINK, _Response(403))

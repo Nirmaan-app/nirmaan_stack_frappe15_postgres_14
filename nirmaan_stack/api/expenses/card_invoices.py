@@ -12,66 +12,22 @@ attached or it is marked *No invoice*. Gates: the list and attach follow the Pen
 (`CARD_NO_INVOICE_PROFILES`). The rules are `services/card_invoices.py`. Both writes re-read the expense
 `FOR UPDATE` and save through the document layer (its `doc_events` run, and `track_changes` keeps a Version).
 The gates and the two writes (`require_profile`, `save_invoice`, `save_no_invoice`) are shared with the Cashbook
-sub-tab (`cashbook_invoices.py`, #1592).
+sub-tab (`cashbook_invoices.py`, #1592) and live in `services/expense_invoices.py`.
 """
 
 import frappe
-from frappe.utils import now_datetime, nowdate
 
-from nirmaan_stack.services.card_invoices import (
-    CardExpenseFacts,
-    attach_problem,
-    card_line_details,
-    no_invoice_problem,
-    statement_months,
+from nirmaan_stack.services.card_invoices import CardExpenseFacts, card_line_details, statement_months
+from nirmaan_stack.services.expense_invoices import (
+    require_profile,
+    require_upload_access,
+    save_invoice,
+    save_no_invoice,
 )
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
-from nirmaan_stack.services.role_profiles import (
-    CARD_NO_INVOICE_PROFILES,
-    PENDING_INVOICE_UPLOAD_PROFILES,
-    has_role_profile,
-)
+from nirmaan_stack.services.role_profiles import CARD_NO_INVOICE_PROFILES
 
 EXPENSE_DOCTYPE = "Non Project Expenses"
-
-
-def require_profile(profiles, sentence: str) -> str:
-    """The session user, or a PermissionError with `sentence` when they hold none of `profiles`."""
-    user = frappe.session.user
-    if not has_role_profile(user, profiles):
-        frappe.throw(sentence, frappe.PermissionError, title="Not permitted")
-    return user
-
-
-def require_upload_access() -> str:
-    """The Pending Invoices Upload gate: the list and attach of every sub-tab that queues expenses."""
-    return require_profile(PENDING_INVOICE_UPLOAD_PROFILES, "You do not have permission to view pending invoice uploads.")
-
-
-def save_invoice(doc, facts, invoice_attachment: str, invoice_ref: str | None, invoice_date: str | None) -> dict:
-    """File the invoice on `doc` (read `FOR UPDATE`, `facts` read from it), refused by `attach_problem`; commits."""
-    problem = attach_problem(facts, invoice_attachment, invoice_date or None, today=nowdate())
-    if problem:
-        frappe.throw(problem)
-    doc.invoice_attachment = invoice_attachment.strip()
-    doc.invoice_ref = (invoice_ref or "").strip() or None
-    doc.invoice_date = invoice_date or None
-    doc.save(ignore_permissions=True)
-    frappe.db.commit()
-    return {"name": doc.name}
-
-
-def save_no_invoice(doc, facts, reason: str | None, user: str) -> dict:
-    """Mark `doc` (read `FOR UPDATE`) *No invoice* by `user`, refused by `no_invoice_problem`; commits."""
-    problem = no_invoice_problem(facts, reason)
-    if problem:
-        frappe.throw(problem)
-    doc.no_invoice_reason = reason.strip()
-    doc.no_invoice_by = user
-    doc.no_invoice_at = now_datetime()
-    doc.save(ignore_permissions=True)
-    frappe.db.commit()
-    return {"name": doc.name}
 
 
 @frappe.whitelist()

@@ -71,6 +71,7 @@ __all__ = [
     "UNSKIP_LOCKED_KINDS",
     "classify_skip_origin",
     "is_system_skip_sentence",
+    "cashbook_pending_line_refusal",
     "manual_skip_refusal",
     "own_import_refusal",
     "unskip_refusal",
@@ -83,14 +84,22 @@ SKIP_REFUSED_PARTIALLY_ALLOCATED = (
 )
 SKIP_REFUSED_ALREADY_SKIPPED = "This transfer is already skipped."
 SKIP_REFUSED_NOT_OPEN = "This transfer is {status}, so it cannot be skipped."
-#: What Create, Link, Allocate, Split / Part payment and Skip say about a Cashbook line its job still owns.
+#: What Create, Link, Allocate, Split / Part payment and Skip say about a Cashbook line its job still owns, naming
+#: the line's import (spec #1585 B). `{batch}` is filled by `cashbook_pending_line_refusal`; the frontend mirrors
+#: this template word for word (`outflowImportStatus.CASHBOOK_PENDING_LINE_REFUSAL`).
 CASHBOOK_PENDING_LINE_REFUSAL = (
-    "The Cashbook import is still creating this line's expense, so it can't be worked by hand yet."
+    "The Cashbook import {batch} is still creating this line's expense, so it can't be worked by hand yet."
 )
 
 
+def cashbook_pending_line_refusal(import_batch: str | None) -> str:
+    """The refusal for a Cashbook line its job still owns, naming `import_batch` (the line's import)."""
+    batch = (import_batch or "").strip()
+    return CASHBOOK_PENDING_LINE_REFUSAL.replace("{batch} ", f"{batch} " if batch else "")
+
+
 def own_import_refusal(
-    *, source: str | None, direction: str | None, row_status: str | None
+    *, source: str | None, direction: str | None, row_status: str | None, import_batch: str | None = None
 ) -> str | None:
     """Why no main-table write may touch this line because its OWN import owns it -- or `None` (#1443, #1587).
 
@@ -109,12 +118,12 @@ def own_import_refusal(
     if line_waits_for_its_own_create(source, direction or ""):
         return CARD_SPEND_REFUSAL if source == CARD_STATEMENT_SOURCE else OWN_IMPORT_LINE_REFUSAL
     if source == CASHBOOK_SOURCE and (row_status or "").strip() == ROW_PENDING_MATCH:
-        return CASHBOOK_PENDING_LINE_REFUSAL
+        return cashbook_pending_line_refusal(import_batch)
     return None
 
 
 def manual_skip_refusal(
-    *, row_status: str | None, source: str | None, direction: str | None = None
+    *, row_status: str | None, source: str | None, direction: str | None = None, import_batch: str | None = None
 ) -> str | None:
     """Why a person may NOT skip this line, as the sentence to show -- or `None` when they may (#1273).
 
@@ -141,7 +150,7 @@ def manual_skip_refusal(
     # Porter's invoices agree; a hand skip would let one order quietly drop out of an import whose
     # validation is all or nothing. A card SPEND waits the same way; a card CREDIT does not (#1567).
     # A Cashbook line waits while its job has not written it (#1314, #1587).
-    return own_import_refusal(source=source, direction=direction, row_status=status)
+    return own_import_refusal(source=source, direction=direction, row_status=status, import_batch=import_batch)
 
 
 UNSKIP_REFUSED_NOT_SKIPPED = "This transfer is not skipped, so there is nothing to unskip."

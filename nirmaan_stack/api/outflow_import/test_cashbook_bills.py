@@ -5,7 +5,7 @@
 "Merging", "Where downloads run").
 
 Seam 1: the Cashbook job run inline on the real-file fixture (`cashbook_statement.xlsx`), with the bill
-downloader (`cashbook._fetch_bill`) replaced by a fake that answers from made-up files. No test touches the
+downloader (`cashbook_bills.fetch_bill`) replaced by a fake that answers from made-up files. No test touches the
 network. The fixture's Txn Ids are given a per-test suffix before staging: the dev DB is a copy of
 production, which already holds the real ones.
 
@@ -23,10 +23,12 @@ from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import _post
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
 
 STATEMENT = FIXTURE.parent / "cashbook_statement.xlsx"
 ONE_LINK = "OBO1792735526469DYMYOU"  # 1.jpeg
@@ -125,7 +127,7 @@ class CashbookBillsCase(FrappeTestCase):
 
     def _run(self, fetch=None):
         fetch = fetch or _fake_bills()
-        with patch.object(cb, "_fetch_bill", fetch):
+        with patch.object(bills, "fetch_bill", fetch):
             cb._cashbook_worker(self.batch, "Administrator")
         return fetch
 
@@ -282,5 +284,6 @@ class TestAPersonGotThereFirst(CashbookBillsCase):
 class TestReviewShowsTheInvoiceCounts(FrappeTestCase):
     def test_the_preview_counts_one_file_merged_and_will_wait(self):
         # The sample's 5 spends: 2 with one bill, 1 with two, 2 with none.
-        payload = _post(cb.preview_cashbook_statement, FIXTURE.read_bytes(), FIXTURE.name)
+        # Posted as the provider's workbook: the endpoint takes only the .xlsx (spec #1585 story 1).
+        payload = _post(cb.preview_cashbook_statement, as_statement_xlsx(FIXTURE.read_bytes()), "statement.xlsx")
         self.assertEqual(payload["invoices"], {"one_file": 2, "merged": 1, "waiting": 2})

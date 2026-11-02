@@ -143,9 +143,12 @@ export interface CashbookStatus {
     failed: number;
     skipped: number;
     pending: number;
+    /** Bills the job has still to copy: open Collect payments' and late bills (code review S1, S2). Absent from a
+     * server that predates it. */
+    bills_waiting?: number;
     /** The batch's job is queued or running (the queue's answer, not the pending count; #1589). */
     running: boolean;
-    /** Lines still wait and no job is queued or running: the job stopped part-way, Resume finishes it. */
+    /** Lines or bill copies still wait and no job is queued or running: the job stopped part-way, Resume finishes it. */
     stopped: boolean;
     batch_status: string | null;
     /** #1591: created spends whose bills were not copied. Absent from a server that predates it. */
@@ -316,11 +319,19 @@ export const CASHBOOK_RESUME_METHOD = "nirmaan_stack.api.outflow_import.cashbook
  */
 export const showsResume = (status: CashbookStatus | null | undefined): boolean => Boolean(status?.stopped);
 
-/** "Stopped: N lines still waiting" for a job that stopped part-way; null while it runs or once it is done. */
-export const stoppedText = (status: CashbookStatus | null | undefined): string | null =>
-    status?.stopped
-        ? `Stopped: ${status.pending} ${status.pending === 1 ? "line" : "lines"} still waiting`
-        : null;
+/**
+ * "Stopped: N lines still waiting" for a job that stopped part-way, with ", M bills still to copy" when it also left
+ * bill copies (or that alone when no line waits); null while it runs or once it is done.
+ */
+export const stoppedText = (status: CashbookStatus | null | undefined): string | null => {
+    if (!status?.stopped) return null;
+    const bills = status.bills_waiting ?? 0;
+    const parts = [
+        status.pending > 0 || bills === 0 ? `${status.pending} ${status.pending === 1 ? "line" : "lines"} still waiting` : null,
+        bills > 0 ? `${bills} ${bills === 1 ? "bill" : "bills"} still to copy` : null,
+    ].filter(Boolean);
+    return `Stopped: ${parts.join(", ")}`;
+};
 
 const count = (n: number): string => n.toLocaleString("en-IN");
 
@@ -341,6 +352,11 @@ export const invoiceCountsText = (preview: {
         `${count(invoices.waiting)} will wait for an invoice`
     );
 };
+
+/** One bill not copied as the import summary lists it: the Txn Id and its Expense, or an open Collect payment's line,
+ * which has none (#1595). The server's reason follows it. */
+export const billNotCopiedLabel = (line: BillNotCopied): string =>
+    `${line.transfer_id} (${line.expense ? line.expense : "open Collect payment"})`;
 
 /**
  * The heading over the spends whose bills the job could not copy (#1591), or null while it runs or when

@@ -17,13 +17,13 @@ writes re-read the Expense `FOR UPDATE` and save through the document layer.
 
 import frappe
 
-from nirmaan_stack.api.expenses.card_invoices import (
+from nirmaan_stack.services.card_invoices import CashbookExpenseFacts
+from nirmaan_stack.services.expense_invoices import (
     require_profile,
     require_upload_access,
     save_invoice,
     save_no_invoice,
 )
-from nirmaan_stack.services.card_invoices import CashbookExpenseFacts
 from nirmaan_stack.services.role_profiles import CARD_NO_INVOICE_PROFILES
 
 PROJECT_EXPENSE = "Project Expenses"

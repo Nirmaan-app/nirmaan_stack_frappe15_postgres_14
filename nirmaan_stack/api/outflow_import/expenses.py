@@ -76,16 +76,20 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
-from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match import (
+from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
+from nirmaan_stack.services.outflow_import.import_created_expense import (
     import_created_expense_holding,
     is_import_created_expense_refusal,
 )
-from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
 from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.cashbook_collect import (
+    COLLECT_PAYMENT_CHOICES_REFUSAL,
+    is_collect_payment_line,
+)
 from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
 from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
@@ -701,6 +705,7 @@ def _load_allocatable_row(row: str):
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
     guard_not_an_own_import_line(doc)
+    guard_collect_payment_choice(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This transfer is fully allocated. Reverse an allocation to change it.",
@@ -1030,7 +1035,7 @@ def create_expense(
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.create_expense
     """
     actor = require_outflow_access()
-    staged, doc = _load_settleable_row(row)
+    staged, doc = _load_settleable_row(row, creating=True)
     # ⚠️ THE SAME GUARD `settle_row` CARRIES, AND IT MATTERS AT LEAST AS MUCH HERE. A settle at
     # least has an approved record in front of it that somebody sanctioned; this path CREATES a
     # `Paid` expense out of the bank row alone, so an unguarded credit would mint a brand-new
@@ -1132,9 +1137,10 @@ def _statement_file_url(batch: str) -> str | None:
     return frappe.db.get_value(BATCH_DOCTYPE, batch, "source_file") or None
 
 
-def _load_settleable_row(row: str):
+def _load_settleable_row(row: str, creating: bool = False):
     """The guard shared by every WHOLE-TRANSFER write (`settle_row`, `settle_row_partial`,
-    `create_expense`).
+    `create_expense`). `creating`: the write creates the record (`create_expense`), the one write besides Skip an
+    open Collect payment takes (`guard_collect_payment_choice`).
 
     ⚠️ REFUSES `ROW_PARTIALLY_ALLOCATED` (Task 6 review fix A, ADR-0020). None of the three
     whole-transfer paths above consults `live_legs` or `is_over_allocated` -- `settle_row`'s own
@@ -1157,6 +1163,8 @@ def _load_settleable_row(row: str):
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
     guard_not_an_own_import_line(doc)
+    if not creating:
+        guard_collect_payment_choice(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This row has already settled an expense.", title="Already settled"
@@ -1185,10 +1193,23 @@ def guard_not_an_own_import_line(doc) -> None:
     """
     # Per line (#1567): a card spend waits for the card import's Create; a card credit is decided here.
     refusal = own_import_refusal(
-        source=doc.get("source"), direction=doc.get("direction"), row_status=doc.get("row_status")
+        source=doc.get("source"),
+        direction=doc.get("direction"),
+        row_status=doc.get("row_status"),
+        import_batch=doc.get("import_batch"),
     )
     if refusal:
         frappe.throw(refusal, ExpenseSettlementError, title="Not a main-table line")
+
+
+def guard_collect_payment_choice(doc) -> None:
+    """Refuse Link, Allocate and Split / Part payment on a Collect payment (spec #1585 "Open Cashbook lines": "An
+    open Collect payment offers Create expense and Skip by hand"). A shop asked for the money and it may not be a
+    company spend, so it is recorded as a new Expense or closed on record, never settled against a record that
+    already exists. Create (`create_expense`) and Skip (`review.skip_row`) do not ask this.
+    """
+    if is_collect_payment_line(doc.get("source"), doc.get("row_kind")):
+        frappe.throw(COLLECT_PAYMENT_CHOICES_REFUSAL, ExpenseSettlementError, title="Create expense or Skip")
 
 
 def _guard_is_a_debit(doc) -> None:

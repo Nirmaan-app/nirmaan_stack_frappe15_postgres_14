@@ -15,6 +15,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     SKIP_NOT_SUCCESSFUL,
     plan_statement,
 )
+from nirmaan_stack.services.outflow_import.cashbook_collect import is_collect_payment_line
 from nirmaan_stack.services.outflow_import.test_cashbook import ALIASES, PROJECTS, RULES, TELUS, _row
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 
@@ -47,6 +48,19 @@ class TestACollectPaymentIsDecidedByAPerson(unittest.TestCase):
     def test_a_collect_payment_that_did_not_succeed_is_skipped_as_a_wallet_failure(self):
         [line] = _plan(_row(kind=COLLECT, status="FAILED")).rows
         self.assertEqual((line.action, line.reason), (ACTION_SKIP, SKIP_NOT_SUCCESSFUL))
+
+
+class TestWhichLineIsACollectPayment(unittest.TestCase):
+    """The main table gives an open Collect payment two choices only (spec #1585 "Open Cashbook lines"), by the
+    statement Type the import stored on the line (`row_kind`)."""
+
+    def test_a_cashbook_line_of_type_collect_payment_is_one(self):
+        self.assertTrue(is_collect_payment_line(" Cashbook ", " Collect Payment "))
+
+    def test_any_other_type_or_source_is_not(self):
+        for source, kind in (("Cashbook", "Wallet Spend"), ("Cashbook", None), ("Cashfree", COLLECT), (None, COLLECT)):
+            with self.subTest(source=source, kind=kind):
+                self.assertFalse(is_collect_payment_line(source, kind))
 
 
 if __name__ == "__main__":

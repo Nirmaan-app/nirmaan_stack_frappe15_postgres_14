@@ -28,7 +28,7 @@ from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KINDS
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
-    CASHBOOK_PENDING_LINE_REFUSAL,
+    cashbook_pending_line_refusal,
     SKIP_REFUSED_PARTIALLY_ALLOCATED,
     SKIP_REFUSED_SETTLED,
     UNSKIP_REFUSED_CASHBOOK,
@@ -275,9 +275,12 @@ class TestManualSkipRefusal(unittest.TestCase):
         """A Cashbook line still `Pending match run` is the Cashbook job's work in progress: its worker
         reads the line list once and writes each one without looking again, so a skip now would be
         overwritten by the expense it creates."""
+        refusal = manual_skip_refusal(row_status=ROW_PENDING_MATCH, source="Cashbook", import_batch="OFI-26-00042")
+        self.assertEqual(refusal, cashbook_pending_line_refusal("OFI-26-00042"))
+        # Spec #1585 B: "with a sentence naming its import".
         self.assertEqual(
-            manual_skip_refusal(row_status=ROW_PENDING_MATCH, source="Cashbook"),
-            CASHBOOK_PENDING_LINE_REFUSAL,
+            refusal,
+            "The Cashbook import OFI-26-00042 is still creating this line's expense, so it can't be worked by hand yet.",
         )
 
     def test_an_open_card_credit_may_be_skipped_and_a_card_spend_may_not(self):

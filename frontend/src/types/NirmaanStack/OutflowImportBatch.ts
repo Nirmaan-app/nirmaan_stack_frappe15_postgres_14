@@ -313,6 +313,12 @@ export interface OutflowImportRow {
     /** Denormalised from the batch, so the table can filter by source without a join. */
     source?: string;
     /**
+     * Cashbook Statement only: the line's Type as the statement printed it ("Wallet Spend", "Collect Payment",
+     * ...), stored at staging (#1595). An open Collect payment offers only Create expense and Skip by hand
+     * (`outflowImportStatus.isCollectPaymentLine`). Blank on every other source and on older Cashbook lines.
+     */
+    row_kind?: string | null;
+    /**
      * Which import staged this row.
      *
      * ⚠️ `import_batch` HAS ALWAYS EXISTED ON THE DOCTYPE; what is new at X3 is that the SCREEN

@@ -23,6 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 from openpyxl import load_workbook
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import EARLIEST_EXPIRY
@@ -124,7 +125,7 @@ class ReopenCase(FrappeTestCase):
         self.batches.append(batch)
         frappe.db.sql("""UPDATE "tabOutflow Import Row" SET row_kind = NULL WHERE import_batch = %s""", (batch,))
         frappe.db.commit()
-        with patch.object(cb, "_fetch_bill", _fake_bills()):
+        with patch.object(bills, "fetch_bill", _fake_bills()):
             cb._cashbook_worker(batch, "Administrator")
         return batch
 
@@ -139,7 +140,7 @@ class ReopenCase(FrappeTestCase):
         def run_now(batch, actor, **kwargs):
             cb._cashbook_worker(batch, actor, **kwargs)
 
-        with self._clock(), patch.object(cb, "_fetch_bill", _fake_bills()), patch.object(
+        with self._clock(), patch.object(bills, "fetch_bill", _fake_bills()), patch.object(
             cb, "_enqueue_worker", side_effect=run_now
         ):
             result = _post(cb.confirm_cashbook_import, self.content, "statement.xlsx")
@@ -254,6 +255,42 @@ class TestOtherSkipsStay(ReopenCase):
         for txn in (COLLECT_NO_LINK, WALLET_CREDIT):
             line = self._only_line(txn)  # and no second line staged for it
             self.assertEqual((line.row_status, line.skip_kind), ("Skipped", "Bank refused"), txn)
+
+
+class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
+    """Code review S6: the plan says a line re-opens an earlier own-balances skip, but by the time confirm locks that
+    earlier line another import (or a person) has changed it. The line must not vanish -- neither re-opened nor
+    staged -- but take what the plan gives it without the re-open."""
+
+    def test_the_line_is_handled_as_if_there_were_nothing_to_reopen(self):
+        stale = cb.wrong_skips([row.transfer_id for row in self.parsed.rows])
+        taken = self._only_line(COLLECT_NO_LINK)
+        self.assertIn(taken.name, {skip.line for skip in stale})
+        # Another import re-opened it after this confirm read the wrong skips.
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            taken.name,
+            {"row_status": "Mismatched", "skip_reason": None, "skip_kind": None, "skip_origin": None},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        txn = COLLECT_NO_LINK + self.suffix
+        expected = cb._build_plan(self.parsed)  # what the plan gives now: nothing left to re-open for it
+        self.assertNotIn(txn, {row.transfer_id for row in expected.reopening})
+        expected_staged = txn in {row.transfer_id for row in expected.rows if not row.reopens}
+
+        with patch.object(cb, "wrong_skips", return_value=stale):
+            new = self._upload()["batch"]
+
+        self.assertEqual(
+            frappe.db.count(ROW_DOCTYPE, {"import_batch": new, "transfer_id": txn}), 1 if expected_staged else 0
+        )
+        self.assertEqual(
+            frappe.db.get_value("Outflow Import Batch", new, "repeats_not_saved"), expected.split.repeats_not_saved
+        )
+        # The other wrong skips are still re-opened.
+        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Mismatched")
+        self.assertEqual(self._only_line(WALLET_CREDIT).import_batch, self.old)
 
 
 class TestReviewListsTheLinesToBeReopened(ReopenCase):

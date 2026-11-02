@@ -30,7 +30,9 @@ Rerun both checks when a change touches any of these (the coverage record):
 | `nirmaan_stack/services/outflow_import/settle.py` | `create_expense_from_row` (writes `payment_ref`), the 1:1 Link `payment_ref` write |
 | `nirmaan_stack/services/outflow_import/candidates.py` | `prior_import_sightings` (which stored lines count as already imported) |
 | `nirmaan_stack/api/outflow_import/card_create.py` | `_create_one` -- the locking prior art the spec copies |
-| `nirmaan_stack/nirmaan_stack/doctype/outflow_row_match/outflow_row_match.py` | `ensure_one_import_created_expense_per_transfer` (rule 3's index), `is_import_created_expense_refusal`, `import_created_expense_holding`; `ensure_settled_target_unique` never fires for Cashbook |
+| `nirmaan_stack/nirmaan_stack/doctype/outflow_row_match/outflow_row_match.py` | `ensure_one_import_created_expense_per_transfer` (rule 3's index); `ensure_settled_target_unique` never fires for Cashbook |
+| `nirmaan_stack/services/outflow_import/import_created_expense.py` | `IMPORT_CREATED_EXPENSE_INDEX`, `is_import_created_expense_refusal`, `import_created_expense_holding` (moved from the controller after the sync commit; the code is unchanged) |
+| `nirmaan_stack/api/outflow_import/cashbook_lines.py` | `lock_line_if`, the row lock `_lock_pending_line` takes (moved out of `cashbook.py` after the sync commit; the same `SELECT ... FOR UPDATE` and status check) |
 | any new unique index or advisory lock on expenses, `payment_ref` or Cashbook lines | changes rule 2 or 3 of the model |
 
 **Sync commit: `f36a74ce`** (spec #1585 Phase 1 merged: #1586-#1589). At this commit the model's `phase1`
@@ -38,7 +40,7 @@ configs were confirmed against the code above, step by step. The `today*` config
 Phase 1 (sync commit `cd1ce4e74`) and are kept on record. See whether the covered code moved since:
 
 ```bash
-git log --oneline f36a74ce..HEAD -- nirmaan_stack/api/outflow_import/cashbook.py nirmaan_stack/api/outflow_import/expenses.py nirmaan_stack/services/outflow_import/skip_origin.py nirmaan_stack/services/outflow_import/sources.py nirmaan_stack/services/outflow_import/settle.py nirmaan_stack/services/outflow_import/candidates.py nirmaan_stack/api/outflow_import/card_create.py nirmaan_stack/nirmaan_stack/doctype/outflow_row_match/outflow_row_match.py
+git log --oneline f36a74ce..HEAD -- nirmaan_stack/api/outflow_import/cashbook.py nirmaan_stack/api/outflow_import/expenses.py nirmaan_stack/services/outflow_import/skip_origin.py nirmaan_stack/services/outflow_import/sources.py nirmaan_stack/services/outflow_import/settle.py nirmaan_stack/services/outflow_import/candidates.py nirmaan_stack/api/outflow_import/card_create.py nirmaan_stack/nirmaan_stack/doctype/outflow_row_match/outflow_row_match.py nirmaan_stack/services/outflow_import/import_created_expense.py nirmaan_stack/api/outflow_import/cashbook_lines.py
 ```
 
 Any commit listed means the model may no longer describe the code. Re-read the changed functions against
@@ -132,7 +134,7 @@ holds at any isolation level.
 | Model step | Code | Indivisible because |
 |---|---|---|
 | `Job.ListPendingLines` | `cashbook.py:300` pending-lines query in `_cashbook_worker` | one statement; the job's first snapshot, shared with its first line |
-| `Job.ReadLine` | `cashbook.py:415` start of the `FOR UPDATE` in `_lock_pending_line` (before Phase 1: a plain `get_value`) | one statement; snapshot of each later line's transaction |
+| `Job.ReadLine` | `cashbook.py:415` start of the `FOR UPDATE` in `_lock_pending_line`, now taken by `cashbook_lines.lock_line_if` (before Phase 1: a plain `get_value`) | one statement; snapshot of each later line's transaction |
 | `Job.LockLine` | phase 1 A, `cashbook.py:400` `_lock_pending_line`: 40001 or not `Pending match run` -> `None`, `_write_one` returns `False`, rollback | the `FOR UPDATE` returning (after any wait) |
 | `Job.WriteOne` | `cashbook.py:429` `_write_one` + the commit at `:318` in `_cashbook_worker`; phase 1 C: the match insert refused by `ofm_match_import_created_expense_unique` | one transaction |
 | `Job.MarkError` | phase 1: `cashbook.py:327` `_write_failed` -> `:368` `_mark_if_still_pending` (index refusal -> "Already imported" skip, else Error; the log commits first, on its own) | one statement + commit |

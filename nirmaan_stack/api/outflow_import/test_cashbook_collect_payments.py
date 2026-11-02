@@ -5,7 +5,7 @@
 "A Collect payment's bill", "Open Cashbook lines", "If someone picks Create expense on a Collect payment").
 
 Seam 1: the Cashbook import (preview, staging, the job run inline) on the real-file fixture
-(`cashbook_statement.xlsx`), with the bill downloader (`cashbook._fetch_bill`) faked. Seam 2: the main-table
+(`cashbook_statement.xlsx`), with the bill downloader (`cashbook_bills.fetch_bill`) faked. Seam 2: the main-table
 endpoints a person decides the open line with (`expenses.create_expense`, `review.skip_row`), and the Cashbook
 invoice queue the Expense waits in. No test touches the network.
 
@@ -21,6 +21,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_queue
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.expenses import create_expense
 from nirmaan_stack.api.outflow_import.review import skip_row
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import PORTRAIT_JPEG, STATEMENT, _fake_bills
@@ -69,7 +70,7 @@ class CollectPaymentCase(FrappeTestCase):
         _purge(self.batch)
 
     def _run(self, fetch=None):
-        with patch.object(cb, "_fetch_bill", fetch or _fake_bills()):
+        with patch.object(bills, "fetch_bill", fetch or _fake_bills()):
             cb._cashbook_worker(self.batch, "Administrator")
 
     def _line(self, txn: str):

@@ -27,7 +27,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
-    CASHBOOK_PENDING_LINE_REFUSAL,
+    cashbookPendingLineRefusal,
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
@@ -36,6 +36,7 @@ import {
     ROW_SETTLED,
     SKIP_ORIGIN_MANUAL,
     isCashbookLineItsJobOwns,
+    isCollectPaymentLine,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
@@ -307,10 +308,14 @@ export const amountToneClass = (row: Pick<OutflowImportRow, "direction">): strin
  * screen, the confirmability check and the server's guards cannot disagree about a row by
  * accident. `isConfirmable` refuses anything outside the row's list, and `DecisionDialog` renders
  * only the cards inside it.
+ *
+ * An open Collect payment (spec #1585 "Open Cashbook lines") takes Create expense only; its other choice, Skip by
+ * hand, is the Skip box. The server refuses Link, Allocate and Split on it (`cashbook_collect`).
  */
 export function availableDecisionTargets(
-    row: Pick<OutflowImportRow, "direction">
+    row: Pick<OutflowImportRow, "direction"> & Partial<Pick<OutflowImportRow, "source" | "row_kind">>
 ): DecisionTarget[] {
+    if (isCollectPaymentLine(row)) return ["new"];
     return isCreditRow(row) ? [...RECEIVED_TARGETS] : [...PAID_TARGETS];
 }
 
@@ -2785,7 +2790,7 @@ export const confirmBlocker = (
         return `This transfer is ${row.row_status || "closed"} — there is nothing left to confirm.`;
     }
     // #1587: a Cashbook line the match never runs on waits for its import, not for Re-run match.
-    if (isCashbookLineItsJobOwns(row)) return CASHBOOK_PENDING_LINE_REFUSAL;
+    if (isCashbookLineItsJobOwns(row)) return cashbookPendingLineRefusal(row.import_batch);
     if (row.row_status === "Pending match run") {
         return "This line has not been matched yet — press Re-run match first.";
     }
