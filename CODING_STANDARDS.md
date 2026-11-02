@@ -250,6 +250,9 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
 - **Doctype stubs:** Frappe writes an empty `test_<name>.py` into each new doctype folder, and most doctype folders
   still hold only that stub. A doctype with no other test has nothing guarding it.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code. Test both the accepted and the refused path.
+- **Test data is invented.** The repo is public: every person, payee, customer, account and id in a fixture or
+  test is made up, never cut from a real statement or export. `services/outflow_import/test_statement_fixtures_made_up`
+  checks the name and id columns of the statement fixtures; free text (narrations, remarks) is the review's to read.
 - **Bug fixes:** every fix comes with a test that fails without it. Run it both ways: revert the fix and see the
   test fail for the bug's reason, then restore the fix and see it pass.
 - **Changing an existing test:** editing an existing assertion so a change passes is a red flag, because the old
