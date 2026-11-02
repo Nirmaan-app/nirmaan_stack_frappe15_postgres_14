@@ -62,6 +62,24 @@ export interface CashbookPreviewResult {
     /** 90% or more already imported: offered anyway, with the message. */
     warn: boolean;
     duplicate_of_batch: string | null;
+    /** #1591: the spends to create, by their bills. Absent from a server that predates it. */
+    invoices?: InvoiceCounts;
+}
+
+export interface InvoiceCounts {
+    /** One bill: it becomes the invoice as it is. */
+    one_file: number;
+    /** 2 to 4 bills: merged into one PDF. */
+    merged: number;
+    /** No bill: the Expense waits for an invoice. */
+    waiting: number;
+}
+
+/** A spend whose bills the job could not copy onto its Expense, and the server's sentence saying why. */
+export interface BillNotCopied {
+    transfer_id: string;
+    expense: string | null;
+    reason: string;
 }
 
 export interface CashbookConfirmResult {
@@ -83,6 +101,8 @@ export interface CashbookStatus {
     /** Lines still wait and no job is queued or running: the job stopped part-way, Resume finishes it. */
     stopped: boolean;
     batch_status: string | null;
+    /** #1591: created spends whose bills were not copied. Absent from a server that predates it. */
+    bills_not_copied?: BillNotCopied[];
 }
 
 export interface LedgerSection {
@@ -222,3 +242,35 @@ export const stoppedText = (status: CashbookStatus | null | undefined): string |
     status?.stopped
         ? `Stopped: ${status.pending} ${status.pending === 1 ? "line" : "lines"} still waiting`
         : null;
+
+const count = (n: number): string => n.toLocaleString("en-IN");
+
+/**
+ * What Review says about the bills before Create (#1591), or null when there is nothing to say:
+ * "1,305 spends: 1,243 with 1 file, 62 with 2–4 files (merged), 886 will wait for an invoice".
+ */
+export const invoiceCountsText = (preview: {
+    creating: number;
+    invoices?: InvoiceCounts;
+}): string | null => {
+    const invoices = preview.invoices;
+    if (!invoices || preview.creating <= 0) return null;
+    const spends = `${count(preview.creating)} ${preview.creating === 1 ? "spend" : "spends"}`;
+    return (
+        `${spends}: ${count(invoices.one_file)} with 1 file, ` +
+        `${count(invoices.merged)} with 2–4 files (merged), ` +
+        `${count(invoices.waiting)} will wait for an invoice`
+    );
+};
+
+/**
+ * The heading over the spends whose bills the job could not copy (#1591), or null while it runs or when
+ * every bill was copied. The lines under it are the server's, one per spend.
+ */
+export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined): string | null => {
+    const lines = status?.bills_not_copied ?? [];
+    if (!status || status.running || lines.length === 0) return null;
+    return lines.length === 1
+        ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
+        : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
+};

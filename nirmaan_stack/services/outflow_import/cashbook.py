@@ -81,6 +81,8 @@ __all__ = [
     "plan_statement",
     "pick_expense_type",
     "group_plan",
+    "InvoiceCounts",
+    "invoice_counts",
 ]
 
 # The one `Type` value that means money left on somebody's behalf. Everything else in a Cashbook
@@ -431,3 +433,29 @@ def group_plan(plan: CashbookPlan) -> tuple[PlanGroup, ...]:
                 )
             )
     return tuple(sorted(groups, key=lambda g: (g.ledger, -g.value, g.label)))
+
+
+@dataclass(frozen=True)
+class InvoiceCounts:
+    """What Review says about the bills before Create (#1591): of the lines that will create an Expense,
+    how many carry one bill (it becomes the invoice as it is), how many carry 2 or more (merged into one
+    PDF), and how many carry none (the Expense waits for an invoice)."""
+
+    one_file: int
+    merged: int
+    waiting: int
+
+
+def invoice_counts(plan: CashbookPlan) -> InvoiceCounts:
+    """Count the create lines of `plan` by their bill links. `plan.split.kept` and `plan.rows` are the same
+    lines in the same order (`CashbookPlan`)."""
+    links = [
+        len(getattr(kept.row, "bill_links", ()) or ())
+        for kept, planned in zip(plan.split.kept, plan.rows, strict=True)
+        if planned.creates
+    ]
+    return InvoiceCounts(
+        one_file=sum(1 for n in links if n == 1),
+        merged=sum(1 for n in links if n > 1),
+        waiting=sum(1 for n in links if n == 0),
+    )

@@ -49,6 +49,7 @@ import {
     CashbookConfirmResult,
     CashbookPreviewResult,
     CashbookStatus,
+    billsNotCopiedHeading,
     createLabel,
     progressFraction,
     progressText,
@@ -1927,6 +1928,7 @@ const CashbookProgress = ({
     const failed = (status?.failed ?? 0) > 0 || Boolean(status?.stopped);
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
+    const billsHeading = billsNotCopiedHeading(status);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1953,6 +1955,20 @@ const CashbookProgress = ({
             </div>
             {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
+            {/* #1591: each spend whose bills were not copied, with the server's reason. */}
+            {billsHeading && (
+                <div className="space-y-1 text-xs">
+                    <p className="text-amber-700 dark:text-amber-500">{billsHeading}</p>
+                    <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+                        {(status?.bills_not_copied ?? []).map((line) => (
+                            <li key={line.transfer_id} className="break-words text-muted-foreground">
+                                <span className="font-medium text-foreground">{line.transfer_id}</span>
+                                {line.expense ? ` (${line.expense})` : ""}: {line.reason}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
             {!running && (
                 <p className="text-xs text-muted-foreground">
                     Corrections are made in Expenses — open a record and change its project or type.
