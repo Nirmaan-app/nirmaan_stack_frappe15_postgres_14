@@ -60,11 +60,14 @@ from nirmaan_stack.api.outflow_import.expenses import (
 )
 from nirmaan_stack.api.outflow_import.cashbook_bills import (
     attach_late_bills,
+    bill_work,
+    bills_waiting,
     copy_created_line_bills,
+    late_bills_not_copied,
     store_collect_bills,
 )
 from nirmaan_stack.api.outflow_import.cashbook_lines import MATCH_BASIS, line_values, lock_line_if
-from nirmaan_stack.api.outflow_import.cashbook_reopen import reopen_lines, wrong_skips
+from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -154,7 +157,7 @@ def confirm_cashbook_import():
     submit its own placement could book a spend to any project it liked.
     """
     user, filename, content, parsed = _read_and_parse()
-    plan = _build_plan(parsed)
+    plan = _plan_claiming_reopens(parsed)
     late = _late_bills(parsed, plan)
 
     # ⚠️ THE REFUSAL COMES BEFORE `save_file`, the only place it can (ADR-0031, as on the Cashfree
@@ -171,8 +174,25 @@ def confirm_cashbook_import():
     # commits inside this request -- and the URL is read off the returned doc because that same
     # hook rewrites it during insert.
     saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
+    # ⚠️ CLAIMED AGAIN (code review S6): `save_file`'s commit released the claim's row locks, so another import could
+    # have re-opened one of the lines since. This claim holds to the commit below, through `_stage`'s re-open.
+    if plan.reopening:
+        plan = _plan_claiming_reopens(parsed)
+        late = _late_bills(parsed, plan)
 
-    batch = _stage(parsed, plan, file_url=saved.file_url, filename=filename, user=user)
+    batch = _stage(
+        parsed,
+        plan,
+        file_url=saved.file_url,
+        filename=filename,
+        user=user,
+        bill_copies={
+            "late_bills": [_late_bill_job(bill) for bill in late],
+            # #1596: a re-opened Collect payment's bill is copied like a new one's; its line is in its own import.
+            "reopened": [row.reopens.line for row in plan.reopening if row.opens and row.row_kind == COLLECT_ROW_KIND],
+        },
+    )
+    # Raw (`set_value`): the File's own hooks run before insert only, and these pointer fields feed nothing of ours.
     frappe.db.set_value(
         "File",
         saved.name,
@@ -185,13 +205,7 @@ def confirm_cashbook_import():
     )
     frappe.db.commit()
 
-    _enqueue_worker(
-        batch.name,
-        user,
-        late_bills=[_late_bill_job(bill) for bill in late],
-        # #1596: a re-opened Collect payment's bill is copied like a new one's; its line is in its own import.
-        reopened=[row.reopens.line for row in plan.reopening if row.opens and row.row_kind == COLLECT_ROW_KIND],
-    )
+    _enqueue_worker(batch.name, user)
     return {
         "batch": batch.name,
         "creating": len(plan.creating),
@@ -219,6 +233,10 @@ def get_cashbook_status(batch: str):
     `stopped` is the state Resume answers: lines still waiting and no job to write them. (A worker
     killed outright stays "started" in RQ until RQ marks the job abandoned, so `stopped` can lag a hard
     kill by RQ's own clean-up interval; it never shows while a job really runs.)
+
+    ⚠️ BILLS STILL TO COPY STOP A BATCH TOO (code review S1, S2). The job copies its open Collect payments' bills
+    and its late bills after its lines, so a job that dies after the last line leaves no pending line and work
+    still undone. `bills_waiting` counts it (`cashbook_bills.bills_waiting`), and `stopped` covers it.
     """
     require_outflow_access()
     counts = dict(
@@ -234,6 +252,7 @@ def get_cashbook_status(batch: str):
     )
     pending = counts.get(ROW_PENDING_MATCH, 0)
     running = is_job_enqueued(_job_id(batch))
+    waiting_bills = bills_waiting(batch)
     return {
         "batch": batch,
         "created": counts.get(ROW_SETTLED, 0),
@@ -242,10 +261,13 @@ def get_cashbook_status(batch: str):
         # #1594: the open lines (unpaired wallet refunds, wallet credits, and any line a person reopened).
         "open": counts.get(ROW_MISMATCHED, 0),
         "pending": pending,
+        # #1595 / #1593: open Collect payments' bills and late bills the job has still to copy.
+        "bills_waiting": waiting_bills,
         "running": running,
-        "stopped": pending > 0 and not running,
+        "stopped": (pending > 0 or waiting_bills > 0) and not running,
         "batch_status": frappe.db.get_value(BATCH_DOCTYPE, batch, "status"),
-        # #1591: every created spend whose bills were not copied onto its Expense, and why.
+        # #1591: every created spend whose bills were not copied onto its Expense, and why; #1595: an open Collect
+        # payment's (no Expense); #1593: a late bill's, which has no line of its own (code review S2).
         "bills_not_copied": [
             {"transfer_id": row.transfer_id, "expense": row.suggested_name, "reason": row.bill_problem}
             for row in frappe.get_all(
@@ -254,7 +276,8 @@ def get_cashbook_status(batch: str):
                 fields=["transfer_id", "suggested_name", "bill_problem"],
                 order_by="name asc",
             )
-        ],
+        ]
+        + late_bills_not_copied(batch),
     }
 
 
@@ -267,7 +290,7 @@ def resume_cashbook_import(batch: str):
     Admin, Accountant Lead and Accountant (the Bulk Import gate). Card Create's "Run Create again"
     (`card_create.create_card_expenses`) is the model. Re-queues the SAME job under the SAME job id as
     confirm did, so the queue's de-duplication keeps one job per batch; it is refused, with a sentence,
-    while that job is queued or running, and once no line is left waiting.
+    while that job is queued or running, and once no line and no bill copy is left waiting (`bills_waiting`).
 
     ⚠️ PRESSING IT IS ALWAYS SAFE. The job takes only `Pending match run` lines, and each is re-read
     under its row lock and written only while still pending (`_lock_pending_line`, #1586); the
@@ -282,8 +305,13 @@ def resume_cashbook_import(batch: str):
             f"The Cashbook import {batch} is still creating its expenses. Wait for it to finish.",
             title="Still running",
         )
-    if not frappe.db.exists(ROW_DOCTYPE, {"import_batch": batch, "row_status": ROW_PENDING_MATCH}):
-        frappe.throw(f"No line of {batch} is waiting to be created.", title="Nothing waiting")
+    if not frappe.db.exists(ROW_DOCTYPE, {"import_batch": batch, "row_status": ROW_PENDING_MATCH}) and not bills_waiting(
+        batch
+    ):
+        frappe.throw(
+            f"No line of {batch} is waiting to be created, and no bill is waiting to be copied.",
+            title="Nothing waiting",
+        )
     _enqueue_worker(batch, user)
     return get_cashbook_status(batch)
 
@@ -293,17 +321,13 @@ def _job_id(batch: str) -> str:
     return f"cashbook-import-{batch}"
 
 
-def _enqueue_worker(
-    batch: str, actor: str, late_bills: list[dict] | None = None, reopened: list[str] | None = None
-) -> None:
+def _enqueue_worker(batch: str, actor: str) -> None:
     frappe.enqueue(
         _WORKER,
         queue="long",
         timeout=3600,
         batch=batch,
         actor=actor,
-        late_bills=late_bills or None,
-        reopened=reopened or None,
         job_id=_job_id(batch),
         deduplicate=True,
     )
@@ -332,12 +356,20 @@ def _cashbook_worker(
     rolled back, not marked. The rollup at the end reads the rows in a fresh transaction (every line
     ends its own), so it counts what they really say.
 
-    `late_bills` (#1593): the repeat lines' bills for existing Expenses, as confirm planned them
-    (`_late_bill_job`). Attached after the lines, by `cashbook_bills.attach_late_bills`.
-
-    `reopened` (#1596): the earlier Collect payment lines confirm re-opened, whose bills are copied with this
-    import's own (`cashbook_bills.store_collect_bills`).
+    After the lines, the bills outside them (code review S1, S2): the late bills (#1593) and the earlier Collect
+    payment lines confirm re-opened (#1596) are read from the batch (`cashbook_bills.bill_work`), not from the
+    job's arguments, so Resume redoes whatever a dead job left. `late_bills` / `reopened` are accepted only from a
+    job queued before that change, and kept on the batch first.
     """
+    if (late_bills or reopened) and not bill_work(batch):
+        frappe.db.set_value(
+            BATCH_DOCTYPE,
+            batch,
+            "cashbook_bill_work",
+            frappe.as_json({"late_bills": list(late_bills or ()), "reopened": list(reopened or ())}),
+            update_modified=False,
+        )
+        frappe.db.commit()
     statement_file_url = _statement_file_url(batch)
     rows = frappe.db.sql(
         """
@@ -363,10 +395,10 @@ def _cashbook_worker(
             # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
             frappe.db.rollback()
 
-    attach_late_bills(batch, late_bills or ())
+    attach_late_bills(batch)
 
     # #1595: each open Collect payment's bills are copied onto its line now, while the links still work.
-    store_collect_bills(batch, also=reopened or ())
+    store_collect_bills(batch)
 
     refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -619,8 +651,38 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _build_plan(parsed) -> CashbookPlan:
-    """Read the two lookup tables and decide. The ONE place the plan is computed."""
+def _plan_claiming_reopens(parsed) -> CashbookPlan:
+    """Confirm's plan, with every earlier line it re-opens locked until confirm commits (code review S6).
+
+    The plan read the own-balances skips in one statement and `reopen_lines` writes them later; in between another
+    import or a person may change one. So each is claimed here, under its row lock, before anything is saved
+    (`cashbook_reopen.claim_reopens`). One that is no longer an own-balances skip is left out and the statement is
+    planned again without it, so its line takes what the plan gives it without the re-open (a repeat, or a new
+    line) and is never dropped. A serialization failure (the line changed after this transaction's snapshot) is
+    rolled back and the plan read again, in a fresh snapshot that sees the change.
+    """
+    lost: set[str] = set()
+    for _ in range(3):
+        plan = _build_plan(parsed, not_reopening=lost)
+        try:
+            gone = claim_reopens(plan)
+        except Exception as exc:
+            if not is_concurrent_writer_refusal(exc):
+                raise
+            frappe.db.rollback()
+            continue
+        if not gone:
+            return plan
+        lost |= gone
+    frappe.throw(
+        "Another import is re-opening the same lines right now. Confirm this statement again in a moment.",
+        title="Lines changed",
+    )
+
+
+def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
+    """Read the two lookup tables and decide. The ONE place the plan is computed. `not_reopening`: earlier lines
+    confirm found taken meanwhile (`_plan_claiming_reopens`), planned as if they were not own-balances skips."""
     won = frappe.db.sql(
         """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s""",
         (_WON,),
@@ -636,7 +698,9 @@ def _build_plan(parsed) -> CashbookPlan:
         load_expense_rules(),
         already_imported=_already_imported(parsed),
         already_booked=_already_booked(parsed),
-        wrong_skips=wrong_skips(_statement_transfer_ids(parsed)),
+        wrong_skips=[
+            skip for skip in wrong_skips(_statement_transfer_ids(parsed)) if skip.line not in not_reopening
+        ],
     )
 
 
@@ -843,7 +907,7 @@ def _statement_transfer_ids(parsed) -> list[str]:
     return sorted({row.transfer_id for row in parsed.rows if row.transfer_id})
 
 
-def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
+def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, bill_copies: dict | None = None):
     """Create the batch and one row per PLANNED transfer, carrying the plan's decision.
 
     ⚠️ AN EXACT REPEAT IS NOT STAGED (ADR-0031). `plan_statement` leaves it out of `plan.rows` and
@@ -874,6 +938,8 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",
+            # Code review S1, S2: the bill copies outside this import's own lines, kept so Resume can finish them.
+            "cashbook_bill_work": bill_copies if bill_copies and any(bill_copies.values()) else None,
         }
     )
     batch.insert(ignore_permissions=True)

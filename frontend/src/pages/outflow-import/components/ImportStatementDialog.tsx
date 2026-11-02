@@ -49,7 +49,6 @@ import {
     CashbookConfirmResult,
     CashbookPreviewResult,
     CashbookStatus,
-    billsNotCopiedHeading,
     canConfirm,
     confirmLabel,
     createLabel,
@@ -95,6 +94,7 @@ import {
 } from "../porterPrecheck";
 import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
+import { CashbookBillsNotCopied } from "./CashbookBillsNotCopied";
 import { CashbookResumeButton } from "./CashbookResume";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterConfirmPanel } from "./PorterConfirmPanel";
@@ -1930,7 +1930,6 @@ const CashbookProgress = ({
     const failed = (status?.failed ?? 0) > 0 || Boolean(status?.stopped);
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
-    const billsHeading = billsNotCopiedHeading(status);
     const lateText = lateBillsDoneText(lateBills, running);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
@@ -1960,20 +1959,7 @@ const CashbookProgress = ({
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
             {lateText && <p className="text-xs text-muted-foreground">{lateText}</p>}
             {/* #1591: each spend whose bills were not copied, with the server's reason. */}
-            {billsHeading && (
-                <div className="space-y-1 text-xs">
-                    <p className="text-amber-700 dark:text-amber-500">{billsHeading}</p>
-                    <ul className="max-h-40 space-y-0.5 overflow-y-auto">
-                        {(status?.bills_not_copied ?? []).map((line) => (
-                            <li key={line.transfer_id} className="break-words text-muted-foreground">
-                                <span className="font-medium text-foreground">{line.transfer_id}</span>
-                                {/* #1595: an open Collect payment has no Expense yet; its line keeps no stored bill. */}
-                                {line.expense ? ` (${line.expense})` : " (open Collect payment)"}: {line.reason}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
+            <CashbookBillsNotCopied status={status} />
             {!running && (
                 <p className="text-xs text-muted-foreground">
                     Corrections are made in Expenses — open a record and change its project or type.

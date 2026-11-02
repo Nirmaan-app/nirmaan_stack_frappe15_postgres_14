@@ -257,6 +257,42 @@ class TestOtherSkipsStay(ReopenCase):
             self.assertEqual((line.row_status, line.skip_kind), ("Skipped", "Bank refused"), txn)
 
 
+class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
+    """Code review S6: the plan says a line re-opens an earlier own-balances skip, but by the time confirm locks that
+    earlier line another import (or a person) has changed it. The line must not vanish -- neither re-opened nor
+    staged -- but take what the plan gives it without the re-open."""
+
+    def test_the_line_is_handled_as_if_there_were_nothing_to_reopen(self):
+        stale = cb.wrong_skips([row.transfer_id for row in self.parsed.rows])
+        taken = self._only_line(COLLECT_NO_LINK)
+        self.assertIn(taken.name, {skip.line for skip in stale})
+        # Another import re-opened it after this confirm read the wrong skips.
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            taken.name,
+            {"row_status": "Mismatched", "skip_reason": None, "skip_kind": None, "skip_origin": None},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        txn = COLLECT_NO_LINK + self.suffix
+        expected = cb._build_plan(self.parsed)  # what the plan gives now: nothing left to re-open for it
+        self.assertNotIn(txn, {row.transfer_id for row in expected.reopening})
+        expected_staged = txn in {row.transfer_id for row in expected.rows if not row.reopens}
+
+        with patch.object(cb, "wrong_skips", return_value=stale):
+            new = self._upload()["batch"]
+
+        self.assertEqual(
+            frappe.db.count(ROW_DOCTYPE, {"import_batch": new, "transfer_id": txn}), 1 if expected_staged else 0
+        )
+        self.assertEqual(
+            frappe.db.get_value("Outflow Import Batch", new, "repeats_not_saved"), expected.split.repeats_not_saved
+        )
+        # The other wrong skips are still re-opened.
+        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Mismatched")
+        self.assertEqual(self._only_line(WALLET_CREDIT).import_batch, self.old)
+
+
 class TestReviewListsTheLinesToBeReopened(ReopenCase):
     def test_review_lists_each_line_with_the_import_that_holds_it(self):
         preview = self._preview()

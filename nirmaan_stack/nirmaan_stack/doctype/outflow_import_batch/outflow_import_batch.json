@@ -30,7 +30,8 @@
   "uploaded_at",
   "closed_at",
   "closed_by",
-  "close_reason"
+  "close_reason",
+  "cashbook_bill_work"
  ],
  "fields": [
   {
@@ -197,12 +198,19 @@
    "fieldtype": "Small Text",
    "label": "Close Reason",
    "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: the bill copies this import's job makes outside its own lines (#1593, #1596), kept so Resume can finish them: {\"late_bills\": [{transfer_id, doctype, expense, links, done, problem}], \"reopened\": [earlier lines]}. Written at confirm; each late bill is marked done (with its problem, if any) by the job. A dict, never a bare list.",
+   "fieldname": "cashbook_bill_work",
+   "fieldtype": "JSON",
+   "label": "Cashbook Bill Work",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-10-25 15:25:41.175091",
+ "modified": "2026-11-02 14:25:48.711724",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Batch",

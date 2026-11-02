@@ -22,13 +22,16 @@ from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
+from nirmaan_stack.services.outflow_import.bill_download import BillRefused
 
 LINKED = "OBO1700000000001AAAAAA"  # Upload 1 already carries its bill (1.jpeg)
 LATE = "OBO1700000000002BBBBBB"  # no bill in upload 1; upload 2 brings 1.jpeg
 OTHER = "OBO1700000000003CCCCCC"  # no bill in either upload
 
 
-class TestLateBills(FrappeTestCase):
+class LateBillsCase(FrappeTestCase):
+    """Two uploads of the sample: helpers only, so another module can build on it without re-running these tests."""
+
     def setUp(self):
         super().setUp()
         lines = FIXTURE.read_text().splitlines()
@@ -118,6 +121,9 @@ class TestLateBills(FrappeTestCase):
         """Upload 2: the whole statement, overlapping upload 1, the late spend now with its bill."""
         return self._file([self.data[0], self.late_line, *self.data[2:]])
 
+
+
+class TestLateBills(LateBillsCase):
     def test_a_late_bill_reaches_the_waiting_expense_which_leaves_the_cashbook_tab(self):
         waiting = self._first_upload()
         self._upload(self._second_file())
@@ -202,3 +208,21 @@ class TestLateBills(FrappeTestCase):
         preview = self._post(cb.preview_cashbook_statement, self._second_file())
 
         self.assertEqual(preview["late_bills"], [])
+
+
+class TestALateBillThatFailsIsNamedInTheSummary(LateBillsCase):
+    """Story 19: a bill that still fails is "named with its reason in the import summary", a late one too (code
+    review S2). The Expense keeps waiting in the Cashbook tab."""
+
+    def test_the_import_summary_names_the_late_bill_and_its_reason(self):
+        waiting = self._first_upload()
+        fetch = _fake_bills({(LATE, "1.jpeg"): BillRefused("the storage refused it (HTTP 403)")})
+
+        second = self._upload(self._second_file(), fetch)["batch"]
+
+        self.assertFalse(self._expense(LATE).invoice_attachment)
+        self.assertIn(
+            {"transfer_id": LATE, "expense": waiting.name, "reason": "Bill not copied: the storage refused it (HTTP 403)."},
+            cb.get_cashbook_status(second)["bills_not_copied"],
+        )
+        self.assertFalse(cb.get_cashbook_status(second)["stopped"])

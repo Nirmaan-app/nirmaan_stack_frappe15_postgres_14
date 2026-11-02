@@ -18,8 +18,16 @@ lock held), merges 2 or more into one PDF and saves one private File, which comm
 (the Expense, or the line), re-checks it still waits, and only then attaches the File; when it no longer waits,
 a person decided meanwhile, their choice stands and the copied File is deleted.
 
-⚠️ A BILL THAT CANNOT BE COPIED NEVER FAILS ITS LINE. The reason is written on the line's `bill_problem`, which
-the import summary (`cashbook.get_cashbook_status` -> `bills_not_copied`) lists.
+⚠️ A BILL THAT CANNOT BE COPIED NEVER FAILS ITS LINE. The reason is written on the line's `bill_problem` (a late
+bill's, which has no line, on the batch's `cashbook_bill_work`), which the import summary
+(`cashbook.get_cashbook_status` -> `bills_not_copied`) lists.
+
+⚠️ RESUME FINISHES WHAT A STOPPED JOB LEFT (spec #1585 "Pressing Resume is always safe", code review S1, S2). The
+work outside the job's own lines is durable: an open Collect payment still waiting for its bill is found again from
+its line (`waiting_collect_lines`), and the late bills and the earlier lines this import re-opened are kept on the
+batch (`Outflow Import Batch.cashbook_bill_work`, written at confirm), each late bill marked done as it is copied.
+`bills_waiting` counts what is left; `cashbook.get_cashbook_status` says the batch stopped while any is, and
+`resume_cashbook_import` re-queues the job, which copies only what is still waiting.
 """
 
 from __future__ import annotations
@@ -27,6 +35,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import frappe
+
+BATCH_DOCTYPE = "Outflow Import Batch"
 
 from nirmaan_stack.api.outflow_import.cashbook_lines import ROW_DOCTYPE, lock_line_if
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
@@ -87,30 +97,39 @@ def copy_created_line_bills(row_name: str) -> None:
 # --- an open Collect payment (#1595) ----------------------------------------------------------------------
 
 
-def store_collect_bills(batch: str, also=()) -> None:
-    """Copy each open Collect payment's bills of `batch`, and of the lines named in `also` (earlier lines this import
-    re-opened, #1596), onto its line as `stored_bill`. Never raises, never fails a line.
+def store_collect_bills(batch: str) -> None:
+    """Copy the bills of each open Collect payment of `batch`, and of the earlier lines this import re-opened (#1596),
+    onto its line as `stored_bill`. Never raises, never fails a line.
 
     A line whose copy fails stays open with no stored bill, and the reason is written on its `bill_problem`.
     """
-    waiting = {
-        "row_kind": COLLECT_ROW_KIND,
-        "row_status": ROW_MISMATCHED,
-        "stored_bill": ["is", "not set"],
-        "bill_problem": ["is", "not set"],
-    }
-    scopes = [{"import_batch": batch}] + ([{"name": ["in", list(also)]}] if also else [])
-    for scope in scopes:
-        for line in frappe.get_all(
-            ROW_DOCTYPE, filters={**waiting, **scope}, fields=["name", "transfer_id", "bill_links"], order_by="name asc"
-        ):
-            _copy_onto(
-                line.name,
-                line.transfer_id,
-                links_of(line),
-                attach=lambda saved, name=line.name: _set_stored_bill(name, saved),
-                failure=("Cashbook import: could not copy a Collect payment's bill", line.name),
-            )
+    for line in waiting_collect_lines(batch):
+        _copy_onto(
+            line.name,
+            line.transfer_id,
+            links_of(line),
+            attach=lambda saved, name=line.name: _set_stored_bill(name, saved),
+            failure=("Cashbook import: could not copy a Collect payment's bill", line.name),
+        )
+
+
+def waiting_collect_lines(batch: str) -> list:
+    """The open Collect payments of `batch`, and the earlier lines it re-opened, whose bills are still to be copied:
+    bill links, no stored bill and no `bill_problem`. THE ONE DEFINITION the job copies from and Resume counts."""
+    reopened = tuple(bill_work(batch).get("reopened") or ())
+    # ⚠️ `IN %(reopened)s` only when there are some: an empty tuple renders `IN ()`, a syntax error in Postgres.
+    also = "OR name IN %(reopened)s" if reopened else ""
+    return frappe.db.sql(
+        f"""
+        SELECT name, transfer_id, bill_links FROM "tabOutflow Import Row"
+        WHERE (import_batch = %(batch)s {also})
+          AND row_kind = %(kind)s AND row_status = %(open)s AND bill_links IS NOT NULL
+          AND COALESCE(stored_bill, '') = '' AND COALESCE(bill_problem, '') = ''
+        ORDER BY name
+        """,
+        {"batch": batch, "reopened": reopened, "kind": COLLECT_ROW_KIND, "open": ROW_MISMATCHED},
+        as_dict=True,
+    )
 
 
 def _set_stored_bill(row_name: str, saved) -> bool:
@@ -136,29 +155,60 @@ def _set_stored_bill(row_name: str, saved) -> bool:
 # --- a late bill (#1593) ----------------------------------------------------------------------------------
 
 
-def attach_late_bills(batch: str, bills) -> None:
-    """A late attach uses the same steps 2 and 3 as a created line (#1593, spec #1585 "A late attach uses the same
-    step 3"): `_store_and_attach` downloads outside any transaction, then locks the Expense and re-checks
-    `invoice_attachment` and `no_invoice_by` before attaching. An Expense a person gave an invoice or a No invoice
-    mark since confirm is left as they left it.
+def attach_late_bills(batch: str) -> None:
+    """Attach each late bill of `batch` not yet done (#1593, spec #1585 "A late attach uses the same step 3"):
+    `_store_and_attach` downloads outside any transaction, then locks the Expense and re-checks `invoice_attachment`
+    and `no_invoice_by` before attaching. An Expense a person gave an invoice or a No invoice mark since confirm is
+    left as they left it.
 
-    ⚠️ NO LINE CARRIES THE PROBLEM. A repeat line is not saved, so a bill that cannot be copied is written to the
-    Error Log instead, and the Expense keeps waiting in Pending Invoices Upload -> Cashbook; the next statement that
-    carries the line tries again. The list itself lives only in the queued job's arguments: a job that dies
-    part-way loses the rest, and the same re-upload brings them back.
+    The bills are the batch's `cashbook_bill_work["late_bills"]`, written at confirm. Each is marked `done` once
+    tried, with its `problem` when it was not copied: a repeat line is not saved, so the batch carries what a line
+    would (`late_bills_not_copied`). A job that dies part-way leaves the rest undone, and Resume does them.
     """
-    for bill in bills:
+    work = bill_work(batch)
+    for bill in work.get("late_bills") or []:
+        if bill.get("done"):
+            continue
         try:
             problem = _store_and_attach(bill["doctype"], bill["expense"], bill["transfer_id"], bill["links"])
         except Exception:
             frappe.db.rollback()
-            problem = f"{not_copied(len(bill['links']), BILLS_NOT_STORED)}\n\n{frappe.get_traceback()}"
-        if problem:
             frappe.log_error(
                 title="Cashbook import: a late bill was not copied",
-                message=f"{batch} / {bill['transfer_id']} / {bill['doctype']} {bill['expense']}\n\n{problem}",
+                message=f"{batch} / {bill['transfer_id']} / {bill['doctype']} {bill['expense']}\n\n{frappe.get_traceback()}",
             )
-            frappe.db.commit()
+            problem = not_copied(len(bill["links"]), BILLS_NOT_STORED)
+        bill.update({"done": True, "problem": problem})
+        _save_bill_work(batch, work)
+
+
+def bill_work(batch: str) -> dict:
+    """The batch's `cashbook_bill_work`: `{"late_bills": [...], "reopened": [...]}`, or `{}` (a batch from before it,
+    or one with no such work)."""
+    stored = frappe.db.get_value(BATCH_DOCTYPE, batch, "cashbook_bill_work")
+    return (frappe.parse_json(stored) if stored else None) or {}
+
+
+def _save_bill_work(batch: str, work: dict) -> None:
+    """Raw (`set_value`): `Outflow Import Batch` has no doc_events, only the batch's one job writes this field after
+    confirm, and nothing is derived from it."""
+    frappe.db.set_value(BATCH_DOCTYPE, batch, "cashbook_bill_work", frappe.as_json(work), update_modified=False)
+    frappe.db.commit()
+
+
+def bills_waiting(batch: str) -> int:
+    """How many bill copies of `batch` the job has still to make: its open Collect payments' and its late bills."""
+    late = [bill for bill in bill_work(batch).get("late_bills") or [] if not bill.get("done")]
+    return len(late) + len(waiting_collect_lines(batch))
+
+
+def late_bills_not_copied(batch: str) -> list[dict]:
+    """The late bills of `batch` that could not be copied, as the import summary lists a line's (`bills_not_copied`)."""
+    return [
+        {"transfer_id": bill["transfer_id"], "expense": bill["expense"], "reason": bill["problem"]}
+        for bill in bill_work(batch).get("late_bills") or []
+        if bill.get("problem")
+    ]
 
 
 def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[str]) -> str | None:

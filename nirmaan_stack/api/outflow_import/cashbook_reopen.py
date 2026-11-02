@@ -10,8 +10,11 @@ database halves:
   * **what the plan is handed** (`wrong_skips`): every earlier Cashbook line carrying one of the statement's Txn Ids
     and skipped with the own-balances reason (`cashbook.SKIP_NOT_A_SPEND`). No other skip reason is read, so no
     other skip can come back;
+  * **the claim** (`claim_reopens`, called by `cashbook._plan_claiming_reopens` before confirm saves anything):
+    each earlier line the plan re-opens is locked and re-checked; one another import or a person changed meanwhile
+    is handed back, and confirm plans again without it, so its line follows the ordinary rule (code review S6);
   * **the write** (`reopen_lines`, called by `cashbook._stage` inside confirm's transaction): each planned line that
-    re-opens one is written onto THAT earlier line, under its row lock, with the same values a new line of the plan
+    re-opens one is written onto THAT earlier line, still under the claim's row lock, with the same values a new line of the plan
     gets (`cashbook_lines.line_values`). The line stays in its own import, whose rollup is refreshed. Nothing is staged
     anew, so no second line for the same Txn Id is left.
 
@@ -74,15 +77,21 @@ def reopen_lines(plan: CashbookPlan, kept_rows, batch: str, actor: str) -> list[
     """Write each re-opening line of `plan` onto the earlier line it re-opens. Returns the lines re-opened.
 
     `kept_rows` are the parsed lines behind `plan.rows`, in the same order. Runs in confirm's transaction and does
-    not commit. An earlier line that is no longer an own-balances skip when locked (another import re-opened it
-    meanwhile) is left as it is.
+    not commit. Every earlier line was claimed by `claim_reopens` in this transaction, so it is still an own-balances
+    skip; one that is not means the claim was skipped, and the confirm is refused rather than the line dropped.
     """
     reopened: list[str] = []
     batches: set[str] = set()
     for raw, planned in zip(kept_rows, plan.rows, strict=True):
         earlier = planned.reopens
-        if not earlier or not _still_wrongly_skipped(earlier.line):
+        if not earlier:
             continue
+        if not _still_wrongly_skipped(earlier.line):
+            frappe.throw(
+                f"The line {earlier.line} of {earlier.batch} changed while this statement was being confirmed. "
+                "Confirm it again.",
+                title="Lines changed",
+            )
         doc = frappe.get_doc(ROW_DOCTYPE, earlier.line)
         doc.update({**_CLEARED, **line_values(raw, planned)})
         # ⚠️ `ignore_version=False` IS EXPLICIT, for the reason `review.skip_row` gives: the Version is the record.
@@ -93,6 +102,17 @@ def reopen_lines(plan: CashbookPlan, kept_rows, batch: str, actor: str) -> list[
     for earlier_batch in sorted(batches):
         refresh_batch_rollup(earlier_batch)
     return reopened
+
+
+def claim_reopens(plan: CashbookPlan) -> set[str]:
+    """Lock every earlier line `plan` re-opens and return those that are no longer own-balances skips. The locks are
+    held to confirm's commit, so `reopen_lines` writes exactly what was claimed. A serialization failure (the line
+    changed after this transaction's snapshot) propagates; the caller rolls back and plans again."""
+    return {
+        planned.reopens.line
+        for planned in plan.rows
+        if planned.reopens and not _still_wrongly_skipped(planned.reopens.line)
+    }
 
 
 def reopen_comment(batch: str, actor: str, planned) -> str:

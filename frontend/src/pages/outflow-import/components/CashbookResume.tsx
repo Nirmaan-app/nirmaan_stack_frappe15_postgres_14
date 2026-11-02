@@ -18,6 +18,7 @@ import {
     stoppedText,
 } from "../cashbookPreview";
 import { describeFrappeError } from "../outflowTableModel";
+import { CashbookBillsNotCopied } from "./CashbookBillsNotCopied";
 
 /** How often a batch's status is re-read while its job is queued or running. */
 const POLL_MS = 2000;
@@ -63,9 +64,10 @@ export const CashbookResumeButton = ({
 
 /**
  * The pinned Cashbook import's job, on the transactions screen: "Stopped: N lines still waiting" with
- * Resume when its job stopped part-way, its progress while the job is queued or running, and nothing once
- * no line waits. Read from the server by batch and polled while the job runs, so a reload shows exactly
- * where it stands. `onFinished` runs when a job it watched stops, so the screen behind re-reads its rows.
+ * Resume when its job stopped part-way, its progress while the job is queued or running, and, once it is done,
+ * the bills it could not copy with their reasons (story 19, code review S3), or nothing when every bill was copied.
+ * Read from the server by batch and polled while the job runs, so a reload shows exactly where it stands.
+ * `onFinished` runs when a job it watched stops, so the screen behind re-reads its rows.
  */
 export const CashbookJobPanel = ({ batch, onFinished }: { batch: string; onFinished?: () => void }) => {
     const { data, mutate } = useFrappeGetCall<{ message: CashbookStatus }>(
@@ -99,20 +101,30 @@ export const CashbookJobPanel = ({ batch, onFinished }: { batch: string; onFinis
             </div>
         );
     }
-    if (!showsResume(status)) return null;
-    return (
-        <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
-            <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                <div>
-                    <p className="font-medium text-amber-800 dark:text-amber-400">{stoppedText(status)}</p>
-                    <p className="text-xs text-muted-foreground">
-                        This import's job stopped before it created them. Resume creates only the lines still
-                        waiting; it never creates a line twice.
-                    </p>
-                </div>
+    if (!showsResume(status)) {
+        if (!(status.bills_not_copied ?? []).length) return null;
+        return (
+            <div className="rounded-md border bg-muted/30 px-4 py-3">
+                <CashbookBillsNotCopied status={status} />
             </div>
-            <CashbookResumeButton batch={batch} onResumed={onResumed} />
+        );
+    }
+    return (
+        <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <div>
+                        <p className="font-medium text-amber-800 dark:text-amber-400">{stoppedText(status)}</p>
+                        <p className="text-xs text-muted-foreground">
+                            This import's job stopped before it finished. Resume creates only the lines still waiting
+                            and copies only the bills still to copy; it never creates a line twice.
+                        </p>
+                    </div>
+                </div>
+                <CashbookResumeButton batch={batch} onResumed={onResumed} />
+            </div>
+            <CashbookBillsNotCopied status={status} />
         </div>
     );
 };

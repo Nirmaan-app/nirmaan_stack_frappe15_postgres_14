@@ -12,6 +12,7 @@ import {
     CashbookStatus,
     NON_PROJECT_LEDGER,
     PROJECT_LEDGER,
+    billNotCopiedLabel,
     billsNotCopiedHeading,
     canConfirm,
     confirmLabel,
@@ -205,6 +206,16 @@ describe("a job that stopped part-way (#1589)", () => {
         expect(stoppedText(status({ pending: 12, running: true }))).toBeNull();
         expect(stoppedText(status({ created: 14 }))).toBeNull();
     });
+
+    it("counts the bills a stopped job still has to copy (code review S1, S2)", () => {
+        expect(stoppedText(status({ pending: 0, bills_waiting: 2, stopped: true }))).toBe(
+            "Stopped: 2 bills still to copy"
+        );
+        expect(stoppedText(status({ pending: 0, bills_waiting: 1, stopped: true }))).toBe("Stopped: 1 bill still to copy");
+        expect(stoppedText(status({ pending: 3, bills_waiting: 1, stopped: true }))).toBe(
+            "Stopped: 3 lines still waiting, 1 bill still to copy"
+        );
+    });
 });
 
 describe("the progress bar never lies about being finished", () => {
@@ -281,6 +292,15 @@ describe("the invoice counts before Create (#1591)", () => {
     it("says nothing for a server that sends no counts, or nothing to create", () => {
         expect(invoiceCountsText({ creating: 5 })).toBeNull();
         expect(invoiceCountsText({ creating: 0, invoices: { one_file: 0, merged: 0, waiting: 0 } })).toBeNull();
+    });
+});
+
+describe("each bill not copied, as the import summary lists it (#1591, code review S3)", () => {
+    it("names the spend and its Expense, or says the line is an open Collect payment", () => {
+        expect(billNotCopiedLabel({ transfer_id: "OBO1", expense: "PE-1", reason: "x" })).toBe("OBO1 (PE-1)");
+        expect(billNotCopiedLabel({ transfer_id: "OBO2", expense: null, reason: "x" })).toBe(
+            "OBO2 (open Collect payment)"
+        );
     });
 });
 
