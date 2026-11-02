@@ -5,7 +5,7 @@
 "Merging", "Where downloads run").
 
 Seam 1: the Cashbook job run inline on the real-file fixture (`cashbook_statement.xlsx`), with the bill
-downloader (`cashbook._fetch_bill`) replaced by a fake that answers from made-up files. No test touches the
+downloader (`cashbook_bills.fetch_bill`) replaced by a fake that answers from made-up files. No test touches the
 network. The fixture's Txn Ids are given a per-test suffix before staging: the dev DB is a copy of
 production, which already holds the real ones.
 
@@ -23,6 +23,7 @@ from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import _post
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
@@ -125,7 +126,7 @@ class CashbookBillsCase(FrappeTestCase):
 
     def _run(self, fetch=None):
         fetch = fetch or _fake_bills()
-        with patch.object(cb, "_fetch_bill", fetch):
+        with patch.object(bills, "fetch_bill", fetch):
             cb._cashbook_worker(self.batch, "Administrator")
         return fetch
 

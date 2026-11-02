@@ -23,6 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 from openpyxl import load_workbook
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import EARLIEST_EXPIRY
@@ -124,7 +125,7 @@ class ReopenCase(FrappeTestCase):
         self.batches.append(batch)
         frappe.db.sql("""UPDATE "tabOutflow Import Row" SET row_kind = NULL WHERE import_batch = %s""", (batch,))
         frappe.db.commit()
-        with patch.object(cb, "_fetch_bill", _fake_bills()):
+        with patch.object(bills, "fetch_bill", _fake_bills()):
             cb._cashbook_worker(batch, "Administrator")
         return batch
 
@@ -139,7 +140,7 @@ class ReopenCase(FrappeTestCase):
         def run_now(batch, actor, **kwargs):
             cb._cashbook_worker(batch, actor, **kwargs)
 
-        with self._clock(), patch.object(cb, "_fetch_bill", _fake_bills()), patch.object(
+        with self._clock(), patch.object(bills, "fetch_bill", _fake_bills()), patch.object(
             cb, "_enqueue_worker", side_effect=run_now
         ):
             result = _post(cb.confirm_cashbook_import, self.content, "statement.xlsx")

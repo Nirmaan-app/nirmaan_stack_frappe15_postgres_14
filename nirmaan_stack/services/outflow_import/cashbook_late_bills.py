@@ -7,7 +7,7 @@ PURE MODULE -- no `frappe`, no database. Spec #1585 "Dedupe and late bills": an 
 wallet app after the spend was imported. The next export carries the line again, now with links, and the line is
 an exact repeat (identity is unchanged: Txn Id, amount, date), so it is still not saved. Its bills are the one
 thing it brings: when the Expense with that payment reference still waits for an invoice, the job attaches them
-to it (`api.outflow_import.cashbook._attach_late_bills`).
+to it (`api.outflow_import.cashbook_bills.attach_late_bills`).
 
 ⚠️ ONLY A REPEAT OF AN EARLIER IMPORT (`RepeatSplit.earlier_exact`). A repeat within the same file has no
 Expense yet: its first copy is the line that creates it.

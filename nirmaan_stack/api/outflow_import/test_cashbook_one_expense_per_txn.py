@@ -24,10 +24,8 @@ from nirmaan_stack.api.outflow_import.expenses import (
 )
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
 from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
-from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match import (
-    IMPORT_CREATED_EXPENSE_INDEX,
-)
 from nirmaan_stack.patches.v3_0 import outflow_match_one_created_expense_per_transfer as patch_module
+from nirmaan_stack.services.outflow_import.import_created_expense import IMPORT_CREATED_EXPENSE_INDEX
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_ALREADY_IMPORTED

@@ -19,7 +19,7 @@ past imports by source and month.
 - `bit-cashbook-invoices` a Cashbook Review says `N spends: A with 1 file, B with 2–4 files (merged), C will wait for an
   invoice`; after Create each spend's bills are its Expense's invoice (Paid tab `Edit Inv`, or `View invoice` in the
   Expenses list), and the finished job lists any spend whose bills were not copied (#1591). An env cannot reach the
-  bill storage: seed with `DEVENV script`, running `_cashbook_worker` with `cashbook._fetch_bill` patched.
+  bill storage: seed with `DEVENV script`, running `_cashbook_worker` with `cashbook_bills.fetch_bill` patched.
 - `bit-cashbook-collect` a Cashbook Review shows an amber box `N shop-requested payments to check…` listing each
   Collect payment with `Shop-requested payment, check it.`; after Create each one is a `Not Matched – Outflow` line
   with that note, whose Create opens pre-filled (Petty Cash, Non Project Expenses for the fixture lines) and whose

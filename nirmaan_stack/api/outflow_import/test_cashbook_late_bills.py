@@ -6,7 +6,7 @@ bills", "A late attach uses the same step 3"; ADR-0015 Amendment B decision 5).
 
 Seam: two uploads in one test at the Cashbook import endpoints (`preview_cashbook_statement`,
 `confirm_cashbook_import`). Only the transport is faked: the posted file, the queue (the job runs inline, as the
-queue would run it) and the bill downloader (`cashbook._fetch_bill`). The fixture's links are signed for 2099, so no
+queue would run it) and the bill downloader (`cashbook_bills.fetch_bill`). The fixture's links are signed for 2099, so no
 clock is set.
 
 Run: DEVENV test --module nirmaan_stack.api.outflow_import.test_cashbook_late_bills
@@ -19,6 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_queue
 from nirmaan_stack.api.outflow_import import cashbook as cb
+from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
 
@@ -78,7 +79,7 @@ class TestLateBills(FrappeTestCase):
         def run_now(batch, actor, **kwargs):
             cb._cashbook_worker(batch, actor, **kwargs)
 
-        with patch.object(cb, "_fetch_bill", fetch), patch.object(cb, "_enqueue_worker", side_effect=run_now):
+        with patch.object(bills, "fetch_bill", fetch), patch.object(cb, "_enqueue_worker", side_effect=run_now):
             result = self._post(cb.confirm_cashbook_import, content)
         self.batches.append(result["batch"])
         return result

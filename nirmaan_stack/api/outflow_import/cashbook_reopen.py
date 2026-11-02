@@ -12,7 +12,7 @@ database halves:
     other skip can come back;
   * **the write** (`reopen_lines`, called by `cashbook._stage` inside confirm's transaction): each planned line that
     re-opens one is written onto THAT earlier line, under its row lock, with the same values a new line of the plan
-    gets (`cashbook.line_values`). The line stays in its own import, whose rollup is refreshed. Nothing is staged
+    gets (`cashbook_lines.line_values`). The line stays in its own import, whose rollup is refreshed. Nothing is staged
     anew, so no second line for the same Txn Id is left.
 
 ⚠️ RECORDED AS AN UNSKIP IS (`review._unskip_cashbook_line`): one save through the document layer, so the
@@ -21,21 +21,20 @@ re-opened it. The decision fields an unskip clears are cleared too.
 
 ⚠️ IT NEVER CREATES AN EXPENSE. A re-opened line is open (`Mismatched`, which the job never takes) or one line of a
 *Paired wallet refund* (Skipped); `Pending match run` is never written. A person decides an open line on the main
-table. A re-opened Collect payment's bill is copied by the job like a new one's (`cashbook_collect.store_collect_bills`).
+table. A re-opened Collect payment's bill is copied by the job like a new one's (`cashbook_bills.store_collect_bills`).
 """
 
 from __future__ import annotations
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.cashbook_lines import ROW_DOCTYPE, line_values, lock_line_if
 from nirmaan_stack.services.outflow_import.cashbook import SKIP_NOT_A_SPEND, CashbookPlan
 from nirmaan_stack.services.outflow_import.cashbook_reopen import EarlierWrongSkip
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
-
-ROW_DOCTYPE = "Outflow Import Row"
 
 # The decision fields a re-open clears, as an unskip does (`review._unskip_cashbook_line`).
 _CLEARED = {"decided_at": None, "decided_by": None, "settlement_origin": None, "duplicate_basis": None}
@@ -78,8 +77,6 @@ def reopen_lines(plan: CashbookPlan, kept_rows, batch: str, actor: str) -> list[
     not commit. An earlier line that is no longer an own-balances skip when locked (another import re-opened it
     meanwhile) is left as it is.
     """
-    from nirmaan_stack.api.outflow_import.cashbook import line_values
-
     reopened: list[str] = []
     batches: set[str] = set()
     for raw, planned in zip(kept_rows, plan.rows, strict=True):
@@ -109,9 +106,11 @@ def reopen_comment(batch: str, actor: str, planned) -> str:
 
 def _still_wrongly_skipped(line: str) -> bool:
     """Lock the earlier line and check it is still an own-balances skip."""
-    rows = frappe.db.sql(
-        """SELECT row_status, skip_reason FROM "tabOutflow Import Row" WHERE name = %s FOR UPDATE""",
-        (line,),
-        as_dict=True,
+    return (
+        lock_line_if(
+            line,
+            lambda row: row.row_status == ROW_SKIPPED and row.skip_reason == SKIP_NOT_A_SPEND,
+            columns="row_status, skip_reason",
+        )
+        is not None
     )
-    return bool(rows) and rows[0].row_status == ROW_SKIPPED and rows[0].skip_reason == SKIP_NOT_A_SPEND

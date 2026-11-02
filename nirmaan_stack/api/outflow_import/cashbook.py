@@ -58,29 +58,26 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _statement_file_url,
     already_imported_sentence,
 )
-from nirmaan_stack.api.outflow_import.cashbook_reopen import wrong_skips
+from nirmaan_stack.api.outflow_import.cashbook_bills import (
+    attach_late_bills,
+    copy_created_line_bills,
+    store_collect_bills,
+)
+from nirmaan_stack.api.outflow_import.cashbook_lines import MATCH_BASIS, line_values, lock_line_if
+from nirmaan_stack.api.outflow_import.cashbook_reopen import reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
-from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match import (
-    is_import_created_expense_refusal,
-)
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
-from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.bill_links import expired_links_refusal
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
     load_project_aliases,
     prior_import_sightings,
 )
-from nirmaan_stack.services.outflow_import.cashbook import (
-    ACTION_CREATE,
-    ACTION_OPEN,
-    CashbookPlan,
-    plan_statement,
-)
+from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
 from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
-from nirmaan_stack.services.outflow_import.cashbook_review import group_plan, invoice_counts
+from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
     DuplicateVerdict,
@@ -89,10 +86,8 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     index_prior_sightings,
 )
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
-from nirmaan_stack.services.outflow_import.ledgers import (
-    EXPENSE_DOCTYPES,
-    PROJECT_EXPENSE_DOCTYPE,
-)
+from nirmaan_stack.services.outflow_import.import_created_expense import is_import_created_expense_refusal
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     StatementFormatError,
@@ -101,9 +96,6 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
-from nirmaan_stack.services.outflow_import.settlement_reference import (
-    resolve_settlement_reference,
-)
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_MISMATCHED,
@@ -114,17 +106,10 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_ALREADY_IMPORTED
-from nirmaan_stack.services.reimbursements.receipts import merge_to_pdf
-from nirmaan_stack.services.stored_files import delete_files
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 SOURCE = "Cashbook"
-
-# The tier this source matches on, in `Outflow Row Match.match_basis`'s own vocabulary. NOT
-# "Manual" -- no person chose these -- and not "project in remark", which belongs to the settlement
-# matcher's tier 2 and would make a created expense look like a settled one in every report.
-MATCH_BASIS = "cashbook remark"
 
 _WORKER = "nirmaan_stack.api.outflow_import.cashbook._cashbook_worker"
 
@@ -150,7 +135,9 @@ def preview_cashbook_statement():
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
-    return _preview_payload(parsed, plan, filename, _assess(parsed, plan, filename, late), late)
+    return preview_payload(
+        parsed, plan, filename, _assess(parsed, plan, filename, late), [_late_bill_preview(bill) for bill in late]
+    )
 
 
 @frappe.whitelist(methods=["POST"])
@@ -335,7 +322,7 @@ def _cashbook_worker(
 
     ⚠️ A CREATED LINE'S BILLS ARE COPIED AFTER ITS COMMIT, NEVER INSIDE IT (#1591). `save_file` commits
     mid-save, so the download and the save run between the line's transaction and a short second one that
-    attaches the invoice (`_copy_bills`). A bill that cannot be copied never fails the line.
+    attaches the invoice (`cashbook_bills.copy_created_line_bills`). A bill that cannot be copied never fails the line.
 
     ⚠️ THE LIST BELOW IS A SNAPSHOT, NOT A CLAIM (#1586, spec #1585 gap A). Another run, a Resume or a
     person may take a listed line before this run reaches it, so `_write_one` re-reads each line under
@@ -344,10 +331,10 @@ def _cashbook_worker(
     ends its own), so it counts what they really say.
 
     `late_bills` (#1593): the repeat lines' bills for existing Expenses, as confirm planned them
-    (`_late_bill_job`). Attached after the lines, by `_attach_late_bills`.
+    (`_late_bill_job`). Attached after the lines, by `cashbook_bills.attach_late_bills`.
 
     `reopened` (#1596): the earlier Collect payment lines confirm re-opened, whose bills are copied with this
-    import's own (`store_collect_bills`).
+    import's own (`cashbook_bills.store_collect_bills`).
     """
     statement_file_url = _statement_file_url(batch)
     rows = frappe.db.sql(
@@ -369,17 +356,14 @@ def _cashbook_worker(
             continue
         if written:
             frappe.db.commit()
-            _copy_bills(row_name)
+            copy_created_line_bills(row_name)
         else:
             # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
             frappe.db.rollback()
 
-    _attach_late_bills(batch, late_bills or ())
+    attach_late_bills(batch, late_bills or ())
 
     # #1595: each open Collect payment's bills are copied onto its line now, while the links still work.
-    # A function-local import: `cashbook_collect` calls back into this module's downloader path.
-    from nirmaan_stack.api.outflow_import.cashbook_collect import store_collect_bills
-
     store_collect_bills(batch, also=reopened or ())
 
     refresh_batch_rollup(batch)
@@ -474,18 +458,11 @@ def _lock_pending_line(row_name: str):
     status check then refuses.
     """
     try:
-        rows = frappe.db.sql(
-            """SELECT * FROM "tabOutflow Import Row" WHERE name = %s FOR UPDATE""",
-            (row_name,),
-            as_dict=True,
-        )
+        return lock_line_if(row_name, lambda line: line.row_status == ROW_PENDING_MATCH)
     except Exception as exc:
         if not is_concurrent_writer_refusal(exc):
             raise
         return None
-    if not rows or rows[0].row_status != ROW_PENDING_MATCH:
-        return None
-    return rows[0]
 
 
 def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | None) -> bool:
@@ -564,184 +541,24 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     return True
 
 
-# --- the bills: steps 2 and 3 of a created line (#1591) -----------------------------------------------
-
-_BILLS_NOT_STORED = "the bills could not be stored"
-_BILLS_NOT_MERGED = "the bills could not be merged into one PDF"
-
-
-def _fetch_bill(url: str) -> BillFile | BillRefused:
-    """THE SEAM tests replace: one bill link through the guard (`bill_download.download_bill`).
-
-    ⚠️ NO NETWORK UNDER TESTS. A test that runs the job without replacing this gets a refusal, never a
-    request: every Cashbook fixture carries real-looking links to the production bucket.
-    """
-    if frappe.flags.in_test:
-        return BillRefused("bill downloads are off under tests")
-    return download_bill(url)
-
-
-def _copy_bills(row_name: str) -> None:
-    """Copy a just-created line's bills onto its Expense as the invoice. Never raises, never fails the line.
-
-    Spec #1585 "Where downloads run", steps 2 and 3. Step 2 downloads every bill (no lock held, no
-    transaction of ours open), merges 2 or more into one PDF, and saves one private File, which commits.
-    Step 3 (`_attach_invoice`) locks the Expense and attaches the File only while it still has no invoice
-    and no No invoice mark. Anything that stops the copy is written on the line as `bill_problem`, which
-    the import summary (`get_cashbook_status`) lists; the Expense simply has no invoice yet.
-    """
-    line = frappe.db.get_value(
-        ROW_DOCTYPE,
-        row_name,
-        ["transfer_id", "suggested_doctype", "suggested_name", "bill_links"],
-        as_dict=True,
-    )
-    links = _links_of(line)
-    if not links:
-        return
-    try:
-        problem = _store_and_attach(line.suggested_doctype, line.suggested_name, line.transfer_id, links)
-    except Exception:
-        frappe.db.rollback()
-        frappe.log_error(
-            title="Cashbook import: could not copy a bill",
-            message=f"{row_name} / {line.suggested_name}\n\n{frappe.get_traceback()}",
-        )
-        problem = _not_copied(len(links), _BILLS_NOT_STORED)
-    if problem:
-        # Raw: `Outflow Import Row` has no doc_events. The line is Settled by now and only this job writes
-        # the field.
-        frappe.db.sql(
-            """UPDATE "tabOutflow Import Row" SET bill_problem = %s WHERE name = %s""", (problem, row_name)
-        )
-    frappe.db.commit()
-
-
-def _links_of(line) -> list[str]:
-    """A staged line's bill links, in the statement's order (`Outflow Import Row.bill_links`, #1590)."""
-    return (frappe.parse_json(line.bill_links) or {}).get("links") or [] if line.bill_links else []
-
-
-def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[str]) -> str | None:
-    """Steps 2 and 3 for one Expense. Returns the line's `bill_problem` sentence, or `None` when nothing
-    went wrong (the bills were attached, or a person had already set the invoice or No invoice)."""
-    saved, problem = download_and_save_bills(transfer_id, links)
-    if saved is None:
-        return problem
-    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved))
-    return None
-
-
-def download_and_save_bills(transfer_id: str, links: list[str]):
-    """Step 2: download every bill (no lock held), merge 2 or more into one PDF, and save ONE private File,
-    unattached, which commits. Returns `(saved File, None)`, or `(None, the bill_problem sentence)`.
-
-    The one downloader path: the job's created lines (`_store_and_attach`) and an open Collect payment's bill
-    (`cashbook_collect`, #1595) both come through here."""
-    bills = []
-    for number, link in enumerate(links, start=1):
-        got = _fetch_bill(link)
-        if isinstance(got, BillRefused):
-            which = f"Bill {number} of {len(links)}" if len(links) > 1 else "Bill"
-            return None, f"{which} not copied: {got.reason}."
-        bills.append(got)
-
-    if len(bills) == 1:
-        content, fname = bills[0].content, f"{transfer_id}.{bills[0].kind}"
-    else:
-        try:
-            content = merge_to_pdf([(f"bill {n}", bill.content) for n, bill in enumerate(bills, start=1)])
-        except ValueError:
-            return None, _not_copied(len(bills), _BILLS_NOT_MERGED)
-        fname = f"{transfer_id}-bills.pdf"
-
-    from frappe.utils.file_manager import save_file
-
-    # Saved unattached: it is attached in step 3, under the target's lock. The URL is read off the returned
-    # doc because the cloud attachment hook rewrites it during insert.
-    saved = save_file(fname=fname, content=content, dt=None, dn=None, is_private=1)
-    frappe.db.commit()
-    return saved, None
-
-
-def store_or_discard(saved, attach) -> None:
-    """Step 3's frame: `attach()` locks its target, re-checks it and attaches `saved`, returning whether it did.
-    When it did not (a person decided meanwhile) or it raised, the copied File is deleted; a raise propagates."""
-    try:
-        attached = attach()
-    except Exception:
-        frappe.db.rollback()
-        delete_files({"name": saved.name})
-        frappe.db.commit()
-        raise
-    if not attached:
-        # A person decided meanwhile: their choice stands, our copy goes.
-        frappe.db.rollback()
-        delete_files({"name": saved.name})
-        frappe.db.commit()
+def _late_bill_preview(bill: LateBill) -> dict:
+    """One late bill as Review lists it (#1593): the repeat line, and the existing Expense it gives a bill."""
+    doctype, expense = _booked_record(bill.record)
+    return {
+        "row_number": bill.row_number,
+        "transfer_id": bill.transfer_id,
+        "amount": float(bill.amount),
+        "remarks": bill.remarks,
+        "expense_doctype": doctype,
+        "expense": expense,
+        "bills": len(bill.links),
+    }
 
 
 def _late_bill_job(bill: LateBill) -> dict:
     """What the job needs of one late bill: plain values, because the queue stores its arguments."""
     doctype, expense = _booked_record(bill.record)
     return {"transfer_id": bill.transfer_id, "doctype": doctype, "expense": expense, "links": list(bill.links)}
-
-
-def _attach_late_bills(batch: str, bills) -> None:
-    """A late attach uses the same steps 2 and 3 as a created line (#1593, spec #1585 "A late attach uses the same
-    step 3"): `_store_and_attach` downloads outside any transaction, then locks the Expense and re-checks
-    `invoice_attachment` and `no_invoice_by` before attaching. An Expense a person gave an invoice or a No invoice
-    mark since confirm is left as they left it.
-
-    ⚠️ NO LINE CARRIES THE PROBLEM. A repeat line is not saved, so a bill that cannot be copied is written to the
-    Error Log instead, and the Expense keeps waiting in Pending Invoices Upload -> Cashbook; the next statement that
-    carries the line tries again. The list itself lives only in the queued job's arguments: a job that dies
-    part-way loses the rest, and the same re-upload brings them back.
-    """
-    for bill in bills:
-        try:
-            problem = _store_and_attach(bill["doctype"], bill["expense"], bill["transfer_id"], bill["links"])
-        except Exception:
-            frappe.db.rollback()
-            problem = f"{_not_copied(len(bill['links']), _BILLS_NOT_STORED)}\n\n{frappe.get_traceback()}"
-        if problem:
-            frappe.log_error(
-                title="Cashbook import: a late bill was not copied",
-                message=f"{batch} / {bill['transfer_id']} / {bill['doctype']} {bill['expense']}\n\n{problem}",
-            )
-            frappe.db.commit()
-
-
-def _not_copied(count: int, clause: str) -> str:
-    """The `bill_problem` sentence for a failure of the whole copy, not of one link."""
-    return f"{'Bills' if count > 1 else 'Bill'} not copied: {clause}."
-
-
-def _attach_invoice(doctype: str, expense: str, saved) -> bool:
-    """Step 3: lock the Expense, re-check it still waits for an invoice, and only then attach `saved` as
-    its `invoice_attachment`. Returns whether it attached; the caller commits or discards. The Credit Card
-    queue's attach (`api/expenses/card_invoices.attach_card_invoice`) is the model: `FOR UPDATE`, then a
-    save through the document layer, so `doc_events` run and `track_changes` keeps a Version."""
-    doc = frappe.get_doc(doctype, expense, for_update=True)
-    if doc.invoice_attachment or _marked_no_invoice(doc):
-        return False
-    # The File first, so Frappe's attach-on-save hook finds it and mints no second one.
-    frappe.db.set_value(
-        "File",
-        saved.name,
-        {"attached_to_doctype": doctype, "attached_to_name": expense, "attached_to_field": "invoice_attachment"},
-        update_modified=False,
-    )
-    doc.invoice_attachment = saved.file_url
-    doc.save(ignore_permissions=True)
-    frappe.db.commit()
-    return True
-
-
-def _marked_no_invoice(doc) -> bool:
-    """Whether a person marked this Expense No invoice. Read only where the doctype has the field: `Non
-    Project Expenses` has it; `Project Expenses` gains it in #1592."""
-    return bool(frappe.get_meta(doc.doctype).has_field("no_invoice_by") and doc.get("no_invoice_by"))
 
 
 # --- shared between the three phases -------------------------------------------------------------
@@ -899,7 +716,7 @@ def _late_bills(parsed, plan: CashbookPlan) -> tuple[LateBill, ...]:
 
     Every Expense carrying one of the statement's Txn Ids, through `_booked_index` (the "already booked" check's
     own identity), and of those the ones still waiting: no `invoice_attachment` and no No invoice mark. The job
-    asks the waiting question again under the Expense's lock (`_attach_invoice`).
+    asks the waiting question again under the Expense's lock (`cashbook_bills._attach_invoice`).
     """
     ids = sorted({raw.transfer_id for raw in plan.split.earlier_exact if raw.transfer_id and raw.bill_links})
     if not ids:
@@ -1068,177 +885,5 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
         doc.insert(ignore_permissions=True)
 
     # #1596: each line that re-opens an earlier own-balances skip is written onto THAT line, never staged anew.
-    from nirmaan_stack.api.outflow_import.cashbook_reopen import reopen_lines
-
     reopen_lines(plan, all_kept, batch.name, user)
     return batch
-
-
-def line_values(raw, planned) -> dict:
-    """What a staged Cashbook line holds of the plan's decision, whichever batch it is in: `_stage` writes it on a new
-    line, `cashbook_reopen.reopen_lines` on an earlier line it re-opens (#1596)."""
-    creating = planned.action == ACTION_CREATE
-    # An open line (#1594: an unpaired wallet refund, a wallet credit; #1595: an unpaired Collect payment) is
-    # staged at `Mismatched`, a status the job never takes, so it is a person's to decide on the main table from
-    # the start (spec #1585 "Phase 2 stages new open lines away from the job"). Its note says what it is. A
-    # Collect payment keeps the plan's placement, so Create opens pre-filled (`newExpenseSeed`).
-    opening = planned.action == ACTION_OPEN
-    skipping = not creating and not opening
-    placed = creating or (opening and bool(planned.ledger))
-    return {
-        "source": SOURCE,
-        "transfer_id": raw.transfer_id,
-        "added_on": raw.added_on,
-        # The line's money: its Debit, or its Credit on a refund or a wallet credit (#1594), which
-        # is then money IN (`direction`), so the main table offers it the choices a bank credit has.
-        "amount": float(planned.amount),
-        "direction": planned.direction or None,
-        "status_raw": raw.status_raw,
-        "beneficiary_name": raw.beneficiary_name,
-        "remarks": raw.remarks,
-        "added_by_raw": raw.added_by_raw,
-        # ⚠️ THE SAME ONE RESOLUTION THE GATEWAY PATH USES (ADR-0020 B9), called here rather
-        # than assumed away. A wallet row carries neither reference field -- `_CASHBOOK_COLUMNS`
-        # maps neither, deliberately and permanently -- so the ladder always lands on the
-        # third rung and this is always `transfer_id`. Writing `raw.transfer_id` directly
-        # would produce the identical string today and would be the SECOND definition of
-        # the ladder: the per-path divergence this slice exists to remove, reintroduced at
-        # the very source that made it necessary.
-        "settlement_reference": resolve_settlement_reference(
-            bank_reference_no=raw.bank_reference_no,
-            reference_id=raw.reference_id,
-            transfer_id=raw.transfer_id,
-            remarks=raw.remarks,
-            source=SOURCE,
-        )
-        or None,
-        "row_status": (
-            ROW_PENDING_MATCH if creating else ROW_MISMATCHED if opening else ROW_SKIPPED
-        ),
-        "skip_reason": planned.reason if skipping else None,
-        # A Cashbook skip is the import plan's decision, never a person's (#1273).
-        "skip_origin": SKIP_ORIGIN_SYSTEM if skipping else None,
-        "skip_kind": planned.skip_kind if skipping else None,
-        "outcome_note": planned.reason if opening else None,
-        "suggested_doctype": planned.ledger if placed else None,
-        "suggested_expense_type": planned.expense_type if placed else None,
-        "resolved_project": (
-            planned.project
-            if placed and planned.ledger == PROJECT_EXPENSE_DOCTYPE
-            else None
-        ),
-        "match_basis": MATCH_BASIS if creating else None,
-        "auto_matched": 1 if creating else 0,
-        # #1590: the line's bill links, in the statement's order, whatever the plan decided.
-        # ⚠️ A DICT, NEVER A BARE LIST: Postgres hands a jsonb list back as a Python list,
-        # and Frappe refuses to save a document holding a list in a non-table field.
-        "bill_links": {"links": list(raw.bill_links)} if raw.bill_links else None,
-        # #1595: the statement's Type. Only this import writes it, so it also marks the line as staged
-        # from a Cashbook Statement (`cashbook_collect.statement_line_create_extras`).
-        "row_kind": (raw.row_kind or "").strip() or None,
-    }
-
-
-def _preview_payload(
-    parsed, plan: CashbookPlan, filename: str, verdict: DuplicateVerdict, late: tuple = ()
-) -> dict:
-    groups = group_plan(plan)
-    invoices = invoice_counts(plan)
-    return {
-        "preview": True,
-        "source": SOURCE,
-        "original_filename": filename,
-        "period_from": str(parsed.period_from) if parsed.period_from else None,
-        "period_to": str(parsed.period_to) if parsed.period_to else None,
-        "total_rows": len(parsed.rows),
-        "creating": len(plan.creating),
-        "skipping": len(plan.skipping),
-        "opening": len(plan.opening),
-        "total_value": float(plan.total_value),
-        # The Cashfree preview's duplicate keys, with the same meanings (ADR-0031): `duplicate_rows`
-        # is the exact repeats that will NOT be saved, `new_rows` what will be. `refused` means the
-        # confirm must not be offered at all; `warn` means it is offered anyway.
-        "duplicate_rows": verdict.duplicates,
-        "new_rows": verdict.new,
-        "duplicate_message": verdict.message,
-        "refused": verdict.refuse,
-        "warn": verdict.warn,
-        "duplicate_of_batch": verdict.earliest_batch,
-        "warnings": list(parsed.warnings),
-        # #1591: the spends that will create an Expense, by their bills -- 1 file (the invoice as it is),
-        # 2 or more (merged into one PDF), none (the Expense waits for an invoice).
-        "invoices": {
-            "one_file": invoices.one_file,
-            "merged": invoices.merged,
-            "waiting": invoices.waiting,
-        },
-        "groups": [
-            {
-                "ledger": group.ledger,
-                "key": group.key,
-                "label": group.label,
-                "count": group.count,
-                "value": float(group.value),
-                "rows": [
-                    {
-                        "row_number": row.row_number,
-                        "transfer_id": row.transfer_id,
-                        "amount": float(row.amount),
-                        "remarks": row.remarks,
-                        "beneficiary_name": row.beneficiary_name,
-                        "spent_by": row.spent_by,
-                        "expense_type": row.expense_type,
-                        "matched_keyword": row.matched_keyword,
-                        "is_fallback_type": row.is_fallback_type,
-                    }
-                    for row in group.rows
-                ],
-            }
-            for group in groups
-        ],
-        # The lines of a pair are shown under `pairs`, not here.
-        "skipped": [_preview_line(row) for row in plan.skipping if not row.partner],
-        # #1594: each Paired wallet refund, refund first: both lines are skipped, each naming the other.
-        "pairs": [
-            {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs
-        ],
-        # #1594: the lines that will stay open on the main table (unpaired wallet refunds, wallet credits). A Collect
-        # payment is listed under `collect_payments` instead, highlighted.
-        "open_lines": [_preview_line(row) for row in plan.opening if row.row_kind != COLLECT_ROW_KIND],
-        # #1595: the Collect payments that will stay open for a person to decide, highlighted on Review.
-        "collect_payments": [
-            {**_preview_line(row), "spent_by": row.spent_by} for row in plan.opening if row.row_kind == COLLECT_ROW_KIND
-        ],
-        # #1596: the lines an earlier import skipped as own balances that this statement re-opens in place, each
-        # with the import that holds it. Each is also listed above under what it becomes.
-        "reopened": [
-            {**_preview_line(row), "earlier_batch": row.reopens.batch, "becomes": "open" if row.opens else "paired"}
-            for row in plan.reopening
-        ],
-        # #1593: the existing Expenses that will get a bill from a repeat line, which is itself not saved.
-        "late_bills": [
-            {
-                "row_number": bill.row_number,
-                "transfer_id": bill.transfer_id,
-                "amount": float(bill.amount),
-                "remarks": bill.remarks,
-                "expense_doctype": _booked_record(bill.record)[0],
-                "expense": _booked_record(bill.record)[1],
-                "bills": len(bill.links),
-            }
-            for bill in late
-        ],
-    }
-
-
-def _preview_line(row) -> dict:
-    """One statement line as Review lists it outside the groups: a skip, a pair's line or an open line."""
-    return {
-        "row_number": row.row_number,
-        "transfer_id": row.transfer_id,
-        "amount": float(row.amount),
-        "remarks": row.remarks,
-        "beneficiary_name": row.beneficiary_name,
-        "row_kind": row.row_kind,
-        "reason": row.reason,
-    }
