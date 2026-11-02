@@ -29,26 +29,25 @@ from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED
 ROW_DOCTYPE = "Outflow Import Row"
 
 
-def store_collect_bills(batch: str) -> None:
-    """Copy each open Collect payment's bills of `batch` onto its line. Never raises, never fails a line.
+def store_collect_bills(batch: str, also=()) -> None:
+    """Copy each open Collect payment's bills of `batch`, and of the lines named in `also` (earlier lines this import
+    re-opened, #1596), onto its line. Never raises, never fails a line.
 
     A line whose copy fails stays open with no stored bill, and the reason is written on its `bill_problem`, which
     the import summary (`cashbook.get_cashbook_status` -> `bills_not_copied`) lists.
     """
-    lines = frappe.get_all(
-        ROW_DOCTYPE,
-        filters={
-            "import_batch": batch,
-            "row_kind": COLLECT_ROW_KIND,
-            "row_status": ROW_MISMATCHED,
-            "stored_bill": ["is", "not set"],
-            "bill_problem": ["is", "not set"],
-        },
-        fields=["name", "transfer_id", "bill_links"],
-        order_by="name asc",
-    )
-    for line in lines:
-        _copy_one(line)
+    waiting = {
+        "row_kind": COLLECT_ROW_KIND,
+        "row_status": ROW_MISMATCHED,
+        "stored_bill": ["is", "not set"],
+        "bill_problem": ["is", "not set"],
+    }
+    scopes = [{"import_batch": batch}] + ([{"name": ["in", list(also)]}] if also else [])
+    for scope in scopes:
+        for line in frappe.get_all(
+            ROW_DOCTYPE, filters={**waiting, **scope}, fields=["name", "transfer_id", "bill_links"], order_by="name asc"
+        ):
+            _copy_one(line)
 
 
 def _copy_one(line) -> None:

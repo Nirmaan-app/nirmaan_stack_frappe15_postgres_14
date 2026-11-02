@@ -8,6 +8,7 @@ import {
     CashbookRefundPair,
     CashbookSkippedRow,
     CashbookLateBill,
+    CashbookReopenedLine,
     CashbookStatus,
     NON_PROJECT_LEDGER,
     PROJECT_LEDGER,
@@ -27,6 +28,8 @@ import {
     pairsHeading,
     progressFraction,
     progressText,
+    reopenedHeading,
+    reopenedLabel,
     showsResume,
     stoppedText,
     sortGroups,
@@ -388,5 +391,46 @@ describe("the existing Expenses that get a late bill (#1593)", () => {
         expect(lateBillsDoneText(1, false)).toBe(
             "Bill added to 1 existing Expense, unless someone had already attached an invoice or marked it No invoice."
         );
+    });
+});
+
+describe("the lines an earlier import wrongly skipped, re-opened by this statement (#1596)", () => {
+    const reopened = (over: Partial<CashbookReopenedLine> = {}): CashbookReopenedLine => ({
+        row_number: 20,
+        transfer_id: "PTM6",
+        amount: 9000,
+        remarks: "",
+        reason: "Wallet credit: money paid into the wallet from outside. Decide what it is.",
+        row_kind: "Wallet Credit",
+        earlier_batch: "OFI-26-00237",
+        becomes: "open",
+        ...over,
+    });
+
+    it("heads the list by how many lines come back, and says nothing when none do", () => {
+        expect(reopenedHeading(undefined)).toBeNull();
+        expect(reopenedHeading([])).toBeNull();
+        expect(reopenedHeading([reopened()])).toBe(
+            "1 line an earlier import skipped as own balances will be re-opened under the new rules"
+        );
+        expect(reopenedHeading([reopened(), reopened({ transfer_id: "OBO1" })])).toBe(
+            "2 lines earlier imports skipped as own balances will be re-opened under the new rules"
+        );
+    });
+
+    it("names the line, the import that holds it and what it becomes", () => {
+        expect(reopenedLabel(reopened())).toBe("Wallet Credit PTM6 · in OFI-26-00237 · stays open");
+        expect(reopenedLabel(reopened({ row_kind: "Collect Payment", transfer_id: "OBO3", becomes: "paired" }))).toBe(
+            "Collect Payment OBO3 · in OFI-26-00237 · paired wallet refund"
+        );
+    });
+
+    it("offers the confirm for a file whose only work is re-opening, named for what it does", () => {
+        const onlyReopen = { creating: 0, refused: false, late_bills: [], reopened: [reopened()] };
+        expect(canConfirm(onlyReopen)).toBe(true);
+        expect(confirmLabel(onlyReopen)).toBe("Re-open 1 line");
+        expect(confirmLabel({ ...onlyReopen, reopened: [reopened(), reopened()] })).toBe("Re-open 2 lines");
+        expect(confirmLabel({ ...onlyReopen, creating: 3 })).toBe("Create 3 records");
+        expect(canConfirm({ ...onlyReopen, refused: true })).toBe(false);
     });
 });
