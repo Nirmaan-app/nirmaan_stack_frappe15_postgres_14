@@ -84,4 +84,18 @@ def expired_links_refusal(
     earliest = earliest_link_expiry(rows)
     if earliest is None or earliest - now >= LINK_EXPIRY_MARGIN:
         return None
-    return LINKS_EXPIRED_MESSAGE.format(date=earliest.astimezone(tz).strftime("%d-%b-%Y %H:%M"))
+    return LINKS_EXPIRED_MESSAGE.format(date=_named(earliest, tz))
+
+
+def expired_link_reason(url: str, now: datetime, tz: tzinfo = timezone.utc) -> str | None:
+    """Why one bill link must not be requested any more: it expired at or before `now` (code review R2), as the
+    clause a `bill_problem` carries, else `None`. A link that does not say when it dies is tried."""
+    expires = link_expires_at(url)
+    if expires is None or expires > now:
+        return None
+    return f"its link expired on {_named(expires, tz)}"
+
+
+def _named(moment: datetime, tz: tzinfo) -> str:
+    """A link's expiry as a person reads it, in the site's zone."""
+    return moment.astimezone(tz).strftime("%d-%b-%Y %H:%M")

@@ -18,9 +18,11 @@ import io
 from datetime import timedelta
 from unittest.mock import patch
 
+from openpyxl import load_workbook
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from openpyxl import load_workbook
+from frappe.utils import file_manager
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
@@ -296,7 +298,6 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
     def test_a_line_taken_while_the_statement_is_saved_falls_back_too(self):
         """Code review R4: confirm's `save_file` commits, which ends the first claim. A line taken in that window is
         found by the claim after the save and follows the ordinary rule; confirm is never refused for it."""
-        from frappe.utils import file_manager
 
         real_save_file = file_manager.save_file
         taken = self._only_line(COLLECT_NO_LINK)

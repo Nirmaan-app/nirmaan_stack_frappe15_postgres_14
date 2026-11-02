@@ -21,9 +21,10 @@ Run: DEVENV test --module nirmaan_stack.api.outflow_import.test_cashbook_resume_
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+from psycopg2.errors import SerializationFailure
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from psycopg2.errors import SerializationFailure
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
@@ -155,9 +156,9 @@ class TestAnExpiredLinkIsNotTried(FrappeTestCase):
 
     def test_the_refusal_names_the_expiry_and_nothing_is_downloaded(self):
         after_expiry = datetime(2026, 1, 9, tzinfo=timezone.utc)
-        with patch.object(bills, "_utc_now", return_value=after_expiry), patch.object(
-            bills, "download_bill", side_effect=AssertionError("an expired link was requested")
-        ):
+        with patch.object(bills, "_utc_now", return_value=after_expiry), patch.dict(
+            frappe.flags, {"in_test": False}
+        ), patch.object(bills, "download_bill", side_effect=AssertionError("an expired link was requested")):
             got = bills.fetch_bill(self.LINK)
         self.assertIsInstance(got, BillRefused)
         self.assertIn("expired on 08-Jan-2026", got.reason)

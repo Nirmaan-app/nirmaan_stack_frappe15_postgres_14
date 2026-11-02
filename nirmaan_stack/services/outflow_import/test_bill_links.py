@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from nirmaan_stack.services.outflow_import.bill_links import (
     LINKS_UNREADABLE_MESSAGE,
     earliest_link_expiry,
+    expired_link_reason,
     expired_links_refusal,
     link_expires_at,
 )
@@ -47,6 +48,22 @@ class TestLinkExpiry(unittest.TestCase):
 
     def test_the_file_expires_with_its_earliest_link(self):
         self.assertEqual(earliest_link_expiry(_statement_rows()), EARLIEST)
+
+
+class TestExpiredLinkReason(unittest.TestCase):
+    """Code review R2: one link past its expiry is not requested; the reason names the expiry in the site's zone."""
+
+    EXPIRES = datetime(2026, 11, 7, 11, 12, tzinfo=timezone.utc)
+
+    def test_a_live_link_has_no_reason(self):
+        self.assertIsNone(expired_link_reason(_link(), now=self.EXPIRES - timedelta(seconds=1)))
+
+    def test_a_link_at_or_past_its_expiry_names_the_date(self):
+        for now in (self.EXPIRES, self.EXPIRES + timedelta(days=3)):
+            self.assertEqual(expired_link_reason(_link(), now=now, tz=IST), "its link expired on 07-Nov-2026 16:42")
+
+    def test_a_link_that_does_not_say_when_it_dies_is_tried(self):
+        self.assertIsNone(expired_link_reason("https://storage.googleapis.com/b/o.jpeg", now=self.EXPIRES))
 
 
 class TestExpiredLinksRefusal(unittest.TestCase):

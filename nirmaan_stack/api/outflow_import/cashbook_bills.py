@@ -37,13 +37,14 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from psycopg2.errors import LockNotAvailable, TransactionRollbackError
+
 import frappe
 from frappe.utils.file_manager import save_file
-from psycopg2.errors import LockNotAvailable, TransactionRollbackError
 
 from nirmaan_stack.api.outflow_import.cashbook_lines import BATCH_DOCTYPE, ROW_DOCTYPE, lock_line_if
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
-from nirmaan_stack.services.outflow_import.bill_links import link_expires_at
+from nirmaan_stack.services.outflow_import.bill_links import expired_link_reason
 from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
 from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED
 from nirmaan_stack.services.reimbursements.receipts import merge_to_pdf
@@ -61,14 +62,14 @@ def fetch_bill(url: str) -> BillFile | BillRefused:
     storage. (The upload refused any statement whose links were already dying, so only a late Resume meets this.)
 
     ⚠️ NO NETWORK UNDER TESTS. A test that runs the job without replacing this gets a refusal, never a
-    request: every Cashbook fixture carries real-looking links to the production bucket.
+    request: every Cashbook fixture carries real-looking links to the production bucket. It is checked first, so
+    that refusal does not change once the fixture's links have expired.
     """
-    expires = link_expires_at(url)
-    if expires is not None and expires <= _utc_now():
-        local = expires.astimezone(ZoneInfo(frappe.utils.get_system_timezone()))
-        return BillRefused(f"its link expired on {local.strftime('%d-%b-%Y %H:%M')}")
     if frappe.flags.in_test:
         return BillRefused("bill downloads are off under tests")
+    expired = expired_link_reason(url, _utc_now(), ZoneInfo(frappe.utils.get_system_timezone()))
+    if expired:
+        return BillRefused(expired)
     return download_bill(url)
 
 
@@ -115,17 +116,25 @@ def copy_created_line_bills(row_name: str) -> None:
         ["transfer_id", "suggested_doctype", "suggested_name", "bill_links"],
         as_dict=True,
     )
-    copied = _copy_onto(
+    dealt_with = _copy_onto(
         row_name,
         line.transfer_id,
         links_of(line),
         attach=lambda saved: _attach_invoice(line.suggested_doctype, line.suggested_name, saved),
         failure=("Cashbook import: could not copy a bill", f"{row_name} / {line.suggested_name}"),
     )
-    if not copied:
+    if not dealt_with:
         # Nothing retries a created line's copy (its Expense waits in Pending Invoices Upload), so even a transient
-        # refusal is named in the summary.
-        _write_bill_problem(row_name, not_copied(len(links_of(line)), BILLS_NOT_STORED))
+        # refusal is named in the summary. Should that write be refused too, the Error Log is all that is left: the
+        # job goes on with the next line ("Never raises").
+        try:
+            _write_bill_problem(row_name, not_copied(len(links_of(line)), BILLS_NOT_STORED))
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(
+                title="Cashbook import: could not record a bill not copied",
+                message=f"{row_name}\n\n{frappe.get_traceback()}",
+            )
 
 
 # --- an open Collect payment (#1595) ----------------------------------------------------------------------
@@ -331,9 +340,9 @@ def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[
 def _copy_onto(
     row_name: str, transfer_id: str, links: list[str], attach: Callable, failure: tuple[str, str]
 ) -> bool:
-    """Steps 2 and 3 for one line's bills, with `attach(saved)` as step 3. Never raises. Returns `False` only when
-    the database refused it transiently (`is_retried_by_resume`): nothing is written, and the copy can be tried
-    again. Anything else that stops the copy is written on the line's `bill_problem`, and an unexpected error is
+    """Steps 2 and 3 for one line's bills, with `attach(saved)` as step 3. Returns whether the line was dealt with:
+    `False` only when the database refused it transiently (`is_retried_by_resume`), so nothing is written and the
+    copy can be tried again. Anything else that stops the copy is written on the line's `bill_problem`, and an unexpected error is
     also logged (`failure` is the Error Log's title and subject)."""
     if not links:
         return True
@@ -349,7 +358,14 @@ def _copy_onto(
         frappe.log_error(title=title, message=f"{subject}\n\n{frappe.get_traceback()}")
         problem = not_copied(len(links), BILLS_NOT_STORED)
     if problem:
-        _write_bill_problem(row_name, problem)
+        try:
+            _write_bill_problem(row_name, problem)
+        except Exception as exc:
+            # Writing the reason can meet the same transient refusal; the copy is then still owed, never lost.
+            frappe.db.rollback()
+            if is_retried_by_resume(exc):
+                return False
+            raise
     frappe.db.commit()
     return True
 
