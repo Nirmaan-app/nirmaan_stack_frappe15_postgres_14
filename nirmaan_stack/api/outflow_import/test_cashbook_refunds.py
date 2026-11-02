@@ -29,6 +29,8 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, CashbookBillsCase
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import _post
+from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_MOVED_STATUSES, REFUND_ROW_KINDS
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_CASHBOOK_REFUND_PAIR
 
 ROW_DOCTYPE = "Outflow Import Row"
 COLLECT_FULL = "OBO9000000000003CPFULL"
@@ -116,13 +118,25 @@ class TestOpenLines(CashbookRefundsCase):
         self.assertEqual(totals["open_received_rows"], len(listed))
 
     def test_a_paired_refund_is_a_skipped_line_not_a_failed_transfer(self):
-        totals = get_outflow_summary(batch=self.batch)["totals"]
-        failed = frappe.get_all(
+        """Only a Cashbook refund kind moves money on REFUNDED; any other line still needs SUCCESS."""
+        lines = frappe.get_all(
             ROW_DOCTYPE,
-            filters={"import_batch": self.batch, "status_raw": ["not in", ["SUCCESS", "REFUNDED"]]},
-            pluck="name",
+            filters={"import_batch": self.batch},
+            fields=["row_kind", "status_raw", "row_status", "skip_kind"],
         )
-        self.assertEqual(totals["failed_rows"], len(failed))
+
+        def moved(line):
+            status = (line.status_raw or "").strip().upper()
+            return status == "SUCCESS" or (line.row_kind in REFUND_ROW_KINDS and status in REFUND_MOVED_STATUSES)
+
+        paired = [line for line in lines if line.skip_kind == SKIP_KIND_CASHBOOK_REFUND_PAIR]
+        self.assertTrue(paired, "the fixture pairs a wallet refund with its spend")
+        self.assertTrue(all(moved(line) for line in paired))
+        totals = get_outflow_summary(batch=self.batch)["totals"]
+        self.assertEqual(totals["failed_rows"], sum(not moved(line) for line in lines))
+        self.assertEqual(
+            totals["skipped_rows"], sum(moved(line) and line.row_status == "Skipped" for line in lines)
+        )
 
     def test_internal_movements_are_still_skipped_as_own_balances(self):
         for txn in INTERNAL:

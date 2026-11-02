@@ -4,7 +4,7 @@
 // column of the Non Project Expenses table (story 45) and of a project's Misc. Project Expenses tab (story 32).
 // Both expense doctypes carry the same three fields. Pure.
 
-import { format, parseISO } from "date-fns";
+import { formatDate } from "@/utils/FormatDate";
 
 /** The three No-invoice fields both expense doctypes carry, plus the ref they stand in for. */
 export interface NoInvoiceFields {
@@ -21,7 +21,7 @@ export const noInvoiceNote = (
 ): { label: string; detail: string } | null => {
     if (!expense.no_invoice_by && !expense.no_invoice_reason) return null;
     const who = expense.no_invoice_by ? userName(expense.no_invoice_by) : "";
-    const when = expense.no_invoice_at ? format(parseISO(expense.no_invoice_at.replace(" ", "T")), "dd-MMM-yyyy") : "";
+    const when = expense.no_invoice_at ? formatDate(expense.no_invoice_at.replace(" ", "T")) : "";
     const by = [who, when].filter(Boolean).join(", ");
     const reason = expense.no_invoice_reason ?? "";
     return { label: "No invoice", detail: by && reason ? `${by}: ${reason}` : by || reason };
