@@ -199,5 +199,3 @@ export const InvoiceQueueFrame = <Row,>({
         </div>
     );
 };
-
-export default InvoiceQueueFrame;

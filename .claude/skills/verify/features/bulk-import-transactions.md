@@ -27,7 +27,9 @@ past imports by source and month.
   with that note, whose `Choose` dialog offers Create expense only (no record list), opening pre-filled (Petty Cash, Non Project
   Expenses for the fixture lines), and whose `Nothing to link?` box skips it with a typed reason for an Admin or
   Accountant Lead only; an Accountant sees `Only an Admin or an Accountant Lead can skip a Collect payment by hand.`
-  in its place (#1595, code review S8, S9).
+  in its place (#1595, code review S8, S9). With no choice made, its disabled Confirm says `Pick Create expense, or
+  Skip by hand.`; ticked on the table, it turns `Link N to one expense` off with `A Collect payment is decided by
+  Create expense or Skip by hand, never linked. …` (code review R5, R6).
 - `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (unpaired wallet refunds, wallet credits)
   and `N paired wallet refunds …`; after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
   offers the card-credit choices (project / non-project inflow, waiting or new vendor refund, Skip transfer) (#1594).

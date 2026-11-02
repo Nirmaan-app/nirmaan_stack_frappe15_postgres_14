@@ -77,8 +77,12 @@ def reopen_lines(plan: CashbookPlan, kept_rows, batch: str, actor: str) -> list[
     """Write each re-opening line of `plan` onto the earlier line it re-opens. Returns the lines re-opened.
 
     `kept_rows` are the parsed lines behind `plan.rows`, in the same order. Runs in confirm's transaction and does
-    not commit. Every earlier line was claimed by `claim_reopens` in this transaction, so it is still an own-balances
-    skip; one that is not means the claim was skipped, and the confirm is refused rather than the line dropped.
+    not commit.
+
+    ⚠️ NO SECOND CHECK, AND NO REFUSAL (code review R4). Every earlier line in `plan` was claimed by `claim_reopens`
+    in this same transaction, after confirm's `save_file` commit (`cashbook._plan_claiming_reopens`), and its row
+    lock is held to confirm's commit; a line taken before that claim was planned again without the re-open. So each
+    is still an own-balances skip here, and there is no case left in which to tell the user to confirm again.
     """
     reopened: list[str] = []
     batches: set[str] = set()
@@ -86,12 +90,6 @@ def reopen_lines(plan: CashbookPlan, kept_rows, batch: str, actor: str) -> list[
         earlier = planned.reopens
         if not earlier:
             continue
-        if not _still_wrongly_skipped(earlier.line):
-            frappe.throw(
-                f"The line {earlier.line} of {earlier.batch} changed while this statement was being confirmed. "
-                "Confirm it again.",
-                title="Lines changed",
-            )
         doc = frappe.get_doc(ROW_DOCTYPE, earlier.line)
         doc.update({**_CLEARED, **line_values(raw, planned)})
         # ⚠️ `ignore_version=False` IS EXPLICIT, for the reason `review.skip_row` gives: the Version is the record.

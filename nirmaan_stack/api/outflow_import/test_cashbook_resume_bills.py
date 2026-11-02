@@ -13,18 +13,24 @@ Seam 1: the Cashbook import endpoints and the job, run inline as the queue would
 The job is KILLED with a `BaseException` the job's per-line `except Exception` never catches, as
 `test_cashbook_resume` does.
 
+Code review R2 (only work the job still owes waits; an expired link is not tried) is pinned here too.
+
 Run: DEVENV test --module nirmaan_stack.api.outflow_import.test_cashbook_resume_bills
 """
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import frappe
+from frappe.tests.utils import FrappeTestCase
+from psycopg2.errors import SerializationFailure
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
-from nirmaan_stack.api.outflow_import.test_cashbook_bills import _fake_bills
+from nirmaan_stack.api.outflow_import.test_cashbook_bills import PORTRAIT_JPEG, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_collect_payments import COLLECT_WITH_LINK, CollectPaymentCase
 from nirmaan_stack.api.outflow_import.test_cashbook_late_bills import LATE, LateBillsCase
+from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused
 
 
 class _WorkerKilled(BaseException):
@@ -111,3 +117,101 @@ class TestAStoppedLateBillIsResumed(LateBillsCase):
             _resume(batch)
         self.assertIn("waiting", str(refused.exception))
 
+
+
+class TestOnlyWorkTheJobStillOwesWaits(CollectPaymentCase):
+    """Code review R2: a Collect payment's bill waits only while the job still owes the copy. Once the job has dealt
+    with the line -- copied it, failed it, or found a person had decided it -- a later Unskip or Unreconcile that
+    opens the line again does not stop the batch or send Resume to links that may have expired."""
+
+    def test_a_line_a_person_decided_during_the_copy_and_reopened_later_does_not_stop_the_batch(self):
+        def person_skips_it_meanwhile(url):
+            line = self._line(COLLECT_WITH_LINK)
+            frappe.db.set_value("Outflow Import Row", line.name, "row_status", "Skipped", update_modified=False)
+            frappe.db.commit()
+            return BillFile(PORTRAIT_JPEG, "jpeg")
+
+        self._run(_fake_bills({(COLLECT_WITH_LINK, "1.jpeg"): person_skips_it_meanwhile}))
+        self.assertFalse(self._line(COLLECT_WITH_LINK).stored_bill)
+        # Days later, a person opens it again (Unskip).
+        frappe.db.set_value(
+            "Outflow Import Row", self._line(COLLECT_WITH_LINK).name, "row_status", "Mismatched", update_modified=False
+        )
+        frappe.db.commit()
+
+        status = cb.get_cashbook_status(self.batch)
+        self.assertEqual((status["bills_waiting"], status["stopped"]), (0, False))
+        with self.assertRaises(frappe.ValidationError):
+            _resume(self.batch)
+
+
+class TestAnExpiredLinkIsNotTried(FrappeTestCase):
+    """Code review R2: a bill link past its expiry is refused with that reason, never requested."""
+
+    LINK = (
+        "https://storage.googleapis.com/prod-payments-private/transaction-attachments/OBO1/1.jpeg"
+        "?X-Goog-Date=20260101T000000Z&X-Goog-Expires=604800"
+    )
+
+    def test_the_refusal_names_the_expiry_and_nothing_is_downloaded(self):
+        after_expiry = datetime(2026, 1, 9, tzinfo=timezone.utc)
+        with patch.object(bills, "_utc_now", return_value=after_expiry), patch.object(
+            bills, "download_bill", side_effect=AssertionError("an expired link was requested")
+        ):
+            got = bills.fetch_bill(self.LINK)
+        self.assertIsInstance(got, BillRefused)
+        self.assertIn("expired on 08-Jan-2026", got.reason)
+
+
+def _refused_once(real, only=lambda *args: True):
+    """`real`, except that its first call `only` picks raises Postgres's serialization refusal (another writer got
+    there first)."""
+    calls = []
+
+    def once(*args, **kwargs):
+        if only(*args):
+            calls.append(args)
+        if len(calls) == 1 and only(*args):
+            raise SerializationFailure("could not serialize access due to concurrent update")
+        return real(*args, **kwargs)
+
+    return once
+
+
+class TestATransientRefusalLeavesTheCopyForResume(CollectPaymentCase):
+    """Code review R3: a lock or serialization refusal while attaching is not the bill's fault. The copy stays owed,
+    with no `bill_problem`, so the batch says it stopped and Resume tries it again."""
+
+    def test_a_collect_payment_copy_refused_by_a_concurrent_writer_is_retried_by_resume(self):
+        with patch.object(bills, "lock_line_if", _refused_once(bills.lock_line_if)):
+            self._run()
+        line = self._line(COLLECT_WITH_LINK)
+        self.assertFalse(line.stored_bill)
+        self.assertFalse(line.bill_problem)
+        status = cb.get_cashbook_status(self.batch)
+        self.assertEqual((status["bills_waiting"], status["stopped"]), (1, True))
+
+        self.assertEqual(len(_resume(self.batch)), 1)
+        self._run()
+        self.assertTrue(self._line(COLLECT_WITH_LINK).stored_bill)
+        self.assertFalse(cb.get_cashbook_status(self.batch)["stopped"])
+
+
+class TestATransientRefusalLeavesTheLateBillForResume(LateBillsCase):
+    def test_a_late_bill_refused_by_a_concurrent_writer_is_retried_by_resume(self):
+        waiting = self._first_upload()
+        refused = _refused_once(bills._attach_invoice, only=lambda doctype, expense, saved: expense == waiting.name)
+        with patch.object(bills, "_attach_invoice", refused):
+            self._upload(self._second_file())
+        batch = frappe.get_all(
+            "Outflow Import Batch", filters={"source": "Cashbook"}, order_by="creation desc", limit=1, pluck="name"
+        )[0]
+        self.batches.append(batch)
+        self.assertFalse(self._expense(LATE).invoice_attachment)
+        status = cb.get_cashbook_status(batch)
+        self.assertEqual((status["bills_waiting"], status["stopped"], status["bills_not_copied"]), (1, True, []))
+
+        _resume(batch)
+        with patch.object(bills, "fetch_bill", _fake_bills()):
+            cb._cashbook_worker(batch, "Administrator")
+        self.assertTrue(self._expense(LATE).invoice_attachment)

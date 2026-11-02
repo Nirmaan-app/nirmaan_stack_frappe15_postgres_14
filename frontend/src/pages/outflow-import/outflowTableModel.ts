@@ -37,6 +37,8 @@ import {
     SKIP_ORIGIN_MANUAL,
     isCashbookLineItsJobOwns,
     isCollectPaymentLine,
+    isOpenCollectPaymentLine,
+    COLLECT_PAYMENT_PICK,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
@@ -2794,6 +2796,8 @@ export const confirmBlocker = (
     if (row.row_status === "Pending match run") {
         return "This line has not been matched yet — press Re-run match first.";
     }
+    // Code review R6: an open Collect payment has two choices, so its sentence never asks for a record to link.
+    if (isOpenCollectPaymentLine(row) && decision?.target !== "new") return COLLECT_PAYMENT_PICK;
     if (!decision) return "Pick the record this transfer paid, or choose what to create from it.";
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense

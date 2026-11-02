@@ -704,8 +704,7 @@ def _load_allocatable_row(row: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
-    guard_not_an_own_import_line(doc)
-    guard_collect_payment_choice(doc)
+    guard_line_may_be_settled_by_hand(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This transfer is fully allocated. Reverse an allocation to change it.",
@@ -1210,6 +1209,13 @@ def guard_collect_payment_choice(doc) -> None:
     """
     if is_collect_payment_line(doc.get("source"), doc.get("row_kind")):
         frappe.throw(COLLECT_PAYMENT_CHOICES_REFUSAL, ExpenseSettlementError, title="Create expense or Skip")
+
+
+def guard_line_may_be_settled_by_hand(doc) -> None:
+    """The one guard a main-table Link or Allocate loader asks first: the line is not its own import's to write
+    (`guard_not_an_own_import_line`) and is not a Collect payment (`guard_collect_payment_choice`)."""
+    guard_not_an_own_import_line(doc)
+    guard_collect_payment_choice(doc)
 
 
 def _guard_is_a_debit(doc) -> None:

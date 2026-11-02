@@ -1598,6 +1598,14 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         );
     });
 
+    it("tells an open Collect payment to pick Create expense or Skip, never to link (code review R6)", () => {
+        const collect = row({ row_status: "Mismatched", source: "Cashbook", row_kind: "Collect Payment" });
+        const sentence = "Pick Create expense, or Skip by hand.";
+        expect(confirmBlocker(collect, undefined)).toBe(sentence);
+        expect(confirmBlocker(collect, link)).toBe(sentence);
+        expect(confirmDisabledSentence("decision-incomplete", collect, undefined)).toBe(sentence);
+    });
+
     it("maps every gate reason, and stays silent while busy or live", () => {
         const r = row({ row_status: "Mismatched" });
         expect(confirmDisabledSentence(null, r, link)).toBeNull();

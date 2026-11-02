@@ -113,15 +113,15 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_reference_of_row,
 )
-# ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
-# records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
-# it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
-# reviewer feedback, and a tuning change must not be able to alter what settles unattended.
 from nirmaan_stack.services.outflow_import.cashbook_collect import (
     COLLECT_PAYMENT_SKIP_REFUSAL,
     is_collect_payment_line,
 )
 from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
+# ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
+# records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
+# it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
+# reviewer feedback, and a tuning change must not be able to alter what settles unattended.
 from nirmaan_stack.services.outflow_import.similarity import (
     RecordSignals,
     build_row_signals,

@@ -219,20 +219,23 @@ export const OUTFLOW_UNDO_PROFILES: ReadonlySet<string> = new Set([
 export const canUndoOutflow = (role: string | null | undefined, userId: string | null | undefined): boolean =>
     userId === "Administrator" || OUTFLOW_UNDO_PROFILES.has(role ?? "");
 
+/** The Cashbook import's `source`. Mirrors `sources.CASHBOOK_SOURCE`. */
+export const CASHBOOK_SOURCE = "Cashbook";
+
 /**
  * The sources the matcher never runs over (Cashbook). Mirrors `sources.NEVER_MATCHED_SOURCES`; the
  * parity test pins it. Since #1314 they are skipped, unskipped and unreconciled like any other source,
  * with two Cashbook rules of their own: no Skip while the Cashbook job has not written the line
  * (`Pending match run`), and Unskip only for a hand skip.
  */
-export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook", PORTER_SOURCE, CARD_SOURCE]);
+export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set([CASHBOOK_SOURCE, PORTER_SOURCE, CARD_SOURCE]);
 
 /**
  * The sources whose statement names who spent the money (#1314): a Create from their line writes
  * Paid by from the statement's `From`, server-side. Mirrors `sources.SPENDER_NAMED_SOURCES`; the parity
  * test pins it. The Create form shows it, read-only.
  */
-export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
+export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set([CASHBOOK_SOURCE]);
 
 /**
  * The sentence every main-table write is refused with on a Cashbook line its import job still owns
@@ -253,7 +256,7 @@ export const cashbookPendingLineRefusal = (batch: string | null | undefined): st
  * arm: the STATUS as well as the source, so a reopened (`Mismatched`) or `Error` line stays workable.
  */
 export const isCashbookLineItsJobOwns = (row: { row_status: string; source?: string | null }): boolean =>
-    (row.source ?? "").trim() === "Cashbook" && row.row_status === ROW_PENDING_MATCH;
+    (row.source ?? "").trim() === CASHBOOK_SOURCE && row.row_status === ROW_PENDING_MATCH;
 
 /** A Cashbook line's statement Type for a Collect payment. Mirrors `cashbook_refunds.COLLECT_ROW_KIND`. */
 export const COLLECT_ROW_KIND = "Collect Payment";
@@ -266,13 +269,28 @@ export const COLLECT_PAYMENT_CHOICES_REFUSAL =
  * `cashbook_collect.COLLECT_PAYMENT_SKIP_REFUSAL`. */
 export const COLLECT_PAYMENT_SKIP_REFUSAL = "Only an Admin or an Accountant Lead can skip a Collect payment by hand.";
 
+/** Why Confirm is greyed on an open Collect payment (code review R6): its two choices, never a link. */
+export const COLLECT_PAYMENT_PICK = "Pick Create expense, or Skip by hand.";
+
+/** Why "Link N to one expense" is off with an open Collect payment ticked (code review R5). */
+export const collectPaymentsLinkNote = (count: number): string =>
+    "A Collect payment is decided by Create expense or Skip by hand, never linked. " +
+    `Untick the ${count} Collect ${count === 1 ? "payment" : "payments"} to link the rest.`;
+
+/** An OPEN Collect payment: one whose two choices are still to make. */
+export const isOpenCollectPaymentLine = (row: {
+    row_status: string;
+    source?: string | null;
+    row_kind?: string | null;
+}): boolean => isCollectPaymentLine(row) && isOpen(row.row_status);
+
 /**
  * Is this line a Collect payment: a Cashbook line whose stored statement Type says so? Mirrors
  * `cashbook_collect.is_collect_payment_line`. Such a line offers exactly two choices on the main table, Create
  * expense and Skip by hand (spec #1585 "Open Cashbook lines").
  */
 export const isCollectPaymentLine = (row: { source?: string | null; row_kind?: string | null }): boolean =>
-    (row.source ?? "").trim() === "Cashbook" && (row.row_kind ?? "").trim() === COLLECT_ROW_KIND;
+    (row.source ?? "").trim() === CASHBOOK_SOURCE && (row.row_kind ?? "").trim() === COLLECT_ROW_KIND;
 
 /**
  * May the "Nothing to link?" Skip box show on this line? Mirrors the server's

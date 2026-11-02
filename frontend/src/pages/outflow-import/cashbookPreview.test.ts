@@ -321,6 +321,19 @@ describe("the bills the job could not copy (#1591)", () => {
             "2 spends' bills were not copied. Their Expenses wait for an invoice:"
         );
     });
+
+    it("says an open Collect payment stays open to decide, not that an Expense waits (code review R6)", () => {
+        const collect = { transfer_id: "OBO2", expense: null, reason: "Bill not copied: the server answered 403." };
+        expect(billsNotCopiedHeading(status({ bills_not_copied: [collect] }))).toBe(
+            "1 Collect payment's bills were not copied. It stays open on the main table for Create expense or Skip by hand:"
+        );
+        expect(billsNotCopiedHeading(status({ bills_not_copied: [collect, collect] }))).toBe(
+            "2 Collect payments' bills were not copied. They stay open on the main table for Create expense or Skip by hand:"
+        );
+        expect(billsNotCopiedHeading(status({ created: 3, bills_not_copied: [line, collect] }))).toBe(
+            "2 bills were not copied. Each Expense waits for an invoice; each Collect payment stays open on the main table:"
+        );
+    });
 });
 
 

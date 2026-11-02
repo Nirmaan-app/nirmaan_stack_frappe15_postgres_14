@@ -27,8 +27,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _guard_is_a_debit,
     _guard_money_not_recorded,
     _statement_file_url,
-    guard_collect_payment_choice,
-    guard_not_an_own_import_line,
+    guard_line_may_be_settled_by_hand,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
@@ -189,8 +188,7 @@ def _load_linkable_row(name: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{name}' not found.", title="Not found")
-    guard_not_an_own_import_line(doc)
-    guard_collect_payment_choice(doc)
+    guard_line_may_be_settled_by_hand(doc)
     status = doc.get("row_status") or ""
     if status not in OPEN_ROW_STATUSES:
         who = (doc.get("beneficiary_name") or "").strip() or name

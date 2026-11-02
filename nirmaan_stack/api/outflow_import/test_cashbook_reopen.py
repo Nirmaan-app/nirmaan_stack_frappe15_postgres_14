@@ -27,6 +27,7 @@ from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import EARLIEST_EXPIRY
+from nirmaan_stack.services.outflow_import.bill_download import BillRefused
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 
 ROW_DOCTYPE = "Outflow Import Row"
@@ -291,6 +292,77 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
         # The other wrong skips are still re-opened.
         self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Mismatched")
         self.assertEqual(self._only_line(WALLET_CREDIT).import_batch, self.old)
+
+    def test_a_line_taken_while_the_statement_is_saved_falls_back_too(self):
+        """Code review R4: confirm's `save_file` commits, which ends the first claim. A line taken in that window is
+        found by the claim after the save and follows the ordinary rule; confirm is never refused for it."""
+        from frappe.utils import file_manager
+
+        real_save_file = file_manager.save_file
+        taken = self._only_line(COLLECT_NO_LINK)
+
+        def save_then_another_import_takes_the_line(*args, **kwargs):
+            saved = real_save_file(*args, **kwargs)
+            frappe.db.commit()
+            frappe.db.set_value(
+                ROW_DOCTYPE,
+                taken.name,
+                {"row_status": "Mismatched", "skip_reason": None, "skip_kind": None, "skip_origin": None},
+                update_modified=False,
+            )
+            frappe.db.commit()
+            return saved
+
+        with patch.object(file_manager, "save_file", save_then_another_import_takes_the_line):
+            new = self._upload()["batch"]
+
+        # Not re-opened by this import (no Comment naming it), and the other wrong skips still are.
+        comments = frappe.get_all(
+            "Comment", filters={"reference_doctype": ROW_DOCTYPE, "reference_name": taken.name, "comment_type": "Comment"}
+        )
+        self.assertEqual(comments, [])
+        self.assertEqual(self._only_line(WALLET_CREDIT).row_status, "Mismatched")
+        self.assertTrue(frappe.db.exists("Outflow Import Batch", new))
+
+
+class TestTheReopeningImportOwnsTheBillCopy(ReopenCase):
+    """Code review R1: a re-opened Collect payment stays in its earlier import, but the copy of its bill is the work
+    of the import that re-opened it. Only that import may say it stopped with the bill still to copy, offer Resume,
+    and list the bill when it could not be copied."""
+
+    def _upload_killed_before_the_collect_bills(self) -> str:
+        class _Killed(BaseException):
+            pass
+
+        with patch.object(cb, "store_collect_bills", side_effect=_Killed), self.assertRaises(_Killed):
+            self._upload()
+        frappe.db.rollback()
+        new = frappe.get_all(
+            "Outflow Import Batch", filters={"source": "Cashbook"}, order_by="creation desc", limit=1, pluck="name"
+        )[0]
+        self.batches.append(new)
+        return new
+
+    def test_only_the_reopening_import_waits_for_the_bill(self):
+        new = self._upload_killed_before_the_collect_bills()
+        self.assertFalse(self._only_line(COLLECT_WITH_LINK).stored_bill)
+
+        old = cb.get_cashbook_status(self.old)
+        self.assertEqual((old["bills_waiting"], old["stopped"]), (0, False))
+        mine = cb.get_cashbook_status(new)
+        self.assertEqual((mine["bills_waiting"], mine["stopped"]), (1, True))
+
+    def test_only_the_reopening_import_lists_the_bill_it_could_not_copy(self):
+        refused = _fake_bills({(COLLECT_WITH_LINK, "1.jpeg"): BillRefused("the server answered 403")})
+        with self._clock(), patch.object(bills, "fetch_bill", refused), patch.object(
+            cb, "_enqueue_worker", side_effect=lambda batch, actor, **kw: cb._cashbook_worker(batch, actor, **kw)
+        ):
+            new = _post(cb.confirm_cashbook_import, self.content, "statement.xlsx")["batch"]
+        self.batches.append(new)
+
+        txn = COLLECT_WITH_LINK + self.suffix
+        self.assertNotIn(txn, {line["transfer_id"] for line in cb.get_cashbook_status(self.old)["bills_not_copied"]})
+        self.assertIn(txn, {line["transfer_id"] for line in cb.get_cashbook_status(new)["bills_not_copied"]})
 
 
 class TestReviewListsTheLinesToBeReopened(ReopenCase):

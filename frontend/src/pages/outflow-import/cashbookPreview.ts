@@ -365,9 +365,19 @@ export const billNotCopiedLabel = (line: BillNotCopied): string =>
 export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined): string | null => {
     const lines = status?.bills_not_copied ?? [];
     if (!status || status.running || lines.length === 0) return null;
-    return lines.length === 1
-        ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
-        : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
+    // Code review R6: an open Collect payment's line has no Expense (`expense` blank); it stays open to decide.
+    const collect = lines.filter((line) => !line.expense).length;
+    if (collect === 0) {
+        return lines.length === 1
+            ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
+            : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
+    }
+    if (collect === lines.length) {
+        return lines.length === 1
+            ? "1 Collect payment's bills were not copied. It stays open on the main table for Create expense or Skip by hand:"
+            : `${count(lines.length)} Collect payments' bills were not copied. They stay open on the main table for Create expense or Skip by hand:`;
+    }
+    return `${count(lines.length)} bills were not copied. Each Expense waits for an invoice; each Collect payment stays open on the main table:`;
 };
 
 /**

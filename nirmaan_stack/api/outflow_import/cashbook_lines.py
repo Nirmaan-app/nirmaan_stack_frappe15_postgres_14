@@ -26,6 +26,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 
 ROW_DOCTYPE = "Outflow Import Row"
+BATCH_DOCTYPE = "Outflow Import Batch"
 
 # The tier this source matches on, in `Outflow Row Match.match_basis`'s own vocabulary. NOT
 # "Manual" -- no person chose these -- and not "project in remark", which belongs to the settlement
