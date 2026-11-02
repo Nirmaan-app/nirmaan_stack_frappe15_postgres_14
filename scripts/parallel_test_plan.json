@@ -2511,6 +2511,12 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_match.test_lanes": {
+   "seconds": 10.7,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.services.boq_rate_match.test_pool": {
    "seconds": 12.4,
    "series": [],
