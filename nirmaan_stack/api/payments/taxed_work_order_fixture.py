@@ -116,7 +116,7 @@ class TaxedWorkOrderFixture:
         *,
         gst: bool = False,
         gst_invoiced: float = 0,
-        amount_invoiced: float = 0,
+        amount_invoiced: float | None = None,
         categories: list[str] | None = None,
     ) -> str:
         """`total_amount` is generous on purpose: `ProjectPayments.before_insert` refuses a payment
@@ -124,9 +124,15 @@ class TaxedWorkOrderFixture:
 
         `gst` / `gst_invoiced` plant a GST-on Work Order and its GST Invoiced cache as given (the
         cache is an input to the payment limit here, not the thing under test); `amount_invoiced`
-        plants its Total Amount Invoiced the same way, for the invoice check. `categories` fills
+        plants its Total Amount Invoiced the same way, for the invoice check. It defaults to `total`,
+        invoiced in full, because nobody skips the invoice check (owner, 2026-10-30): a second payment
+        on a Work Order with nothing invoiced is refused at its approval too, so every test that puts
+        two payments on one Work Order would otherwise fail before it reached the tax code it is about.
+        A test OF the invoice check plants the shortfall it needs. `categories` fills
         `service_category_list` (`["Miscellaneous Services"]` makes it company-borne,
         `payment_tds.is_company_borne`); none leaves it an ordinary Work Order."""
+        if amount_invoiced is None:
+            amount_invoiced = total
         name = self._name("SR")
         frappe.db.sql(
             """INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
