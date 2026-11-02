@@ -318,6 +318,14 @@ SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
 # the job as a system skip, and the sentence a refused hand Create shows. Same prefix as the line above, so
 # `skip_kind_backfill` and `skip_origin` read it as "Already imported".
 SKIP_REASON_ALREADY_IMPORTED_AS = "Already imported in batch {batch} as {records}."
+# A hand Link of a Cashbook line whose Txn Id another line already holds Settled to a DIFFERENT Expense (#1601):
+# the same index refused the Link's match row. `{records}` is "<ledger> <name>", `{target}` the Expense the person
+# picked. A refusal sentence on the screen, never a skip, so it does not start "Already imported".
+LINK_REFUSED_TXN_ID_HELD = (
+    "Txn Id {transfer_id} is already recorded as {records}, in batch {batch}, so it cannot be linked to "
+    "{target} as well: one wallet spend has one expense. Nothing was linked. To link it here instead, "
+    "Unreconcile that line first."
+)
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 # ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
 # is ever staged is one whose bank status CHANGED -- and the reason names both statuses. The prefix up

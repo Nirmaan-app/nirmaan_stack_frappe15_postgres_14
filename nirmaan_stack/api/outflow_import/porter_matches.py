@@ -10,6 +10,7 @@ from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.porter import MATCH_BASIS
 from nirmaan_stack.services.outflow_import.row_settlement import target_snapshot
+from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 
 
 def record_porter_match(row, batch: str, expense, actor: str, origin: str) -> None:
@@ -23,6 +24,7 @@ def record_porter_match(row, batch: str, expense, actor: str, origin: str) -> No
             "import_row": row.name,
             "import_batch": batch,
             "transfer_id": row.transfer_id,
+            "source": PORTER_STATEMENT_SOURCE,
             "target_doctype": expense.doctype,
             "target_name": expense.name,
             "target_amount": float(expense.amount),

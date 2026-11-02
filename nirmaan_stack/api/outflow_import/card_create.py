@@ -58,6 +58,7 @@ from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_DEBIT
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup, target_snapshot
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
+from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 
 _JOB = "nirmaan_stack.api.outflow_import.card_create.create_card_import"
@@ -165,6 +166,7 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
             "import_row": row.name,
             "import_batch": batch,
             "transfer_id": row.transfer_id,
+            "source": CARD_STATEMENT_SOURCE,
             "target_doctype": result.doctype,
             "target_name": result.name,
             "target_amount": float(result.amount),

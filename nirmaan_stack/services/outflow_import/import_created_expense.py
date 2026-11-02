@@ -2,12 +2,18 @@
 # For license information, please see license.txt
 
 """One Expense per wallet Txn Id: the index's name, its rows, and how a refusal by it is recognised
-(spec #1585 C, #1588).
+(spec #1585 C, #1588; a Cashbook Link joined it at #1601).
 
 The index itself is built by its owner, `outflow_row_match.ensure_one_import_created_expense_per_transfer`
-(the controller's `on_doctype_update`, and the patch `v3_0.outflow_match_one_created_expense_per_transfer`).
-This module holds what the import's writers read about it: the Cashbook job (`cashbook._write_failed`) and a
-hand Create (`expenses.create_expense`) turn a refusal into "Already imported", naming the holder.
+(the controller's `on_doctype_update`, and the patches `v3_0.outflow_match_one_created_expense_per_transfer`
+and `v3_0.outflow_match_one_expense_per_cashbook_txn`, which widened it). This module holds what the import's
+writers read about it: the Cashbook job (`cashbook._write_failed`) and a hand Create (`expenses.create_expense`)
+turn a refusal into "Already imported", and a hand Link of a Cashbook line (`expenses.refuse_link_of_a_held_txn_id`)
+into a sentence; each names the holder.
+
+⚠️ THE NAMES SAY "IMPORT-CREATED" AND PREDATE #1601. Since then the index also holds a Cashbook line's Link. The
+index's name is how a refusal is recognised, and an append-only patch imports these functions from the controller,
+so neither was renamed.
 """
 
 from __future__ import annotations
@@ -26,8 +32,14 @@ __all__ = [
 # ⚠️ THE NAME IS HOW A REFUSAL IS RECOGNISED (`is_import_created_expense_refusal`). Renaming the index
 # without renaming this would turn every "Already imported" into a raw database error.
 IMPORT_CREATED_EXPENSE_INDEX = "ofm_match_import_created_expense_unique"
-IMPORT_CREATED_EXPENSE_PREDICATE = """match_kind = 'Settled' AND created_by_import = 1
-           AND target_doctype IN ('Project Expenses', 'Non Project Expenses')"""
+# The rows that count as a Txn Id's one Expense: a Settled Expense match row that the import CREATED (any
+# source, #1588), or ANY Settled Expense match row of a Cashbook line -- a Link too (#1601). A wallet Txn Id is one
+# spend, so whatever records it -- the job, a hand Create, a hand Link -- is its Expense. Other sources keep
+# #1588's reach exactly: a bank transfer may still be Linked to several existing Expenses.
+# ⚠️ `source` IS `Outflow Row Match.source`, a snapshot every writer of a match row sets from its line.
+IMPORT_CREATED_EXPENSE_PREDICATE = """match_kind = 'Settled'
+           AND target_doctype IN ('Project Expenses', 'Non Project Expenses')
+           AND (created_by_import = 1 OR source = 'Cashbook')"""
 
 
 def transfers_with_two_import_created_expenses() -> list[str]:
@@ -42,8 +54,8 @@ def transfers_with_two_import_created_expenses() -> list[str]:
 
 
 def import_created_expense_holding(transfer_id: str):
-    """The Expense the import created for this Txn Id and its batch (`target_doctype`, `target_name`,
-    `import_batch`), or `None`.
+    """The Expense that holds this Txn Id -- created by the import, or a Cashbook line's Link (#1601) -- and its
+    batch (`target_doctype`, `target_name`, `import_batch`), or `None`.
 
     ⚠️ READ IT AFTER A FULL ROLLBACK of the refused write. Inside that transaction's snapshot the other
     Expense is invisible -- the refusal itself is the only sign of it."""

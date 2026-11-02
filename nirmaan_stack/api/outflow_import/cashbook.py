@@ -531,6 +531,8 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
             "import_row": row_name,
             "import_batch": batch,
             "transfer_id": doc["transfer_id"],
+            # #1601: the one-Expense-per-Txn-Id index reads it; this writer only ever writes Cashbook lines.
+            "source": SOURCE,
             "target_doctype": result.doctype,
             "target_name": result.name,
             "target_amount": float(result.amount),
