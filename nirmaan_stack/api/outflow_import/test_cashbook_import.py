@@ -214,6 +214,19 @@ class TestTheWorker(CashbookImportCase):
         self.assertEqual(expense.payment_ref, row.transfer_id)
         self.assertEqual(expense.payment_attachment, "/private/files/test-statement.csv")
 
+    def test_every_created_expense_carries_its_batch_as_the_cashbook_marker(self):
+        """#1592: the marker that puts a wallet spend in Pending Invoices Upload -> Cashbook. A Project
+        Expense carries it too: `api/expenses/test_cashbook_invoices` lists one."""
+        cb._cashbook_worker(self.batch, "Administrator")
+        matches = frappe.get_all(
+            "Outflow Row Match", filters={"import_batch": self.batch}, fields=["target_doctype", "target_name"]
+        )
+        self.assertTrue(matches)
+        for m in matches:
+            self.assertEqual(
+                frappe.db.get_value(m.target_doctype, m.target_name, "cashbook_batch"), self.batch, m.target_name
+            )
+
     def test_the_expense_is_dated_the_day_the_money_moved(self):
         """⚠️ THE REGRESSION TEST FOR A DEFECT NO SUITE COULD SEE.
 
