@@ -1,5 +1,10 @@
 import frappe, json
 from frappe import _
+from nirmaan_stack.api.credits.get_credits_list import (
+    TAB_CHEQUE_ISSUED as CREDIT_TAB_CHEQUE_ISSUED,
+    TAB_DUE as CREDIT_TAB_DUE,
+    _add_status_condition,
+)
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.procurement_approval import AWAITING_APPROVAL_STATES, PENDING_ITEM_STATUS
 from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
@@ -184,13 +189,14 @@ def sidebar_counts(user: str) -> str:
         ''',
         _params(dict(marks)),
     )[0][0]
-    # Credit counts: PO Payment Terms (child of Procurement Orders) scoped to non-Merged/Inactive POs.
+    # Credit counts: PO Payment Terms (child of Procurement Orders) on POs the Credit Payments list shows -- not
+    # Merged, Inactive or PO Amendment (`get_credits_list`), so a tab's count and its rows agree.
     # Previously this plucked ALL valid PO names and passed `parent IN (<thousands>)`, which on prod
     # (Frappe validate_generated_query + sqlparse 10k-token cap) throws SQLParseError. Rewritten as a JOIN
     # to Procurement Orders -- constant token count, runs via frappe.db.sql (sqlparse-exempt), and reuses
     # the _proj()/_params() project-scoping helpers above (ADR-0010: a count over many rows -> the DB).
-    from datetime import date
-    today = date.today().isoformat()
+    # The site's date (IST), as the list's: the container clock is UTC, so `date.today()` lags 00:00-05:30 IST.
+    today = frappe.utils.today()
 
     credit_counts_raw = frappe.db.sql(
         f'''
@@ -199,7 +205,7 @@ def sidebar_counts(user: str) -> str:
         JOIN "tabProcurement Orders" po
           ON po.name = t.parent AND t.parenttype = 'Procurement Orders'
         WHERE t.payment_type = 'Credit'
-          AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
+          AND po.status NOT IN ('Merged', 'Inactive', 'PO Amendment'){_proj("po")}
         GROUP BY t.term_status
         ''',
         _params({}), as_dict=True,
@@ -207,29 +213,26 @@ def sidebar_counts(user: str) -> str:
     credit_counts = {(r["term_status"] or "").lower().replace(" ", ""): r["count"] for r in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
 
-    # "due" = Created (past due_date) + Requested + Approved. Requested/Approved come from credit_counts;
-    # the Created-past-due count is the same JOIN with the extra term_status/due_date predicates.
-    created_due_count = frappe.db.sql(
-        f'''
-        SELECT COUNT(t.name)
-        FROM "tabPO Payment Terms" t
-        JOIN "tabProcurement Orders" po
-          ON po.name = t.parent AND t.parenttype = 'Procurement Orders'
-        WHERE t.payment_type = 'Credit' AND t.term_status = 'Created'
-          AND t.due_date <= %(today)s
-          AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
-        ''',
-        _params({"today": today}),
-    )[0][0]
+    # The Due and Cheque Issued tabs count through the Credit Payments page's own tab conditions
+    # (`get_credits_list._add_status_condition`), so a badge and its tab cannot disagree: Due leaves out
+    # every term paid by cheque, which waits in Cheque Issued until it is Paid (owner, 2026-10-31).
+    def _credit_tab_count(tab):
+        conditions, values = [], {"today": today}
+        _add_status_condition(tab, conditions, values)
+        return frappe.db.sql(
+            f'''
+            SELECT COUNT(pt.name)
+            FROM "tabPO Payment Terms" pt
+            JOIN "tabProcurement Orders" po
+              ON po.name = pt.parent AND pt.parenttype = 'Procurement Orders'
+            WHERE pt.payment_type = 'Credit' AND {" AND ".join(conditions)}
+              AND po.status NOT IN ('Merged', 'Inactive', 'PO Amendment'){_proj("po")}
+            ''',
+            _params(values),
+        )[0][0]
 
-    # Count Requested terms
-    requested_count = credit_counts.get("requested", 0)
-
-    # Count Approved terms
-    approved_count = credit_counts.get("approved", 0)
-
-    # Total "due" count = Created (past due) + Requested + Approved
-    credit_counts["due"] = created_due_count + requested_count + approved_count
+    credit_counts["due"] = _credit_tab_count(CREDIT_TAB_DUE)
+    credit_counts["chequeissued"] = _credit_tab_count(CREDIT_TAB_CHEQUE_ISSUED)
 
     # --- PO Adjustments ---
     adj_filters = {"status": "Pending"}

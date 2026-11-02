@@ -82,7 +82,9 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
           // exactly one of: the rules list, or one line
           expect({ id: c.category_id, both: list > 0 && notice !== null, neither: list === 0 && notice === null }).toEqual({ id: c.category_id, both: false, neither: false });
           // the extraction Rules card stays where it has rules; its empty state never sits beside the line
-          expect({ id: c.category_id, card: !!rulesCard }).toEqual({ id: c.category_id, card: rules > 0 });
+          // INVERTED by ELR-1 (owner Q4 "a", 2026-10-27): WAS `card: rules > 0`. NOW a category that HAS a rules list
+          // draws no card (wiring_cabling); every category without a list keeps the card exactly where it has rules.
+          expect({ id: c.category_id, card: !!rulesCard }).toEqual({ id: c.category_id, card: rules > 0 && list === 0 });
           if (rulesCard) expect(rulesCard.querySelectorAll("li").length).toBe(rules);
           expect(host.textContent).not.toContain("No rules configured for this category.");
           seen[`${p.discipline}/${c.category_id}`] = list > 0 ? `list ${list}` : `${notice}${rulesCard ? ` + rules ${rules}` : ""}`;
@@ -92,19 +94,38 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
       }
     }
     const ePointer = "This category's rules are not listed yet. To see how a row is priced, open Electrical Pricing -> Calculator.";
+    // ELR-4b (owner R-APPROVE + R-Q4; the P6 answer, 2026-10-29) INVERTED: WAS the eight below on the pointer line
+    // (WAS shown per key); NOW each lists its rules, no pointer, no card. The pointer line itself is kept for the
+    // negative half: no Electrical tab shows it any more.
+    expect(Object.values(seen)).not.toContain(ePointer);
     expect(seen).toEqual({
-      "Electrical/wiring_cabling": `${ePointer} + rules 2`,
-      "Electrical/earthing": ePointer,
-      "Electrical/conduit_piping": ePointer,
-      "Electrical/junction_box_raceway": `${ePointer} + rules 1`,
-      "Electrical/cabletray_raceway": `${ePointer} + rules 2`,
-      "Electrical/popup_boxes": `${ePointer} + rules 1`,
-      "Electrical/industrial_sockets": `${ePointer} + rules 1`,
-      "Electrical/switches_sockets": `${ePointer} + rules 4`,
-      "Electrical/db_switchgear": `${ePointer} + rules 4`,
-      "Electrical/miscellaneous": ePointer,
-      "Electrical/lighting_mgmt_system": ePointer,
-      "Electrical/point_wiring": `${ePointer} + rules 6`,
+      // INVERTED by ELR-1 (owner R-ELR0 "1 ok", R-DERIV): WAS `${ePointer} + rules 2`; NOW wiring's rules list, 13 lines
+      // INVERTED by ELR-4b (WC-b / WC-c inserted): WAS "list 13"; NOW 15
+      "Electrical/wiring_cabling": "list 15",
+      // ELR-4b: WAS ePointer
+      "Electrical/earthing": "list 3",
+      // ELR-4b: WAS ePointer
+      "Electrical/conduit_piping": "list 3",
+      // ELR-4b: WAS `${ePointer} + rules 1`
+      "Electrical/junction_box_raceway": "list 2",
+      // ELR-4b: WAS `${ePointer} + rules 2`
+      "Electrical/cabletray_raceway": "list 6",
+      // INVERTED by ELR-4a (owner R-APPROVE + R-Q4, 2026-10-29): WAS `${ePointer} + rules 1`; NOW its rules list (this
+      // test reads the older asset it names, whose configs give the counts below)
+      "Electrical/popup_boxes": "list 6",
+      // ELR-4b: WAS `${ePointer} + rules 1`
+      "Electrical/industrial_sockets": "list 8",
+      // INVERTED by ELR-4a: WAS `${ePointer} + rules 4`; NOW its rules list
+      "Electrical/switches_sockets": "list 7",
+      // ELR-4b: WAS `${ePointer} + rules 4`
+      "Electrical/db_switchgear": "list 9",
+      // ELR-4b: WAS ePointer
+      "Electrical/miscellaneous": "list 2",
+      // ELR-4b: WAS ePointer
+      "Electrical/lighting_mgmt_system": "list 2",
+      // INVERTED by ELR-4a: WAS `${ePointer} + rules 6`; NOW its rules list (12 on this older asset: its circuit length and
+      // circuit stretch read literals, not Pricing Inputs (ELR-3a moved them), so those two lines have no source here)
+      "Electrical/point_wiring": "list 12",
       "Electrical/electrical_pricing_inputs": PRICING_INPUTS_DERIVATION_LINE,
       "HVAC/hvac_adp": "list 38",
       "HVAC/hvac_insulation": "list 43",

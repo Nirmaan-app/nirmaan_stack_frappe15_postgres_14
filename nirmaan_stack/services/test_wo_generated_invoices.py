@@ -40,17 +40,6 @@ class TestNextRaNumber(unittest.TestCase):
             self.assertEqual(gi.next_ra_number([], [text]), 1, text)
 
 
-class TestRaNumberOfRecord(unittest.TestCase):
-    def test_reads_the_number_from_a_record_of_the_work_order(self):
-        self.assertEqual(gi.ra_number_of_record("WGI-SR-00107-001080-3", "SR-00107-001080"), 3)
-        self.assertEqual(gi.ra_number_of_record("WGI-SR-00107-001080-12", "SR-00107-001080"), 12)
-
-    def test_a_record_of_another_work_order_counts_for_nothing(self):
-        for name in ("WGI-SR-00107-0010801-3", "WGI-SR-00107-00108-3", "WGI-SR-00107-001080-", "WGI-SR-00107-001080-3a",
-                     "SR-00107-001080-3", None):
-            self.assertIsNone(gi.ra_number_of_record(name, "SR-00107-001080"), name)
-
-
 class TestInvoiceNumber(unittest.TestCase):
     def test_an_ra_bill_is_numbered_from_its_date_project_and_work_order(self):
         self.assertEqual(
@@ -58,10 +47,14 @@ class TestInvoiceNumber(unittest.TestCase):
             "INV-26-27-00107-01080-RA-3",
         )
 
-    def test_a_final_bill_ends_in_final_and_its_year_turns_in_april(self):
+    def test_a_final_bill_is_the_bare_number_and_its_year_turns_in_april(self):
         self.assertEqual(
             gi.invoice_number(date(2027, 3, 31), "PROJ-00107", "SR-00107-001080", gi.FINAL, 5),
-            "INV-26-27-00107-01080-FINAL",
+            "INV-26-27-00107-01080",
+        )
+        self.assertEqual(
+            gi.invoice_number(date(2027, 3, 31), "PROJ-00107", "SR-00107-001080", gi.FINAL, 6, final_number=2),
+            "INV-26-27-00107-01080-2",
         )
         self.assertEqual(
             gi.invoice_number(date(2027, 4, 1), "PROJ-00107", "SR-00107-001080", gi.RA, 6),

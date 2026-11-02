@@ -106,7 +106,8 @@ describe("what stays when returns went", () => {
 
   it("keeps the other Assets sub-tabs, in order", () => {
     const page = read("pages/Assets/AssetsPage.tsx");
-    expect(page, KEPT).toMatch(/SUB_TABS: readonly AssetSubTab\[\] = \['all', 'assigned', 'unassigned', 'pending', 'audit'\]/);
+    // 'lost' (Lost/Damaged) was added after returns went (owner, 2026-10-31).
+    expect(page, KEPT).toMatch(/SUB_TABS: readonly AssetSubTab\[\] = \['all', 'assigned', 'unassigned', 'lost', 'pending', 'audit'\]/);
     for (const label of ["'All'", "'Assigned'", "'Unassigned'", "'Pending Declaration'", "'Asset Audit'"]) {
       expect(page, `${KEPT}: sub-tab ${label}`).toContain(`label: ${label}`);
     }

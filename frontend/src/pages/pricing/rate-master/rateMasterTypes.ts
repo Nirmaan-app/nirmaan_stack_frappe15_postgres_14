@@ -276,7 +276,11 @@ export interface CircuitFitStep {
   step: "circuit_fit";
   params: {
     sizes: number[];
-    usable: Record<string, number[]>;
+    /** The usable fraction of each size's bore, per conduit type. ELR-3a: absent when `usable_from_ctx` is set. */
+    usable?: Record<string, number[]>;
+    /** ELR-3a: per conduit type, one ctx key per size -- a Pricing Input (a fill in (0, 1]) read IN PLACE OF
+     * `usable`. Never both on one step (the interpreter and the validator refuse it). */
+    usable_from_ctx?: Record<string, string[]>;
     /** [core_attr, thickness_attr] or, since the point_wiring RUNS slice, an OPTIONAL third element
      * [core_attr, thickness_attr, runs_attr] naming a parallel-runs attribute. The dia sum becomes
      * cores x runs; ABSENT (the shape every pre-existing config uses) MEANS 1. */
@@ -608,6 +612,8 @@ export interface DeriveAttributeStep {
     terms: { ident: string; attr: string }[];
     /** Named numeric constants bound into the same formula env (the rule's fixed numbers). */
     constants?: Record<string, number>;
+    /** ELR-3a: constant name -> the ctx key of a Pricing Input read IN PLACE OF `constants`. Never both. */
+    constants_from_ctx?: Record<string, string>;
     /** The arithmetic, READ FROM CONFIG. Identifiers are the terms' idents + the constants' keys. */
     formula: string;
     /** Display-only unit for the trace line ("m"). */
@@ -643,8 +649,12 @@ export interface MapAttributeStep {
     from_attr?: string;
     /** The conversion, READ FROM CONFIG. Exact string match on the source value. */
     table?: Record<string, string | number>;
+    /** ELR-3a: source value -> the ctx key of a Pricing Input, read IN PLACE OF `table`. Never both. */
+    table_from_ctx?: Record<string, string>;
     /** Used when nothing is stated and the table does not answer (or there is no table). */
     default?: string | number;
+    /** ELR-3a: the ctx key of a Pricing Input read IN PLACE OF `default`. Never both. */
+    default_from_ctx?: string;
     /** "no_compute" (default) = an honest no-compute naming the attribute. "skip" = leave the target
      * unset and carry on, for a mapping that is genuinely optional. */
     on_miss?: "no_compute" | "skip";
@@ -976,6 +986,12 @@ export interface DerivedAttrOutcome {
   statedValue?: string | number;
   /** Display-only unit from config. */
   unit?: string;
+  /**
+   * ELR-3a (owner Q1 a): the constants the formula was evaluated with, present ONLY when the step read them from
+   * Pricing Inputs (`constants_from_ctx`). Display-only: the panel's "Worked out" note substitutes these, because the
+   * config then holds ctx keys rather than numbers.
+   */
+  constants?: Record<string, number>;
 }
 
 /**
@@ -1117,6 +1133,9 @@ export interface StepTrace {
   /** For component_ref: the NAME of the referenced master row resolved at runtime (e.g. "Bus bar"),
    * so the trace shows WHICH row supplied the base. */
   refItem?: string;
+  /** ELR-2 (owner Q4 (a), display-only): for an assembly-shape component_ref that computed, the quantity it multiplied
+   * the staged rate by -- the structured twin of the "x qty" in `matchedCondition`. Never read by any arithmetic. */
+  qty?: number;
   /** The named value produced/changed by this step (key -> value). */
   produced?: { key: string; value: number };
   /** For module_fit: the STRUCTURED outcome (see ModuleFitOutcome). Present only on a module_fit

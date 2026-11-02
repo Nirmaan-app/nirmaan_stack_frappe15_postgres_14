@@ -64,12 +64,10 @@ def _pdf(number: str) -> bytes:
 @contextmanager
 def _no_bucket_upload():
     """The stored invoice PDF stays a real File row with its bytes on local disk, and never reaches a
-    bucket: the storage apps' `File.after_insert` uploads are stubbed (CODING_STANDARDS: a test never
+    bucket: the storage app's `File.after_insert` upload is stubbed (CODING_STANDARDS: a test never
     puts a file in real storage). Hooks resolve by dotted path at call time, so patching the module
     attribute holds in the job's own threads too."""
-    with patch("frappe_s3_attachment.controller.file_upload_to_s3"), patch(
-        "frappe_gcp_attachment.controller.file_upload_to_gcs"
-    ):
+    with patch("frappe_gcp_attachment.controller.file_upload_to_gcs"):
         yield
 
 

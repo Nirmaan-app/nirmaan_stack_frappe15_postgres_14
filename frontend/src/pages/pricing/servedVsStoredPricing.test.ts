@@ -104,6 +104,22 @@ function withoutAdp5c(items: RateMasterItem[]): RateMasterItem[] {
   return items.filter((it) => String(it.item_uid) !== ADP5C_VCD_ALUMINIUM);
 }
 
+/**
+ * ELR-3a (owner R-9 / R-R1 Q1, Q2, 2026-10-28): Electrical v69's nine new Pricing Inputs (the point-wiring lengths and the six
+ * conduit fills), which the served fixture predates -- set aside on the stored side by name, exactly as `withoutAdp5c` does; it
+ * throws if any uid is not in the stored asset, so it cannot pass vacuously. Every other Electrical uid and rate stays under force.
+ */
+const ELR3A_INPUTS = [
+  "rmi-f968b360bb03", "rmi-116c82f1e3cf", "rmi-ab29e67ff6f1",
+  "rmi-820ea9b84aa7", "rmi-87044056895b", "rmi-8ee009342b9e",
+  "rmi-956e897e772c", "rmi-db822dde86e5", "rmi-3163e5331d55",
+];
+function withoutElr3a(items: RateMasterItem[]): RateMasterItem[] {
+  const ids = new Set(items.map((it) => String(it.item_uid)));
+  for (const u of ELR3A_INPUTS) if (!ids.has(u)) throw new Error(`ELR-3a input ${u} is not in the stored asset`);
+  return items.filter((it) => !ELR3A_INPUTS.includes(String(it.item_uid)));
+}
+
 /** ONE block per SKU, from the SKU's own attributes -- the replay_insulation instrument's construction. */
 function skuBlock(it: RateMasterItem) {
   const attrs: Record<string, { value: string }> = {};
@@ -147,7 +163,9 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     // uids are normalised out of the stored side by name (`withoutAdp1`); everything else is compared as before.
     // INVERTED at ADP-5c (HVAC v53; standing authority: a test failing solely because it reads the current HVAC asset) by mechanical
     // authority. BEFORE: [["HVAC", servedHvac, withoutAdp1(storedHvac)], ...] -- the VCD Aluminium SKU set aside by name (`withoutAdp5c`)
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(storedHvac))], ["Electrical", served.items.Electrical, storedItems(ELEC)]] as const) {
+    // INVERTED at ELR-3a (Electrical v69; the same standing authority) by mechanical authority. BEFORE: [..., ["Electrical",
+    // served.items.Electrical, storedItems(ELEC)]] -- the nine new Pricing Inputs set aside by name (`withoutElr3a`)
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(storedHvac))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

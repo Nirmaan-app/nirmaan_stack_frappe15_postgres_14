@@ -25,7 +25,10 @@ import {
   type ItemListSuggestion,
   type ItemListView,
   type SectionBlockView,
+  type ShownAttribute,
 } from "./pricingSheetHelper";
+import { moneyValue } from "./attributeWorkingLines";
+import { floorBoxValue, isFloorRaised } from "./conductorFloor";
 import {
   attrDisplayValue,
   attrNoteText,
@@ -69,6 +72,25 @@ export const NOTE_BOX_CLASS =
   "ml-1 flex gap-1 rounded border border-blue-300 bg-blue-50 px-1.5 py-1 text-blue-900 "
   + "dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-100";
 export const NOTE_ICON_CLASS = "mt-[1px] h-3 w-3 shrink-0 text-blue-600 dark:text-blue-300";
+/** ELR-1 (AC2): a field's TYPED note -- what to type -- in the one style both paths use (the item-list field's
+ * `typedNote` and an attribute definition's `note`), inside the NOTE_BOX_CLASS box. */
+export const TYPED_NOTE_CLASS = "text-[10px] leading-tight opacity-90";
+
+/**
+ * SLICE 12c-U (owner U2 / U3), ONE BOX FOR BOTH PATHS (ELR-1, owner R-UNIT): the row stated no unit -- or "rate
+ * only" -- and was priced in a unit the note names IN WORDS, because the figure alone would look as though the BoQ
+ * had named that unit. The item-list view and the attribute path render this same element.
+ */
+export function UnitNoteBox({ note, testId }: { note: string; testId: string }) {
+  return (
+    <div
+      className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+      data-testid={testId}
+    >
+      {note}
+    </div>
+  );
+}
 
 const PANEL_WIDTH_STORAGE_KEY = "nirmaan-rate-helper-panel-w";
 const DEFAULT_PANEL_WIDTH = 300;
@@ -251,12 +273,12 @@ function FiguresRow({ figures, copy = true, muted = false, unit }: {
           <span key={k} className="inline-flex items-center gap-1 tabular-nums">
             <span className={muted ? "opacity-70" : "text-muted-foreground"}>{kindLabel(k)}</span>
             <span className="font-semibold text-foreground">
-              {typeof v === "number" ? v : "—"}
+              {typeof v === "number" ? moneyValue(v) : "—"}
             </span>
             {label && typeof v === "number" && (
               <span className={muted ? "opacity-70" : "text-muted-foreground"}>per {label}</span>
             )}
-            {copy && typeof v === "number" && <CopyFigureButton value={v} label={kindLabel(k)} />}
+            {copy && typeof v === "number" && <CopyFigureButton value={moneyValue(v)} label={kindLabel(k)} />}
           </span>
         );
       })}
@@ -388,6 +410,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   // `excelRow` changes but before the effect runs would still compute with the old row's edits, and
   // a click in that window would bank it. Carrying the row makes a mismatch impossible to observe.
   const [attrOverrideState, setAttrOverrideState] = useState<RowScoped<Record<string, Record<string, string>>>>(EMPTY_ATTR_STATE);
+  // ELR-4d (owner P6 "Q7 b"): the text of the number box being typed in, so a box the conductor floor raises keeps it until blur
+  const [boxTyping, setBoxTyping] = useState<{ id: string; text: string } | null>(null);
   // Calculator slice 2: the calculator has ONE card and no header to click through, so it opens
   // expanded; the two BoQ variants keep their collapsed default.
   const isCalculator = variant === "calculator";
@@ -606,8 +630,9 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
             );
           }
           const computed = result.values[kind!]; // non-null: this block only renders with a selection
+          // ELR-4c (owner R-FLOAT, "Q3 a"): the box carries the figure as shown -- money to 2 decimals (216.05, not 216.04999999999998)
           const finalStr =
-            finalOverride[helper.id] ?? (typeof computed === "number" ? String(computed) : "");
+            finalOverride[helper.id] ?? (typeof computed === "number" ? String(moneyValue(computed)) : "");
           const finalNum = Number.parseFloat(finalStr);
           // SLICE 6: an item-list suggestion renders its blocks instead of the flat attribute list, and "Use
           // this value" stays disabled until EVERY item priced (S4 -- all or nothing).
@@ -643,7 +668,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           <div key={`${h.label}-${hi}`} className="flex items-baseline gap-1.5">
                             <span className="text-[11px] text-muted-foreground">{h.label}</span>
                             <span className="text-sm font-semibold tabular-nums">
-                              {typeof hv === "number" ? hv : "—"}
+                              {typeof hv === "number" ? moneyValue(hv) : "—"}
                             </span>
                           </div>
                         );
@@ -651,7 +676,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                     </div>
                   ) : (
                     <span className="text-sm font-semibold tabular-nums">
-                      {typeof computed === "number" ? computed : "—"}
+                      {typeof computed === "number" ? moneyValue(computed) : "—"}
                     </span>
                   )}
                   {isOpen ? (
@@ -677,6 +702,11 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         onUnit={(u) => setAttr(helper.id, ROW_UNIT_OVERRIDE_KEY, u)}
                       />
                     </div>
+                  )}
+                  {/* ELR-1 (owner R-UNIT): the attribute path's no-unit / rate-only note, the item-list box. A BoQ row
+                      only -- the calculator has no row unit, so it never carries one. */}
+                  {!itemList && result.workings.unitNote && (
+                    <UnitNoteBox note={result.workings.unitNote} testId="attribute-unit-note" />
                   )}
                   {!itemList && result.workings.attributes.length > 0 && (
                     <div
@@ -745,6 +775,14 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             {a.groupLabel}
                           </div>
                         )}
+                        {/* ELR-4a (owner R-PW-BLANK, 2026-10-29): a note in the place of a field the config hides --
+                            point wiring's "Blank plate" -- drawn before the field it explains, on the panel and the calculator */}
+                        {a.leadNote && (
+                          <div className={NOTE_BOX_CLASS} data-testid="attribute-lead-note">
+                            <Info className={NOTE_ICON_CLASS} aria-hidden />
+                            <p className={TYPED_NOTE_CLASS}>{a.leadNote}</p>
+                          </div>
+                        )}
                         <div className="group/attr space-y-0.5">
                         {/* Calculator layout slice: the label sits ABOVE its box (a column, boxes
                             full-width and equal within a column); the BoQ variants keep label-left /
@@ -756,6 +794,11 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             <label htmlFor={`${fieldUid}-attr-${a.id}`}>{a.label}</label>
                             {/* ADP-3a (owner H1, U1): "*" after the label of a field needed to price */}
                             {a.required && <span aria-hidden="true" data-testid="needed-marker">*</span>}
+                            {/* ELR-4c (owner "Q4 a"): on the BoQ panel a field the BoQ can also give another way says so beside
+                                its "*" (no hidden field named, R-SWG); the calculator, with no other way, keeps the plain "*" */}
+                            {a.required && !isCalculator && (a as ShownAttribute).eitherWords && (
+                              <span className="text-[10px]" data-testid="needed-either">{(a as ShownAttribute).eitherWords}</span>
+                            )}
                             {showingDerived && (
                               <span
                                 className="text-[10px] italic"
@@ -875,13 +918,15 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 id={`${fieldUid}-attr-${a.id}`}
                                 aria-required={a.required || undefined}
                                 className={cn(isCalculator ? "h-7 w-full text-xs disabled:opacity-50" : "h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
-                                value={shown === "None" ? "" : shown}
+                                value={floorBoxValue(a, shown, boxTyping)}
                                 // READ-ONLY, not disabled: the value is real and worth reading (and
                                 // copying) -- greying it out would read as "positively absent", which
                                 // is a DIFFERENT state this panel already renders that way.
                                 readOnly={a.readOnly}
                                 disabled={a.disabled || shown === "None"}
-                                onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
+                                onChange={(e) => { setBoxTyping({ id: a.id, text: e.target.value }); setAttr(helper.id, a.id, e.target.value); }}
+                                onFocus={(e) => { if (isFloorRaised(a)) e.target.select(); }}
+                                onBlur={() => setBoxTyping(null)}
                               />
                             </span>
                           )}
@@ -919,15 +964,18 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         {/* SLICE 12c-S (owner S7): the SAME blue info box the item-list fields use. These
                             are notes in exactly the same sense -- something the pricing did to this field,
                             said in words -- so the two disciplines must not read in two different colours. */}
-                        {a.notes && a.notes.length > 0 && (
+                        {/* ELR-1 (AC2): the definition's own note joins the same box, after what the pricing did --
+                            the item-list field's order (note first, the typed note after) and its class. */}
+                        {((a.notes && a.notes.length > 0) || a.typedNote) && (
                           <div className={NOTE_BOX_CLASS}>
                             <Info className={NOTE_ICON_CLASS} aria-hidden />
                             <div className="min-w-0 space-y-0.5">
-                              {a.notes.map((n, ni) => (
+                              {(a.notes ?? []).map((n, ni) => (
                                 <p key={`${n.kind}-${ni}`} className="text-[10px] leading-tight">
                                   {attrNoteText(n)}
                                 </p>
                               ))}
+                              {a.typedNote && <p className={TYPED_NOTE_CLASS} data-testid="attribute-typed-note">{a.typedNote}</p>}
                             </div>
                           </div>
                         )}
@@ -1066,7 +1114,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           correctedAttributes: Object.fromEntries(
                             result.workings.attributes.map((a) => [a.id, a.value]),
                           ),
-                          computedValue: typeof computed === "number" ? computed : null,
+                          // ELR-4c (owner "Q3b a"): the feedback log records the value shown, so accepting it reads as not overridden
+                          computedValue: typeof computed === "number" ? moneyValue(computed) : null,
                           ...(itemList ? { itemsOnScreen: itemsOnScreen(itemList) } : {}),
                         })
                       }
@@ -1242,14 +1291,7 @@ function ItemListBlocks({
       {/* SLICE 12c-U (owner U2 / U3): the row stated no unit -- or "rate only" -- and was priced in
           the catalogue's unit for its item. The note says so IN WORDS, because the figure alone
           would look as though the BoQ had named that unit. Present only on such a row. */}
-      {view.unitNote && (
-        <div
-          className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
-          data-testid="item-list-unit-note"
-        >
-          {view.unitNote}
-        </div>
-      )}
+      {view.unitNote && <UnitNoteBox note={view.unitNote} testId="item-list-unit-note" />}
       {/* ADP-3a (owner H1, 2026-10-20 13:32 "ok"): ONE note per panel / calculator -- never repeated in a section */}
       {!section && view.items.some((b) => b.fields.some((f) => f.required || f.group)) && (
         <p className="text-[10px] text-muted-foreground" data-testid="needed-to-price-note">* needed to price</p>
@@ -1519,7 +1561,7 @@ function ItemListBlocks({
                       {f.mirrorLine && <p className="text-[10px] leading-tight" data-testid="item-field-mirror-line">{f.mirrorLine}</p>}
                       {/* OWNER FA8: what to type, in plain English -- declared in config, never written
                           here, so no attribute wording lives in the frontend. */}
-                      {f.typedNote && <p className="text-[10px] leading-tight opacity-90">{f.typedNote}</p>}
+                      {f.typedNote && <p className={TYPED_NOTE_CLASS}>{f.typedNote}</p>}
                       {/* OWNER FA8(c)/(d): HOW the value will be matched, in full, on demand. A <details>
                           rather than a tooltip because these are several sentences a pricer may want to
                           read twice -- and every number in them is generated from the live catalogue, so

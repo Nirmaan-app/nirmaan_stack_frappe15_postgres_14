@@ -77,7 +77,10 @@ class TestPaymentsAreBornPastTheRaisersStep(_Stubbed):
 		super().setUp()
 		self.project = _raw("Projects", project_name=f"TEST_RAISER_{frappe.generate_hash(length=6)}",
 		                    tendering_status="Won")
-		self.sr = _raw("Service Requests", project=self.project, total_amount=500000, gst="false")
+		# Invoiced in full: the second request here is held to the invoice check, which nobody skips
+		# (owner, 2026-10-30), and the step it lands on is what is under test.
+		self.sr = _raw("Service Requests", project=self.project, total_amount=500000, amount_invoiced=500000,
+		               gst="false")
 
 	def _raise(self, user, amount):
 		frappe.set_user(user)

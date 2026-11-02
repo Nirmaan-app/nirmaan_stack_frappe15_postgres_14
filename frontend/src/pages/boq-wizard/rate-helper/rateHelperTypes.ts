@@ -67,6 +67,13 @@ export interface WorkingsAttribute {
    * So this ships with zero backend change -- and moving it upward later would not.
    */
   groupLabel?: string;
+  /** ELR-1 (owner R-NOTES-RULE, AC2): the attribute definition's own `note` -- what to type, in plain English,
+   * declared in config. Rendered in the SAME blue box and style as an item-list field's `typedNote`. ABSENT when
+   * the definition carries none, which is every field but wiring's Runs as of v67. */
+  typedNote?: string;
+  /** ELR-4a (owner R-PW-BLANK, 2026-10-29): a note the panel draws BEFORE this field, in the place of a field the
+   * config hides -- point wiring's "how the blank count is worked out" (`blanksWorkedOutNote`). ABSENT elsewhere. */
+  leadNote?: string;
   // (see `startsAttributeGroup` below for the rule the panel applies to this field)
   /** DERIVED DISPLAY: the PIPELINE computes this attribute (a `module_fit` ladder bind, or a
    * `{from_fit}` quantity that superseded its `<name>_qty`). Read from CONFIG via `derivedAttrIds` --
@@ -463,6 +470,10 @@ export interface WorkingsSection {
    * groups. ABSENT => flat rendering, byte-identical to pre-RM-3a -- so single-group suggestions stay
    * backward-shaped (the pricing-sheet helper omits `sections` on termination rows). */
   sections?: WorkingsGroup[];
+  /** ELR-1 (owner R-UNIT, 12c-U carried to the attribute path; Q1 ruling 2026-10-27): a PRICED BoQ row that stated
+   * no unit, or a rate-only one, says in words which unit the figure is a rate in -- the catalogue row's unit, or
+   * "one <category> item" for an assembly. ABSENT on every other row and on the calculator (no row). */
+  unitNote?: string;
 }
 
 /**

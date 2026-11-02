@@ -22,7 +22,8 @@ from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_MISMATCH
 CREATE_LINE_STATUSES = (ROW_PENDING_MATCH, ROW_ERROR, ROW_MISMATCHED)
 
 #: The type a spend gets when nothing better is known; it must stay a live `non_project` Expense Type
-#: (it is in `fixtures/expense_type.json`, so a migrate cannot drop it).
+#: (a new site gets it from `services/expense_types_seed.json`; the app refuses to rename it,
+#: `masters.names_referenced_in_code`).
 FALLBACK_EXPENSE_TYPE = "Misc. Expenses"
 
 TYPE_SOURCE_MEMORY = "Earlier statement"

@@ -20,7 +20,9 @@
  */
 import { itemFieldDefs, listSpecDefs, priceItemList, itemListPricingSpec,
          type ItemListPricingSpec, type ItemFieldDef } from "./itemListPricing";
-import type { RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
+import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
+import { makePricingSheetHelper } from "./pricingSheetHelper";
+import { isSuggestion, type WorkingsAttribute } from "./rateHelperTypes";
 
 export interface AuditedField {
   attr: string;
@@ -52,7 +54,7 @@ export function auditPanelFields(
   items: readonly RateMasterItem[],
 ): AuditedField[] {
   const spec = itemListPricingSpec(config as never);
-  if (!spec) return [];
+  if (!spec) return auditAttributeFields(config as RateCategoryConfig, items);
   const defs = listSpecDefs(config as never);
   const byAttr = new Map<string, AuditedField>();
 
@@ -97,6 +99,49 @@ export function auditPanelFields(
     }
   }
   return [...byAttr.values()].sort((a, b) => a.attr.localeCompare(b.attr));
+}
+
+/**
+ * ELR-1 (owner R-SCOPE 5, "the validator then enforces notes for Electrical") -- THE ATTRIBUTE BRANCH: a category
+ * priced from row-level attributes, measured through the PANEL's own entry point (`makePricingSheetHelper.compute`
+ * on a stored row, the path a BoQ row takes; the calculator mounts the same panel):
+ *   RENDERS   -- the attributes `compute` returns;
+ *   TYPED     -- a field the panel draws with no options (a typed box);
+ *   MANDATORY -- with every OTHER field answered and this one ASKED AND BLANK, the gate withholds the price and
+ *                marks the field needed ("*").
+ * A field's note is the definition's own `note`, as the panel shows it (`typedNote`).
+ */
+function auditAttributeFields(config: RateCategoryConfig, items: readonly RateMasterItem[]): AuditedField[] {
+  const ROW = 1;
+  const run = (attrs: Record<string, { value: string | null; confidence: number }>) => {
+    const helper = makePricingSheetHelper({
+      config, items: items as RateMasterItem[],
+      extractionByRow: new Map([[ROW, { excelRow: ROW, description: "", attributes: attrs }]]),
+    } as never);
+    return helper.compute({ excelRow: ROW, description: "", nodeType: "Line Item", category: config.category_id,
+      discipline: config.discipline, rateKinds: [] } as never);
+  };
+  const blank: Record<string, { value: string | null; confidence: number }> = {};
+  for (const d of config.attribute_definitions ?? []) blank[d.id] = { value: null, confidence: 1 };
+  const first = run(blank);
+  if (!isSuggestion(first)) return [];
+  const rendered: WorkingsAttribute[] = first.workings.attributes;
+  const filler = (a: WorkingsAttribute): string =>
+    a.options && a.options.length ? (a.options.find((o) => o !== "None") ?? a.options[0]) : "1";
+  const out: AuditedField[] = [];
+  for (const f of rendered) {
+    const attrs = { ...blank };
+    for (const g of rendered) if (g.id !== f.id) attrs[g.id] = { value: filler(g), confidence: 1 };
+    const r = run(attrs);
+    const seen = isSuggestion(r) ? r.workings.attributes.find((a) => a.id === f.id) : undefined;
+    const mandatory = isSuggestion(r) && Object.keys(r.values).length === 0 && seen?.required === true;
+    const typed = !f.options;
+    out.push({
+      attr: f.id, label: f.label, control: typed ? "typed" : "dropdown", typed, renders: true, mandatory,
+      note: f.typedNote ?? "", optionsFrom: typed ? "-" : "definition", families: [], needsNote: typed && mandatory,
+    });
+  }
+  return out.sort((a, b) => a.attr.localeCompare(b.attr));
 }
 
 /** The fields that MUST carry a note and do not. Empty is the passing state. */

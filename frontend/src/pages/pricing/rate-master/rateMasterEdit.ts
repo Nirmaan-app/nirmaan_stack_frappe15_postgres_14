@@ -1,6 +1,7 @@
 // RM-4a: pure helpers for the admin-only rate-master editors (the Data editor; the Derivation param edit is gone, ADP-5a).
-// No React, no I/O -- unit-tested. Owner option (a): non-admins get a READ-ONLY surface; callers HIDE
-// (never disable) the edit affordances when isNirmaanAdmin (constants/roles) is false.
+// No React, no I/O -- unit-tested. Callers HIDE (never disable) the edit affordances when isNirmaanAdmin
+// (constants/roles) is false. RM-ACCESS-1 (owner 2026-10-20): the PAGE itself is admin-only now, so there is
+// no read-only surface any more.
 
 // ADP-5a (owner D9, 2026-10-21; ADP-R5 Q9): `matchedConditionIndex` and `isEditableParam` -- the Derivation inline
 // param edit's helpers -- are removed with the endpoint they addressed (`update_rate_config_param`); ADP-4b took away

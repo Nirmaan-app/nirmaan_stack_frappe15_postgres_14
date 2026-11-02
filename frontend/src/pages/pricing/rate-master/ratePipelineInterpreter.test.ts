@@ -6365,7 +6365,11 @@ describe("THE NONE-PICK RULE -- a self-preferring map with a non-None default ho
     // defect; the comments may name the populations they protect, the code may not test for them.
     const src = runPipeline.toString();
     expect(src).toContain("p.prefer_attr === p.result_attr");
-    expect(src).toContain("p.default !== NONE_SENTINEL");
+    // ELR-3a (mechanical authority; ELR-R1's trap): WAS `p.default !== NONE_SENTINEL`. NOW condition (ii) tests the
+    // EFFECTIVE default -- the config's `default`, or the Pricing Input `default_from_ctx` names, resolved before it --
+    // still a config key, never a category.
+    expect(src).toContain("dflt !== NONE_SENTINEL");
+    expect(src).toContain("dflt = p.default;");   // (the transpiled source: the type annotation is gone)
     expect(src).not.toMatch(/=== ["']point_wiring["']|=== ["']wiring_cabling["']|=== ["']industrial_sockets["']/);
   });
 });

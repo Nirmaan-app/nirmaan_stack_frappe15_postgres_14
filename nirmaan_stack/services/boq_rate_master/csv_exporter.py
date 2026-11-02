@@ -729,8 +729,12 @@ def to_csv(headers, rows, formula_row=None):
     w.writerow(headers)
     if formula_row:
         w.writerow([_cell(v) for v in formula_row])
+    # ELR-1 (owner R-NUM B, 2026-10-27): the FILE writes a whole-number float as the integer it is ("1200", never
+    # "1200.0"; "2.5" stays) -- `xlsx_io.integral_number`, the rule the Excel writer shares. Applied HERE, at the
+    # writer, and never inside `_cell`: the importer words its preview (the twin question, a change's old / new) through
+    # `_cell`, and that screen is not this ruling's.
     for r in rows:
-        w.writerow([_cell(v) for v in r])
+        w.writerow([_cell(xlsx_io.integral_number(v)) for v in r])
     return "﻿" + buf.getvalue()
 
 

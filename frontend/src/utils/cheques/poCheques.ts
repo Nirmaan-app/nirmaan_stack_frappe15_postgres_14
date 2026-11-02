@@ -1,14 +1,34 @@
 import { CHEQUE_TYPE, type ChequeType } from "@/types/NirmaanStack/Cheques";
 
-import type { LineOfRecord } from "./chequeDeposit";
+import { WO_DOCTYPE, type LineOfRecord } from "./chequeDeposit";
 
 /**
- * The PO page's "Cheques issued for this PO" card (#1521, spec #1514, stories 20-23), pure so vitest covers it
- * without React (F4). The card lists, through the Cheque Tracker's list (`api/cheques/list_cheques.get_cheques`),
- * the Payment cheques with a line on the PO and the Security Deposit cheques that secure it.
+ * The PO page's "Cheques issued for this PO" card (#1521, spec #1514, stories 20-23), and the same card on a Work
+ * Order page (ADR-0035 Amendment C), pure so vitest covers it without React (F4). The card lists, through the
+ * Cheque Tracker's list (`api/cheques/list_cheques.get_cheques`), the Payment cheques with a line on the PO and
+ * the Security Deposit cheques that secure the PO or Work Order.
  */
 
-/** The list filters for the card: every cheque, of either type, whose lines name `po`. */
+/**
+ * The card's words for the page it sits on. A Work Order is paid Online, never by cheque, so its card only ever
+ * lists the Security Deposit cheques that secure it (ADR-0035 Amendment C).
+ */
+export const chequesCardCopy = (doctype: string) =>
+    doctype === WO_DOCTYPE
+        ? {
+            title: "Security Deposits for this WO",
+            subtitle: "Work Orders are paid online, so only Security Deposit cheques appear here: cheques handed to its vendor as a guarantee.",
+            empty: "No Security Deposit cheque secures this WO.",
+            onlyThis: "Only this WO",
+        }
+        : {
+            title: "Cheques issued for this PO",
+            subtitle: "Payment cheques that pay this PO, and Security Deposit cheques handed to its vendor as a guarantee.",
+            empty: "No cheque has been issued for this PO.",
+            onlyThis: "Only this PO",
+        };
+
+/** The list filters for the card: every cheque, of either type, whose lines name `po` (or a Work Order). */
 export const poChequesFilters = (po: string): [string, "=", string][] => [["record_name", "=", po]];
 
 /** What a row needs to say how much of it is for the PO (`record_amount`: its lines' total on that PO). */

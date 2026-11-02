@@ -32,6 +32,8 @@ export interface ChequeApproval {
     cheque_no: string;
     bank: string;
     status: string;
+    /** 1 for a Credit Payment Cheque (it pays a Credit PO term): its chip reads "Credit Cheque". */
+    credit_payment_cheque?: 0 | 1;
     amount: number;
     vendor: string | null;
     vendor_name: string | null;

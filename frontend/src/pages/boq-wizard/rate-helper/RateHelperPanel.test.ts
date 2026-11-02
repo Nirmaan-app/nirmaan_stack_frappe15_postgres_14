@@ -313,7 +313,9 @@ describe("SLICE 12c-S -- Other... mode and the note box", () => {
     expect(src.match(/bg-accent\/40/g)).toBeNull();
     // SLICE 12e-2: INVERTED 2 -> 3 -- the FAMILY CONTROL's note box ("Pipe type as the BoQ writes it") is the third
     // call site of the ONE declaration; every box still shares it, which is the claim this pin makes.
-    expect(src.match(/className=\{NOTE_BOX_CLASS\}/g)?.length).toBe(3);
+    // ELR-4a: INVERTED 3 -> 4 -- point wiring's "how the blank count is worked out" note (owner R-PW-BLANK) is the fourth
+    // call site of the same ONE declaration.
+    expect(src.match(/className=\{NOTE_BOX_CLASS\}/g)?.length).toBe(4);
     expect(src).toContain("bg-blue-50");
     expect(src).toContain("<Info className=");
     // the ruled default keeps amber -- the one tone this panel reserves for "we filled this in"

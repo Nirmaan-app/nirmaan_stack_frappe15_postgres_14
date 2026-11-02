@@ -335,6 +335,35 @@ describe("SLICE 12e-2b AC8 -- a family-scoped input reaches that family's SKUs, 
   });
 });
 
+// ELR-3a (owner R-9; AC7): the pinned input list 46 -> 55 -- Electrical v69 adds the nine assembly-step inputs. The 35
+// existing Electrical inputs keep their v66 count AND whole-record digest exactly (the move touched no reach), and each
+// new one's whole record is spelled out: read by point_wiring's three pipelines, 0 SKUs, no column, its range.
+describe("ELR-3a -- v69's nine inputs join the pinned list (46 -> 55); every existing record is unchanged", () => {
+  const v69 = reachOf("rate_master_electrical_all_v69.json");
+  const NINE: Record<string, "length" | "fill"> = {
+    pw_circuit_length_first: "length", pw_circuit_length_further: "length", pw_circuit_stretch: "length",
+    conduit_fill_pvc_25: "fill", conduit_fill_pvc_32: "fill", conduit_fill_pvc_50: "fill",
+    conduit_fill_ms_25: "fill", conduit_fill_ms_32: "fill", conduit_fill_ms_50: "fill",
+  };
+  it("55 inputs pinned by id: HVAC 11 + Electrical 35 existing + 9 new", () => {
+    const ids = Object.keys(v69.reach).sort();
+    expect(ids).toEqual([...Object.keys(REACH_PINS.electrical), ...Object.keys(NINE)].sort());
+    expect(Object.keys(REACH_PINS.hvac).length + ids.length).toBe(55);
+  });
+  it("the 35 existing Electrical inputs: count and whole-record digest exactly as pinned on v66", () => {
+    for (const id of Object.keys(REACH_PINS.electrical)) {
+      expect([id, v69.reach[id].distinctSkus.length, digest(v69.reach[id])]).toEqual([id, ...REACH_PINS.electrical[id]]);
+    }
+  });
+  it.each(Object.entries(NINE))("%s: the whole record", (id, range) => {
+    expect(v69.reach[id]).toEqual({
+      distinctSkus: [], columns: [], candidateSkus: [], byCategory: {}, isFlatAdder: false, adder: undefined,
+      readByCategories: ["point_wiring"], assemblyRange: range,
+      pipelines: ["pw_bcs", "pw_boq_install", "pw_boq_supply"].map((pipelineId) => ({ category: "point_wiring", pipelineId })),
+    });
+  });
+});
+
 describe("SLICE 12e-2b -- an item-list SKU's row label names its facts by the panel field's label (owner: 'HVAC item-list rows')", () => {
   const hvac = readAsset("rate_master_hvac_all_v36.json");
   const cfg = (id: string) => hvac.category_configs.find((c) => c.category_id === id);

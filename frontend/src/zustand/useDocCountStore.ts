@@ -64,7 +64,8 @@ export interface SidebarCountsData {
     credits: {
         all: number;
         created: number;  // Payment terms created but not yet requested
-        due: number;      // Created terms with due_date <= today (replaces "scheduled")
+        due: number;      // The Due tab: Created past due_date, Requested / CEO Pending / Approved, none paid by cheque
+        chequeissued: number; // The Cheque Issued tab: paid by cheque, not yet Paid
         requested: number;
         ceopending: number;  // L1 approved, awaiting CEO (mirrors payment status)
         approved: number;
@@ -141,6 +142,7 @@ export const useDocCountStore = create<Store>()(
             all: 0,
             created: 0,
             due: 0,
+            chequeissued: 0,
             requested: 0,
             ceopending: 0,
             approved: 0,

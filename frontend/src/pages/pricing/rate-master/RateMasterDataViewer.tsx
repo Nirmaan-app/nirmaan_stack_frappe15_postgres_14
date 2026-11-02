@@ -27,7 +27,7 @@ import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import {
   gridColumnKeys, attrColKey, rateColKey,
   COL_ACTIONS, COL_KIND, COL_SPEC, COL_PI_NAME, COL_BRAND, COL_UNIT,
-  COL_PI_SHARED_BY, COL_PI_USED_BY, COL_PI_ITEMS,
+  COL_PI_SHARED_BY, COL_PI_USED_BY, COL_PI_ITEMS, COL_PI_REMARKS, followsFileLayout,
   COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL,
   COL_ITEM_UID, COL_DISCIPLINE, COL_CATEGORY, fileColumnId, plainFileColumnLabel,
 } from "./rateMasterGridColumns";
@@ -181,6 +181,8 @@ const PI_W = {
    *  but the shortened two-line labels ("Supply mkup", "Inst. markup") need 56px of content box. */
   rate: 72,
   unit: 90, sharedBy: 150, usedBy: 190, items: 84,
+  /** ELR-1 (Q3): the file's identity columns and the remark's own column, on a grid that follows the file */
+  uid: 140, discipline: 90, category: 150, remarks: 320,
 } as const;
 
 /** what the hover says on a cell whose figure the rules compute (owner F4) */
@@ -293,6 +295,14 @@ export function RateMasterDataViewer({
   // (item_name, item_detail -- editable, rendered FIRST) and the DERIVED columns (read-only, greyed,
   // "read from spec"). Any other category takes the branch that was here, unchanged.
   const specMode = isSpecDrivenConfig(config);
+  // ELR-1 (owner R-ELR0 "7 ok", Q3 "a"): does this grid follow its download? (Shape only -- see `followsFileLayout`.)
+  const itemListGrid = useMemo(() => {
+    const ls = (config as unknown as { list_spec?: unknown }).list_spec;
+    return !!ls && typeof ls === "object";
+  }, [config]);
+  const fileMode = followsFileLayout({ specMode, piMode: isPricingInputConfig(config), itemList: itemListGrid });
+  const fileSku = fileMode && !specMode && !isPricingInputConfig(config);
+  const followsPiFile = fileMode && isPricingInputConfig(config);
   const specCols = useMemo(() => splitSpecColumns(config.attribute_definitions), [config]);
   const textCols = useMemo(() => (specMode ? specCols.text : []), [specMode, specCols]);
   // SLICE 12c / ACCEPTANCE 4: ordered the way the FILE orders them -- `columnOrderForFile`, the mirror
@@ -304,13 +314,27 @@ export function RateMasterDataViewer({
   // SLICE 12c: the DERIVED used-by, for an input whose item carries no stored copy. See the cell below.
   const usedByText = useCallback((it: RateMasterItem) => {
     const stored = it.attributes?.used_by;
-    if (stored !== undefined && stored !== null && String(stored).trim() !== "") return String(stored);
+    // ELR-1 (owner Q3 "a"): a grid that follows its file shows what the file writes -- always DERIVED
+    // (`csv_exporter.pricing_input_used_by_text` and its TypeScript twin below), never the stored copy.
+    if (!followsPiFile && stored !== undefined && stored !== null && String(stored).trim() !== "") return String(stored);
     const id = String(it.attributes?.item ?? "");
     return id
       ? pricingInputUsedByText((derivedUsedBy ?? {})[id], (c) => (categoryNameById ?? {})[c] ?? c)
       : "";
-  }, [derivedUsedBy, categoryNameById]);
+  }, [derivedUsedBy, categoryNameById, followsPiFile]);
   const attrCols = useMemo(() => {
+    // ELR-1: a SKU grid in file mode shows the file's OBSERVED attribute columns, in the file's order -- a declared
+    // definition no item fills is not a file column, and a key the items carry with no definition is (labelled from
+    // its id). `brand` is the file's own lead column (the read-time projection also puts it in `attributes`).
+    if (fileSku) {
+      const byId = new Map(config.attribute_definitions.map((d) => [d.id, d] as const));
+      // a key with no definition is typed from what the items hold (all numbers -> number), as an edit would read it
+      const typeOf = (id: string): AttributeDefinition["type"] =>
+        scopedItems.every((it) => { const v = it.attributes?.[id]; return v === undefined || v === null || typeof v === "number"; })
+          ? "number" : "choice";
+      return fileOrder.attrs.filter((id) => id !== "brand")
+        .map((id) => byId.get(id) ?? { id, label: plainFileColumnLabel(id), type: typeOf(id) });
+    }
     const defs = specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand");
     const rank = new Map(fileOrder.attrs.map((id, i) => [id, i]));
     const known = defs.filter((d) => rank.has(d.id))
@@ -319,7 +343,7 @@ export function RateMasterDataViewer({
     // ADP-4b (owner D7, "drop the empty Depth column"): on a spec-driven grid a "read from spec" column that NO item
     // fills is not shown. Display only -- the definition stays, it is part of the model's question.
     return specMode ? ordered.filter((d) => scopedItems.some((it) => cellText(it.attributes?.[d.id]) !== "")) : ordered;
-  }, [config, specMode, specCols, fileOrder, scopedItems]);
+  }, [config, specMode, specCols, fileOrder, scopedItems, fileSku]);
   // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
   const editableAttrCols = specMode ? textCols : attrCols;
 
@@ -373,7 +397,8 @@ export function RateMasterDataViewer({
     (canEdit ? PI_W.actions : 0) + (showKindCol ? PI_W.kind : 0) + PI_W.input
     + rateCols.length * PI_W.rate + PI_W.unit + PI_W.sharedBy + PI_W.usedBy
     + (showImpactCol ? PI_W.items : 0)
-  ), [canEdit, showKindCol, rateCols.length, showImpactCol]);
+    + (fileMode ? PI_W.uid + PI_W.discipline + PI_W.category + PI_W.remarks : 0)
+  ), [canEdit, showKindCol, rateCols.length, showImpactCol, fileMode]);
 
   /**
    * THE ONE ORDERING of this grid's columns. The header row, the formula row, every body row and the
@@ -381,12 +406,14 @@ export function RateMasterDataViewer({
    * `rateMasterGridColumns.ts` for what drifting cost).
    */
   const gridCols = useMemo(() => gridColumnKeys({
-    canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols, showSpecDetails,
-  }), [canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols, showSpecDetails]);
+    canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols, showSpecDetails, fileMode,
+  }), [canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols, showSpecDetails, fileMode]);
   // ADP-4b (owner D7 / AC3): on a spec-driven grid each file column's header carries the file's own column id beneath
   // its plain label. The file carries the text pair, never a "read from spec" column.
-  const showFileIds = specMode && !piMode;
-  const fileAttrIds = useMemo(() => new Set(textCols.map((d) => d.id)), [textCols]);
+  // ELR-1: and on every grid that follows its file (`fileMode`), where the file's columns are the observed attributes.
+  const showFileIds = (specMode && !piMode) || fileMode;
+  const fileAttrIds = useMemo(
+    () => new Set((fileSku ? attrCols : textCols).map((d) => d.id)), [fileSku, attrCols, textCols]);
   const fileIdOf = (key: string): string | undefined => (showFileIds ? fileColumnId(key, fileAttrIds) ?? undefined : undefined);
 
   // SLICE 12a: the row-level formula text for every scoped item, and how many rows declare each rate
@@ -467,7 +494,7 @@ export function RateMasterDataViewer({
     () => [
       // ADP-4b (owner D7): a spec-driven grid's three identity columns -- the item id as the file writes it; the
       // discipline and the category by their display names (owner, 2026-10-21: N-7, a category id never reaches the screen)
-      ...(specMode && !piMode
+      ...((specMode && !piMode) || fileMode
         ? [
             { key: COL_ITEM_UID, get: (it: RateMasterItem) => it.item_uid },
             { key: COL_DISCIPLINE, get: () => disciplineLabel },
@@ -487,14 +514,15 @@ export function RateMasterDataViewer({
         ? [
             { key: "pi:name", get: (it: RateMasterItem) => it.attributes?.name },
             { key: "pi:shared_by", get: (it: RateMasterItem) => it.attributes?.shared_by },
-            { key: "pi:used_by", get: (it: RateMasterItem) => it.attributes?.used_by },
+            { key: "pi:used_by", get: (it: RateMasterItem) => (followsPiFile ? usedByText(it) : it.attributes?.used_by) },
+            ...(followsPiFile ? [{ key: COL_PI_REMARKS, get: (it: RateMasterItem) => it.attributes?.remarks }] : []),
           ]
         : []),
       { key: "unit", get: (it: RateMasterItem) => it.unit },
       { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
       { key: "source_row", get: (it: RateMasterItem) => it.source_row },
     ],
-    [showKindCol, specMode, textCols, attrCols, rateCols, piMode, disciplineLabel, categoryLabel],
+    [showKindCol, specMode, textCols, attrCols, rateCols, piMode, disciplineLabel, categoryLabel, fileMode, followsPiFile, usedByText],
   );
   const distinctByColumn = useMemo(() => {
     const m: Record<string, string[]> = {};
@@ -526,10 +554,19 @@ export function RateMasterDataViewer({
 
   // Precompute a per-row searchable string over EVERY displayed cell.
   const rows = useMemo(() => {
-    return scopedItems.map((it) => {
+    // ELR-1 (owner Q3 "a"): a Pricing Inputs grid that follows its file lists the inputs in the file's order -- by
+    // name (`csv_exporter.build_category_rows` sorts on the stored `name`, plain code-point order). Display only.
+    const ordered = followsPiFile
+      ? [...scopedItems].sort((x, y) => {
+          const a = String(x.attributes?.name ?? ""), b = String(y.attributes?.name ?? "");
+          return a < b ? -1 : a > b ? 1 : 0;
+        })
+      : scopedItems;
+    return ordered.map((it) => {
       const cells: string[] = [
-        // ADP-4b: the item id is a displayed cell on a spec-driven grid, so it is searchable there
-        ...(specMode && !piMode ? [cellText(it.item_uid)] : []),
+        // ADP-4b: the item id is a displayed cell on a spec-driven grid, so it is searchable there (ELR-1: and on a
+        // grid that follows its file)
+        ...((specMode && !piMode) || fileMode ? [cellText(it.item_uid)] : []),
         cellText(it.kind),
         ...textCols.map((d) => cellText(it.attributes?.[d.id])),
         ...(specMode ? [specNotUnderstoodReason(it) ?? SPEC_COPY.readFromSpec] : []),
@@ -552,7 +589,7 @@ export function RateMasterDataViewer({
       ];
       return { it, cells, haystack: cells.join("  ") };
     });
-  }, [scopedItems, specMode, textCols, attrCols, rateCols, piMode]);
+  }, [scopedItems, specMode, textCols, attrCols, rateCols, piMode, fileMode, followsPiFile]);
 
   const filtered = useMemo(() => {
     const filterEntries = Object.entries(columnFilters);
@@ -1001,6 +1038,10 @@ export function RateMasterDataViewer({
           {piMode ? (
             <colgroup>
               {canEdit ? <col style={{ width: PI_W.actions }} /> : null}
+              {/* ELR-1 (Q3): the file's identity columns lead a grid that follows its file */}
+              {fileMode ? <col style={{ width: PI_W.uid }} /> : null}
+              {fileMode ? <col style={{ width: PI_W.discipline }} /> : null}
+              {fileMode ? <col style={{ width: PI_W.category }} /> : null}
               {showKindCol ? <col style={{ width: PI_W.kind }} /> : null}
               {/* ⚠️ FIXED, NOT SLACK. A width-less `input` column is what made every column re-flow
                   when the impact panel opened; with the plan in pixels the table keeps its shape and
@@ -1011,6 +1052,7 @@ export function RateMasterDataViewer({
               ))}
               <col style={{ width: PI_W.unit }} />{/* unit */}
               <col style={{ width: PI_W.sharedBy }} />{/* shared by -- clamped to 2 lines */}
+              {fileMode ? <col style={{ width: PI_W.remarks }} /> : null}{/* ELR-1: the remark's own column */}
               <col style={{ width: PI_W.usedBy }} />{/* used by -- plain category names, ruling N-7 */}
               {showImpactCol ? <col style={{ width: PI_W.items }} /> : null}
             </colgroup>
@@ -1043,7 +1085,7 @@ export function RateMasterDataViewer({
                 if (key === COL_PI_NAME) {
                   /* SLICE 12b(A): a Pricing Input's NAME leads the row -- it is what the reader is
                      looking for, and `brand` / `source` mean nothing for a number a pricer edits. */
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input")}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input", false, undefined, undefined, fileIdOf(key))}</TableHead>;
                 }
                 if (key === COL_BRAND) {
                   return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", showFileIds ? plainFileColumnLabel("brand") : "brand", false, undefined, undefined, fileIdOf(key))}</TableHead>;
@@ -1058,7 +1100,8 @@ export function RateMasterDataViewer({
                   const id = key.slice(5);
                   const d = [...textCols, ...attrCols].find((c) => c.id === id);
                   if (!d) return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)} />;
-                  const isText = textCols.some((c) => c.id === id);
+                  // ELR-1: on a SKU grid that follows its file an attribute column is a FILE column, its id beneath
+                  const isText = textCols.some((c) => c.id === id) || fileSku;
                   /* SLICE 1c (U3): the text pair FIRST, then the spec verdict, then brand, then the
                      derived attributes each tagged "read from spec". */
                   return (
@@ -1086,10 +1129,13 @@ export function RateMasterDataViewer({
                    formula columns) are absent in Pricing Inputs -- they are what "nothing borrowed
                    from a SKU file" means. */
                 if (key === COL_PI_SHARED_BY) {
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:shared_by", "shared by")}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:shared_by", "shared by", false, undefined, undefined, fileIdOf(key))}</TableHead>;
                 }
                 if (key === COL_PI_USED_BY) {
-                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:used_by", "used by")}</TableHead>;
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:used_by", "used by", false, undefined, undefined, fileIdOf(key))}</TableHead>;
+                }
+                if (key === COL_PI_REMARKS) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr(COL_PI_REMARKS, "remarks", false, undefined, undefined, fileIdOf(key))}</TableHead>;
                 }
                 if (key === COL_PI_ITEMS) {
                   /* SLICE 12b(B) / ACCEPTANCE 8: DISTINCT SKUs whose rate this input moves, clickable.
@@ -1311,7 +1357,7 @@ export function RateMasterDataViewer({
               cells[COL_PI_NAME] = (
                   <TableCell key={COL_PI_NAME} className="font-medium align-top">
                     <div>{String(r.it.attributes?.name ?? "")}</div>
-                    {String(r.it.attributes?.remarks ?? "") ? (
+                    {!followsPiFile && String(r.it.attributes?.remarks ?? "") ? (
                       <div
                         className="mt-0.5 line-clamp-2 text-[11px] font-normal leading-snug text-muted-foreground"
                         title={String(r.it.attributes?.remarks ?? "")}
@@ -1407,7 +1453,7 @@ export function RateMasterDataViewer({
               cells[COL_PI_SHARED_BY] = (
                     <TableCell key={COL_PI_SHARED_BY} className="align-top text-[11px] text-muted-foreground">
                       <span className="line-clamp-2" title={String(r.it.attributes?.shared_by ?? "")}>
-                        {String(r.it.attributes?.shared_by ?? "") || "—"}
+                        {String(r.it.attributes?.shared_by ?? "") || (followsPiFile ? "" : "—")}
                       </span>
                     </TableCell>
               );
@@ -1422,6 +1468,14 @@ export function RateMasterDataViewer({
                         a DIFFERENT format (display names joined by a middot) from the derived string. So
                         deriving unconditionally would change Electrical's column, which cert step 6
                         requires byte-identical. */}
+              // ELR-1 (owner Q3 "a"): the remark in its own column, as the file writes it
+              cells[COL_PI_REMARKS] = (
+                    <TableCell key={COL_PI_REMARKS} className="align-top text-[11px] text-muted-foreground">
+                      <span className="line-clamp-3" title={String(r.it.attributes?.remarks ?? "")}>
+                        {String(r.it.attributes?.remarks ?? "")}
+                      </span>
+                    </TableCell>
+              );
               cells[COL_PI_USED_BY] = (
                     <TableCell key={COL_PI_USED_BY} className="align-top text-[11px] text-muted-foreground" data-testid="pi-used-by">
                       <span className="line-clamp-2" title={usedByText(r.it)}>

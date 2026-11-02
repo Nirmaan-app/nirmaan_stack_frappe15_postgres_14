@@ -14,19 +14,21 @@ KEEPS, on purpose: the Anthropic key (BoQ AI settings are never switched off), t
 "let it be"), the GCP credentials (uploads are held by disable_cloud_upload), each Connected App's own client
 secret (only its tokens go).
 
-REFUSES unless: the site is `localhost`; developer_mode is 1; db_host is the docker service name; the site
-config carries `nirmaan_env: "dev"` (production never has it); and --yes is given (without it, it prints the
-site, the database and what it would change, and exits 2).
+REFUSES unless: the site is `localhost` or `dev2.localhost` (the second dev environment, docs/agents/environments.md);
+developer_mode is 1; db_host is the docker service name; the site config carries `nirmaan_env: "dev"` (production
+never has it); and --yes is given (without it, it prints the site, the database and what it would change, and
+exits 2). --verify only reads, and runs on whichever site --site names.
 
 Every write is raw SQL on purpose: an Email Account save connects to its mail server and a Nirmaan Users save
 runs permission / notification hooks -- exactly the outside calls this script exists to prevent. Nothing here
 is ever printed but counts. The backup file holds secret values (Password fields as their raw ENCRYPTED
-`__Auth` rows -- never decrypted -- plus push tokens); it lives in sites/localhost/private/, never the repo.
+`__Auth` rows -- never decrypted -- plus push tokens); it lives in sites/<site>/private/, never the repo.
 
-USAGE (from the host)
+USAGE (from the host; --stopped-file is an absolute path, as the script works from sites/)
   docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 \\
       env/bin/python apps/nirmaan_stack/scripts/dev_isolate.py --stopped-file <json list> [--yes | --verify]
   ... dev_isolate.py --restore sites/localhost/private/isolation_backup_<stamp>.json --yes
+  dev2: run it in dev2's frappe container with --site dev2.localhost.
 """
 from __future__ import annotations
 
@@ -36,6 +38,7 @@ import os
 import sys
 
 SITE = "localhost"
+SITES = (SITE, "dev2.localhost")      # main dev and the second dev environment; nothing else, ever
 DOCKER_DB_HOST = "postgresql"
 MARKER_KEY, MARKER_VALUE = "nirmaan_env", "dev"
 BENCH_SITES = "/workspace/development/frappe-bench/sites"
@@ -46,8 +49,8 @@ ASSET_SECRET_FIELDS = ("asset_email_password", "asset_pin")
 def refusals(site: str, conf: dict, yes: bool) -> list[str]:
     """Why this run must not go ahead; empty when every guard holds. Pure."""
     out = []
-    if site != SITE:
-        out.append(f"site is {site!r}, not {SITE!r}")
+    if site not in SITES:
+        out.append(f"site is {site!r}, not one of {SITES!r}")
     if int(conf.get("developer_mode") or 0) != 1:
         out.append("developer_mode is not 1")
     if conf.get("db_host") != DOCKER_DB_HOST:

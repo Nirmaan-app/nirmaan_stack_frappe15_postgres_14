@@ -15,7 +15,7 @@
 //
 // "Confirmed as Expense Request" (spec #1494, owner 2026-10-20): a LABEL ONLY, shown in the Confirmed
 // column and ticked in the Edit dialog by Admin alone. It changes nothing about raising, intake or the
-// catalog. The fixture ships it, so a mark made here survives a migrate only once exported.
+// catalog. Expense Type is not a fixture (owner, 2026-11-02), so every edit made here lasts through migrate.
 //
 // The search and the Scope / Payee / Role Access / Confirmed filters (in their column headers, like
 // the app's other tables) narrow the loaded rows together (`utils/expenses/expensePackagesFilter`).
@@ -621,7 +621,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                                     <span className="font-semibold">Confirmed as Expense Request</span>
                                     <span className="block text-[13px] text-muted-foreground">
                                         A label only: it changes nothing about raising or approving
-                                        requests. Export the fixture to keep it past a deployment.
+                                        requests.
                                     </span>
                                 </span>
                             </label>
@@ -661,10 +661,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                             <li>
                                 PO Adjustment Items and Outflow Import Rows store the type as plain
                                 text and keep the old name.
-                            </li>
-                            <li>
-                                Update the expense type fixture in code too, or the next deployment
-                                brings the old name back as a separate type.
                             </li>
                         </ul>
                     </div>

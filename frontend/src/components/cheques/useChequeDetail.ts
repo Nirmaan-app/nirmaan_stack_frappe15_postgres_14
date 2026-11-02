@@ -50,6 +50,8 @@ export interface ChequeDetail {
     cheque_type: ChequeType;
     /** 1 for a Cheque from before cheque types (spec #1477): only its photo can change. */
     old_type?: 0 | 1;
+    /** 1 for a Credit Payment Cheque: it pays a Credit PO term (owner, 2026-10-31). */
+    credit_payment_cheque?: 0 | 1;
     issue_date?: string | null;
     bank_line?: string | null;
     /** The imported bank line that cleared it (#1484). */

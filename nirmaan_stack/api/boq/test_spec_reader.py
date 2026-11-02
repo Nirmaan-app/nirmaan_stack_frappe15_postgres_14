@@ -254,8 +254,10 @@ class TestSpecReader(FrappeTestCase):
             ITEM, filters={"discipline": disc, "active": 1, "source_row": ["in", [89, 91]]},
             fields=["source_row", "item_uid"])}
         by_uid = {r[ui]: r[ci] for r in body}
-        self.assertEqual(by_uid[uid_of[89]], "0.0")
-        self.assertEqual(by_uid[uid_of[91]], "0.0")
+        # INVERTED by ELR-1 (owner R-NUM B, 2026-10-27: the download writes "1200", not "1200.0", every discipline).
+        # WAS "0.0" / "0.0". NOW the stored 0.0 is written as "0" -- still a written zero, never a blank (the claim).
+        self.assertEqual(by_uid[uid_of[89]], "0")
+        self.assertEqual(by_uid[uid_of[91]], "0")
         # Mode B: same text-first rule, the category column in place; still no kind (no multi-kind category)
         text_b, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",

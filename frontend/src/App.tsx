@@ -61,11 +61,8 @@ const App: FC = () => {
   return (
     <FrappeProvider
       url={import.meta.env.VITE_FRAPPE_PATH ?? ""}
-      // socketPort={
-      //   import.meta.env.VITE_SOCKET_PORT
-      //     ? import.meta.env.VITE_SOCKET_PORT
-      //     : undefined
-      // }
+      // Unset everywhere but a second dev environment (dev2 sets 9100): undefined is the SDK's default, port 9000.
+      socketPort={import.meta.env.VITE_SOCKET_PORT || undefined}
       //@ts-ignore
       siteName={getSiteName()}
       // enableSocket={false}

@@ -46,7 +46,7 @@ export type ChequeBank = (typeof CHEQUE_BANK)[keyof typeof CHEQUE_BANK];
 /** Where a Cheque was made; a PO/WO Page Cheque keeps its number, date and amount (#1418). */
 export type ChequeMadeFrom = "Report" | "PO/WO Page";
 
-/** "Secured PO/WO" is a Security Deposit cheque's line: a PO it secures, no payment, no amount (#1486; never a Work Order, spec #1514). */
+/** "Secured PO/WO" is a Security Deposit cheque's line: a PO or Work Order it secures, no payment, no amount (#1486, ADR-0035 Amendment C). */
 export type ChequeLineType = "PO/WO Payment" | "Project Expense" | "Non-project Expense" | "Secured PO/WO";
 
 /** One thing a Cheque pays (`Cheque Line`). */
@@ -101,6 +101,8 @@ export interface Cheques {
     bank_line?: string | null;
     /** 1 for a Cheque from before cheque types that pays Expenses, has no lines or names a typed payee. */
     old_type?: 0 | 1;
+    /** 1 for a cheque that pays a Credit PO payment term; ticked by Request Payment, a label only. */
+    credit_payment_cheque?: 0 | 1;
     /** The cheque's photo; empty only on Cheques backfilled from old cheque payments. */
     attachment?: string | null;
     /** Required while the Cheque has no lines (an Ad-hoc cheque). */

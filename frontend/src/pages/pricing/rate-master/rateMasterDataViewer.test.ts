@@ -120,17 +120,18 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
   // eight percentage columns needed). The pin now asserts the NEW truth AND that the old column is
   // gone, so a revert to a remarks column fails here rather than passing quietly.
   it("ACCEPTANCE 4 + 12 + 6: the name leads the row and CARRIES the remark; sharing and used-by are their own columns", () => {
-    expect(src).toContain('hdr("pi:name", "input")');
-    expect(src).toContain('hdr("pi:shared_by", "shared by")');
-    expect(src).toContain('hdr("pi:used_by", "used by")');
-    // the remark is NO LONGER a column of its own ...
-    expect(src).not.toContain('hdr("pi:remarks"');
-    // ... and it is rendered inside the name cell instead
-    // the cell now carries its column key, so the slice starts at the keyed open tag
+    // INVERTED by ELR-1 (owner Q3 "a", 2026-10-27: both Pricing Inputs grids follow their file). WAS: the headers took no
+    // file id, the remark was no column of its own and sat inside the name cell. NOW: each header carries the file's id
+    // beneath; the remark has its OWN column (`COL_PI_REMARKS`, as the file has); the name cell renders the remark ONLY
+    // off file mode (the negative half: the in-cell remark is still there, gated, never deleted).
+    expect(src).toContain('hdr("pi:name", "input", false, undefined, undefined, fileIdOf(key))');
+    expect(src).toContain('hdr("pi:shared_by", "shared by", false, undefined, undefined, fileIdOf(key))');
+    expect(src).toContain('hdr("pi:used_by", "used by", false, undefined, undefined, fileIdOf(key))');
+    expect(src).toContain('hdr(COL_PI_REMARKS, "remarks", false, undefined, undefined, fileIdOf(key))');
     const nameCell = src.slice(src.indexOf('<TableCell key={COL_PI_NAME} className="font-medium align-top">'));
     const upToClose = nameCell.slice(0, nameCell.indexOf("</TableCell>"));
     expect(upToClose).toContain("r.it.attributes?.name");
-    expect(upToClose).toContain("r.it.attributes?.remarks");
+    expect(upToClose).toContain('{!followsPiFile && String(r.it.attributes?.remarks ?? "") ? (');
   });
 
   // ─── SLICE 12b(B) ────────────────────────────────────────────────────────────────────────────
@@ -186,10 +187,12 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     expect(upToClose).toContain("usedByText(r.it)");
     expect(upToClose).not.toContain("<Input");
     expect(upToClose).not.toContain("onChange");
-    // and the resolver really is stored-first, so a stored value is never replaced by a derived one
+    // INVERTED by ELR-1 (owner Q3 "a"): WAS stored-first everywhere. NOW a grid that follows its file shows what the file
+    // writes -- always DERIVED; the stored-first branch is kept for a grid that does not (the negative half).
     const fn = src.slice(src.indexOf("const usedByText = useCallback"));
-    const body = fn.slice(0, fn.indexOf("}, [derivedUsedBy]);"));
+    const body = fn.slice(0, fn.indexOf("}, [derivedUsedBy, categoryNameById, followsPiFile]);"));
     expect(body).toContain("it.attributes?.used_by");
+    expect(body).toContain("if (!followsPiFile && stored !== undefined");
     expect(body.indexOf("return String(stored)")).toBeLessThan(body.indexOf("pricingInputUsedByText"));
   });
 

@@ -34,7 +34,7 @@ import path from "path";
 import { RateMasterDataViewer, displayedRateValue } from "./RateMasterDataViewer";
 import {
   COL_ACTIONS, COL_BRAND, COL_FORMULA_INSTALL, COL_FORMULA_SUPPLY, COL_KIND, COL_SOURCE_ROW,
-  COL_SOURCE_SHEET, COL_SPEC, COL_UNIT, gridColumnKeys,
+  COL_SOURCE_SHEET, COL_SPEC, COL_UNIT, followsFileLayout, gridColumnKeys, plainFileColumnLabel,
 } from "./rateMasterGridColumns";
 import { categoryItemKinds, isCategoryDataScopeEmpty } from "./rateMasterStructure";
 import {
@@ -159,8 +159,17 @@ function expectedColumnKeys(items: RateMasterItem[], config: RateCategoryConfig)
   const rank = new Map(fileOrder.attrs.map((id, i) => [id, i] as const));
   const known = defs.filter((d) => rank.has(d.id))
     .sort((x, y) => (rank.get(x.id) as number) - (rank.get(y.id) as number));
-  const attrCols = [...known, ...defs.filter((d) => !rank.has(d.id))];
+  // INVERTED by ELR-1 (owner R-ELR0 "7 ok"): WAS every grid of this file took the declared-definition order. NOW a
+  // non-spec, non-item-list grid (the Electrical subject) follows its file: the OBSERVED attribute keys in the file's
+  // order, `fileMode` on. Insulation (item-list) is still the old branch -- the negative half, asserted unchanged.
+  const piMode = isPricingInputConfig(config);
+  const itemList = !!(config as unknown as { list_spec?: unknown }).list_spec;
+  const fileMode = followsFileLayout({ specMode, piMode, itemList });
+  const attrCols = fileMode && !specMode && !piMode
+    ? fileOrder.attrs.filter((id) => id !== "brand").map((id) => ({ id }))
+    : [...known, ...defs.filter((d) => !rank.has(d.id))];
   return gridColumnKeys({
+    fileMode,
     canEdit: false,                       // rendered without `isAdmin`, so no actions column
     showKindCol: kinds.length > 1,
     piMode: isPricingInputConfig(config),
@@ -330,9 +339,12 @@ describe("RateMasterDataViewer -- every cell sits under its correct header", () 
     for (const s of SUBJECTS) {
       const { host, cleanup } = render(s.items, s.config, s.discipline);
       try {
+        // INVERTED by ELR-1: a grid that follows its file draws the plain label with the file id beneath ("Brand" over
+        // "brand"); the claim is unchanged -- unit sits right after brand.
         const heads = headerTexts(host).map((h) => h.trim());
-        const b = heads.findIndex((h) => h === "brand");
-        const u = heads.findIndex((h) => h === "unit");
+        const named = (h: string, id: string) => h === id || h === `${plainFileColumnLabel(id)}${id}`;
+        const b = heads.findIndex((h) => named(h, "brand"));
+        const u = heads.findIndex((h) => named(h, "unit"));
         expect(b, `${s.label}: a SKU grid has a brand header`).toBeGreaterThanOrEqual(0);
         expect(u, `${s.label}: a SKU grid has a unit header`).toBe(b + 1);
       } finally {

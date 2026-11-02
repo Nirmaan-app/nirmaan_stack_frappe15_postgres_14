@@ -523,8 +523,14 @@ def coerce_percent(text, label):
 # and cable tray's and junction box's DISCOUNTS are 0% too, which is what reconciled their "list" names
 # with the arithmetic. A blanket zero refusal would make the approved table unsaveable. So zero is
 # allowed; negative and non-numeric are refused.
-def validate_pricing_input_value(value, label):
-    """None if the value is acceptable, else the refusal text."""
+def validate_pricing_input_value(value, label, value_range=None):
+    """None if the value is acceptable, else the refusal text.
+
+    ELR-3a (owner R-R1 Q4): `value_range` is the range an ASSEMBLY-STEP input must stay in
+    (`config_validation.pricing_input_ranges`, by the arm that reads it): a length more than 0, a conduit fill more
+    than 0 and at most 1. None (every other input) keeps the rule above -- zero allowed -- byte-identical.
+    ELR-4c (owner R-ELR2 (h), "check the range first"; P6 "Q2 a"): the range is checked BEFORE "cannot be negative", so a
+    negative fill or length gets the range sentence; both write paths (the upload and the Rate Master save) call this."""
     if value in (None, ""):
         return None
     try:
@@ -533,10 +539,35 @@ def validate_pricing_input_value(value, label):
         return "%s: '%s' is not a number." % (label, value)
     if f != f or f in (float("inf"), float("-inf")):
         return "%s: '%s' is not a finite number." % (label, value)
+    if value_range == config_validation.RANGE_LENGTH and f <= 0:
+        return "%s: a length must be more than 0 (got %s)." % (label, _plain_number(f))
+    if value_range == config_validation.RANGE_FILL and not (0 < f <= 1):
+        return "%s: a conduit fill must be more than 0 and at most 1 (got %s)." % (label, _plain_number(f))
     if f < 0:
         return ("%s: a pricing input cannot be negative (%s). A discount, a markup, a wastage, a "
                 "ratio and a share are all positive." % (label, value))
     return None
+
+
+def _plain_number(f):
+    """1.2 -> "1.2", 0.0 -> "0": the value quoted back in a range refusal."""
+    return ("%f" % f).rstrip("0").rstrip(".") or "0"
+
+
+def pricing_input_ranges_for(discipline):
+    """ELR-3a: {pricing input id: range} for a discipline's ACTIVE configs -- one read per write or plan."""
+    cfgs = {}
+    for c in frappe.get_all(CONFIG_DOCTYPE, filters={"discipline": discipline, "active": 1},
+                            fields=["category_id", "config"], order_by="category_id asc"):
+        cfgs[c["category_id"]] = c["config"] if isinstance(c["config"], dict) else json.loads(c["config"] or "{}")
+    return config_validation.pricing_input_ranges(cfgs)
+
+
+def pricing_input_label(attributes, rate_key):
+    """What a pricing-input refusal names: the input's own name (else its id), then the column."""
+    who = (attributes or {}).get("name") or (attributes or {}).get("item")
+    who = who.strip() if isinstance(who, str) else ""
+    return "%s (%s)" % (who, rate_key) if who else rate_key
 
 
 def refuse_if_in_use(input_id, used_by, action):
@@ -921,6 +952,8 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     derived_map = derived_rate_map(discipline, active)
     # SLICE 12c FINISH (owner F4): the cells the rules COMPUTE, recomputed once per plan.
     computed_map = computed_rate_map(discipline, active)
+    # ELR-3a: the assembly-step inputs' ranges, once per plan ({} for a discipline no arm reads)
+    pi_ranges = pricing_input_ranges_for(discipline)
     in_file_identities = {}      # identity -> [rows] over the rows whose identity is NEW or CHANGED (Y-b 2)
 
     plan = {
@@ -1268,7 +1301,10 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
             else:
                 value, err = coerce_rate(raw_text, name)
             if not err and csv_exporter.is_pricing_input_kind(kind):
-                err = validate_pricing_input_value(value, name)
+                # ELR-3a (owner R-R1 Q4): an assembly-step input's range, by the arm that reads it, named by the input
+                _rng = pi_ranges.get((attributes or {}).get("item"))
+                err = validate_pricing_input_value(
+                    value, pricing_input_label(attributes, name) if _rng else name, _rng)
             if err:
                 row_errors.append(err)
             else:

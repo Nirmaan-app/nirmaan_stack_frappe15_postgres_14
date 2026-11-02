@@ -3,7 +3,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, nowdate, getdate, today
+from frappe.utils import flt, nowdate, today
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services.approval_raiser import raiser_level
@@ -19,9 +19,11 @@ from nirmaan_stack.services.payment_steps import ROUTED_AT_REQUEST
 from nirmaan_stack.services import cheque_payments
 from nirmaan_stack.services.tds_forecast import request_amount_as_stored
 from nirmaan_stack.services.cheques import decide as cheque_decision
+from nirmaan_stack.services.cheques.payment_rules import CREDIT_TERM, credit_request_problem
 from nirmaan_stack.api.payments.payment_cheque import (
     cheque_header,
     expect_new_cheque,
+    mark_credit_payment_cheque,
     put_on_new_cheque,
     refuse_unless_cheque_can_be_made,
 )
@@ -243,13 +245,17 @@ def create_project_payment(
             frappe.throw(_("This payment term already has a linked payment request."))
 
         # --- Step 2.5: Due date validation for Credit payment terms ---
-        if term_details.get("payment_type") == "Credit":
-            if not term_details.get("due_date"):
-                frappe.throw(_("Credit payment term must have a due date set."))
-            if getdate(term_details.get("due_date")) > getdate(today()):
-                frappe.throw(_(
-                    "This credit payment term is not yet due. Due date is {0}."
-                ).format(term_details.get("due_date")))
+        # Before the due date only a cheque dated on or after it (owner, 2026-10-31).
+        is_credit_term = term_details.get("payment_type") == CREDIT_TERM
+        if is_credit_term:
+            problem = credit_request_problem(
+                due_date=term_details.get("due_date"),
+                today=today(),
+                is_cheque=(mode_of_payment or "").strip() == cheque_payments.MODE_CHEQUE,
+                cheque_date=cheque_date,
+            )
+            if problem:
+                frappe.throw(_(problem))
 
         # --- Step 3: Financial Validation ---
         src = frappe.get_doc(doctype, docname)
@@ -306,6 +312,8 @@ def create_project_payment(
 
         # --- Step 4b: a cheque payment goes on its own new one-line Cheque ---
         cheque_name = put_on_new_cheque(pay.name, cheque)
+        if cheque_name and is_credit_term:
+            mark_credit_payment_cheque(cheque_name)
 
         # --- Step 5: Update the PO Payment Term row, mirroring the payment status ---
         # This establishes the bidirectional relationship.

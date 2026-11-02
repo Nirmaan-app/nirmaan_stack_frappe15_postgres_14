@@ -11,7 +11,7 @@ from frappe.utils import flt
 FINANCIAL_YEAR_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
 
 EXPENSE_DOCTYPE = "Non Project Expenses"
-# The Expense Type an Accountant books a deposit of tax under (fixtures/expense_type.json).
+# The Expense Type an Accountant books a deposit of tax under (a new site gets it from services/expense_types_seed.json).
 TDS_PAYMENT_EXPENSE_TYPE = "TDS Payment"
 
 

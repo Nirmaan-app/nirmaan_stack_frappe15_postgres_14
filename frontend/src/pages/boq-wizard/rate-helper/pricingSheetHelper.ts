@@ -25,11 +25,13 @@
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
 import {
+  assemblyOnlyCtxKeys,
   catalogFitOutcomes,
   derivedAttrOutcomes,
   mapAttributeOutcomes,
   moduleFitOutcome,
   NONE_SENTINEL,
+  noneRefusalOf,
   runPipeline,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
@@ -38,6 +40,7 @@ import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } fro
 import {
   blanksQtyAttr,
   blanksBindItemAttr,
+  categoryItemKinds,
   coerceForMatch,
   derivedAttrIds,
   derivedQtyAttrs,
@@ -56,6 +59,8 @@ import type {
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
+import { applyConductorFloor, conductorFloorGroups, CONDUCTOR_FLOOR_NOTE } from "./conductorFloor";
+import { USED_INPUT_MARK, attributeWorkingLine, moneyValue, usedAssemblyInputs } from "./attributeWorkingLines";
 // SLICE 6 (owner S1-S5, 2026-09-24): the item-list mode prices a LIST of items per row through the pure module;
 // the helper only assembles the list (the model's items overlaid with the panel's session edits) and shapes the
 // result for the panel. Every default, ladder and conversion stays in the module + config.
@@ -69,6 +74,7 @@ import {
   familyUnitClasses,
   fieldOptionsFromSkus,
   inchWithMmEcho,
+  isRateOnlyUnit,
   itemFieldDefs,
   itemListPricingSpec,
   matchStatedToOption,
@@ -83,6 +89,7 @@ import {
   applyFamilyMerge,
   priceItemList,
   sizeFieldHelp,
+  splitRateOnlyUnit,
   twoWayValues,
   typedFieldNote,
   unitClassOf,
@@ -458,8 +465,10 @@ export function selfFitBinds(config: RateCategoryConfig): Set<string> {
   const out = new Set<string>();
   for (const pl of Object.values(config.pipelines ?? {})) {
     for (const raw of pl.steps ?? []) {
-      const st = raw as { step?: string; params?: { bind?: unknown; fit_from?: { attr?: unknown } } };
-      if (st.step === "catalog_fit" && typeof st.params?.bind === "string" && st.params.fit_from?.attr === st.params.bind) out.add(st.params.bind);
+      // ELR-4d (owner R-W6): a `hop_only` fit (the wiring conduit) moves a stated size that is not stocked and does nothing
+      // else -- its bind has its own filler, so a blank one is not a needed input
+      const st = raw as { step?: string; params?: { bind?: unknown; fit_from?: { attr?: unknown }; hop_only?: unknown } };
+      if (st.step === "catalog_fit" && typeof st.params?.bind === "string" && st.params.fit_from?.attr === st.params.bind && st.params.hop_only !== true) out.add(st.params.bind);
     }
   }
   return out;
@@ -471,7 +480,8 @@ export function selfFitBinds(config: RateCategoryConfig): Set<string> {
  * ones the pipeline's own steps name by `kind`; with none named, every stated fact is listed as before.
  */
 export function varyingAttrLine(attrs: WorkingsAttribute[], items: RateMasterItem[], pl: Pipeline): string {
-  const kinds = new Set((pl.steps ?? []).map((s) => (s as { params?: { kind?: unknown } }).params?.kind).filter((k): k is string => typeof k === "string"));
+  // ELR-4d (owner R-W6): a `hop_only` fit's kind is not a row this pipeline matches on, so it adds no fact to the sentence
+  const kinds = new Set((pl.steps ?? []).filter((s) => (s as { params?: { hop_only?: unknown } }).params?.hop_only !== true).map((s) => (s as { params?: { kind?: unknown } }).params?.kind).filter((k): k is string => typeof k === "string"));
   const rows = kinds.size ? items.filter((it) => kinds.has(it.kind)) : [];
   // a value every row shares WITH the answer is not the reason; one every row shares that the answer contradicts is
   const varies = (id: string, value: string): boolean => {
@@ -902,7 +912,9 @@ export function withLandedNotes(
     } else if (dv && dv.value !== null) {
       const st = steps.find((x) => x.step === "derive_attribute" && x.params?.result_attr === a.id);
       const formula = typeof st?.params?.formula === "string" ? st.params.formula : undefined;
-      const consts = (st?.params?.constants ?? {}) as Record<string, unknown>;
+      // ELR-3a (owner Q1 a): a constant read from a Pricing Input is substituted with the value pricing USED, carried
+      // on the outcome -- the config holds a ctx key there, which would put "base" / "per_extra" on screen
+      const consts = (dv.constants ?? st?.params?.constants ?? {}) as Record<string, unknown>;
       const terms = (Array.isArray(st?.params?.terms) ? st!.params!.terms : []) as Array<{ ident?: string; attr?: string }>;
       if (formula) {
         let text = formula;
@@ -921,7 +933,10 @@ export function withLandedNotes(
       } else {
         const st = steps.find((x) => x.step === "map_attribute" && x.params?.result_attr === a.id);
         const from = typeof st?.params?.from_attr === "string" ? st.params.from_attr : undefined;
-        const table = st?.params?.table && typeof st.params.table === "object" ? st.params.table as Record<string, unknown> : undefined;
+        // ELR-3a (owner Q1 a): a table read from Pricing Inputs (`table_from_ctx`) has the same KEYS -- only the keys
+        // are tested here; the value shown is the outcome's, the number pricing used
+        const tableSrc = st?.params?.table ?? st?.params?.table_from_ctx;
+        const table = tableSrc && typeof tableSrc === "object" ? tableSrc as Record<string, unknown> : undefined;
         const src = from && selected ? selected[from] : undefined;
         how = src !== undefined && src !== null && src !== "" && src !== NONE_SENTINEL && table && Object.prototype.hasOwnProperty.call(table, String(src))
           ? `${labelOf(from!)} ${String(src)} read as ${String(mp.value)}`
@@ -1180,6 +1195,39 @@ function readGroupLabel(d: unknown): string | undefined {
  * (reused, not a second mark) plus the "(never asked at extraction ...)" derivation line are the only
  * guard. A pricer's override still wins, exactly as over a model-claimed default.
  */
+/**
+ * ELR-4a (owner R-PW-BLANK, 2026-10-29: "remove it and in its place goive a note explaining how blank count is
+ * arrived"; text N1 approved at P6) -- PURE. The note that says how the blank count is worked out, for a category
+ * whose `module_fit` `blanks` block shows its blanker on NO field (no `display_attr`: point wiring's v70 hides its
+ * "Blank plate" with `panel: false`). It is drawn where that field was, so on the field before the blanks' own
+ * quantity. Written FROM THE CONFIG -- the terms' items and weights, the blanker's name, the quantity's label -- and
+ * null for a block that displays its blanker (switches & sockets, pop-up boxes keep "Blank plate", owner "4 let it be").
+ */
+export function blanksWorkedOutNote(config: RateCategoryConfig): { attr: string; text: string } | null {
+  const defs = config.attribute_definitions ?? [];
+  const label = (id: unknown): string => defs.find((d) => d.id === id)?.label ?? String(id ?? "");
+  for (const [pid, pl] of Object.entries(config.pipelines ?? {})) {
+    if (/bcs/i.test(pid)) continue;
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { terms?: Array<{ weight?: number; none_when?: string }>; blanks?: Record<string, unknown> } };
+      const b = s.params?.blanks;
+      if (s.step !== "module_fit" || !b || b.display_attr || typeof b.qty_attr !== "string" || typeof b.item_when_positive !== "string") continue;
+      const terms = (s.params?.terms ?? []).map((t) => ({ what: label(t.none_when).toLowerCase(), weight: Number(t.weight) }));
+      if (!terms.length) continue;
+      const plural = (w: string) => (/(ch|sh|s|x)$/.test(w) ? `${w}es` : `${w}s`);
+      const users = [...terms].reverse().map((t) => plural(t.what));
+      const users2 = users.length > 1 ? `${users.slice(0, -1).join(", ")} and ${users[users.length - 1]}` : users[0];
+      const weights = terms.map((t, i) => (i === 0 ? `a ${t.what} takes ${t.weight}` : `a ${t.what} ${t.weight}`)).join(", ");
+      return {
+        attr: b.qty_attr,
+        text: `Blank plates are worked out, not chosen: the plate's modules less the modules its ${users2} use (${weights}). ` +
+          `Each spare module gets a '${b.item_when_positive}'. '${label(b.qty_attr)}' can lower that count but never raise it above the spare.`,
+      };
+    }
+  }
+  return null;
+}
+
 function readExtractionDefaults(config: RateCategoryConfig): Record<string, unknown> {
   // `extraction_defaults` is carried by the config but is not on the RateCategoryConfig type (out of
   // this slice's scope) -- read through `unknown`, the `readGroupLabel` precedent.
@@ -1208,6 +1256,132 @@ function neverAskedDefault(
   }
   if (d.allow_none) return NONE_SENTINEL;
   return undefined;
+}
+
+/**
+ * ELR-3b (owner R-8; R-V1 2026-10-27 "2 v1"; R-V1b / R-V1c 2026-10-29). PURE. THE PLATE-QUANTITY DEFAULT -- the mirror of
+ * the server's `extraction.fill_paired_slot_defaults` case (b) (with `paired_fill_plan`), which fills NEW reads only
+ * (since 226509192). A stored row read before that kept a blank plate quantity and refused "Missing to price: Plate qty";
+ * this gives the panel and the calculator the SAME answer the server gives, through this one function.
+ *
+ * THE RULE, exactly the server's:
+ *   - the item is COMPUTED: a `requires_named` target of an `extraction_defaults` spec with a `default` that is a
+ *     `module_fit` ladder `bind` (the face plate) -- read from the config, never from a category or attribute name;
+ *   - its quantity is BLANK and the item is BLANK (not named, not "None");
+ *   - the row is OCCUPIED: some occupancy term of the first `module_fit` step (the terms `module_fit` itself sums) whose
+ *     `none_when` item is filled (a real value, not "None", not blank) carries a quantity above zero.
+ * -> the quantity takes the declared default. NOT an empty box (every switch / socket None or blank: owner R-V1, V2 was
+ * not ruled), NOT a named plate (U7's, calculator only, unchanged), NOT a "None" plate, NEVER over a stated quantity.
+ *
+ * `valueOf` is the row's value as the pricer sees it (an override, else the stored cell, else a never-asked default),
+ * coerced; null = blank. Returns attribute id -> default value.
+ */
+export function computedPlateQtyDefaults(
+  config: RateCategoryConfig,
+  valueOf: (id: string) => string | number | null,
+): Map<string, string | number> {
+  const out = new Map<string, string | number>();
+  const defaults = readExtractionDefaults(config);
+  const pairs: Array<[string, string, string | number]> = [];
+  for (const [aid, spec] of Object.entries(defaults)) {
+    if (spec === null || typeof spec !== "object") continue;
+    const s = spec as { default?: unknown; requires_named?: unknown };
+    if (typeof s.requires_named !== "string" || !("default" in s)) continue;
+    if (typeof s.default === "string" || typeof s.default === "number") pairs.push([aid, s.requires_named, s.default]);
+  }
+  if (!pairs.length) return out;
+  const named = new Set(pairs.map(([, item]) => item));
+  const computed = new Set<string>();
+  let terms: Array<{ attr: string; none_when?: unknown }> = [];
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { ladders?: unknown; terms?: unknown } };
+      if (s.step !== "module_fit") continue;
+      for (const l of Array.isArray(s.params?.ladders) ? s.params!.ladders as Array<{ bind?: unknown }> : []) {
+        if (typeof l?.bind === "string" && named.has(l.bind)) computed.add(l.bind);
+      }
+      if (!terms.length && Array.isArray(s.params?.terms)) {
+        terms = (s.params!.terms as Array<{ attr?: unknown; none_when?: unknown }>)
+          .filter((t): t is { attr: string; none_when?: unknown } => typeof t?.attr === "string" && t.attr !== "");
+      }
+    }
+  }
+  if (!computed.size) return out;
+  const filled = (id: string) => {
+    const v = valueOf(id);
+    return v !== null && v !== "" && v !== NONE_SENTINEL;
+  };
+  const occupied = terms.some(
+    (t) => (typeof t.none_when !== "string" || t.none_when === "" || filled(t.none_when)) && Number(valueOf(t.attr) ?? 0) > 0,
+  );
+  if (!occupied) return out;
+  for (const [aid, item, dflt] of pairs) {
+    if (!computed.has(item)) continue;
+    const q = valueOf(aid);
+    const it = valueOf(item);
+    if ((q === null || q === "") && (it === null || it === "")) out.set(aid, dflt);
+  }
+  return out;
+}
+
+/**
+ * ELR-1 (owner R-UNIT: 12c-U carried to the attribute path; Q1 ruling 2026-10-27, "a"). PURE. The note a PRICED
+ * attribute-path row shows when the BoQ row stated NO unit, or a rate-only one (`isRateOnlyUnit` / a rate-only marker
+ * before a unit, `splitRateOnlyUnit` -- the item-list path's own predicates): the 12c-U lead, then the unit the
+ * figure is a rate in.
+ *
+ * WHICH UNIT, read from the config and the priced result, never a category name:
+ *   - a primary pipeline that BUILDS the rate from two or more components of the category's own item kinds is an
+ *     ASSEMBLY (a DB build-up, a switch-socket plate, a pop-up box) -> "priced as one <category> item";
+ *   - else the catalogue row it MATCHED (`match_master_row`) -> "priced per <its unit>";
+ *   - else ONE own-kind component whose catalogue rows share one unit (an industrial socket and its paired MCB) ->
+ *     that unit;
+ *   - else (no own item kind at all: point wiring prices from other categories' rows) -> an assembly.
+ * The verb is "priced" because only a priced row is noted: a refusing row stays exactly as it was (AC3).
+ * `rowUnit` undefined is the calculator (no row) -> nothing.
+ */
+export function attributeUnitNote(
+  config: RateCategoryConfig,
+  items: readonly RateMasterItem[],
+  rowUnit: string | null | undefined,
+  primaryId: string,
+  primary: PipelineResult | undefined,
+): string | undefined {
+  if (rowUnit === undefined) return undefined;
+  const unit = String(rowUnit ?? "").trim();
+  let lead: string;
+  if (unit === "") lead = "No unit on the BoQ row";
+  else if (isRateOnlyUnit(unit) || splitRateOnlyUnit(unit) !== null) lead = `BoQ says ${unit} (rate only)`;
+  else return undefined;
+  const own = new Set(categoryItemKinds(config));
+  const steps = (config.pipelines?.[primaryId]?.steps ?? []) as Array<{ step?: string; ref?: { kind?: unknown } }>;
+  const ownRefs = steps.filter((s) => s.step === "component_ref" && typeof s.ref?.kind === "string" && own.has(s.ref.kind));
+  let word: string | undefined;
+  if (ownRefs.length < 2) {
+    const matched = primary?.matchedItem?.unit;
+    if (typeof matched === "string" && matched.trim() !== "") word = matched.trim();
+    else if (ownRefs.length === 1) {
+      const units = new Set(items.filter((it) => it.kind === ownRefs[0].ref!.kind).map((it) => String(it.unit ?? "").trim()));
+      if (units.size === 1) {
+        const [only] = units;
+        if (only !== "") word = only;
+      }
+    }
+  }
+  return word !== undefined
+    ? `${lead} -> priced per ${word}, the catalogue's unit for this item`
+    : `${lead} -> priced as one ${categoryLabel(config)} item`;
+}
+
+/** ELR-4c (owner "Q4 a", 2026-10-30): an attribute-path field as the helper hands it to the panel. `eitherWords` is set on a
+ *  NEEDED field that a field hidden from the panel can also fill (a tray thickness the BoQ gives as a gauge); the BoQ panel
+ *  shows it beside the "*", the calculator -- where there is no other way to give it -- keeps the plain "*". */
+export type ShownAttribute = WorkingsAttribute & { eitherWords?: string };
+
+/** "Thickness (mm)" -> "this, or a thickness the BoQ gives another way" -- the field's own label, its unit dropped; the
+ *  hidden field is never named (owner R-SWG). */
+export function eitherWordsFor(label: string): string {
+  return `this, or a ${label.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase()} the BoQ gives another way`;
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
@@ -1323,15 +1497,46 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         }
       }
     }
-    /** The stored cell for a def, or the never-asked synthesized one. */
+    /**
+     * ELR-3b (owner R-V1 / R-V1b): the plate-quantity default, on the panel AND the calculator through the one function
+     * (`computedPlateQtyDefaults`, the server's case (b)). It replaces a stored BLANK cell (the never-asked map above
+     * cannot: it fills only a key the stored row lacks) and is marked `defaulted`, so the field shows the existing
+     * "default" badge and the existing "(defaulted -- ...)" line. A quantity the pricer typed (any override) is theirs:
+     * no fill -- the gate reads the override first anyway. R-V1c: no confidence is shown for it (a rule, not a reading).
+     */
+    const plateQtyDefault = new Map<string, ExtractedAttr>();
+    {
+      const valueOfAny = (id: string): string | number | null => {
+        const dd = defs.find((x) => x.id === id);
+        if (!dd) return null;
+        const ov = overrides?.[id];
+        const raw = ov !== undefined ? ov : (ext?.attributes[id] ?? neverAsked.get(id))?.value ?? null;
+        return coerceForMatch(dd, raw as string | number | null);
+      };
+      for (const [id, v] of computedPlateQtyDefaults(category, valueOfAny)) {
+        if (overrides?.[id] !== undefined) continue;
+        plateQtyDefault.set(id, { value: v, confidence: 0, defaulted: true });
+      }
+    }
+    /** The stored cell for a def, or the never-asked synthesized one (or the ELR-3b plate-quantity default). */
     const cellOf = (d: AttributeDefinition): ExtractedAttr | undefined =>
-      ext?.attributes[d.id] ?? neverAsked.get(d.id);
+      plateQtyDefault.get(d.id) ?? ext?.attributes[d.id] ?? neverAsked.get(d.id);
+    // ELR-4d (owner R-3C-CALC): the conductor floor over the effective values, on the panel and the calculator alike. A raised
+    // value wins over a typed one (a value stating three or more is never raised); nothing is written to the row.
+    const floorRaised = applyConductorFloor((id) => {
+      const dd = defs.find((x) => x.id === id);
+      if (!dd) return null;
+      const ov = overrides?.[id];
+      return coerceForMatch(dd, (ov !== undefined ? ov : cellOf(dd)?.value ?? null) as string | number | null);
+    }, conductorFloorGroups(category));
 
     // EA-4a-r: which defs are DISABLED because an allow_none controller is set to "None" (positive
     // absence) -- e.g. plate_item="None" disables plate_qty AND back_box. A controller can disable a def
     // that appears BEFORE it in the list (wire2_thickness_sqmm controls wire2_core), so resolve in a
     // pre-pass. A disabled target is greyed + cleared and is NOT treated as an unknown (never blocks).
     const valueOfDef = (d: AttributeDefinition): string | number | null => {
+      const up = floorRaised.get(d.id);
+      if (up !== undefined) return up;
       const ov = overrides?.[d.id];
       const raw = ov !== undefined ? ov : cellOf(d)?.value ?? null;
       return coerceForMatch(d, raw as string | number | null);
@@ -1344,7 +1549,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     }
 
     // Build the workings attributes (pre-filled from extraction, overridable) + the selected map.
-    const workingsAttrs: WorkingsAttribute[] = [];
+    const workingsAttrs: ShownAttribute[] = [];
+    const blanksNote = blanksWorkedOutNote(category);
     const selected: Record<string, string | number> = {};
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
     const neverAskedTrace: string[] = []; // 2026-09-08: the subset of `defaulted` this helper synthesized
@@ -1392,16 +1598,26 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       }
     }
     const unfillableDerived = new Set<string>();
+    // ELR-4c (TS-15, owner "Q5 a"): an unfillable target whose source is a field ON SCREEN, blank and its own to fill -- the
+    // source carries the "*", so the target does not ("Circuit wiring stretch" while "Circuit wiring included" is blank).
+    // Display only: the gate below still reads `unfillableDerived`, so no refusal changes.
+    const blankShownSource = new Set<string>();
+    // ELR-4c (owner R-SWG / "Q4 a"): a target a HIDDEN field can also fill (tray thickness from the BoQ's gauge) -- its "*"
+    // says "this, or ... another way", never naming the hidden field
+    const hiddenSourced = new Set<string>();
     for (const [resultAttr, src] of mapAttributeSources(category)) {
+      const fromDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
+      if (fromDef?.panel === false) hiddenSourced.add(resultAttr);
       if (src.hasDefault) continue; // the curve-else-C shape: always fillable, never narrowed
       // A SECOND FILLER: `derive_attribute` can compute this target whatever the map's source says.
       if (deriveTargets.has(resultAttr)) continue;
-      const srcDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
+      const srcDef = fromDef;
       // A source we cannot resolve is NOT evidence of absence -- leave the exemption alone rather
       // than narrow on a guess. Only a source we can read AND find empty narrows it.
       if (!srcDef) continue;
       const v = valueOfDef(srcDef);
       if (v === null || v === NONE_SENTINEL) unfillableDerived.add(resultAttr);
+      if (v === null && srcDef.panel !== false && !derived.has(srcDef.id)) blankShownSource.add(resultAttr);
     }
     for (const id of selfFit) {
       const sd = defs.find((d) => d.id === id);
@@ -1429,7 +1645,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const wasNeverAsked = neverAsked.has(d.id);
       const overridden = overrides?.[d.id];
       const disabled = disabledByNone.has(d.id);
-      const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
+      const raised = disabled ? undefined : floorRaised.get(d.id);
+      const rawValue = disabled ? null : raised !== undefined ? raised : overridden !== undefined ? overridden : cell?.value ?? null;
       const coerced = coerceForMatch(d, rawValue as string | number | null);
       // A disabled target is POSITIVELY absent (its controller is None) -- clear it, do NOT flag missing.
       // A DERIVED attribute (a module_fit ladder bind, or a superseded `<name>_qty`) is likewise not
@@ -1444,7 +1661,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       if (coerced === null) {
         // SLICE 3b: `fillableDerived`, not `derived` -- see the pre-pass above. Identical to
         // `derived` for every config without a `map_attribute`.
-        if (!disabled && !fillableDerived.has(d.id) && d.panel !== false) { missing = true; missingLabels.push(d.label); }
+        // ELR-4d (owner R-TS15, "1 ... ok"): the gate is unchanged; the sentence names the blank source on screen, not its target
+        if (!disabled && !fillableDerived.has(d.id) && d.panel !== false) { missing = true; if (!blankShownSource.has(d.id)) missingLabels.push(d.label); }
       }
       else selected[d.id] = coerced;
       // A defaulted attribute is one the model filled from the config default (no positive text
@@ -1454,7 +1672,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // condition drives both surfaces -- the prose trace line below AND the per-attribute flag the
       // panel tints -- so the two can never disagree about which values came from a default.
       const isDefaulted =
-        !disabled && overridden === undefined && coerced !== null && cell?.defaulted === true;
+        !disabled && raised === undefined && overridden === undefined && coerced !== null && cell?.defaulted === true;
       if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
         // The badge cannot tell a never-asked default from a model-claimed one; this trace line can.
@@ -1476,6 +1694,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // filtering the walk instead would leave `absent_when` unfired and the ladder unrun -- every
       // socket row silently mispriced. The facts keep working; they just stop being asked about.
       if (d.panel === false) continue;
+      const needed = !disabled && !absentNow.has(d.id) && (!derived.has(d.id) || selfFit.has(d.id) || (unfillableDerived.has(d.id) && !blankShownSource.has(d.id)));
       workingsAttrs.push({
         id: d.id,
         label: d.label,
@@ -1486,15 +1705,25 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         options: isDropdownAttributeType(d.type) ? attributeOptions(d, items, selected) : undefined,
         value: coerced === null ? "" : String(coerced),
         // A never-asked default has no model confidence to show -- omit it rather than render 0.
-        confidence: disabled || (wasNeverAsked && overridden === undefined) ? undefined : cell?.confidence,
+        // ELR-3b (owner R-V1c): nor has the plate-quantity default
+        // ELR-4d: nor has a value the conductor floor raised
+        confidence: disabled || raised !== undefined || ((wasNeverAsked || plateQtyDefault.has(d.id)) && overridden === undefined) ? undefined : cell?.confidence,
         corroborated: disabled ? undefined : cell?.corroborated,
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
         // ADP-3a (owner H1, U1): NEEDED TO PRICE -- the gate's own condition (a blank one withholds the price), plus a
         // self-fit bind (needed whenever it is blank). The marker can never disagree with the gate.
-        ...(!disabled && !absentNow.has(d.id) && (!derived.has(d.id) || selfFit.has(d.id) || unfillableDerived.has(d.id)) ? { required: true } : {}),
+        // ELR-4c (TS-15): BEFORE `unfillableDerived.has(d.id)` alone -- a target whose blank source is on screen is not starred
+        ...(needed ? { required: true } : {}),
+        ...(needed && hiddenSourced.has(d.id) ? { eitherWords: eitherWordsFor(d.label) } : {}),
         defaulted: isDefaulted || undefined,
         ...(ratingUp ? { notes: [ratingUp] } : {}),
+        // ELR-4d (owner R-3C-CALC): the raised field shows "(computed)" with the note
+        ...(raised !== undefined ? { derivedValue: String(raised), substituted: true, notes: [{ kind: "landed" as const, how: CONDUCTOR_FLOOR_NOTE }] } : {}),
+        // ELR-1 (owner R-NOTES-RULE, AC2): the definition's own note, as the item-list path shows its typed note
+        ...(typeof d.note === "string" && d.note.trim() !== "" ? { typedNote: d.note } : {}),
+        // ELR-4a (owner R-PW-BLANK): how the blank count is worked out, drawn before this field (`blanksWorkedOutNote`)
+        ...(blanksNote && d.id === blanksNote.attr ? { leadNote: blanksNote.text } : {}),
         // F4b: carry the config's group label through untouched. A non-string (or empty) is dropped
         // rather than rendered -- attribute-definition keys carry no backend type guard, so a bad
         // value must degrade to "no group" here instead of drawing a blank header.
@@ -1566,6 +1795,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // DERIVED DISPLAY: keep every result so the derived attributes can be filled from what the
     // pipelines actually computed (a category may split supply/install across pipelines).
     const pipelineResults: PipelineResult[] = [];
+    // ELR-4d (owner R-DB-MANUAL): a pipeline's declared whole-row refusal, said once
+    let wholeRowRefusal: string | undefined;
     surfaced.forEach(([pid, pl], idx) => {
       const res = runPipeline(pid, pl as Pipeline, items, selected);
       pipelineResults.push(res);
@@ -1578,7 +1809,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           finals[o] = res.finals[o];
           // Calculator slice 1: the pricer's word ("Supply = 320"), not the output id ("supply = 320",
           // "supply_per_mtr = 1490"); an output that fills no kind keeps its own name.
-          derivation.push(`${outputWord(o)} = ${res.finals[o]}`);
+          derivation.push(`${outputWord(o)} = ${moneyValue(res.finals[o])}`);   // ELR-4c (R-FLOAT): money to 2 decimals
           // EA-4a: a category may split supply + install across SEPARATE pipelines (point_wiring's
           // pw_boq_supply / pw_boq_install, cabletray). Take each rate-kind from the FIRST pipeline
           // that produces it -- a single combined pipeline (conduit) still fills both from its one pass.
@@ -1587,10 +1818,24 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         }
         // EA-4a: the assembly categories expose their per-component build-up as the step traces; surface
         // each component line (name = value) in the group so the pricer sees the bill, not just the total.
+        // ELR-2 (owner R-WORD / R-MISC, D1-D8): in plain English -- the Pricing Input's own name, the bound field's label
+        // ELR-3a (owner Q2 a): a Pricing Input read ONLY by an assembly step (a length, a conduit fill) moves no SKU's
+        // own rate and adds no line -- the bill reads exactly as it did while those numbers were literals
+        const assemblyOnly = assemblyOnlyCtxKeys(pl as Pipeline);
+        // ELR-4c (owner R-ELR2 (c), "one line per input used"; P6 "Q1 b"): such an input DOES get a line on a row whose
+        // pipeline used it -- "<name> = <value> <unit> (Pricing Input)" -- and none on a row that did not
+        const usedInputs = usedAssemblyInputs(pl as Pipeline, res.steps, selected);
         for (const st of res.steps) {
-          if (st.produced && st.refItem) matchedRows.push(`${st.produced.key}: ${st.refItem} = ${st.produced.value}`);
+          if (st.step === "rate_ref" && st.produced && assemblyOnly.has(st.produced.key)) {
+            if (usedInputs.has(st.produced.key)) matchedRows.push(`${attributeWorkingLine(st, pl as Pipeline, category, items, (a) => selected[a])} ${USED_INPUT_MARK}`);
+            continue;
+          }
+          if (st.produced && st.refItem) matchedRows.push(attributeWorkingLine(st, pl as Pipeline, category, items, (a) => selected[a]));
         }
         flatMatched.push(`Matched ${label} for ${attrLine}.`);
+      } else if (noneRefusalOf(res)) {
+        if (!wholeRowRefusal) derivation.push(noneRefusalOf(res)!);
+        wholeRowRefusal ??= noneRefusalOf(res);
       } else if (res.status === "no_match") {
         // ADP-3a (B6 #4): only the facts this pipeline's catalogue rows vary on
         const facts = varyingAttrLine(workingsAttrs, items, pl as Pipeline);
@@ -1615,7 +1860,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // line is added to its one group so its in-group display is unchanged.
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      const combinedLine = `Combined = supply + install = ${values.combined_rate}`;
+      const combinedLine = `Combined = supply + install = ${moneyValue(values.combined_rate)}`;
       flatDerivation.push(combinedLine);
       if (sections.length === 1) sections[0].derivation.push(combinedLine);
     }
@@ -1636,6 +1881,10 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       for (const s of sections) s.derivation.push(neverAskedLine);
     }
 
+    // ELR-1 (R-UNIT, AC3): a priced row that stated no unit, or a rate-only one, says what the rate is per
+    const unitNote = Object.keys(values).length
+      ? attributeUnitNote(category, items, (ctx as RowContextWithUnit).unit, surfaced[0][0], pipelineResults[0])
+      : undefined;
     return {
       kind: "suggestion",
       values,
@@ -1643,13 +1892,14 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // Calculator slice 1: the category's LABEL ("Switches and Sockets"), not its id ("switches_sockets").
       basis: Object.keys(values).length
         ? `Rate master: ${categoryLabel(category)} @ ${attrLine}`
-        : "no match for these attributes",
+        : wholeRowRefusal ?? "no match for these attributes",
       workings: {
         attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items, selected),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },
         sections,
+        ...(unitNote ? { unitNote } : {}),
       },
     };
   }
@@ -1689,11 +1939,11 @@ function computeWiring(
     for (const o of result.outputs) {
       const kind = kindForOutput(o);
       if (kind) values[kind] = result.finals[o];
-      derivation.push(`${outputWord(o)} = ${result.finals[o]}`);
+      derivation.push(`${outputWord(o)} = ${moneyValue(result.finals[o])}`);
     }
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      derivation.push(`Combined = supply + install = ${values.combined_rate}`);
+      derivation.push(`Combined = supply + install = ${moneyValue(values.combined_rate)}`);
     }
     matchedRows.push(`Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`);
   } else if (result.status === "no_match") {
@@ -1758,7 +2008,7 @@ function computeWiring(
     if (sr.status === "ok") {
       for (const o of sr.outputs) {
         secondaryGroup.finals[o] = sr.finals[o];
-        secondaryGroup.derivation.push(`${outputWord(o)} = ${sr.finals[o]}`);
+        secondaryGroup.derivation.push(`${outputWord(o)} = ${moneyValue(sr.finals[o])}`);
       }
     } else {
       secondaryGroup.derivation.push(
@@ -1797,6 +2047,10 @@ function computeWiring(
   // appears in the section too. The secondary group's figures are filled here, after its finals are.
   secondaryGroup.figures = groupFigures(secondaryGroup.finals);
   const headlines = sections.map((g) => ({ label: g.label, values: groupFigures(g.finals) }));
+  // ELR-1 (R-UNIT, AC3): the PRIMARY block's matched row names the unit (a cable per Mtr, a termination per Set)
+  const unitNote = Object.keys(values).length
+    ? attributeUnitNote(config, items, (ctx as RowContextWithUnit).unit, primaryId, result)
+    : undefined;
 
   return {
     kind: "suggestion",
@@ -1815,6 +2069,7 @@ function computeWiring(
       // ALWAYS present now (both blocks, every wiring row). The flat fallback in the panel is
       // consequently unreachable from the wiring path -- it still serves every generic category.
       sections,
+      ...(unitNote ? { unitNote } : {}),
     },
   };
 }

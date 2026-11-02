@@ -1,5 +1,5 @@
-# Runs on the DESKTOP host inside the owner's console session, started by the envsync-claude-launch task
-# (start_task.ps1). Starts, or resumes with a relayed message, a Claude background session in the repo, then writes
+# Runs on the DESKTOP host inside the owner's console session, started by the environment's envsync-claude-launch-<folder>
+# task (start_task.ps1). Starts, or resumes with a relayed message, a Claude background session in the repo, then writes
 # <sessions>\<Name>.launch.txt for start_task.ps1. The session keeps running in Claude's background service after
 # this script exits.
 param(

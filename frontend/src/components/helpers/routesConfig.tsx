@@ -67,6 +67,7 @@ import {
   NON_PROJECT_INFLOWS_ACCESS,
   PAYEE_MANAGE_PROFILES,
   PROJECT_INVOICES_ACCESS,
+  RATE_MASTER_ACCESS,
   UPLOAD_BOQ_ACCESS,
 } from "@/constants/roles";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
@@ -979,13 +980,15 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
-          // Rate Master (RM-2) -- the pricing helper's read surface (viewer + derivation).
-          // Owner option (a): beside the pricing workbooks, PricingRoute-guarded, lazy +
-          // Suspense per the admin-tool convention. One page today (Electrical); the page
-          // is registry-shaped (rate-master/rateMasterRegistry.ts) for more disciplines.
+          // Rate Master (RM-2) -- the pricing helper's catalogue screen (viewer + derivation).
+          // Lazy + Suspense per the admin-tool convention; the page is registry-shaped
+          // (rate-master/rateMasterRegistry.ts) for more disciplines.
+          // RM-ACCESS-1 (owner 2026-10-20): ADMIN ONLY. It left PricingRoute, so Estimates lost
+          // their read-only view; the calculator and the BoQ pricing panel keep pricing (they
+          // never route here). RATE_MASTER_ACCESS admits the population isNirmaanAdmin does.
           {
             path: "rate-master",
-            element: <PricingRoute />,
+            element: <RoleRoute allowed={RATE_MASTER_ACCESS} what="the Rate Master" />,
             children: [
               { index: true, lazy: () => import("@/pages/pricing/rate-master/RateMasterPage") },
             ],

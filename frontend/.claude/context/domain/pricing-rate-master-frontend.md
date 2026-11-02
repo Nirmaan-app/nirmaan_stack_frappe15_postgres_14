@@ -568,7 +568,9 @@ get_rate_master_items` / `get_rate_category_config`) as-is -- NO backend couplin
 in the plan doc.
 
 - **The page home is owner option (a):** a `Rate Master` route (`/rate-master`) beside the pricing
-  workbooks, `PricingRoute`-guarded (UI gate only; the endpoints' login requirement is the enforcement),
+  workbooks. **Only Nirmaan Admin users and Administrator see the Rate Master; Estimates no longer does**
+  (RM-ACCESS-1, owner 2026-10-20): the route is `<RoleRoute allowed={RATE_MASTER_ACCESS} />` and the sidebar
+  item is gated by `isNirmaanAdmin` (UI gates; the server gates the writes and the freeze read),
   lazy + `export { RateMasterPage as Component }`. `rateMasterRegistry.ts` is registry-shaped like
   `pricingWorkbooks.ts` (Electrical today); the sidebar registration is the SAME four registry-driven
   touches the pricing workbooks use (role-gated item, `allKeys`, `groupMappings`, flat-label Set).
@@ -656,9 +658,10 @@ in the plan doc.
   UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive
   matching anywhere).
 - **RM-4a editing is ADMIN-ONLY (owner option (a); full detail in the plan doc's "Build slice RM-4a").**
-  Estimates sees everything READ-ONLY -- every edit affordance is `{isAdmin && ...}` (HIDDEN, never
+  Only Nirmaan Admin users and Administrator see the page at all; Estimates no longer does (RM-ACCESS-1;
+  before it, Estimates saw everything READ-ONLY). Every edit affordance is `{isAdmin && ...}` (HIDDEN, never
   disabled), gated by the shared `isNirmaanAdmin(role, userId)` in `src/constants/roles.ts` (mirrors
-  the server `_is_nirmaan_admin`; false while `role` is "Loading"/"Error"). The server
+  `canAdminOverride` / the server `_is_nirmaan_admin`; false while `role` is "Loading"/"Error"). The server
   (four `api/boq/rate_master.py` write endpoints) is authoritative. **PARAM VALUES ONLY** -- pipeline
   STRUCTURE / condition / attribute-definition editing is RM-4b. **Derivation tab (REMOVED in ADP-4b D8 -- the tab is
   the rules listing; the inline edit below no longer exists):** each NUMERIC param in a
