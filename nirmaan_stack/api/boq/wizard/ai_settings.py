@@ -66,14 +66,17 @@ def get_boq_ai_api_key():
 # NO CODE DEFAULT FOR A MODEL OR A PRICE (BUILD REQUIREMENTS: "model names in ONE setting, never in code"). The
 # model and price fields declare no default in the doctype, so an empty one stays empty and every matching entry
 # point refuses with a plain message naming it. The numeric limits DO declare defaults in the doctype (calls at once
-# 50, reply cap 1024, ...); a Single whose stored row is missing reads the doctype's own default, because a migrate
+# 50, reply caps 32000, ...); a Single whose stored row is missing reads the doctype's own default, because a migrate
 # adds the field without writing a value to tabSingles and a plain read would cast the gap to 0.
 
 MATCH_SWITCH_FIELDS = ("match_enabled", "match_cards_at_commit")
 MATCH_LIMIT_FIELDS = (
     "match_calls_at_once", "match_reply_max_tokens", "match_card_reply_max_tokens", "match_retry_wait_s",
-    "match_burst_failures", "match_burst_window_s", "match_cost_cap_usd",
+    "match_burst_failures", "match_burst_window_s", "match_max_request_tokens",
 )
+# NO COST CAP IN THE PRODUCT (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our purpose...a
+# guideline...it should not be a part of the code or setting"). Spend is still recorded per call (call_runner); $5 a
+# BoQ is a design guideline the slices measure and report, never a setting, a constant or a refusal.
 # The reply-length cap per kind (owner answer Q2 (b), 16:51): 20-row card replies need far more than the judge's
 # short reply (DEV2-S8 C3: p50 8,943, max 27,300 output tokens a card batch).
 MATCH_REPLY_CAP_FIELDS = {"card": "match_card_reply_max_tokens", "judge": "match_reply_max_tokens"}
@@ -132,8 +135,9 @@ def require_match_settings(kind):
     plain message naming every empty or unusable field. NO code default: an empty model or price refuses.
 
     Returns {model, price_in, price_out, reply_max_tokens (the kind's own cap), calls_at_once, retry_wait_s, burst_failures,
-    burst_window_s, cost_cap_usd, request_timeout_seconds}; the timeout is the existing AI settings field, read
-    through get_boq_ai_settings unchanged."""
+    burst_window_s, max_request_tokens, request_timeout_seconds}; the timeout is the existing AI settings field, read
+    through get_boq_ai_settings unchanged. max_request_tokens is the runner's size guard (DEV2-B3): a request whose
+    input estimate passes it is not sent."""
     if kind not in MATCH_MODEL_FIELDS:
         raise ValueError(f"unknown matching kind {kind!r}")
     s = get_boq_match_settings()
@@ -149,13 +153,11 @@ def require_match_settings(kind):
         if s.get(f) is not None and s[f] < 0:
             problems.append(f"{label(f)} is below 0")
     cap_f = MATCH_REPLY_CAP_FIELDS[kind]
-    for f in ("match_calls_at_once", cap_f, "match_burst_failures", "match_burst_window_s"):
+    for f in ("match_calls_at_once", cap_f, "match_burst_failures", "match_burst_window_s", "match_max_request_tokens"):
         if not s.get(f) or s[f] < 1:
             problems.append(f"{label(f)} must be 1 or more")
     if s.get("match_retry_wait_s") is None or s["match_retry_wait_s"] < 0:
         problems.append(f"{label('match_retry_wait_s')} must be 0 or more")
-    if not s.get("match_cost_cap_usd") or s["match_cost_cap_usd"] <= 0:
-        problems.append(f"{label('match_cost_cap_usd')} must be above 0")
     if problems:
         raise MatchSettingsIncomplete(
             "Historical matching cannot run until these are set in BOQ Upload Review AI Settings: "
@@ -170,6 +172,6 @@ def require_match_settings(kind):
         "retry_wait_s": s["match_retry_wait_s"],
         "burst_failures": s["match_burst_failures"],
         "burst_window_s": s["match_burst_window_s"],
-        "cost_cap_usd": s["match_cost_cap_usd"],
+        "max_request_tokens": s["match_max_request_tokens"],
         "request_timeout_seconds": get_boq_ai_settings().get("request_timeout_seconds"),
     }

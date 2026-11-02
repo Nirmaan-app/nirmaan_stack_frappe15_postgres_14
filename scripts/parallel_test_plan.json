@@ -988,7 +988,7 @@
    ]
   },
   "nirmaan_stack.api.boq.wizard.test_match_settings": {
-   "seconds": 11.9,
+   "seconds": 11.7,
    "series": [],
    "writes": [],
    "reads": []
@@ -2472,13 +2472,13 @@
    ]
   },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
-   "seconds": 27.8,
+   "seconds": 28.4,
    "series": [],
    "writes": [],
    "reads": []
   },
   "nirmaan_stack.services.boq_rate_match.test_cards": {
-   "seconds": 17.1,
+   "seconds": 16.7,
    "series": [],
    "writes": [
     "tabBOQs",

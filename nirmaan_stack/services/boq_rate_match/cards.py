@@ -175,25 +175,25 @@ def _store(stored: dict, *, boq, sheet_name, excel_row, cv, key, version, model,
     stored[key] = (doc.name, status)
 
 
-def card_sheet(boq: str, sheet_name: str, *, excel_rows=None, cap_usd=None, client=None, settings=None) -> dict:
+def card_sheet(boq: str, sheet_name: str, *, excel_rows=None, client=None, settings=None) -> dict:
     """Card one committed sheet. Refuses (MatchSettingsIncomplete) when the card model or a price is empty. Returns a
-    summary: counts by status, reused, not sent (by batch), the stop reason and the spend."""
+    summary: counts by status, reused, not sent (by batch), refused by the size guard, the stop reason and the spend.
+    No cost cap (owner 2026-11-02 23:23): the spend is recorded, never capped."""
     from nirmaan_stack.api.boq.wizard.ai_settings import require_match_settings
 
     s = settings or require_match_settings("card")
     plan = plan_sheet(boq, sheet_name, s["model"], excel_rows)
-    cap = s["cost_cap_usd"] if cap_usd is None else cap_usd
     reqs = [call_runner.CallRequest(name=b["name"], content=b["content"], model=s["model"],
                                     max_tokens=s["reply_max_tokens"], price_in=s["price_in"],
                                     price_out=s["price_out"], timeout=s.get("request_timeout_seconds"))
             for b in plan["batches"]]
     summary = {"boq": boq, "sheet": sheet_name, "committed_version": plan["committed_version"],
                "prompt_version": plan["prompt_version"], "model": s["model"], "reused": len(plan["reused"]),
-               "not_in_context": plan["not_in_context"], "batches": len(reqs), "not_sent": [],
+               "not_in_context": plan["not_in_context"], "batches": len(reqs), "not_sent": [], "refused": [],
                "stop_reason": None, "spent_usd": 0.0, STATUS_OK: 0, STATUS_MALFORMED: 0, STATUS_FAILED: 0}
     if not reqs:
         return summary
-    res = call_runner.run(reqs, cap_usd=cap, limits=call_runner.Limits.from_settings(s), client=client)
+    res = call_runner.run(reqs, limits=call_runner.Limits.from_settings(s), client=client)
     by_name = {b["name"]: b for b in plan["batches"]}
     for name, r in res.results.items():
         b = by_name[name]
@@ -218,7 +218,7 @@ def card_sheet(boq: str, sheet_name: str, *, excel_rows=None, cap_usd=None, clie
                    tin=tin, tout=tout, usd=usd)
             summary[status] += 1
         frappe.db.commit()
-    summary.update(not_sent=res.not_sent, stop_reason=res.stop_reason, stop_detail=res.stop_detail,
+    summary.update(not_sent=res.not_sent, refused=res.refused, stop_reason=res.stop_reason, stop_detail=res.stop_detail,
                    spent_usd=res.spent_usd)
     return summary
 
@@ -226,7 +226,8 @@ def card_sheet(boq: str, sheet_name: str, *, excel_rows=None, cap_usd=None, clie
 # --- the commit job ----------------------------------------------------------------------------------------------
 
 def boq_card_spend(boq: str) -> float:
-    """USD already spent on cards stored for this BoQ (R-H2AD: the cap is per BoQ)."""
+    """USD spent on cards stored for this BoQ -- for REPORTING only: nothing caps a BoQ by its spend (owner
+    2026-11-02 23:23, amending R-H2AD; $5 a BoQ is a design guideline the slices measure)."""
     v = frappe.db.sql(f'select coalesce(sum(cost_usd), 0) from "tab{CARD_DOCTYPE}" where boq = %s', (boq,))
     return float(v[0][0] or 0)
 
@@ -254,7 +255,7 @@ def enqueue_sheet_cards(boq: str, sheet_name: str, commit_version: int) -> bool:
 
 def card_committed_sheet(boq: str, sheet_name: str, commit_version: int) -> dict | None:
     """The background job. Re-checks both switches (off = nothing), skips a sheet that has been re-committed since
-    (its newer commit enqueued its own job), and cards the rate-editable rows within the BoQ's remaining cap."""
+    (its newer commit enqueued its own job), and cards the rate-editable rows. No cost cap."""
     from nirmaan_stack.api.boq.wizard.ai_settings import match_cards_at_commit_on, require_match_settings
 
     if not match_cards_at_commit_on():
@@ -264,7 +265,4 @@ def card_committed_sheet(boq: str, sheet_name: str, commit_version: int) -> dict
     if current is None or int(current) != int(commit_version):
         return {"skipped": "the sheet is no longer at this committed version"}
     s = require_match_settings("card")
-    remaining = s["cost_cap_usd"] - boq_card_spend(boq)
-    if remaining <= 0:
-        return {"skipped": f"the BoQ's card spend has reached the cap of {s['cost_cap_usd']} USD"}
-    return card_sheet(boq, sheet_name, cap_usd=remaining, settings=s)
+    return card_sheet(boq, sheet_name, settings=s)

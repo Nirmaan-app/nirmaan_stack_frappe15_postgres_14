@@ -33,7 +33,7 @@ _SHEET = "Test Sheet "     # trailing space on purpose (#152: verbatim)
 _PROMPT_SHA = "39ebd9d8ef67bdabbff207a96abb625931484cdc2c159de6f66120898da4246a"   # DEV2-S8 p1_card_prompt.txt
 _SETTINGS = {"model": "model-under-test", "price_in": 1.0, "price_out": 5.0, "reply_max_tokens": 32000,
              "calls_at_once": 4, "retry_wait_s": 0, "burst_failures": 10, "burst_window_s": 60,
-             "cost_cap_usd": 5.0, "request_timeout_seconds": 300}
+             "max_request_tokens": 100000, "request_timeout_seconds": 300}
 
 
 def _item(er, desc="Supply and fix 3.5C x 95 sqmm XLPE armoured cable"):
@@ -243,8 +243,10 @@ class TestStore(_StoreCase):
             self._run([(1, _item(1))], [_resp(json.dumps([{"id": 1, "kind": {"v": "item"}}]))])
         self.assertEqual(seen["reqs"][0].model, "model-under-test")
         self.assertEqual(seen["reqs"][0].max_tokens, 32000)
-        self.assertEqual(seen["kw"]["cap_usd"], 5.0)
+        # INVERTED (DEV2-B3, owner 2026-11-02 23:23: no cost cap in the product) - was assertEqual(kw["cap_usd"], 5.0)
+        self.assertNotIn("cap_usd", seen["kw"])
         self.assertEqual(seen["kw"]["limits"].calls_at_once, 4)
+        self.assertEqual(seen["kw"]["limits"].max_request_tokens, 100000)
 
 
 class TestRefusal(FrappeTestCase):
@@ -253,7 +255,7 @@ class TestRefusal(FrappeTestCase):
         empty = {f: None for f in ai_settings.MATCH_FIELDS}
         empty.update(match_enabled=True, match_cards_at_commit=True, match_calls_at_once=50,
                      match_reply_max_tokens=1024, match_card_reply_max_tokens=32000, match_retry_wait_s=5,
-                     match_burst_failures=10, match_burst_window_s=60, match_cost_cap_usd=5.0,
+                     match_burst_failures=10, match_burst_window_s=60, match_max_request_tokens=100000,
                      match_card_price_in=0.1, match_card_price_out=0.5)
         with patch.object(ai_settings, "get_boq_match_settings", return_value=empty), \
              patch.object(cards, "plan_sheet") as plan, patch.object(call_runner, "run") as run:
@@ -271,6 +273,18 @@ class TestCommitJob(FrappeTestCase):
              patch.object(cards, "card_sheet") as card:
             self.assertIsNone(cards.card_committed_sheet(_BOQ, _SHEET, 1))
         card.assert_not_called()
+
+    def test_a_boq_whose_card_spend_passed_five_dollars_is_still_carded(self):
+        # INVERTED (DEV2-B3, owner 2026-11-02 23:23): B1 skipped a BoQ at its cap; nothing caps a BoQ by spend now
+        s = dict(_SETTINGS)
+        with patch.object(ai_settings, "match_cards_at_commit_on", return_value=True), \
+             patch.object(frappe.db, "get_value", return_value=1), \
+             patch.object(ai_settings, "require_match_settings", return_value=s), \
+             patch.object(cards, "boq_card_spend", return_value=6.0), \
+             patch.object(cards, "card_sheet", return_value={"ok": 1}) as card:
+            out = cards.card_committed_sheet(_BOQ, _SHEET, 1)
+        self.assertEqual(out, {"ok": 1})
+        card.assert_called_once_with(_BOQ, _SHEET, settings=s)
 
     def test_a_sheet_committed_again_since_is_skipped(self):
         with patch.object(ai_settings, "match_cards_at_commit_on", return_value=True), \

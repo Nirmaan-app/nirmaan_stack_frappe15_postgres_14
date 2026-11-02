@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The safe call runner for historical matching (DEV2-B1, owner BUILD REQUIREMENTS + R-H2AJ G9).
+"""The safe call runner for historical matching (DEV2-B1, owner BUILD REQUIREMENTS + R-H2AJ G9; DEV2-B3 size guard).
 
 Runs a list of model requests with at most `calls_at_once` in flight (threads) and applies the owner's rule
 EXACTLY:
@@ -15,12 +15,15 @@ EXACTLY:
 * STOP means: nothing more is sent; calls already in flight finish and are recorded; every request never sent
   is named in `not_sent`.
 
-COST CAP, RESERVED BEFORE EACH SEND (R-H2AD; the DEV2-S7 lesson that a cap checked after the reply is passed by the
-calls in flight). Before every attempt the runner reserves that attempt's upper bound -- request chars / 2 input
-tokens + max_tokens output tokens, at the request's prices -- against the cap the caller passes. An attempt whose
-reservation would pass the cap waits while other reservations are outstanding (their replies usually cost less than
-their reservation); when none is outstanding and it still does not fit, it is not sent and the run stops with
-"cost_cap". A reply releases its reservation and adds its real cost.
+THE SIZE GUARD (DEV2-B3; chat-Claude's DEV2-B1 review: the judge model bills a request over 100k input tokens at a
+higher rate on everything). Before a request is sent its input is estimated as request chars / 2 tokens (B1's
+reservation rule); a request whose estimate passes `Limits.max_request_tokens` (the setting
+match_max_request_tokens) is NOT sent: it is named in `refused` with reason "too_large", and the run goes on. A
+request AT the limit is sent.
+
+NO COST CAP (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our purpose...a guideline...it
+should not be a part of the code or setting"). The runner never reserves, refuses or stops on cost; every attempt's
+tokens, USD and seconds are still recorded, with the run's totals.
 
 The client is the Anthropic client built from the AI settings' key exactly as the existing callers read it
 (get_boq_ai_api_key: presence only, never logged), with max_retries=0 so the SDK's own hidden retries are off and
@@ -28,7 +31,7 @@ every attempt is one the runner counted. The model, max_tokens and prices come p
 (ai_settings.require_match_settings); nothing here names a model.
 
 Every attempt is recorded: request name, attempt number, model, seconds, tokens in (input + cache read + cache
-creation) and out, USD, stop_reason, and the error with its HTTP status. No caller is wired in DEV2-B1.
+creation) and out, USD, stop_reason, and the error with its HTTP status.
 """
 from __future__ import annotations
 
@@ -45,7 +48,7 @@ STOP_USAGE_LIMIT = "usage_limit"
 STOP_SECOND_FAILURE = "second_failure_of_a_call"
 STOP_BURST = "burst_of_failures"
 STOP_NOT_LONE = "connection_error_with_nothing_landing"
-STOP_COST_CAP = "cost_cap"
+REFUSED_TOO_LARGE = "too_large"
 
 
 @dataclass
@@ -66,11 +69,13 @@ class Limits:
     retry_wait_s: float
     burst_failures: int
     burst_window_s: float
+    max_request_tokens: int     # the size guard: the setting match_max_request_tokens (no code default)
 
     @classmethod
     def from_settings(cls, s: dict) -> "Limits":
         return cls(calls_at_once=int(s["calls_at_once"]), retry_wait_s=float(s["retry_wait_s"]),
-                   burst_failures=int(s["burst_failures"]), burst_window_s=float(s["burst_window_s"]))
+                   burst_failures=int(s["burst_failures"]), burst_window_s=float(s["burst_window_s"]),
+                   max_request_tokens=int(s["max_request_tokens"]))
 
 
 @dataclass
@@ -91,7 +96,8 @@ class CallResult:
 @dataclass
 class RunResult:
     results: dict = field(default_factory=dict)      # name -> CallResult, for every request that was sent
-    not_sent: list = field(default_factory=list)     # names never sent, in request order
+    not_sent: list = field(default_factory=list)     # names never sent because the run stopped, in request order
+    refused: list = field(default_factory=list)      # {name, reason, estimate_tokens, limit}: never sent; the run went on
     stop_reason: str | None = None
     stop_detail: str | None = None
     attempts: list = field(default_factory=list)     # one dict per attempt, in finishing order
@@ -101,9 +107,9 @@ class RunResult:
     max_in_flight: int = 0
 
 
-def reservation_usd(req: CallRequest) -> float:
-    """The upper bound of one attempt: request chars / 2 input tokens + max_tokens output tokens, at its prices."""
-    return (int(len(req.content) / 2.0) * req.price_in + req.max_tokens * req.price_out) / 1e6
+def estimate_tokens(req: CallRequest) -> int:
+    """The request's input estimate before it is sent: chars / 2 tokens (B1's reservation rule)."""
+    return int(len(req.content) / 2.0)
 
 
 def cost_usd(tokens_in: int, tokens_out: int, req: CallRequest) -> float:
@@ -144,9 +150,8 @@ def make_client():
 
 
 class _Run:
-    def __init__(self, requests, cap_usd, limits, client, sleep, clock):
+    def __init__(self, requests, limits, client, sleep, clock):
         self.requests = list(requests)
-        self.cap = float(cap_usd)
         self.limits = limits
         self.client = client
         self.sleep = sleep
@@ -154,7 +159,6 @@ class _Run:
         self.cv = threading.Condition()
         self.in_flight = 0          # requests holding a slot (sending, or waiting to retry)
         self.http_in_flight = 0     # attempts on the wire
-        self.reserved = 0.0
         self.failures = []          # clock() of every failed attempt
         self.landed_seq = 0         # bumped on every successful reply
         self.out = RunResult()
@@ -167,29 +171,6 @@ class _Run:
             self.out.stop_detail = detail
         self.cv.notify_all()
 
-    def _try_reserve(self, amount) -> bool:
-        if self.out.spent_usd + self.reserved + amount > self.cap + 1e-12:
-            return False
-        self.reserved += amount
-        return True
-
-    def _reserve_or_stop(self, amount, name) -> bool:
-        """Wait while the reservation does not fit and other reservations are outstanding (each belongs to an attempt
-        already dispatched, which will land and release it); False (and STOP) when it still does not fit with no
-        reservation outstanding, or when the run stopped meanwhile. A thread waiting here holds no reservation of its
-        own, so two waiters can never wait on each other."""
-        while True:
-            if self.out.stop_reason is not None:
-                return False
-            if self._try_reserve(amount):
-                return True
-            if self.reserved <= 1e-12:
-                self._stop(STOP_COST_CAP,
-                           f"{name}: spent {self.out.spent_usd:.6f} + reserved {self.reserved:.6f} + this call "
-                           f"{amount:.6f} would pass the cap {self.cap:.6f} USD")
-                return False
-            self.cv.wait()
-
     # --- one request, on its own thread ------------------------------------------------------------------------
 
     def _send(self, req: CallRequest):
@@ -197,9 +178,8 @@ class _Run:
         retried = False
         try:
             while True:
-                amount = reservation_usd(req)
                 with self.cv:
-                    if res.attempts and not self._reserve_or_stop(amount, req.name):
+                    if res.attempts and self.out.stop_reason is not None:
                         res.error = res.error or "not retried: the run stopped"
                         return
                     self.http_in_flight += 1
@@ -218,7 +198,6 @@ class _Run:
                 secs = self.clock() - t0
                 with self.cv:
                     self.http_in_flight -= 1
-                    self.reserved -= amount
                     rec = {"name": req.name, "attempt": res.attempts, "model": req.model, "seconds": round(secs, 3)}
                     if err is None:
                         tin, tout = _usage(resp)
@@ -287,17 +266,21 @@ class _Run:
     def go(self) -> RunResult:
         threads = []
         for i, req in enumerate(self.requests):
+            est = estimate_tokens(req)
+            if est > self.limits.max_request_tokens:
+                # the size guard: never sent, named with its reason, and the run goes on
+                with self.cv:
+                    self.out.refused.append({"name": req.name, "reason": REFUSED_TOO_LARGE, "estimate_tokens": est,
+                                             "limit": self.limits.max_request_tokens})
+                continue
             with self.cv:
                 while self.in_flight >= self.limits.calls_at_once and self.out.stop_reason is None:
                     self.cv.wait()
-                if self.out.stop_reason is not None or not self._reserve_or_stop(reservation_usd(req), req.name):
+                if self.out.stop_reason is not None:
                     self.out.not_sent = [r.name for r in self.requests[i:]]
                     break
-                # the first attempt's reservation is held by the dispatcher; hand it to the thread
                 self.in_flight += 1
                 self.out.max_in_flight = max(self.out.max_in_flight, self.in_flight)
-            # The dispatcher holds the first attempt's reservation; _send releases it when that attempt ends and
-            # reserves again only for a retry.
             t = threading.Thread(target=self._send, args=(req,), daemon=True)
             threads.append(t)
             t.start()
@@ -307,13 +290,14 @@ class _Run:
         return self.out
 
 
-def run(requests, *, cap_usd: float, limits: Limits, client=None,
+def run(requests, *, limits: Limits, client=None,
         sleep: Callable[[float], Any] = time.sleep, clock: Callable[[], float] = time.monotonic) -> RunResult:
-    """Run `requests` (CallRequest) under `limits` and the cost cap `cap_usd` (USD). Returns a RunResult with
-    every sent request's CallResult, the names never sent, the stop reason (None when all ran) and every attempt.
-    `client` defaults to make_client(); `sleep` and `clock` are seams for tests."""
+    """Run `requests` (CallRequest) under `limits`. Returns a RunResult with every sent request's CallResult, the
+    requests the size guard refused (`refused`; the run went on), the names never sent because the run stopped
+    (`not_sent`), the stop reason (None when all ran), every attempt and the spend (tokens, USD). `client` defaults to
+    make_client(); `sleep` and `clock` are seams for tests. Nothing here refuses on cost."""
     if limits.calls_at_once < 1:
         raise ValueError("calls_at_once must be 1 or more")
     if client is None:
         client = make_client()
-    return _Run(requests, cap_usd, limits, client, sleep, clock).go()
+    return _Run(requests, limits, client, sleep, clock).go()

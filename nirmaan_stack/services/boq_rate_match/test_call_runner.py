@@ -8,7 +8,8 @@ Each rule of the owner's retry / stop rule has a positive and a negative test:
   429               stops at once, unsent named                              /  a 500 fails one call, run goes on
   burst             N failures within the window stop                        /  the same N spread wider do not
   calls at once     never more in flight than the setting                    /  and the setting is actually reached
-  cap               the call that would pass the cap is refused, named       /  a cap that fits sends everything
+  size guard        a request over the limit is not sent, named too_large    /  a request AT the limit is sent; the run goes on
+  no cost cap       a run whose spend passes $5 still sends everything (INVERTED DEV2-B3: the owner removed the cap)
   usage and $       tokens (cache included), USD and seconds per call
 """
 import threading
@@ -79,8 +80,9 @@ def _req(name, chars=200, max_tokens=100, price_in=1.0, price_out=2.0, model="m-
                           price_in=price_in, price_out=price_out)
 
 
-def _limits(calls=4, wait=5, burst=10, window=60):
-    return cr.Limits(calls_at_once=calls, retry_wait_s=wait, burst_failures=burst, burst_window_s=window)
+def _limits(calls=4, wait=5, burst=10, window=60, max_request=100000):
+    return cr.Limits(calls_at_once=calls, retry_wait_s=wait, burst_failures=burst, burst_window_s=window,
+                     max_request_tokens=max_request)
 
 
 class FakeClock:
@@ -114,7 +116,7 @@ class TestRetryOnce(FrappeTestCase):
 
         client = FakeClient({"A": [a_fails_after_b, _resp()], "B": [b_reply]})
         sleeps = []
-        out = cr.run([_req("A"), _req("B")], cap_usd=100, limits=_limits(calls=2, wait=7), client=client,
+        out = cr.run([_req("A"), _req("B")], limits=_limits(calls=2, wait=7), client=client,
                      sleep=sleeps.append)
         self.assertIsNone(out.stop_reason, out.stop_detail)
         self.assertTrue(out.results["A"].ok)
@@ -126,7 +128,7 @@ class TestRetryOnce(FrappeTestCase):
     def test_a_connection_error_with_nothing_landing_stops_without_a_retry(self):
         client = FakeClient({"A": [ConnErr("connection reset"), _resp()]})
         sleeps = []
-        out = cr.run([_req("A"), _req("B")], cap_usd=100, limits=_limits(calls=1), client=client, sleep=sleeps.append)
+        out = cr.run([_req("A"), _req("B")], limits=_limits(calls=1), client=client, sleep=sleeps.append)
         self.assertEqual(out.stop_reason, cr.STOP_NOT_LONE)
         self.assertEqual(out.results["A"].attempts, 1)
         self.assertFalse(out.results["A"].ok)
@@ -154,8 +156,7 @@ class TestSecondFailure(FrappeTestCase):
 
         client = FakeClient({"A": [a_fails, ConnErr("reset again")], "B": [b_reply], "C": [slow], "D": [slow],
                              "E": [slow]})
-        out = cr.run([_req("A"), _req("B"), _req("C"), _req("D"), _req("E")], cap_usd=100,
-                     limits=_limits(calls=2), client=client, sleep=lambda s: None)
+        out = cr.run([_req("A"), _req("B"), _req("C"), _req("D"), _req("E")], limits=_limits(calls=2), client=client, sleep=lambda s: None)
         self.assertEqual(out.stop_reason, cr.STOP_SECOND_FAILURE)
         self.assertEqual(out.results["A"].attempts, 2)
         self.assertFalse(out.results["A"].ok)
@@ -177,7 +178,7 @@ class TestSecondFailure(FrappeTestCase):
             return ConnErr("connection reset")
 
         client = FakeClient({"A": [a_fails, _resp()], "B": [b_reply]})
-        out = cr.run([_req("A"), _req("B"), _req("C")], cap_usd=100, limits=_limits(calls=2), client=client,
+        out = cr.run([_req("A"), _req("B"), _req("C")], limits=_limits(calls=2), client=client,
                      sleep=lambda s: None)
         self.assertIsNone(out.stop_reason)
         self.assertEqual(sorted(out.results), ["A", "B", "C"])
@@ -188,7 +189,7 @@ class TestRateAndUsageLimit(FrappeTestCase):
     def test_a_429_stops_at_once_and_names_the_unsent(self):
         client = FakeClient({"A": [HttpErr(429, "rate_limit_error")]})
         sleeps = []
-        out = cr.run([_req("A"), _req("B"), _req("C")], cap_usd=100, limits=_limits(calls=1), client=client,
+        out = cr.run([_req("A"), _req("B"), _req("C")], limits=_limits(calls=1), client=client,
                      sleep=sleeps.append)
         self.assertEqual(out.stop_reason, cr.STOP_RATE_LIMIT)
         self.assertEqual(out.results["A"].attempts, 1)
@@ -197,13 +198,13 @@ class TestRateAndUsageLimit(FrappeTestCase):
 
     def test_a_usage_limit_message_stops_at_once(self):
         client = FakeClient({"A": [HttpErr(400, "Your credit balance is too low")]})
-        out = cr.run([_req("A"), _req("B")], cap_usd=100, limits=_limits(calls=1), client=client, sleep=lambda s: None)
+        out = cr.run([_req("A"), _req("B")], limits=_limits(calls=1), client=client, sleep=lambda s: None)
         self.assertEqual(out.stop_reason, cr.STOP_USAGE_LIMIT)
         self.assertEqual(out.not_sent, ["B"])
 
     def test_another_http_error_fails_that_call_and_the_run_goes_on(self):
         client = FakeClient({"A": [HttpErr(500, "overloaded")]})
-        out = cr.run([_req("A"), _req("B"), _req("C")], cap_usd=100, limits=_limits(calls=1), client=client,
+        out = cr.run([_req("A"), _req("B"), _req("C")], limits=_limits(calls=1), client=client,
                      sleep=lambda s: None)
         self.assertIsNone(out.stop_reason)
         self.assertFalse(out.results["A"].ok)
@@ -217,7 +218,7 @@ class TestBurst(FrappeTestCase):
     def test_burst_failures_within_the_window_stop_the_run(self):
         clock = FakeClock()
         client = FakeClient(default=HttpErr(500, "server error"))
-        out = cr.run([_req(f"R{i}") for i in range(6)], cap_usd=100, limits=_limits(calls=1, burst=3, window=60),
+        out = cr.run([_req(f"R{i}") for i in range(6)], limits=_limits(calls=1, burst=3, window=60),
                      client=client, sleep=lambda s: None, clock=clock)
         self.assertEqual(out.stop_reason, cr.STOP_BURST)
         self.assertEqual(len(client.calls), 3)
@@ -231,7 +232,7 @@ class TestBurst(FrappeTestCase):
             return HttpErr(500, "server error")
 
         client = FakeClient(default=fail_then_tick)
-        out = cr.run([_req(f"R{i}") for i in range(6)], cap_usd=100, limits=_limits(calls=1, burst=3, window=60),
+        out = cr.run([_req(f"R{i}") for i in range(6)], limits=_limits(calls=1, burst=3, window=60),
                      client=client, sleep=lambda s: None, clock=clock)
         # failures at +31, +62, +93 ... s: never 3 within 60 s
         self.assertIsNone(out.stop_reason, out.stop_detail)
@@ -242,7 +243,7 @@ class TestCallsAtOnce(FrappeTestCase):
 
     def test_calls_at_once_is_never_exceeded_and_is_reached(self):
         client = FakeClient(delay=0.05)
-        out = cr.run([_req(f"R{i:02d}") for i in range(12)], cap_usd=100, limits=_limits(calls=3), client=client)
+        out = cr.run([_req(f"R{i:02d}") for i in range(12)], limits=_limits(calls=3), client=client)
         self.assertIsNone(out.stop_reason)
         self.assertEqual(len(out.results), 12)
         self.assertLessEqual(client.max_now, 3)
@@ -251,42 +252,80 @@ class TestCallsAtOnce(FrappeTestCase):
 
     def test_one_at_a_time_when_the_setting_is_one(self):
         client = FakeClient(delay=0.02)
-        cr.run([_req(f"R{i}") for i in range(5)], cap_usd=100, limits=_limits(calls=1), client=client)
+        cr.run([_req(f"R{i}") for i in range(5)], limits=_limits(calls=1), client=client)
         self.assertEqual(client.max_now, 1)
 
 
-class TestCostCap(FrappeTestCase):
-    # chars 2000 -> 1000 input tokens reserved; max_tokens 1000; 500 USD / million both ways -> 1.00 USD reserved per
-    # call. The fake reply costs exactly its reservation, so the cap arithmetic is exact.
+class TestNoCostCap(FrappeTestCase):
+    # INVERTED in DEV2-B3 under MECHANICAL AUTHORITY (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just
+    # for our purpose...it should not be a part of the code or setting"). DEV2-B1 pinned a cost cap here; the negative
+    # half is kept: NO cost refusal exists, and the spend is still recorded.
+    # Each call costs exactly 1.00 USD (1000 tokens in + 1000 out at 500 USD / million).
 
     def _reqs(self, n):
         return [_req(f"R{i}", chars=2000, max_tokens=1000, price_in=500, price_out=500) for i in range(n)]
 
-    def test_the_call_that_would_pass_the_cap_is_refused_and_the_unsent_named(self):
+    def test_a_run_whose_spend_passes_five_dollars_still_sends_everything(self):
+        # was: test_the_call_that_would_pass_the_cap_is_refused_and_the_unsent_named
         client = FakeClient(default=_resp(tin=1000, tout=1000))
-        out = cr.run(self._reqs(4), cap_usd=2.5, limits=_limits(calls=1), client=client)
-        self.assertEqual(out.stop_reason, cr.STOP_COST_CAP)
-        self.assertEqual(len(client.calls), 2)
-        self.assertEqual(out.not_sent, ["R2", "R3"])
-        self.assertAlmostEqual(out.spent_usd, 2.0)
-
-    def test_calls_in_flight_count_against_the_cap_before_they_land(self):
-        client = FakeClient(default=_resp(tin=1000, tout=1000), delay=0.05)
-        out = cr.run(self._reqs(4), cap_usd=2.5, limits=_limits(calls=4), client=client)
-        self.assertEqual(out.stop_reason, cr.STOP_COST_CAP)
-        self.assertEqual(len(client.calls), 2, "a third call was sent while two reservations already filled the cap")
-        self.assertLessEqual(out.spent_usd, 2.5)
-
-    def test_a_cap_that_fits_sends_everything(self):
-        client = FakeClient(default=_resp(tin=1000, tout=1000))
-        out = cr.run(self._reqs(3), cap_usd=3.0, limits=_limits(calls=1), client=client)
+        out = cr.run(self._reqs(7), limits=_limits(calls=1), client=client)
         self.assertIsNone(out.stop_reason)
-        self.assertEqual(len(client.calls), 3)
-        self.assertEqual(out.not_sent, [])
+        self.assertEqual(len(client.calls), 7)
+        self.assertEqual((out.not_sent, out.refused), ([], []))
+        self.assertAlmostEqual(out.spent_usd, 7.0)
 
-    def test_the_reservation_is_chars_over_two_plus_max_tokens_at_the_prices(self):
-        r = _req("R", chars=2001, max_tokens=300, price_in=3.0, price_out=15.0)
-        self.assertAlmostEqual(cr.reservation_usd(r), (1000 * 3.0 + 300 * 15.0) / 1e6)
+    def test_calls_in_flight_are_never_held_back_by_spend(self):
+        # was: test_calls_in_flight_count_against_the_cap_before_they_land
+        client = FakeClient(default=_resp(tin=1000, tout=1000), delay=0.05)
+        out = cr.run(self._reqs(8), limits=_limits(calls=4), client=client)
+        self.assertIsNone(out.stop_reason)
+        self.assertEqual(len(client.calls), 8)
+        self.assertEqual(client.max_now, 4, "spend held calls back: calls at once was not reached")
+
+    def test_the_spend_is_recorded_per_call_and_in_total(self):
+        # was: test_a_cap_that_fits_sends_everything
+        client = FakeClient(default=_resp(tin=1000, tout=1000))
+        out = cr.run(self._reqs(3), limits=_limits(calls=1), client=client)
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual([round(out.results[f"R{i}"].cost_usd, 6) for i in range(3)], [1.0, 1.0, 1.0])
+        self.assertAlmostEqual(out.spent_usd, 3.0)
+        self.assertEqual((out.tokens_in, out.tokens_out), (3000, 3000))
+
+    def test_no_cost_refusal_exists_and_the_estimate_is_chars_over_two(self):
+        # was: test_the_reservation_is_chars_over_two_plus_max_tokens_at_the_prices
+        self.assertFalse(hasattr(cr, "reservation_usd"))
+        self.assertFalse(hasattr(cr, "STOP_COST_CAP"))
+        self.assertNotIn("cap_usd", cr.run.__code__.co_varnames)
+        self.assertEqual(cr.estimate_tokens(_req("R", chars=2001)), 1000)
+
+
+class TestSizeGuard(FrappeTestCase):
+    # chars / 2 = the estimate; the limit is the setting match_max_request_tokens, passed in through Limits.
+
+    def test_a_request_over_the_limit_is_not_sent_named_and_the_run_goes_on(self):
+        client = FakeClient()
+        reqs = [_req("A", chars=200), _req("BIG", chars=2002), _req("C", chars=200)]
+        out = cr.run(reqs, limits=_limits(calls=1, max_request=1000), client=client)
+        self.assertEqual(sorted(n for n, _ in client.calls), ["A", "C"])
+        self.assertEqual(out.refused, [{"name": "BIG", "reason": "too_large", "estimate_tokens": 1001, "limit": 1000}])
+        self.assertIsNone(out.stop_reason)
+        self.assertEqual(out.not_sent, [])
+        self.assertNotIn("BIG", out.results)
+
+    def test_a_request_at_the_limit_is_sent(self):
+        client = FakeClient()
+        out = cr.run([_req("AT", chars=2001)], limits=_limits(calls=1, max_request=1000), client=client)
+        self.assertEqual([n for n, _ in client.calls], ["AT"])
+        self.assertEqual(out.refused, [])
+
+    def test_the_limit_is_the_setting_not_a_constant(self):
+        lim = cr.Limits.from_settings({"calls_at_once": 3, "retry_wait_s": 1, "burst_failures": 4,
+                                       "burst_window_s": 9, "max_request_tokens": 1234})
+        self.assertEqual(lim.max_request_tokens, 1234)
+        with self.assertRaises(KeyError):
+            cr.Limits.from_settings({"calls_at_once": 3, "retry_wait_s": 1, "burst_failures": 4, "burst_window_s": 9})
+        with self.assertRaises(TypeError):
+            cr.Limits(calls_at_once=1, retry_wait_s=0, burst_failures=1, burst_window_s=1)
 
 
 class TestUsageRecorded(FrappeTestCase):
@@ -299,7 +338,7 @@ class TestUsageRecorded(FrappeTestCase):
             return _resp(tin=100, tout=40, cache_read=20, cache_create=5)
 
         client = FakeClient({"A": [reply]})
-        out = cr.run([_req("A", price_in=1.0, price_out=5.0)], cap_usd=100, limits=_limits(calls=1),
+        out = cr.run([_req("A", price_in=1.0, price_out=5.0)], limits=_limits(calls=1),
                      client=client, clock=clock)
         r = out.results["A"]
         self.assertEqual((r.tokens_in, r.tokens_out), (125, 40))
@@ -313,7 +352,7 @@ class TestUsageRecorded(FrappeTestCase):
     def test_model_and_max_tokens_come_from_each_request(self):
         client = FakeClient()
         cr.run([_req("A", model="model-a", max_tokens=111), _req("B", model="model-b", max_tokens=222)],
-               cap_usd=100, limits=_limits(calls=1), client=client)
+               limits=_limits(calls=1), client=client)
         sent = {name: (kw["model"], kw["max_tokens"]) for name, kw in client.calls}
         self.assertEqual(sent, {"A": ("model-a", 111), "B": ("model-b", 222)})
 

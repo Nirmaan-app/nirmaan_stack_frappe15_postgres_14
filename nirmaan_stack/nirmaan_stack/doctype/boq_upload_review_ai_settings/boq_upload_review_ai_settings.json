@@ -24,7 +24,7 @@
   "match_retry_wait_s",
   "match_burst_failures",
   "match_burst_window_s",
-  "match_cost_cap_usd",
+  "match_max_request_tokens",
   "match_card_price_in",
   "match_card_price_out",
   "match_judge_price_in",
@@ -119,8 +119,8 @@
    "label": "Calls at once"
   },
   {
-   "default": "1024",
-   "description": "max_tokens sent with every matching call.",
+   "default": "32000",
+   "description": "max_tokens sent with every judge call (the judge model reasons before its short reply: DEV2-S8 J10h median 2,583, max 6,496 output tokens).",
    "fieldname": "match_reply_max_tokens",
    "fieldtype": "Int",
    "label": "Reply length cap (tokens)"
@@ -153,11 +153,11 @@
    "label": "Burst stop: window (seconds)"
   },
   {
-   "default": "5",
-   "description": "Every call reserves its upper bound against this cap before it is sent.",
-   "fieldname": "match_cost_cap_usd",
-   "fieldtype": "Float",
-   "label": "Cost cap per BoQ (USD)"
+   "default": "100000",
+   "description": "A matching request whose input estimate (characters / 2 tokens) is above this is not sent (reason too_large); the run goes on.",
+   "fieldname": "match_max_request_tokens",
+   "fieldtype": "Int",
+   "label": "Largest request (input tokens)"
   },
   {
    "description": "USD per million input tokens for the card model. No default: empty = matching refuses.",
@@ -188,7 +188,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-11-02 17:00:00.000000",
+ "modified": "2026-11-02 23:40:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQ Upload Review AI Settings",
