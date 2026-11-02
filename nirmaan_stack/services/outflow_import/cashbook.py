@@ -46,6 +46,11 @@ from decimal import Decimal
 from typing import Iterable, Mapping, Sequence
 
 from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_PAYMENT_NOTE
+from nirmaan_stack.services.outflow_import.cashbook_placement import (
+    FALLBACK_EXPENSE_TYPE,
+    placement as _placement,
+    pick_expense_type,
+)
 from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     COLLECT_ROW_KIND,
     CREDIT_ROW_KINDS,
@@ -64,19 +69,19 @@ from nirmaan_stack.services.outflow_import.cashbook_refunds import (
     row_kind as _row_kind,
     unpaired_reason,
 )
+from nirmaan_stack.services.outflow_import.cashbook_reopen import (
+    EarlierWrongSkip,
+    claim_wrong_skips,
+    earlier_sightings,
+)
 from nirmaan_stack.services.outflow_import.duplicates import (
     PriorSighting,
     bank_status_key,
     find_prior_sighting,
-    find_prior_sightings,
     row_identity,
 )
-from nirmaan_stack.services.outflow_import.ledgers import (
-    NON_PROJECT_EXPENSE_DOCTYPE,
-    PROJECT_EXPENSE_DOCTYPE,
-)
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
-from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, alias_haystack
+from nirmaan_stack.services.outflow_import.project_match import ProjectIndex
 from nirmaan_stack.services.outflow_import.repeats import KeptLine, RepeatSplit, split_repeats
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
@@ -113,9 +118,6 @@ __all__ = [
 # recording those as expenses would book the same rupee twice.
 SPEND_ROW_KIND = "Wallet Spend"
 
-# Where a row lands when its text names no type we recognise. It must carry BOTH the `project` and
-# `non_project` flags, because a row on either ledger can reach it.
-FALLBACK_EXPENSE_TYPE = "Petty Cash"
 
 # The refund and wallet-credit kinds, their sentences and the pairing walk live in `cashbook_refunds` (#1594).
 ACTION_CREATE = "create"
@@ -186,6 +188,8 @@ class PlannedRow:
     row_kind: str = ""
     direction: str = ""
     partner: str = ""
+    # #1596: the earlier line skipped as own balances that this line re-opens in place; it is then not staged anew.
+    reopens: EarlierWrongSkip | None = None
 
     @property
     def creates(self) -> bool:
@@ -224,6 +228,11 @@ class CashbookPlan:
         return tuple(row for row in self.rows if row.opens)
 
     @property
+    def reopening(self) -> tuple[PlannedRow, ...]:
+        """The lines that re-open an earlier own-balances skip in place (#1596), in file order."""
+        return tuple(row for row in self.rows if row.reopens)
+
+    @property
     def total_value(self) -> Decimal:
         return sum((row.amount for row in self.creating), Decimal("0"))
 
@@ -237,6 +246,7 @@ def plan_statement(
     expense_rules: Mapping[str, Sequence[tuple[str, str]]],
     already_imported: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
     already_booked: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
+    wrong_skips: Sequence[EarlierWrongSkip] = (),
 ) -> CashbookPlan:
     """Decide what every parsed row becomes.
 
@@ -270,6 +280,9 @@ def plan_statement(
     that never existed. Kind first, then a STATUS-CHANGED repeat (an earlier batch, then further up
     this sheet), then outcome, then amount, then an existing expense.
 
+    ⚠️ A LINE THAT RE-OPENS AN EARLIER OWN-BALANCES SKIP (`wrong_skips`) IS NOT A REPEAT (#1596, `cashbook_reopen`):
+    it carries that line as `reopens`, which is re-opened in place, never staged again.
+
     The status change sits ABOVE the outcome on purpose -- as it does on the Cashfree path. A spend
     imported SUCCESS and now REVERSED also "did not succeed", but that sentence is a Bank-refused
     skip, says nothing about what changed, and is not Unskip-locked; the repeat is locked (ADR-0022
@@ -280,6 +293,9 @@ def plan_statement(
     booked = dict(already_booked or {})
     # Read twice: by the repeat walk, and by `unpaired_reason` (is a refund's spend on this statement?).
     rows = list(rows)
+    claims = claim_wrong_skips(
+        rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] == ACTION_OPEN
+    )
 
     # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three places ask
     # "is this row repeated within one file" -- here, `parser.duplicate_transfer_ids` (which feeds the
@@ -296,13 +312,11 @@ def plan_statement(
         identity_of=lambda raw: row_identity(
             getattr(raw, "transfer_id", "") or "", _amount(raw), _row_date(raw)
         ),
-        earlier_sightings_of=lambda raw: find_prior_sightings(
-            already, getattr(raw, "transfer_id", "") or "", _amount(raw), _row_date(raw)
-        ),
+        earlier_sightings_of=lambda raw: earlier_sightings(raw, already, claims),
         is_final_in_file=lambda line: _decide(line, _amount(line.row), booked)[0] != ACTION_SKIP,
     )
 
-    bases = [_base(line.row) for line in split.kept]
+    bases = [{**_base(line.row), "reopens": claims.get(id(line.row))} for line in split.kept]
     decisions = [_decide(line, base["amount"], booked) for line, base in zip(split.kept, bases)]
     pairs = pair_refunds(
         split.kept, [action == ACTION_OPEN for action, _, _ in decisions], lambda line: _pairable_spend(line, booked)
@@ -448,53 +462,3 @@ def _base(raw) -> dict:
 
 def _row_date(raw):
     return getattr(raw, "added_on_date", None)
-
-
-def _placement(
-    remarks: str, index: ProjectIndex, expense_rules: Mapping[str, Sequence[tuple[str, str]]]
-) -> dict:
-    """Which ledger, which project, which expense type -- in that order, because type depends on it."""
-    project = index.sole_project(remarks)
-    if project:
-        ledger, rule_key = PROJECT_EXPENSE_DOCTYPE, "Project"
-    else:
-        ledger, rule_key = NON_PROJECT_EXPENSE_DOCTYPE, "Non Project"
-
-    expense_type, keyword = pick_expense_type(remarks, expense_rules.get(rule_key, ()))
-    return dict(
-        ledger=ledger,
-        project=project,
-        project_name=index.name_of(project) if project else "",
-        expense_type=expense_type,
-        matched_keyword=keyword,
-    )
-
-
-def pick_expense_type(
-    remarks: str, rules: Sequence[tuple[str, str]]
-) -> tuple[str, str]:
-    """`(expense type, the keyword that chose it)`. Falls back rather than refusing.
-
-    ⚠️ A KEYWORD MATCHES AT THE START OF A WORD, NOT ANYWHERE IN THE TEXT. People write "unloading"
-    where the rule says "unload" and "printout" where it says "print", so a whole-word test would
-    miss most of a real statement -- but a bare substring test would find "print" inside
-    "blueprint" and "unload" inside a payee's name. Matching at a word START handles English
-    suffixes for free and refuses the interior collisions, and it needs no regex: the haystack is
-    already space-normalised and space-padded, so a word start is exactly a preceding space.
-
-    ⚠️ THE LONGEST MATCH WINS, and `candidates.load_expense_rules` has already sorted for it. If
-    two rules of the SAME length disagree, that is a genuine tie and the fallback takes it --
-    the "exactly one, or nothing" rule this feature applies everywhere else. Same length AND the
-    same type is not a tie: "cake" and "food" both meaning Staff Welfare is agreement.
-    """
-    haystack = alias_haystack(remarks)
-    hits = [(keyword, expense_type) for keyword, expense_type in rules if f" {keyword}" in haystack]
-    if not hits:
-        return FALLBACK_EXPENSE_TYPE, ""
-
-    longest = max(len(keyword) for keyword, _ in hits)
-    contenders = {expense_type for keyword, expense_type in hits if len(keyword) == longest}
-    if len(contenders) != 1:
-        return FALLBACK_EXPENSE_TYPE, ""
-    winner = next(keyword for keyword, _ in hits if len(keyword) == longest)
-    return contenders.pop(), winner

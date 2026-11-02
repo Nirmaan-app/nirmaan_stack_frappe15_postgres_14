@@ -58,6 +58,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _statement_file_url,
     already_imported_sentence,
 )
+from nirmaan_stack.api.outflow_import.cashbook_reopen import wrong_skips
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match import (
@@ -195,7 +196,13 @@ def confirm_cashbook_import():
     )
     frappe.db.commit()
 
-    _enqueue_worker(batch.name, user, late_bills=[_late_bill_job(bill) for bill in late])
+    _enqueue_worker(
+        batch.name,
+        user,
+        late_bills=[_late_bill_job(bill) for bill in late],
+        # #1596: a re-opened Collect payment's bill is copied like a new one's; its line is in its own import.
+        reopened=[row.reopens.line for row in plan.reopening if row.opens and row.row_kind == COLLECT_ROW_KIND],
+    )
     return {
         "batch": batch.name,
         "creating": len(plan.creating),
@@ -204,6 +211,8 @@ def confirm_cashbook_import():
         "repeats_not_saved": plan.split.repeats_not_saved,
         # #1593: the existing Expenses the job will give a bill.
         "late_bills": len(late),
+        # #1596: the earlier lines this import re-opened in place.
+        "reopened": len(plan.reopening),
     }
 
 
@@ -295,7 +304,9 @@ def _job_id(batch: str) -> str:
     return f"cashbook-import-{batch}"
 
 
-def _enqueue_worker(batch: str, actor: str, late_bills: list[dict] | None = None) -> None:
+def _enqueue_worker(
+    batch: str, actor: str, late_bills: list[dict] | None = None, reopened: list[str] | None = None
+) -> None:
     frappe.enqueue(
         _WORKER,
         queue="long",
@@ -303,12 +314,15 @@ def _enqueue_worker(batch: str, actor: str, late_bills: list[dict] | None = None
         batch=batch,
         actor=actor,
         late_bills=late_bills or None,
+        reopened=reopened or None,
         job_id=_job_id(batch),
         deduplicate=True,
     )
 
 
-def _cashbook_worker(batch: str, actor: str, late_bills: list[dict] | None = None):
+def _cashbook_worker(
+    batch: str, actor: str, late_bills: list[dict] | None = None, reopened: list[str] | None = None
+):
     """Create one expense per planned row. ONE TRANSACTION PER ROW.
 
     ⚠️ COMMIT PER ROW, NOT PER BATCH, and that is what makes a partial run safe. A worker killed at
@@ -331,6 +345,9 @@ def _cashbook_worker(batch: str, actor: str, late_bills: list[dict] | None = Non
 
     `late_bills` (#1593): the repeat lines' bills for existing Expenses, as confirm planned them
     (`_late_bill_job`). Attached after the lines, by `_attach_late_bills`.
+
+    `reopened` (#1596): the earlier Collect payment lines confirm re-opened, whose bills are copied with this
+    import's own (`store_collect_bills`).
     """
     statement_file_url = _statement_file_url(batch)
     rows = frappe.db.sql(
@@ -363,7 +380,7 @@ def _cashbook_worker(batch: str, actor: str, late_bills: list[dict] | None = Non
     # A function-local import: `cashbook_collect` calls back into this module's downloader path.
     from nirmaan_stack.api.outflow_import.cashbook_collect import store_collect_bills
 
-    store_collect_bills(batch)
+    store_collect_bills(batch, also=reopened or ())
 
     refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -800,6 +817,7 @@ def _build_plan(parsed) -> CashbookPlan:
         load_expense_rules(),
         already_imported=_already_imported(parsed),
         already_booked=_already_booked(parsed),
+        wrong_skips=wrong_skips(_statement_transfer_ids(parsed)),
     )
 
 
@@ -1017,7 +1035,9 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     helper every import's money goes through. A file with no repeats gives exactly the figures it
     gave before.
     """
-    stored = [line.row for line in plan.split.kept]
+    all_kept = [line.row for line in plan.split.kept]
+    # A line that re-opens an earlier one (#1596) is stored in that line's import, so its money is too.
+    stored = [raw for raw, planned in zip(all_kept, plan.rows, strict=True) if not planned.reopens]
     gross, charges = stored_money(stored)
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
@@ -1040,74 +1060,83 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
     batch.insert(ignore_permissions=True)
 
     # `plan.rows` and `plan.split.kept` are the same lines in the same order -- see `CashbookPlan`.
-    for raw, planned in zip(stored, plan.rows, strict=True):
-        creating = planned.action == ACTION_CREATE
-        # An open line (#1594: an unpaired wallet refund, a wallet credit; #1595: an unpaired Collect payment) is
-        # staged at `Mismatched`, a status the job never takes, so it is a person's to decide on the main table from
-        # the start (spec #1585 "Phase 2 stages new open lines away from the job"). Its note says what it is. A
-        # Collect payment keeps the plan's placement, so Create opens pre-filled (`newExpenseSeed`).
-        opening = planned.action == ACTION_OPEN
-        skipping = not creating and not opening
-        placed = creating or (opening and bool(planned.ledger))
+    for raw, planned in zip(all_kept, plan.rows, strict=True):
+        if planned.reopens:
+            continue
         doc = frappe.new_doc(ROW_DOCTYPE)
-        doc.update(
-            {
-                "import_batch": batch.name,
-                "source": SOURCE,
-                "transfer_id": raw.transfer_id,
-                "added_on": raw.added_on,
-                # The line's money: its Debit, or its Credit on a refund or a wallet credit (#1594), which
-                # is then money IN (`direction`), so the main table offers it the choices a bank credit has.
-                "amount": float(planned.amount),
-                "direction": planned.direction or None,
-                "status_raw": raw.status_raw,
-                "beneficiary_name": raw.beneficiary_name,
-                "remarks": raw.remarks,
-                "added_by_raw": raw.added_by_raw,
-                # ⚠️ THE SAME ONE RESOLUTION THE GATEWAY PATH USES (ADR-0020 B9), called here rather
-                # than assumed away. A wallet row carries neither reference field -- `_CASHBOOK_COLUMNS`
-                # maps neither, deliberately and permanently -- so the ladder always lands on the
-                # third rung and this is always `transfer_id`. Writing `raw.transfer_id` directly
-                # would produce the identical string today and would be the SECOND definition of
-                # the ladder: the per-path divergence this slice exists to remove, reintroduced at
-                # the very source that made it necessary.
-                "settlement_reference": resolve_settlement_reference(
-                    bank_reference_no=raw.bank_reference_no,
-                    reference_id=raw.reference_id,
-                    transfer_id=raw.transfer_id,
-                    remarks=raw.remarks,
-                    source=SOURCE,
-                )
-                or None,
-                "row_status": (
-                    ROW_PENDING_MATCH if creating else ROW_MISMATCHED if opening else ROW_SKIPPED
-                ),
-                "skip_reason": planned.reason if skipping else None,
-                # A Cashbook skip is the import plan's decision, never a person's (#1273).
-                "skip_origin": SKIP_ORIGIN_SYSTEM if skipping else None,
-                "skip_kind": planned.skip_kind if skipping else None,
-                "outcome_note": planned.reason if opening else None,
-                "suggested_doctype": planned.ledger if placed else None,
-                "suggested_expense_type": planned.expense_type if placed else None,
-                "resolved_project": (
-                    planned.project
-                    if placed and planned.ledger == PROJECT_EXPENSE_DOCTYPE
-                    else None
-                ),
-                "match_basis": MATCH_BASIS if creating else None,
-                "auto_matched": 1 if creating else 0,
-                # #1590: the line's bill links, in the statement's order, whatever the plan decided.
-                # ⚠️ A DICT, NEVER A BARE LIST: Postgres hands a jsonb list back as a Python list,
-                # and Frappe refuses to save a document holding a list in a non-table field.
-                "bill_links": {"links": list(raw.bill_links)} if raw.bill_links else None,
-                # #1595: the statement's Type. Only this import writes it, so it also marks the line as staged
-                # from a Cashbook Statement (`cashbook_collect.statement_line_create_extras`).
-                "row_kind": (raw.row_kind or "").strip() or None,
-            }
-        )
+        doc.update({"import_batch": batch.name, **line_values(raw, planned)})
         doc.insert(ignore_permissions=True)
 
+    # #1596: each line that re-opens an earlier own-balances skip is written onto THAT line, never staged anew.
+    from nirmaan_stack.api.outflow_import.cashbook_reopen import reopen_lines
+
+    reopen_lines(plan, all_kept, batch.name, user)
     return batch
+
+
+def line_values(raw, planned) -> dict:
+    """What a staged Cashbook line holds of the plan's decision, whichever batch it is in: `_stage` writes it on a new
+    line, `cashbook_reopen.reopen_lines` on an earlier line it re-opens (#1596)."""
+    creating = planned.action == ACTION_CREATE
+    # An open line (#1594: an unpaired wallet refund, a wallet credit; #1595: an unpaired Collect payment) is
+    # staged at `Mismatched`, a status the job never takes, so it is a person's to decide on the main table from
+    # the start (spec #1585 "Phase 2 stages new open lines away from the job"). Its note says what it is. A
+    # Collect payment keeps the plan's placement, so Create opens pre-filled (`newExpenseSeed`).
+    opening = planned.action == ACTION_OPEN
+    skipping = not creating and not opening
+    placed = creating or (opening and bool(planned.ledger))
+    return {
+        "source": SOURCE,
+        "transfer_id": raw.transfer_id,
+        "added_on": raw.added_on,
+        # The line's money: its Debit, or its Credit on a refund or a wallet credit (#1594), which
+        # is then money IN (`direction`), so the main table offers it the choices a bank credit has.
+        "amount": float(planned.amount),
+        "direction": planned.direction or None,
+        "status_raw": raw.status_raw,
+        "beneficiary_name": raw.beneficiary_name,
+        "remarks": raw.remarks,
+        "added_by_raw": raw.added_by_raw,
+        # ⚠️ THE SAME ONE RESOLUTION THE GATEWAY PATH USES (ADR-0020 B9), called here rather
+        # than assumed away. A wallet row carries neither reference field -- `_CASHBOOK_COLUMNS`
+        # maps neither, deliberately and permanently -- so the ladder always lands on the
+        # third rung and this is always `transfer_id`. Writing `raw.transfer_id` directly
+        # would produce the identical string today and would be the SECOND definition of
+        # the ladder: the per-path divergence this slice exists to remove, reintroduced at
+        # the very source that made it necessary.
+        "settlement_reference": resolve_settlement_reference(
+            bank_reference_no=raw.bank_reference_no,
+            reference_id=raw.reference_id,
+            transfer_id=raw.transfer_id,
+            remarks=raw.remarks,
+            source=SOURCE,
+        )
+        or None,
+        "row_status": (
+            ROW_PENDING_MATCH if creating else ROW_MISMATCHED if opening else ROW_SKIPPED
+        ),
+        "skip_reason": planned.reason if skipping else None,
+        # A Cashbook skip is the import plan's decision, never a person's (#1273).
+        "skip_origin": SKIP_ORIGIN_SYSTEM if skipping else None,
+        "skip_kind": planned.skip_kind if skipping else None,
+        "outcome_note": planned.reason if opening else None,
+        "suggested_doctype": planned.ledger if placed else None,
+        "suggested_expense_type": planned.expense_type if placed else None,
+        "resolved_project": (
+            planned.project
+            if placed and planned.ledger == PROJECT_EXPENSE_DOCTYPE
+            else None
+        ),
+        "match_basis": MATCH_BASIS if creating else None,
+        "auto_matched": 1 if creating else 0,
+        # #1590: the line's bill links, in the statement's order, whatever the plan decided.
+        # ⚠️ A DICT, NEVER A BARE LIST: Postgres hands a jsonb list back as a Python list,
+        # and Frappe refuses to save a document holding a list in a non-table field.
+        "bill_links": {"links": list(raw.bill_links)} if raw.bill_links else None,
+        # #1595: the statement's Type. Only this import writes it, so it also marks the line as staged
+        # from a Cashbook Statement (`cashbook_collect.statement_line_create_extras`).
+        "row_kind": (raw.row_kind or "").strip() or None,
+    }
 
 
 def _preview_payload(
@@ -1179,6 +1208,12 @@ def _preview_payload(
         # #1595: the Collect payments that will stay open for a person to decide, highlighted on Review.
         "collect_payments": [
             {**_preview_line(row), "spent_by": row.spent_by} for row in plan.opening if row.row_kind == COLLECT_ROW_KIND
+        ],
+        # #1596: the lines an earlier import skipped as own balances that this statement re-opens in place, each
+        # with the import that holds it. Each is also listed above under what it becomes.
+        "reopened": [
+            {**_preview_line(row), "earlier_batch": row.reopens.batch, "becomes": "open" if row.opens else "paired"}
+            for row in plan.reopening
         ],
         # #1593: the existing Expenses that will get a bill from a repeat line, which is itself not saved.
         "late_bills": [

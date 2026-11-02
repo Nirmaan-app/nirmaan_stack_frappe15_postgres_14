@@ -84,6 +84,17 @@ export interface CashbookPreviewResult {
     opening?: number;
     /** #1593: existing Expenses that get a bill from a repeat line (itself not saved). */
     late_bills?: CashbookLateBill[];
+    /** #1596: lines an earlier import skipped as own balances that this statement re-opens in place. */
+    reopened?: CashbookReopenedLine[];
+}
+
+/**
+ * #1596: a line an earlier import skipped as "own balances" that this statement re-opens in place, in the import
+ * that holds it. It is also listed under what it becomes (a Collect payment, an open line, a pair).
+ */
+export interface CashbookReopenedLine extends CashbookSkippedRow {
+    earlier_batch: string;
+    becomes: "open" | "paired";
 }
 
 /** #1593: a repeat line bringing a bill for an existing Expense that still waits for one. */
@@ -122,6 +133,8 @@ export interface CashbookConfirmResult {
     repeats_not_saved: number;
     /** #1593: how many existing Expenses the job gives a bill. Absent from a server that predates it. */
     late_bills?: number;
+    /** #1596: how many earlier lines this import re-opened. */
+    reopened?: number;
 }
 
 export interface CashbookStatus {
@@ -233,21 +246,35 @@ export const duplicateNotice = (preview: {
 };
 
 /**
- * Whether Create is offered (#1593): the file creates something, or brings a bill for an existing Expense, and
- * was not refused. A refusal is said by name so the button never depends on the facts staying in step.
+ * Whether Create is offered (#1593, #1596): the file creates something, brings a bill for an existing Expense, or
+ * re-opens an earlier wrong skip, and was not refused. A refusal is said by name so the button never depends on the
+ * facts staying in step.
  */
 export const canConfirm = (preview: {
     creating?: number;
     refused?: boolean;
     late_bills?: readonly CashbookLateBill[];
-}): boolean => !preview.refused && ((preview.creating ?? 0) > 0 || (preview.late_bills?.length ?? 0) > 0);
+    reopened?: readonly CashbookReopenedLine[];
+}): boolean =>
+    !preview.refused &&
+    ((preview.creating ?? 0) > 0 || (preview.late_bills?.length ?? 0) > 0 || (preview.reopened?.length ?? 0) > 0);
 
-/** The confirm button: "Create 115 records", or "Add 2 bills" for a file whose only work is late bills (#1593). */
-export const confirmLabel = (preview: { creating?: number; late_bills?: readonly CashbookLateBill[] }): string => {
+/**
+ * The confirm button: "Create 115 records"; "Add 2 bills" for a file whose only work is late bills (#1593);
+ * "Re-open 3 lines" for one whose only work is re-opening earlier wrong skips (#1596).
+ */
+export const confirmLabel = (preview: {
+    creating?: number;
+    late_bills?: readonly CashbookLateBill[];
+    reopened?: readonly CashbookReopenedLine[];
+}): string => {
     const creating = preview.creating ?? 0;
     const late = preview.late_bills?.length ?? 0;
-    if (creating > 0 || late === 0) return createLabel(creating);
-    return `Add ${late} ${late === 1 ? "bill" : "bills"}`;
+    const reopened = preview.reopened?.length ?? 0;
+    if (creating > 0) return createLabel(creating);
+    if (late > 0) return `Add ${late} ${late === 1 ? "bill" : "bills"}`;
+    if (reopened > 0) return `Re-open ${reopened} ${reopened === 1 ? "line" : "lines"}`;
+    return createLabel(creating);
 };
 
 /** "Create 115 records" -- the same verb the completion message uses. */
@@ -382,3 +409,23 @@ export const lateBillsDoneText = (n: number, running: boolean): string | null =>
     if (running) return `Adding bills to ${expenses}…`;
     return `${n === 1 ? "Bill" : "Bills"} added to ${expenses}, unless someone had already attached an invoice or marked it No invoice.`;
 };
+
+/**
+ * The heading over the lines this statement re-opens (#1596), or null when there are none. Earlier imports skipped
+ * them as moving money between our own balances; they come back under the new rules, in the import that holds them.
+ */
+export const reopenedHeading = (lines: readonly CashbookReopenedLine[] | undefined): string | null => {
+    const n = lines?.length ?? 0;
+    if (n === 0) return null;
+    return n === 1
+        ? "1 line an earlier import skipped as own balances will be re-opened under the new rules"
+        : `${count(n)} lines earlier imports skipped as own balances will be re-opened under the new rules`;
+};
+
+/** How one re-opened line reads: "Wallet Credit PTM6 · in OFI-26-00237 · stays open". */
+export const reopenedLabel = (line: CashbookReopenedLine): string =>
+    [
+        `${line.row_kind || "Line"} ${line.transfer_id}`,
+        `in ${line.earlier_batch}`,
+        line.becomes === "paired" ? "paired wallet refund" : "stays open",
+    ].join(" · ");
