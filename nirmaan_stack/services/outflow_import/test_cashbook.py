@@ -535,9 +535,9 @@ class TestPlanShape(unittest.TestCase):
         self.assertEqual(plan.total_value, Decimal("100"))
 
     def test_who_spent_it_is_carried_separately_from_who_was_paid(self):
-        row = _plan([_row(payee="Hanuman Hardware", spender="Sowmya T P")]).rows[0]
+        row = _plan([_row(payee="Hanuman Hardware", spender="Meera Iyer")]).rows[0]
         self.assertEqual(row.beneficiary_name, "Hanuman Hardware")
-        self.assertEqual(row.spent_by, "Sowmya T P")
+        self.assertEqual(row.spent_by, "Meera Iyer")
 
 
 class TestInvoiceCounts(unittest.TestCase):

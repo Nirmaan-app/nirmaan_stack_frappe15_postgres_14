@@ -116,7 +116,7 @@ class TestTheFixturesOpenLines(unittest.TestCase):
         self.assertFalse(set(self.plan.opening) & set(self.plan.skipping))
 
     def test_internal_movements_are_still_skipped_as_own_balances(self):
-        for transfer_id in ("BUSINESS_USER-520011-0", "VALOAD-5905490", "BUSINESS_USER-900007-1"):
+        for transfer_id in ("BUSINESS_USER-900001-0", "VALOAD-9000001", "BUSINESS_USER-900007-1"):
             line = _by_id(self.plan, transfer_id)
             with self.subTest(transfer_id=transfer_id):
                 self.assertEqual(

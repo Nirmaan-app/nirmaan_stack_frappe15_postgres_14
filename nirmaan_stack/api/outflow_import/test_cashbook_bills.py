@@ -31,9 +31,9 @@ from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
 
 STATEMENT = FIXTURE.parent / "cashbook_statement.xlsx"
-ONE_LINK = "OBO1792735526469DYMYOU"  # 1.jpeg
-FOUR_LINKS = "OBO1792735606960QUTNST"  # 1.jpeg, 2.pdf, 3.jpeg, 4.pdf
-NO_LINK = "OBO17927503221100FHX45"
+ONE_LINK = "OBO9100000000001WSPNDA"  # 1.jpeg
+FOUR_LINKS = "OBO9100000000002WSPNDB"  # 1.jpeg, 2.pdf, 3.jpeg, 4.pdf
+NO_LINK = "OBO9100000000003WSPNDC"
 # Flight tickets: a Non Project Expense, 1.jpeg. (#1594: the Hotel stay ADJFUL is now a Paired wallet refund.)
 NON_PROJECT_ONE_LINK = "OBO9000000000004PARTSP"  # its one bill is 1.pdf
 
