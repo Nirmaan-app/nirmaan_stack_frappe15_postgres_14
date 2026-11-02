@@ -20,6 +20,11 @@ past imports by source and month.
   invoice`; after Create each spend's bills are its Expense's invoice (Paid tab `Edit Inv`, or `View invoice` in the
   Expenses list), and the finished job lists any spend whose bills were not copied (#1591). An env cannot reach the
   bill storage: seed with `DEVENV script`, running `_cashbook_worker` with `cashbook._fetch_bill` patched.
+- `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (unpaired wallet refunds, wallet credits)
+  and `N paired wallet refunds …`; after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
+  offers the card-credit choices (project / non-project inflow, waiting or new vendor refund, Skip transfer) (#1594).
+  A non-project inflow needs the File folders `Home/Attachments`; a template without them refuses it with
+  `Could not find Folder` (seed them with `frappe.core.doctype.file.utils.make_home_folder`).
 
 ## How to get to it (user POV)
 

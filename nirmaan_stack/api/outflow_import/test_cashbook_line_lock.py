@@ -164,7 +164,8 @@ class TestALineSettledElsewhereIsNotWrittenAgain(CashbookLineLockCase):
         self.assertEqual(batch.settled_rows, len(self.pending))
         self.assertEqual(batch.error_rows, 0)
         self.assertEqual(batch.reviewed_rows, len(self.parsed.rows))
-        self.assertEqual(batch.status, "Completed")
+        # #1594: the sample's wallet credit stays open for a person, so the batch is not Completed.
+        self.assertEqual(batch.status, "Partially Settled")
 
 
 class TestALineNoLongerPendingIsLeftUntouched(CashbookLineLockCase):

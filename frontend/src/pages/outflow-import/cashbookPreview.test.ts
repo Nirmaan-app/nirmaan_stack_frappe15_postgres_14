@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
     CashbookPreviewGroup,
     CashbookPreviewRow,
+    CashbookRefundPair,
+    CashbookSkippedRow,
     CashbookStatus,
     NON_PROJECT_LEDGER,
     PROJECT_LEDGER,
@@ -14,6 +16,9 @@ import {
     invoiceCountsText,
     isLoneRow,
     ledgerSections,
+    openLinesHeading,
+    pairSpendLabel,
+    pairsHeading,
     progressFraction,
     progressText,
     showsResume,
@@ -289,3 +294,46 @@ describe("the bills the job could not copy (#1591)", () => {
     });
 });
 
+
+describe("the paired wallet refunds and the open lines on Review (#1594)", () => {
+    const line = (over: Partial<CashbookSkippedRow> = {}): CashbookSkippedRow => ({
+        row_number: 1,
+        transfer_id: "OBO3",
+        amount: 350,
+        remarks: "Collect request approved",
+        reason: "",
+        beneficiary_name: "Testshop Collect Three",
+        row_kind: "Collect Payment",
+        ...over,
+    });
+    const pair: CashbookRefundPair = { refund: line({ transfer_id: "REF-OBO3", row_kind: "Refund to Wallet" }), spend: line() };
+
+    it("heads the pairs, saying neither line is recorded", () => {
+        expect(pairsHeading([pair])).toBe(
+            "1 paired wallet refund: the refund gives back the whole spend, so neither line is recorded"
+        );
+        expect(pairsHeading([pair, pair])).toBe(
+            "2 paired wallet refunds: each refund gives back a whole spend, so neither line is recorded"
+        );
+    });
+
+    it("heads the lines that stay open", () => {
+        expect(openLinesHeading([line()])).toBe("1 line will stay open for someone to decide on the transactions screen");
+        expect(openLinesHeading([line(), line(), line()])).toBe(
+            "3 lines will stay open for someone to decide on the transactions screen"
+        );
+    });
+
+    it("says nothing when a server sends none, or an older server sends no key", () => {
+        expect(pairsHeading([])).toBeNull();
+        expect(pairsHeading(undefined)).toBeNull();
+        expect(openLinesHeading(undefined)).toBeNull();
+    });
+
+    it("names a pair's spend by its kind, its Txn Id and who was paid", () => {
+        expect(pairSpendLabel(pair)).toBe("Collect Payment OBO3 · Testshop Collect Three");
+        expect(pairSpendLabel({ ...pair, spend: line({ row_kind: undefined, beneficiary_name: "" }) })).toBe(
+            "Spend OBO3 · Collect request approved"
+        );
+    });
+});

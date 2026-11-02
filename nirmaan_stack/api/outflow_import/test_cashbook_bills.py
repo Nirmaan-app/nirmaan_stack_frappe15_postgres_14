@@ -32,7 +32,8 @@ STATEMENT = FIXTURE.parent / "cashbook_statement.xlsx"
 ONE_LINK = "OBO1792735526469DYMYOU"  # 1.jpeg
 FOUR_LINKS = "OBO1792735606960QUTNST"  # 1.jpeg, 2.pdf, 3.jpeg, 4.pdf
 NO_LINK = "OBO17927503221100FHX45"
-NON_PROJECT_ONE_LINK = "OBO9000000000005ADJFUL"  # Hotel stay: a Non Project Expense, 1.jpeg
+# Flight tickets: a Non Project Expense, 1.jpeg. (#1594: the Hotel stay ADJFUL is now a Paired wallet refund.)
+NON_PROJECT_ONE_LINK = "OBO9000000000004PARTSP"  # its one bill is 1.pdf
 
 
 def _image(width: int, height: int, fmt: str) -> bytes:
@@ -243,14 +244,14 @@ class TestAPersonGotThereFirst(CashbookBillsCase):
     """Between step 1 (the Expense is created and committed) and step 3 (the attach), a person may attach
     an invoice or mark the spend No invoice. The job then leaves the Expense as they set it."""
 
-    def _person_acts_during_the_download(self, txn: str, values: dict):
+    def _person_acts_during_the_download(self, txn: str, values: dict, bill: str = "1.jpeg"):
         def during(url):
             doctype, name = self._targets()[txn]
             frappe.db.set_value(doctype, name, values, update_modified=False)
             frappe.db.commit()
             return BillFile(PORTRAIT_JPEG, "jpeg")
 
-        return _fake_bills({(txn, "1.jpeg"): during})
+        return _fake_bills({(txn, bill): during})
 
     def test_an_invoice_attached_meanwhile_is_left_and_the_copy_discarded(self):
         before = frappe.db.count("File", {"attached_to_doctype": ["is", "not set"]})
@@ -263,7 +264,7 @@ class TestAPersonGotThereFirst(CashbookBillsCase):
     def test_a_spend_marked_no_invoice_meanwhile_gets_no_invoice(self):
         self._run(
             self._person_acts_during_the_download(
-                NON_PROJECT_ONE_LINK, {"no_invoice_by": "Administrator", "no_invoice_reason": "Lost"}
+                NON_PROJECT_ONE_LINK, {"no_invoice_by": "Administrator", "no_invoice_reason": "Lost"}, bill="1.pdf"
             )
         )
         expense = self._expense(NON_PROJECT_ONE_LINK)
