@@ -814,6 +814,16 @@ describe("which way the money went — the ONE definition of the axis", () => {
         );
     });
 
+    it("offers only Create expense on an open Collect payment (spec #1585 \"Open Cashbook lines\")", () => {
+        // Its second choice, Skip by hand, is the Skip box (`canSkipByHand`), not a disposition.
+        expect(
+            availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Collect Payment" } as any)
+        ).toEqual(["new"]);
+        expect(availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Wallet Spend" } as any)).toEqual(
+            ["Project Payments", "Project Expenses", "Non Project Expenses", "new"]
+        );
+    });
+
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
         const first = availableDecisionTargets({ direction: "Credit" } as any);
         first.pop();

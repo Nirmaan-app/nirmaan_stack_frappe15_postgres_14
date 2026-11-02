@@ -34,7 +34,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_import import CashbookImport
 from nirmaan_stack.api.outflow_import.test_link_rows_to_expense import LinkFixture
 from nirmaan_stack.api.outflow_import.test_settle_payment import PartialSettlementFixture
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
-from nirmaan_stack.services.outflow_import.skip_origin import CASHBOOK_PENDING_LINE_REFUSAL
+from nirmaan_stack.services.outflow_import.skip_origin import cashbook_pending_line_refusal
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_MISMATCHED,
@@ -100,7 +100,7 @@ class TestAPendingCashbookLineBelongsToItsImport(CashbookImportCase):
 
         self.assertEqual(self._expenses_carrying(self.line.transfer_id), 1)
         self.assertEqual(len(refusals), 1)
-        self.assertIn(CASHBOOK_PENDING_LINE_REFUSAL, refusals[0])
+        self.assertIn(cashbook_pending_line_refusal(self.batch), refusals[0])
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, self.line.name, "row_status"), ROW_SETTLED)
 
     def test_every_main_table_write_is_refused_with_the_cashbook_sentence(self):
@@ -119,8 +119,9 @@ class TestAPendingCashbookLineBelongsToItsImport(CashbookImportCase):
             with self.subTest(action=action):
                 with self.assertRaises(frappe.ValidationError) as caught:
                     attempt()
-                self.assertIn(CASHBOOK_PENDING_LINE_REFUSAL, str(caught.exception))
-                self.assertIn("Cashbook import", CASHBOOK_PENDING_LINE_REFUSAL)
+                # Spec #1585 B: the sentence names the line's import.
+                self.assertIn(cashbook_pending_line_refusal(self.batch), str(caught.exception))
+                self.assertIn(f"Cashbook import {self.batch} ", str(caught.exception))
                 frappe.db.rollback()
                 self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row, "row_status"), ROW_PENDING_MATCH)
                 self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": row}))

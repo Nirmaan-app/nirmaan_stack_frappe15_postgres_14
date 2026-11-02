@@ -47,6 +47,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.card_refund_pairs import unskip_refund_pair
 from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
+    has_outflow_undo_access,
     require_outflow_access,
 )
 from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
@@ -116,6 +117,10 @@ from nirmaan_stack.services.outflow_import.settlement_reference import (
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
 # it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
 # reviewer feedback, and a tuning change must not be able to alter what settles unattended.
+from nirmaan_stack.services.outflow_import.cashbook_collect import (
+    COLLECT_PAYMENT_SKIP_REFUSAL,
+    is_collect_payment_line,
+)
 from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 from nirmaan_stack.services.outflow_import.similarity import (
     RecordSignals,
@@ -1440,6 +1445,9 @@ def skip_row(row: str, reason: str):
       * EVERYONE IN THE MODULE (`require_outflow_access`) -- Accountant, Accountant Lead, Admin. It was
         Admin + Accountant Lead only until owner ruling 2026-09-24 (ADR-0022 Amendment E) opened Skip and
         Unskip to a plain Accountant; Unreconcile and Reverse stay on `require_outflow_undo_access`.
+        ONE EXCEPTION: an open Collect payment (spec #1585 story 39) is skipped by an Admin or an Accountant
+        Lead only (`has_outflow_undo_access`), because skipping it closes on record a payment that left the
+        company.
       * OPEN LINES ONLY (`skip_origin.manual_skip_refusal`) -- Cashbook too since #1314, bar a line its
         own job has not written yet. The old endpoint accepted
         an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
@@ -1462,7 +1470,11 @@ def skip_row(row: str, reason: str):
 
     with concurrent_writer_refusal_as_sentence("skip_row", row):
         current = frappe.db.get_value(
-            ROW_DOCTYPE, row, ["name", "import_batch", "row_status", "direction"], as_dict=True, for_update=True
+            ROW_DOCTYPE,
+            row,
+            ["name", "import_batch", "row_status", "direction", "source", "row_kind"],
+            as_dict=True,
+            for_update=True,
         )
         if not current:
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
@@ -1472,9 +1484,12 @@ def skip_row(row: str, reason: str):
             row_status=current.row_status,
             source=_batch_source(current.import_batch),
             direction=current.direction,
+            import_batch=current.import_batch,
         )
         if refusal:
             frappe.throw(refusal, title="Cannot skip this transfer")
+        if is_collect_payment_line(current.source, current.row_kind) and not has_outflow_undo_access(actor):
+            frappe.throw(COLLECT_PAYMENT_SKIP_REFUSAL, frappe.PermissionError, title="Not permitted")
 
         doc = frappe.get_doc(ROW_DOCTYPE, row)
         doc.update(
@@ -2955,6 +2970,9 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
+               -- Cashbook Statement only: the line's Type (#1595). An open Collect payment offers Create expense
+               -- and Skip by hand only (spec #1585), and the screen tells it apart by this.
+               r.row_kind,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,

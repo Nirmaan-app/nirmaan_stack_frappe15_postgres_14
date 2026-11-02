@@ -41,7 +41,7 @@ from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.skip_origin import (
     SKIP_REFUSED_ALREADY_SKIPPED,
-    CASHBOOK_PENDING_LINE_REFUSAL,
+    cashbook_pending_line_refusal,
     SKIP_REFUSED_PARTIALLY_ALLOCATED,
     SKIP_REFUSED_SETTLED,
 )
@@ -264,8 +264,9 @@ class TestSkipRefusals(SkipFixture):
     def test_a_cashbook_line_the_job_has_not_written_is_refused(self):
         """#1314 INVERTS "a Cashbook line is refused even while open": only `Pending match run` -- the
         Cashbook job's work in progress -- is refused now."""
+        row = self._line(status="Pending match run", source="Cashbook")
         self._assert_refused(
-            self._line(status="Pending match run", source="Cashbook"), CASHBOOK_PENDING_LINE_REFUSAL
+            row, cashbook_pending_line_refusal(frappe.db.get_value(ROW_DOCTYPE, row, "import_batch"))
         )
 
     def test_an_open_cashbook_line_may_be_skipped(self):
