@@ -50,7 +50,10 @@ import {
     CashbookPreviewResult,
     CashbookStatus,
     billsNotCopiedHeading,
+    canConfirm,
+    confirmLabel,
     createLabel,
+    lateBillsDoneText,
     progressFraction,
     progressText,
     showsResume,
@@ -1403,6 +1406,7 @@ export const ImportStatementDialog = ({
                         <CashbookProgress
                             creating={cashbookBatch.creating}
                             repeatsNotSaved={cashbookBatch.repeats_not_saved}
+                            lateBills={cashbookBatch.late_bills ?? 0}
                             status={cashbookStatus}
                             running={isBusy === "match"}
                             resume={
@@ -1447,18 +1451,13 @@ export const ImportStatementDialog = ({
                                 </Button>
                                 <Button
                                     onClick={handleCashbookConfirm}
-                                    // A refused file has nothing to create either; said by name so
-                                    // the button never depends on the two facts staying in step.
-                                    disabled={
-                                        working ||
-                                        !cashbookPreview?.creating ||
-                                        Boolean(cashbookPreview?.refused)
-                                    }
+                                    // #1593: a file whose only work is late bills is offered too.
+                                    disabled={working || !cashbookPreview || !canConfirm(cashbookPreview)}
                                 >
                                     {isBusy === "upload" && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     )}
-                                    {createLabel(cashbookPreview?.creating ?? 0)}
+                                    {cashbookPreview ? confirmLabel(cashbookPreview) : createLabel(0)}
                                 </Button>
                             </>
                         )}
@@ -1913,12 +1912,15 @@ function extractServerMessage(payload: string): string | null {
 const CashbookProgress = ({
     creating,
     repeatsNotSaved,
+    lateBills,
     status,
     running,
     resume,
 }: {
     creating: number;
     repeatsNotSaved: number | undefined;
+    /** #1593: how many existing Expenses the job gives a bill. */
+    lateBills: number;
     status: CashbookStatus | null;
     running: boolean;
     /** The Resume button, when the job stopped part-way (#1589). */
@@ -1929,6 +1931,7 @@ const CashbookProgress = ({
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
     const billsHeading = billsNotCopiedHeading(status);
+    const lateText = lateBillsDoneText(lateBills, running);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1955,6 +1958,7 @@ const CashbookProgress = ({
             </div>
             {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
+            {lateText && <p className="text-xs text-muted-foreground">{lateText}</p>}
             {/* #1591: each spend whose bills were not copied, with the server's reason. */}
             {billsHeading && (
                 <div className="space-y-1 text-xs">

@@ -97,6 +97,12 @@ class TestSplitRepeats(unittest.TestCase):
         split = _split([_line("A"), _line("A")], {"A": (_seen("OFI-1", "SUCCESS"),)})
         self.assertEqual((split.repeats_not_saved, split.repeated_in_file), (2, 0))
 
+    def test_the_lines_repeating_an_earlier_import_are_handed_back_but_not_in_file_copies(self):
+        # #1593: Cashbook reads their bill links.
+        earlier, new, new_copy = _line("A"), _line("B"), _line("B")
+        split = _split([earlier, new, new_copy], {"A": (_seen("OFI-1", "SUCCESS"),)})
+        self.assertEqual((split.earlier_exact, split.repeats_not_saved), ((earlier,), 2))
+
     def test_a_failed_line_is_a_sighting_by_default(self):
         """Cashfree/ICICI: every TERMINAL line is a sighting, whatever its own outcome."""
         split = _split([_line("A", "FAILED"), _line("A", "FAILED")])

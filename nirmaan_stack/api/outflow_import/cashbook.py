@@ -77,6 +77,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     CashbookPlan,
     plan_statement,
 )
+from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
 from nirmaan_stack.services.outflow_import.cashbook_review import group_plan, invoice_counts
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -146,7 +147,8 @@ def preview_cashbook_statement():
     """
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
-    return _preview_payload(parsed, plan, filename, _assess(parsed, plan, filename))
+    late = _late_bills(parsed, plan)
+    return _preview_payload(parsed, plan, filename, _assess(parsed, plan, filename, late), late)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -162,11 +164,13 @@ def confirm_cashbook_import():
     """
     user, filename, content, parsed = _read_and_parse()
     plan = _build_plan(parsed)
+    late = _late_bills(parsed, plan)
 
     # ⚠️ THE REFUSAL COMES BEFORE `save_file`, the only place it can (ADR-0031, as on the Cashfree
     # path): `save_file` commits inside this request, so a refusal after it would leave an orphan File
-    # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL.
-    verdict = _assess(parsed, plan, filename)
+    # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
+    # them bring a bill for an Expense still waiting for one (#1593).
+    verdict = _assess(parsed, plan, filename, late)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
@@ -190,13 +194,15 @@ def confirm_cashbook_import():
     )
     frappe.db.commit()
 
-    _enqueue_worker(batch.name, user)
+    _enqueue_worker(batch.name, user, late_bills=[_late_bill_job(bill) for bill in late])
     return {
         "batch": batch.name,
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
         "opening": len(plan.opening),
         "repeats_not_saved": plan.split.repeats_not_saved,
+        # #1593: the existing Expenses the job will give a bill.
+        "late_bills": len(late),
     }
 
 
@@ -288,19 +294,20 @@ def _job_id(batch: str) -> str:
     return f"cashbook-import-{batch}"
 
 
-def _enqueue_worker(batch: str, actor: str) -> None:
+def _enqueue_worker(batch: str, actor: str, late_bills: list[dict] | None = None) -> None:
     frappe.enqueue(
         _WORKER,
         queue="long",
         timeout=3600,
         batch=batch,
         actor=actor,
+        late_bills=late_bills or None,
         job_id=_job_id(batch),
         deduplicate=True,
     )
 
 
-def _cashbook_worker(batch: str, actor: str):
+def _cashbook_worker(batch: str, actor: str, late_bills: list[dict] | None = None):
     """Create one expense per planned row. ONE TRANSACTION PER ROW.
 
     ⚠️ COMMIT PER ROW, NOT PER BATCH, and that is what makes a partial run safe. A worker killed at
@@ -320,6 +327,9 @@ def _cashbook_worker(batch: str, actor: str):
     its row lock and writes nothing unless it is still `Pending match run`; a line it did not write is
     rolled back, not marked. The rollup at the end reads the rows in a fresh transaction (every line
     ends its own), so it counts what they really say.
+
+    `late_bills` (#1593): the repeat lines' bills for existing Expenses, as confirm planned them
+    (`_late_bill_job`). Attached after the lines, by `_attach_late_bills`.
     """
     statement_file_url = _statement_file_url(batch)
     rows = frappe.db.sql(
@@ -346,6 +356,7 @@ def _cashbook_worker(batch: str, actor: str):
             # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
             frappe.db.rollback()
 
+    _attach_late_bills(batch, late_bills or ())
     refresh_batch_rollup(batch)
     frappe.db.commit()
 
@@ -622,6 +633,37 @@ def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[
     return None
 
 
+def _late_bill_job(bill: LateBill) -> dict:
+    """What the job needs of one late bill: plain values, because the queue stores its arguments."""
+    doctype, expense = _booked_record(bill.record)
+    return {"transfer_id": bill.transfer_id, "doctype": doctype, "expense": expense, "links": list(bill.links)}
+
+
+def _attach_late_bills(batch: str, bills) -> None:
+    """A late attach uses the same steps 2 and 3 as a created line (#1593, spec #1585 "A late attach uses the same
+    step 3"): `_store_and_attach` downloads outside any transaction, then locks the Expense and re-checks
+    `invoice_attachment` and `no_invoice_by` before attaching. An Expense a person gave an invoice or a No invoice
+    mark since confirm is left as they left it.
+
+    ⚠️ NO LINE CARRIES THE PROBLEM. A repeat line is not saved, so a bill that cannot be copied is written to the
+    Error Log instead, and the Expense keeps waiting in Pending Invoices Upload -> Cashbook; the next statement that
+    carries the line tries again. The list itself lives only in the queued job's arguments: a job that dies
+    part-way loses the rest, and the same re-upload brings them back.
+    """
+    for bill in bills:
+        try:
+            problem = _store_and_attach(bill["doctype"], bill["expense"], bill["transfer_id"], bill["links"])
+        except Exception:
+            frappe.db.rollback()
+            problem = f"{_not_copied(len(bill['links']), _BILLS_NOT_STORED)}\n\n{frappe.get_traceback()}"
+        if problem:
+            frappe.log_error(
+                title="Cashbook import: a late bill was not copied",
+                message=f"{batch} / {bill['transfer_id']} / {bill['doctype']} {bill['expense']}\n\n{problem}",
+            )
+            frappe.db.commit()
+
+
 def _not_copied(count: int, clause: str) -> str:
     """The `bill_problem` sentence for a failure of the whole copy, not of one link."""
     return f"{'Bills' if count > 1 else 'Bill'} not copied: {clause}."
@@ -796,6 +838,41 @@ def _already_booked(parsed) -> dict:
     return _booked_index(_statement_transfer_ids(parsed))
 
 
+def _booked_record(label: str) -> tuple[str, str]:
+    """`(doctype, name)` of a `_booked_index` label, which `_booked_index` composes as `"<doctype> <name>"`.
+    Matched against the two ledger names rather than split, so a record name holding a space survives."""
+    doctype = next(dt for dt in EXPENSE_DOCTYPES if label.startswith(f"{dt} "))
+    return doctype, label[len(doctype) + 1 :]
+
+
+def _late_bills(parsed, plan: CashbookPlan) -> tuple[LateBill, ...]:
+    """The repeat lines whose bills go to an existing Expense still waiting for one (#1593). READ-ONLY.
+
+    Every Expense carrying one of the statement's Txn Ids, through `_booked_index` (the "already booked" check's
+    own identity), and of those the ones still waiting: no `invoice_attachment` and no No invoice mark. The job
+    asks the waiting question again under the Expense's lock (`_attach_invoice`).
+    """
+    ids = sorted({raw.transfer_id for raw in plan.split.earlier_exact if raw.transfer_id and raw.bill_links})
+    if not ids:
+        return ()
+    placeholders = ", ".join(["%s"] * len(ids))
+    waiting = set()
+    for doctype in EXPENSE_DOCTYPES:
+        waiting.update(
+            f"{doctype} {name}"
+            for name in frappe.db.sql(
+                f"""
+                SELECT name FROM "tab{doctype}"
+                WHERE BTRIM(COALESCE(payment_ref, '')) IN ({placeholders})
+                  AND COALESCE(invoice_attachment, '') = '' AND COALESCE(no_invoice_by, '') = ''
+                """,
+                tuple(ids),
+                pluck=True,
+            )
+        )
+    return late_bills(plan.split, _booked_index(ids), waiting)
+
+
 def _booked_index(ids) -> dict:
     """The `index_prior_sightings` index of every expense whose `payment_ref` is one of `ids`. See
     `_already_booked` for every rule the query follows."""
@@ -871,12 +948,13 @@ def booked_elsewhere(row: str) -> str | None:
     return f"{leg.target_doctype} {leg.target_name}" if leg else None
 
 
-def _assess(parsed, plan: CashbookPlan, filename: str) -> DuplicateVerdict:
+def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = ()) -> DuplicateVerdict:
     """Refuse / warn / proceed, counted from THE plan `_stage` writes from (ADR-0031). READ-ONLY.
 
     The same `duplicates.assess_duplicates` the Cashfree path asks, so both sources refuse a file of
     nothing but exact repeats and warn at the same 90%. Shared by the preview and the confirm, so
-    what the preview promised is what the confirm enforces.
+    what the preview promised is what the confirm enforces. A repeat bringing a late bill (`late`, #1593) is work:
+    a file of nothing but repeats is accepted when some of them bring one.
     """
     return assess_duplicates(
         total=len(parsed.rows),
@@ -884,6 +962,7 @@ def _assess(parsed, plan: CashbookPlan, filename: str) -> DuplicateVerdict:
         earliest_batch=plan.split.repeat_of_batch,
         filename=filename,
         repeated_in_file=plan.split.repeated_in_file,
+        repeats_with_work=len(late),
     )
 
 
@@ -996,7 +1075,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str):
 
 
 def _preview_payload(
-    parsed, plan: CashbookPlan, filename: str, verdict: DuplicateVerdict
+    parsed, plan: CashbookPlan, filename: str, verdict: DuplicateVerdict, late: tuple = ()
 ) -> dict:
     groups = group_plan(plan)
     invoices = invoice_counts(plan)
@@ -1060,6 +1139,19 @@ def _preview_payload(
         ],
         # #1594: the lines that will stay open on the main table (unpaired wallet refunds, wallet credits).
         "open_lines": [_preview_line(row) for row in plan.opening],
+        # #1593: the existing Expenses that will get a bill from a repeat line, which is itself not saved.
+        "late_bills": [
+            {
+                "row_number": bill.row_number,
+                "transfer_id": bill.transfer_id,
+                "amount": float(bill.amount),
+                "remarks": bill.remarks,
+                "expense_doctype": _booked_record(bill.record)[0],
+                "expense": _booked_record(bill.record)[1],
+                "bills": len(bill.links),
+            }
+            for bill in late
+        ],
     }
 
 

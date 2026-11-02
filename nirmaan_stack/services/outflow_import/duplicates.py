@@ -460,6 +460,7 @@ def assess_duplicates(
     earliest_batch: str | None = None,
     filename: str | None = None,
     repeated_in_file: int = 0,
+    repeats_with_work: int = 0,
 ) -> DuplicateVerdict:
     """Decide refuse / warn / proceed for a statement with `duplicates` of `total` rows seen before.
 
@@ -474,6 +475,10 @@ def assess_duplicates(
     `repeated_in_file` is how many of `duplicates` repeat only a line earlier in this file
     (`repeats.RepeatSplit.repeated_in_file`). Those are not "already imported", and the message must
     not say they are (#1359).
+
+    `repeats_with_work` is how many of `duplicates` still bring work although they are not saved: on Cashbook,
+    a bill for an existing Expense still waiting for one (#1593). A file of nothing but repeats is then
+    accepted, with a warning saying so.
     """
     total = max(int(total or 0), 0)
     duplicates = min(max(int(duplicates or 0), 0), total)
@@ -494,6 +499,18 @@ def assess_duplicates(
         seen = f"were already imported{where} or repeated in this file"
     else:
         seen = f"were already imported{where}"
+
+    if new == 0 and repeats_with_work > 0:
+        bills = "1 of them brings a bill" if repeats_with_work == 1 else f"{repeats_with_work} of them bring bills"
+        waiting = "an existing Expense that is" if repeats_with_work == 1 else "existing Expenses that are"
+        return DuplicateVerdict(
+            total=total, duplicates=duplicates, new=0,
+            refuse=False, warn=True, earliest_batch=earliest_batch,
+            message=(
+                f"All {total} transfers in {what} {seen} and will not be saved again. "
+                f"{bills} for {waiting} still waiting for one."
+            ),
+        )
 
     if new == 0:
         return DuplicateVerdict(

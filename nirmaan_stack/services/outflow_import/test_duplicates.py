@@ -145,6 +145,26 @@ class TestRefusal(unittest.TestCase):
         self.assertEqual(verdict.new, 1)
 
 
+class TestRepeatsThatStillBringWork(unittest.TestCase):
+    """#1593: a Cashbook repeat that brings a bill for an Expense still waiting for one is work, not nothing."""
+
+    def test_a_file_of_only_repeats_some_bringing_work_is_accepted_and_says_what_it_will_do(self):
+        verdict = assess_duplicates(
+            total=3, duplicates=3, earliest_batch="OFI-26-00007", filename="nov.csv", repeats_with_work=1
+        )
+        self.assertFalse(verdict.refuse)
+        self.assertTrue(verdict.warn)
+        self.assertEqual(verdict.new, 0)
+        self.assertEqual(
+            verdict.message,
+            "All 3 transfers in 'nov.csv' were already imported in batch OFI-26-00007 and will not be saved "
+            "again. 1 of them brings a bill for an existing Expense that is still waiting for one.",
+        )
+
+    def test_without_work_the_same_file_is_still_refused(self):
+        self.assertTrue(assess_duplicates(total=3, duplicates=3, repeats_with_work=0).refuse)
+
+
 class TestWarning(unittest.TestCase):
     def test_at_the_threshold_it_warns_without_blocking(self):
         verdict = assess_duplicates(total=10, duplicates=9, earliest_batch="OFI-26-00007")
