@@ -49,6 +49,7 @@ accountants and administrators and returns 403 for everyone else. Reversing it i
 import os
 
 import frappe
+from frappe.utils.background_jobs import is_job_enqueued
 
 from nirmaan_stack.api.outflow_import.expenses import (
     MATCH_DOCTYPE,
@@ -113,6 +114,8 @@ SOURCE = "Cashbook"
 # "Manual" -- no person chose these -- and not "project in remark", which belongs to the settlement
 # matcher's tier 2 and would make a created expense look like a settled one in every report.
 MATCH_BASIS = "cashbook remark"
+
+_WORKER = "nirmaan_stack.api.outflow_import.cashbook._cashbook_worker"
 
 _ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
 _MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -179,15 +182,7 @@ def confirm_cashbook_import():
     )
     frappe.db.commit()
 
-    frappe.enqueue(
-        "nirmaan_stack.api.outflow_import.cashbook._cashbook_worker",
-        queue="long",
-        timeout=3600,
-        batch=batch.name,
-        actor=user,
-        job_id=f"cashbook-import-{batch.name}",
-        deduplicate=True,
-    )
+    _enqueue_worker(batch.name, user)
     return {
         "batch": batch.name,
         "creating": len(plan.creating),
@@ -200,9 +195,16 @@ def confirm_cashbook_import():
 def get_cashbook_status(batch: str):
     """How far the job has got. Counted from the ROWS, which are the durable record.
 
-    ⚠️ NO REDIS MARKER, deliberately. The rows already carry the answer, they survive a worker
-    restart, and a marker would be a second account of the same fact -- free to disagree with the
+    ⚠️ NO REDIS MARKER FOR THE COUNTS, deliberately. The rows already carry the answer, they survive a
+    worker restart, and a marker would be a second account of the same fact -- free to disagree with the
     table the screen reads next. Progress is simply how many rows have stopped being pending.
+
+    ⚠️ `running` IS THE JOB, NOT THE PENDING COUNT (#1589, spec #1585 gap F). A job that died part-way
+    leaves its remaining lines `Pending match run` with no job to write them, so "pending > 0" would say
+    "running" for ever. `running` asks the queue whether the batch's job is queued or started;
+    `stopped` is the state Resume answers: lines still waiting and no job to write them. (A worker
+    killed outright stays "started" in RQ until RQ marks the job abandoned, so `stopped` can lag a hard
+    kill by RQ's own clean-up interval; it never shows while a job really runs.)
     """
     require_outflow_access()
     counts = dict(
@@ -217,15 +219,64 @@ def get_cashbook_status(batch: str):
         )
     )
     pending = counts.get(ROW_PENDING_MATCH, 0)
+    running = is_job_enqueued(_job_id(batch))
     return {
         "batch": batch,
         "created": counts.get(ROW_SETTLED, 0),
         "failed": counts.get(ROW_ERROR, 0),
         "skipped": counts.get(ROW_SKIPPED, 0),
         "pending": pending,
-        "running": pending > 0,
+        "running": running,
+        "stopped": pending > 0 and not running,
         "batch_status": frappe.db.get_value(BATCH_DOCTYPE, batch, "status"),
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def resume_cashbook_import(batch: str):
+    """Start the job again on a Cashbook import that stopped part-way. Returns `get_cashbook_status`.
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.cashbook.resume_cashbook_import  (POST `batch`)
+
+    Admin, Accountant Lead and Accountant (the Bulk Import gate). Card Create's "Run Create again"
+    (`card_create.create_card_expenses`) is the model. Re-queues the SAME job under the SAME job id as
+    confirm did, so the queue's de-duplication keeps one job per batch; it is refused, with a sentence,
+    while that job is queued or running, and once no line is left waiting.
+
+    ⚠️ PRESSING IT IS ALWAYS SAFE. The job takes only `Pending match run` lines, and each is re-read
+    under its row lock and written only while still pending (`_lock_pending_line`, #1586); the
+    one-Expense-per-Txn-Id index (#1588) refuses a second Expense for one wallet spend whatever path
+    tries. A Resume racing a live job, or pressed twice, creates nothing twice.
+    """
+    user = require_outflow_access()
+    if frappe.db.get_value(BATCH_DOCTYPE, batch, "source") != SOURCE:
+        frappe.throw(f"{batch} is not a {SOURCE} import.", title="Not a Cashbook import")
+    if is_job_enqueued(_job_id(batch)):
+        frappe.throw(
+            f"The Cashbook import {batch} is still creating its expenses. Wait for it to finish.",
+            title="Still running",
+        )
+    if not frappe.db.exists(ROW_DOCTYPE, {"import_batch": batch, "row_status": ROW_PENDING_MATCH}):
+        frappe.throw(f"No line of {batch} is waiting to be created.", title="Nothing waiting")
+    _enqueue_worker(batch, user)
+    return get_cashbook_status(batch)
+
+
+def _job_id(batch: str) -> str:
+    """The batch's ONE job id: confirm and Resume both queue under it, so de-duplication sees one job."""
+    return f"cashbook-import-{batch}"
+
+
+def _enqueue_worker(batch: str, actor: str) -> None:
+    frappe.enqueue(
+        _WORKER,
+        queue="long",
+        timeout=3600,
+        batch=batch,
+        actor=actor,
+        job_id=_job_id(batch),
+        deduplicate=True,
+    )
 
 
 def _cashbook_worker(batch: str, actor: str):

@@ -52,6 +52,7 @@ import {
     createLabel,
     progressFraction,
     progressText,
+    showsResume,
 } from "../cashbookPreview";
 import {
     CONFIRM_STEP_NOTE,
@@ -90,6 +91,7 @@ import {
 } from "../porterPrecheck";
 import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
+import { CashbookResumeButton } from "./CashbookResume";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import {
@@ -1402,6 +1404,18 @@ export const ImportStatementDialog = ({
                             repeatsNotSaved={cashbookBatch.repeats_not_saved}
                             status={cashbookStatus}
                             running={isBusy === "match"}
+                            resume={
+                                isBusy !== "match" && showsResume(cashbookStatus) ? (
+                                    // #1589: the job stopped part-way; Resume re-queues it and the poll follows.
+                                    <CashbookResumeButton
+                                        batch={cashbookBatch.batch}
+                                        onResumed={(next) => {
+                                            setCashbookStatus(next);
+                                            setIsBusy("match");
+                                        }}
+                                    />
+                                ) : null
+                            }
                         />
                     )}
                 </div>
@@ -1900,14 +1914,17 @@ const CashbookProgress = ({
     repeatsNotSaved,
     status,
     running,
+    resume,
 }: {
     creating: number;
     repeatsNotSaved: number | undefined;
     status: CashbookStatus | null;
     running: boolean;
+    /** The Resume button, when the job stopped part-way (#1589). */
+    resume?: ReactNode;
 }) => {
     const fraction = progressFraction(status, creating);
-    const failed = (status?.failed ?? 0) > 0;
+    const failed = (status?.failed ?? 0) > 0 || Boolean(status?.stopped);
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
     return (
@@ -1934,6 +1951,7 @@ const CashbookProgress = ({
                     style={{ width: `${Math.round(fraction * 100)}%` }}
                 />
             </div>
+            {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
             {!running && (
                 <p className="text-xs text-muted-foreground">
