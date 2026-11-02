@@ -537,6 +537,45 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.api.boq.wizard.test_commit_spec_cards": {
+   "seconds": 20.9,
+   "series": [
+    "BCSG-26-",
+    "BQSH-26-"
+   ],
+   "writes": [
+    "tabBOQs",
+    "tabBoQ Committed Sheet Grid",
+    "tabBoQ Committed Sheet Grid Row",
+    "tabBoQ General Specs Sheet",
+    "tabBoQ Sheet",
+    "tabBoQ Sheet Draft"
+   ],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBOQ Nodes",
+    "tabBlock Module",
+    "tabBoQ AI Run Log",
+    "tabBoQ Category Truth Snapshot",
+    "tabBoQ Cell Amount Formula",
+    "tabBoQ Cell Color",
+    "tabBoQ Cell Dismissal",
+    "tabBoQ Cell Pricing",
+    "tabBoQ Cell Reconciliation Choice",
+    "tabBoQ Cell Remark",
+    "tabBoQ Rate Suggestion Run",
+    "tabBoQ Review Row",
+    "tabBoQ Row BCS Rate",
+    "tabBoQ Row Category",
+    "tabBoQ Row Spec Card",
+    "tabBoQ Sheet Pricing Lock",
+    "tabBoQ Sheet Work Package",
+    "tabMilestone Tracker",
+    "tabProjects",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.api.boq.wizard.test_commit_validation": {
    "seconds": 33.4,
    "series": [
@@ -947,6 +986,12 @@
     "tabServer Script",
     "tabWorkflow"
    ]
+  },
+  "nirmaan_stack.api.boq.wizard.test_match_settings": {
+   "seconds": 11.9,
+   "series": [],
+   "writes": [],
+   "reads": []
   },
   "nirmaan_stack.api.boq.wizard.test_parse_run": {
    "seconds": 47.1,
@@ -2426,6 +2471,46 @@
     "tabMilestone Tracker"
    ]
   },
+  "nirmaan_stack.services.boq_rate_match.test_call_runner": {
+   "seconds": 27.8,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_match.test_cards": {
+   "seconds": 17.1,
+   "series": [],
+   "writes": [
+    "tabBOQs",
+    "tabBoQ Row Spec Card"
+   ],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBOQ Nodes",
+    "tabBlock Module",
+    "tabBoQ AI Run Log",
+    "tabBoQ Category Truth Snapshot",
+    "tabBoQ Cell Amount Formula",
+    "tabBoQ Cell Color",
+    "tabBoQ Cell Dismissal",
+    "tabBoQ Cell Pricing",
+    "tabBoQ Cell Reconciliation Choice",
+    "tabBoQ Cell Remark",
+    "tabBoQ Committed Sheet Grid",
+    "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Suggestion Run",
+    "tabBoQ Review Row",
+    "tabBoQ Row BCS Rate",
+    "tabBoQ Row Category",
+    "tabBoQ Sheet",
+    "tabBoQ Sheet Draft",
+    "tabBoQ Sheet Pricing Lock",
+    "tabMilestone Tracker",
+    "tabProjects",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.services.boq_revision.test_carry": {
    "seconds": 14.2,
    "series": [],
@@ -2480,7 +2565,7 @@
    "reads": []
   },
   "nirmaan_stack.services.test_index_manifest": {
-   "seconds": 29.8,
+   "seconds": 33.8,
    "series": [],
    "writes": [],
    "reads": [

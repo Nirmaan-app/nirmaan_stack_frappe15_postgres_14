@@ -117,7 +117,7 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
     def test_the_controller_scan_finds_the_known_calls(self):
         # Guards the scan itself: a broken AST walk returning nothing would make the equality vacuous.
         calls = _controller_calls()
-        self.assertEqual(len(calls), 40)
+        self.assertEqual(len(calls), 42)
         self.assertEqual(calls[("Outflow Row Match", ("import_batch",), False)], "ofm_match_batch_idx")
         self.assertIn(("BoQ Committed Sheet Grid Row", ("parent",), False), calls)
         # a name passed as a module constant (asset_history.py PARENT_INDEX) resolves to its value

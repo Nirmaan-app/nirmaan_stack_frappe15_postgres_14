@@ -12,7 +12,23 @@
   "max_tokens",
   "request_timeout_seconds",
   "credentials_section",
-  "anthropic_api_key"
+  "anthropic_api_key",
+  "match_section",
+  "match_enabled",
+  "match_cards_at_commit",
+  "match_card_model",
+  "match_judge_model",
+  "match_calls_at_once",
+  "match_reply_max_tokens",
+  "match_card_reply_max_tokens",
+  "match_retry_wait_s",
+  "match_burst_failures",
+  "match_burst_window_s",
+  "match_cost_cap_usd",
+  "match_card_price_in",
+  "match_card_price_out",
+  "match_judge_price_in",
+  "match_judge_price_out"
  ],
  "fields": [
   {
@@ -63,13 +79,116 @@
    "fieldname": "anthropic_api_key",
    "fieldtype": "Password",
    "label": "Anthropic API Key"
+  },
+  {
+   "description": "Historical rate matching (DEV2-B1). Model names live ONLY here, never in code: an empty model or price makes matching refuse.",
+   "fieldname": "match_section",
+   "fieldtype": "Section Break",
+   "label": "Historical matching"
+  },
+  {
+   "default": "0",
+   "fieldname": "match_enabled",
+   "fieldtype": "Check",
+   "label": "Matching enabled"
+  },
+  {
+   "default": "0",
+   "description": "Both this and Matching enabled must be on for a committed sheet to queue its spec-card job.",
+   "fieldname": "match_cards_at_commit",
+   "fieldtype": "Check",
+   "label": "Make spec cards at commit"
+  },
+  {
+   "description": "Anthropic model id for the spec cards. No default.",
+   "fieldname": "match_card_model",
+   "fieldtype": "Data",
+   "label": "Card model"
+  },
+  {
+   "description": "Anthropic model id for the match judge. No default.",
+   "fieldname": "match_judge_model",
+   "fieldtype": "Data",
+   "label": "Judge model"
+  },
+  {
+   "default": "50",
+   "description": "Most matching calls in flight at the same time.",
+   "fieldname": "match_calls_at_once",
+   "fieldtype": "Int",
+   "label": "Calls at once"
+  },
+  {
+   "default": "1024",
+   "description": "max_tokens sent with every matching call.",
+   "fieldname": "match_reply_max_tokens",
+   "fieldtype": "Int",
+   "label": "Reply length cap (tokens)"
+  },
+  {
+   "default": "32000",
+   "description": "max_tokens sent with every spec-card call (20 rows a call).",
+   "fieldname": "match_card_reply_max_tokens",
+   "fieldtype": "Int",
+   "label": "Card reply length cap (tokens)"
+  },
+  {
+   "default": "5",
+   "description": "Wait before the one retry of a lone connection error.",
+   "fieldname": "match_retry_wait_s",
+   "fieldtype": "Int",
+   "label": "Retry wait (seconds)"
+  },
+  {
+   "default": "10",
+   "description": "This many failed calls within the burst window stop the run.",
+   "fieldname": "match_burst_failures",
+   "fieldtype": "Int",
+   "label": "Burst stop: failures"
+  },
+  {
+   "default": "60",
+   "fieldname": "match_burst_window_s",
+   "fieldtype": "Int",
+   "label": "Burst stop: window (seconds)"
+  },
+  {
+   "default": "5",
+   "description": "Every call reserves its upper bound against this cap before it is sent.",
+   "fieldname": "match_cost_cap_usd",
+   "fieldtype": "Float",
+   "label": "Cost cap per BoQ (USD)"
+  },
+  {
+   "description": "USD per million input tokens for the card model. No default: empty = matching refuses.",
+   "fieldname": "match_card_price_in",
+   "fieldtype": "Float",
+   "label": "Card model price in (USD / million tokens)"
+  },
+  {
+   "description": "USD per million output tokens for the card model. No default: empty = matching refuses.",
+   "fieldname": "match_card_price_out",
+   "fieldtype": "Float",
+   "label": "Card model price out (USD / million tokens)"
+  },
+  {
+   "description": "USD per million input tokens for the judge model. No default: empty = matching refuses.",
+   "fieldname": "match_judge_price_in",
+   "fieldtype": "Float",
+   "label": "Judge model price in (USD / million tokens)"
+  },
+  {
+   "description": "USD per million output tokens for the judge model. No default: empty = matching refuses.",
+   "fieldname": "match_judge_price_out",
+   "fieldtype": "Float",
+   "label": "Judge model price out (USD / million tokens)"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-06-19 00:00:01.000000",
+ "modified": "2026-11-02 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQ Upload Review AI Settings",

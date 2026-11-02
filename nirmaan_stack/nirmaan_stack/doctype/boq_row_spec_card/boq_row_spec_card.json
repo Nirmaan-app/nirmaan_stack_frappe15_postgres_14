@@ -1,0 +1,182 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-11-02 17:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "row_section",
+  "boq",
+  "sheet",
+  "excel_row",
+  "commit_version",
+  "key_section",
+  "payload_sha256",
+  "prompt_version",
+  "model",
+  "card_section",
+  "status",
+  "card_json",
+  "usage_section",
+  "tokens_in",
+  "tokens_out",
+  "cost_usd"
+ ],
+ "fields": [
+  {
+   "fieldname": "row_section",
+   "fieldtype": "Section Break",
+   "label": "Row"
+  },
+  {
+   "description": "The BoQ whose row this card was made for (the first row carded with this payload).",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1
+  },
+  {
+   "description": "The committed sheet name, VERBATIM (#152 -- never stripped).",
+   "fieldname": "sheet",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number (= source_row_number).",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "description": "The sheet's committed version the payload was read at.",
+   "fieldname": "commit_version",
+   "fieldtype": "Int",
+   "label": "Commit Version"
+  },
+  {
+   "fieldname": "key_section",
+   "fieldtype": "Section Break",
+   "label": "Reuse key"
+  },
+  {
+   "description": "sha256 of the row's exact extraction._ai_item block as sent (text, notes, headings, Excel row).",
+   "fieldname": "payload_sha256",
+   "fieldtype": "Data",
+   "label": "Payload sha256",
+   "reqd": 1
+  },
+  {
+   "description": "sha256 of services/boq_rate_match/card_prompt.txt.",
+   "fieldname": "prompt_version",
+   "fieldtype": "Data",
+   "label": "Prompt version",
+   "reqd": 1
+  },
+  {
+   "description": "The card model, from BOQ Upload Review AI Settings.",
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "reqd": 1
+  },
+  {
+   "fieldname": "card_section",
+   "fieldtype": "Section Break",
+   "label": "Card"
+  },
+  {
+   "description": "ok = a parsed card; malformed = the reply had no usable card for the row (kept, never dropped); failed = the call failed.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "ok\nmalformed\nfailed",
+   "reqd": 1
+  },
+  {
+   "description": "The card as the model returned it; for malformed / failed, the error and what came back.",
+   "fieldname": "card_json",
+   "fieldtype": "JSON",
+   "label": "Card"
+  },
+  {
+   "fieldname": "usage_section",
+   "fieldtype": "Section Break",
+   "label": "Usage"
+  },
+  {
+   "description": "This row's equal share of its request's input tokens.",
+   "fieldname": "tokens_in",
+   "fieldtype": "Int",
+   "label": "Tokens in"
+  },
+  {
+   "description": "This row's equal share of its request's output tokens.",
+   "fieldname": "tokens_out",
+   "fieldtype": "Int",
+   "label": "Tokens out"
+  },
+  {
+   "description": "This row's equal share of its request's cost.",
+   "fieldname": "cost_usd",
+   "fieldtype": "Float",
+   "label": "Cost (USD)",
+   "precision": "9"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-11-02 17:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Row Spec Card",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

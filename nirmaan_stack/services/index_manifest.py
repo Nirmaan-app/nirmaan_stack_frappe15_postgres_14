@@ -86,6 +86,8 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('BoQ Row BCS Rate', ('boq', 'sheet_name', 'committed_version', 'is_current', 'excel_row'), 'BoQ_Row_BCS_Rate_boq_sheet_name_committed_version_1e4269e7_idx', False),
     ('BoQ Row Category', ('boq',), 'BoQ_Row_Category_boq_idx', False),
     ('BoQ Row Category', ('boq', 'sheet_name', 'committed_version', 'discipline', 'is_current'), 'BoQ_Row_Category_boq_sheet_name_committed_version_3b3da27d_idx', False),
+    ('BoQ Row Spec Card', ('payload_sha256', 'prompt_version', 'model'), 'boq_row_spec_card_payload_sha256_prompt_version_model_idx', True),
+    ('BoQ Row Spec Card', ('boq', 'sheet'), 'BoQ_Row_Spec_Card_boq_sheet_idx', False),
     ('BoQ Sheet', ('boq',), 'BoQ_Sheet_boq_idx', False),
     ('BoQ Sheet Pricing Lock', ('boq',), 'BoQ_Sheet_Pricing_Lock_boq_idx', False),
     ('BoQ Template Row', ('path',), 'BoQ_Template_Row_path_idx', False),
