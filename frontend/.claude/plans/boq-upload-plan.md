@@ -50023,3 +50023,156 @@ Owner rulings carried (quoted): R-LANE, R-BRANCH, R-DEV2R0 and R-DEV2LOGIN as in
 ### 2. The sync
 - Laptop: db-pull desktop dev2 -> laptop dev2 before the desktop session; the reverse direction (db-push laptop dev2 ->
   desktop dev2) and the proofs after it. The laptop records the results in its DEV2-3 report, not here.
+
+## Slices DEV2-R1 .. DEV2-B0 - the historical-rate helper (H2) research and the build recon - as run 2026-10-30 .. 2026-11-02
+
+The H2 lane ("Previously priced BoQs") on dev2, desktop sessions delegated by the laptop. Owed here since DEV2-R1
+(DEV2-B1 C2). Research slices: scratch scripts only, no repo change; paid model calls under owner caps. Reports and
+ledgers: `<date>_DEV2-<id>_Report.md` / `_Ledger.md` on the desktop's Desktop (copies on the laptop's OneDrive Desktop,
+`historical rate suggest\`). Numbers below are copied from those reports. Owner rulings are quoted as the B0 ledger's
+ruling chain (lines 8-127) and the reports record them, typos kept; IDs whose words are in neither are named only.
+
+### DEV2-R1 - what data H2 has, how good matches would be - 2026-10-30
+- 30,766 priced rows in 288 BoQs of 173 projects; one of five matches good 63% (blend V3); top match priced 64%.
+- Rulings: R-H2A .. R-H2C cross-referenced; R-H2D = owner amendment 2 (01:57). R-H2SPEC first stated (see S6).
+
+### DEV2-R2 - the match test bench (300 target rows) - 2026-10-30 / 31
+- First match SAME 59 of 220 judgeable (27%); same item in the top 5 for 83 of 220 (38%); 230 calls, 1,633,138 tokens.
+- Rulings: R-H2F (2026-10-30 / 10-31): the latest copy WITH A RATE of each row across near-copy sets; test projects out
+  (paraphrase; no words recorded). Answer 00:22: "1A 2A 3B"; "continue within the caps".
+
+### DEV2-S1 - sharpening trials S0-S5 - 2026-10-31
+- Right first: S0 83, S4 (AI judge) 105; recommendation S4. R-H2I .. R-H2L cross-referenced.
+
+### DEV2-S2 - a wider shortlist, a cheaper judge - 2026-10-31
+- Right first J1 111 .. J4 116 (S4 135); 800-row sheet J3 $56; spend $176.98; the API usage limit stopped paid steps twice.
+- Answers: "allow 530" (19:47); "J1 15M ok" (19:56); "limit is updated. you can proceed now"; "liit raised. proceed".
+
+### DEV2-S3 - do pricing rules make two rows the same item - 2026-10-31 / 11-01
+- J1 top 5 167 of 190 (87.9%), first 157 (82.6%); RULES-SAME 25 of 683 pairs; spend $172.33.
+- R-H2O: "cable vs end termination ... -- these are different".
+- R-H2P (22:00): "my criteria is that a correect mact should me in the top 5 atleast 100% of the time and be the top
+  choice atleast 75% of the time. that is the benchmark we need to judge against."
+- R-H2Q (22:16): "two rows which would result in the same defaults, substitions output and ladder up output should also
+  be considered match."
+
+### DEV2-S4 - category filter, meaning search, reranker - 2026-11-01
+- J6a top 5 183 of 196 (93.4%), first 170 (86.7%); lanes + Sonnet, no reranker 1.8 / 2.9 / 7.1 min a sheet; $98.22.
+- R-H2S (01:28): "later versions- latest version which has not seen any rate change in last 3 days by the team"; P1
+  09:33: "1a 2x".
+- R-H2T (01:28): "yes they are same - because depth does not matter in pricing junction boxes..this is what i meant that
+  attributes which effect price only should be considered for matcing". R-H2U (01:28): "ok".
+- 5-MINUTE (10:11): "... upto 5 min is tolerable but then we will put it behind a trigetr button".
+- R-H2Y (13:48): "after we finaliz etthe methodology of matching, we will need to check its actual run time on an 200
+  priceable rows BoQ. ...". R-H2Z (13:50): "overall we need to try and bring down the run time for historical matchuing
+  to also under 2 mins for a 200 rows boq and under 5 min for 500 rows BoQ. ..."
+
+### DEV2-S5 - the recommended design for real; timing - 2026-11-01
+- J7s + N1 top 5 188 of 199 (94.5%), first 174 (87.4%); BOQ-26-00328 (206 rows) 112.7 s at 100 at once; $126.51.
+- R-H2AA (20:22): "yes proceed". Answer 21:07: "option B".
+
+### DEV2-S6 - meaning lane, cheaper cards and judge, matching after Suggest - 2026-11-01 / 02
+- "No design meets every target."; Haiku cards + J8h $0.79 / $1.47 a BoQ; N2 recommended dropped; spend $151.05.
+- R-H2AB (22:58): "stay unclear if these cannot be detremined by the entire payload. we are not comparing just rows but
+  payloads for both rows". R-H2AC (23:01): "ok proceed with s6".
+- R-H2SPEC (23:06): "only for matchign we use the exact same payload which we use for suggest rate !!"; 23:08: "we can
+  send more things in addition to yth epayl;oad if required but we cannot cut the payload".
+- SEQUENCE (23:12): Suggest first, then matching (owner asked; no words recorded).
+- R-H2AD (23:16): "ideal Ai spend per BoQ for historical rate suggest whould be less than $5. anything above that is not
+  comfortable". R-H2AE (23:20): "lets test sonnet and haiku also for spec  card in S6. ..."
+- Answers: Q1 (23:58) "1A 2A 3A. ..."; 00:52 "allow $165".
+
+### DEV2-S7 - do Haiku cards hold up - 2026-11-02
+- J9h (Haiku cards) bench top 5 180 (90.5%) vs J8h 179 (89.9%); Haiku cards + Haiku judge $0.82 / $1.53 a BoQ.
+- R-H2AF (01:54-01:55): "haiku haiku also has same performanceand even lower cost"; then "yes" to a Haiku-cards test.
+
+### DEV2-S8 - line 8 end to end (Haiku pool cards + Haiku judge) - 2026-11-02
+- J10h bench top 5 180 (90.5%), first 161 (80.9%); T8 206 rows 175.6 s at 50 at once; $0.77 .. $1.43 a BoQ; pool
+  cards $7.30 for 20,235 rows.
+- R-H2AG (11:57): "yes" (one last check of line 8 before the build). BUILD REQUIREMENTS (owner "ok" 12:45 and later):
+  model names in ONE setting, never in code; calls-at-once a setting, retry of a lone connection error, stop on 429 / a
+  burst. Answer 4 (13:59): "100 long calls at once from the desktop fail in bursts since about 12:57; production needs a
+  configurable call limit and retry logic."
+
+### DEV2-B0 - H2 build recon (read-only): where the design goes in the code - 2026-11-02
+- No H2 code on the branch beyond the U1 stub; 24 gaps with options; 9 build slices proposed.
+- R-H2AH (15:21): "ok for all 3" - FINAL DESIGN = Haiku cards + Haiku judge (J8's prompt, short reply) + N1b; N2
+  dropped; matching on Suggest rows only, behind the Suggest trigger. R-H2AI (15:21 / 15:23): "yes this is fine" (the
+  panel: range + matches + pop-up + "Not a match").
+- R-H2W (2026-11-01): dev cards reused in production only when the row's text, headings and card prompt version are
+  unchanged; new BoQs get cards at commit time.
+- Answer 1 (15:54): "B" (the laptop restored DEV2-S8's emptied current_item.txt under an owner-approved exception).
+
+## Slice DEV2-B1 - H2 build 1 of 6: match settings, the safe call runner, the spec-card store with cards at commit (switched OFF) - as built 2026-11-02
+
+Desktop session `devb1` on dev2, delegated by the laptop. Two commits: C1 `af4822e63` (feat), C2 (this docs entry). One
+dev2 migrate and one settings write; no paid call, no parse, no browser, no asset. Report and ledger:
+`2026-11-02_DEV2-B1_Report.md` / `_Ledger.md` (desktop Desktop; laptop `historical rate suggest\DEV2-B1\`).
+
+Owner rulings carried (quoted):
+- R-H2AJ (2026-11-02 16:13-16:28): G1 "i would prefer to do it after the suggest run is done...it adds only 2-3 minutes
+  to the overall run, so runningit after is ok. the only thing is that the wait time should be adequately dsiclosed to
+  the user and the progress shown properly as we do for the suggest rate run currently"; G5 MEAN dropped; G8 "ok" (new
+  match-only fields, existing fallbacks left alone); G13 colour dots; G15 "ok" (the app's test-project rule); G2 option A
+  (later slice); 16:28 "yes. lets proceed" to six slices B1-B6.
+- Answer 1 (16:45, Q1): "option a" - the parallel runner names main's site; a scratch copy with the site name only.
+- Answer 2 (16:51, Q2 + Q3): "agree" - (b) a separate card reply cap `match_card_reply_max_tokens` 32000 (DEV2-S8 C3:
+  1,350 of 1,380 card batches used more than 1,024 output tokens); (a) the card doctype's two indexes the repo's way
+  (controller + services/index_manifest.py + the test pin 40 -> 42).
+- Answer 4 (17:36, Q5): "ok go with your recommendation" - drop dev2's twin unique index (see section 3).
+- Answer 3 (17:23, Q4): "option A - and this is a known issue. we have encountered this earlier also" - the suites' own
+  live writes (test_rate_master's 2 Suggestion Events per run on BOQ-26-00001 "S6-TEST", a content-identical rate-master
+  re-save with its Version row, `modified` stamps) are a declared side effect, never repaired (the TOOL-1 open item).
+
+### 1. Built (C1)
+- `BOQ Upload Review AI Settings`: a "Historical matching" section, 15 fields: match_enabled, match_cards_at_commit
+  (both default 0), match_card_model / match_judge_model (NO default), match_calls_at_once 50, match_reply_max_tokens
+  1024 (judge), match_card_reply_max_tokens 32000 (cards), match_retry_wait_s 5, match_burst_failures 10,
+  match_burst_window_s 60, match_cost_cap_usd 5, four prices (USD per million tokens, NO default). The existing `model`
+  field, its fallbacks and every reader are unchanged.
+- `api/boq/wizard/ai_settings.py`: `get_boq_match_settings` (a field with nothing stored reads the doctype's own
+  default -- a migrate stores no value in tabSingles), `require_match_settings(kind)` (refuses with a plain message
+  naming every empty model / price or unusable limit -- no code default), `match_cards_at_commit_on` (both switches;
+  fails closed).
+- `services/boq_rate_match/call_runner.py`: at most calls_at_once in flight; Anthropic client with max_retries=0; a
+  lone connection error (no HTTP status) retried ONCE after the wait only if another reply landed while it was in
+  flight; STOP on 429 / usage limit, a second failure of the same call, or burst failures within the window; every
+  attempt reserves chars/2 + max_tokens at the request's prices against the caller's cap before it is sent, waits
+  while other reservations are outstanding, and is refused (stop "cost_cap") when none is; per-attempt tokens (cache
+  included), USD and seconds; returns results, `not_sent` and the stop reason. No caller is wired.
+- `BoQ Row Spec Card` (autoname hash; System Manager full, Estimates + PMO Executive read): boq, sheet, excel_row,
+  commit_version, payload_sha256, prompt_version, model, status (ok / malformed / failed), card_json, tokens_in /
+  tokens_out / cost_usd (an equal share of the request). UNIQUE (payload_sha256, prompt_version, model) named
+  `boq_row_spec_card_payload_sha256_prompt_version_model_idx` (LOWER case: `add_unique` issues the name unquoted, so
+  PostgreSQL folds it; a mixed-case manifest name built a twin index on dev2's first migrate) + (boq, sheet).
+- `services/boq_rate_match/cards.py` + `card_prompt.txt` (DEV2-S8's p1_card_prompt.txt verbatim, sha256 39ebd9d8...):
+  rows of a sheet in excel_row order through `extraction._ai_item` over `build_sheet_context`, at most 20 a request,
+  message = prompt + `_ROW_CONTEXT_SHAPE_GUIDANCE` + "\n\nROWS:\n" + rows; reuse when an ok card exists for the row's
+  (payload sha256, prompt sha256, model); malformed / failed rows stored (never dropped), overwritten in place when
+  carded again; sends through the runner with the card settings and the BoQ's remaining cap.
+- `commit_pipeline.py`: after a FINALIZED sheet's commit (:671), `_enqueue_spec_cards` -> `cards.enqueue_sheet_cards`:
+  one job on `long` only when match_enabled AND match_cards_at_commit; otherwise only the two switches are read. Never
+  fails the commit. The job re-checks the switches and skips a sheet committed again since.
+
+### 2. Proofs
+- A6: migrate rc 0; 16 / 16 new DocFields live, every existing field unchanged; card table 12 / 12 columns, both
+  indexes. dev2 values (17:28): both models claude-haiku-5-5, prices 0.10 / 0.50, card cap 32000, switches OFF.
+- Parity (free): for 3 C3 sheets (BOQ-26-00285 HVAC, BOQ-26-00077 Security Cable, BOQ-26-00086 Access Control System;
+  4 requests) the requests cards.py builds are byte-equal to DEV2-S8's capture, and its own row selection rebuilds them.
+- Tests (new): test_call_runner 20, test_cards 20, test_match_settings 10, test_commit_spec_cards 4; vacuity red ->
+  green for retry-once, burst, 429, cap (2), reuse by hash, commit gate (one line each, scratch copies).
+- Suites (the Q1 (a) runner copy, dev2.localhost): full BoQ Python set BEFORE at 11e39e3c3 88 / 88 OK, 4,506 tests
+  (2,045 s); targeted before C1 26 / 26 OK, 2,187 tests (the 22 existing 2,133 = 2,133); full set AFTER at af4822e63
+  92 / 92 OK, 4,560 tests (the 88 existing 4,506 = 4,506, + 54 new; 1,965 s); test_boq_committed_sheet_grid (not in
+  the plan) 4 OK serially before and after. vitest / tsc not run (no frontend file).
+- Replay 18,106 rows, ac7 56fb5640... / ac7v2 978f871f... equal at D0 and D2 (no price moves).
+
+### 3. Open
+- The twin unique index from dev2's first migrate was dropped in dev2 by owner answer 4 (Q5 (a), 17:36: "ok go with
+  your recommendation"), one DDL on the empty table; A6 re-checked: exactly the two manifest indexes remain.
+- Matching model names live in the AI settings, never in code: a domain rule, recorded here and in the report; not
+  added to `boq-rate-master.md`'s invariants in this slice (outside its files). CLAUDE.md unchanged.
+- The parallel runner has no --site option (Q1 (a): a scratch copy for dev2); a later small change.
+- Production's worker image / Node version must be read by someone with production access before B2's deploy pack
+  (P1: dev2's worker finds node v24.13.0).
+- The S8 card runner's in-batch retry and ceiling split are not in cards.py (not asked in B1).
