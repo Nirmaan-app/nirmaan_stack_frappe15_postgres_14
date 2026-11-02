@@ -131,9 +131,11 @@ def targets(bench, pool):
     """Every bench target as lanes.candidates takes it: a pool row (bench, held-out) or a trap's own text."""
     from nirmaan_stack.services.boq_rate_match import lanes as L
 
-    hc = pool.index["cards"]
+    alls = {**bench.tg, **bench.s0}
+    # a trap is not a pool row: its own Haiku card comes from the bench card file, keyed by its id (as DEV2-S8 sent it)
+    tcards = card_source(bench.cards).cards_for([(tid, None) for tid, t in alls.items() if t["kind"] != "target"])
     out = []
-    for tid, t in sorted({**bench.tg, **bench.s0}.items()):
+    for tid, t in sorted(alls.items()):
         pt = bench.per_target(tid)
         if t["kind"] == "target":
             tt = L.target_from_row(pool, t["key"], id=tid, own_boq=pt["own_boq"])
@@ -142,7 +144,7 @@ def targets(bench, pool):
             tt = {k: t.get(k) for k in ("key", "kind", "of", "fam", "project", "cat", "disc", "self", "parent", "upper",
                                         "desc", "unit", "payload")}
             tt.update(id=tid, own_boq=pt["own_boq"], v1=[], rules_key=None, has_readings=False,
-                      card=hc.get(tid), unit_raw=t.get("unit_raw", of.get("unit_raw")))
+                      card=tcards.get(tid), unit_raw=t.get("unit_raw", of.get("unit_raw")))
         tt["set"] = bench.set_of(tid)
         out.append(tt)
     return out

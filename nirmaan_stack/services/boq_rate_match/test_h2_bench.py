@@ -10,8 +10,12 @@ no database read or write, no bench file.
   traps           size changed: original first AND SAME is the failure  /  first but CLOSE is not
                   reworded: original first  /  S0: a known row called SAME
   GO              the thresholds 177 / 156 / 63 / 54
+  trap targets    a trap (not a pool row) carries ITS OWN card from the bench card file   /  a card-less trap: none
 """
 import importlib.util
+import json
+import os
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -100,3 +104,25 @@ class TestScore(FrappeTestCase):
         self.assertTrue(HB.table(sc, orders, {}, b)["go"])
         sc.score = lambda o, ts: ({"top5": 177, "first": 155} if ts and ts[0].startswith("T") else {"top5": 63, "first": 54})
         self.assertFalse(HB.table(sc, orders, {}, b)["go"])
+
+
+class TestTargets(FrappeTestCase):
+
+    def test_a_trap_target_carries_its_own_card_from_the_bench_file(self):
+        b = _bench()
+        b.tg = {"MUT-001": {"key": "MUT-001", "kind": "mutation_trap", "of": "B2|S|1", "payload": {"description": "x"}},
+                "PAR-001": {"key": "PAR-001", "kind": "paraphrase_trap", "of": "B2|S|1", "payload": {"description": "y"}}}
+        b.s0 = {}
+        b.p5 = {"per_target": {t: {"own_boq": "B1", "extra": []} for t in b.tg}}
+        b.set_of = HB.Bench.set_of.__get__(b)
+        pool = _pool()
+        pool.rows[pool.byk["B2|S|1"]]["unit_raw"] = "Nos"
+        pool.index["cards"] = {"B2|S|1": {"kind": {"v": "pool row card"}}}     # the pool knows only pool rows
+        with tempfile.TemporaryDirectory() as d:
+            b.cards = os.path.join(d, "cards.jsonl")
+            with open(b.cards, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"key": "MUT-001", "card": {"kind": {"v": "trap card"}}}) + chr(10))
+            got = {t["id"]: t for t in HB.targets(b, pool)}
+        self.assertEqual(got["MUT-001"]["card"], {"kind": {"v": "trap card"}})
+        self.assertIsNone(got["PAR-001"]["card"])
+        self.assertEqual(got["MUT-001"]["unit_raw"], "Nos")
