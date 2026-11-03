@@ -72,7 +72,7 @@ def get_boq_ai_api_key():
 MATCH_SWITCH_FIELDS = ("match_enabled", "match_cards_at_commit")
 MATCH_LIMIT_FIELDS = (
     "match_calls_at_once", "match_reply_max_tokens", "match_card_reply_max_tokens", "match_retry_wait_s",
-    "match_burst_failures", "match_burst_window_s", "match_max_request_tokens",
+    "match_burst_failures", "match_burst_window_s", "match_max_request_tokens", "match_lane_workers",
 )
 # NO COST CAP IN THE PRODUCT (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our purpose...a
 # guideline...it should not be a part of the code or setting"). Spend is still recorded per call (call_runner); $5 a
@@ -128,6 +128,18 @@ def match_cards_at_commit_on():
         return bool(cint(get("match_enabled"))) and bool(cint(get("match_cards_at_commit")))
     except Exception:
         return False
+
+
+def match_lane_workers():
+    """How many forked processes the match job runs the lanes on (DEV2-B4; the setting match_lane_workers, doctype
+    default 2). Refuses (MatchSettingsIncomplete) below 1, naming the field."""
+    n = get_boq_match_settings().get("match_lane_workers")
+    if not n or n < 1:
+        raise MatchSettingsIncomplete(
+            "Historical matching cannot run until these are set in BOQ Upload Review AI Settings: "
+            "Lane workers (processes) must be 1 or more."
+        )
+    return n
 
 
 def require_match_settings(kind):

@@ -190,7 +190,7 @@ def card_sheet(boq: str, sheet_name: str, *, excel_rows=None, client=None, setti
     summary = {"boq": boq, "sheet": sheet_name, "committed_version": plan["committed_version"],
                "prompt_version": plan["prompt_version"], "model": s["model"], "reused": len(plan["reused"]),
                "not_in_context": plan["not_in_context"], "batches": len(reqs), "not_sent": [], "refused": [],
-               "stop_reason": None, "spent_usd": 0.0, STATUS_OK: 0, STATUS_MALFORMED: 0, STATUS_FAILED: 0}
+               "stop_reason": None, "spent_usd": 0.0, "tokens_in": 0, "tokens_out": 0, STATUS_OK: 0, STATUS_MALFORMED: 0, STATUS_FAILED: 0}
     if not reqs:
         return summary
     res = call_runner.run(reqs, limits=call_runner.Limits.from_settings(s), client=client)
@@ -219,7 +219,7 @@ def card_sheet(boq: str, sheet_name: str, *, excel_rows=None, client=None, setti
             summary[status] += 1
         frappe.db.commit()
     summary.update(not_sent=res.not_sent, refused=res.refused, stop_reason=res.stop_reason, stop_detail=res.stop_detail,
-                   spent_usd=res.spent_usd)
+                   spent_usd=res.spent_usd, tokens_in=res.tokens_in, tokens_out=res.tokens_out)   # tokens: DEV2-B4 (usage)
     return summary
 
 

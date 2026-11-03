@@ -63,6 +63,25 @@ class TestMatchGetter(FrappeTestCase):
         self.assertEqual(got["match_max_request_tokens"], 80000)
 
 
+class TestLaneWorkers(FrappeTestCase):
+    """DEV2-B4: match_lane_workers - the forked lane processes of the match job (doctype default 2)."""
+
+    def test_nothing_stored_reads_two(self):
+        with _stored({}):
+            self.assertEqual(s.match_lane_workers(), 2)
+            self.assertEqual(s.get_boq_match_settings()["match_lane_workers"], 2)
+
+    def test_a_stored_value_is_read_typed(self):
+        with _stored({"match_lane_workers": "3"}):
+            self.assertEqual(s.match_lane_workers(), 3)
+
+    def test_zero_refuses_naming_the_field(self):
+        with _stored({"match_lane_workers": "0"}):
+            with self.assertRaises(s.MatchSettingsIncomplete) as ctx:
+                s.match_lane_workers()
+        self.assertIn("Lane workers (processes)", str(ctx.exception))
+
+
 class TestMatchRefusal(FrappeTestCase):
 
     def test_an_empty_model_refuses_with_a_plain_message(self):

@@ -25,6 +25,7 @@
   "match_burst_failures",
   "match_burst_window_s",
   "match_max_request_tokens",
+  "match_lane_workers",
   "match_card_price_in",
   "match_card_price_out",
   "match_judge_price_in",
@@ -160,6 +161,13 @@
    "label": "Largest request (input tokens)"
   },
   {
+   "default": "2",
+   "description": "How many forked processes the match job runs the matching lanes on, sharing one loaded pool (DEV2-B3 T4: 206 rows in 57 s in one process, 33 s at 2, 24 s at 3).",
+   "fieldname": "match_lane_workers",
+   "fieldtype": "Int",
+   "label": "Lane workers (processes)"
+  },
+  {
    "description": "USD per million input tokens for the card model. No default: empty = matching refuses.",
    "fieldname": "match_card_price_in",
    "fieldtype": "Float",
@@ -188,7 +196,7 @@
  "index_web_pages_for_search": 0,
  "issingle": 1,
  "links": [],
- "modified": "2026-11-02 23:40:00.000000",
+ "modified": "2026-11-03 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQ Upload Review AI Settings",

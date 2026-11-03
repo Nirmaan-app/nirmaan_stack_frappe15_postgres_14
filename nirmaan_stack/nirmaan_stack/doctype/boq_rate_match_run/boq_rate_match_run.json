@@ -1,0 +1,182 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BRMR-.YY.-.#####",
+ "creation": "2026-11-03 13:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "commit_version",
+  "suggest_run",
+  "run_section",
+  "job_id",
+  "status",
+  "active",
+  "rows_total",
+  "rows_done",
+  "halt_reason",
+  "run_at",
+  "results_section",
+  "results",
+  "usage"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Sheet Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this match run belongs to.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1
+  },
+  {
+   "description": "The committed sheet name, VERBATIM (#152 -- never stripped).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The committed sheet's commit_version the Suggest run it followed was made at. A carry (selected rows, resume) reads only a previous match run at the SAME version.",
+   "fieldname": "commit_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version"
+  },
+  {
+   "description": "The BoQ Rate Suggestion Run this match run followed (SEQUENCE ruling: matching starts only after a Suggest run finishes COMPLETE, and reads that run's rows and readings).",
+   "fieldname": "suggest_run",
+   "fieldtype": "Link",
+   "label": "Suggest Run",
+   "options": "BoQ Rate Suggestion Run"
+  },
+  {
+   "fieldname": "run_section",
+   "fieldtype": "Section Break",
+   "label": "Run"
+  },
+  {
+   "description": "The match job's id (raw 32-char hash from the enqueue): what the healer checks the live queues for.",
+   "fieldname": "job_id",
+   "fieldtype": "Data",
+   "label": "Job Id"
+  },
+  {
+   "default": "queued",
+   "description": "queued (created by the trigger) | running | complete (every target row matched or named) | failed (an error; the reason is in Halt Reason) | halted (the healer found its worker gone, or a stop of the call runner). A failure never touches the Suggest run.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "queued\nrunning\ncomplete\nfailed\nhalted"
+  },
+  {
+   "default": "0",
+   "description": "Whether this is the live match run for the sheet (as the Suggest run's flag): a COMPLETE run sets the prior active run for (boq, sheet_name) to 0 (retained, never deleted). get_match_results reads the active run only.",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Active"
+  },
+  {
+   "description": "How many target rows this pass matches.",
+   "fieldname": "rows_total",
+   "fieldtype": "Int",
+   "label": "Rows Total"
+  },
+  {
+   "description": "How many of them are done (their judge call answered, or nothing to judge).",
+   "fieldname": "rows_done",
+   "fieldtype": "Int",
+   "label": "Rows Done"
+  },
+  {
+   "description": "Why the run failed or halted, in plain language.",
+   "fieldname": "halt_reason",
+   "fieldtype": "Small Text",
+   "label": "Halt Reason"
+  },
+  {
+   "description": "When the run ended. Set by the worker.",
+   "fieldname": "run_at",
+   "fieldtype": "Datetime",
+   "label": "Run At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "results_section",
+   "fieldtype": "Section Break",
+   "label": "Results"
+  },
+  {
+   "description": "{\"rows\": [{excel_row, target_key, matches IN DISPLAY ORDER (green, then amber, then red; the judge's own order within a colour; DIFFERENT never shown), each {key, boq, sheet_name, excel_row, verdict, colour, n1b, supply_rate, install_rate, total_rate, unit, priced_at}, judge_order (the judge's raw order: key + verdict before N1b), no_verdict, carried}]}. JSON.",
+   "fieldname": "results",
+   "fieldtype": "JSON",
+   "label": "Results"
+  },
+  {
+   "description": "Spend and time, recorded never capped (owner 2026-11-02 23:23): cards and judge apart (calls, tokens in / out, USD), seconds per phase, the lane workers, the pool's as_of, the pass's scope and what was carried.",
+   "fieldname": "usage",
+   "fieldtype": "JSON",
+   "label": "Usage"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-11-03 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Match Run",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

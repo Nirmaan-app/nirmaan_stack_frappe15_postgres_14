@@ -117,7 +117,10 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
     def test_the_controller_scan_finds_the_known_calls(self):
         # Guards the scan itself: a broken AST walk returning nothing would make the equality vacuous.
         calls = _controller_calls()
-        self.assertEqual(len(calls), 42)
+        # DEV2-B4: 42 -> 44, BoQ Rate Match Run's two add_index calls (boq/sheet_name/active, suggest_run)
+        self.assertEqual(len(calls), 44)
+        self.assertEqual(calls[("BoQ Rate Match Run", ("boq", "sheet_name", "active"), False)],
+                         "boq_rate_match_run_boq_sheet_name_active_idx")
         self.assertEqual(calls[("Outflow Row Match", ("import_batch",), False)], "ofm_match_batch_idx")
         self.assertIn(("BoQ Committed Sheet Grid Row", ("parent",), False), calls)
         # a name passed as a module constant (asset_history.py PARENT_INDEX) resolves to its value
