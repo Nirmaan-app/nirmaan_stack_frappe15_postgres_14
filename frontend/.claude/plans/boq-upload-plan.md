@@ -50485,3 +50485,63 @@ DEV2-B1 answer 3. Slice answers:
   - (d) test_rate_master's resume driver reads the live switch (no write);
   - (e) feedback is captured but not yet read by matching;
   - (f) the S8 cards stored with tokens 0 (their spend was S8's).
+
+## Slice DEV2-B6 - H2 build 6 of 6: ready for go-live - a movable pop-up, a findable panel icon, plain failure wording; no pool rebuild inside a user's run; the test-budget guard; the go-live pack; the final bench - as built 2026-11-03/04
+
+Desktop session `devb6` on dev2, delegated by the laptop. FIVE commits (the prompt allowed up to four; see 3):
+- C1 `8726ba67e` is the server: the pool rule, the test-budget guard, the card export, `h2_bench --stored-cards`.
+- C2 `6489fe59d` is the UI: the movable pop-up, the panel icon (widened), plain failure wording and its hover title.
+- C4 `e475dedc4` is a fix found in the browser cert: the rate column's default width (owner answer 4) and the dragged
+  pop-up's top-left anchor.
+- C4b `4cc8c73a3`: the width 150 px, not 140 (owner answer 5, read after C4).
+- C3 is this entry + `boq-rate-master.md`.
+
+Paid: S4 (i) $0.0056 + the final bench $1.6503 = $1.6559 of the $3 slice cap; no Suggest run. Nothing deployed.
+Report, ledger and the go-live pack: `2026-11-03_DEV2-B6_Report.md` / `_Ledger.md` / `H2_GoLive_Checklist_2026-11-03.md`
+(`Historical Rate Suggest\DEV2-B6\`).
+
+Owner answers this slice:
+- Answer 1 (23:54): the Suggest run BRSR-26-00850 and match run BRMR-26-00016 on BOQ-26-00328 found at D0 were the
+  owner's; accepted as the D0 baseline (pre-slice writes).
+- Answer 2 (00:06, "widen"): the visible sparkle also on rows with only a "Previously priced" match; SheetPricingPage's
+  new prop owner-approved.
+- Answer 3 (00:10, "option A"): `NoSuggestion.detail` + the panel's `title` (the technical reason on hover only).
+- Answer 4 (01:25, "option B"): the rate column's default width widened (the sparkle spilled into the next column).
+- Answer 5 (01:27): 150 px, not 140.
+
+### 1. Built
+- The pool rule (`match_run.job_pool`): a cached pool file is always used; a stale one is noted ("pool stale", the stamp
+  used, in usage.pool) and ONE background rebuild queued (`rate_match.queue_pool_rebuild`, the 06:00 job's id, never a
+  twin); inline only with no usable file; a lock timeout is "pool not ready".
+- The guard: chars / 2 + the measured p90 reply (judge 3,920 / card 13,819, from 3,889 archived replies); the caps hard
+  on the real totals (`budget_reached`). The test client split into `h2_recording_client.py` (h2_bench passed 500 lines).
+- `export_spec_cards.py`: every ok card as the keyed file the loader reads, with its summary (read only).
+- The UI: `clampDrag` + no overlay + top-left anchor; `rateHelperOpenerKind` + `RATE_COL_SEED_PX` 150 +
+  `matchResultRows`; `plainMatchFailure` (every stored reason; unknown -> the first wording).
+
+### 2. Proved
+- S4 (i): BOQ-26-00279 rows 419-422 re-matched in 12.5 s on the stale pool (DEV2-B5 pass 2: 481.8 s, 440 s of it an
+  inline rebuild); one rebuild queued, 529.9 s on the worker. -00279 final: green 17 / amber 139 / red 125, no match
+  shown 80, no verdict 0.
+- The final bench (stored cards): bench 176 / 161, held-out 63 / 60. NO-GO under the current lines (bench top 5 one
+  short of 177); GO under the variance proposal (172 / 149 / 60 / 50; flip rate 0.111 over 837 byte-identical repeats,
+  sd 2.7 / 3.7 / 1.5 / 2.0). 24 lost-target lines (11 with judge inputs identical to both earlier runs). 36 blind pairs
+  exported.
+- S5: dev2's export (27,372 cards, sha256 9d9f7885...) loads back as all skip-exists; the rolled-back delete-and-reload
+  test is byte-equal.
+- The browser cert (dev2.localhost:8180, after C4 / C4b): the sparkle visible without hover; panel loads; pop-up
+  centred with no overlay, dragged to the left edge with the row behind visible, the top edge kept across next / prev,
+  clamped off screen, a click behind does not close it, Esc closes, reopen centred; -00279 row 419 shows the plain
+  words with the technical reason only in the title.
+- Suites: FULL Python BoQ 103 / 4,758 OK; FULL vitest BoQ 151 / 5,992; tsc 0 new. Vacuity 14 cases (6 Python + 8 TS),
+  red then green.
+
+### 3. Found and fixed / open
+- C4: the 16 px sparkle made the rate cell's line ~132 px in a 112 px column (it spilled over the next column); and the
+  dragged pop-up was anchored by its centre (its top edge moved with a taller match). Both found in the cert.
+- Answer 5 (150 px) was missed until the laptop's 01:41 note; C4 had gone in at 140, so C4b - a fifth commit.
+- OPEN:
+  - (a) the variance-aware gate is a proposal, not applied (owner);
+  - (b) no dev2 row has a match without a Suggest badge, so the "widen" case is proven by tests only;
+  - (c) the host `test_run_tests_parallel.py` failure from DEV2-B4 C2 stands;
+  - (d) test_rate_master's resume driver still reads the live switch (no write).

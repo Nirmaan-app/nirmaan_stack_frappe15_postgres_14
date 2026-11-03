@@ -63,16 +63,22 @@ file's sha256; the script refuses a missing or changed file; client BoQ text nev
 to a site to run it there. Run it, at the settings' prices (about 660 calls, ~11M tokens), before switching the judge
 or card model, changing judge_prompt.txt / card_prompt.txt, the lanes or N1b - and compare with the last table. `--dry`
 prints the PLAN (calls, tokens, $) with no call; `--archive` keeps every request and raw reply; `--selfcheck <orders>`
-re-scores a saved run. Never build a pool (the bench's or production's) while a Python suite runs: test_rate_master's
-re-save moves the pricing stamp mid-build. The `--max-*` budget reserves every in-flight call's upper bound (its input +
-the 32000 reply cap): at 50 calls at once that is ~2.3M tokens / ~$0.9 held, so a budget must sit that far above the
-run's projection. A call over the budget is SKIPPED - named in table.json `budget_skipped`, the run goes on (DEV2-B4:
-the wrapper raises `call_runner.CallerRefused`, which the runner records as `caller_refused` and never reads as a
-connection error). `--extra-verdicts <file>...` adds later verdict files by path (the bench folder's manifest stays as
+re-scores a saved run; `--stored-cards` (DEV2-B6, the app path) builds the bench pool with the site's stored spec cards
+(`pool.StoredCards`, the product's reader) in its own file `bench_pool_stored_v<N>.pkl`. Never build a pool (the
+bench's or production's) while a Python suite runs: test_rate_master's re-save moves the pricing stamp mid-build. THE
+TEST-BUDGET GUARD (`scripts/_instruments/h2_recording_client.py`, re-exported by h2_bench; owner answer 2 to DEV2-B5):
+a call in flight reserves chars / 2 + the MEASURED p90 reply of its kind (`P90_REPLY_TOKENS`: judge 3,920 / card 13,819
+tokens, from 3,889 archived replies in DEV2-B6), never more than its max_tokens; the caps stay HARD on the REAL totals -
+once a real total reaches a cap no further call is sent (`RecordingClient.reached`, table.json `budget_reached`). A call
+over the budget is SKIPPED - named in table.json `budget_skipped`, the run goes on (DEV2-B4: the wrapper raises
+`call_runner.CallerRefused`, which the runner records as `caller_refused` and never reads as a connection error). `--extra-verdicts <file>...` adds later verdict files by path (the bench folder's manifest stays as
 it is). THE GATE SITS INSIDE THE JUDGE'S OWN SPREAD: the judge model answers the same request differently run to run
 (DEV2-B4: 24 of the 26 targets whose result moved sent a byte-identical request; about +/-3 on top 5), so read a NO-GO
-by its cause - compare the requests and lists with the last run before blaming a change. A variance-aware gate is an
-open owner item (answer 2 to DEV2-B4 Q2).
+by its cause - compare the requests and lists with the last run before blaming a change. DEV2-B6 measured the spread
+(837 byte-identical repeated judge requests: per-pair flip rate 0.111; a target-level re-run model from 252 bench /
+held-out targets with identical inputs in two runs): sd bench top 5 2.7, first 3.7, held-out top 5 1.5, first 2.0, and
+PROPOSED (not applied; an owner decision) a variance-aware gate: a line is missed for real only below line -
+ceil(1.645 x sd), i.e. bench top 5 >= 172, first >= 149, held-out top 5 >= 60, first >= 50.
 
 **THE PRICE-DRIVING RULE: A READING DRIVES THE PRICE WHEN BLANKING IT CHANGES THE PRICE ON >= 10 % OF THE ROWS IT WAS
 TESTED ON AND ON >= 5 ROWS (owner 2026-11-03 01:56 "this rule needs to be updated for sure"; 10:59 "ok": DEV2-B3 F2b
@@ -92,7 +98,7 @@ run starts no match; a live match run on the sheet blocks a second. With `match_
 one stored value (straight from the database, `cache=False` - a meta / cache read once read a mocked cache as ON) and
 the Suggest payload is byte for byte as before; ON, the payload gains `match: {queued, run | reason}`. The trigger and
 the job never touch the Suggest run: a failure marks the MATCH run failed with its reason. The job
-(`services/boq_rate_match/match_run.py`): `pool.ensure_pool` (fallback), targets = the Suggest run's own rows with their
+(`services/boq_rate_match/match_run.py`): the POOL RULE `match_run.job_pool` (below), targets = the Suggest run's own rows with their
 readings (their v1 from the pool's measured driving fields), cards reuse-first (`cards.card_sheet`), lanes on
 `match_lane_workers` (setting, default 2) FORKED processes sharing one loaded pool, judge + N1b, results stored, spend
 recorded (cards and judge apart; never capped). A selected-row Suggest run matches those rows only and CARRIES every
@@ -106,6 +112,17 @@ switch ON the trigger otherwise enqueues a real match job for the test's fixture
 closed) and an exact payload-key pin reads the live setting (test_rate_master test_81, inverted in C4b; test_rate_suggest's
 test_07 and `_run_worker_with` pinned in DEV2-B5; test_rate_master's resume driver at :4954 still reads the live switch -
 its trigger only reads, finds no run and writes nothing - open).
+
+**A USER'S MATCH RUN NEVER WAITS FOR A POOL REBUILD (DEV2-B6; DEV2-B5: 440 s of a 481.8 s pass was an inline rebuild
+after the pricing stamp moved).** `match_run.job_pool`: a cached pool file is always USED - a STALE one too (its pricing
+stamp is no longer current, or it is older than 24 h): the run notes `pool stale: <why>` with `stamp_used` /
+`stamp_current` in `usage.pool` (no new field) and ONE background rebuild is queued (`rate_match.queue_pool_rebuild`:
+`pool.rebuild_pool` on `long`, timeout 3600, under the 06:00 job's own id `boq_match_pool_daily_rebuild` with
+deduplicate, so a second stale run or the 06:00 job never queues a twin; it never raises). Only with NO usable file
+(missing, unreadable, another format) is the pool built inline (`pool.ensure_pool` under its one lock); a lock wait that
+times out is the run's `pool not ready: ...` failure. `pool.ensure_pool`, `pool.rebuild_pool` and the 06:00 job are
+unchanged (h2_bench still uses ensure_pool for its own bench pool). A stale pool's rows carry the old pricing stamp's
+rule values until the rebuild lands; targets are always read live.
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
@@ -133,7 +150,20 @@ shown matches' TOTAL (supply + install where split, else the combined rate), lea
 another unit (`normUnit` folds spellings - "Nos." = "Each", "RM" = "Mts." = "Metre"; an unknown unit is never "other");
 up to 5 matches in the stored display order; each dot carries its words as title + aria-label ("Likely the same" /
 "Check - a spec is stated on one side only" / "Close - a spec differs"); greyed states "Matching not run yet" /
-"Matching ..." / "No earlier match found" / "Matching failed: <reason>". The pop-up reads `get_match_detail` (only a
+"Matching ..." / "No earlier match found", and a failed row or run in PLAIN WORDS (DEV2-B6, owner 22:55):
+`rateHelperRegistry.plainMatchFailure` maps every stored reason - "Couldn't check earlier BoQs for this row. Run
+Suggest again to retry." for not sent / refused / call failed / every unreadable reply / a stopped run / ANY unknown
+reason (never raw text); "Earlier BoQs are being prepared. Try again in a few minutes." for `pool not ready`; own words
+for too_large, switched off and a changed Suggest run - and the stored technical reason is ONLY the greyed card's hover
+title (`NoSuggestion.detail` -> the panel's `title`, owner answer 3). THE OPENING ICON (DEV2-B6, owner 23:02 / answer 2):
+on a row with a rate-helper result (a badge on any rate cell, or "Previously priced" matches - the page's
+`matchResultRows` prop) every rate cell shows a 16 px sparkle visible without hover ("Open rate suggestions", tooltip +
+aria) beside its badge / tick (`PricingGrid.rateHelperOpenerKind`); a row with no result keeps the faint opener. A RATE
+column's default width is 150 px (`RATE_COL_SEED_PX`, owner answers 4 / 5) so that line never spills into the column to
+the left; every other column keeps its seed and a dragged width wins. THE POP-UP MOVES (owner 23:22): dragged by its top
+bar, no dimming overlay, `clampDrag` keeps it inside the window (the top bar never leaves the screen), once dragged it is
+anchored by its top-left corner (a taller match never moves its top bar), centred again on the next open; close / Esc as
+before; a click on the page behind does not close it; Radix keeps focus in it. The pop-up reads `get_match_detail` (only a
 SHOWN match): the matched row's payload rebuilt by the pool's builder (`cards.sheet_items` -> `extraction._ai_item`),
 `can_open` = frappe read permission on that BoQ AND (client) `boqAccess.canOpenBoqHub`. The pricing route reads
 `?row=<excel_row>` (`rowParamOf`): clears the view filters and scrolls there once. The pre-run panel list carries the
@@ -154,9 +184,24 @@ loads a card only when the sha equals the row's CURRENT payload sha, the prompt 
 the model the settings' card model; it never overwrites a stored card of any status; `--dry` uses a read-only
 connection. DEV2-S8's `haiku_cards_all.jsonl` has no key: B5 proved each card's sha / prompt / model from S8's (and
 S6 / S7's) archive into `s8_cards_keyed.jsonl` (27,681 / 27,681). The pool reads cards at BUILD time: rebuild the pool
-after a load. The test-budget guard (`h2_bench.RecordingClient`) reserves chars / 2 + the 32,000 reply ceiling for
-every call in flight, so it skips calls well below real use (B3 T4, B5 S1) - open owner item: reserve the measured p90
-reply size.
+after a load. `scripts/_instruments/export_spec_cards.py` (DEV2-B6) writes every OK card of a site as exactly that keyed
+file (key = where the card was made; `card` = card_json parsed, so a re-load stores the same text) with a summary (rows,
+distinct keys / shas, prompt versions, models, bytes, sha256); read-only connection. THE FILE HOLDS CLIENT BoQ TEXT: it
+lives in the site's private folder or a slice folder, never in the repo. dev2's export loads back as all skip-exists
+(27,372 / 27,372), and `test_export_spec_cards.TestLoaderRehearsal` deletes and re-loads one BoQ's cards inside a
+rolled-back transaction (byte-equal, count unchanged).
+
+**GO-LIVE OF HISTORICAL MATCHING (DEV2-B6 prepared and rehearsed it on dev2; the owner / Abhishek deploy).** The pack is
+`H2_GoLive_Checklist_2026-11-03.md` (the DEV2-B6 slice folder). In short: deploy the branch the usual way (production's
+`bench build` also builds the server pricing step, Node 18) -> migrate (three new doctypes `BoQ Row Spec Card`,
+`BoQ Rate Match Run`, `BoQ Rate Match Feedback` + the AI settings' "Historical matching" fields; no patches) -> confirm
+`match_enabled` = 0 -> fill the card / judge model (`claude-haiku-5-5`) and prices -> read the pricing step's stamp ->
+load the dev2 cards file with `load_spec_cards.py --dry`, then without (a skip-mismatch share = rows changed since the
+dev copy) -> build the pool once by hand (`pool.rebuild_pool`, ~8 min) -> check the 06:00 entry -> the owner switches
+`match_enabled` ON -> one watched real run. Checks first (read-only): worker Node 18.x, a worker on `long`, System
+Settings time_zone Asia/Kolkata, the scheduler on, ~6 GB free for a pool build, the Anthropic key present, no rate-master
+asset in the diff (Deployment Mode does not apply). ROLLBACK: untick `match_enabled` (instant; Suggest unaffected); a
+code revert only if needed; the new doctypes are inert; nothing to undo in the rate master.
 
 **THE SERVER PRICING STEP IS BUILT FROM THE BROWSER'S PRICING SOURCE ON EVERY DEPLOY; IT IS NEVER COPIED, AND ITS PARITY
 VITEST RUNS WHENEVER A PRICING FILE CHANGES (owner G2 option A, DEV2-B2).** Historical matching's RULES lane, the values
