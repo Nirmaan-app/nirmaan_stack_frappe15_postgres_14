@@ -97,6 +97,8 @@ export const CashbookInvoiceUploads: React.FC = () => {
         }
     }, [filteredRowCount]); // never `table`: it is a new object every render (CODING_STANDARDS § React effects)
 
+    // Facets from the rows, not `meta.facet`: this is a client-mode table over an API list with no single doctype to
+    // read facets from, the same as the Credit Card tab (frontend/CODING_STANDARDS § Building a table).
     const facetOptions = useMemo(() => {
         const { projects, expenseTypes, payers } = cashbookInvoiceFacetOptions(narrowedRows);
         return {
