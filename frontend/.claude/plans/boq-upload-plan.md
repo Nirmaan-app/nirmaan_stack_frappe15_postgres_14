@@ -50410,3 +50410,72 @@ number); NO COST CAP (2026-11-02 23:23); DEV2-B1 answer 3. Slice answers (relaye
   switch ON, a full-set test that drives the real Suggest worker (fixture BOQ-TEST-CLASSIFY-52059a87 / Wiring) made the
   trigger enqueue a real match job (16:10: it failed closed, no call) - pin the switch OFF in such tests (B5); (f) S5's judge calls
   ran on the product path and are not archived.
+
+## Slice DEV2-B5 - H2 build 5 of 6: the "Previously priced" card, its pop-up, "Not a match" with Undo; dev2 pool cards; the safe Suggest estimate - as built 2026-11-03
+
+Desktop session `devb5` on dev2, delegated by the laptop. SIX commits: C1 `094d5cb64`, C2 `8ced2125c`, C3 `f20ba3414`,
+C4 `f2e3fe7cd`, C4b `48849cc00` (a fix found preparing the cert), and C5 (this entry + `boq-rate-master.md`):
+- C1 is the spec-card loader under R-H2W.
+- C2 is the safe Suggest estimate + the Suggest test pins.
+- C3 is the feedback doctype, its endpoints and the flag in results; it carries the one migrate.
+- C4 is the card, the pop-up and `?row=`.
+- C4b: "Mts." / "Mts" fold to metres.
+
+Paid: S1 re-match $1.3870 (pass 1 $1.2303 + pass 2 $0.1567) of the $4 slice cap; no Suggest run. Report and ledger:
+`2026-11-03_DEV2-B5_Report.md` / `_Ledger.md` (`Historical Rate Suggest\DEV2-B5\`); the owner's check list:
+`2026-11-03_DEV2-B5_Owner_Check.md`.
+
+Owner rulings carried: R-H2AI (the panel, the pop-up, Not a match with Undo; mockup 2026-11-02 15:23), COLOURS (16:13),
+DISPLAY ORDER (11:06), G4 (a) / G13 / G14 (a), SAFE ESTIMATE (11:11), DEV2 POOL CARDS (17:45), R-H2W, NO COST CAP,
+DEV2-B1 answer 3. Slice answers:
+- Answer 2 (18:39, to Q1: 89 of -00279's judge calls skipped by the test budget's worst-case reservation): "option A".
+  This was a second pass on the 89 rows only, with the reservation ceiling 11M for that pass and the real use kept
+  under 9M / $2. Done: BRMR-26-00015, 85 sent, 4 still refused by the $ reservation. OPEN: the guard should reserve the
+  measured p90 reply size.
+- Answer 1 (17:54, S6): three BoQs for the owner's own end-to-end check, free and read-only. Done in `_Owner_Check.md`.
+  Only Electrical and HVAC have Suggest rows in dev2, so the third BoQ is HVAC chilled water.
+
+### 1. Built
+- C1: `scripts/_instruments/load_spec_cards.py` - loads a keyed card only when the payload sha (live `_ai_item`), prompt
+  version and settings card model all match; never overwrites; `--dry` read-only. Test: `test_load_spec_cards` (11).
+- C2: `rate_match.PACES` Suggest = 13 s + 53 s x ceil(rows / 20) (p90 fit on 189 stored runs, adjusted once for the
+  >300-row band); `suggest_estimate_minutes`, `estimate_coverage`; `matchWaitEstimate` the same formula;
+  test_rate_suggest's two real-worker drivers pin match_enabled OFF.
+- C3: doctype `BoQ Rate Match Feedback` (append-only; lower-case index; manifest 44 -> 45); `mark_not_a_match` /
+  `undo_not_a_match` (the run must show the match; the user must be able to price the sheet, lock read only);
+  `get_match_results` adds each match's flag (latest wins) and row text; `get_match_detail` (the pop-up's payload by the
+  pool's builder, `can_open`).
+- C4: the page-built closure (a decline carrying matches: no Use, no badge); `PreviouslyPricedMatches.tsx` (card +
+  Dialog); the range / unit / order / words rules in `rateHelperRegistry.ts`; `?row=` (`rowParamOf`) on the pricing page.
+
+### 2. Proved
+- S1 load: S8's 27,681 cards keyed from S6-S8's archives (27,681 proved); dry = load = 26,034 loaded (260 trap ids
+  skipped, 1,387 exists / repeated sha; 0 sha / prompt / model mismatches); card rows 1,338 -> 27,372; 20 / 20 sample
+  byte-equal. Pool rebuilt (cards are read at build).
+- S1 re-match (with candidate cards: 8,029 of 8,090 candidate blocks carded; B4: 0):
+  - -00328: green 90 / amber 65 / red 51 (B4: 68 / 59 / 77, no match 1, no verdict 1).
+  - -00279 final: green 16 / amber 139 / red 125, no match shown 77, no verdict 4 (B4: 11 / 132 / 146 / 72).
+  - Real use: 563 calls, 8,385,142 tokens, $1.3870. The block 42 audit is clean.
+- S2: estimate coverage 96.8 / 94.6 / 98.7 / 100 % by band (B4's per-row pace 87.1 % on 1-20 rows); matching paces cover
+  12 / 12 runs.
+- S5 cert (dev2.localhost:8180):
+  - -00328 row 74: Rs 1,650 – Rs 1,790 from 4 of 5, a "set" match flagged other unit; dot words; pop-up hierarchy /
+    rates / date / verdict; prev / next wrap.
+  - Not a match (Different spec) -> struck, range Rs 1,650 – Rs 1,650.2; reload holds; Undo restores.
+  - Open this row -> BOQ-26-00073 row 61 in view.
+  - -00279 row 54 (units folded); rows 17 / 416 "No earlier match found"; row 419 "Matching failed: ...".
+  - Two feedback rows (mark + undo); the pop-up payloads are sha-equal to the pool's 5 / 5.
+- Suites: FULL Python BoQ 102 modules / 4,732 tests all OK (before 100 / 4,706); FULL vitest BoQ 148 / 5,964 passed; tsc 0 new. T2 vacuity 13 cases (7 Python + 6 TS)
+  red then green.
+
+### 3. Found and fixed / open
+- C4b: "Mts." was read as another unit (found picking cert rows); fixed + pinned.
+- The pre-run panel list keeps `buildHelperList(preRunHelper)`: a source pin in pricingSheetHelper.test (out of scope)
+  holds it. Before any Suggest run, a row on that path shows the stub.
+- OPEN:
+  - (a) the test-budget guard reserves the 32,000 ceiling (answer 2);
+  - (b) the B4 cert's 20-row Suggest (203 s) is still a miss at the new paces;
+  - (c) the host `test_run_tests_parallel.py` fails since DEV2-B4 C2 (the plan lists tasks.test_match_run_healer);
+  - (d) test_rate_master's resume driver reads the live switch (no write);
+  - (e) feedback is captured but not yet read by matching;
+  - (f) the S8 cards stored with tokens 0 (their spend was S8's).

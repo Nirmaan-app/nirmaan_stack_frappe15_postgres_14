@@ -103,7 +103,9 @@ judge runs on its own thread and the job's thread reports progress (S4 attempt 1
 gone"). Endpoints: `get_match_status` (OFF -> `{match_enabled: false}` only) and `get_match_results` (the active run).
 A TEST THAT DRIVES THE REAL SUGGEST WORKER MUST PIN THE SWITCH (patch `rate_match.match_enabled`): with dev2's
 switch ON the trigger otherwise enqueues a real match job for the test's fixture (DEV2-B4's full set did; it failed
-closed) and an exact payload-key pin reads the live setting (test_rate_master test_81, inverted in C4b).
+closed) and an exact payload-key pin reads the live setting (test_rate_master test_81, inverted in C4b; test_rate_suggest's
+test_07 and `_run_worker_with` pinned in DEV2-B5; test_rate_master's resume driver at :4954 still reads the live switch -
+its trigger only reads, finds no run and writes nothing - open).
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
@@ -113,11 +115,47 @@ total; nothing is derived), unit and date priced; each row also keeps the judge'
 
 **THE WAIT IS DISCLOSED BEFORE THE RUN AND THE PROGRESS SHOWN DURING IT (owner G1; 2026-11-03 11:11 "total estimate -
 suggest rate + historical rates - with splits - give a safe number").** With matching ON the Suggest confirm dialog
-carries ONE line: total + split, each phase = ceil((fixed + rows x pace) / 60) at dev2's p90
-(`rate_match.PACES`: Suggest 3.12 s a row from 188 stored runs; matching 65 s + 0.45 s a row from DEV2-B4 S4), and the
+carries ONE line: total + split, each phase rounded UP to whole minutes (`rate_match.PACES`, served by
+`get_match_status`): Suggest = 13 s + 53 s x ceil(rows / 20) (DEV2-B5: a p90 quantile fit on 189 stored complete runs,
+the per-batch part raised once 48 -> 53 so that EVERY size band - 1-20 / 21-100 / 101-300 / >300 rows - is covered in
+>= 90 % of runs; `rate_match.estimate_coverage` + the 189-run fixture in test_rate_match prove it); matching = 65 s +
+0.45 s a row (DEV2-B4 S4, re-checked on B5 S1: 12 / 12 runs covered). `RateSuggestProgressModal.matchWaitEstimate` and
+`rate_match.suggest_estimate_minutes` are pinned equal. Re-fit when Suggest's batching or model changes; a completed
+selected-row run stores no pass size (scope_rows is cleared), so size it from the capture log or leave it out. The
 progress modal follows the Suggest phase with "Matching with previously priced BoQs - x of y rows", elapsed and time
 left, ending "done" / "failed: <reason>". Switch OFF: neither appears (the modal proved DOM-equal to the pre-B4 one).
-The Suggest pace has no fixed part: a 20-row run measured 203 s against its 2-minute estimate in the B4 cert (open).
+
+**THE "PREVIOUSLY PRICED" CARD SHOWS MATCHES, NEVER A VALUE TO USE (owner R-H2AI 2026-11-02 15:21, mockup 15:23; COLOURS
+16:13; G4 (a) / G13 / G14 (a); DEV2-B5).** The page builds the helper as a closure over `get_match_results` (only while
+matching is ON; otherwise the static stub, reference-identical) and it returns a DECLINE that carries `matches`
+(`rateHelperTypes.NoSuggestion.matches`), so it can never badge or "Use". The card: the rate range = min - max of the
+shown matches' TOTAL (supply + install where split, else the combined rate), leaving out not-a-match ones and ones in
+another unit (`normUnit` folds spellings - "Nos." = "Each", "RM" = "Mts." = "Metre"; an unknown unit is never "other");
+up to 5 matches in the stored display order; each dot carries its words as title + aria-label ("Likely the same" /
+"Check - a spec is stated on one side only" / "Close - a spec differs"); greyed states "Matching not run yet" /
+"Matching ..." / "No earlier match found" / "Matching failed: <reason>". The pop-up reads `get_match_detail` (only a
+SHOWN match): the matched row's payload rebuilt by the pool's builder (`cards.sheet_items` -> `extraction._ai_item`),
+`can_open` = frappe read permission on that BoQ AND (client) `boqAccess.canOpenBoqHub`. The pricing route reads
+`?row=<excel_row>` (`rowParamOf`): clears the view filters and scrolls there once. Before any Suggest run a row on the
+pre-run helper path keeps the stub (a source pin in pricingSheetHelper.test holds `buildHelperList(preRunHelper)`).
+
+**"NOT A MATCH" IS APPEND-ONLY FEEDBACK (owner R-H2AI: captured to improve matching later, with Undo; DEV2-B5).**
+Doctype `BoQ Rate Match Feedback`: one row per action (`not_a_match` / `undo`), reason from a fixed Select (Different
+spec / item / unit / scope / Other), optional note, user, time; never edited or deleted (the controller refuses both).
+The current flag of a (row, match) at a committed version = its LATEST row (`rate_match.current_flags`). Mark / undo
+check that the run SHOWS that match on that row and that the user can price the sheet (current version = the run's,
+not deliberately locked, the single-editor lock free / theirs / stale - READ, never taken). Its `user` column is a
+Postgres reserved word: quote it in any raw SQL. Nothing reads the feedback into matching yet (a later slice).
+
+**CARDS MADE ELSEWHERE ARE LOADED ONLY UNDER R-H2W (owner 2026-11-01; DEV2-B5, B6 reuses it).**
+`scripts/_instruments/load_spec_cards.py` reads a KEYED cards file `{key, payload_sha256, prompt_version, model, card}` and
+loads a card only when the sha equals the row's CURRENT payload sha, the prompt version the current card prompt's, and
+the model the settings' card model; it never overwrites a stored card of any status; `--dry` uses a read-only
+connection. DEV2-S8's `haiku_cards_all.jsonl` has no key: B5 proved each card's sha / prompt / model from S8's (and
+S6 / S7's) archive into `s8_cards_keyed.jsonl` (27,681 / 27,681). The pool reads cards at BUILD time: rebuild the pool
+after a load. The test-budget guard (`h2_bench.RecordingClient`) reserves chars / 2 + the 32,000 reply ceiling for
+every call in flight, so it skips calls well below real use (B3 T4, B5 S1) - open owner item: reserve the measured p90
+reply size.
 
 **THE SERVER PRICING STEP IS BUILT FROM THE BROWSER'S PRICING SOURCE ON EVERY DEPLOY; IT IS NEVER COPIED, AND ITS PARITY
 VITEST RUNS WHENEVER A PRICING FILE CHANGES (owner G2 option A, DEV2-B2).** Historical matching's RULES lane, the values
