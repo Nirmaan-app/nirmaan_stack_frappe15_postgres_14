@@ -397,6 +397,17 @@ export function columnWidthKey(
 
 /** Seed px for a width-state key: a0/a1/a2 = w-16, a3 = w-36, a4 = Description (280), remarks =
  *  w-48, any descriptor (d:<col>) = w-28. Mirrors the old per-cell Tailwind hints. */
+/** DEV2-B6 (owner answer 4, option B): a RATE column's DEFAULT width, 112 + 28 px, so the priced dot, the 16 px opening
+ *  sparkle, the tick / count badge and the 80 px rate box sit on one line without spilling into the column to the left.
+ *  A width the user dragged still wins (widthOf). */
+export const RATE_COL_SEED_PX = 140;
+
+/** PURE. A descriptor column's default width: RATE_COL_SEED_PX for a rate column (its key in `rateKeys`), else
+ *  seedForWidthKey's (unchanged). */
+export function seedForDescriptorKey(key: string, rateKeys: ReadonlySet<string>): number {
+  return rateKeys.has(key) ? RATE_COL_SEED_PX : seedForWidthKey(key);
+}
+
 export function seedForWidthKey(key: string): number {
   if (key === "a0" || key === "a1" || key === "a2") return seedWidthPx("w-16");
   if (key === "a3") return seedWidthPx("w-36");
@@ -5611,7 +5622,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // ── Resize: live width derivations (recomputed each render from colWidths) ──
   // MC-5: a fan-out description column (desc:<col>) seeds from descWidthSeeds (first 280,
   // extras 160); a0..a4 / d:<col> / remarks seed from seedForWidthKey. A dragged width wins.
-  const widthOf = (key: string): number => colWidths[key] ?? descWidthSeeds[key] ?? seedForWidthKey(key);
+  const rateWidthKeys = new Set(visibleDescriptors.filter(isRateDescriptor).map((d) => columnWidthKey("descriptor", d.col)));
+  const widthOf = (key: string): number => colWidths[key] ?? descWidthSeeds[key] ?? seedForDescriptorKey(key, rateWidthKeys);
   const descWidthKeys = visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col));
   // table-fixed needs an explicit total width (NOT w-full -- w-full would let table-fixed
   // redistribute slack and break the authoritative colgroup widths).

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { RATE_HELPER_OPEN_TEXT, rateHelperOpenerKind } from "./PricingGrid";
+import { RATE_COL_SEED_PX, RATE_HELPER_OPEN_TEXT, rateHelperOpenerKind, seedForDescriptorKey, seedForWidthKey } from "./PricingGrid";
 
 const badge = { byCol: { F: { count: 2, used: false } } };
 const used = { byCol: { F: { count: 1, used: true } } };
@@ -57,5 +57,28 @@ describe("the opening icon in the grid (source)", () => {
     const page = readFileSync(join(__dirname, "SheetPricingPage.tsx"), "utf-8");
     expect(page).toContain("matchResultRows={RATE_HELPER_ENABLED && matchEnabled ? matchResultRows : undefined}");
     expect(page).toMatch(/filter\(\(r\) => \(r\.matches\?\.length \?\? 0\) > 0\)/);
+  });
+});
+
+describe("the rate column's default width (owner answer 4, option B: 112 -> 140)", () => {
+  it("a rate column seeds 140 px; every other column keeps its seed", () => {
+    const rates = new Set(["d:I"]);
+    expect(RATE_COL_SEED_PX).toBe(140);
+    expect(seedForDescriptorKey("d:I", rates)).toBe(140);
+    expect(seedForDescriptorKey("d:H", rates)).toBe(seedForWidthKey("d:H"));
+    expect(seedForWidthKey("d:H")).toBe(112);
+    expect(seedForDescriptorKey("remarks", rates)).toBe(seedForWidthKey("remarks"));
+  });
+
+  it("140 px holds the dot, the sparkle, a tick / count and the 80 px rate box on one line (4 px padding a side)", () => {
+    const line = 6 + 20 + 20 + 80 + 3 * 2;      // dot + sparkle box + badge + input + gap-0.5 x 3
+    expect(RATE_COL_SEED_PX - 8).toBeGreaterThanOrEqual(line);
+    expect(112 - 8).toBeLessThan(line);            // the old default spilled (the cert's defect)
+  });
+
+  it("the grid seeds rate columns through it, and a dragged width still wins", () => {
+    const src = readFileSync(join(__dirname, "PricingGrid.tsx"), "utf-8");
+    expect(src).toContain("colWidths[key] ?? descWidthSeeds[key] ?? seedForDescriptorKey(key, rateWidthKeys)");
+    expect(src).toContain('visibleDescriptors.filter(isRateDescriptor).map((d) => columnWidthKey("descriptor", d.col))');
   });
 });

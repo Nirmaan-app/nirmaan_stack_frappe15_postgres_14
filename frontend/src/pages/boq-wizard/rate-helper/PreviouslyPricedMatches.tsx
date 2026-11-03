@@ -18,7 +18,8 @@
  * screen...can we make it move freely across the screen so that the user can also move it to see the backgroyund
  * row"): dragged by its top bar (pointer events: mouse and touch); NO dimming overlay, the page behind stays visible;
  * kept inside the window (clampDrag: the top bar never leaves the screen); the position is kept while stepping prev /
- * next; the next open is centred again (the dialog unmounts on close); the close button and Esc close it as before;
+ * next - once dragged it is anchored by its TOP-LEFT corner, so a match with a taller text does not move its top bar
+ * (C4 fix) - ; the next open is centred again (the dialog unmounts on close); the close button and Esc close it as before;
  * a click on the page behind does NOT close it; focus stays in the pop-up (Radix's modal focus trap).
  */
 import { useEffect, useRef, useState } from "react";
@@ -50,27 +51,24 @@ export function matchRowHref(m: Pick<PreviousMatch, "boq" | "sheet_name" | "exce
   return `/upload-boq/hub/${encodeURIComponent(m.boq)}/pricing/${encodeURIComponent(m.sheet_name)}?row=${m.excel_row}`;
 }
 
+/** A dragged pop-up's top-left corner, in px from the window's top-left. */
 export interface DragPos {
-  x: number;
-  y: number;
+  left: number;
+  top: number;
 }
 
-/** PURE (DEV2-B6). The pop-up's offset `want` from the centred position, clamped so it stays inside the window: left /
- *  right edges inside it (when the pop-up is wider than the window, its edges stay outside it instead), and the top
- *  bar never leaves the screen (top >= 0 and top + barHeight <= the window's height). */
+/** PURE (DEV2-B6). The pop-up's wanted top-left corner, clamped so it stays inside the window: left / right edges
+ *  inside it (when the pop-up is wider than the window, its edges stay outside it instead), and the top bar never
+ *  leaves the screen (top >= 0 and top + barHeight <= the window's height). */
 export function clampDrag(
   want: DragPos,
   box: { width: number; height: number },
   view: { width: number; height: number },
   barHeight: number,
 ): DragPos {
-  const left0 = (view.width - box.width) / 2;
-  const top0 = (view.height - box.height) / 2;
   const [minL, maxL] = box.width <= view.width ? [0, view.width - box.width] : [view.width - box.width, 0];
   const maxT = Math.max(0, view.height - Math.max(0, barHeight));
-  const left = Math.min(maxL, Math.max(minL, left0 + want.x));
-  const top = Math.min(maxT, Math.max(0, top0 + want.y));
-  return { x: left - left0, y: top - top0 };
+  return { left: Math.min(maxL, Math.max(minL, want.left)), top: Math.min(maxT, Math.max(0, want.top)) };
 }
 
 /** PURE. prev / next wrap round the shown matches. */
@@ -206,9 +204,10 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
   const [error, setError] = useState<string | null>(null);
   const d = m ? detail[m.key] : undefined;
   // DEV2-B6: the drag. `pos` lives here, so it is kept while prev / next change `index`; a new open mounts afresh.
+  // null = centred (as opened); once dragged, the top-left corner in px (C4: a top-left anchor, not the centre).
   const boxRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<DragPos>({ x: 0, y: 0 });
+  const [pos, setPos] = useState<DragPos | null>(null);
   const drag = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number } | null>(null);
   const clampTo = (want: DragPos): DragPos => {
     const box = boxRef.current?.getBoundingClientRect();
@@ -217,13 +216,14 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
   };
   const onBarDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest("button, a, input")) return;   // the bar's buttons still click
-    drag.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y };
+    const at = boxRef.current?.getBoundingClientRect();
+    drag.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: pos?.left ?? at?.left ?? 0, oy: pos?.top ?? at?.top ?? 0 };
     e.currentTarget.setPointerCapture?.(e.pointerId);
     e.preventDefault();
   };
   const onBarMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const g = drag.current;
-    if (g) setPos(clampTo({ x: g.ox + e.clientX - g.sx, y: g.oy + e.clientY - g.sy }));
+    if (g) setPos(clampTo({ left: g.ox + e.clientX - g.sx, top: g.oy + e.clientY - g.sy }));
   };
   const onBarUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
@@ -231,7 +231,7 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
     drag.current = null;
   };
   useEffect(() => {
-    const keepInside = () => setPos((p) => clampTo(p));
+    const keepInside = () => setPos((p) => (p ? clampTo(p) : p));
     window.addEventListener("resize", keepInside);
     return () => window.removeEventListener("resize", keepInside);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,8 +267,9 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
         data-testid="match-dialog"
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        style={{ left: `calc(50% + ${pos.x}px)`, top: `calc(50% + ${pos.y}px)` }}
-        className="fixed z-50 grid max-h-[85vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto border bg-background p-6 shadow-lg sm:rounded-lg"
+        style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : undefined}
+        className={cn("fixed z-50 grid max-h-[85vh] w-full max-w-3xl gap-4 overflow-y-auto border bg-background p-6 shadow-lg sm:rounded-lg",
+          pos ? "" : "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2")}
       >
         <div
           ref={barRef}
