@@ -135,7 +135,7 @@ export const CashbookInvoiceUploads: React.FC = () => {
                 toolbarActions={
                     <div className="flex gap-2">
                         <Select value={ledger} onValueChange={setLedger}>
-                            <SelectTrigger className="w-48 h-9" aria-label="Project or Non-Project"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="w-56 h-9" aria-label="Project or Non-Project"><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value={ALL}>Project and Non-Project</SelectItem>
                                 <SelectItem value="Project Expenses">Project</SelectItem>

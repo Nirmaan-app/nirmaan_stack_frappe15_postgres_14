@@ -60,7 +60,7 @@ export const getCashbookInvoiceColumns = ({
     },
     {
         id: "paid_by",
-        size: 150,
+        size: 140,
         accessorFn: (row) => row.paid_by ?? "",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Paid by" />,
         cell: ({ row }) => <div className="whitespace-nowrap truncate">{row.original.paid_by || "--"}</div>,
@@ -72,7 +72,7 @@ export const getCashbookInvoiceColumns = ({
     },
     {
         accessorKey: "remark",
-        size: 260,
+        size: 200,
         header: "Remark",
         cell: ({ row }) => <div className="truncate" title={row.original.remark}>{row.original.remark || "--"}</div>,
         enableSorting: false,
@@ -84,7 +84,7 @@ export const getCashbookInvoiceColumns = ({
     {
         // Blank for a Non-Project spend: the Project / Non-Project dropdown beside the search box picks the ledger.
         id: "project",
-        size: 200,
+        size: 180,
         accessorFn: (row) => cashbookProjectLabel(row),
         header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
         cell: ({ row }) => <div className="truncate" title={cashbookProjectLabel(row.original)}>{cashbookProjectLabel(row.original)}</div>,
@@ -96,7 +96,7 @@ export const getCashbookInvoiceColumns = ({
     },
     {
         id: "expense_type",
-        size: 180,
+        size: 170,
         accessorFn: (row) => cashbookExpenseTypeLabel(row),
         header: ({ column }) => <DataTableColumnHeader column={column} title="Expense Type" />,
         cell: ({ row }) => <div>{cashbookExpenseTypeLabel(row.original)}</div>,
@@ -108,7 +108,7 @@ export const getCashbookInvoiceColumns = ({
     },
     {
         id: "actions",
-        size: 230,
+        size: 220,
         header: () => <div className="text-right">Actions</div>,
         cell: ({ row }) => (
             <div className="flex justify-end gap-2 whitespace-nowrap">
