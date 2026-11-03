@@ -529,6 +529,68 @@ export interface Suggestion {
 export interface NoSuggestion {
   kind: "none";
   reason: string;
+  /** DEV2-B5 S4 (owner R-H2AI): the "Previously priced" card's matches. Present => the panel renders the match card
+   *  (rate range, dots, key, pop-up) instead of the greyed reason. It is a NoSuggestion on purpose: no value to
+   *  "Use" and no badge (G4 (a)) -- the badge count reads Suggestions only. ABSENT => the card is as before. */
+  matches?: PreviouslyPricedView;
+}
+
+/** DEV2-B5: one shown historical match, as get_match_results stores it (api/boq/rate_match.py; DISPLAY ORDER). */
+export type MatchColour = "green" | "amber" | "red";
+export interface MatchFlag {
+  action: "not_a_match";
+  reason?: string | null;
+  note?: string | null;
+  user?: string | null;
+  marked_at?: string | null;
+}
+export interface PreviousMatch {
+  key: string;
+  boq: string;
+  sheet_name: string;
+  excel_row: number;
+  verdict: string;
+  colour: MatchColour;
+  n1b?: string | null;
+  supply_rate?: number | null;
+  install_rate?: number | null;
+  total_rate?: number | null;
+  unit?: string | null;
+  priced_at?: string | null;
+  /** The matched row's own text (its current node's description; get_match_results adds it). */
+  description?: string | null;
+  /** The latest feedback, when it is "not a match" (struck through, out of the range); null otherwise. */
+  flag?: MatchFlag | null;
+}
+/** The pop-up's read of one match (get_match_detail): the matched row's payload block by the pool's builder. */
+export interface MatchDetail {
+  boq: string;
+  boq_name?: string | null;
+  project?: string | null;
+  project_name?: string | null;
+  sheet_name: string;
+  excel_row: number;
+  committed_version?: number | null;
+  payload?: Record<string, unknown> | null;
+  payload_sha256?: string | null;
+  can_open: boolean;
+}
+/** What the page's closure hands the card for ONE row: the matches (up to 5, display order) and the actions. */
+export interface PreviouslyPricedView {
+  matchRun: string;
+  boq: string;
+  sheetName: string;
+  excelRow: number;
+  /** The row being priced's own unit (as the BoQ writes it) -- a match in another unit is flagged, out of the range. */
+  rowUnit: string | null;
+  matches: PreviousMatch[];
+  /** The user may mark on this sheet (the page is not read-only / locked / history). */
+  canMark: boolean;
+  /** The user's role admits them to the pricing route (boqAccess.canOpenBoqHub). */
+  canOpenBoqs: boolean;
+  loadDetail: (m: PreviousMatch) => Promise<MatchDetail>;
+  onMark: (m: PreviousMatch, reason: string | null, note: string | null) => Promise<void>;
+  onUndo: (m: PreviousMatch) => Promise<void>;
 }
 
 export type HelperResult = Suggestion | NoSuggestion;
