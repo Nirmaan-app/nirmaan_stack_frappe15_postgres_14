@@ -214,7 +214,13 @@ import {
   makePreRunHelper,
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
-import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
+import {
+  RateSuggestProgressModal,
+  confirmEstimateLine,
+  type MatchPaces,
+  type MatchPhaseState,
+  type SuggestModalSummary,
+} from "./rate-helper/RateSuggestProgressModal";
 // Calculator slice 2: the rate-master data plumbing (config targets, the per-category config
 // fetcher, the config map, the items fetch) moved OUT of this page into ONE shared module so the
 // Calculator tab mounts the same helper on the same data. A move, not a redesign -- same methods,
@@ -398,6 +404,8 @@ interface SuggestStatusResponse {
   /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
    *  it to report what RAN rather than the population. Already published by the worker. */
   scoped_row_count?: number | null;
+  /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
+  match?: { queued: boolean; run?: string; reason?: string } | null;
 }
 
 /** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
@@ -427,6 +435,49 @@ function SuggestStatusPoller({
     "nirmaan_stack.api.boq.rate_master.get_suggest_status",
     { boq, sheet_name: sheetName },
     `boq-suggest-status::${boq}::${sheetName}`,
+    { refreshInterval: running ? 3000 : 0 },
+  );
+  const msg = data?.message;
+  useEffect(() => {
+    if (msg) onStatus(msg);
+  }, [msg, onStatus]);
+  return null;
+}
+
+/** DEV2-B4: the match phase's status (get_match_status). Switch OFF -> {match_enabled: false} and nothing else. */
+interface MatchStatusResponse {
+  match_enabled: boolean;
+  paces?: MatchPaces;
+  state?: "running" | "done" | "idle";
+  phase?: string;
+  done?: number;
+  total?: number;
+  seconds?: number;
+  estimate_left_s?: number;
+  run?: string;
+  status?: string;
+  halt_reason?: string | null;
+  rows_done?: number;
+  rows_total?: number;
+}
+
+/** DEV2-B4: poll the match phase for one sheet (as SuggestStatusPoller): once on mount (which tells the page whether
+ *  matching is ON, and its paces), every 3 s while a match runs. Renders no DOM. */
+function MatchStatusPoller({
+  boq,
+  sheetName,
+  running,
+  onStatus,
+}: {
+  boq: string;
+  sheetName: string;
+  running: boolean;
+  onStatus: (msg: MatchStatusResponse) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: MatchStatusResponse }>(
+    "nirmaan_stack.api.boq.rate_match.get_match_status",
+    { boq, sheet_name: sheetName },
+    `boq-match-status::${boq}::${sheetName}`,
     { refreshInterval: running ? 3000 : 0 },
   );
   const msg = data?.message;
@@ -1246,6 +1297,19 @@ const SheetPricingPage = () => {
   // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
   // attempted_count) stay declared in ONE place rather than drifting between page and modal.
   const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
+  // DEV2-B4: historical matching after a COMPLETE Suggest run (switch read from get_match_status; OFF -> all inert)
+  const [matchEnabled, setMatchEnabled] = useState(false);
+  const [matchPaces, setMatchPaces] = useState<MatchPaces | null>(null);
+  const [matchRunning, setMatchRunning] = useState(false);
+  const [matchPhase, setMatchPhase] = useState<MatchPhaseState | null>(null);
+  const matchRunRef = useRef<string | null>(null);
+  // DEV2-B4: the sheet's stored matches (the active match run), fetched only while matching is ON and refetched when a
+  // match run ends; nothing renders them yet (the helper card stays as today until B5).
+  const { mutate: mutateMatchResults } = useFrappeGetCall(
+    "nirmaan_stack.api.boq.rate_match.get_match_results",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
+    rmEnabled && matchEnabled ? undefined : null,
+  );
   // SELECTED-ROW runs. The selection lives HERE, at page level, for two reasons: the button that
   // consumes it is a page control, and the grid must receive only per-row BOOLEANS. The COUNT
   // derived below is used by the page's own confirmation and is NEVER passed to PricingGrid -- a
@@ -3052,12 +3116,47 @@ const SheetPricingPage = () => {
           usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
           setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
         }
+        // DEV2-B4: a COMPLETE run with matching ON hands over to the matching phase (the payload says whether a
+        // match run was queued; without the key -- switch OFF -- nothing changes).
+        if (msg.status === "success" && msg.match) {
+          if (msg.match.queued && msg.match.run) {
+            matchRunRef.current = msg.match.run;
+            setMatchPhase({ state: "running", done: 0, total: 0, elapsedS: 0, leftS: null });
+            setMatchRunning(true);
+          } else {
+            setMatchPhase({ state: "failed", done: 0, total: 0, elapsedS: 0, leftS: null, reason: msg.match.reason ?? null });
+          }
+        }
         // Refetch either way: a partial still needs the resume affordance to appear.
         void mutateActiveRun();
         void mutateSuggestEvents();
       }
     },
     [mutateActiveRun, mutateSuggestEvents],
+  );
+
+  // DEV2-B4: the match status handler (poll). Learns the switch and the paces; drives the phase of THIS run only.
+  const onMatchStatus = useCallback(
+    (msg: MatchStatusResponse) => {
+      setMatchEnabled(!!msg.match_enabled);
+      if (!msg.match_enabled) return;
+      if (msg.paces) setMatchPaces(msg.paces);
+      const mine = matchRunRef.current;
+      if (!mine || msg.run !== mine) return;
+      if (msg.state === "running") {
+        setMatchPhase({ state: "running", done: msg.done ?? 0, total: msg.total ?? 0, elapsedS: msg.seconds ?? 0,
+          leftS: typeof msg.estimate_left_s === "number" ? msg.estimate_left_s : null });
+      } else if (msg.state === "done") {
+        matchRunRef.current = null;
+        setMatchRunning(false);
+        setMatchPhase(msg.status === "success"
+          ? { state: "done", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null }
+          : { state: "failed", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null,
+            reason: msg.halt_reason ?? null });
+        void mutateMatchResults();
+      }
+    },
+    [mutateMatchResults],
   );
 
   // ── SELECTED-ROW runs: the eligible set, the tick handler, and the confirmation ──────
@@ -3093,6 +3192,12 @@ const SheetPricingPage = () => {
     () => suggestConfirmCopy(selectedCount, eligibleRows.size, neverReadLabels),
     [selectedCount, eligibleRows, neverReadLabels],
   );
+  // DEV2-B4: the ONE estimate line (total + split) when matching is ON; "" -> the dialog is exactly as before. The rows
+  // are the ones the run will read: the ticked rows plus the never-read ones, or the whole eligible set.
+  const confirmEstimate = useMemo(
+    () => confirmEstimateLine(matchEnabled, selectedCount > 0 ? selectedCount + neverReadLabels.length : eligibleRows.size, matchPaces),
+    [matchEnabled, selectedCount, neverReadLabels, eligibleRows, matchPaces],
+  );
 
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
   // SR-1: pass resumeRunId to CONTINUE a partial run -- the server fills only its pending rows and
@@ -3103,6 +3208,9 @@ const SheetPricingPage = () => {
     setHelperPanel(null);
     setSuggestSummary(null);
     setSuggestProgress(null);
+    matchRunRef.current = null;
+    setMatchRunning(false);
+    setMatchPhase(null);
     setSuggestRunning(true);
     setSuggestModalOpen(true);
     try {
@@ -4623,6 +4731,9 @@ const SheetPricingPage = () => {
           onStatus={onSuggestStatus}
         />
       )}
+      {RATE_HELPER_ENABLED && boqId && sheetName && (
+        <MatchStatusPoller boq={boqId} sheetName={sheetName} running={matchRunning} onStatus={onMatchStatus} />
+      )}
       {RATE_HELPER_ENABLED && (
         <RateSuggestProgressModal
           open={suggestModalOpen}
@@ -4633,8 +4744,10 @@ const SheetPricingPage = () => {
           onClose={() => {
             setSuggestModalOpen(false);
             setSuggestProgress(null);
+            setMatchPhase(null);
           }}
           onResume={partialSuggestRun ? resumeSuggestRun : undefined}
+          match={matchEnabled ? matchPhase : null}
         />
       )}
       {/* SELECTED-ROW runs: THE confirmation before ANY AI call. There is no other path from the
@@ -4650,6 +4763,7 @@ const SheetPricingPage = () => {
                 <div className="space-y-2">
                   <p>{confirmCopy.body}</p>
                   {confirmCopy.neverRead && <p data-testid="suggest-confirm-never-read">{confirmCopy.neverRead}</p>}
+                  {confirmEstimate && <p data-testid="suggest-confirm-estimate">{confirmEstimate}</p>}
                   {confirmCopy.warning && (
                     <p className="font-medium text-destructive">{confirmCopy.warning}</p>
                   )}

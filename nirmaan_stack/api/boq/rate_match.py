@@ -50,11 +50,13 @@ _M_STATUS_TTL_SEC = 3600
 POOL_REBUILD_TIMEOUT_SEC = 3600
 
 # THE PACES (seconds; measured in dev2, p90). Suggest: 188 stored complete whole-sheet runs (run_at - creation over
-# len(attempted_rows)), DEV2-B4 P0 (b). Matching: DEV2-B4 S4's four BoQs (seconds = fixed + rows x per-row).
+# len(attempted_rows)): p90 3.12 s a row (DEV2-B4 P0 (b)). Matching: DEV2-B4 S4's 9 sheets of 4 BoQs, seconds = fixed
+# + rows x per-row: fixed = p90 of the four <= 30-row sheets' wall (26.6 / 60.1 / 63.7 / 65.4 s) = 64.9 -> 65;
+# per-row = p90 of (wall - 64.9) / rows over the five >= 90-row sheets (0.284 .. 0.444) = 0.443 -> 0.45.
 PACES = {
     "suggest_seconds_per_row": 3.12,
-    "match_fixed_seconds": 120.0,
-    "match_seconds_per_row": 1.0,
+    "match_fixed_seconds": 65.0,
+    "match_seconds_per_row": 0.45,
 }
 
 

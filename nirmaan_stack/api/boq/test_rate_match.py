@@ -50,8 +50,9 @@ class TestClocks(FrappeTestCase):
         self.assertLess(RM._STALE_MATCH_SECONDS, RM._M_MARKER_TTL_SEC)
         self.assertGreaterEqual(RM._STALE_MATCH_SECONDS, RM._MATCH_JOB_TIMEOUT_SEC + RM._RQ_KILL_GRACE_SEC)
 
-    def test_the_paces_are_positive_numbers(self):
-        self.assertEqual(sorted(RM.PACES), ["match_fixed_seconds", "match_seconds_per_row", "suggest_seconds_per_row"])
+    def test_the_paces_are_the_measured_p90s(self):
+        # DEV2-B4: Suggest from 188 stored runs (p90 3.12 s a row); matching from S4's 9 sheets (65 s + 0.45 s a row)
+        self.assertEqual(RM.PACES, {"suggest_seconds_per_row": 3.12, "match_fixed_seconds": 65.0, "match_seconds_per_row": 0.45})
         self.assertTrue(all(isinstance(v, float) and v > 0 for v in RM.PACES.values()))
 
     def test_the_time_left_never_goes_below_zero(self):
