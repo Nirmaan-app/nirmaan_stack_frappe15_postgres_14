@@ -20642,3 +20642,61 @@ class TestVrf2bConfigKeys(FrappeTestCase):
                          {"vrf_hp_per_tr": ["capacity"], "vrf_kw_per_tr": ["capacity"]})
         self.assertEqual(config_validation.number_units_inputs(self.vrf56["list_spec"]["pricing"]), {})
         self.assertEqual(config_validation.number_units_inputs(None), {})
+
+
+class TestVrf2bInputReach(FrappeTestCase):
+    """VRF-2b K2 (owner R-INPUTS / R-CONV; U6 A) -- the Python half of the two VRF inputs' reach: the used-by walk reads a
+    capacity reader's convert table (one use per family whose rule needs the number -- the same numbers the TypeScript
+    twin `rateMasterSpec.pricingInputUsedBy` gives on the same fixture, vrf2bReach.test.ts), and the validator accepts the
+    item-list worked-example shape (items + unit + inputs) and refuses each wrong one by name."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v56.json"), "r", encoding="utf-8") as fh:
+            cls.v56 = json.load(fh)
+        cls.vrf56 = next(c for c in cls.v56["category_configs"] if c["category_id"] == "hvac_vrf")
+
+    def _cfgs(self, with_units=True):
+        out = {c["category_id"]: copy.deepcopy(c) for c in self.v56["category_configs"]}
+        out["hvac_vrf"] = vrf2b_fixture_config(self.vrf56, drop=() if with_units else ("units",))
+        return out
+
+    def test_v2b_09_used_by_reads_the_convert_table_ten_uses_each_and_nothing_else_moves(self):
+        after = csv_exporter.pricing_input_used_by(self._cfgs())
+        before = csv_exporter.pricing_input_used_by(self._cfgs(with_units=False))
+        self.assertEqual(after["vrf_hp_per_tr"], (10, ["hvac_vrf"]))
+        self.assertEqual(after["vrf_kw_per_tr"], (10, ["hvac_vrf"]))
+        self.assertNotIn("vrf_hp_per_tr", before)          # NEGATIVE (BEFORE): without the reader, read by nothing
+        self.assertEqual({k: v for k, v in after.items() if not k.startswith("vrf_")},
+                         {k: v for k, v in before.items() if not k.startswith("vrf_")})
+        self.assertEqual(csv_exporter.pricing_input_used_by_text(*after["vrf_hp_per_tr"], labels={"hvac_vrf": "VRF"}), "VRF (10 uses)")
+
+    def _with_examples(self, examples):
+        cfg = vrf2b_fixture_config(self.vrf56)
+        cfg["impact_examples"] = examples
+        cfg.setdefault("discipline", "HVAC")
+        return cfg
+
+    def test_v2b_10_POSITIVE_the_item_list_example_shape_validates(self):
+        config_validation._validate_config(self._with_examples([
+            {"id": "VRF-1", "name": "Outdoor Unit, Blue Star, 16 TR", "inputs": ["vrf_hp_per_tr"], "unit": "Nos",
+             "items": [{"item": "Outdoor Unit", "brand": "Blue Star", "capacity": "16 TR"}]},
+            {"id": "VRF-2", "name": "typed with the picker", "unit": "Nos",
+             "items": [{"item": "Outdoor Unit", "capacity": "16", "capacity__unit": "TR"}]}]))
+
+    def test_v2b_11_NEGATIVE_item_list_example_shapes_refused_by_name(self):
+        ok = {"id": "VRF-1", "name": "n", "unit": "Nos", "items": [{"item": "Outdoor Unit", "capacity": "16 TR"}]}
+        cases = [
+            (dict(ok, items=[{"no_such": "x"}]), "item attribute 'no_such' is not a list_spec definition"),
+            (dict(ok, items=[]), "'items' must be a non-empty list"),
+            ({k: v for k, v in ok.items() if k != "unit"}, "needs its row 'unit'"),
+            (dict(ok, attrs={"item": "x"}), "carries 'items', not 'attrs'"),
+            (dict(ok, inputs=[]), "'inputs', when present, must be a non-empty list"),
+            (dict(ok, items=[{"item": True}]), "must be a text or a number"),
+            ({"id": "R-1", "name": "row", "unit": "Nos", "attrs": {"item": "Outdoor Unit"}}, "'unit' belongs to an item-list example"),
+        ]
+        for ex, needle in cases:
+            with self.assertRaises(Exception) as cm:
+                config_validation._validate_config(self._with_examples([ex]))
+            self.assertIn(needle, str(cm.exception))

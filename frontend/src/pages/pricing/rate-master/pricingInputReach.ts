@@ -320,6 +320,37 @@ function narrowAdditiveByBranch(
   return true;
 }
 
+/**
+ * VRF-2b (owner R-INPUTS / R-CONV) -- A CAPACITY READER'S CONVERT TABLE READS ITS PRICING INPUTS. One entry per (input,
+ * family) where the family's rule needs a number whose reader converts units through that input
+ * (`list_spec.pricing.numbers[*].units.convert[*].input`). The input moves no SKU's own rate: it decides WHICH SKU a row
+ * buys (16 TR x 1.25 = 20 HP -> the 20 HP unit), so it is "read by" the category with no column -- the ELR-3a assembly
+ * shape. The Python twin is `csv_exporter._units_convert_uses`. PURE; never throws on a malformed config.
+ */
+export function unitsConvertUses(cfg: unknown): Array<{ input: string; family: string }> {
+  const pr = (cfg as any)?.list_spec?.pricing;
+  if (!pr || typeof pr !== "object") return [];
+  const byInput = new Map<string, Set<string>>();
+  for (const [nid, rd] of Object.entries<any>(pr.numbers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    for (const c of Object.values<any>(rd?.units?.convert ?? {})) {
+      const id = c?.input;
+      if (typeof id === "string" && id) (byInput.get(id) ?? byInput.set(id, new Set<string>()).get(id)!).add(nid);
+    }
+  }
+  const out: Array<{ input: string; family: string }> = [];
+  for (const id of [...byInput.keys()].sort()) {
+    const nids = byInput.get(id)!;
+    for (const fam of Object.keys(pr.families ?? {}).sort()) {
+      const fd = pr.families[fam];
+      if (!fd || typeof fd !== "object") continue;
+      const needs = new Set<string>(Array.isArray(fd.needs) ? fd.needs : []);
+      for (const u of Object.values<any>(fd.units ?? {})) for (const n of (Array.isArray(u?.needs) ? u.needs : [])) needs.add(n);
+      if ([...nids].some((n) => needs.has(n))) out.push({ input: id, family: fam });
+    }
+  }
+  return out;
+}
+
 export function computePricingInputReach(
   configs: Record<string, RateCategoryConfig | null | undefined> | null | undefined,
   items: readonly RateMasterItem[] | null | undefined,
@@ -385,6 +416,8 @@ export function computePricingInputReach(
     const cfg = (configs ?? {})[cid];
     // SLICE 12e-2b (AC8): the attribute an item-list category keeps its family in
     const famAttrId = String((cfg as any)?.list_spec?.family_attribute_id ?? "family");
+    // VRF-2b: the convert table's inputs are READ by this category (no column: no SKU's own rate moves)
+    for (const u of unitsConvertUses(cfg)) (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
     for (const [pid, pl, ownerFamily, isConvert] of pipelinesWithFamily(cfg)) {
       const steps: any[] = pl.steps ?? [];
       const owners = ctxOwners(pl);

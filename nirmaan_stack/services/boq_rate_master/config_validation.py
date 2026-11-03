@@ -2444,6 +2444,10 @@ def pricing_input_ranges(configs):
 
 
 _IMPACT_EXAMPLE_KEYS = {"id", "name", "source", "attrs", "no_change_reason"}
+# VRF-2b (owner U6 A): an ITEM-LIST example -- `items` (each item's answers, keys of the list_spec definitions, a unit
+# picker `<number>__unit` allowed), `unit` (the row's unit) and `inputs` (the Pricing Input ids whose panel shows it;
+# absent = every input the category reads, the ELR-3a behaviour).
+_IMPACT_EXAMPLE_KEYS = _IMPACT_EXAMPLE_KEYS | {"items", "unit", "inputs"}
 
 
 def _validate_impact_examples(cfg):
@@ -2473,6 +2477,31 @@ def _validate_impact_examples(cfg):
         for key in ("source", "no_change_reason"):
             if key in e and (not isinstance(e[key], str) or not e[key].strip()):
                 _vthrow("%s '%s', when present, must be non-empty text." % (where, key))
+        if "inputs" in e and (not isinstance(e["inputs"], list) or not e["inputs"]
+                              or not all(isinstance(x, str) and x.strip() for x in e["inputs"])):
+            _vthrow("%s ('%s'): 'inputs', when present, must be a non-empty list of Pricing Input ids." % (where, e["id"]))
+        if "items" in e:
+            # VRF-2b (U6 A): the item-list shape -- items + unit, no row attributes
+            ls_defs = {d.get("id") for d in (((cfg.get("list_spec") or {}).get("attribute_definitions")) or []) if isinstance(d, dict)}
+            if not ls_defs:
+                _vthrow("%s ('%s'): 'items' needs an item-list category (list_spec attribute definitions)." % (where, e["id"]))
+            its = e["items"]
+            if not isinstance(its, list) or not its or not all(isinstance(x, dict) and x for x in its):
+                _vthrow("%s ('%s'): 'items' must be a non-empty list of non-empty objects." % (where, e["id"]))
+            for it in its:
+                for k, v in it.items():
+                    base = k[:-len("__unit")] if k.endswith("__unit") else k
+                    if base not in ls_defs:
+                        _vthrow("%s ('%s'): item attribute '%s' is not a list_spec definition of this category." % (where, e["id"], k))
+                    if not isinstance(v, (str, int, float)) or isinstance(v, bool):
+                        _vthrow("%s ('%s'): item attribute '%s' must be a text or a number." % (where, e["id"], k))
+            if not isinstance(e.get("unit"), str) or not e["unit"].strip():
+                _vthrow("%s ('%s'): an item-list example needs its row 'unit'." % (where, e["id"]))
+            if "attrs" in e:
+                _vthrow("%s ('%s'): an item-list example carries 'items', not 'attrs'." % (where, e["id"]))
+            continue
+        if "unit" in e:
+            _vthrow("%s ('%s'): 'unit' belongs to an item-list example (with 'items')." % (where, e["id"]))
         attrs = e.get("attrs")
         if not isinstance(attrs, dict) or not attrs:
             _vthrow("%s needs a non-empty 'attrs' object." % where)

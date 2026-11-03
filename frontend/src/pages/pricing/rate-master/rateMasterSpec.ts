@@ -11,7 +11,7 @@
 // opt-in key, splits the definitions into text vs derived for rendering, and reads the two reserved
 // flag keys the server stores on a not-understood item.
 
-import { pipelinesOf } from "./pricingInputReach";
+import { pipelinesOf, unitsConvertUses } from "./pricingInputReach";
 import { formatDate } from "@/utils/FormatDate";
 import type {
   AttributeDefinition, DerivedRateTerm, RateCategoryConfig, RateComposition, RateMasterItem,
@@ -980,6 +980,14 @@ export function pricingInputUsedBy(
         if (!e.categories.includes(cid)) e.categories.push(cid);
         out[iid] = e;
       }
+    }
+    // VRF-2b (owner R-INPUTS): a capacity reader's convert table reads its inputs -- one use per family whose rule
+    // needs the number (the `csv_exporter._units_convert_uses` twin)
+    for (const u of unitsConvertUses(cfg)) {
+      const e = out[u.input] ?? { sites: 0, categories: [] };
+      e.sites += 1;
+      if (!e.categories.includes(cid)) e.categories.push(cid);
+      out[u.input] = e;
     }
   }
   return out;

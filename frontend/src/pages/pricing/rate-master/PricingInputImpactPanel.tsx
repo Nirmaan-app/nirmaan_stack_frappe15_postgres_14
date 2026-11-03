@@ -582,6 +582,12 @@ function ExampleList({ examples, changed }: { examples: ExampleImpact[]; changed
              data-testid={`impact-example-${ex.example.id}`}>
           <p className="font-medium">{ex.example.id} · {ex.example.name}</p>
           {ex.example.source ? <p className="text-muted-foreground">{ex.example.source}</p> : null}
+          {/* VRF-2b (owner U6 A): an item-list example's read and SKU, before -> after where the edit moves them */}
+          {ex.before.ok && ex.before.line ? (
+            <p className="text-muted-foreground" data-testid={`impact-example-${ex.example.id}-line`}>
+              {ex.before.line}{ex.after.ok && ex.after.line && ex.after.line !== ex.before.line ? ` -> now ${ex.after.line}` : ""}
+            </p>
+          ) : null}
           {!ex.before.ok ? (
             <p className="text-rose-700">Does not price today: {ex.before.reason}</p>
           ) : !ex.after.ok ? (
