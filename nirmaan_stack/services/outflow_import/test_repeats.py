@@ -64,6 +64,23 @@ class TestSplitRepeats(unittest.TestCase):
         )
         self.assertEqual(split.repeat_of_batch, "OFI-1")
 
+    def test_each_earlier_batch_is_counted_in_the_order_it_is_first_met(self):
+        """#1605: the message names every earlier import a repeat came from, with its count."""
+        split = _split(
+            [_line("A"), _line("B"), _line("C"), _line("C"), _line("D")],
+            {
+                "A": (_seen("OFI-2", "SUCCESS"),),
+                "B": (_seen("OFI-1", "SUCCESS"),),
+                "C": (_seen("OFI-2", "SUCCESS"),),
+            },
+        )
+        self.assertEqual(split.repeats_by_batch, (("OFI-2", 3), ("OFI-1", 1)))
+        self.assertEqual(split.repeats_not_saved, 4)
+
+    def test_an_in_file_copy_counts_toward_no_batch(self):
+        split = _split([_line("A"), _line("A")])
+        self.assertEqual(split.repeats_by_batch, ())
+
     def test_an_identical_in_flight_line_is_an_exact_repeat(self):
         """#1359: the same identity AND the same status is a repeat, whatever the status."""
         split = _split([_line("A", "QUEUED"), _line("A", "QUEUED")])
