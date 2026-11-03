@@ -23,10 +23,12 @@
  *
  * A SECOND EXPORT, `measureDrivingFields` (owner answer 3 to DEV2-B2 Q4, option A): which of a category's fields DRIVE the
  * price, measured BY THE PRICER on the pool's own stored rows at every pool build -- DEV2-R2's h2_fields2.ts pass 1: blank
- * one read field (and, for fields never needed alone, pairs) and re-price; "needed" when the price is withheld on half
- * the sampled rows or more, "either-or" when a pair withholds on half or more. Matching's W1 compares the pricer's values
- * for those fields (match_index.readings_view). It is statistics ABOUT the pricer, computed through `compute`; no pricing
- * logic and no stored list.
+ * one read field (and, for fields never needed alone, pairs) and re-price, on EVERY stored row (no sample). THE RULE
+ * (owner 2026-11-03 01:56 / 10:59, DEV2-B3 F2b rule (iii)): a field drives the price when blanking it CHANGES THE PRICE
+ * (withheld, or priced at other values) on at least 10 % of the rows it was tested on AND on at least 5 rows -- or when
+ * blanking it with another field withholds the price on as many. Matching's W1 compares the pricer's values for those
+ * fields (match_index.readings_view). It is statistics ABOUT the pricer, computed through `compute`; no pricing logic and
+ * no stored list.
  *
  * TYPES: the pricer's intermediate objects are read through the small `*Seen` shapes below -- only the fields this
  * function reads, each optional, values `unknown` where they are only copied out.
@@ -250,17 +252,28 @@ export interface DrivingFieldStat { id: string; withValue: number; withhold: num
   withholdShare: number; pairShare: number; changesShare: number; cls: "needed" | "either-or" | "not needed"; movesPrice: boolean }
 export interface DrivingCategory { rows: number; pricedRows: number; sampled: number; fields: DrivingFieldStat[]; driving: string[] }
 
+/** THE PRICE-DRIVING RULE (owner 2026-11-03 10:59 "ok": DEV2-B3 F2b rule (iii)). */
+export const DRIVING_MIN_SHARE = 0.10;
+export const DRIVING_MIN_ROWS = 5;
+
+/** PURE. Does a count of rows meet the rule for a field tested on `tested` rows? (>= 10 % of them AND >= 5 rows) */
+export function meetsDrivingRule(count: number, tested: number): boolean {
+  return tested > 0 && count >= DRIVING_MIN_SHARE * tested && count >= DRIVING_MIN_ROWS;
+}
+
 /**
  * Measure each category's price-driving fields on `input.rows` (the stored helper-1 rows, as for `priceRowsForMatching`),
- * at most `input.sample` (default 400) priced rows a category, evenly spread in row order. Per row, every read field is
- * blanked alone (value -> null, the "asked and blank" state) and re-priced: withheld -> needed on this row; priced at
- * other values -> it changes the price; else not needed here. The first 14 fields not needed alone are blanked in pairs:
- * a pair that withholds marks both. A field is "needed" at >= 50 % withheld, else "either-or" at >= 50 % pair-withheld,
- * else "not needed". `driving` = the fields not "not needed", in id order. (DEV2-R2 h2_fields2.ts pass 1, unchanged.)
+ * on EVERY priced row of a category (`input.sample`, when given, caps it, evenly spread in row order -- tests only).
+ * Per row, every read field is blanked alone (value -> null, the "asked and blank" state) and re-priced: withheld, or
+ * priced at other values -> it CHANGES THE PRICE on this row; else not here. The first 14 fields that do not withhold
+ * alone are blanked in pairs: a pair that withholds marks both. A field is "needed" when its changed-price count
+ * (withheld + changed values) meets the rule (meetsDrivingRule: >= 10 % of its tested rows AND >= 5 rows), else
+ * "either-or" when its pair-withheld count does, else "not needed". `driving` = the fields not "not needed", in id order.
+ * (DEV2-R2 h2_fields2.ts pass 1; the rule and the all-rows scope are DEV2-B4's.)
  * A row's notes: its own `ownNotes` / `headingNotes` when sent, else the page's (rowOwnNotes / rowHeadingNotes).
  */
 export function measureDrivingFields(input: PricingStepInput & { sample?: number }): { categories: Record<string, DrivingCategory> } {
-  const SAMPLE = input.sample ?? 400;
+  const SAMPLE = input.sample ?? Number.POSITIVE_INFINITY;
   const configsByCategory = new Map<string, RateCategoryConfig>(Object.entries(input.configs ?? {}));
   const byDisc = input.itemsByDiscipline ?? {};
   const sets: RateMasterItem[][] = input.itemSets ?? [byDisc["Electrical"] ?? [], ...RATE_MASTER_ITEM_DISCIPLINES.map((d) => byDisc[d] ?? [])];
@@ -317,8 +330,8 @@ export function measureDrivingFields(input: PricingStepInput & { sample?: number
   const out: Record<string, DrivingCategory> = {};
   for (const [cat, list] of byCat) {
     const base = list.map((r) => ({ r, b: price(r, r.attributes ?? {}, r.items ?? undefined) })).filter((x) => x.b.priced);
-    const step = Math.max(1, Math.floor(base.length / SAMPLE));
-    const sample = base.filter((_, i) => i % step === 0).slice(0, SAMPLE);
+    const step = Number.isFinite(SAMPLE) ? Math.max(1, Math.floor(base.length / SAMPLE)) : 1;
+    const sample = Number.isFinite(SAMPLE) ? base.filter((_, i) => i % step === 0).slice(0, SAMPLE) : base;
     const f: Record<string, { withValue: number; withhold: number; changes: number; pairWithhold: number }> = {};
     const get = (id: string) => (f[id] ??= { withValue: 0, withhold: 0, changes: 0, pairWithhold: 0 });
     for (const { r, b } of sample) {
@@ -342,7 +355,8 @@ export function measureDrivingFields(input: PricingStepInput & { sample?: number
     }
     const fields: DrivingFieldStat[] = Object.entries(f).map(([id, st]) => {
       const w = st.withhold / st.withValue, pw = st.pairWithhold / st.withValue, ch = st.changes / st.withValue;
-      const cls: DrivingFieldStat["cls"] = w >= 0.5 ? "needed" : (pw >= 0.5 ? "either-or" : "not needed");
+      const cls: DrivingFieldStat["cls"] = meetsDrivingRule(st.withhold + st.changes, st.withValue) ? "needed"
+        : (meetsDrivingRule(st.pairWithhold, st.withValue) ? "either-or" : "not needed");
       return { id, ...st, withholdShare: +w.toFixed(3), pairShare: +pw.toFixed(3), changesShare: +ch.toFixed(3), cls, movesPrice: cls === "not needed" && ch >= 0.2 };
     }).sort((a, b) => a.id.localeCompare(b.id));
     out[cat] = { rows: list.length, pricedRows: base.length, sampled: sample.length, fields, driving: fields.filter((x) => x.cls !== "not needed").map((x) => x.id) };

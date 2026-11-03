@@ -9,7 +9,8 @@ frontend/src/pages/boq-wizard/rate-helper/serverPricingStep.parity.test.ts). No 
   fails closed         missing bundle / missing stamp / unreadable stamp / stamp not matching the bundle / node missing /
                        node exits with an error / node crashes / timeout -> available False with the reason, never a raise
   stale -> recomputed  a stored value whose stamp differs (code or asset) is recomputed; a current one is kept as is
-  driving fields      the bundle's measureDrivingFields lists come back per category; the step unavailable -> no lists
+  driving fields      the bundle's measureDrivingFields lists come back per category; the step unavailable -> no lists;
+                      (DEV2-B4) no sample is sent by default (every stored row); a caller's int is sent
 """
 import hashlib
 import json
@@ -35,6 +36,14 @@ const c = []; process.stdin.on("data", (d) => c.push(d)); process.stdin.on("end"
     rec: { signature: "SIG:" + r.excel_row, values: { supply_rate: r.excel_row * 10 }, priced: true, cat: r.resolved_category },
     ac7: { key: `${r.boq}|${r.sheet_name}|${r.excel_row}` } }));
   process.stdout.write(JSON.stringify({ ok: true, rows, seen_configs: Object.keys(input.configs || {}) }));
+});
+"""
+SAMPLE_ECHO = """
+const c = []; process.stdin.on("data", (d) => c.push(d)); process.stdin.on("end", () => {
+  const input = JSON.parse(Buffer.concat(c).toString("utf8"));
+  const sent = "sample" in input ? input.sample : false;
+  process.stdout.write(JSON.stringify({ ok: true, categories: { wiring_cabling: { rows: input.rows.length, pricedRows: 2,
+    sampled: 2, sample_sent: sent, fields: [], driving: [] } } }));
 });
 """
 FAIL = """process.stdout.write(JSON.stringify({ ok: false, error: "boom in the pricer" })); process.exitCode = 1;"""
@@ -215,6 +224,16 @@ class TestDrivingFieldMeasure(FrappeTestCase):
         self.assertEqual(res["lists"], {"wiring_cabling": ["core"]})
         self.assertEqual(res["categories"]["wiring_cabling"]["sampled"], 2)
         self.assertEqual(res["stamp"], {"code": "code-A", "asset": ASSET[1]})
+
+    def test_the_default_sends_no_sample_so_every_row_is_measured(self):
+        # DEV2-B4 (rule (iii) on ALL stored rows): no "sample" key reaches the bundle unless a caller passes one
+        self._bundle(SAMPLE_ECHO)
+        res = ps.measure_driving_fields({}, ROWS, asset=ASSET, build_dir=self.dir)
+        self.assertTrue(res["available"], res["reason"])
+        self.assertEqual(res["categories"]["wiring_cabling"]["sample_sent"], False)
+        self.assertIsNone(ps.DRIVING_SAMPLE)
+        res = ps.measure_driving_fields({}, ROWS, asset=ASSET, sample=30, build_dir=self.dir)
+        self.assertEqual(res["categories"]["wiring_cabling"]["sample_sent"], 30)
 
     def test_unavailable_gives_no_lists_never_a_raise(self):
         res = ps.measure_driving_fields({}, ROWS, asset=ASSET, build_dir=self.dir)      # no bundle

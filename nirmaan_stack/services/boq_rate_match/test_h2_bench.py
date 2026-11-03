@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 """Tests for the H2 bench's scorer (DEV2-B3, T1; scripts/_instruments/h2_bench.py). Fixtures only: no model call,
-no database read or write, no bench file.
+no database read or write, no bench file (a temporary folder at most).
 
   top 5 / first   a known-same row or a copy of it (same group) counts   /  a row of another group never does
   reach           a known row the target may not be offered leaves the denominator; a target with no verdict too
@@ -11,6 +11,9 @@ no database read or write, no bench file.
                   reworded: original first  /  S0: a known row called SAME
   GO              the thresholds 177 / 156 / 63 / 54
   trap targets    a trap (not a pool row) carries ITS OWN card from the bench card file   /  a card-less trap: none
+  budget skip     (DEV2-B4) a call over the test budget is SKIPPED, named and counted, the run goes on  /  within the
+                  budget nothing is skipped; the refusal is the runner's CallerRefused, never a plain error
+  extra verdicts  (DEV2-B4) a later verdict file given by path wins for a pair  /  without it the manifest's stands
 """
 import importlib.util
 import json
@@ -126,3 +129,96 @@ class TestTargets(FrappeTestCase):
         self.assertEqual(got["MUT-001"]["card"], {"kind": {"v": "trap card"}})
         self.assertIsNone(got["PAR-001"]["card"])
         self.assertEqual(got["MUT-001"]["unit_raw"], "Nos")
+
+
+class _Raw:
+    """The SDK's with_raw_response shape: headers + parse()."""
+
+    def __init__(self, text="{}"):
+        self.headers = {"anthropic-ratelimit-requests-remaining": "9"}
+        self._resp = SimpleNamespace(content=[SimpleNamespace(text=text)], stop_reason="end_turn",
+                                     usage=SimpleNamespace(input_tokens=10, output_tokens=5,
+                                                           cache_read_input_tokens=0, cache_creation_input_tokens=0))
+
+    def parse(self):
+        return self._resp
+
+
+def _inner():
+    sent = []
+
+    def create(**kw):
+        sent.append(kw["messages"][0]["content"].split("|", 1)[0])
+        return _Raw()
+    return SimpleNamespace(messages=SimpleNamespace(with_raw_response=SimpleNamespace(create=create))), sent
+
+
+class TestBudgetSkip(FrappeTestCase):
+    """DEV2-B4 (owner answer 3 to DEV2-B3 Q3): a call the test budget refuses is SKIPPED - named, counted - and the
+    run goes on; the runner never reads it as a connection error."""
+
+    def _reqs(self, names):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        return [cr.CallRequest(name=n, content=(n + "|").ljust(200, "x"), model="m", max_tokens=100, price_in=1.0,
+                               price_out=2.0) for n in names]
+
+    def _limits(self):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        return cr.Limits(calls_at_once=1, retry_wait_s=0, burst_failures=1, burst_window_s=60, max_request_tokens=10 ** 6)
+
+    def test_an_over_budget_call_is_skipped_counted_and_the_run_goes_on(self):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        inner, sent = _inner()
+        client = HB.RecordingClient(inner, max_calls=2)          # the third call would pass the budget
+        out = cr.run(self._reqs(["A", "B", "C", "D"]), limits=self._limits(), client=client)
+        self.assertIsNone(out.stop_reason)
+        self.assertEqual(out.not_sent, [])
+        self.assertEqual(sent, ["A", "B"])
+        self.assertEqual([r["name"] for r in out.refused], ["C", "D"])
+        self.assertTrue(all(r["reason"] == cr.REFUSED_BY_CALLER for r in out.refused))
+        self.assertEqual(len(client.skipped), 2)
+        self.assertIn("test budget", client.skipped[0])
+
+    def test_within_the_budget_nothing_is_skipped(self):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        inner, sent = _inner()
+        client = HB.RecordingClient(inner, max_calls=4, max_tokens=10 ** 6, max_usd=10.0)
+        out = cr.run(self._reqs(["A", "B", "C", "D"]), limits=self._limits(), client=client)
+        self.assertEqual(sent, ["A", "B", "C", "D"])
+        self.assertEqual((out.refused, client.skipped, out.stop_reason), ([], [], None))
+
+    def test_the_refusal_is_the_runners_own_type_not_a_plain_error(self):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        inner, _sent = _inner()
+        client = HB.RecordingClient(inner, max_calls=0)
+        with self.assertRaises(cr.CallerRefused):
+            client.create(model="m", max_tokens=1, messages=[{"role": "user", "content": "A|x"}])
+
+
+class TestExtraVerdicts(FrappeTestCase):
+
+    def test_a_later_file_given_by_path_is_read_after_the_manifests_and_wins(self):
+        b = HB.Bench.__new__(HB.Bench)
+        with tempfile.TemporaryDirectory() as d:
+            manifest = {"files": {}, "as_of": "2026-11-01 02:00:00", "seed": 1}
+            # the minimal bench: only what __init__ reads; every data file is an empty shape
+            data = {"bench_testset.json": {"targets": []}, "bench_key.json": {"targets": []},
+                    "heldout_s5.json": {"targets": []}, "w2_targets_s5.json": [], "s0_targets.json": [],
+                    "s0_traps.json": {"traps": []}, "bench_traps.json": [], "pool_s5.json": {"kept": []},
+                    "pool_s0.json": {"kept": []}, "known_same_s6.json": {"bench": {"targets": {}}, "heldout": {"targets": {}}},
+                    "H2_S8_Unjudged_Verdicts_2026-11-02.json": {"R1": {"target_ref": "T1", "candidate_key": "K", "copies": [], "consensus": "SAME"}}}
+            for n, v in data.items():
+                with open(os.path.join(d, n), "w", encoding="utf-8") as f:
+                    json.dump(v, f)
+                manifest["files"][n] = HB.sha256(os.path.join(d, n))
+            with open(os.path.join(d, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump(manifest, f)
+            extra = os.path.join(d, "later.json")
+            with open(extra, "w", encoding="utf-8") as f:
+                json.dump({"R9": {"target_ref": "T1", "candidate_key": "K", "copies": ["K2"], "consensus": "CLOSE"}}, f)
+            b0 = HB.Bench(d)
+            b1 = HB.Bench(d, [extra])
+        self.assertEqual(b0.vv["T1|K"], "SAME")
+        self.assertEqual((b1.vv["T1|K"], b1.vv["T1|K2"]), ("CLOSE", "CLOSE"))
+        self.assertEqual(b1.extra_verdicts[0]["entries"], 1)
+        self.assertEqual(b0.extra_verdicts, [])

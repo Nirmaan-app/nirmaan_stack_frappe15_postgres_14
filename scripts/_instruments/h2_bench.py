@@ -13,7 +13,7 @@ WHAT IT RUNS: the APP's code end to end on the bench - the lanes (services/boq_r
   * traps: size changed (mutation) - the original first and SAME (the failure); reworded (paraphrase) - the original
     first; S0 flipped / added - a known row called SAME.
 WHAT IT WRITES (--out DIR): table.json (+ table.txt), orders.json (per target: list, raw and N1b order, the coloured
-matches, no-verdict reason, spend), and the blind export unjudged_pairs_b3.json + unjudged_pairs_b3_key.json (X3
+matches, no-verdict reason, spend), and the blind export unjudged_pairs_<tag>.json + unjudged_pairs_<tag>_key.json (X3
 format, section a: every bench / held-out pair in a top 5 or called SAME with no verdict yet and not in a known-same
 group). --archive DIR keeps every request and raw reply (block 54).
 
@@ -26,7 +26,8 @@ The CARD lane and the payload's cards come from the bench's Haiku cards (haiku_c
 WHEN TO RUN IT: before any change of the judge model, the card model, the judge prompt or the lanes - and after, to
 compare. It costs one judge call a target (660), at the settings' prices; --dry builds the requests only and prints
 the PLAN line (calls, tokens, $), no call is made. Budget flags (--max-calls / --max-tokens / --max-usd) are the
-caller's test budget: a call that would pass one is not sent (the product itself has no cost cap).
+caller's test budget: a call that would pass one is SKIPPED (named, counted in table.json budget_skipped) and the run
+goes on (DEV2-B4); the product itself has no cost cap. --extra-verdicts adds later verdict files by path.
 
 usage (in the bench container, from frappe-bench):
   env/bin/python -I apps/nirmaan_stack/scripts/_instruments/h2_bench.py --site <site> --out <dir> [--dry]
@@ -61,7 +62,7 @@ def sha256(path):
 class Bench:
     """The bench files, sha-checked against manifest.json."""
 
-    def __init__(self, folder):
+    def __init__(self, folder, extra_verdicts=()):
         self.folder = folder
         self.manifest = json.load(open(os.path.join(folder, "manifest.json"), encoding="utf-8"))
         bad = [n for n, s in self.manifest["files"].items()
@@ -91,6 +92,15 @@ class Bench:
             for u in v.values():
                 for k in [u["candidate_key"]] + (u.get("copies") or []):
                     self.vv[f"{u['target_ref']}|{k}"] = u["consensus"]
+        # DEV2-B4: later verdict files given by path (e.g. H2_B3_Unjudged_Verdicts from a scratch copy; the bench
+        # folder's manifest does not list them), read after the manifest's, in the order given: a later file wins.
+        self.extra_verdicts = []
+        for path in extra_verdicts or ():
+            v = json.load(open(path, encoding="utf-8"))
+            for u in v.values():
+                for k in [u["candidate_key"]] + (u.get("copies") or []):
+                    self.vv[f"{u['target_ref']}|{k}"] = u["consensus"]
+            self.extra_verdicts.append({"path": path, "sha256": sha256(path), "entries": len(v)})
         self.cards = os.path.join(folder, "haiku_cards_all.jsonl")
         self.as_of, self.seed = self.manifest["as_of"], int(self.manifest["seed"])
 
@@ -156,6 +166,7 @@ class RecordingClient:
 
     def __init__(self, client, archive=None, max_calls=None, max_tokens=None, max_usd=None, price_in=0, price_out=0):
         self.client, self.archive = client, archive
+        self.skipped = []          # DEV2-B4: calls the test budget refused (named, counted); the run went on
         self.caps = (max_calls, max_tokens, max_usd)
         self.prices = (price_in, price_out)
         self.lock = threading.Lock()
@@ -178,8 +189,13 @@ class RecordingClient:
         with self.lock:
             if ((mc is not None and self.calls + 1 > mc) or (mt is not None and self.tokens + self.r_tokens + up_t > mt)
                     or (mu is not None and self.usd + self.r_usd + up_usd > mu)):
-                raise RuntimeError(f"test budget: this call would pass the budget (calls {self.calls}, tokens "
-                                   f"{self.tokens}+{self.r_tokens}, usd {self.usd:.4f}+{self.r_usd:.4f})")
+                # DEV2-B4 (owner answer 3 to DEV2-B3 Q3): SKIP this call, never stop the run. CallerRefused is the
+                # runner's own refusal type, so it is never read as a connection error.
+                why = (f"test budget: this call would pass the budget (calls {self.calls}, tokens "
+                       f"{self.tokens}+{self.r_tokens}, usd {self.usd:.4f}+{self.r_usd:.4f})")
+                self.skipped.append(why)
+                from nirmaan_stack.services.boq_rate_match.call_runner import CallerRefused
+                raise CallerRefused(why)
             self.calls += 1
             self.r_tokens += up_t
             self.r_usd += up_usd
@@ -358,7 +374,7 @@ def blind_export(sc, orders, verdicts, bench, pool, seed):
             keymap[pid] = {"target_ref": t, "target_key": bench.tg[t]["key"], "candidate_key": k, "section": "a",
                            "copies": [m for m in sc.members[sc.group(k)] if m != k and sc.eligible(t, m)]}
         out_t.append({**tside, "id": t, "candidates": cl})
-    return {"about": "DEV2-B3 P2 blind export (X3 format, section a), seed %d" % (seed + EXPORT_SEED_OFFSET),
+    return {"about": "H2 bench blind export (X3 format, section a), seed %d" % (seed + EXPORT_SEED_OFFSET),
             "prompt_version": J.prompt_version(), "targets": out_t}, keymap
 
 
@@ -375,6 +391,9 @@ def main():
     ap.add_argument("--max-tokens", type=int)
     ap.add_argument("--max-usd", type=float)
     ap.add_argument("--limit", type=int, help="the first N targets only (a smoke run)")
+    ap.add_argument("--tag", default="b4", help="the blind export's file tag (unjudged_pairs_<tag>.json)")
+    ap.add_argument("--extra-verdicts", nargs="*", default=[], help="later verdict files (X3 answer format), read "
+                    "after the manifest's in the order given; a later file wins for a pair")
     a = ap.parse_args()
     os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "sites"))
     import frappe
@@ -395,7 +414,7 @@ def run(a, frappe):
 
     os.makedirs(a.out, exist_ok=True)
     settings = require_match_settings("judge")     # an empty judge model or price refuses before anything is read
-    bench = Bench(a.data or frappe.get_site_path("private", "boq_rate_match", "bench"))
+    bench = Bench(a.data or frappe.get_site_path("private", "boq_rate_match", "bench"), a.extra_verdicts)
     seed = a.seed if a.seed is not None else bench.seed
     secs = {}
     t0 = time.time()
@@ -459,16 +478,20 @@ def run(a, frappe):
             verdicts[tid] = x["verdicts"]
     tab = table(sc, orders, verdicts, bench)
     tab.update(run=res["run"] | {"attempts": len(res["run"]["attempts"])}, secs=secs, seed=seed, settings=res["settings"],
-               prompt_version=res["prompt_version"], no_verdict=sorted(t for t, x in orders.items() if not x["ok"]))
+               prompt_version=res["prompt_version"], no_verdict=sorted(t for t, x in orders.items() if not x["ok"]),
+               budget_skipped={"count": len(client.skipped),
+                               "targets": [r["name"] for r in res["run"]["refused"] if r["reason"] == "caller_refused"]},
+               extra_verdicts=bench.extra_verdicts)
     json.dump(tab, open(os.path.join(a.out, "table.json"), "w"), indent=1, default=str)
     json.dump(orders, open(os.path.join(a.out, "orders.json"), "w", encoding="utf-8"), ensure_ascii=False, default=str)
     exp, key = blind_export(sc, orders, verdicts, bench, pool, seed)
-    json.dump(exp, open(os.path.join(a.out, "unjudged_pairs_b3.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    json.dump(key, open(os.path.join(a.out, "unjudged_pairs_b3_key.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(exp, open(os.path.join(a.out, f"unjudged_pairs_{a.tag}.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(key, open(os.path.join(a.out, f"unjudged_pairs_{a.tag}_key.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     b, h = tab["n1b"]["bench"], tab["n1b"]["heldout"]
     print(f"TABLE bench top5 {b.get('top5')} / first {b.get('first')} of {b.get('denominator')}; held-out top5 "
           f"{h.get('top5')} / first {h.get('first')} of {h.get('denominator')}; {'GO' if tab['go'] else 'NO-GO'}; "
-          f"spent ${res['run']['spent_usd']:.4f}; stop {res['run']['stop_reason']}; export pairs {len(key)}", flush=True)
+          f"spent ${res['run']['spent_usd']:.4f}; stop {res['run']['stop_reason']}; budget skipped "
+          f"{len(client.skipped)}; export pairs {len(key)}", flush=True)
 
 
 if __name__ == "__main__":

@@ -152,20 +152,25 @@ def price_rows(page_rows, rows, asset=None, full=False, timeout=DEFAULT_TIMEOUT_
 
 
 MEASURE_TIMEOUT_S = 3600
-DRIVING_SAMPLE = 400
+DRIVING_SAMPLE = None      # DEV2-B4: every stored row (no 400-row sample); an int caps it (tests only)
 
 
 def measure_driving_fields(page_rows, rows, asset=None, sample=DRIVING_SAMPLE, timeout=MEASURE_TIMEOUT_S, build_dir=None):
     """Each category's price-driving fields, measured BY THE PRICER (the bundle's measureDrivingFields: DEV2-R2's
-    blank / pair-blank + re-price, 50 % rule, up to `sample` stored rows a category; owner answer 3 to DEV2-B2 Q4) on
-    `rows` (the stored readings, as for price_rows). Run at every pool build; nothing is stored in code. Never raises.
+    blank / pair-blank + re-price; owner answer 3 to DEV2-B2 Q4) on EVERY row of `rows` (the stored readings, as for
+    price_rows), by THE RULE (owner 2026-11-03 01:56 / 10:59, DEV2-B3 F2b rule (iii)): blanking the field changes the
+    price on >= 10 % of its tested rows AND >= 5 rows (or a pair blank withholds on as many). `sample` (an int) caps
+    the rows a category - tests only. Run at every pool build; nothing is stored in code. Never raises.
     -> {"available", "reason", "stamp", "lists": {category: [field ids]}, "categories": {category: the measurement}}"""
     try:
         code = read_code_stamp(build_dir)
         node = node_binary()
         payload, version = asset if asset is not None else load_asset()
         bundle = os.path.join(build_dir or BUILD_DIR, BUNDLE)
-        got = _run_bundle(node, bundle, {**payload, "mode": "driving", "pageRows": page_rows, "rows": list(rows), "sample": int(sample)}, timeout)
+        req = {**payload, "mode": "driving", "pageRows": page_rows, "rows": list(rows)}
+        if sample is not None:
+            req["sample"] = int(sample)
+        got = _run_bundle(node, bundle, req, timeout)
         cats = got.get("categories") or {}
         return {"available": True, "reason": None, "stamp": current_stamp(code, version),
                 "lists": {c: list(v.get("driving") or []) for c, v in cats.items()}, "categories": cats}

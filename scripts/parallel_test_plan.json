@@ -2472,10 +2472,12 @@
    ]
   },
   "nirmaan_stack.services.boq_rate_match.test_call_runner": {
-   "seconds": 28.4,
+   "seconds": 34.8,
    "series": [],
    "writes": [],
-   "reads": []
+   "reads": [
+    "tabBOQ Nodes"
+   ]
   },
   "nirmaan_stack.services.boq_rate_match.test_cards": {
    "seconds": 16.7,
@@ -2512,7 +2514,7 @@
    ]
   },
   "nirmaan_stack.services.boq_rate_match.test_h2_bench": {
-   "seconds": 11.8,
+   "seconds": 11.2,
    "series": [],
    "writes": [],
    "reads": []
@@ -2536,7 +2538,7 @@
    "reads": []
   },
   "nirmaan_stack.services.boq_rate_match.test_pricing_step": {
-   "seconds": 16.5,
+   "seconds": 15.5,
    "series": [],
    "writes": [],
    "reads": [

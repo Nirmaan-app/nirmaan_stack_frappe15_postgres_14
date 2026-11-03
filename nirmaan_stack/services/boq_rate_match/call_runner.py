@@ -21,6 +21,12 @@ reservation rule); a request whose estimate passes `Limits.max_request_tokens` (
 match_max_request_tokens) is NOT sent: it is named in `refused` with reason "too_large", and the run goes on. A
 request AT the limit is sent.
 
+A CALLER'S REFUSAL (DEV2-B4; owner answer 3 to DEV2-B3 Q3: "a budget-guard refusal must skip that call and carry on,
+never stop the run"). A client wrapper that will not send one call (a test budget, h2_bench's RecordingClient) raises
+`CallerRefused` from `messages.create`. That call is named in `refused` with reason "caller_refused" and the wrapper's
+words, counts as no failure (no burst, no retry, no stop) and the run goes on. It is never read as a connection
+error: without this, a status-less exception with nothing else landing stopped the whole run (DEV2-B3 T4 run 1).
+
 NO COST CAP (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our purpose...a guideline...it
 should not be a part of the code or setting"). The runner never reserves, refuses or stops on cost; every attempt's
 tokens, USD and seconds are still recorded, with the run's totals.
@@ -49,6 +55,12 @@ STOP_SECOND_FAILURE = "second_failure_of_a_call"
 STOP_BURST = "burst_of_failures"
 STOP_NOT_LONE = "connection_error_with_nothing_landing"
 REFUSED_TOO_LARGE = "too_large"
+REFUSED_BY_CALLER = "caller_refused"
+
+
+class CallerRefused(Exception):
+    """Raised by a client wrapper to refuse ONE call before it is sent (a caller's test budget). The runner names the
+    call in `refused` (reason caller_refused, with this exception's text) and carries on; it is never a failure."""
 
 
 @dataclass
@@ -97,7 +109,7 @@ class CallResult:
 class RunResult:
     results: dict = field(default_factory=dict)      # name -> CallResult, for every request that was sent
     not_sent: list = field(default_factory=list)     # names never sent because the run stopped, in request order
-    refused: list = field(default_factory=list)      # {name, reason, estimate_tokens, limit}: never sent; the run went on
+    refused: list = field(default_factory=list)      # never sent, the run went on: {name, reason too_large, estimate_tokens, limit} or {name, reason caller_refused, detail}
     stop_reason: str | None = None
     stop_detail: str | None = None
     attempts: list = field(default_factory=list)     # one dict per attempt, in finishing order
@@ -199,6 +211,15 @@ class _Run:
                 with self.cv:
                     self.http_in_flight -= 1
                     rec = {"name": req.name, "attempt": res.attempts, "model": req.model, "seconds": round(secs, 3)}
+                    if isinstance(err, CallerRefused):
+                        # the caller would not send it: named, skipped, never a failure; the run goes on
+                        res.error = f"refused by the caller: {err}"
+                        self.out.refused.append({"name": req.name, "reason": REFUSED_BY_CALLER, "detail": str(err)})
+                        rec.update(tokens_in=0, tokens_out=0, cost_usd=0.0, decision="refused by the caller",
+                                   error=res.error)
+                        self.out.attempts.append(rec)
+                        self.cv.notify_all()
+                        return
                     if err is None:
                         tin, tout = _usage(resp)
                         usd = cost_usd(tin, tout, req)

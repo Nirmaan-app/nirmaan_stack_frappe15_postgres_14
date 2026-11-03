@@ -36,7 +36,7 @@ READINGS VIEW (`v1`): the tokens W1's V1 score and reading-conflict demotion com
 the category's price-driving fields, read from the server step's output (attribute path: the non-disabled working
 attributes; item-list path: `family=<f>` plus each block's shown field), as DEV2-R2's h2_fields2.ts pass 2 built them.
 WHICH fields drive the price is MEASURED BY THE PRICER at every build (owner answer 3 to DEV2-B2 Q4, option A: the
-bundle's measureDrivingFields = DEV2-R2's blank / pair-blank + re-price, 50 % rule, up to 400 stored rows a category):
+bundle's measureDrivingFields on EVERY stored row; DEV2-B4 rule (iii): the price changes on >= 10 % of tested AND >= 5):
 nothing is stored in code, so a pricing-config change reaches W1 at the next build. Step unavailable or no readings ->
 no v1 tokens (W1 without V1).
 

@@ -9,6 +9,8 @@ Each rule of the owner's retry / stop rule has a positive and a negative test:
   burst             N failures within the window stop                        /  the same N spread wider do not
   calls at once     never more in flight than the setting                    /  and the setting is actually reached
   size guard        a request over the limit is not sent, named too_large    /  a request AT the limit is sent; the run goes on
+  caller refusal    (DEV2-B4) CallerRefused skips that call, named caller_refused, never a failure  /  a plain status-less
+                    error still stops as a connection error
   no cost cap       a run whose spend passes $5 still sends everything (INVERTED DEV2-B3: the owner removed the cap)
   usage and $       tokens (cache included), USD and seconds per call
 """
@@ -326,6 +328,40 @@ class TestSizeGuard(FrappeTestCase):
             cr.Limits.from_settings({"calls_at_once": 3, "retry_wait_s": 1, "burst_failures": 4, "burst_window_s": 9})
         with self.assertRaises(TypeError):
             cr.Limits(calls_at_once=1, retry_wait_s=0, burst_failures=1, burst_window_s=1)
+
+
+class TestCallerRefusal(FrappeTestCase):
+    # DEV2-B4 (owner answer 3 to DEV2-B3 Q3): a caller's refusal (a test budget) SKIPS that one call and the run
+    # goes on; it is never read as a connection error.
+
+    def test_a_caller_refusal_is_named_skipped_and_the_run_goes_on(self):
+        # calls=1 and nothing landed before B: a plain status-less error here would have stopped the run (below)
+        client = FakeClient({"B": [cr.CallerRefused("test budget: over")]})
+        sleeps = []
+        out = cr.run([_req("B"), _req("C"), _req("D")], limits=_limits(calls=1, burst=1), client=client,
+                     sleep=sleeps.append)
+        self.assertIsNone(out.stop_reason)
+        self.assertEqual(out.not_sent, [])
+        self.assertEqual(out.refused, [{"name": "B", "reason": cr.REFUSED_BY_CALLER, "detail": "test budget: over"}])
+        self.assertTrue(out.results["C"].ok and out.results["D"].ok)
+        self.assertFalse(out.results["B"].ok)
+        self.assertEqual(sleeps, [], "a refusal is never retried")
+        self.assertEqual([a.get("decision") for a in out.attempts if a["name"] == "B"], ["refused by the caller"])
+
+    def test_a_refusal_never_counts_toward_the_burst(self):
+        client = FakeClient({n: [cr.CallerRefused("over")] for n in "ABCD"})
+        out = cr.run([_req(n) for n in "ABCDE"], limits=_limits(calls=2, burst=2), client=client)
+        self.assertIsNone(out.stop_reason)
+        self.assertEqual(sorted(r["name"] for r in out.refused), list("ABCD"))
+        self.assertTrue(out.results["E"].ok)
+
+    def test_a_plain_status_less_error_still_stops_as_a_connection_error(self):
+        # the negative half: only CallerRefused is a refusal; the old RuntimeError shape still stops the run
+        client = FakeClient({"B": [RuntimeError("test budget: over")]})
+        out = cr.run([_req("B"), _req("C")], limits=_limits(calls=1), client=client)
+        self.assertEqual(out.stop_reason, cr.STOP_NOT_LONE)
+        self.assertEqual(out.refused, [])
+        self.assertEqual(out.not_sent, ["C"])
 
 
 class TestUsageRecorded(FrappeTestCase):

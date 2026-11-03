@@ -300,7 +300,10 @@ def judge_items(items, *, seed, settings=None, client=None, on_request=None):
         rows = {c["key"]: c for c in it["candidates"]}
         targets[r["id"]] = judged(r, res.results.get(r["id"]), it["target"], rows)
     for r in res.refused:
-        targets[r["name"]]["no_verdict"] = f"not sent: {r['reason']} (estimate {r['estimate_tokens']} > {r['limit']})"
+        if r["reason"] == call_runner.REFUSED_BY_CALLER:      # DEV2-B4: a caller's test budget skipped it
+            targets[r["name"]]["no_verdict"] = f"not sent: {r['reason']} ({r.get('detail')})"
+        else:
+            targets[r["name"]]["no_verdict"] = f"not sent: {r['reason']} (estimate {r['estimate_tokens']} > {r['limit']})"
     return {"targets": targets, "seed": seed, "prompt_version": prompt_version(),
             "settings": {"model": s["model"], "reply_max_tokens": s["reply_max_tokens"], "calls_at_once": s["calls_at_once"]},
             "run": {"stop_reason": res.stop_reason, "stop_detail": res.stop_detail, "not_sent": res.not_sent,
