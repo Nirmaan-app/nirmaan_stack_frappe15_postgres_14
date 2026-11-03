@@ -250,13 +250,17 @@ describe("Calculator slice 2 / the calculator constructs the helper with an EMPT
     expect(src).toContain("configsByCategory,");
     expect(src).toContain("extractionByRow: new Map(),");
     expect(src).not.toContain("admitCalculatorOnly");
+    // VRF-2a (owner 2026-11-03 Q1 A; temporary, removed at VRF-4): the ONE dep the calculator adds -- the surface
+    // flag that admits a `calculator_only` category (VRF). Pinned both ways in itemListPricing.test.ts.
+    expect(src).toContain("calculatorSurface: true,");
     expect(src).toContain('variant="calculator"');
     expect(src).toContain("<RateHelperPanel");
   });
-  it("⚠️ 12d-2: NEITHER surface passes an admission any more -- the calculator and the BoQ pricing editor build the helper identically", () => {
+  it("⚠️ 12d-2: NEITHER surface passes FA7's admission -- INVERTED by VRF-2a (Q1 A, temporary, removed at VRF-4): the calculator alone adds the surface flag; the BoQ pricing editor builds the helper without it", () => {
     const boq = readFileSync(
       join(__dirname, "..", "boq-wizard", "SheetPricingPage.tsx"), "utf-8");
     expect(boq).not.toContain("admitCalculatorOnly");
+    expect(boq).not.toContain("calculatorSurface");       // VRF-2a: the BoQ side never passes the surface flag
     expect(boq).toContain("makePricingSheetHelper");      // it really does build the same helper
     // the dep no longer exists on the helper's Deps at all (a flag that nothing can pass is not a switch)
     const helper = readFileSync(join(__dirname, "..", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"), "utf-8");

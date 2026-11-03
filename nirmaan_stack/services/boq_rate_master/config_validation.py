@@ -210,7 +210,20 @@ _KNOWN_CONFIG_KEYS = {
     # any more, so a config still carrying it is refused as an unknown top-level key. The frozen
     # historical assets v18..v28 do carry it and are therefore refused by this validator -- that is
     # the honest state of a retired key, and the tests pin it from both sides.
+    #
+    # VRF-2a (owner 2026-11-03 Q1 A): `calculator_only` is RE-ADMITTED, TEMPORARILY, FOR hvac_vrf ONLY --
+    # "A temporary "calculator only" switch for VRF, removed at VRF-4 ... BoQ rows and Suggest stay off
+    # until VRF-4. Removing it becomes a required item in VRF-4." It sets aside 12d-2's "never a second
+    # on/off switch" for VRF alone until VRF-4. `_validate_calculator_only` below refuses it on any other
+    # category, by name, so the frozen v18..v28 Insulation files stay refused exactly as before. Readers:
+    # `extraction.config_is_eligible` (false with it) and `pricingSheetHelper.isEligibleConfig` (false
+    # with it unless the helper is the calculator's). temporary, owner 2026-11-03 Q1 A; removed at VRF-4.
+    "calculator_only",
 }
+
+# VRF-2a (owner 2026-11-03 Q1 A): the ONE category the temporary `calculator_only` key may sit on. Named here
+# deliberately -- the owner ruled the switch for VRF only -- and removed with the key at VRF-4.
+_CALCULATOR_ONLY_CATEGORIES = frozenset({"hvac_vrf"})
 
 _LIST_MODE = "item_list"
 _LIST_DEF_TYPES = ("choice", "number", "text")
@@ -2197,6 +2210,32 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
                         _vthrow(f"{where}: component_ref.ref '{rk}' reads '{rv}', which is not a SKU attribute.")
 
 
+def _validate_calculator_only(cfg):
+    """VRF-2a (owner 2026-11-03 Q1 A) -- the TEMPORARY calculator-only switch, removed at VRF-4. Absent => nothing
+    to check (byte-identical to before for every config). Present, it must be:
+      - exactly `true` -- an explicit `false` is a key doing nothing (FA7's rule);
+      - on a category the owner ruled it for (`_CALCULATOR_ONLY_CATEGORIES`: hvac_vrf only) -- anywhere else it is
+        refused WITH THE REASON, so 12d-2's "never a second on/off switch" still holds for every other category,
+        and the frozen v18..v28 Insulation files stay refused;
+      - beside an item-list pricing block (`list_spec.pricing.families`) -- without rules there is nothing for the
+        calculator to price, so the key would switch nothing on (FA7's rule)."""
+    if "calculator_only" not in cfg:
+        return
+    if cfg.get("calculator_only") is not True:
+        _vthrow("calculator_only must be true when present (an explicit false is a key doing nothing).")
+    cat = (cfg.get("category_id") or "").strip()
+    if cat not in _CALCULATOR_ONLY_CATEGORIES:
+        _vthrow(
+            f"calculator_only is not allowed on category '{cat}': it is a temporary switch for VRF only "
+            f"(owner 2026-11-03 Q1 A, removed at VRF-4); every other category has ONE on/off switch "
+            f"(SLICE 12d-2), its pricing rules."
+        )
+    fams = (((cfg.get("list_spec") or {}).get("pricing") or {}).get("families"))
+    if not isinstance(fams, dict) or not fams:
+        _vthrow("calculator_only needs an item-list pricing block (list_spec.pricing.families): without rules the "
+                "calculator has nothing to price.")
+
+
 def _validate_alias_of(cfg):
     """SLICE 3: the alias key's shape. Absent => nothing to check (byte-identical to before)."""
     if "alias_of" not in cfg:
@@ -2452,7 +2491,7 @@ def _validate_config(cfg):
     _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
     _validate_column_order(cfg)       # SLICE 12c FINISH: the presentation order; a no-op without the key
     _validate_impact_examples(cfg)    # ELR-3a: the impact panel's worked examples; a no-op without the key
-    # SLICE 12d-2: `_validate_calculator_only` is GONE with its key -- the allowlist refuses the key by name.
+    _validate_calculator_only(cfg)    # VRF-2a (Q1 A): the temporary switch, hvac_vrf only; a no-op without the key
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")

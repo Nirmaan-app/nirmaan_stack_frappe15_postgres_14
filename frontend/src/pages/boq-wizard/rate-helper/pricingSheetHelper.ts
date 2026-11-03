@@ -252,13 +252,45 @@ export function nonBcsPipelines(config: RateCategoryConfig): Array<[string, Pipe
 
 /** A category participates in the helper iff its config has BOTH non-empty pipelines AND non-empty
  * attribute definitions (an empty-pipelines DATA-ONLY config -- e.g. lighting_mgmt_system -- is not
- * eligible; it shows "coming soon"). PURE. */
-export function isEligibleConfig(config: RateCategoryConfig | null | undefined): boolean {
+ * eligible; it shows "coming soon"). PURE.
+ *
+ * VRF-2a (owner 2026-11-03 Q1 A; TEMPORARY, removed at VRF-4): a config declaring `calculator_only: true`
+ * is NOT eligible unless the caller is the CALCULATOR (`opts.calculator`). Every reader that passes no
+ * option -- the BoQ pricing editor's compute, its pre-run cards and rules -- therefore declines it exactly
+ * as it declined the category before it had rules, and the server's `extraction.config_is_eligible`
+ * keeps it out of Suggest. The key is DATA, honoured on hvac_vrf only (`isCalculatorOnlyConfig`, the mirror of
+ * the server validator's allowlist). */
+export function isEligibleConfig(
+  config: RateCategoryConfig | null | undefined,
+  opts?: { calculator?: boolean },
+): boolean {
   return (
     !!config &&
     hasRunnablePricingRules(config) &&
-    (config.attribute_definitions ?? []).length > 0
+    (config.attribute_definitions ?? []).length > 0 &&
+    (!isCalculatorOnlyConfig(config) || opts?.calculator === true)
   );
+}
+
+/**
+ * VRF-2a (owner 2026-11-03 Q1 A: "A temporary "calculator only" switch for VRF, removed at VRF-4"): the ONE category
+ * the switch may sit on -- the client's mirror of the server validator's `_CALCULATOR_ONLY_CATEGORIES`, duplicated
+ * across the language boundary on purpose and removed with the key at VRF-4.
+ *
+ * ⚠️ WHY THE CLIENT LIMITS IT TOO. The frozen HVAC assets v18..v28 still carry FA7's RETIRED `calculator_only` on
+ * Insulation (a historical asset is never edited), and many tests price those frozen files. The server refuses the key
+ * on Insulation, so no served config can carry it there; reading it on any category here would decline those frozen
+ * Insulation configs on the BoQ side -- a change of behaviour the owner's ruling never asked for. Measured: honouring the
+ * key on every category failed 58 tests in four files (VRF-2a ledger).
+ */
+const CALCULATOR_ONLY_CATEGORIES: ReadonlySet<string> = new Set(["hvac_vrf"]);
+
+/** VRF-2a (owner 2026-11-03 Q1 A; temporary, removed at VRF-4): does this config carry the temporary
+ * calculator-only switch? Only exactly `true`, on a category the owner ruled it for (VRF), counts -- exactly what the
+ * server validator allows. PURE. */
+export function isCalculatorOnlyConfig(config: RateCategoryConfig | null | undefined): boolean {
+  return (config as { calculator_only?: unknown } | null | undefined)?.calculator_only === true
+    && CALCULATOR_ONLY_CATEGORIES.has(String(config?.category_id ?? ""));
 }
 
 /**
@@ -432,6 +464,13 @@ interface Deps {
   extractionByRow: Map<number, ExtractionRow>;
   // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is RETIRED -- `isEligibleConfig` admits an
   // item-list category on every surface, so the calculator and the BoQ panel build this helper identically.
+  /**
+   * VRF-2a (owner 2026-11-03 Q1 A; TEMPORARY, removed at VRF-4 with the `calculator_only` key): this helper
+   * serves the Pricing CALCULATOR. Only `PricingCalculator` passes it; the BoQ pricing editor never does, so a
+   * `calculator_only` category prices in the calculator and keeps its coming-soon card on every BoQ row.
+   * Absent (every other caller) is byte-identical to before for every config without the key.
+   */
+  calculatorSurface?: boolean;
 }
 
 /** Cable vs termination from the row text (a termination line prices the gland/lug set).
@@ -1385,7 +1424,7 @@ export function eitherWordsFor(label: string): string {
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
-  const { config, configsByCategory, items, extractionByRow } = deps;
+  const { config, configsByCategory, items, extractionByRow, calculatorSurface } = deps;
 
   /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
    * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
@@ -1410,7 +1449,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const cfg = resolveConfig(ctx.category);
     // SLICE 12d-2: ONE predicate on every surface (the FA7 calculator admission is retired) -- the
     // BoQ decline cards, the pre-run rules and the server's extraction population all read the same test.
-    if (!isEligibleConfig(cfg)) {
+    // VRF-2a (Q1 A; temporary, removed at VRF-4): the calculator surface also admits a `calculator_only` config.
+    if (!isEligibleConfig(cfg, { calculator: calculatorSurface === true })) {
       // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
       return { kind: "none", reason: declineReasonFor(cfg) };
     }

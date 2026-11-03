@@ -295,6 +295,10 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
             extractionByRow: new Map(),
             // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is retired -- the calculator and the BoQ
             // pricing editor build this helper IDENTICALLY, and one predicate admits a category on both.
+            // VRF-2a (owner 2026-11-03 Q1 A; TEMPORARY, removed at VRF-4): the ONE difference -- this is the
+            // calculator surface, so a `calculator_only` category (VRF) prices here while every BoQ row of
+            // it keeps the coming-soon card. The BoQ pricing editor never passes this flag.
+            calculatorSurface: true,
           })
         : null,
     [configsByCategory, items],

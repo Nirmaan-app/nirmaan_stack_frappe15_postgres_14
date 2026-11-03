@@ -18146,9 +18146,13 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
     # ---- the asset + the stored config -----------------------------------------------------------
 
     def test_fa7_01_INVERTED_the_SHIPPED_asset_declares_NO_admission_anywhere(self):
+        """INVERTED AGAIN by VRF-2a (owner 2026-11-03 Q1 A), negative half kept. BEFORE: `declaring == []`.
+        AFTER: the shipped asset declares the temporary key ONLY on a category the owner ruled it for
+        (`_CALCULATOR_ONLY_CATEGORIES` = hvac_vrf, removed at VRF-4) -- never on Insulation or any other."""
         declaring = [c["category_id"] for c in self.asset["category_configs"]
                      if "calculator_only" in c]
-        self.assertEqual(declaring, [])
+        self.assertTrue(set(declaring) <= set(config_validation._CALCULATOR_ONLY_CATEGORIES), declaring)
+        self.assertNotIn(self.CAT, declaring)
         # the frozen v28 file still carries it (a historical asset is never edited) -- the negative half
         self.assertIs(self._cfg(asset=self.v28).get("calculator_only"), True)
 
@@ -18169,7 +18173,13 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
         population is assembled from; the admission key is consulted nowhere in the service."""
         cfgs = self.asset["category_configs"]
         self.assertTrue(extraction.config_is_eligible(self._cfg(), cfgs))
-        self.assertNotIn("calculator_only", inspect.getsource(extraction))
+        # INVERTED by VRF-2a (owner 2026-11-03 Q1 A), negative half kept. BEFORE: `calculator_only` nowhere in the
+        # extraction service. AFTER: it is read in exactly the two return lines of `config_is_eligible` (the temporary
+        # VRF switch keeps such a config OUT of the population) and nowhere else; the loader still never reads it.
+        code = [l.strip() for l in re.sub(r'"""[\s\S]*?"""', "", inspect.getsource(extraction)).split("\n")
+                if "calculator_only" in l and not l.strip().startswith("#")]   # prose (docstrings) may name it; code is counted
+        self.assertEqual(len(code), 2, code)
+        self.assertTrue(all(l.startswith("return has_runnable_pricing_rules(") and l.endswith('.get("category_id") in _CO)') for l in code), code)
         self.assertNotIn("calculator_only", inspect.getsource(loader))
 
     def test_fa7_04_INVERTED_pipelines_stays_EMPTY_and_the_category_is_eligible_through_the_list_block(self):
@@ -18190,17 +18200,24 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
         cfg.setdefault("discipline", "HVAC")
         with self.assertRaises(Exception) as cm:
             config_validation._validate_config(cfg)
-        self.assertIn("Unknown top-level config key", str(cm.exception))
-        self.assertIn("calculator_only", str(cm.exception))
+        # INVERTED by VRF-2a (owner 2026-11-03 Q1 A), the refusal kept. BEFORE: refused as "Unknown top-level config
+        # key". AFTER: the key is back in the allowlist for VRF only, so the frozen v28 INSULATION config is still
+        # refused -- now by `_validate_calculator_only`, naming the category and the reason.
+        self.assertIn("calculator_only is not allowed on category 'hvac_insulation'", str(cm.exception))
+        self.assertIn("temporary switch for VRF only", str(cm.exception))
         cfg.pop("calculator_only")
         config_validation._validate_config(cfg)          # the same config without the key: fine
 
     def test_fa7_06_the_validator_module_carries_NO_admission_code_any_more(self):
+        """INVERTED by VRF-2a (owner 2026-11-03 Q1 A), negative half kept. BEFORE: no `_validate_calculator_only` and
+        no `calculator_only` code line. AFTER: the temporary VRF switch is validated by `_validate_calculator_only`,
+        which allows it on `_CALCULATOR_ONLY_CATEGORIES` = {hvac_vrf} ONLY; FA7's `CALCULATOR_ONLY_KEY` stays gone."""
         src = inspect.getsource(config_validation)
-        self.assertNotIn("_validate_calculator_only", src.replace("# SLICE 12d-2: `_validate_calculator_only` is GONE", ""))
         self.assertNotIn("CALCULATOR_ONLY_KEY", src)
-        code = [l for l in src.split("\n") if "calculator_only" in l and not l.strip().startswith("#")]
-        self.assertEqual(code, [])
+        self.assertEqual(config_validation._CALCULATOR_ONLY_CATEGORIES, frozenset({"hvac_vrf"}))
+        self.assertIn("calculator_only", config_validation._KNOWN_CONFIG_KEYS)
+        self.assertTrue(callable(config_validation._validate_calculator_only))
+        self.assertIn("_validate_calculator_only(cfg)", inspect.getsource(config_validation._validate_config))
 
     def test_fa7_07_NEGATIVE_a_config_with_NOTHING_TO_PRICE_is_still_not_eligible(self):
         """What the retired admission used to refuse by name is now simply not eligible: no rules,
@@ -18294,6 +18311,122 @@ class TestCalculatorAdmissionRetired(FrappeTestCase):
 # to type the size the BoQ states, because the ladder, the rounding and the composition rules exist
 # precisely to resolve a size the sheet does not stock.
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestVrf2aCalculatorOnlySwitch(FrappeTestCase):
+    """VRF-2a (owner 2026-11-03 Q1 A) -- THE TEMPORARY CALCULATOR-ONLY SWITCH, removed at VRF-4. "A temporary
+    "calculator only" switch for VRF, removed at VRF-4 ... BoQ rows and Suggest stay off until VRF-4."
+
+    The server's half: the validator allows `calculator_only: true` on hvac_vrf ONLY (any other category is refused,
+    naming the reason); a config carrying it is NOT eligible, so `assemble_population` admits none of its rows and no
+    Suggest run asks the model about them. FIXTURES, no DB: the frozen v55 Insulation config (an eligible item-list
+    config) relabelled hvac_vrf, and v55's own hvac_vrf config (no pricing block). The calculator / panel halves are
+    pinned on the frontend (itemListPricing.test.ts, "VRF-2a (Q1 A)")."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v55.json"), "r", encoding="utf-8") as fh:
+            cls.v55 = json.load(fh)
+
+    def _v55(self, cat):
+        return copy.deepcopy(next(c for c in self.v55["category_configs"] if c["category_id"] == cat))
+
+    def _vrf_priced(self, key=True):
+        """An eligible item-list config under the id hvac_vrf (Insulation's v55 rules, relabelled), with or without the key."""
+        cfg = self._v55("hvac_insulation")
+        cfg["category_id"] = "hvac_vrf"
+        cfg.setdefault("discipline", "HVAC")
+        if key:
+            cfg["calculator_only"] = True
+        return cfg
+
+    # ---- the validator ----------------------------------------------------------------------------------------
+
+    def test_v2a_01_POSITIVE_the_key_is_accepted_on_hvac_vrf_beside_a_pricing_block(self):
+        config_validation._validate_config(self._vrf_priced())
+        config_validation._validate_config(self._vrf_priced(key=False))     # and the config without it, as ever
+
+    def test_v2a_02_NEGATIVE_refused_on_any_other_category_naming_the_reason(self):
+        for disc, cat in (("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping"), ("HVAC", "hvac_adp")):
+            cfg = self._v55(cat)
+            cfg.setdefault("discipline", disc)
+            config_validation._validate_config(copy.deepcopy(cfg))          # valid as shipped
+            cfg["calculator_only"] = True
+            with self.assertRaises(Exception) as cm:
+                config_validation._validate_config(cfg)
+            msg = str(cm.exception)
+            self.assertIn("calculator_only is not allowed on category '%s'" % cat, msg)
+            self.assertIn("temporary switch for VRF only", msg)
+            self.assertIn("removed at VRF-4", msg)
+
+    def test_v2a_03_NEGATIVE_an_explicit_false_or_a_non_bool_is_a_key_doing_nothing(self):
+        for bad in (False, "true", 1, None):
+            cfg = self._vrf_priced()
+            cfg["calculator_only"] = bad
+            with self.assertRaises(Exception) as cm:
+                config_validation._validate_config(cfg)
+            self.assertIn("calculator_only must be true when present", str(cm.exception))
+
+    def test_v2a_04_NEGATIVE_refused_without_an_item_list_pricing_block(self):
+        cfg = self._v55("hvac_vrf")          # v55's VRF: data only, no list_spec
+        cfg.setdefault("discipline", "HVAC")
+        config_validation._validate_config(copy.deepcopy(cfg))
+        cfg["calculator_only"] = True
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn("calculator_only needs an item-list pricing block", str(cm.exception))
+
+    # ---- eligibility --------------------------------------------------------------------------------------------
+
+    def test_v2a_05_eligible_WITHOUT_the_key_NOT_eligible_WITH_it_the_rules_still_run(self):
+        on, off = self._vrf_priced(key=False), self._vrf_priced(key=True)
+        self.assertTrue(extraction.config_is_eligible(on))
+        self.assertFalse(extraction.config_is_eligible(off))
+        self.assertTrue(extraction.has_runnable_pricing_rules(off))           # only the switch holds it back
+        cfgs = {("HVAC", "hvac_vrf"): off}
+        self.assertFalse(extraction.config_is_eligible(off, cfgs))
+
+    def test_v2a_06_an_ALIAS_onto_a_calculator_only_target_is_not_eligible_either(self):
+        target = self._vrf_priced(key=True)
+        alias = {"discipline": "HVAC", "category_id": "hvac_vrf_alias", "attribute_definitions": [], "pipelines": {},
+                 "alias_of": {"discipline": "HVAC", "category_id": "hvac_vrf"}}
+        cfgs = {("HVAC", "hvac_vrf"): target, ("HVAC", "hvac_vrf_alias"): alias}
+        self.assertFalse(extraction.config_is_eligible(alias, cfgs))
+        cfgs[("HVAC", "hvac_vrf")] = self._vrf_priced(key=False)
+        self.assertTrue(extraction.config_is_eligible(alias, cfgs))           # the same alias onto the switch-free target
+
+    def test_v2a_07_assemble_population_admits_NO_row_of_a_calculator_only_category(self):
+        """The Suggest population, on a fixture sheet: two rate-editable rows, one hvac_vrf and one hvac_piping, both
+        categories carrying rules. With the key, only the Piping row is admitted; without it, both are."""
+        piping = self._v55("hvac_piping")
+        piping.setdefault("discipline", "HVAC")
+        ctx = {"committed_version": 3, "rows": [{"excel_row": 10, "description": "VRF ODU 16 HP"},
+                                                {"excel_row": 11, "description": "Copper pipe 12.7"}]}
+        resolved = {10: ("hvac_vrf", "HVAC"), 11: ("hvac_piping", "HVAC")}
+
+        def run(vrf_cfg):
+            cfgs = {("HVAC", "hvac_vrf"): vrf_cfg, ("HVAC", "hvac_piping"): piping}
+            with mock.patch.object(extraction, "build_sheet_context", return_value=copy.deepcopy(ctx)), \
+                    mock.patch.object(extraction, "_resolved_categories", return_value=resolved), \
+                    mock.patch.object(extraction, "_rate_editable_excel_rows", return_value={10, 11}), \
+                    mock.patch.object(extraction, "load_configs_with_alias_targets", return_value=cfgs):
+                cv, rows = extraction.assemble_population("BOQ-FIXTURE", "HVAC")
+            self.assertEqual(cv, 3)
+            return [(r["excel_row"], r["category_id"]) for r in rows]
+
+        self.assertEqual(run(self._vrf_priced(key=True)), [(11, "hvac_piping")])
+        self.assertEqual(run(self._vrf_priced(key=False)), [(10, "hvac_vrf"), (11, "hvac_piping")])
+
+    def test_v2a_08_NEGATIVE_the_key_is_IGNORED_off_VRF_the_frozen_insulation_files_stay_eligible(self):
+        """The server mirrors the client: the key counts only on `_CALCULATOR_ONLY_CATEGORIES`. The frozen v28 Insulation
+        config still carries FA7's retired key (a historical asset is never edited); it stays eligible, as 12d-2 pinned."""
+        with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
+            ins28 = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == "hvac_insulation")
+        self.assertIs(ins28.get("calculator_only"), True)
+        self.assertTrue(extraction.config_is_eligible(ins28))
+        other = dict(self._vrf_priced(key=True), category_id="hvac_piping")
+        self.assertTrue(extraction.config_is_eligible(other))
+
+
 class TestPanelControlsAndNotes(FrappeTestCase):
     """The control vocabulary, and the note a typed field must carry."""
 

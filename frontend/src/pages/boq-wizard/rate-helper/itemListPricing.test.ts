@@ -16,6 +16,8 @@ import { runPipeline } from "../../pricing/rate-master/ratePipelineInterpreter";
 import {
   isEligibleConfig, hasRunnablePricingRules,
   makePricingSheetHelper, declineReasonFor,
+  isCalculatorOnlyConfig, disciplineHasNothingToRun, disciplineDeclaresPreRunCards, rowUsesPreRunHelper,
+  COMING_SOON_REASON,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
 import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
@@ -2205,14 +2207,21 @@ describe("SLICE 12d-2 (owner S1) -- the FA7 calculator admission is RETIRED; ONE
     expect(hasRunnablePricingRules(adp)).toBe(true);
   });
 
-  it("⚠️ NEGATIVE: the admission identifiers appear in NO code line of either product file; prose may still name them", () => {
+  it("⚠️ INVERTED by VRF-2a (owner 2026-11-03 Q1 A), NEGATIVE half kept: FA7's admission identifiers appear in NO code line of either product file; the revived `calculator_only` is read in the helper's code ONLY, by `isCalculatorOnlyConfig`, and never by the calculator", () => {
+    /**
+     * BEFORE (12d-2): `calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig|isCalculatorOnlyConfig` in NO code
+     * line of pricingSheetHelper.ts or PricingCalculator.tsx. AFTER (VRF-2a, the owner's temporary VRF switch, removed at
+     * VRF-4): FA7's dep and FA7's second predicate are still absent from both files; the key is read in the helper at ONE
+     * place (`isCalculatorOnlyConfig`) and the calculator only passes the surface flag -- it never reads the key itself.
+     */
+    const code = (src: string, re: RegExp) => src.split("\n").filter((l) => re.test(l)).filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));
     for (const src of [HELPER_SRC, CALCULATOR_SRC]) {
-      const codeLines = src
-        .split("\n")
-        .filter((l) => /calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig|isCalculatorOnlyConfig/.test(l))
-        .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));          // prose may name them; code may not
-      expect(codeLines).toEqual([]);
+      expect(code(src, /admitCalculatorOnly|isCalculatorPriceableConfig/)).toEqual([]);   // the negative half, kept
     }
+    expect(code(CALCULATOR_SRC, /calculator_only|isCalculatorOnlyConfig/)).toEqual([]);
+    expect(code(HELPER_SRC, /calculator_only/)).toEqual([
+      "  return (config as { calculator_only?: unknown } | null | undefined)?.calculator_only === true",
+    ]);
   });
 
   it("⚠️ NO DISCIPLINE AND NO CATEGORY IS NAMED IN THE PREDICATE'S CODE (the HV-10 rule)", () => {
@@ -2223,6 +2232,109 @@ describe("SLICE 12d-2 (owner S1) -- the FA7 calculator admission is RETIRED; ONE
       if (/^\s*(\*|\/\/|\/\*)/.test(l)) continue;
       expect(l).not.toMatch(/hvac_|HVAC|Electrical|insulation/);
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * VRF-2a (owner 2026-11-03 Q1 A) -- THE TEMPORARY CALCULATOR-ONLY SWITCH, removed at VRF-4.
+ *
+ * "A temporary "calculator only" switch for VRF, removed at VRF-4 ... BoQ rows and Suggest stay off until VRF-4."
+ * A config carrying `calculator_only: true` prices in the CALCULATOR (the helper built with `calculatorSurface`)
+ * and declines on the BoQ panel (the helper built without it) with the coming-soon text it showed before it had
+ * rules. Fixture: the frozen v25 Insulation config (an eligible item-list config) RELABELLED hvac_vrf, with the key added
+ * in memory. The key is honoured on hvac_vrf ONLY (the client mirrors the validator's allowlist), so the frozen v18..v28
+ * Insulation files -- which still carry FA7's retired key -- are untouched on every surface (pinned below).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("VRF-2a (Q1 A) -- `calculator_only`: the calculator prices, the BoQ panel declines, the pre-run rules see nothing to run", () => {
+  const CAT = "hvac_vrf";
+  const cfgs25 = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> }).category_configs;
+  const insFrozen = cfgs25.find((x) => x.category_id === "hvac_insulation") as unknown as RateCategoryConfig;
+  const plainCfg = (() => {
+    const c = structuredClone(insFrozen) as unknown as Record<string, unknown>;
+    delete c.calculator_only;                        // v25 carries the RETIRED FA7 key; start from a config without it
+    c.category_id = CAT;                             // Insulation's rules under the one id the switch is allowed on
+    return c as unknown as RateCategoryConfig;
+  })();
+  const switched = { ...(plainCfg as object), calculator_only: true } as unknown as RateCategoryConfig;
+  const items25 = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items;
+  const ctx = (): RateHelperRowContext => ({
+    excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
+    category: CAT, discipline: "HVAC", displayKinds: [...DISPLAY_RATE_KINDS],
+  } as unknown as RateHelperRowContext);
+  const helperOf = (cfg: RateCategoryConfig, calculatorSurface?: boolean) =>
+    makePricingSheetHelper({ configsByCategory: new Map([[CAT, cfg]]), items: items25, extractionByRow: new Map(),
+      ...(calculatorSurface === undefined ? {} : { calculatorSurface }) });
+
+  it("the key is read as exactly `true` (anything else is not the switch)", () => {
+    expect(isCalculatorOnlyConfig(switched)).toBe(true);
+    expect(isCalculatorOnlyConfig(plainCfg)).toBe(false);
+    expect(isCalculatorOnlyConfig({ ...(plainCfg as object), calculator_only: "true" } as unknown as RateCategoryConfig)).toBe(false);
+    expect(isCalculatorOnlyConfig(null)).toBe(false);
+  });
+
+  it("POSITIVE: eligible WITHOUT the key on every surface; NEGATIVE: NOT eligible WITH it, unless the caller is the calculator", () => {
+    expect(isEligibleConfig(plainCfg)).toBe(true);
+    expect(isEligibleConfig(plainCfg, { calculator: true })).toBe(true);
+    expect(isEligibleConfig(switched)).toBe(false);
+    expect(isEligibleConfig(switched, { calculator: false })).toBe(false);
+    expect(isEligibleConfig(switched, { calculator: true })).toBe(true);
+    // the rules themselves still run -- the switch is the only thing that holds the panel back
+    expect(hasRunnablePricingRules(switched)).toBe(true);
+  });
+
+  it("NEGATIVE: the switch never makes a config WITHOUT rules priceable, even in the calculator", () => {
+    const empty = { category_id: CAT, calculator_only: true, attribute_definitions: [{ id: "a", label: "A", type: "text" }], pipelines: {} } as unknown as RateCategoryConfig;
+    expect(isEligibleConfig(empty, { calculator: true })).toBe(false);
+  });
+
+  it("NEGATIVE: the key is IGNORED on any other category (the client mirrors the validator: VRF only) -- the frozen v25 Insulation, which still carries FA7's retired key, is eligible on every surface, flag or not", () => {
+    expect((insFrozen as { calculator_only?: unknown }).calculator_only).toBe(true);
+    expect(isCalculatorOnlyConfig(insFrozen)).toBe(false);
+    expect(isEligibleConfig(insFrozen)).toBe(true);
+    const other = { ...(plainCfg as object), category_id: "hvac_piping", calculator_only: true } as unknown as RateCategoryConfig;
+    expect(isCalculatorOnlyConfig(other)).toBe(false);
+    expect(isEligibleConfig(other)).toBe(true);
+    const r = makePricingSheetHelper({ configsByCategory: new Map([["hvac_insulation", insFrozen]]), items: items25, extractionByRow: new Map() })
+      .compute({ ...ctx(), category: "hvac_insulation" } as RateHelperRowContext);
+    expect(r.kind).not.toBe("none");
+  });
+
+  it("the BoQ panel (no flag) DECLINES with today's coming-soon text; the calculator (flag) PRICES exactly as the switch-free config does", () => {
+    const panel = helperOf(switched).compute(ctx());
+    expect(panel.kind).toBe("none");
+    expect((panel as { reason: string }).reason).toBe(COMING_SOON_REASON);
+    const calc = helperOf(switched, true).compute(ctx());
+    expect(calc.kind).not.toBe("none");
+    // byte-identical to the config without the key, on both surfaces -- the flag adds nothing but the admission
+    expect(JSON.stringify(calc)).toBe(JSON.stringify(helperOf(plainCfg).compute(ctx())));
+    expect(JSON.stringify(calc)).toBe(JSON.stringify(helperOf(plainCfg, true).compute(ctx())));
+  });
+
+  it("an explicit `calculatorSurface: false` is the BoQ panel", () => {
+    expect(helperOf(switched, false).compute(ctx()).kind).toBe("none");
+  });
+
+  it("the pre-run rules (no flag) see a `calculator_only` category as having NOTHING to run -- as before it had rules", () => {
+    const targets = [{ discipline: "HVAC", categoryId: CAT }];
+    const sw = new Map([[CAT, switched]]);
+    const pl = new Map([[CAT, plainCfg]]);
+    expect(disciplineHasNothingToRun("HVAC", sw, targets)).toBe(true);
+    expect(disciplineHasNothingToRun("HVAC", pl, targets)).toBe(false);
+    expect(disciplineDeclaresPreRunCards("HVAC", sw, targets)).toBe(true);
+    expect(disciplineDeclaresPreRunCards("HVAC", pl, targets)).toBe(false);
+    expect(rowUsesPreRunHelper("HVAC", CAT, sw, targets)).toBe(true);
+    expect(rowUsesPreRunHelper("HVAC", CAT, pl, targets)).toBe(false);
+  });
+
+  it("⚠️ ONLY the calculator passes the flag: PricingCalculator.tsx sets it; the BoQ pricing page never names it", () => {
+    const strip = (src: string) => src.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
+    expect(strip(CALCULATOR_SRC)).toContain("calculatorSurface: true,");
+    const boq = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf-8");
+    expect(boq).toContain("makePricingSheetHelper");
+    expect(boq).not.toContain("calculatorSurface");
+    // the gate inside compute is the ONE place the helper reads the flag
+    expect(strip(HELPER_SRC).match(/calculatorSurface/g)?.length).toBe(3);   // the Deps field + the destructure + the gate
+    expect(strip(HELPER_SRC)).toContain("if (!isEligibleConfig(cfg, { calculator: calculatorSurface === true })) {");
   });
 });
 
