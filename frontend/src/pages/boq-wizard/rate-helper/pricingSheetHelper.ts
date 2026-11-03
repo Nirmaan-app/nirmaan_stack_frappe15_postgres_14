@@ -4088,6 +4088,10 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       setOther(op.index, op.id, op.on);
       // opening the box CLEARS the field, which is what picking "Other..." has always done
       if (op.on) at(op.index).attrs[op.id] = "";
+      // VRF-2b (owner QR-1 U1 A: "picking a size from the dropdown needs no picker -- the option already says its unit";
+      // found in the cert): closing the typed box -- a real pick or "- select -" -- drops the unit picker's value, so a picked
+      // "1.5TR" is never read in a unit left over from the box (it priced as 1.5 kW). An item without a picker is unchanged.
+      if (!op.on) delete at(op.index).attrs[`${op.id}${UNIT_PICK_SUFFIX}`];
       return done(items);
     case "undo_attr":
       if (!at(op.index)) return state;

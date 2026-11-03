@@ -14,7 +14,7 @@ import {
   projectUnitClass, readCapacity, specKinds, unitPickerUnits, fieldOptionsFromSkus, UNIT_PICK_SUFFIX,
   type ExtractedListItem, type ItemListPricingSpec,
 } from "./itemListPricing";
-import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, makePricingSheetHelper, type ItemListSuggestion } from "./pricingSheetHelper";
+import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, makePricingSheetHelper, type ItemListEditState, type ItemListSuggestion } from "./pricingSheetHelper";
 import { calculatorCtx } from "../../pricing/PricingCalculator";
 import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
 
@@ -374,6 +374,23 @@ describe("VRF-2b -- the screen: option units (U2 A), the picker (U1), other form
     const r = run(VRF, "Nos", { base: null, family: "Hi-Wall", attrs: { brand: "Blue Star", capacity: "5", [`capacity${UNIT_PICK_SUFFIX}`]: "kW" }, other: ["capacity"] });
     expect(field(r, "capacity").note).toBe("5 kW / 3.517 (kW per TR, Pricing Inputs) = 1.42 TR -> priced as 1.5 TR (next size up)");
     expect([r.itemList!.totals!.supply_rate, r.itemList!.totals!.install_rate]).toEqual([20760, 1800]);
+  });
+
+  it("a size PICKED from the list after the typed box is never read in the picker's leftover unit (found in the cert: '1.5TR' after kW priced 1.5 kW)", () => {
+    // the panel's select sends set_other(on: false) then set_attr for a real pick -- the picker's value goes with the box
+    let st: ItemListEditState = { items: [{ base: null, family: "Hi-Wall", attrs: { brand: "Blue Star", capacity: "5", [`capacity${UNIT_PICK_SUFFIX}`]: "kW" }, other: ["capacity"] }] };
+    st = applyItemEdit(st, { op: "set_other", index: 0, id: "capacity", on: false });
+    st = applyItemEdit(st, { op: "set_attr", index: 0, id: "capacity", value: "1.5" });
+    const attrs = st.items[0].attrs;
+    expect(attrs[`capacity${UNIT_PICK_SUFFIX}`]).toBeUndefined();
+    const r = run(VRF, "Nos", st.items[0] as unknown as Record<string, unknown>);
+    expect([r.itemList!.totals!.supply_rate, r.itemList!.totals!.install_rate]).toEqual([20760, 1800]);
+    // NEGATIVE (BEFORE): with the leftover kW the same pick read 1.5 kW -> 0.43 TR -> the 0.8 TR unit
+    const stale = run(VRF, "Nos", { base: null, family: "Hi-Wall", attrs: { brand: "Blue Star", capacity: "1.5", [`capacity${UNIT_PICK_SUFFIX}`]: "kW" } });
+    expect(stale.itemList!.totals!.supply_rate).toBe(18240);
+    // opening the box again keeps nothing stale either: the picker shows the item's own unit
+    st = applyItemEdit(st, { op: "set_other", index: 0, id: "capacity", on: true });
+    expect(field(run(VRF, "Nos", st.items[0] as unknown as Record<string, unknown>), "capacity").unitPicker?.value).toBe("TR");
   });
 
   it("NEGATIVE (U8): no other category's form carries a picker or unit labels -- Piping's size field is as before", () => {
