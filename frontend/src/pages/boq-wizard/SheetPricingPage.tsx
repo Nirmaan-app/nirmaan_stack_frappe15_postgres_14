@@ -3026,6 +3026,11 @@ const SheetPricingPage = () => {
     return run && commitVersion !== null && Number(run.commit_version) === Number(commitVersion) ? run : null;
   }, [matchResultsData, commitVersion]);
   const unitByExcelRow = useMemo(() => new Map(rows.map((r) => [r.source_row_number, r.unit ?? ""])), [rows]);
+  // DEV2-B6 (owner answer 2, "widen"): the rows with "Previously priced" matches -> the grid's visible sparkle.
+  const matchResultRows = useMemo(
+    () => new Set((matchRunForVersion?.rows ?? []).filter((r) => (r.matches?.length ?? 0) > 0).map((r) => Number(r.excel_row))),
+    [matchRunForVersion],
+  );
   const previouslyPricedHelper = useMemo(() => {
     if (!RATE_HELPER_ENABLED || !matchEnabled || !boqId || !sheetName) return null;
     const target = (m: PreviousMatch, excelRow: number) => ({
@@ -5603,6 +5608,7 @@ const SheetPricingPage = () => {
             // is a stable useCallback; rowSuggestionsByExcelRow changes only on a run / a "Use this
             // value" (like liveCategoriesByExcelRow) -- never on keystroke, so the memo shield holds.
             rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
+            matchResultRows={RATE_HELPER_ENABLED && matchEnabled ? matchResultRows : undefined}
             onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
             tickableRows={RATE_HELPER_ENABLED ? eligibleRows : undefined}
             selectedRows={RATE_HELPER_ENABLED ? selectedRows : undefined}

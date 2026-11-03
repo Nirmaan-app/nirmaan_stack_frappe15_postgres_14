@@ -605,7 +605,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
         // RM-3b empty state (embedded panel-as-default): a quiet placeholder until a row is picked.
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <div className="rounded-md border border-dashed bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
-            Click a suggestion badge or the sparkle on a rate cell to load that row.
+            Click the sparkle (Open rate suggestions) on a rate cell to load that row.
           </div>
         </div>
       )}
@@ -626,7 +626,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                 className="rounded-md border bg-muted/40 px-3 py-2 opacity-70"
               >
                 <div className="text-sm font-medium text-muted-foreground">{helper.label}</div>
-                <div className="text-xs text-muted-foreground">{result.reason}</div>
+                <div className="text-xs text-muted-foreground" title={result.detail}>{result.reason}</div>
               </div>
             );
           }

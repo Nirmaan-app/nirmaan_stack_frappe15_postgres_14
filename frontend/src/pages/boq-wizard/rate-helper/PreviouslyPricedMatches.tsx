@@ -13,11 +13,21 @@
  *              optional reason + note -> saved, struck through, out of the range; "Undo"; "Open this row" only when
  *              the user may open that BoQ.
  * Every rule (range, unit, total, order, words) is a pure function in rateHelperRegistry.ts; this file renders them.
+ *
+ * DEV2-B6 MOVABLE POP-UP (owner 23:22: "the modal which opens on clicking any match is stuck at one place opn the
+ * screen...can we make it move freely across the screen so that the user can also move it to see the backgroyund
+ * row"): dragged by its top bar (pointer events: mouse and touch); NO dimming overlay, the page behind stays visible;
+ * kept inside the window (clampDrag: the top bar never leaves the screen); the position is kept while stepping prev /
+ * next; the next open is centred again (the dialog unmounts on close); the close button and Esc close it as before;
+ * a click on the page behind does NOT close it; focus stays in the pop-up (Radix's modal focus trap).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { Cross2Icon } from "@radix-ui/react-icons";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
   MATCH_DOT_HEX,
@@ -38,6 +48,29 @@ export const NOT_A_MATCH_REASONS = ["Different spec", "Different item", "Differe
 /** PURE. The pricing route's link to a row (G14 (a)): the page reads `?row=`, clears its view filters, scrolls there. */
 export function matchRowHref(m: Pick<PreviousMatch, "boq" | "sheet_name" | "excel_row">): string {
   return `/upload-boq/hub/${encodeURIComponent(m.boq)}/pricing/${encodeURIComponent(m.sheet_name)}?row=${m.excel_row}`;
+}
+
+export interface DragPos {
+  x: number;
+  y: number;
+}
+
+/** PURE (DEV2-B6). The pop-up's offset `want` from the centred position, clamped so it stays inside the window: left /
+ *  right edges inside it (when the pop-up is wider than the window, its edges stay outside it instead), and the top
+ *  bar never leaves the screen (top >= 0 and top + barHeight <= the window's height). */
+export function clampDrag(
+  want: DragPos,
+  box: { width: number; height: number },
+  view: { width: number; height: number },
+  barHeight: number,
+): DragPos {
+  const left0 = (view.width - box.width) / 2;
+  const top0 = (view.height - box.height) / 2;
+  const [minL, maxL] = box.width <= view.width ? [0, view.width - box.width] : [view.width - box.width, 0];
+  const maxT = Math.max(0, view.height - Math.max(0, barHeight));
+  const left = Math.min(maxL, Math.max(minL, left0 + want.x));
+  const top = Math.min(maxT, Math.max(0, top0 + want.y));
+  return { x: left - left0, y: top - top0 };
 }
 
 /** PURE. prev / next wrap round the shown matches. */
@@ -172,6 +205,37 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const d = m ? detail[m.key] : undefined;
+  // DEV2-B6: the drag. `pos` lives here, so it is kept while prev / next change `index`; a new open mounts afresh.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<DragPos>({ x: 0, y: 0 });
+  const drag = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const clampTo = (want: DragPos): DragPos => {
+    const box = boxRef.current?.getBoundingClientRect();
+    return clampDrag(want, { width: box?.width ?? 0, height: box?.height ?? 0 },
+      { width: window.innerWidth, height: window.innerHeight }, barRef.current?.getBoundingClientRect().height ?? 0);
+  };
+  const onBarDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button, a, input")) return;   // the bar's buttons still click
+    drag.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+  const onBarMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const g = drag.current;
+    if (g) setPos(clampTo({ x: g.ox + e.clientX - g.sx, y: g.oy + e.clientY - g.sy }));
+  };
+  const onBarUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    if (e.currentTarget.hasPointerCapture?.(drag.current.id)) e.currentTarget.releasePointerCapture(drag.current.id);
+    drag.current = null;
+  };
+  useEffect(() => {
+    const keepInside = () => setPos((p) => clampTo(p));
+    window.addEventListener("resize", keepInside);
+    return () => window.removeEventListener("resize", keepInside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setForm(false); setReason(null); setNote(""); setError(null);
@@ -195,8 +259,27 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
     finally { setBusy(false); }
   };
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto" data-testid="match-dialog">
+    <DialogPrimitive.Root open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogPrimitive.Portal>
+      {/* DEV2-B6: no DialogOverlay - the page behind stays visible; a click there does not close the pop-up. */}
+      <DialogPrimitive.Content
+        ref={boxRef}
+        data-testid="match-dialog"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+        style={{ left: `calc(50% + ${pos.x}px)`, top: `calc(50% + ${pos.y}px)` }}
+        className="fixed z-50 grid max-h-[85vh] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto border bg-background p-6 shadow-lg sm:rounded-lg"
+      >
+        <div
+          ref={barRef}
+          data-testid="match-dialog-bar"
+          title="Drag to move"
+          className="-mx-6 -mt-6 cursor-move touch-none select-none px-6 pt-6"
+          onPointerDown={onBarDown}
+          onPointerMove={onBarMove}
+          onPointerUp={onBarUp}
+          onPointerCancel={onBarUp}
+        >
         <DialogHeader>
           <div className="flex items-center gap-2 pr-6">
             <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" aria-label="Previous match"
@@ -218,6 +301,7 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
             </Button>
           </div>
         </DialogHeader>
+        </div>
         <div className="grid grid-cols-3 gap-3 text-sm">
           <div><div className="text-xs text-muted-foreground">Project</div><div className="font-medium">{det?.project_name ?? det?.project ?? "—"}</div></div>
           <div><div className="text-xs text-muted-foreground">BoQ</div><div className="font-medium">{det?.boq_name ? `${det.boq_name} (${m.boq})` : m.boq}</div></div>
@@ -303,7 +387,12 @@ export function MatchDialog({ view, index, onIndex, onClose }: {
             </Button>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+          <Cross2Icon className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

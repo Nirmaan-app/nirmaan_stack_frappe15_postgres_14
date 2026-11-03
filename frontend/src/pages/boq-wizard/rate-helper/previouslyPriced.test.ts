@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MATCH_DOT_TEXT,
+  MATCH_FAILURE_TEXT,
   MATCH_STATE_TEXT,
   buildHelperList,
   isOtherUnit,
@@ -117,11 +118,16 @@ describe("the greyed states (D3) and the closure", () => {
   it("running / not run / failed / no earlier match", () => {
     expect(previouslyPricedResult(input({ running: true }), 5)).toEqual({ kind: "none", reason: MATCH_STATE_TEXT.running });
     expect(previouslyPricedResult(input({ run: null }), 5)).toEqual({ kind: "none", reason: "Matching not run yet" });
+    // DEV2-B6 PLAIN WORDING (owner 22:55): INVERTED under mechanical authority - was "Matching failed: the judge stopped";
+    // the plain words now, and the raw reason never shown as text (the negative half).
     expect(previouslyPricedResult(input({ run: null, failedReason: "the judge stopped" }), 5))
-      .toEqual({ kind: "none", reason: "Matching failed: the judge stopped" });
+      .toEqual({ kind: "none", reason: MATCH_FAILURE_TEXT.retry, detail: "the judge stopped" });
+    expect((previouslyPricedResult(input({ run: null, failedReason: "the judge stopped" }), 5) as { reason?: string }).reason).not.toContain("the judge stopped");
     expect(previouslyPricedResult(input(), 6)).toEqual({ kind: "none", reason: "No earlier match found" });
     expect(previouslyPricedResult(input(), 99)).toEqual({ kind: "none", reason: "No earlier match found" });
-    expect(previouslyPricedResult(input(), 7)).toEqual({ kind: "none", reason: "Matching failed: the call failed: timeout" });
+    // DEV2-B6: INVERTED as above - was "Matching failed: the call failed: timeout".
+    expect(previouslyPricedResult(input(), 7)).toEqual({ kind: "none", reason: MATCH_FAILURE_TEXT.retry, detail: "the call failed: timeout" });
+    expect((previouslyPricedResult(input(), 7) as { reason?: string }).reason).not.toContain("timeout");
   });
 
   it("a row with matches -> a decline CARRYING them, with the row's unit and its own row bound into the actions", async () => {

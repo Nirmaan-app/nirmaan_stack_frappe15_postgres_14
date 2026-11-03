@@ -72,6 +72,37 @@ export const MATCH_STATE_TEXT = {
   failedPrefix: "Matching failed: ",
 } as const;
 
+/** DEV2-B6 PLAIN WORDING (owner 22:55 on cert 16: "...shows an error message of not being done due to som etest budget
+ *  ...what is it??"): what a failed row or run SHOWS. The stored technical reason is never shown as text. */
+export const MATCH_FAILURE_TEXT = {
+  retry: "Couldn't check earlier BoQs for this row. Run Suggest again to retry.",
+  poolNotReady: "Earlier BoQs are being prepared. Try again in a few minutes.",
+  tooLong: "This row is too long to check against earlier BoQs.",
+  switchedOff: "Checking earlier BoQs is switched off.",
+  suggestChanged: "The suggestions changed while earlier BoQs were being checked. Run Suggest again to retry.",
+} as const;
+
+/** PURE. A stored failure reason (a row's no_verdict, or the run's halt reason) -> the plain words shown, and the
+ *  technical reason kept for the hover title. Every reason maps; an UNKNOWN one gets the first wording, never raw text.
+ *    "pool not ready: ..." (match_run.job_pool)                                  -> poolNotReady
+ *    "not sent: too_large (...)" (the size guard: the request is over the limit)  -> tooLong
+ *    "Historical matching is switched off (match_enabled)."                       -> switchedOff
+ *    "The Suggest run this match follows is no longer the sheet's active ..."     -> suggestChanged
+ *    everything else -- "not sent", "not sent: caller_refused (...)", "the call failed: ...", every reply that could
+ *    not be read (cut at max_tokens, refused, no / bad JSON, verdicts or order not covering the candidates, unknown
+ *    verdicts), "The call runner stopped: ...", "The match run stopped unexpectedly.", "stale - worker gone",
+ *    "the match run stopped", and any reason not listed                           -> retry */
+export function plainMatchFailure(reason: string | null | undefined): { words: string; detail: string } {
+  const detail = String(reason ?? "").trim();
+  const r = detail.toLowerCase();
+  let words: string = MATCH_FAILURE_TEXT.retry;
+  if (r.startsWith("pool not ready")) words = MATCH_FAILURE_TEXT.poolNotReady;
+  else if (r.includes("too_large")) words = MATCH_FAILURE_TEXT.tooLong;
+  else if (r.includes("historical matching is switched off")) words = MATCH_FAILURE_TEXT.switchedOff;
+  else if (r.includes("is no longer the sheet's active")) words = MATCH_FAILURE_TEXT.suggestChanged;
+  return { words, detail };
+}
+
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /** G13: the TOTAL rate = supply + install where the row was priced split, else its combined rate; null when none. */
@@ -160,14 +191,14 @@ export interface PreviouslyPricedInput {
 export function previouslyPricedResult(input: PreviouslyPricedInput, excelRow: number): HelperResult {
   if (input.running) return { kind: "none", reason: MATCH_STATE_TEXT.running };
   if (!input.run) {
-    return {
-      kind: "none",
-      reason: input.failedReason ? `${MATCH_STATE_TEXT.failedPrefix}${input.failedReason}` : MATCH_STATE_TEXT.notRun,
-    };
+    if (!input.failedReason) return { kind: "none", reason: MATCH_STATE_TEXT.notRun };
+    const f = plainMatchFailure(input.failedReason);
+    return { kind: "none", reason: f.words, detail: f.detail };
   }
   const row = input.run.rows.find((r) => Number(r.excel_row) === excelRow);
   if (row?.status === "no verdict" && row.no_verdict) {
-    return { kind: "none", reason: `${MATCH_STATE_TEXT.failedPrefix}${row.no_verdict}` };
+    const f = plainMatchFailure(row.no_verdict);
+    return { kind: "none", reason: f.words, detail: f.detail };
   }
   const matches = shownMatches(row?.matches);
   if (matches.length === 0) return { kind: "none", reason: MATCH_STATE_TEXT.none };

@@ -529,6 +529,8 @@ export interface Suggestion {
 export interface NoSuggestion {
   kind: "none";
   reason: string;
+  /** DEV2-B6 (owner answer 3): the stored technical reason behind `reason`, shown only as the greyed card's hover title. */
+  detail?: string;
   /** DEV2-B5 S4 (owner R-H2AI): the "Previously priced" card's matches. Present => the panel renders the match card
    *  (rate range, dots, key, pop-up) instead of the greyed reason. It is a NoSuggestion on purpose: no value to
    *  "Use" and no badge (G4 (a)) -- the badge count reads Suggestions only. ABSENT => the card is as before. */

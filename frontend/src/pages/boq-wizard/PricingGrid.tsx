@@ -1886,6 +1886,12 @@ interface PricingGridProps {
    */
   rowSuggestionsByExcelRow?: Map<number, RowSuggestions>;
   /**
+   * DEV2-B6 (owner answer 2, "widen"): the Excel rows whose "Previously priced" helper has matches to show (the page's
+   * active match run). With a badge entry, it makes the row's opening sparkle VISIBLE (rateHelperOpenerKind).
+   * ABSENT/empty => only the badge entries count.
+   */
+  matchResultRows?: ReadonlySet<number>;
+  /**
    * U1 rate-helper (dev): open the suggestion panel for a rate cell (Excel row + column letter +
    * the clicked cell element for scoping). Reference-stable (page useCallback) -> memo-safe. The
    * badge's own onClick calls it with stopPropagation, so a bare cell click still just places the
@@ -2707,6 +2713,8 @@ interface PricingGridRowProps {
    *  Compared BY VALUE (rowSuggestionsEqual) in pricingRowPropsAreEqual, so a whole-Map rebuild only
    *  re-renders rows whose badge state changed. undefined => this row has no badges. */
   rowSuggestions?: RowSuggestions;
+  /** DEV2-B6: this row has a "Previously priced" match result (matchResultRows.has) -- a per-row BOOLEAN. */
+  hasMatchResult: boolean;
   /** U1 rate-helper: reference-stable page callback the badge calls (stopPropagation). undefined =>
    *  feature off. */
   onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
@@ -2831,6 +2839,7 @@ export function pricingRowPropsAreEqual(
     prev.pendingLabel === next.pendingLabel &&
     prev.onCategoryClick === next.onCategoryClick &&
     rowSuggestionsEqual(prev.rowSuggestions, next.rowSuggestions) &&
+    prev.hasMatchResult === next.hasMatchResult &&
     prev.onSuggestionBadgeClick === next.onSuggestionBadgeClick &&
     // SELECTED-ROW runs: two per-row BOOLEANS + one stable callback. A tick flips exactly ONE
     // row's `selected`, so every other row bails here -- the same shape as `openRemark`.
@@ -2889,6 +2898,24 @@ export function pricingRowPropsAreEqual(
  * change is that the cursor/active state arrives as `activeColIndex` (the lever) and the row's
  * drafts arrive as its own `rowDraftRates`/`rowProposedRates` slices (never the shared maps).
  */
+/** DEV2-B6: the opening control's words (tooltip AND screen-reader text). */
+export const RATE_HELPER_OPEN_TEXT = "Open rate suggestions";
+
+/** PURE (DEV2-B6 PANEL ICON). What a rate cell shows to open the panel:
+ *  "badge+sparkle" -- this cell has a badge entry (count / tick): the badge, and beside it the visible sparkle;
+ *  "sparkle"       -- the row has a rate-helper result (a badge entry on another rate cell, or a "Previously priced"
+ *                     match) but this cell has no badge: the visible sparkle alone;
+ *  "faint"         -- no result on the row: the old faint opener ("Fill attributes to price this row"), unchanged. */
+export function rateHelperOpenerKind(
+  rowSuggestions: RowSuggestions | undefined,
+  col: string,
+  hasMatchResult: boolean,
+): "badge+sparkle" | "sparkle" | "faint" {
+  if (rowSuggestions?.byCol[col]) return "badge+sparkle";
+  if (hasMatchResult || Object.keys(rowSuggestions?.byCol ?? {}).length > 0) return "sparkle";
+  return "faint";
+}
+
 const PricingGridRow = memo(function PricingGridRow({
   row,
   rowIndex,
@@ -2919,6 +2946,7 @@ const PricingGridRow = memo(function PricingGridRow({
   pendingLabel,
   onCategoryClick,
   rowSuggestions,
+  hasMatchResult,
   onSuggestionBadgeClick,
   tickable,
   selected,
@@ -3435,6 +3463,29 @@ const PricingGridRow = memo(function PricingGridRow({
                     OR, when this rate-editable cell has NO badge, an always-on FAINT opener so the
                     pricer can bring up the helper and fill attributes by hand (owner request). Both
                     stopPropagation, so a bare click on the input beside it still places the cursor. */}
+                {/* DEV2-B6 PANEL ICON (owner 23:02 "there are no sprkles to click on"; answer 2 "widen"): on a row with a
+                    rate-helper result (a badge entry on any of its rate cells, or a "Previously priced" match) every
+                    rate cell carries a 16 px sparkle VISIBLE WITHOUT HOVER, beside the badge / tick it already has. */}
+                {onSuggestionBadgeClick &&
+                  rateHelperOpenerKind(rowSuggestions, d.col, hasMatchResult) !== "faint" && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSuggestionBadgeClick(
+                          row.source_row_number,
+                          d.col,
+                          e.currentTarget as HTMLElement,
+                        );
+                      }}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-primary hover:bg-primary/10"
+                      title={RATE_HELPER_OPEN_TEXT}
+                      aria-label={RATE_HELPER_OPEN_TEXT}
+                      data-testid="rate-helper-open"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                    </button>
+                  )}
                 {onSuggestionBadgeClick &&
                   (rowSuggestions?.byCol[d.col] ? (
                     <button
@@ -3470,7 +3521,7 @@ const PricingGridRow = memo(function PricingGridRow({
                         rowSuggestions.byCol[d.col].count
                       )}
                     </button>
-                  ) : (
+                  ) : rateHelperOpenerKind(rowSuggestions, d.col, hasMatchResult) === "faint" && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -3850,7 +3901,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // future non-stable prop silently kills the shield (see frontend/.claude/context/domain/
 // boq-pricing-editor-frontend.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, pendingLabelByCategory = EMPTY_PENDING_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, pendingLabelByCategory = EMPTY_PENDING_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, matchResultRows = EMPTY_ROW_SET, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -6528,6 +6579,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       pendingLabel={pendingLabelByCategory.get(categoriesByExcelRow.get(row.source_row_number)?.effective_category_id ?? "") ?? null}
       onCategoryClick={onCategoryClick}
       rowSuggestions={rowSuggestionsByExcelRow.get(row.source_row_number)}
+      hasMatchResult={matchResultRows.has(row.source_row_number)}
       onSuggestionBadgeClick={onSuggestionBadgeClick}
       // SELECTED-ROW runs: per-row BOOLEANS derived from the grid-level sets, keyed on the
       // DURABLE source_row_number (never the window array index -- under virtualized row
