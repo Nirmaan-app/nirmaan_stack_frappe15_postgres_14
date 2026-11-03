@@ -309,3 +309,51 @@ export const useSetClientStatus = () => {
 
     return { setClientStatus, loading };
 };
+
+/**
+ * Resolve a Rejected row: switch it to another Repository make of its TDS Item and send it back
+ * for approval as a Pending pick (`api/tds/edit_request.resolve_rejected_tds`, which re-checks the
+ * role, that the row is still Rejected and that the make is free on the project). Invalidates
+ * history and existing project items caches.
+ */
+export const useResolveRejectedTds = () => {
+    const { call, loading } = useFrappePostCall<{
+        message: { name: string; tds_item_id: string; tds_status: string };
+    }>("nirmaan_stack.api.tds.edit_request.resolve_rejected_tds");
+    const { mutate } = useSWRConfig();
+    const { currentUser } = useFrappeAuth();
+
+    const resolve = async (projectId: string, name: string, make: string) => {
+        try {
+            const result = await call({ doc_name: name, make });
+            try {
+                await Promise.all([
+                    mutate(tdsKeys.historyItems(projectId)),
+                    mutate(tdsKeys.existingProjectItems(projectId)),
+                ]);
+            } catch (invalidateError) {
+                captureApiError({
+                    hook: "useResolveRejectedTds",
+                    api: "SWR Invalidation",
+                    feature: "tds",
+                    error: invalidateError,
+                    user: currentUser ?? undefined,
+                });
+            }
+            return result.message;
+        } catch (error) {
+            captureApiError({
+                hook: "useResolveRejectedTds",
+                api: "resolve_rejected_tds",
+                feature: "tds",
+                doctype: "Project TDS Item List",
+                entity_id: name,
+                error,
+                user: currentUser ?? undefined,
+            });
+            throw error;
+        }
+    };
+
+    return { resolve, loading };
+};

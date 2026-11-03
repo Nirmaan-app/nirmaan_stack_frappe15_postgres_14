@@ -21,6 +21,7 @@ import {
   rejectedRowFor,
   repositoryEntryKey,
   requestTypeOf,
+  resolveMakeChoices,
   storedStatusesFor,
 } from "./tdsRequestRules";
 import {
@@ -265,6 +266,34 @@ describe("rejectedRowFor", () => {
   it("only a Rejected row is replaced", () => {
     expect(rejectedRowFor(rows, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeB" })).toBeUndefined();
     expect(rejectedRowFor(undefined, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" })).toBeUndefined();
+  });
+});
+
+describe("resolveMakeChoices", () => {
+  const rejected = { name: "r-1", tds_item_id: "TDS-ITEM-1", tds_make: "MakeA", tds_status: "Rejected" };
+  const repo = ["MakeC", "MakeA", "MakeB", "MakeD"];
+
+  it("offers the item's other Repository makes, A to Z", () => {
+    expect(resolveMakeChoices(rejected, repo, [rejected])).toEqual({ makes: ["MakeB", "MakeC", "MakeD"], blocked: null });
+  });
+
+  it("hides a make of the item already on the project at any status, Rejected included", () => {
+    const rows = [
+      rejected,
+      { name: "r-2", tds_item_id: "TDS-ITEM-1", tds_make: "MakeB", tds_status: "Approved" },
+      { name: "r-3", tds_item_id: "TDS-ITEM-1", tds_make: "MakeC", tds_status: "Rejected" },
+      // Another item's row with the same make is no clash.
+      { name: "r-4", tds_item_id: "TDS-ITEM-2", tds_make: "MakeD", tds_status: "Pending" },
+    ];
+    expect(resolveMakeChoices(rejected, repo, rows).makes).toEqual(["MakeD"]);
+  });
+
+  it("says why there is nothing to pick", () => {
+    expect(resolveMakeChoices({ ...rejected, tds_item_id: "PCUS-000001" }, repo, []).blocked).toBe("notInRepository");
+    expect(resolveMakeChoices({ ...rejected, tds_item_id: "ITEM-0042" }, [], []).blocked).toBe("notInRepository");
+    expect(resolveMakeChoices(rejected, ["MakeA"], []).blocked).toBe("noOtherMake");
+    const taken = repo.filter(m => m !== "MakeA").map((m, i) => ({ name: `t-${i}`, tds_item_id: "TDS-ITEM-1", tds_make: m }));
+    expect(resolveMakeChoices(rejected, repo, taken)).toEqual({ makes: [], blocked: "allOnProject" });
   });
 });
 

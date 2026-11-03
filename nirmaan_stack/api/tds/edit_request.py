@@ -10,7 +10,10 @@ between the two Request Types:
 takes the Repository Entry of the TDS Item + make it is edited to, and that entry's datasheet,
 exactly as a send stores a pick.
 
-Both plan and check the row with the same code as a send (`submit.py`), under the same project
+`resolve_rejected_tds` resolves a Rejected row (GLOSSARY "Resolve"): an Admin or PMO Executive
+switches it to another Repository make of its TDS Item, and it waits again as a Pending pick.
+
+All three plan and check the row with the same code as a send (`submit.py`), under the same project
 lock: the same duplicate checks, replacement check, Category check and datasheet claim. The edit
 and the delete of the Rejected row it replaces happen in one transaction: both, or neither. The
 row's request id stays.
@@ -20,10 +23,12 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.tds.approve import WAITING_STATUSES
+from nirmaan_stack.api.tds.status_label import history_status_label
 from nirmaan_stack.api.tds.submit import (
 	ROW_DOCTYPE,
 	STATUS_NEW_MAKE,
 	STATUS_PENDING,
+	STATUS_REJECTED,
 	_SAVEPOINT,
 	_assign_project_custom_ids,
 	_check_replacements,
@@ -35,10 +40,17 @@ from nirmaan_stack.api.tds.submit import (
 	delete_row_datasheet,
 	is_project_custom_id,
 )
-from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+from nirmaan_stack.services.role_profiles import (
+	ADMIN_PROFILE,
+	PMO_EXECUTIVE_PROFILE,
+	has_role_profile,
+	is_nirmaan_admin,
+)
 
 # A From Repository row still waiting: the waiting statuses but New, which only a New Make carries.
 WAITING_PICK_STATUSES = tuple(s for s in WAITING_STATUSES if s != STATUS_NEW_MAKE)
+# Who may resolve a Rejected row. Mirrors `canManageTDS` in `TdsHistoryTable.tsx`.
+RESOLVE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -63,13 +75,14 @@ def edit_tds_request(doc_name, row):
 
 	Returns: {"name": <row>, "tds_item_id": ..., "tds_status": ...}
 	"""
+	_require_admin()
 	cart_row = _parse_edit(row)
 	cart_row["is_new_request"] = True
 	return _save_edit(
 		doc_name,
 		_is_waiting_request,
 		_("Only a waiting New Make or Project Custom request can be edited here."),
-		lambda user, old_attachment: _plan_row(cart_row, user, set(), kept_attachment=old_attachment),
+		lambda user, doc: _plan_row(cart_row, user, set(), kept_attachment=doc.tds_attachment),
 	)
 
 
@@ -94,10 +107,11 @@ def edit_tds_pick(doc_name, row):
 
 	Returns: {"name": <row>, "tds_item_id": ..., "tds_status": ...}
 	"""
+	_require_admin()
 	cart_row = _parse_edit(row)
 	cart_row.update(is_new_request=False, is_project_custom=False)
 
-	def plan_pick(user, _old_attachment):
+	def plan_pick(user, _doc):
 		plan = _plan_row(cart_row, user, set())
 		# A send stores no description on a pick; this box has always let the Admin write one.
 		plan["tds_description"] = cart_row["description"]
@@ -111,6 +125,70 @@ def edit_tds_pick(doc_name, row):
 	)
 
 
+@frappe.whitelist(methods=["POST"])
+def resolve_rejected_tds(doc_name, make):
+	"""Resolve one Rejected row: switch it to another make of its TDS Item and send it back for approval.
+
+	`doc_name`: the `Project TDS Item List` row, Rejected and not a Project Custom row.
+	`make`: a make with a Repository Entry for the row's TDS Item, other than the row's own.
+
+	Only the make changes. The row keeps its request id, BOQ Ref and description, becomes a Pending
+	pick carrying that entry's datasheet (a rejected New Make's own upload is deleted), and keeps its
+	rejection reason, which the screen shows only while a row is Rejected.
+
+	Refuses (nothing saved) when the caller is not Admin or PMO Executive, the row is not a Rejected
+	row of a TDS Repository item, the make is the row's own, the TDS Item has no entry for the make,
+	or the item + make is already on the project at any status, Rejected included.
+
+	Returns: {"name": <row>, "tds_item_id": ..., "tds_status": "Pending"}
+	"""
+	if not has_role_profile(frappe.session.user, RESOLVE_PROFILES):
+		frappe.throw(_("Only Admin or PMO can resolve a rejected TDS request."), frappe.PermissionError)
+	make = (make or "").strip()
+
+	def plan_resolve(user, doc):
+		if make == doc.tds_make:
+			frappe.throw(_("Pick a make other than {0}.").format(doc.tds_make))
+		(cart_row,) = _parse_rows(
+			[{"tds_item_id": doc.tds_item_id, "make": make, "tds_boq_line_item": doc.tds_boq_line_item}]
+		)
+		plan = _plan_row(cart_row, user, set())
+		# Only the make changes; a send stores no description on a pick.
+		plan["tds_description"] = doc.tds_description or ""
+		_refuse_rejected_duplicate(doc, plan)
+		return plan
+
+	return _save_edit(doc_name, _is_resolvable, _not_resolvable, plan_resolve)
+
+
+def _refuse_rejected_duplicate(doc, plan):
+	"""Refuse a make that is Rejected on another row of the project. `_refuse_duplicates` covers
+	every other status; it skips Rejected rows because a resubmit replaces them."""
+	other = frappe.db.get_value(
+		ROW_DOCTYPE,
+		{
+			"tdsi_project_id": doc.tdsi_project_id,
+			"tds_item_id": plan["tds_item_id"],
+			"tds_make": plan["tds_make"],
+			"tds_status": STATUS_REJECTED,
+			"name": ["!=", doc.name],
+		},
+		["name", "tds_request_id"],
+		as_dict=True,
+	)
+	if other:
+		frappe.throw(
+			_("{0} ({1}) is already on this project in request {2}.").format(
+				plan["tds_item_name"], plan["tds_make"], other.tds_request_id or "—"
+			)
+		)
+
+
+def _require_admin():
+	if not is_nirmaan_admin(frappe.session.user):
+		frappe.throw(_("Only Admin can edit a TDS request."), frappe.PermissionError)
+
+
 def _parse_edit(row):
 	parsed = frappe.parse_json(row) if isinstance(row, str) else row
 	(cart_row,) = _parse_rows([parsed])
@@ -118,14 +196,13 @@ def _parse_edit(row):
 
 
 def _save_edit(doc_name, is_editable, not_editable, plan_edit):
-	"""Check and save one Admin edit under the project's send lock: every write, or none.
+	"""Check and save one edit under the project's send lock: every write, or none. The caller has
+	already checked the user's role.
 
-	`is_editable(doc)`: whether the stored row may be edited on this path; `not_editable` otherwise.
-	`plan_edit(user, old_attachment)`: the fields the row will be stored with (`submit._plan_row`)."""
+	`is_editable(doc)`: whether the stored row may be edited on this path; `not_editable` otherwise,
+	a message or a function of the row that returns one.
+	`plan_edit(user, doc)`: the fields the row will be stored with (`submit._plan_row`)."""
 	user = frappe.session.user
-	if not is_nirmaan_admin(user):
-		frappe.throw(_("Only Admin can edit a TDS request."), frappe.PermissionError)
-
 	project = frappe.db.get_value(ROW_DOCTYPE, doc_name, "tdsi_project_id")
 	if project is None:
 		frappe.throw(_("TDS row {0} not found.").format(doc_name))
@@ -139,10 +216,10 @@ def _save_edit(doc_name, is_editable, not_editable, plan_edit):
 			# fails its own modified-timestamp check instead of overwriting the edit.
 			doc = frappe.get_doc(ROW_DOCTYPE, doc_name, for_update=True)
 			if not is_editable(doc):
-				frappe.throw(not_editable)
+				frappe.throw(not_editable(doc) if callable(not_editable) else not_editable)
 			old_attachment = doc.tds_attachment
 
-			plan = plan_edit(user, old_attachment)
+			plan = plan_edit(user, doc)
 			_refuse_duplicates(project, [plan], exclude=doc_name)
 			_assign_project_custom_ids(project, [plan])
 			_check_replacements(project, [plan])
@@ -191,3 +268,16 @@ def _is_waiting_request(row):
 def _is_waiting_pick(row):
 	"""A From Repository row still waiting: Pending (or a legacy blank status), with no `PCUS-` id."""
 	return (row.tds_status or "") in WAITING_PICK_STATUSES and not is_project_custom_id(row.tds_item_id)
+
+
+def _is_resolvable(row):
+	"""A Rejected row of a TDS Repository item: not a Project Custom row, which has no Repository makes."""
+	return row.tds_status == STATUS_REJECTED and not is_project_custom_id(row.tds_item_id)
+
+
+def _not_resolvable(row):
+	if row.tds_status != STATUS_REJECTED:
+		return _("Only a Rejected row can be resolved; this one is {0}.").format(history_status_label(row.tds_status))
+	return _("{0} is a Project Custom item, so its make can't be changed. Delete the row instead.").format(
+		row.tds_item_name
+	)

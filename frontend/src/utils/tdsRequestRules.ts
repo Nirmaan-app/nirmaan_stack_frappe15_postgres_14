@@ -153,6 +153,34 @@ export function clientRejectedRowFor<T extends TdsProjectRow & ClientStatusRow>(
   );
 }
 
+/** Why a Rejected row has no make to resolve to. */
+export type ResolveBlock = "notInRepository" | "noOtherMake" | "allOnProject";
+
+/**
+ * The makes a Rejected row can be resolved to (GLOSSARY "Resolve"): its TDS Item's Repository makes,
+ * minus its own and minus any make of the item already on the project at any status, Rejected
+ * included. Empty with the reason when there is none; a Project Custom row has no Repository makes.
+ * The server refuses the rest the same way (`edit_request.py` `resolve_rejected_tds`).
+ */
+export function resolveMakeChoices(
+  row: TdsProjectRow & { name: string },
+  repositoryMakes: readonly string[],
+  projectRows: readonly (TdsProjectRow & { name: string })[] | undefined
+): { makes: string[]; blocked: ResolveBlock | null } {
+  if (isProjectCustomId(row.tds_item_id) || repositoryMakes.length === 0) {
+    return { makes: [], blocked: "notInRepository" };
+  }
+  const others = repositoryMakes.filter(make => make !== row.tds_make);
+  if (others.length === 0) return { makes: [], blocked: "noOtherMake" };
+  const onProject = new Set(
+    (projectRows ?? [])
+      .filter(r => r.name !== row.name && r.tds_item_id === row.tds_item_id)
+      .map(r => r.tds_make)
+  );
+  const makes = others.filter(make => !onProject.has(make)).sort((a, b) => a.localeCompare(b));
+  return { makes, blocked: makes.length ? null : "allOnProject" };
+}
+
 function sameItemMake(row: TdsProjectRow, candidate: TdsResubmitCandidate): boolean {
   if (candidate.is_project_custom) {
     return (
