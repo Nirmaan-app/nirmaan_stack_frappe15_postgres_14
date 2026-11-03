@@ -37,6 +37,8 @@ def plant_pending_expense(amount, description="Link test: a made-up wallet spend
     )
     doc.insert(ignore_permissions=True)
     if doc.status != RECONCILIATION_PENDING:
+        # TEST DATA ONLY, HOOKS SKIPPED ON PURPOSE: the planted expense must sit at Reconciliation Pending for a
+        # Link to pick it, whatever the insert hooks set.
         frappe.db.set_value(
             NON_PROJECT_EXPENSE_DOCTYPE, doc.name, "status", RECONCILIATION_PENDING, update_modified=False
         )
@@ -68,6 +70,7 @@ def open_line_by_hand(line_name: str, extra_rupees: int = 1) -> Decimal:
     """Make a staged Cashbook line workable by hand (Mismatched), `extra_rupees` above its staged amount, and
     return its new amount."""
     amount = Decimal(str(frappe.db.get_value(ROW_DOCTYPE, line_name, "amount"))) + extra_rupees
+    # TEST DATA ONLY, HOOKS SKIPPED ON PURPOSE: this stands in for the job leaving the line Mismatched.
     frappe.db.set_value(
         ROW_DOCTYPE, line_name, {"row_status": ROW_MISMATCHED, "amount": float(amount)}, update_modified=False
     )

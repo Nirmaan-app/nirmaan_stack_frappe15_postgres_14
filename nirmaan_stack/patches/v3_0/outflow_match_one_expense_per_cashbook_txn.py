@@ -36,10 +36,10 @@ from nirmaan_stack.nirmaan_stack.doctype.outflow_row_match.outflow_row_match imp
 
 
 def execute():
-    if not frappe.db.table_exists("Outflow Row Match") or not frappe.db.has_column("Outflow Row Match", "source"):
-        # The column ships with this patch's release; the next migrate, after the schema sync, runs it.
-        return
+    # `[post_model_sync]`: the schema sync has already added `Outflow Row Match.source`, so no column check here.
+    # (An early return would be logged as run, and the narrower index would then stay for good.)
     frappe.db.sql(f'DROP INDEX IF EXISTS "{IMPORT_CREATED_EXPENSE_INDEX}"')
+    # RAW SQL, NO HOOK SKIPPED THAT MATTERS: a snapshot copied from the line, nothing to recompute (THE BACKFILL).
     _backfill_source()
     duplicated = transfers_with_two_import_created_expenses()
     if duplicated:
