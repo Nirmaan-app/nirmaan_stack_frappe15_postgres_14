@@ -99,6 +99,9 @@ def line_values(raw, planned) -> dict:
         # A Cashbook skip is the import plan's decision, never a person's (#1273).
         "skip_origin": SKIP_ORIGIN_SYSTEM if skipping else None,
         "skip_kind": planned.skip_kind if skipping else None,
+        # #1602: a *Paired wallet refund* keeps the other line's Txn Id, so the Skipped list names it without
+        # reading the sentence. Blank on every other line, and cleared on an earlier line a re-open makes open.
+        "cashbook_refund_partner": (planned.partner or None) if skipping else None,
         "outcome_note": planned.reason if opening else None,
         "suggested_doctype": planned.ledger if placed else None,
         "suggested_expense_type": planned.expense_type if placed else None,

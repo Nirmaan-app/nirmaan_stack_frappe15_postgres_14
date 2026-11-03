@@ -28,6 +28,7 @@ describe("skipKinds -- mirrored from skip_kinds.py and skip_origin.py", () => {
             kinds.SKIP_KIND_CARD_PAYMENT,
             kinds.SKIP_KIND_CARD_CASHBACK,
             kinds.SKIP_KIND_CARD_REFUND_PAIR,
+            kinds.SKIP_KIND_CASHBOOK_REFUND_PAIR,
             ...kinds.BANK_RULE_SKIP_KINDS,
         ]) {
             expect(skipKindsSource).toContain(`= "${label}"`);

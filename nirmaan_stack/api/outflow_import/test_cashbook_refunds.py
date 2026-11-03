@@ -29,7 +29,12 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, CashbookBillsCase
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import _post
-from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_MOVED_STATUSES, REFUND_ROW_KINDS
+from nirmaan_stack.services.outflow_import.cashbook_refunds import (
+    REFUND_MOVED_STATUSES,
+    REFUND_ROW_KINDS,
+    SKIP_PAIRED_REFUND,
+    SKIP_PAIRED_SPEND,
+)
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_CASHBOOK_REFUND_PAIR
 
 ROW_DOCTYPE = "Outflow Import Row"
@@ -43,7 +48,7 @@ OWN_BALANCES = "Moves money between our own balances, not a spend"
 
 _FIELDS = [
     "name", "transfer_id", "amount", "direction", "row_status", "skip_kind", "skip_origin", "skip_reason",
-    "outcome_note", "suggested_doctype", "suggested_name",
+    "outcome_note", "suggested_doctype", "suggested_name", "cashbook_refund_partner",
 ]
 
 
@@ -70,6 +75,34 @@ class TestPairedWalletRefunds(CashbookRefundsCase):
                     )
                 self.assertIn(spend.transfer_id, refund.skip_reason)
                 self.assertIn(refund.transfer_id, spend.skip_reason)
+
+    def test_each_line_of_a_pair_keeps_the_other_lines_txn_id_as_its_partner(self):
+        """#1602: the list reads the partner from the line, never out of the sentence; the sentence is unchanged."""
+        for spend_id in (COLLECT_FULL, ADJUSTED_SPEND):
+            refund, spend = self._line("REF-" + spend_id), self._line(spend_id)
+            with self.subTest(spend=spend_id):
+                self.assertEqual(refund.cashbook_refund_partner, spend.transfer_id)
+                self.assertEqual(spend.cashbook_refund_partner, refund.transfer_id)
+                self.assertEqual(refund.skip_reason, SKIP_PAIRED_REFUND.format(partner=spend.transfer_id))
+                self.assertEqual(spend.skip_reason, SKIP_PAIRED_SPEND.format(partner=refund.transfer_id))
+
+    def test_the_skipped_list_ships_each_lines_partner(self):
+        listed = {
+            row["transfer_id"]: row
+            for row in get_outflow_rows(scope="skipped", batch=self.batch, limit=200)["rows"]
+        }
+        refund_id, spend_id = "REF-" + ADJUSTED_SPEND + self.suffix, ADJUSTED_SPEND + self.suffix
+        self.assertEqual(listed[refund_id]["cashbook_refund_partner"], spend_id)
+        self.assertEqual(listed[spend_id]["cashbook_refund_partner"], refund_id)
+
+    def test_no_other_line_has_a_partner(self):
+        partnered = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch, "cashbook_refund_partner": ["is", "set"]},
+            pluck="skip_kind",
+        )
+        self.assertEqual(len(partnered), 4)
+        self.assertEqual(set(partnered), {SKIP_KIND_CASHBOOK_REFUND_PAIR})
 
     def test_the_paired_spend_creates_no_expense(self):
         spend = self._line(ADJUSTED_SPEND)

@@ -319,6 +319,12 @@ export interface OutflowImportRow {
      */
     row_kind?: string | null;
     /**
+     * Cashbook Statement only: on a line skipped as a Paired wallet refund, the other line's Txn Id (the spend
+     * the refund gives back, or the refund that gives back this spend), stored at staging (#1602). The Skipped
+     * popup shows it as "Paired with <it>". Blank on every other line and on lines paired before #1602.
+     */
+    cashbook_refund_partner?: string | null;
+    /**
      * Which import staged this row.
      *
      * ⚠️ `import_batch` HAS ALWAYS EXISTED ON THE DOCTYPE; what is new at X3 is that the SCREEN
