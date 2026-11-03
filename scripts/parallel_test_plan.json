@@ -66,7 +66,7 @@
    ]
   },
   "nirmaan_stack.api.boq.test_rate_master": {
-   "seconds": 1495.7,
+   "seconds": 1653.0,
    "series": [
     "BRCC-26-",
     "BRMI-26-",
@@ -84,20 +84,11 @@
    "reads": [
     "tabAssignment Rule",
     "tabBlock Module",
-    "tabCheques",
-    "tabGoogle Calendar",
+    "tabBoQ Rate Suggestion Run",
+    "tabBoQ Row Spec Card",
     "tabMilestone Tracker",
     "tabNirmaan Users",
-    "tabPO Adjustments",
-    "tabPO Payment Terms",
-    "tabPO Revisions",
-    "tabProcurement Orders",
-    "tabProcurement Request Item Detail",
-    "tabProcurement Requests",
-    "tabProject Payments",
-    "tabSent Back Category",
     "tabServer Script",
-    "tabService Requests",
     "tabWorkflow"
    ]
   },
