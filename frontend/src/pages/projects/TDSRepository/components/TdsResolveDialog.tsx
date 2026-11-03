@@ -195,9 +195,10 @@ const ResolveDialogBody: React.FC<TdsResolveDialogProps & { row: ResolveRow }> =
                 <DialogTitle>Resolve rejected request</DialogTitle>
                 <DialogDescription>
                     {isCustom
-                        ? `Correct ${itemName}'s details or datasheet.`
-                        : `Pick another make for ${itemName}.`}{" "}
-                    It goes back to the Admin for approval as Pending.
+                        ? `Correct ${itemName}'s details or datasheet. It goes back to the Admin for approval as Pending.`
+                        : !isLoading && choices.blocked
+                            ? "This request can't be switched to another make here."
+                            : `Pick another make for ${itemName}. It goes back to the Admin for approval as Pending.`}
                 </DialogDescription>
             </DialogHeader>
 
