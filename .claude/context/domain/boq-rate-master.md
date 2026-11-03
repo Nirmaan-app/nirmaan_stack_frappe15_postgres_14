@@ -2469,6 +2469,54 @@ the 13 VRF families, so its rules RUN -- and `calculator_only: true`, so only th
   brands (VRF-2c: a stated "Toshiba" refuses on both surfaces in different words, a named parity divergence until then), the
   outdoor split (VRF-3), BoQ rows live and the model questions (VRF-4).
 
+**VRF-2b: A CAPACITY IN HP, TR OR kW IS READ AND CONVERTED THROUGH THE TWO VRF PRICING INPUTS; THE UNIT PICKER; THE MISC FOUR PRICE; THE BRAND AND Nos/Ro NOTES (owner R-CONV / R-INPUTS / Q3 / U2 A / CFM / RECON / QR-1..QR-3 / R-BRAND, 2026-11-01..04; HVAC v57).**
+v57 = v56 with only `hvac_vrf` changed; `calculator_only` STAYS (VRF-4 removes it -- and, with it, the `calculatorSurface: true`
+`pricingInputExamples.priceExample` passes). Every key below is optional and generic: a config that declares none is byte-identical.
+- **The capacity reader -- `numbers.<n>.units`** (`itemListPricing.readCapacity`): `unit_attr` (each SKU's own unit attribute --
+  VRF `capacity_unit`, HP outdoor / TR indoor, so the FAMILY's unit is read off the catalogue), `words` (unit -> spellings, matched
+  right after the number), `base` (TR), `convert` (unit -> {input: the Pricing Input id, label}: factor = that unit per one base,
+  read LIVE from the catalogue, the `rate_ref` shape), `refuse_words` + `refuse` (an airflow: CFM, CMH, m3/h). Rules: a number with a
+  unit word is in that unit; a bare number in the PICKER's unit on a typed box, else the family's; the converted value rounded to 2
+  decimals, then the ladder (the precision rule applies to it too: QR-2 A -- 1.3 HP = 1.04 TR lands on 1 TR, the line says so); an
+  airflow-ONLY text refuses naming it ("capacity is stated only as an airflow (670 CFM) - ..."); beside a capacity it is set aside
+  with a line ("459 CFM is an airflow - not read"; QR-1b item 4 A); two capacity units -> the family's, the other named in a line;
+  neither the family's -> refuse; several values / ranges / brackets exactly as `readNumber` (the refusal quotes the row's words).
+  Lines: "16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP", "4 HP / 1.25 (...) = 3.2 TR", "45 kW / 3.517 (kW per TR, ...) x 1.25
+  (HP per TR, ...) = 15.99 HP". The working carries them prefixed "capacity:"; the PANEL shows them as the capacity field's note
+  (with the ladder: "... = 1.42 TR -> priced as 1.5 TR (next size up)"), not in the block's working.
+- **The rewriter** (`matchStatedToOptionDetailed(stated, options, reader, readStated)`) reads the stated text through the same
+  reader: "12 TR" on the outdoor options is 15 HP -> no option -> the ladder shows 16; never the option "12".
+- **The unit picker (Q3 / U1 A)** -- beside the typed box only, on a reader declaring `units`; default the family's unit; stored as
+  the item attribute `<id>__unit` beside the bare number (`UNIT_PICK_SUFFIX`); read ONLY on a typed cell (a model answer has no
+  picker); a unit word typed in the box wins, with the line "you typed TR - TR is used, not the picker's HP" (only where the picker
+  was set). **A pick drops the picker** (K3b / K3c, found in the cert): `applyItemEdit`'s `set_other(on: false)` and
+  `set_attr(other: false)` delete `<id>__unit`, and a field WITH a picker sends ONE `set_attr` op from the panel's select (two
+  `onEdit` calls in one handler apply against the same render's state, so the second drops the first) -- else a size picked
+  from the list is read in the picker's unit. **Option labels (U2 A):** "16HP" / "1.5TR" (`optionLabels`), the option value stays the number.
+- **`extra_kinds`** (Q2): further item kinds the block prices; `specKinds` / `kindIn` at every kind site; the ladder takes the
+  family's own kind (`familyKindOf`); the validator's match_master_row / component_ref pins allow a listed extra kind only.
+  ⚠️ MEASURED: the TS pricer prices a Misc family WITHOUT the key (its pipeline names its own kind; the wrong-unit refusal comes
+  from the family's declared units) -- the key is load-bearing in the VALIDATOR and the unit-class projection.
+- **The Misc four** (`hvac_misc_item`): Drain Pump 3,500 / 750 and BACnet Integration Controller 50,000 / 4,500 per Nos; Refrigerant
+  Gas Filling (R-410) 1,020 / 350 and MS Angle Base Frame Structure 140 / 40 per Kg -- the Misc sheet's formulae (supply ROUNDUP(cost
+  x (1 + supply markup)); install ROUNDUP(cost x (1 + install markup)), the gas its boq_install). The weight class: Kg, kg, kgs.
+  The unit refusal names Kg (QR-1b item 2 A).
+- **`unit_lines`** (QR-2 A): "Nos/Ro" prices as Nos with "unit 'Nos/Ro' read as Nos" (the row's unit note).
+- **`defaults.<attr>.unlisted`** (R-BRAND (a)): a STATED value the attribute does not list -- several ("several brands stated
+  (Daikin / Toshiba) - priced as Blue Star") or one off the sheet ("brand Toshiba is not on the sheet - priced as Blue Star") --
+  prices as the default's value, amber (`DefaultedAttr.asWritten`). The v56 "Toshiba" parity divergence is gone.
+- **The Derivation generator** (U7 A, QR-1b fixes): line 1 quotes a unit the category refuses ('Set' where 'nos' is priced) and
+  lists the unit lines; a several-kind block (`extra_kinds`) names its classes in its words and reads "a kind is priced per Nos or
+  per Kg - each kind has one rule, for the unit it is stocked in"; "Several brands, or one brand not on the sheet, are priced as
+  Blue Star, naming the row's words"; "A capacity in TR, HP or kW that is not the item's own unit is converted first"; line 13's
+  unknown-unit example skips a known spelling. Insulation, Piping and ADP lines are byte-identical (keyed on the config's keys).
+- **The two inputs' reach** (`pricingInputReach.unitsConvertUses`, the Python twin `csv_exporter._units_convert_uses`): one use
+  per family whose rule needs the number -> "VRF (10 uses)" each; READ by hvac_vrf with no SKU column -> the impact panel's
+  `assembly_only` shape. **Worked examples (U6 A):** `impact_examples` item-list shape {id, name, items, unit, inputs}: priced by
+  the product's compute as the calculator does, with the read and the SKU from `priceItemList` ("16 TR x 1.25 = 20 HP ->
+  IVRFB-20TC / TCN"); `inputs` limits an example to those inputs' panels. VRF: two per input.
+- **Not here:** the outdoor split, extras, Set / Lot (VRF-3); BoQ rows live and the model questions (VRF-4).
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds

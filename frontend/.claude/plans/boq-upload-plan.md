@@ -50486,3 +50486,67 @@ R-39 block; 32 pins moved.
   VRF-2c -- the "Nos/Ro read as Nos" note (QR-2, REQUIRED before VRF-4), kg / kgs with the Kg Misc items and the two-class
   Derivation wording (QR-3), the Derivation line-1 example "nos" (fixed text), the Misc four, the brand note for several /
   off-sheet brands and the "Toshiba" parity divergence (named in the parity block); the 9 ductable rows above 8 TR refuse.
+
+## Slice VRF-2b - the VRF capacity reader, unit picker, factors, the Misc four and the notes (HVAC v57) - as built 2026-11-04
+
+Desktop session, delegated by the laptop (VRF-2b and VRF-2c merged, owner 2026-11-03 16:21 "ok lets combine 2b and 2c"); the
+dev2 lane (DEV2-B5, then DEV2-B6) ran beside it on its own containers (block 63: main's suites, load and cert read its status
+first). Start tip 6c1d365d7. Tier 3 (asset v57) + Tier 2 (price logic). Five code commits (K1-K3 as planned; K3b / K3c fixes found by the cert) plus this docs commit; no model call. One turn ended on an API
+error after K1 (00:10); the laptop relaunched it by message (00:21) and nothing was lost.
+
+**Owner rulings carried:** MERGE (16:21); STANDING (15:15, "not to keep pushing things down the road"); Q3 PICKER (14:40, "unit
+picker should be just beside the typing box"); U2 (15:14 "option A": "Capacity", each size option shows its unit); CFM (21:14
+"Refuse, named"; 21:15 "highlight these rows for me"); RECON (14:40: "both units given -> the sheet's unit"; Q2 Misc via
+`extra_kinds`); QR-2 (15:14 A, the Nos/Ro note REQUIRED); QR-3 (15:14 A, kg / kgs with the two Kg Misc items, two-class wording);
+R-BRAND (2026-11-01 (a)); Q1 (calculator_only stays, removed at VRF-4); PARITY; R-INSTALL / R-ROUND. Mid-slice: **QR-1** (22:44
+"ok" all A): U1 the picker beside the typed box, default the item's own unit, a typed unit word wins; U3 the conversion lines and
+the CFM refusal; U4 the brand-note texts; U5 the Nos/Ro line and the Misc four; U6 used-by VRF + two worked examples per input;
+U7 the regenerated Derivation lines. **QR-1b** (addendum: generated wording, the unit refusal naming Kg, two unlisted capacity
+lines) and **QR-2** (a converted value lands on a stocked size through the precision rule: 1.3 HP = 1.04 TR -> 1 TR, 6 rows) --
+both answered 01:26 ("go with your recommendations" = all A, plus three QR-1b fixes: line 7 "... priced as Blue Star, naming the row's words"; line 10 "A capacity in TR, HP or kW that is not the item's own unit is converted first"; the priced capacity-with-airflow rows listed in Lists.xlsx; QR-2 "option A" = keep). All applied in K3's generator code; no second load.
+
+### 1. P0 (read-only)
+- VRF-R2 R3 / R4 file:lines re-read: line drift only (pricingSheetHelper +40, config_validation +13). The two VRF inputs read
+  live (1.25 / 3.517). `ratePipelineInterpreter.ts:665` needs no edit (the caller passes the family's kind).
+- **Suggest gate (P0 (d)):** the one rate-attribute model path is start_suggest -> run_extraction -> assemble_population (eligible
+  only) -> _group_context -> build_items_spec; single-row Suggest is `only_rows`, validated against the population; the section
+  recursion is the only other build_items_spec caller and no config delegates to hvac_vrf; classification never builds an items
+  spec. No ungated path.
+
+### 2. Built
+Commit **K1 `f37b5939c`** (feat, code only): `itemListPricing.ts` -- `readCapacity` (a number reader's `units`: HP / TR / kW words,
+converted to the family's unit (each SKU's `capacity_unit`) through the convert table's Pricing Inputs, with the line "16 TR x 1.25
+(HP per TR, Pricing Inputs) = 20 HP"; airflow-only refuses, named; beside a capacity it is set aside with a line; two units -> the
+family's, neither -> refuse); the rewriter reads the same way; the PICKER (`<id>__unit`, typed boxes only); `extra_kinds`
+(`specKinds` / `kindIn`, the ladder takes the family's kind); `unit_lines`; `defaults.<attr>.unlisted`. `pricingSheetHelper.ts` --
+option labels with the unit, the picker on the field, the conversion as the field note. `RateHelperPanel.tsx` -- the picker beside
+the typed box. `itemListRuleOrder.ts` -- line 1 example a refused unit, the unit lines, the several-kind two-class wording, the
+conversion and brand lines, line 13's unknown-unit example. `pricingInputExact.ts` (the set). `config_validation.py` -- the four
+keys validated by name; the match_master_row / component_ref pins allow a listed extra kind only. Tests: vrf2bCapacity.test.ts (38; 40 after K3b / K3c),
+TestVrf2bConfigKeys v2b_01-08; one key-list pin inverted.
+Commit **K2 `eee0b78d9`** (feat): `pricingInputReach.ts` (`unitsConvertUses`: the convert table's inputs READ by the category, no
+column -> assembly_only), `rateMasterSpec.ts` + `csv_exporter.py` (used-by "VRF (10 uses)"), `pricingInputExamples.ts` (item-list
+worked examples: items + unit + inputs; priced as the calculator does; the read and SKU line from the pure pricer),
+`PricingInputImpactPanel.tsx` (renders it), `config_validation.py` (the example shape). Tests: vrf2bReach.test.ts (8),
+TestVrf2bInputReach v2b_09-11.
+Commit **K3 `f0202c23d`** (feat, the asset): `mint_hvac_v57_vrf2b.py` + README row; `rate_master_hvac_all_v57.json` (sha256
+1ba4965d...) = v56 with only hvac_vrf changed (list_spec, impact_examples, notes; calculator_only kept); test_vrf_v57 (8, measured
+into the plan); the parity block "HVAC VRF (VRF-2b, v57)" and the R-39 block "VRF-2b (v57)" (14 lines, 48 cases); 34 latest-asset
+pins moved (MUST MOVE 29 -> 34 mechanical edits -> 0) and two wave-2 pins inverted, BEFORE kept: test_rate_master co_f1_12 (used-by over the current asset 14 -> 16) and test_vrf_v56 09 (live == v57); no price pin moved; the K1 reader's lower-cased "several values" quote fixed (disclosed).
+- **Mint gate** v56 -> v57 PASS; `--latest` PASS. **Stub proof** identical; eligible set unchanged; no other config names the Misc kind.
+- **Load (before K3):** pre-load snapshot `BRMS-26-01246`, batch `rmbulk-6d7775ded264` (537 / 11); live == file; only hvac_vrf's config moved.
+
+### 3. Proofs and counts
+- **Prices:** all 150 VRF + 4 Misc SKUs price at the R-SRC sheet (read cell by cell), panel = calculator, live calculator = projection,
+  live BoQ panel declines -- 154 each. The Misc four: 3,500 / 750; 50,000 / 4,500; 1,020 / 350 (Kg); 140 / 40 (Kg).
+- **Probe** (1,138 VRF unit rows, switch projected out): priced 720 -> 876, refused 303 -> 147 (of 1,023 with a family and phrase);
+  CFM-only 66 rows listed for the owner (Lists.xlsx "CFM rows"); THE 22 ROWS (19 groups) now read in the right unit; 0 divergences.
+- **Replay** after the load 18,106 rows, 0 moves. **Suggest population** 109 sheets 5,049 = 5,049, VRF 0.
+- **Vacuity:** K1 12 frontend + 4 Python breaks; K2 7 + 3; K3 4 breaks on scratch copies of v57 (drop units -> py 02 / 08 red, vitest 11; drop the CFM words -> py 02, vitest 2; drop extra_kinds -> py 03 / 05, vitest 0 (the measured TS fact); drop the brand note -> py 04, vitest 5); K3b 1, K3c 1 -- each red, each restore green, files sha-equal.
+- **Suites** (before = VRF-2a's related logs filtered): related Python (23 modules, after K3) all OK, 1,294 -> 1,313 (test_rate_master 747 -> 758, test_vrf_v57 +8); vitest related on the 13 changed frontend files after the cert 86 files / 4,564 passed / 0 failed, 0 'Failed to start'; tsc FULL 0 new errors (baseline 2894, total 2888).
+- **Cert:** C1-C11 PASS on :8080 (Chrome, screenshots in the slice folder), after three full de-stales. C1 16 + picker TR -> "16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP", 476,040 / 20,000; C2 4 + HP -> 3.2 TR, FOUR-WAY amber, 43,680 / 3,500; C3 5 + kW -> 1.42 -> 1.5 TR, 20,760 / 1,800; C4 "16HP" / "1.5TR" options, 16HP = 436,920 / 16,000; C5 "670 CFM" refuses named; C6 gas 1,020 / 350 per Kg, Drain Pump 3,500 / 750, MS Angle on a Nos row refuses; C7 the calculator cannot state an off-sheet brand or Nos/Ro (proved by parity / R-39); C8 both inputs used by "VRF (10 uses)" with two worked examples each; C9 154 items, batch rmbulk-6d7775ded264, the 14 Derivation lines; C10 BOQ-26-00003 rows 301 / 351 "coming soon", Piping's form has no unit picker; C11 counts = post-load. **The cert found one defect in two halves (C4):** a size PICKED from the list after the picker was set still read the picker's unit (1.5TR after kW priced 1.5 kW). **K3b `0e58d721d`**: `applyItemEdit` set_other(on: false) drops `<id>__unit`; **K3c `96a0f0d9e`**: the panel's select sent two edits against the same render's state, so the second dropped the first -- a field WITH a unit picker now sends one `set_attr` (other: false), which also drops `<id>__unit`. Each with a test, vacuity, then a full de-stale and C1-C4 again. The pre-existing double call is left for the other categories (it only leaves the box open after a pick).
+
+### 4. Deploy note and open items
+- **Deploy:** v57 by a wholesale HVAC load; K1-K3 code. VRF still prices only in the calculator; no BoQ page changes.
+- **VRF-4 MUST remove `calculator_only`** (VRF-2a's list) **and** the `calculatorSurface: true` the worked examples pass.
+- **Open:** VRF-3 (the outdoor split, extras, Set / Lot / per HP); VRF-4 (BoQ rows live, the model questions, removing calculator_only and calculatorSurface). Observed, not a 2b change: an item that refuses shows its defaults as '- select -' until it prices (VRF-2a's display); the factor field's 'today 3.52' rounds 3.517 to 2 dp.
