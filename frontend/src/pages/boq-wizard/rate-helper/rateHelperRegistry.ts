@@ -86,6 +86,7 @@ const UNIT_WORDS: Record<string, string> = {
   no: "nos", nos: "nos", number: "nos", numbers: "nos", each: "nos", ea: "nos", pc: "nos", pcs: "nos", unit: "nos", units: "nos",
   set: "set", sets: "set",
   m: "m", mt: "m", mtr: "m", mtrs: "m", meter: "m", meters: "m", metre: "m", metres: "m", rm: "m", rmt: "m", rmtr: "m", rmtrs: "m", lm: "m",
+  mts: "m", rmts: "m", lmt: "m", rmeter: "m", rmetre: "m",
   sqm: "sqm", sqmt: "sqm", sqmtr: "sqm", m2: "sqm", sqft: "sqft", cum: "cum", m3: "cum", kg: "kg", kgs: "kg",
   ls: "ls", lumpsum: "ls", lot: "ls", job: "ls",
 };

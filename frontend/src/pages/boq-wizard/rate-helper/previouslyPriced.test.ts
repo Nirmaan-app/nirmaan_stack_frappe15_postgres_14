@@ -88,6 +88,10 @@ describe("the total and the range (G13)", () => {
   it("units fold their spellings; an unknown unit is never 'other'", () => {
     expect(normUnit("Nos.")).toBe(normUnit("each"));
     expect(normUnit("R.M.")).toBe(normUnit("Mtr"));
+    // DEV2-B5 fix (found preparing the cert): "Mts." / "Mts" are metres, never "another unit" beside "RM" / "MTR"
+    expect(["Mts.", "Mts", "MTS", "Rmts", "Metre", "M."].map(normUnit)).toEqual(["m", "m", "m", "m", "m", "m"]);
+    expect(isOtherUnit(M({ unit: "Mts." }), "RM")).toBe(false);
+    expect(isOtherUnit(M({ unit: "set" }), "Nos.")).toBe(true);
     expect(isOtherUnit(M({ unit: "No" }), "Nos.")).toBe(false);
     expect(isOtherUnit(M({ unit: null }), "Nos")).toBe(false);
     expect(isOtherUnit(M({ unit: "Rmt" }), "")).toBe(false);
