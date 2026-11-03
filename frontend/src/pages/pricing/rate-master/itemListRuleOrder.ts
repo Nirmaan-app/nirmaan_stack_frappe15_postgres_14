@@ -826,8 +826,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // VRF-2b (owner R-BRAND (a)): a stated value the attribute does not list prices as the default, naming the row's words
   for (const [a, d] of Object.entries<any>(pr.defaults ?? {})) {
     if (!d?.unlisted || typeof d.value !== "string") continue;
-    add(`Several ${name(a)}s, or one ${name(a)} not on the sheet, are priced as ${d.value}`,
-        `naming the row's words, in amber: '${String(d.unlisted.several).replace("{said}", "Daikin / Toshiba")}'; '${String(d.unlisted.off_sheet).replace("{said}", "Toshiba")}'`);
+    // owner QR-1b (2026-11-04 01:26, fix 1): "... priced as Blue Star, naming the row's words" -- one sentence, a comma
+    add(`Several ${name(a)}s, or one ${name(a)} not on the sheet, are priced as ${d.value}, naming the row's words`,
+        `in amber: '${String(d.unlisted.several).replace("{said}", "Daikin / Toshiba")}'; '${String(d.unlisted.off_sheet).replace("{said}", "Toshiba")}'`);
   }
   const overrides = ((pr.override_when ?? []) as any[]).filter((o) => o?.attr);
   if (overrides.length) {
@@ -940,7 +941,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     const cu = pr.numbers?.[a]?.units;
     if (cu && typeof cu === "object") {
       const conv = Object.entries<any>(cu.convert ?? {});
-      add(`A ${name(a)} stated in another unit is converted first`,
+      // owner QR-1b (2026-11-04 01:26, fix 2): the title names every unit, the base first -- "in TR, HP or kW"
+      const unitsNamed = [String(cu.base ?? ""), ...Object.keys(cu.words ?? {}).filter((u) => u !== cu.base)].filter(Boolean);
+      add(`A ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} that is not the item's own unit is converted first`,
           [`${conv.map(([u]) => u).join(" and ")} through the Pricing Inputs (${conv.map(([, c]) => inputLabel(String(c?.input ?? ""))).join(", ")}), with the working shown`,
            `an airflow (${list((cu.refuse_words ?? []).map((w: string) => String(w).toUpperCase()))}) is not converted and refuses`,
            "where the row states two units, the item's own unit is used"].join("; "));

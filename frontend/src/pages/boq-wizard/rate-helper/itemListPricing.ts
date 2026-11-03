@@ -2231,7 +2231,9 @@ export function readCapacity(text: string | number | null | undefined, reader: N
     return convertCapacity(famHits[0].n, fam, reader, ctx, lines);
   }
   const stated = unitsSeen.length === 1 ? unitsSeen[0] : null;
-  const r = readNumber(rest, plain);
+  // the ordinary reader sees the text AS WRITTEN unless airflow parts were set aside -- its refusals quote the row's own
+  // words ("several values stated for capacity ('20+18 HP')"), exactly as today
+  const r = readNumber(airflow.length ? rest : raw, plain);
   if (!r || !("value" in r)) return r;
   if (r.note) lines.push(r.note);
   if (stated && picker && picker !== stated && ctx.picker) lines.push(`you typed ${stated} - ${stated} is used, not the picker's ${picker}`);

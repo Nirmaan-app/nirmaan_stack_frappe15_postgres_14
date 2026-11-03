@@ -470,10 +470,14 @@ class TestVrf1AssetV55(FrappeTestCase):
         d = os.path.dirname(_asset_path(V55))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
-        self.assertEqual(max(ns), 56)
+        # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
+        self.assertEqual(max(ns), 57)
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 56)))`
-        self.assertEqual(sorted(ns), list(range(1, 57)))
+        # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 57)))`
+        self.assertEqual(sorted(ns), list(range(1, 58)))
         self.assertTrue(os.path.exists(_asset_path(V54)))
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v56.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v56.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
+        # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))

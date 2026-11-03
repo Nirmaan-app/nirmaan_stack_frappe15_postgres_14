@@ -2116,3 +2116,201 @@ describe("HVAC VRF (VRF-2a, v56) -- the calculator prices every VRF SKU at the s
     expect((cr as ItemListSuggestion).values.supply_rate).toBe(452040);
   });
 });
+
+/**
+ * VRF-2b (owner 2026-11-03: R-CONV, CFM "Refuse, named", RECON Q2, QR-2 A, QR-3 A, R-BRAND (a); PARITY 12:15 "check
+ * automatically that calculator and panel give the same answer on every item") -- THE v57 VRF BLOCK. The asset that
+ * switches VRF-2b on: every VRF and Misc SKU at the sheet's figure, panel = calculator on every case (brand projected,
+ * `calculator_only` projected out = VRF-4's state; the live calculator with its flag = that projection; the live BoQ panel
+ * still declines). VRF-2a's v56 block above is kept as it was -- its named "Toshiba" divergence pins v56; on v57 the
+ * divergence is GONE (the brand note), asserted below.
+ */
+describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc four, the notes; panel = calculator on every case", () => {
+  const v57 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v57.json", import.meta.url),
+  );
+  const VRF = "hvac_vrf";
+  const items57: RateMasterItem[] = v57.items.map((it) => ({
+    ...it, discipline: v57.discipline,
+    attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes },
+  } as RateMasterItem));
+  const live = new Map<string, RateCategoryConfig>(v57.category_configs.map((c) => [c.category_id, c]));
+  const projected = new Map<string, RateCategoryConfig>([...live].map(([k, c]) => {
+    if (k !== VRF) return [k, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [k, rest as RateCategoryConfig];
+  }));
+  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items57, extractionByRow: new Map(), calculatorSurface: true });
+  const vc = (unit: string, a: Record<string, string>): ParityCase => ({ cat: VRF, unit, desc: "", attrs: {}, items: [a] });
+  const run = (c: ParityCase) => {
+    const r = runParity(projected, items57, c, "full");
+    const flag = calcFlag.compute(calculatorCtx("HVAC", VRF), r.feed.overrides);
+    const boq = panelHelper(live, items57, c).compute(panelCtx(c));
+    return { ...r, flagSame: JSON.stringify(flag) === JSON.stringify(r.calculator), boq };
+  };
+  const view = (x: unknown) => (x as ItemListSuggestion).itemList!;
+  const figs = (x: unknown): [number, number] | string => {
+    const v = view(x);
+    return v.rowPriced ? [v.totals!.supply_rate as number, v.totals!.install_rate as number] : (v.reason ?? "?");
+  };
+  const lines = (x: unknown) => { const b = view(x).items[0]; return [...(b?.working ?? []), ...(b?.fields ?? []).flatMap((f) => [f.note ?? "", f.rule ?? ""]), view(x).unitNote ?? ""].join(" | "); };
+  const skus = items57.filter((it) => it.kind === "hvac_vrf_item");
+  const MISC: Array<[string, string, [number, number]]> = [
+    ["Drain Pump", "Nos", [3500, 750]], ["BACnet Integration Controller for VRF Units", "Nos", [50000, 4500]],
+    ["Refrigerant Gas Filling (R-410)", "Kg", [1020, 350]], ["MS Angle Base Frame Structure", "Kg", [140, 40]],
+  ];
+
+  it("the fixture: v57 = 150 VRF SKUs + 4 Misc, the switch still on; the projection takes it off", () => {
+    expect(skus).toHaveLength(150);
+    expect(items57.filter((it) => it.kind === "hvac_misc_item")).toHaveLength(4);
+    expect((live.get(VRF) as { calculator_only?: unknown }).calculator_only).toBe(true);
+    expect((projected.get(VRF) as { calculator_only?: unknown }).calculator_only).toBeUndefined();
+  });
+
+  it("every one of the 150 VRF SKUs and the 4 Misc: calculator = the sheet; panel = calculator; live calculator = the projection; the live BoQ panel declines", () => {
+    const sheet = new Map(VRF_SHEET.map((r) => [r[0], r]));
+    const bad: string[] = [];
+    let equal = 0, flagSame = 0, declined = 0, parity = 0;
+    const tally = (label: string, r: ReturnType<typeof run>, want: [number, number]) => {
+      if (r.divergences.length) bad.push(`${label}: ` + r.divergences.map((d) => d.what).join(" | ")); else parity++;
+      if (JSON.stringify(figs(r.calculator)) === JSON.stringify(want)) equal++; else bad.push(`${label}: calculator ${JSON.stringify(figs(r.calculator))} vs ${JSON.stringify(want)}`);
+      if (r.flagSame) flagSame++;
+      if (r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON) declined++;
+    };
+    for (const sku of skus) {
+      const a = sku.attributes as Record<string, unknown>;
+      const attrs: Record<string, string> = { item: String(a.item), brand: String(a.brand) };
+      for (const k of ["cooling", "discharge", "compressor", "way", "remote_type"]) if (a[k] !== undefined) attrs[k] = String(a[k]);
+      if (a.capacity !== undefined) attrs.capacity = String(a.capacity);
+      const row = (sku as { source?: { row?: number } }).source?.row as number;
+      const sh = sheet.get(row)!;
+      tally(`row ${row} ${a.model}`, run(vc("Nos", attrs)), [sh[3], sh[4]]);
+    }
+    for (const [fam, unit, want] of MISC) tally(fam, run(vc(unit, { item: fam })), want);
+    expect(bad).toEqual([]);
+    expect({ equal, parity, flagSame, declined }).toEqual({ equal: 154, parity: 154, flagSame: 154, declined: 154 });
+  }, 180000);
+
+  it("the generated sweep (13 VRF families + the Misc four, each in its own unit): not one divergence", () => {
+    const cases = itemListCasesForCategory(projected.get(VRF)!, items57);
+    expect(new Set(cases.map((c) => c.items?.[0]?.item as string)).size).toBe(17);
+    const bad: string[] = [];
+    for (const c of cases) {
+      const r = run(c);
+      if (r.divergences.length) bad.push(`${JSON.stringify(c.items)} ${c.unit}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
+      if (!r.flagSame) bad.push(`${JSON.stringify(c.items)}: the live calculator differs from the projection`);
+    }
+    expect(bad).toEqual([]);
+    expect(cases.length).toBeGreaterThan(46);
+  }, 180000);
+
+  // [label, unit, answers, the expected figures or refusal, a line that must be said (or "" for none)]
+  const NAMED: Array<[string, string, Record<string, string>, [number, number] | string, string]> = [
+    ["C1: 16 TR on an Outdoor Unit -> 20 HP (IVRFB-20TC)", "Nos", { item: "Outdoor Unit", capacity: "16 TR" }, [476040, 20000], "16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP"],
+    ["C2: 4 HP on a Cassette -> 3.2 TR (VLC-38)", "Nos", { item: "Cassette", capacity: "4 HP" }, [43680, 3500], "4 HP / 1.25 (HP per TR, Pricing Inputs) = 3.2 TR"],
+    ["C3: 5 kW on a Hi-Wall -> 1.42 -> 1.5 TR (VHW-18A)", "Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "5 kW" }, [20760, 1800], "5 kW / 3.517 (kW per TR, Pricing Inputs) = 1.42 TR"],
+    ["kW on an HP family: 45 kW -> 15.99 -> 16 HP", "Nos", { item: "Outdoor Unit", capacity: "45 kW" }, [436920, 16000], "45 kW / 3.517 (kW per TR, Pricing Inputs) x 1.25 (HP per TR, Pricing Inputs) = 15.99 HP"],
+    ["TR on an HP family, TR -> HP (12 TR -> 15 -> 16 HP)", "Nos", { item: "Outdoor Unit", capacity: "12 TR" }, [436920, 16000], "12 TR x 1.25 (HP per TR, Pricing Inputs) = 15 HP"],
+    ["the family's own unit stated: no conversion line", "Nos", { item: "Outdoor Unit", capacity: "16 HP" }, [436920, 16000], ""],
+    ["both units -> the family's ('22.5 TR / 18 HP' -> 18 HP)", "Nos", { item: "Outdoor Unit", capacity: "22.5 TR / 18 HP" }, [452040, 18000], "the row states 18 HP and 22.5 TR - 18 HP is used (Outdoor Unit is stocked in HP); 22.5 TR is not read"],
+    ["CFM only refuses, named (C5)", "Nos", { item: "Concealed Split", capacity: "670 CFM" }, "capacity is stated only as an airflow (670 CFM) - an airflow is not converted to HP / TR - price this row by hand", ""],
+    ["a capacity beside an airflow is read ('1.0 TR / 459 CFM')", "Nos", { item: "Cassette", capacity: "1.0 TR / 459 CFM" }, [36960, 3500], "459 CFM is an airflow - not read"],
+    ["several values refuse as today", "Nos", { item: "Outdoor Unit", capacity: "20+18 HP" }, "several values stated for capacity ('20+18 HP')", ""],
+    ["brand off the sheet ('Toshiba') -> Blue Star, named", "Nos", { item: "Outdoor Unit", brand: "Toshiba", capacity: "16" }, [436920, 16000], "brand Toshiba is not on the sheet - priced as Blue Star"],
+    ["several brands -> Blue Star, named", "Nos", { item: "Outdoor Unit", brand: "Daikin / Blue Star", capacity: "16" }, [436920, 16000], "several brands stated (Daikin / Blue Star) - priced as Blue Star"],
+    ["one sheet brand read as stated (Daikin 8 HP heat pump)", "Nos", { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, [253743, 12800], ""],
+    ["no brand -> Blue Star (as v56)", "Nos", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000], "no brand stated - priced as Blue Star"],
+    ["'Nos/Ro' read as Nos, with its line (QR-2 A)", "Nos/Ro", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000], "unit 'Nos/Ro' read as Nos"],
+    ["the gas per 'kgs'", "kgs", { item: "Refrigerant Gas Filling (R-410)" }, [1020, 350], ""],
+  ];
+
+  it(`every 2b rule, by name (${NAMED.length} cases): the figure or the refusal and the line, identical on both surfaces; the live calculator = the projection; the BoQ panel declines`, () => {
+    expect(NAMED).toHaveLength(16);
+    const bad: string[] = [];
+    for (const [label, unit, a, want, line] of NAMED) {
+      const r = run(vc(unit, a));
+      if (r.divergences.length) bad.push(`${label}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
+      if (JSON.stringify(figs(r.calculator)) !== JSON.stringify(want)) bad.push(`${label}: calculator ${JSON.stringify(figs(r.calculator))} vs ${JSON.stringify(want)}`);
+      if (JSON.stringify(figs(r.panel)) !== JSON.stringify(want)) bad.push(`${label}: panel ${JSON.stringify(figs(r.panel))} vs ${JSON.stringify(want)}`);
+      if (line && !lines(r.panel).includes(line)) bad.push(`${label}: the panel does not say '${line}'`);
+      if (line === "" && /Pricing Inputs/.test(lines(r.panel)) && /16 HP|own unit/.test(label)) bad.push(`${label}: a conversion line where none is due`);
+      if (!r.flagSame) bad.push(`${label}: the live calculator differs from the projection`);
+      if (!(r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON)) bad.push(`${label}: the live BoQ panel did not decline`);
+    }
+    expect(bad).toEqual([]);
+  }, 180000);
+
+  it("the unit exclusions, by name: Kg on a Nos item, a Kg Misc on a Nos row, a Nos Misc on a Kg row, Set -- the panel refuses each by name, never a figure; the calculator's picker does not offer the unit (cause C)", () => {
+    const want: Array<[string, Record<string, string>, string]> = [
+      ["Kg", { item: "Outdoor Unit", capacity: "16" }, "Outdoor Unit is not stocked per Kg (stocked per Nos) - price this row by hand"],
+      ["Nos", { item: "MS Angle Base Frame Structure" }, "MS Angle Base Frame Structure is not stocked per Nos (stocked per Kg) - price this row by hand"],
+      ["Kg", { item: "Drain Pump" }, "Drain Pump is not stocked per Kg (stocked per Nos) - price this row by hand"],
+      ["Set", { item: "Outdoor Unit", capacity: "16" }, "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"],
+    ];
+    for (const [unit, a, reason] of want) {
+      const c = vc(unit, a);
+      const r = run(c);
+      expect({ unit, item: a.item, panel: figs(r.panel) }).toEqual({ unit, item: a.item, panel: reason });
+      expect(hasPrice(r.panel)).toBe(false);
+      expect(classifyDivergence(r, c)).toBe("C_unit_not_offered");
+    }
+  });
+
+  it("the 'Toshiba' known divergence of v56 is GONE on v57: 0 divergences, both surfaces price as Blue Star with the note", () => {
+    const r = run(vc("Nos", { item: "Outdoor Unit", brand: "Toshiba", capacity: "16" }));
+    expect(r.divergences).toEqual([]);
+    expect(figs(r.calculator)).toEqual([436920, 16000]);
+    expect(figs(r.panel)).toEqual([436920, 16000]);
+  });
+
+  it("the rewriter: a model '12 TR' on an Outdoor Unit shows the size priced (16), never the option '12'", () => {
+    const r = run(vc("Nos", { item: "Outdoor Unit", capacity: "12 TR" }));
+    const f = view(r.panel).items[0].fields.find((x) => x.id === "capacity")!;
+    expect(f.value).toBe("16");
+    expect(f.optionLabels?.["16"]).toBe("16HP");
+  });
+
+  it("the picker on the calculator: a bare 16 with TR picked = '16 TR' typed = 20 HP; the panel has no picker value to read", () => {
+    const cr = calcFlag.compute(calculatorCtx("HVAC", VRF), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "16", capacity__unit: "TR" }, other: ["capacity"] }] }), [ROW_UNIT_OVERRIDE_KEY]: "Nos" });
+    const typed = calcFlag.compute(calculatorCtx("HVAC", VRF), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "16 TR" }, other: ["capacity"] }] }), [ROW_UNIT_OVERRIDE_KEY]: "Nos" });
+    expect(figs(cr)).toEqual([476040, 20000]);
+    expect(figs(typed)).toEqual([476040, 20000]);
+  });
+
+  it("VACUITY: handing the calculator a different capacity unit diverges (the comparison can see a 2b difference)", () => {
+    const c = vc("Nos", { item: "Outdoor Unit", capacity: "16 TR" });
+    expect(run(c).divergences).toEqual([]);
+    const pr = panelHelper(projected, items57, c).compute(panelCtx(c), {});
+    const cr = calcFlag.compute(calculatorCtx("HVAC", VRF), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "16 HP" }, other: ["capacity"] }] }), [ROW_UNIT_OVERRIDE_KEY]: "Nos" });
+    expect((pr as ItemListSuggestion).values.supply_rate).toBe(476040);
+    expect((cr as ItemListSuggestion).values.supply_rate).toBe(436920);
+  });
+
+  /**
+   * THE 22 ROWS (VRF-R2 R4: "an HP number on an indoor family is priced as TR" -- 22 rows, 19 groups, its own definition: a
+   * phrase naming TR on the outdoor family or HP on any other that priced on v56). [family, way, phrase, rows, v56's size,
+   * v57's size] -- the sizes recorded from the B5 probe (Lists.xlsx "22 rows"); the conversion arithmetic is checked here
+   * independently: every HP-stated group now carries "<n> HP / 1.25 (HP per TR, Pricing Inputs) = <n / 1.25> TR".
+   */
+  const ROWS22: Array<[string, string | null, string, number, string, string]> = [["Cassette", "FOUR-WAY", "4 HP", 1, "4", "3.2"], ["Cassette", "FOUR-WAY", "2.5 HP", 1, "2.8", "2"], ["Cassette", "FOUR-WAY", "2 HP", 1, "2", "1.7"], ["Cassette", "FOUR-WAY", "1.3 HP", 1, "1.3", "1"], ["Hi-Wall", null, "2 HP", 1, "2", "1.7"], ["Hi-Wall", null, "1.3 HP", 1, "1.3", "1"], ["Hi-Wall", null, "1 HP", 1, "1", "0.8"], ["AHU Expansion Kit", null, "20HP", 1, "20", "20"], ["AHU Expansion Kit", null, "14HP", 1, "15", "15"], ["AHU Expansion Kit", null, "10HP", 1, "10", "8"], ["Hi-Wall", null, "2.0 HP (1.6 TR)", 1, "2", "1.7"], ["Hi-Wall", null, "2.5 HP (2.0 TR)", 1, "2.5", "2"], ["Cassette", null, "1.6 HP (1.3 TR)", 2, "1.7", "1.3"], ["Cassette", null, "1.9 HP (1.5 TR)", 3, "2", "1.5"], ["Cassette", null, "2.13 HP (1.7 TR)", 1, "2.3", "1.7"], ["Cassette", null, "2.9 HP (2.3 TR)", 1, "3.2", "2.3"], ["Cassette", null, "4.0 HP (3.2 TR)", 1, "4", "3.2"], ["Cassette", "ONE-WAY", "1.28 TR(1.6 HP)", 1, "1.3", "1.3"], ["Outdoor Unit", null, "3 TR", 1, "7", "7"]];
+  it("THE 22 ROWS now read in the right unit: 19 groups / 22 rows, each HP group converted with its line, each at its v57 size, 0 divergences", () => {
+    expect(ROWS22).toHaveLength(19);
+    expect(ROWS22.reduce((a, r) => a + r[3], 0)).toBe(22);
+    const bad: string[] = [];
+    for (const [fam, way, phrase, , , want] of ROWS22) {
+      const a: Record<string, string> = { item: fam, capacity: phrase };
+      if (way) a.way = way;
+      const r = run(vc("Nos", a));
+      const f = view(r.panel).items[0]?.fields.find((x) => x.id === "capacity");
+      if (r.divergences.length) bad.push(`${fam} ${phrase}: divergences`);
+      if (f?.value !== want) bad.push(`${fam} ${phrase}: size ${f?.value} vs ${want}`);
+      const hp = /^\s*([\d.]+)\s*HP/i.exec(phrase);
+      if (hp && fam !== "Outdoor Unit") {
+        const tr = Math.round((Number(hp[1]) / 1.25) * 100 + 1e-9) / 100;
+        const line = `${Number(hp[1])} HP / 1.25 (HP per TR, Pricing Inputs) = ${tr} TR`;
+        if (!lines(r.panel).includes(line)) bad.push(`${fam} ${phrase}: no line '${line}'`);
+      }
+    }
+    expect(bad).toEqual([]);
+  }, 120000);
+});

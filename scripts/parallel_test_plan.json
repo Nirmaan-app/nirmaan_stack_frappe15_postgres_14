@@ -206,6 +206,21 @@
     "tabBoQ Rate Master Item"
    ]
   },
+  "nirmaan_stack.api.boq.test_vrf_v57": {
+   "seconds": 20.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item",
+    "tabBoQ Rate Suggestion Run",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.api.boq.wizard.test_ai_assist": {
    "seconds": 38.0,
    "series": [

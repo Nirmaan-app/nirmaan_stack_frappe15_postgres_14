@@ -171,7 +171,8 @@ describe("VRF-2b -- the capacity reader (HP / TR / kW through the two VRF Pricin
   });
 
   it("several values, brackets and a temperature read EXACTLY as today", () => {
-    expect(price({ item: "Outdoor Unit", capacity: "20+18 HP" }).items[0].reason).toContain("several values stated for capacity");
+    // the refusal quotes the row's own words, case kept (a K3 parity case found the K1 reader lower-casing them)
+    expect(price({ item: "Outdoor Unit", capacity: "20+18 HP" }).items[0].reason).toContain("several values stated for capacity ('20+18 HP')");
     expect(price({ item: "Outdoor Unit", capacity: "13 TR at 43°C ambient" }).items[0].reason).toContain("several values stated for capacity");
     expect(price({ item: "Outdoor Unit", capacity: "2# 12 HP" }).items[0].reason).toContain("several values stated for capacity");
     // brackets dropped: "2.0 HP (1.6 TR)" is 2 HP (below the smallest -> the smallest, as today)
@@ -328,8 +329,9 @@ describe("VRF-2b -- the Derivation lines (QR-3 A, U7)", () => {
     expect(lines).toContain("That kind's rule for that unit. a kind is priced per Nos or per Kg - each kind has one rule, for the unit it is stocked in");
   });
   it("the conversion line and the brand line are generated", () => {
-    expect(lines.some((l) => l.startsWith("A capacity stated in another unit is converted first."))).toBe(true);
-    expect(lines.some((l) => l.startsWith("Several brands, or one brand not on the sheet, are priced as Blue Star."))).toBe(true);
+    // owner QR-1b (2026-11-04 01:26): the exact titles of the two new lines
+    expect(lines.some((l) => l.startsWith("A capacity in TR, HP or kW that is not the item's own unit is converted first."))).toBe(true);
+    expect(lines.some((l) => l.startsWith("Several brands, or one brand not on the sheet, are priced as Blue Star, naming the row's words."))).toBe(true);
   });
   it("NEGATIVE: every other category's lines are byte-identical (Insulation line 4, Piping line 1 example 'nos')", () => {
     const ins = v56.category_configs.find((c) => c.category_id === "hvac_insulation")!;
