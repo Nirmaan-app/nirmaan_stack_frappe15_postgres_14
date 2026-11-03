@@ -210,4 +210,19 @@ line '^t4 +air$' "list shows a recorded task"; line '^legacy +no record$' "list 
 line '^gone +contabo \(no laptop branch\)$' "list shows a record whose laptop branch is gone"
 log_lacks "ssh" "list never uses SSH"
 
+# ---- data.sh send; the air box's data.sh is a stand-in that reports what restore got
+cp "$HERE/data.sh" "$L/scripts/devenv/"
+printf '#!/bin/bash\necho "restore got $1 $2 $3"\n' > "$AIR/scripts/devenv/data.sh"; chmod +x "$AIR/scripts/devenv/data.sh"
+echo "dump" > "$T/nirmaan-backup-test.tar.gz"
+send() { run env ${TASK_ENV:-} /bin/bash "$L/scripts/devenv/data.sh" send "$@"; }
+send t@contabo-test "$T/nirmaan-backup-test.tar.gz"
+rc_is 1 "data.sh send refuses an ssh target"; has "no box 't@contabo-test'" "data.sh send asks for a box name"
+TASK_ENV="STUB_DOWN=1" send air "$T/nirmaan-backup-test.tar.gz"
+rc_is 3 "data.sh send to an unreachable box is exit 3"; has "Nothing was changed" "data.sh send says nothing changed"
+fresh_log
+send air "$T/nirmaan-backup-test.tar.gz"
+rc_is 0 "data.sh send to air"; has "box   air (me@air-test), checkout ~/work/y/variants/master   [named]" "data.sh send prints the box line"
+has "restore got restore $T/boxes/me@air-test/incoming/nirmaan-backup-test.tar.gz --yes" "restore runs from the box's checkout on the copied backup"
+log_has "-t me@air-test" "restore gets a terminal"
+
 echo; echo "all $N checks passed"

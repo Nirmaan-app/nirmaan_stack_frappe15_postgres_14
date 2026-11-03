@@ -6,9 +6,9 @@
 #                                       backup-policy/backup_and_upload.sh makes) or a folder or archive holding the
 #                                       files of `bench backup --with-files`: *-database.sql.gz, and optionally
 #                                       *-files.tar, *-private-files.tar, *-site_config_backup.json.
-#   data.sh send <ssh host> <backup>    on the laptop: copy the backup to the box over SSH, run restore there, and
-#                                       delete the copy. The box's checkout is $DEVBOX_CHECKOUT, default
-#                                       ~/work/nirmaan/deploy_setup/frappe_docker/development/nirmaan_stack_variants/master
+#   data.sh send <box> <backup>         on the laptop: copy the backup to the box over SSH, run restore there, and
+#                                       delete the copy. <box> is a box name from the registry
+#                                       (scripts/devenv/boxes.sh), which holds its SSH target and checkout
 #
 # restore, in order (it stops at the first failure):
 #   1. prove the backup is whole (gzip -t, tar listing)
@@ -37,14 +37,18 @@ inside() { docker exec -i -w /workspace/development/frappe-bench "$CONTAINER" ba
 P() { docker exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -qAt "$@"; }
 
 send() {
-  local host="$1" src="$2" co="${DEVBOX_CHECKOUT:-~/work/nirmaan/deploy_setup/frappe_docker/development/nirmaan_stack_variants/master}"
+  local src="$2" name
   [ -e "$src" ] || die "no backup at $src"
-  local name; name="$(basename "$src")"
-  ssh "$host" 'mkdir -p ~/incoming && chmod 700 ~/incoming'
-  echo "copying $name to $host (over SSH)"
-  if [ -d "$src" ]; then tar -C "$(dirname "$src")" -czf - "$name" | ssh "$host" "cat > ~/incoming/$name.tar.gz"; name="$name.tar.gz"
-  else scp -q "$src" "$host:~/incoming/$name"; fi
-  ssh -t "$host" "$co/scripts/devenv/data.sh restore ~/incoming/$name --yes; rc=\$?; rm -f ~/incoming/$name; exit \$rc"
+  . "$SELF_DIR/boxes.sh"
+  box_load "$1"; box_show "named"; box_reach
+  name="$(basename "$src")"
+  export BOX_STARTED=1
+  box_ssh 'mkdir -p ~/incoming && chmod 700 ~/incoming'
+  echo "copying $name to box $BOX_NAME (over SSH)"
+  if [ -d "$src" ]; then tar -C "$(dirname "$src")" -czf - "$name" | box_ssh "cat > ~/incoming/$name.tar.gz"; name="$name.tar.gz"
+  else box_scp "$src" "BOX:~/incoming/$name"; fi
+  BOX_SSH_OPTS+=(-t)   # a terminal, so Ctrl-C here stops the restore there
+  box_ssh "~/$BOX_CO/scripts/devenv/data.sh restore ~/incoming/$name --yes; rc=\$?; rm -f ~/incoming/$name; exit \$rc"
 }
 
 restore() {
@@ -175,7 +179,7 @@ YES=0; ARGS=()
 for a in "$@"; do [ "$a" = --yes ] && YES=1 || ARGS+=("$a"); done
 case "$CMD" in
   restore) [ ${#ARGS[@]} = 1 ] || die "usage: data.sh restore <backup> --yes"; restore "${ARGS[0]}" ;;
-  send) [ ${#ARGS[@]} = 2 ] || die "usage: data.sh send <ssh host> <backup>"; send "${ARGS[0]}" "${ARGS[1]}" ;;
+  send) [ ${#ARGS[@]} = 2 ] || die "usage: data.sh send <box> <backup>"; send "${ARGS[0]}" "${ARGS[1]}" ;;
   *) sed -n '2,23p' "$0"; exit 1 ;;
 esac
 exit
