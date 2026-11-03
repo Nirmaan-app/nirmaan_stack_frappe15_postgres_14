@@ -1523,6 +1523,21 @@ function ItemListBlocks({
                           onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
                         />
                       )}
+                      {/* VRF-2b (owner Q3 / U1): the unit picker, just beside the typing box -- only where the config
+                          declares convertible units; default = the item's own unit; a unit word typed in the box wins */}
+                      {f.allowOther && otherMode(f) && f.unitPicker && (
+                        <select
+                          className={cn("h-7 w-14 rounded border bg-background px-1 text-xs", tone)}
+                          value={f.unitPicker.value}
+                          aria-label={`${f.label} -- the unit of the value typed`}
+                          data-testid={`unit-picker-${f.id}`}
+                          onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.unitPicker!.id, value: e.target.value })}
+                        >
+                          {f.unitPicker.units.map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
+                      )}
                     </span>
                   ) : f.readOnly ? (
                     // SLICE 12e-2 (owner Q10): a `panel_optional` value the model read -- read-only text when present

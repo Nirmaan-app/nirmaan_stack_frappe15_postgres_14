@@ -77,8 +77,14 @@ import {
   isRateOnlyUnit,
   itemFieldDefs,
   itemListPricingSpec,
+  familyUnitOf,
+  kindIn,
   matchStatedToOption,
   matchStatedToOptionDetailed,
+  pricingInputFactor,
+  readCapacity,
+  unitPickerUnits,
+  UNIT_PICK_SUFFIX,
   plainFactOf,
   readLayers,
   readNumber,
@@ -2351,6 +2357,9 @@ export interface ItemFieldView extends ItemFieldDef {
   /** ADP-4a (owner B5 / U5): the words the select's empty choice shows -- "not stated" where the model's stored
    *  answer is "None" and "None" is not offered. Absent everywhere else (the panel shows "- select -"). */
   placeholder?: string;
+  /** VRF-2b (owner Q3 / U1): the unit picker beside the typed box of a reader declaring `units` -- the item attribute
+   *  it writes (`<id>__unit`), the units offered, the one shown (the pricer's pick, else the family's), the family's. */
+  unitPicker?: { id: string; units: string[]; value: string; defaultUnit: string };
 }
 
 /**
@@ -2786,7 +2795,9 @@ function itemBlockView(
     // a "None" (or an absent-as-none) answer shows the ruled default it became, marked; the pricer's own pick
     // shows as picked
     // ADP-1 (owner H3 (d) / U2): a TYPED-ONLY box the pricer cleared is not stated either -- it shows its ruled default
-    const defaulted = !!d && (stated === "None" || stated === "") && (!userEdited || (stated === "" && !!spec.numbers[f.skuAttr]?.typed_only));
+    const defaulted = !!d && (stated === "None" || stated === "") && (!userEdited || (stated === "" && !!spec.numbers[f.skuAttr]?.typed_only))
+      // VRF-2b (R-BRAND): a stated brand off the sheet / several brands priced as the default shows the default, amber
+      || (!!d && d.asWritten !== undefined && !userEdited);
     const tm = userEdited ? undefined : textMappedBy.get(f.skuAttr);
     let value = defaulted ? d!.value : tm ? tm.value : stated;
     // ADP-1 (owner H3): a typed-only number read from the size as written shows the value USED, with its line below
@@ -2954,7 +2965,10 @@ function itemBlockView(
     const readerLine = (() => {
       if (!matched || matched.by !== "number") return undefined;
       const rd = spec.numbers[f.skuAttr];
-      const r = rd ? readNumber(matched.from, rd) : null;
+      // VRF-2b (R-CONV): a unit-converting reader says how it converted ("4 HP / 1.25 (HP per TR, ...) = 3.2 TR")
+      const r = rd?.units
+        ? readCapacity(matched.from, rd, { familyUnit: familyUnitOf(spec, items, family, rd), factorOf: (id) => pricingInputFactor(items, id), family })
+        : rd ? readNumber(matched.from, rd) : null;
       if (!r || !("value" in r) || !r.note) return undefined;
       const quoted = `'${matched.from}' `;
       return r.note.startsWith(quoted) ? r.note.slice(quoted.length) : r.note;
@@ -2988,6 +3002,16 @@ function itemBlockView(
     }
     if (lr && !note) note = lr.line;
     if (fr && !note) note = fr.line;
+    /**
+     * VRF-2b (owner R-CONV, U3): a capacity READ IN ANOTHER UNIT says the conversion, then where the ladder put it --
+     * "5 kW / 3.517 (kW per TR, Pricing Inputs) = 1.42 TR -> priced as 1.5 TR (next size up)". It replaces the ladder's
+     * own "You typed 5 -> priced as 1.5" line, whose 5 was never in the family's unit.
+     */
+    const unitRead = res.unitReads?.[f.skuAttr];
+    const capUnit = spec.numbers[f.skuAttr]?.units ? familyUnitOf(spec, items, family, spec.numbers[f.skuAttr]) : null;
+    if (unitRead) {
+      note = unitRead + (hop && hop.requested !== hop.fitted ? ` -> priced as ${fmtNum(hop.fitted)} ${capUnit ?? ""} ${hopLandedWords(hop)}`.replace(/\s+/g, " ") : "");
+    }
     /**
      * ADP-3a (U6): A TYPED SIZE OR AREA BOX SAYS WHAT PRICING READ FROM IT. The owner's standing rule ("every
      * attribute shows the value actually used with a note on how it landed there") reached the dropdowns and the
@@ -3027,6 +3051,9 @@ function itemBlockView(
       note = ov.rule;
       if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
     }
+    // VRF-2b (owner U2 A): each size option of a unit-converting reader shows its unit ("16HP", "1.5TR"); the option's
+    // VALUE stays the bare number (what prices and what is stored)
+    if (capUnit && !optionLabels && (f.options ?? []).length) optionLabels = Object.fromEntries((f.options ?? []).map((o) => [o, `${o}${capUnit}`]));
     // SLICE 12e-5b (owner R6, AC1): a size written two ways that do not agree ('1/2" (15.9mm)') refused the row --
     // the box shows no figure it refused on (the inch half alone would read as a stocked size), and the line says why
     const echo = f.skuAttr in spec.numbers ? inchWithMmEcho(stated) : null;
@@ -3110,6 +3137,13 @@ function itemBlockView(
       otherMode: otherMode || defaultInBox,
       ...(note ? { note } : {}),
       ...(optionLabels ? { optionLabels } : {}),
+      // VRF-2b (owner Q3 / U1): the unit picker beside the typed box -- only on a reader declaring `units`
+      ...(capUnit && f.allowOther ? { unitPicker: {
+        id: `${f.id}${UNIT_PICK_SUFFIX}`,
+        units: unitPickerUnits(spec.numbers[f.skuAttr]),
+        value: (() => { const v = edit.attrs[`${f.id}${UNIT_PICK_SUFFIX}`]; return typeof v === "string" && v ? v : capUnit; })(),
+        defaultUnit: capUnit,
+      } } : {}),
       ...(matchHelp && matchHelp.length ? { matchHelp } : {}),
       blank: value === "" && needed,
       // ADP-3a (U3 / U4): a box that HOLDS words but did not give what the refusal needs is outlined too
@@ -3391,7 +3425,13 @@ function computeItemListOwn(
       // match a stocked option and the box would show a size the row then refuses on
       const echo = inchWithMmEcho(raw);
       if (echo !== null && "conflict" in echo) continue;
-      const hit = matchStatedToOptionDetailed(raw, opts, spec.numbers[f.skuAttr]);
+      // VRF-2b (R-CONV): a unit-converting reader reads the stated text in its unit and converts it to the family's
+      // ("12 TR" on an HP family is 15 HP -- no option, so the ladder shows 16; never the option "12")
+      const rdU = spec.numbers[f.skuAttr];
+      const readStated = rdU?.units
+        ? (t: string) => readCapacity(t, rdU, { familyUnit: familyUnitOf(spec, items, fam, rdU), factorOf: (id) => pricingInputFactor(items, id), family: fam })
+        : undefined;
+      const hit = matchStatedToOptionDetailed(raw, opts, rdU, readStated);
       if (hit === null || hit.to === raw) continue;
       attributes[f.id] = { ...attributes[f.id], value: hit.to };
       matches.set(f.id, { from: raw, to: hit.to, by: hit.by });
@@ -3706,7 +3746,7 @@ function computeItemList(
       ? { attributes: Object.fromEntries([familyAttr(dspecNow), ...dspecNow.choice_attrs].map((a) => [a, { value: "None" }])) }
       : undefined);
     const offered = new Set(r.s.families ?? []);
-    const stocked = (fam: string) => items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === fam);
+    const stocked = (fam: string) => items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === fam);
     /**
      * SLICE 12e-3b (owner D1b, 2026-10-12 "option a") -- IN THE CALCULATOR THE MATERIAL STARTS BLANK. A section
      * the toggle opened used to be handed to the delegated category with no family, so its "not mentioned"
@@ -3918,7 +3958,7 @@ function computeItemList(
         id: r.s.id,
         addLabel: r.s.add_label,
         families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family)
-          && items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
+          && items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
       })),
       independent,
       lines,

@@ -467,7 +467,7 @@ def delegated_section_problems(configs, items):
                     continue
                 spell = set().union(*[_section_unit_spellings(tpr, k) for k in cls])
                 stocked = any(
-                    isinstance(it, dict) and it.get("kind") == tpr.get("kind")
+                    isinstance(it, dict) and it.get("kind") in _pricing_kinds(tpr)
                     and (it.get("attributes") or {}).get(fam_attr) == fam
                     and _norm_unit_spelling(it.get("unit")) in spell
                     for it in items or [])
@@ -1093,6 +1093,80 @@ _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines",
 # ADP-5a (owner 2026-10-22, AC2): `rule_by_family` -- the line a per-family default says on a family whose value
 # differs from the others' ("curved grille = with"), beside `by_family`; every family it does not name keeps `rule`.
 _PRICING_DEFAULT_KEYS = {"value", "by_family", "rule", "absent_as_none", "rule_by_family"}
+# VRF-2b (owner R-BRAND (a), 2026-11-01 02:04): `unlisted` -- a STATED value the attribute does not list (several brands,
+# one off the sheet) prices as the default's `value`, its line naming the row's words ({said}).
+_PRICING_DEFAULT_KEYS = _PRICING_DEFAULT_KEYS | {"unlisted"}
+# VRF-2b (owner RECON 14:40 Q2 "extra_kinds"; QR-2 A): `extra_kinds` -- further item kinds the block prices (VRF's four
+# Misc items, the shared hvac_misc_item); `unit_lines` -- a unit spelling priced as its class with a line ("Nos/Ro").
+_PRICING_KEYS = _PRICING_KEYS | {"extra_kinds", "unit_lines"}
+# VRF-2b (owner R-CONV / R-INPUTS / CFM / Q3): `units` -- a number stated in one of several units, converted to the
+# family's own unit through the Pricing Inputs (see `_validate_number_units`).
+_PRICING_NUMBER_KEYS = _PRICING_NUMBER_KEYS | {"units"}
+_NUMBER_UNITS_KEYS = {"unit_attr", "words", "base", "convert", "refuse_words", "refuse"}
+
+
+def _pricing_kinds(pr):
+    """VRF-2b: every item kind a pricing block prices -- `kind` plus `extra_kinds` (a list of strings)."""
+    extra = pr.get("extra_kinds") if isinstance(pr, dict) else None
+    return {pr.get("kind")} | set(x for x in (extra or []) if isinstance(x, str))
+
+
+def _validate_number_units(nid, u, by_id):
+    """VRF-2b: the shape of `numbers[<nid>].units`. `unit_attr` names an attribute definition (each SKU's own unit);
+    `words` maps each unit to its spellings; `base` is one of them; `convert` names, for every OTHER unit, the Pricing
+    Input id holding how many of it make one `base` and that input's short label; `refuse_words` are the airflow
+    spellings and `refuse` their sentence, carrying {said}."""
+    loc = f"list_spec.pricing.numbers['{nid}'].units"
+    if not isinstance(u, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(u) - _NUMBER_UNITS_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    if not isinstance(u.get("unit_attr"), str) or not u.get("unit_attr").strip():
+        _vthrow(f"{loc}.unit_attr must name the SKU attribute each SKU's own unit is stored in.")
+    words = u.get("words")
+    if not isinstance(words, dict) or len(words) < 2 or not all(
+            isinstance(k, str) and k.strip() and isinstance(v, list) and v and all(isinstance(w, str) and w.strip() for w in v)
+            for k, v in words.items()):
+        _vthrow(f"{loc}.words must map at least two units to non-empty lists of spellings.")
+    seen = {}
+    for k, v in words.items():
+        for w in v:
+            key = w.strip().lower()
+            if key in seen and seen[key] != k:
+                _vthrow(f"{loc}.words: the spelling '{w}' is declared for both {seen[key]} and {k}.")
+            seen[key] = k
+    if u.get("base") not in words:
+        _vthrow(f"{loc}.base must be one of the units in words.")
+    conv = u.get("convert")
+    others = set(words) - {u["base"]}
+    if not isinstance(conv, dict) or set(conv) != others:
+        _vthrow(f"{loc}.convert must name every unit other than the base ({', '.join(sorted(others))}), and only those.")
+    for k, c in conv.items():
+        if not isinstance(c, dict) or set(c) != {"input", "label"} or not all(
+                isinstance(c.get(x), str) and c.get(x).strip() for x in ("input", "label")):
+            _vthrow(f"{loc}.convert['{k}'] must be {{input, label}}: the Pricing Input id and its short label.")
+    rw = u.get("refuse_words")
+    if not isinstance(rw, list) or not rw or not all(isinstance(w, str) and w.strip() for w in rw):
+        _vthrow(f"{loc}.refuse_words must be a non-empty list of spellings.")
+    if any(w.strip().lower() in seen for w in rw):
+        _vthrow(f"{loc}.refuse_words must not repeat a unit spelling.")
+    if not isinstance(u.get("refuse"), str) or "{said}" not in u["refuse"]:
+        _vthrow(f"{loc}.refuse must be a sentence carrying {{said}} (the airflow as written).")
+
+
+def number_units_inputs(pr):
+    """VRF-2b: {Pricing Input id: [number reader ids]} for every `numbers[*].units.convert` input of a pricing block --
+    the reach the used-by count and the impact panel read (csv_exporter). Never raises on a malformed block."""
+    out = {}
+    nums = (pr or {}).get("numbers") if isinstance(pr, dict) else None
+    for nid, rd in (sorted(nums.items()) if isinstance(nums, dict) else []):
+        conv = ((rd or {}).get("units") or {}).get("convert") if isinstance(rd, dict) else None
+        for c in (conv.values() if isinstance(conv, dict) else []):
+            iid = c.get("input") if isinstance(c, dict) else None
+            if isinstance(iid, str) and iid:
+                out.setdefault(iid, []).append(nid)
+    return out
 _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
 # SLICE 8 (owner M-b): `override_when` -- a stated fact that DECIDES the pick whatever else the row said. Same
 # five keys as `derive_when_none` on purpose; what differs is when it fires (that one fills a "None", this one
@@ -1485,6 +1559,16 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     kinds = cfg.get("item_kinds") or []
     if pr["kind"] not in kinds:
         _vthrow(f"list_spec.pricing.kind '{pr['kind']}' is not one of the config's item_kinds.")
+    # VRF-2b (Q2): `extra_kinds` -- each one of the config's item_kinds, never the pricing kind, no repeats
+    if "extra_kinds" in pr:
+        ek = pr["extra_kinds"]
+        if not isinstance(ek, list) or not ek or not all(isinstance(x, str) and x.strip() for x in ek) or len(set(ek)) != len(ek):
+            _vthrow("list_spec.pricing.extra_kinds must be a non-empty list of distinct item kinds.")
+        for x in ek:
+            if x == pr["kind"]:
+                _vthrow(f"list_spec.pricing.extra_kinds repeats the pricing kind '{x}'.")
+            if x not in kinds:
+                _vthrow(f"list_spec.pricing.extra_kinds: '{x}' is not one of the config's item_kinds.")
     ucls = pr.get("unit_classes")
     if not isinstance(ucls, dict) or not ucls or not all(
         isinstance(k, str) and isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v) for k, v in ucls.items()
@@ -1495,6 +1579,15 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     uw = pr.get("unit_words")
     if uw is not None and (not isinstance(uw, dict) or set(uw) - set(ucls) or not all(isinstance(v, str) and v for v in uw.values())):
         _vthrow("list_spec.pricing.unit_words must name unit classes only, each with a word.")
+    # VRF-2b (QR-2 A): `unit_lines` -- a declared unit spelling -> the line its rows carry
+    if "unit_lines" in pr:
+        ul = pr["unit_lines"]
+        spellings = {_norm_unit_spelling(x) for v in ucls.values() for x in v}
+        if not isinstance(ul, dict) or not ul or not all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in ul.items()):
+            _vthrow("list_spec.pricing.unit_lines must map unit spellings to a non-empty line.")
+        for k in ul:
+            if _norm_unit_spelling(k) not in spellings:
+                _vthrow(f"list_spec.pricing.unit_lines: '{k}' is not a unit_classes spelling.")
     # SLICE 11: `unit_factors` -- a unit of a declared class quoted in a DIFFERENT unit of it. The factor
     # scales the RATE to that unit; `word` is how the note names it. A factor of 1 is a SYNONYM and belongs
     # in `unit_classes`, so it is refused here -- otherwise one unit could be declared twice, in two places,
@@ -1534,6 +1627,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if not isinstance(rd, dict):
             _vthrow(f"list_spec.pricing.numbers['{nid}'] must be an object.")
         unk = set(rd) - _PRICING_NUMBER_KEYS
+        if "units" in rd and not unk:
+            _validate_number_units(nid, rd["units"], by_id)
         if unk:
             _vthrow(f"list_spec.pricing.numbers['{nid}']: unknown key(s): {', '.join(sorted(unk))}.")
         frm = rd.get("from")
@@ -2015,6 +2110,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"{dloc} must carry exactly one of value / by_family.")
         if "absent_as_none" in d and not isinstance(d["absent_as_none"], bool):
             _vthrow(f"{dloc}.absent_as_none must be true or false.")
+        if "unlisted" in d:
+            ul = d["unlisted"]
+            if "value" not in d:
+                _vthrow(f"{dloc}.unlisted needs a single value to price as (not by_family).")
+            if not isinstance(ul, dict) or set(ul) != {"several", "off_sheet"} or not all(
+                    isinstance(ul.get(k), str) and "{said}" in ul[k] for k in ("several", "off_sheet")):
+                _vthrow(f"{dloc}.unlisted must be {{several, off_sheet}}, each a line carrying {{said}} (the row's words).")
         if "value" in d and d["value"] not in vals:
             _vthrow(f"{dloc}.value must be one of the attribute's values.")
         if "by_family" in d and (not isinstance(d["by_family"], dict) or not d["by_family"] or not all(
@@ -2127,8 +2229,10 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
                 _vthrow(f"{where}: step '{st}' is not one of the item-list pricing steps ({', '.join(sorted(_PRICING_STEP_TYPES))}).")
             if st == "match_master_row":
                 params = s.get("params")
-                if not isinstance(params, dict) or params.get("kind") != pr["kind"]:
-                    _vthrow(f"{where}: match_master_row must match the pricing kind '{pr['kind']}'.")
+                # VRF-2b (Q2): ... or one of its `extra_kinds` (a Misc family's own kind); nothing else
+                if not isinstance(params, dict) or params.get("kind") not in _pricing_kinds(pr):
+                    _vthrow(f"{where}: match_master_row must match the pricing kind '{pr['kind']}'"
+                            + (f" or one of its extra_kinds ({', '.join(pr['extra_kinds'])})" if pr.get("extra_kinds") else "") + ".")
             elif st == "scale":
                 for key in ("target", "result", "formula"):
                     if not isinstance(s.get(key), str) or not s.get(key):
@@ -2197,8 +2301,9 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: component_ref needs a string '{key}'.")
                 ref = s.get("ref")
-                if not isinstance(ref, dict) or ref.get("kind") != pr["kind"]:
-                    _vthrow(f"{where}: component_ref.ref must name the pricing kind '{pr['kind']}'.")
+                if not isinstance(ref, dict) or ref.get("kind") not in _pricing_kinds(pr):
+                    _vthrow(f"{where}: component_ref.ref must name the pricing kind '{pr['kind']}'"
+                            + (f" or one of its extra_kinds ({', '.join(pr['extra_kinds'])})" if pr.get("extra_kinds") else "") + ".")
                 if "qty" not in s or not _is_finite_number(s.get("qty")):
                     _vthrow(f"{where}: an item-list component_ref carries a numeric qty (the assembly shape).")
                 for rk, rv in ref.items():

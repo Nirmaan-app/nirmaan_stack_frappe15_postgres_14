@@ -332,6 +332,29 @@ export function extractionRulesCardShown(config: unknown): boolean {
 
 const famWordRaw = (f: string) => String(f).trim();
 
+/** VRF-2b (QR-3 A): the unit the line-1 refusal example quotes -- "nos", unless the category prices "nos". PURE. */
+function refusalExampleUnit(pr: any): string {
+  const known = new Set(Object.values<any>(pr?.unit_classes ?? {}).flat().map((x) => String(x).trim().toLowerCase()));
+  return ["nos", "Set", "Lot"].find((u) => !known.has(u.toLowerCase())) ?? "nos";
+}
+
+/** VRF-2b (QR-3 A): the line-13 examples of a unit the catalogue does not know -- 'Lot', 'Nos/Ro', with a known one
+ * swapped for 'Set'. Unchanged ('Lot', 'Nos/Ro') for every category that knows neither. PURE. */
+function unknownUnitExamples(pr: any): string {
+  const known = new Set(Object.values<any>(pr?.unit_classes ?? {}).flat().map((x) => String(x).trim().toLowerCase()));
+  const pick = ["Lot", "Nos/Ro", "Set"].filter((u) => !known.has(u.toLowerCase())).slice(0, 2);
+  return pick.map((u) => `'${u}'`).join(", ");
+}
+
+/** VRF-2b (QR-3 A): a block pricing SEVERAL item kinds (`extra_kinds`) in several unit classes, each family in exactly
+ * ONE class (VRF: the units per Nos, the Misc per Nos or per Kg). Keyed on `extra_kinds`, so every category that declares
+ * none -- Insulation and Piping in every version -- keeps its lines byte for byte. PURE. */
+function oneClassPerKind(pr: any): boolean {
+  const fams = Object.values<any>(pr?.families ?? {});
+  return Array.isArray(pr?.extra_kinds) && pr.extra_kinds.length > 0
+    && Object.keys(pr?.unit_classes ?? {}).length > 1 && fams.length > 0 && fams.every((f) => Object.keys(f?.units ?? {}).length === 1);
+}
+
 export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem> = []): RuleOrderLine[] {
   const inputLabel = (id: string): string => pricingInputLabel(id, items);
   const ls = (config as any)?.list_spec;
@@ -396,11 +419,18 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   const factors = Object.keys(pr.unit_factors ?? {});
   add("The row's unit decides which kind of rate applies",
       // ADP-4a (R6 / block 38): on the plain wording the units are the pricer's words, never the class ids
-      [classes.length ? `the units it knows: ${list(plain ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
+      // VRF-2b (owner QR-1 U7 A): a category whose every kind is priced in ONE of several classes names them in its words too
+      [classes.length ? `the units it knows: ${list(plain || oneClassPerKind(pr) ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
        factors.length ? `${list(factors, 4)} convert to the catalogue's own unit` : "",
        classes.length ? "a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit and says so; a row stating several units refuses, naming them" : "",
        // SLICE 12e-2 (owner Q19 / C2): the configured refusal for any other unit, in its own words
-       typeof pr.unit_refusal === "string" && pr.unit_refusal.trim() ? `any other unit refuses: ${plainSentence(String(pr.unit_refusal).replace("{unit}", "nos"))}` : ""]
+       // VRF-2b (owner QR-3 A): a spelling the config prices with a line ("'Nos/Ro' is read as Nos")
+       pr.unit_lines && typeof pr.unit_lines === "object" && Object.keys(pr.unit_lines).length
+         ? `${list(Object.keys(pr.unit_lines).map((k) => `'${k}'`))} ${Object.keys(pr.unit_lines).length === 1 ? "is" : "are"} read as ${list(Object.keys(pr.unit_lines).map((k) => String(pr.unit_words?.[classes.find((c) => (pr.unit_classes?.[c] ?? []).includes(k)) ?? ""] ?? "its unit")))}, with a line saying so`
+         : "",
+       // SLICE 12e-2 (owner Q19 / C2): the configured refusal for any other unit, in its own words. VRF-2b (QR-3 A): the
+       // example is "nos" unless the category PRICES "nos" -- then the first of Set / Lot it does not
+       typeof pr.unit_refusal === "string" && pr.unit_refusal.trim() ? `any other unit refuses: ${plainSentence(String(pr.unit_refusal).replace("{unit}", refusalExampleUnit(pr)))}` : ""]
         .filter(Boolean).join("; ") || undefined, "unit");
 
   // ── 2. the kind ───────────────────────────────────────────────────────────────────────────────────
@@ -506,7 +536,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         ? "a kind is priced per " + String(pr.unit_words?.[classes[0]] ?? classes[0]) + " and has one rule for it"
         : plain
           ? `a kind priced ${perWords.slice(0, -1).join(", ")} or ${perWords[perWords.length - 1]} has a rule for each`
-          : "a kind priced per metre and per square metre has a rule for each", "unit_rule");
+          // VRF-2b (owner QR-3 A): several classes, but every kind priced in exactly ONE of them (VRF: Nos or Kg)
+          : oneClassPerKind(pr)
+            ? `a kind is priced ${perWords.slice(0, -1).join(", ")} or ${perWords[perWords.length - 1]} - each kind has one rule, for the unit it is stocked in`
+            : "a kind priced per metre and per square metre has a rule for each", "unit_rule");
   // SLICE 12e-6 (AC5; U9): ADDED
   const byKind = Object.entries<any>(fwn?.by_unit_class ?? {});
   if (byKind.length >= 2) {
@@ -595,7 +628,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
 
   for (const [attr, rd] of Object.entries<any>(pr.numbers ?? {})) {
     if (typeof rd?.not_stocked !== "string") continue;
-    const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((a, b) => a - b);
+    const stocked = [...new Set(items.filter((it) => (it.kind === pr.kind || (Array.isArray(pr.extra_kinds) && pr.extra_kinds.includes(it.kind))) && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((a, b) => a - b);
     // ADP-4a (AC4): where the field also takes a typed value ("Other..."), a typed unstocked one refuses the same way
     const typed = plain && pr.panel_controls?.[attr] === "dropdown_or_other" ? `; a ${name(attr)} typed in 'Other...' that the catalogue does not stock refuses the same way` : "";
     add(`A ${name(attr)} the catalogue does not stock refuses`,
@@ -664,7 +697,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // ADP-2 (owner B3, 2026-10-19 14:24 "ok"; U6): ADDED -- a SQUARE size offered as a list with "Other..." (ADP's neck)
     // ADP-4a (owner D2 "13 + 24"): on the plain wording it is said once, in the line fitting every size to the catalogue
     if (!plain && rd?.square && pr.panel_controls?.[attr] === "dropdown_or_other") {
-      const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((x, y) => x - y);
+      const stocked = [...new Set(items.filter((it) => (it.kind === pr.kind || (Array.isArray(pr.extra_kinds) && pr.extra_kinds.includes(it.kind))) && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((x, y) => x - y);
       add(`A ${name(attr)} the catalogue does not stock can be typed in 'Other...'`,
           `the list offers the stocked ${name(attr)}s${stocked.length ? ` (${list(stocked.map(String))})` : ""}; a typed one between them takes the next stocked size up, with a line saying so; above the largest${stocked.length ? ` (${stocked[stocked.length - 1]})` : ""} it refuses`);
     }
@@ -790,6 +823,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("A fact the row does not mention takes its ruled value",
         `${list(defaultLines, 6)} -- shown as assumed, never silently`);
   }
+  // VRF-2b (owner R-BRAND (a)): a stated value the attribute does not list prices as the default, naming the row's words
+  for (const [a, d] of Object.entries<any>(pr.defaults ?? {})) {
+    if (!d?.unlisted || typeof d.value !== "string") continue;
+    add(`Several ${name(a)}s, or one ${name(a)} not on the sheet, are priced as ${d.value}`,
+        `naming the row's words, in amber: '${String(d.unlisted.several).replace("{said}", "Daikin / Toshiba")}'; '${String(d.unlisted.off_sheet).replace("{said}", "Toshiba")}'`);
+  }
   const overrides = ((pr.override_when ?? []) as any[]).filter((o) => o?.attr);
   if (overrides.length) {
     add("A ruling that replaces a value the row DID state",
@@ -875,7 +914,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     ? ladders.filter((a) => a !== composed && typeof pr.numbers?.[a]?.near !== "number" && pr.numbers?.[a]?.inches !== true)
     : [];
   if (plainLadders.length) {
-    const stockedOf = (a: string) => [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[a] === "number").map((it) => Number(it.attributes![a])))].sort((x, y) => x - y);
+    const stockedOf = (a: string) => [...new Set(items.filter((it) => (it.kind === pr.kind || (Array.isArray(pr.extra_kinds) && pr.extra_kinds.includes(it.kind))) && typeof it.attributes?.[a] === "number").map((it) => Number(it.attributes![a])))].sort((x, y) => x - y);
     const typedIn = plainLadders.filter((a) => pr.panel_controls?.[a] === "dropdown_or_other");
     add(`Fitting the stated ${list(plainLadders.map(name).slice(0, -1))}${plainLadders.length > 1 ? " or " : ""}${name(plainLadders[plainLadders.length - 1])} to the catalogue`,
         ["the stated value, else the next value the catalogue stocks; above the largest stocked value refuses, naming it",
@@ -897,6 +936,15 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       bits.push("above the largest stocked size refuses, naming the size");
     }
     add(`Fitting the stated ${name(a)} to the catalogue`, bits.join("; "));
+    // VRF-2b (owner R-CONV / CFM / RECON): a value stated in another unit is converted first
+    const cu = pr.numbers?.[a]?.units;
+    if (cu && typeof cu === "object") {
+      const conv = Object.entries<any>(cu.convert ?? {});
+      add(`A ${name(a)} stated in another unit is converted first`,
+          [`${conv.map(([u]) => u).join(" and ")} through the Pricing Inputs (${conv.map(([, c]) => inputLabel(String(c?.input ?? ""))).join(", ")}), with the working shown`,
+           `an airflow (${list((cu.refuse_words ?? []).map((w: string) => String(w).toUpperCase()))}) is not converted and refuses`,
+           "where the row states two units, the item's own unit is used"].join("; "));
+    }
     // SLICE 12e-4b (owner F-1): the nearest-size rule declared for THIS axis alone
     const axisNear = pr.numbers?.[a]?.near;
     if (typeof axisNear === "number") {
@@ -1049,7 +1097,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       if (missingUnits.length && spec) blocked.push(`${famWord(f)} (stocked ${stockedUnitsWords(spec, f)})`);
     }
     add("A kind not stocked in the row's unit refuses, naming the units it is stocked in",
-        `'<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand'; a unit the catalogue does not know ('Lot', 'Nos/Ro') the same way`
+        // VRF-2b (owner QR-3 A): the example units are ones the category does NOT know ("Nos/Ro" is a VRF Nos spelling)
+        `'<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand'; a unit the catalogue does not know (${unknownUnitExamples(pr)}) the same way`
         + (blocked.length ? ` -- e.g. ${list(blocked, 3)}` : "")
         // ADP-4a (owner D2 "5 + 32"): the kind the catalogue does not price in a unit it carries, said once, here
         + (plain && notOffered.length ? `; ${list(notOffered)}` : ""), "unit_refusal");

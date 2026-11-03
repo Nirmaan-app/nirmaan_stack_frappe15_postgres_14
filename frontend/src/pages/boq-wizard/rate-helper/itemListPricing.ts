@@ -133,7 +133,42 @@ export interface NumberReader {
    * axis, so Piping's pipe size is untouched. ABSENT => such a number takes the smallest size, as before.
    */
   bare_above_largest?: "refuse";
+  /**
+   * VRF-2b (owner R-CONV / Q3 / CFM 2026-11-03 21:14) -- A NUMBER STATED IN ONE OF SEVERAL UNITS, CONVERTED TO THE
+   * FAMILY'S OWN UNIT. See `CapacityUnits` / `readCapacity`. ABSENT => the reader is byte-identical.
+   */
+  units?: CapacityUnits;
 }
+
+/**
+ * VRF-2b (owner R-CONV, R-INPUTS; Q3 "a separate unit picker ... just beside the typing box"; CFM 2026-11-03 21:14
+ * "Refuse, named"; RECON 14:40 "both units given -> the sheet's unit") -- ONE CAPACITY, SEVERAL UNITS.
+ *
+ * Every SKU carries its own unit in `unit_attr` (VRF: `capacity_unit` = HP on an outdoor unit, TR indoors), so the
+ * FAMILY's unit is read off the catalogue, never named in code. A stated value carries a unit word (`words`, keyed by
+ * the unit as the screen writes it); a bare number is in the unit picked beside the typed box (the PICKER, an item
+ * attribute `<from[0]>__unit`), else the family's own. A value in another unit converts through `base`: every unit
+ * of `convert` is `factor` of it per one `base`, the factor being the Pricing Input named by `input` (read live, the
+ * `rate_ref` shape: kind *_pricing_input, `attributes.item` = the id, `rates.factor`). A value written only as an
+ * airflow (`refuse_words`) is NOT converted: it refuses with `refuse` ({said} = the airflow as written).
+ */
+export interface CapacityUnits {
+  /** The SKU attribute that carries each SKU's own unit ("capacity_unit"). */
+  unit_attr: string;
+  /** unit (as written on screen: "HP") -> its spellings, matched case-insensitively right after the number. */
+  words: Record<string, string[]>;
+  /** The unit every factor is per ("TR"). */
+  base: string;
+  /** unit -> the Pricing Input holding how many of that unit make one `base`, and the input's short label. */
+  convert: Record<string, { input: string; label: string }>;
+  /** Airflow spellings: a number carrying one is not a capacity. */
+  refuse_words: string[];
+  /** The refusal for a value stated ONLY as an airflow; carries {said}. */
+  refuse: string;
+}
+
+/** VRF-2b: the item attribute the unit PICKER writes beside a number's typed box (`capacity` -> `capacity__unit`). */
+export const UNIT_PICK_SUFFIX = "__unit";
 
 /**
  * SLICE 12e-2 (owner Q16 / Q15 / Q18, 2026-10-10) -- HOW A FAMILY ANSWER WRITTEN AS THE BoQ WRITES IT IS READ.
@@ -213,6 +248,12 @@ export interface DefaultSpec {
   /** SLICE 6 (owner S6, UL ONLY by config): an ABSENT answer is read as NOT MENTIONED, so this default fires
    * on it too. Absent / false => an absent answer stays "could not tell" and refuses (R2). */
   absent_as_none?: boolean;
+  /**
+   * VRF-2b (owner R-BRAND 2026-11-01 02:04 (a); VRF-R2 R6): a STATED value that is not one of the attribute's values --
+   * several brands ("Daikin / Toshiba") or one off the sheet ("Toshiba") -- prices as this default, marked as one, with
+   * the line naming the row's words ({said}). ABSENT => such a value is read as stated (and refuses as unstocked).
+   */
+  unlisted?: { several: string; off_sheet: string };
 }
 
 /**
@@ -460,6 +501,17 @@ export interface CompanionItem {
 
 export interface ItemListPricingSpec {
   kind: string;
+  /**
+   * VRF-2b (owner RECON 14:40, Q2 "Misc via extra_kinds"): FURTHER item kinds this block prices -- each family's SKUs are
+   * of ONE kind (VRF's units `hvac_vrf_item`, its four Misc items the shared `hvac_misc_item`). Every site that filtered
+   * on `kind` reads the set (`specKinds`); the ladder takes the family's own kind. ABSENT => `kind` alone, byte-identical.
+   */
+  extra_kinds?: string[];
+  /**
+   * VRF-2b (owner QR-2 A, 2026-11-03 15:14): a unit SPELLING of a declared class that prices as that class WITH a line
+   * ("Nos/Ro" -> "unit 'Nos/Ro' read as Nos"). The spelling must be one of `unit_classes`. ABSENT => no line.
+   */
+  unit_lines?: Record<string, string>;
   unit_class_attr: string;
   unit_classes: Record<string, string[]>;
   unit_words?: Record<string, string>;
@@ -834,6 +886,8 @@ export interface DefaultedAttr {
   /** ADP-2 (owner H5): the stated fact a `derive_when_none` default was decided by ("air" = "supply"), so its line
    * names it: "supply air, damper not mentioned -> with damper". Absent on every ruled default. */
   when?: { attr: string; equals: string };
+  /** VRF-2b (R-BRAND): the value AS STATED that an `unlisted` default replaced ("Toshiba") -- the field shows the default. */
+  asWritten?: string;
 }
 
 export interface LadderHop {
@@ -940,6 +994,8 @@ export interface ItemPriceResult {
   /** ADP-2 (owner H7): typed-only numbers FILLED from the model's own reading (a plenum's sides from the size as
    * written, its area from the area band) -- the field shows the value used and this line. Present only then. */
   filledReads?: Record<string, { value: number; line: string }>;
+  /** VRF-2b (R-CONV): the line(s) a unit-converting reader wrote for a number, by SKU attribute -- the field shows it. */
+  unitReads?: Record<string, string>;
   /**
    * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
    *
@@ -2013,6 +2069,10 @@ export function matchStatedToOptionDetailed(
   stated: string,
   options: readonly string[],
   reader: NumberReader | undefined,
+  /** VRF-2b (R-CONV): how the STATED text is read where the reader converts units (`readCapacity` with the family's
+   * unit, so "12 TR" on an HP family reads 15, never 12). The options are bare numbers in the family's unit and are
+   * read as before. ABSENT => the stated text is read by `readNumber`, byte-identical. */
+  readStated?: (text: string) => NumberRead,
 ): { to: string; by: "text" | "number" } | null {
   if (options.length === 0) return null;
   const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -2020,15 +2080,194 @@ export function matchStatedToOptionDetailed(
   if (want === "") return null;
   for (const o of options) if (norm(o) === want) return { to: o, by: "text" };
   if (!reader) return null;
-  const read = (text: string): number | null => {
-    const r = readNumber(text, reader);
-    return r && "value" in r && Number.isFinite(r.value) ? r.value : null;
-  };
-  const n = read(stated);
+  const valueOf = (r: NumberRead): number | null => (r && "value" in r && Number.isFinite(r.value) ? r.value : null);
+  const read = (text: string): number | null => valueOf(readNumber(text, reader));
+  const n = readStated ? valueOf(readStated(stated)) : read(stated);
   if (n === null) return null;
   for (const o of options) if (read(o) === n) return { to: o, by: "number" };
   return null;
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// VRF-2b -- the capacity reader (several units, converted through the Pricing Inputs) and the item kinds
+// ---------------------------------------------------------------------------------------------------------
+
+/** VRF-2b (Q2 `extra_kinds`): every item kind this block prices -- `kind` plus `extra_kinds`. PURE. */
+export function specKinds(spec: ItemListPricingSpec): ReadonlySet<string> {
+  return new Set([spec.kind, ...(spec.extra_kinds ?? [])]);
+}
+
+/** VRF-2b: true when a catalogue row's kind is one this block prices. PURE. */
+export function kindIn(spec: ItemListPricingSpec, kind: unknown): boolean {
+  return kind === spec.kind || (spec.extra_kinds ?? []).includes(String(kind));
+}
+
+/** VRF-2b: the kind a FAMILY's SKUs carry (the first row of the family among the block's kinds), else `kind`. PURE. */
+export function familyKindOf(spec: ItemListPricingSpec, items: readonly RateMasterItem[], family: string): string {
+  if (!(spec.extra_kinds ?? []).length) return spec.kind;
+  const row = items.find((it) => kindIn(spec, it.kind) && it.attributes?.[familyAttr(spec)] === family);
+  return row ? String(row.kind) : spec.kind;
+}
+
+/** VRF-2b (R-INPUTS): a Pricing Input's live factor by its id -- the `rate_ref` read (kind *_pricing_input,
+ * `attributes.item` = id, `rates.factor`); null when absent or not a positive number. PURE. */
+export function pricingInputFactor(items: readonly RateMasterItem[], id: string): number | null {
+  const it = items.find((x) => /_pricing_input$/.test(String(x?.kind ?? "")) && String(x?.attributes?.item ?? "") === id);
+  const f = Number((it?.rates as Record<string, unknown> | undefined)?.factor);
+  return Number.isFinite(f) && f > 0 ? f : null;
+}
+
+/** VRF-2b: the unit a family's SKUs carry in `units.unit_attr` (the first one stated), else null. PURE. */
+export function familyUnitOf(spec: ItemListPricingSpec, items: readonly RateMasterItem[], family: string | null | undefined, reader: NumberReader | undefined): string | null {
+  const u = reader?.units;
+  if (!u || !family) return null;
+  for (const it of items) {
+    if (!kindIn(spec, it.kind) || it.attributes?.[familyAttr(spec)] !== family) continue;
+    const v = it.attributes?.[u.unit_attr];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/** VRF-2b: the units the picker offers for a reader -- the `words` keys in config order. PURE. */
+export function unitPickerUnits(reader: NumberReader | undefined): string[] {
+  return reader?.units ? Object.keys(reader.units.words) : [];
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+const round2 = (v: number) => Math.round(v * 100 + 1e-9) / 100;
+
+/** VRF-2b: the context `readCapacity` reads a stated value in. */
+export interface CapacityContext {
+  /** The family's own unit (`familyUnitOf`); null = no family yet -> the number is read as written, unconverted. */
+  familyUnit: string | null;
+  /** A Pricing Input's live factor by id (`pricingInputFactor` over the helper's items). */
+  factorOf: (id: string) => number | null;
+  /** The unit the PICKER beside the typed box holds, if any. */
+  picker?: string | null;
+  /** The family's name, for the both-units line. */
+  family?: string | null;
+}
+
+/**
+ * VRF-2b (owner R-CONV; CFM "Refuse, named"; RECON "both units given -> the sheet's unit"; Q3 the picker) -- READ A
+ * CAPACITY STATED IN ANY OF THE READER'S UNITS AND CONVERT IT TO THE FAMILY'S. PURE.
+ *
+ *   * A number followed by a unit word is in that unit; a bare number is in the picker's unit, else the family's.
+ *     A unit word written in the box beats the picker, with a line.
+ *   * A number followed by an airflow word (CFM, CMH, m3/h) is NOT a capacity. A text stating ONLY airflow refuses
+ *     with the config's sentence naming it; beside a capacity it is set aside with a line.
+ *   * Two different capacity units in one text: the family's unit is used and the other named in a line; neither in
+ *     the family's unit refuses (no guess).
+ *   * Everything else -- several values, a range, brackets -- is read by `readNumber` exactly as today.
+ *   * The converted value is rounded to 2 decimals (the precision sizes match at) before the ladder.
+ * The result's `note` is the working line(s); `unitLine` carries the same for the field.
+ */
+export function readCapacity(text: string | number | null | undefined, reader: NumberReader, ctx: CapacityContext): NumberRead {
+  const U = reader.units;
+  const { units: _u, ...plain } = reader;
+  if (!U) return readNumber(text, plain);
+  if (text === null || text === undefined) return null;
+  const fam = ctx.familyUnit;
+  const unitKeys = Object.keys(U.words);
+  const canon = (u: string | null | undefined): string | null => {
+    if (!u) return null;
+    const k = unitKeys.find((x) => x.toLowerCase() === String(u).trim().toLowerCase());
+    return k ?? null;
+  };
+  const picker = canon(ctx.picker ?? null);
+  if (typeof text === "number") {
+    if (!Number.isFinite(text)) return { blank: `${reader.name} is not a number` };
+    return convertCapacity(text, picker ?? fam, reader, ctx, []);
+  }
+  const raw = String(text).trim();
+  if (raw === "" || raw === "None") return null;
+  let s = unicodeFractions(raw).toLowerCase().replace(/\([^)]*\)/g, " ");
+  // airflow words first (they may hold digits: "m3/h"), each replaced by a digit-free sentinel
+  const airWords = [...U.refuse_words].map((w, i) => ({ w, i })).sort((a, b) => b.w.length - a.w.length);
+  for (const { w, i } of airWords) s = s.replace(new RegExp(`${escapeRe(w.toLowerCase())}(?![a-z0-9])`, "g"), ` airflow${String.fromCharCode(97 + i)} `);
+  s = s.replace(/\s+/g, " ").trim();
+  const found = numbersIn(s);
+  type Tagged = Found & { unit: string | null; air: number | null };
+  const tagged: Tagged[] = found.map((f) => {
+    const after = s.slice(f.end);
+    const air = /^\s*airflow([a-z])/.exec(after);
+    if (air) return { ...f, unit: null, air: air[1].charCodeAt(0) - 97 };
+    for (const k of unitKeys) {
+      for (const w of U.words[k]) {
+        if (new RegExp(`^\\s*${escapeRe(w.toLowerCase())}(?![a-z0-9])`).test(after)) return { ...f, unit: k, air: null };
+      }
+    }
+    return { ...f, unit: null, air: null };
+  });
+  const airflow = tagged.filter((t) => t.air !== null);
+  const caps = tagged.filter((t) => t.unit !== null);
+  const bare = tagged.filter((t) => t.air === null && t.unit === null);
+  const airSaid = airflow.map((t) => `${fmt(t.n)} ${U.refuse_words[t.air!].toUpperCase()}`);
+  if (found.length === 0) return { blank: `no number in '${raw}' for ${reader.name}` };
+  if (caps.length === 0 && bare.length === 0) {
+    return { blank: U.refuse.replace("{said}", airSaid.join(", ")) };
+  }
+  const lines: string[] = [];
+  if (airflow.length) lines.push(`${airSaid.join(", ")} is an airflow - not read`);
+  // the text without its airflow parts, for the ordinary reader (ranges, several values, ...)
+  let rest = s;
+  for (const t of [...airflow].sort((a, b) => b.start - a.start)) {
+    const m = /^\s*airflow[a-z]/.exec(s.slice(t.end));
+    rest = rest.slice(0, t.start) + " " + rest.slice(t.end + (m ? m[0].length : 0));
+  }
+  rest = rest.replace(/\s+/g, " ").trim();
+  const unitsSeen = [...new Set(caps.map((c) => c.unit as string))];
+  if (unitsSeen.length >= 2) {
+    const famHits = fam ? caps.filter((c) => c.unit === fam) : [];
+    if (bare.length || famHits.length !== 1) {
+      if (!famHits.length) {
+        return { blank: `the row states ${caps.map((c) => `${fmt(c.n)} ${c.unit}`).join(" and ")} - none in ${fam ?? "the item's unit"} - price this row by hand` };
+      }
+      return { blank: `several values stated for ${reader.name} ('${raw}')` };
+    }
+    const others = caps.filter((c) => c.unit !== fam).map((c) => `${fmt(c.n)} ${c.unit}`);
+    lines.push(`the row states ${fmt(famHits[0].n)} ${fam} and ${others.join(" and ")} - ${fmt(famHits[0].n)} ${fam} is used (${ctx.family ?? "the item"} is stocked in ${fam}); ${others.join(" and ")} ${others.length === 1 ? "is" : "are"} not read`);
+    return convertCapacity(famHits[0].n, fam, reader, ctx, lines);
+  }
+  const stated = unitsSeen.length === 1 ? unitsSeen[0] : null;
+  const r = readNumber(rest, plain);
+  if (!r || !("value" in r)) return r;
+  if (r.note) lines.push(r.note);
+  if (stated && picker && picker !== stated && ctx.picker) lines.push(`you typed ${stated} - ${stated} is used, not the picker's ${picker}`);
+  return convertCapacity(r.value, stated ?? picker ?? fam, reader, ctx, lines);
+}
+
+/** VRF-2b: convert `value` (in unit `from`) to the family's unit through `base`, writing the line. PURE. */
+function convertCapacity(value: number, from: string | null, reader: NumberReader, ctx: CapacityContext, lines: string[]): NumberRead {
+  const U = reader.units!;
+  const fam = ctx.familyUnit;
+  const done = (v: number): NumberRead => (lines.length ? { value: v, note: lines.join("; ") } : { value: v });
+  if (!from || !fam || from === fam) return done(value);
+  const factor = (u: string): { f: number; label: string } | { missing: string } | null => {
+    if (u === U.base) return null;
+    const c = U.convert[u];
+    if (!c) return { missing: u };
+    const f = ctx.factorOf(c.input);
+    return f === null ? { missing: c.label } : { f, label: c.label };
+  };
+  const fFrom = factor(from);
+  const fTo = factor(fam);
+  for (const x of [fFrom, fTo]) {
+    if (x && "missing" in x) return { blank: `${reader.name} in ${from} cannot be converted to ${fam}: the Pricing Input for ${x.missing} is missing - price this row by hand` };
+  }
+  const a = fFrom as { f: number; label: string } | null;
+  const b = fTo as { f: number; label: string } | null;
+  const inBase = a ? value / a.f : value;
+  const out = round2(b ? inBase * b.f : inBase);
+  const parts = [`${fmt(value)} ${from}`];
+  if (a) parts.push(`/ ${fmt4(a.f)} (${a.label}, Pricing Inputs)`);
+  if (b) parts.push(`x ${fmt4(b.f)} (${b.label}, Pricing Inputs)`);
+  lines.push(`${parts.join(" ")} = ${fmt(out)} ${fam}`);
+  return done(out);
+}
+
+const fmt4 = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4))));
 
 // ---------------------------------------------------------------------------------------------------------
 // the projection (read-time, in memory, never written back)
@@ -2038,7 +2277,7 @@ export function matchStatedToOptionDetailed(
  * Items whose unit is not in the table are left without the key (they can never match a classed selection). PURE. */
 export function projectUnitClass(spec: ItemListPricingSpec, items: RateMasterItem[]): RateMasterItem[] {
   return items.map((it) => {
-    if (it.kind !== spec.kind) return it;
+    if (!kindIn(spec, it.kind)) return it;
     const cls = unitClassOf(spec, it.unit);
     if (cls === null) return it;
     return { ...it, attributes: { ...it.attributes, [spec.unit_class_attr]: cls } };
@@ -3212,6 +3451,22 @@ function priceOneItem(
           }
         }
       }
+      // VRF-2b (owner R-CONV / Q3): a reader declaring `units` reads the value in its stated unit (or the picker's, on a
+      // typed box) and converts it to the family's unit through the Pricing Inputs, with the line
+      if (got === null && reader.units) {
+        const famUnit = familyUnitOf(spec, projected, family, reader);
+        for (const src of reader.from) {
+          const cell = item.attributes?.[src];
+          const pick = item.attributes?.[`${src}${UNIT_PICK_SUFFIX}`]?.value;
+          // the PICKER counts only where the pricer set it beside a typed box; untouched, a bare number is in the family's unit
+          const picker = cell?.typed === true && typeof pick === "string" && pick.trim() ? pick : null;
+          got = readCapacity(rawValue(item, src), reader, { familyUnit: famUnit, factorOf: (id) => pricingInputFactor(projected, id), picker, family });
+          if (got !== null) {
+            if ("value" in got && got.note) (out.unitReads ??= {})[attr] = got.note;
+            break;
+          }
+        }
+      }
       if (got === null) {
         for (const src of reader.from) {
           got = readNumber(rawValue(item, src), reader);
@@ -3334,6 +3589,20 @@ function priceOneItem(
         readDefaulted.push({ attr, value: dv, rule: d!.rule_by_family?.[family] ?? d!.rule });
       }
       continue;
+    }
+    // VRF-2b (owner R-BRAND (a)): a STATED value that is not one of the attribute's values -- several ("Daikin /
+    // Toshiba") or one off the sheet ("Toshiba") -- prices as the ruled default, marked, naming the row's words
+    const unl = spec.defaults?.[attr]?.unlisted;
+    const listed = spec.choice_defs?.[attr]?.values ?? [];
+    if (unl && listed.length && !listed.includes(String(v))) {
+      const dv = ruledDefaultValue(spec, attr, family);
+      if (dv !== undefined) {
+        const said = String(v).trim();
+        const several = said.split(/\s*(?:\/|,|&|\+|\band\b|\bor\b)\s*/i).filter((x) => x.trim() !== "").length >= 2;
+        read[attr] = dv;
+        readDefaulted.push({ attr, value: dv, rule: (several ? unl.several : unl.off_sheet).replace("{said}", said), asWritten: said });
+        continue;
+      }
     }
     read[attr] = v;
   }
@@ -3607,7 +3876,7 @@ function priceOneItem(
   let outerSetAside: number[] | null = null;
   if (skRule && skRule.key.every((k) => k in read)) {
     const famRows = projected.filter(
-      (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
+      (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
     );
     const stated = skRule.key.map((k) => Number(read[k]));
     const statedText = stated.map(fmt).join("x");
@@ -3773,7 +4042,7 @@ function priceOneItem(
   for (const n of needs) {
     const rd = spec.numbers[n];
     if (!rd?.not_stocked || !(n in sel)) continue;
-    const rows = projected.filter((it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && n in it.attributes);
+    const rows = projected.filter((it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && n in it.attributes);
     if (!rows.length || rows.some((it) => sameValue(it.attributes[n], sel[n]))) continue;
     // ADP-3a (U4, N-slot): the refusal is about THIS field -- the panel outlines it and names it under the box
     return { ...blank(rd.not_stocked.replace("{value}", fmt(Number(sel[n])))), selection: sel, defaulted: out.defaulted, refusedFor: n };
@@ -3782,7 +4051,7 @@ function priceOneItem(
   // (5) the ladders (R6): the family's rows of the target class that carry the attribute, narrowed by the
   //     other stated keys those rows carry; exact else next up; above the largest = refuse
   const familyRows = projected.filter(
-    (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
+    (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
   );
   const keysCarried = new Set<string>();
   for (const it of familyRows) for (const k of Object.keys(it.attributes)) keysCarried.add(k);
@@ -3818,7 +4087,7 @@ function priceOneItem(
     // category whose SKUs carry no `item_detail` builds an EMPTY ladder and every row reports
     // "no SKU for this combination" -- which is exactly what Insulation did, with nothing on screen
     // hinting that a display field was the cause. ABSENT => "item_detail", so ADP is byte-identical.
-    const rungs = buildModuleLadder(familyRows, { kind: spec.kind, where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
+    const rungs = buildModuleLadder(familyRows, { kind: familyKindOf(spec, familyRows, family), where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
     const name = reasonName(spec, attr);
     const want = Number(sel[attr]);
     /**
@@ -3968,7 +4237,7 @@ function priceOneItem(
     }
     // a SKU without the ladder attribute is not on the ladder and must not match a laddered selection
     candidates = candidates.filter(
-      (it) => !(it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && !(attr in it.attributes)),
+      (it) => !(kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && !(attr in it.attributes)),
     );
   }
   out.selection = { ...sel };
@@ -4362,13 +4631,22 @@ export function priceItemList(
    */
   let resolvedUnit: { lead: string; word: string } | undefined;
   if (rateOnlyWithUnit !== null) resolvedUnit = { lead: `BoQ says ${unit.trim()} (rate only)`, word: rateOnlyWithUnit };
+  // VRF-2b (owner QR-2 A): a spelling the config prices as its class WITH a line ("Nos/Ro" -> "unit 'Nos/Ro' read as Nos")
+  const unitLine = (() => {
+    if (!spec.unit_lines || unit.trim() === "") return null;
+    const n = normUnit(unit);
+    for (const [k, v] of Object.entries(spec.unit_lines)) if (normUnit(k) === n) return v;
+    return null;
+  })();
   const unitResolved = (priced: boolean): { unitNote: string; rateUnit: string } | Record<string, never> =>
     resolvedUnit
       ? {
           unitNote: `${resolvedUnit.lead} -> ${priced ? "priced per" : "unit taken as"} ${resolvedUnit.word}, the catalogue's unit for this item`,
           rateUnit: resolvedUnit.word,
         }
-      : {};
+      : unitLine !== null && cls !== null
+        ? { unitNote: unitLine, rateUnit: unitWord(spec, cls) }
+        : {};
   /**
    * SLICE 12c-U (owner U2 / U3 / U4, 2026-10-07) -- A ROW THAT STATES NO UNIT IS PRICED IN THE
    * CATALOGUE'S UNIT FOR ITS ITEM, OR REFUSES NAMING THE CHOICE. It is never guessed.
@@ -4653,7 +4931,7 @@ export function fieldOptionsFromSkus(
     fam.units[cls] ? [cls] : (fam.convert?.[cls] ?? []).map((o) => o.to),
   );
   const famRows = projected.filter(
-    (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
+    (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
   );
   const carrying = famRows.filter((it) => attr in it.attributes);
   /**

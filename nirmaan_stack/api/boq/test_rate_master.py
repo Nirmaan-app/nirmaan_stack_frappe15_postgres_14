@@ -13248,7 +13248,11 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "existing_work",
                             # INVERTED at ADP-5d (owner Q1 / Q3 / Q4, 2026-10-24) by mechanical authority: BEFORE the set
                             # ended at "existing_work". The three keys are read only by ADP from v54 on; v7 predates them
-                            "stream_heading_default", "text_notes", "companion_items"})
+                            "stream_heading_default", "text_notes", "companion_items",
+                            # INVERTED at VRF-2b (owner RECON Q2 `extra_kinds`, QR-2 A Nos/Ro, 2026-11-03) by mechanical
+                            # authority: BEFORE the set ended at "companion_items". The two keys are read only by VRF
+                            # from v57 on; v7 predates them and ADP declares neither
+                            "extra_kinds", "unit_lines"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
@@ -20492,3 +20496,149 @@ class TestSlice12d4cAsset(FrappeTestCase):
         self.assertEqual(live["list_spec"]["pricing"]["refuse_on_unit_class"][0]["families"], TestSlice12d4aFAsset.SHEET)
         adp = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1, "category_id": "hvac_adp"}, "config"))
         self.assertIs(adp["list_spec"]["second_opinion"], False)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# VRF-2b (owner 2026-11-03: R-CONV / R-INPUTS, CFM "Refuse, named", RECON Q2 `extra_kinds`, QR-2 A Nos/Ro, R-BRAND (a))
+# -- the VALIDATOR's half of the 2b keys. FIXTURES, no DB: v56's hvac_vrf config with the keys added here.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+def _vrf2b_pipe(kind, rate_key, markup, out):
+    steps = [
+        {"step": "match_master_row", "params": {"kind": kind}, "explain": "match the SKU"},
+        {"step": "component", "name": "unit" if out == "supply" else "install", "target": rate_key, "formula": "base", "explain": "cost"},
+        {"step": "sum_components", "result": ("bcs_" + out) if markup else out, "explain": "BCS"},
+    ]
+    if markup:
+        steps.append({"step": "scale", "target": "bcs_" + out, "result": out, "params": {"m_from_ctx": markup},
+                      "formula": "base*(1+m)", "explain": "x (1 + markup)"})
+    steps.append({"step": "roundup", "target": out, "params": {"digits": 0}, "explain": "ROUNDUP"})
+    return {"output": [out], "steps": steps}
+
+
+def vrf2b_fixture_config(v56_cfg, drop=()):
+    """v56's hvac_vrf config with the VRF-2b keys (the shape the v57 mint adds; test_vrf_v57 pins the asset)."""
+    c = copy.deepcopy(v56_cfg)
+    pr = c["list_spec"]["pricing"]
+    if "units" not in drop:
+        pr["numbers"]["capacity"]["units"] = {
+            "unit_attr": "capacity_unit",
+            "words": {"HP": ["hp", "h.p."], "TR": ["tr", "t.r.", "ton", "tons"], "kW": ["kw", "k.w."]},
+            "base": "TR",
+            "convert": {"HP": {"input": "vrf_hp_per_tr", "label": "HP per TR"}, "kW": {"input": "vrf_kw_per_tr", "label": "kW per TR"}},
+            "refuse_words": ["cfm", "cmh", "m3/h", "m3/hr"],
+            "refuse": "capacity is stated only as an airflow ({said}) - an airflow is not converted to HP / TR - price this row by hand",
+        }
+    if "misc" not in drop:
+        k = "hvac_misc_item"
+        pr["extra_kinds"] = [k]
+        pr["unit_classes"]["weight"] = ["Kg", "kg", "kgs"]
+        pr["unit_words"]["weight"] = "Kg"
+        nos = {"supply": _vrf2b_pipe(k, "cost_supply", "supply_markup", "supply"), "install": _vrf2b_pipe(k, "cost_install", "install_markup", "install")}
+        pr["families"]["Drain Pump"] = {"needs": [], "units": {"count": {"pipelines": copy.deepcopy(nos)}}}
+        pr["families"]["BACnet Integration Controller for VRF Units"] = {"needs": [], "units": {"count": {"pipelines": copy.deepcopy(nos)}}}
+        pr["families"]["Refrigerant Gas Filling (R-410)"] = {"needs": [], "units": {"weight": {"pipelines": {
+            "supply": _vrf2b_pipe(k, "cost_supply", "supply_markup", "supply"), "install": _vrf2b_pipe(k, "boq_install", None, "install")}}}}
+        pr["families"]["MS Angle Base Frame Structure"] = {"needs": [], "units": {"weight": {"pipelines": copy.deepcopy(nos)}}}
+        item = next(d for d in c["list_spec"]["attribute_definitions"] if d["id"] == "item")
+        item["values"] = [v for v in item["values"] if v != "none of these"] + [
+            "Drain Pump", "BACnet Integration Controller for VRF Units", "Refrigerant Gas Filling (R-410)",
+            "MS Angle Base Frame Structure", "none of these"]
+    if "brand" not in drop:
+        pr["defaults"]["brand"]["unlisted"] = {
+            "several": "several brands stated ({said}) - priced as Blue Star",
+            "off_sheet": "brand {said} is not on the sheet - priced as Blue Star",
+        }
+    if "nosro" not in drop:
+        pr["unit_lines"] = {"Nos/Ro": "unit 'Nos/Ro' read as Nos"}
+    return c
+
+
+class TestVrf2bConfigKeys(FrappeTestCase):
+    """VRF-2b -- the validator accepts the four new keys on a correct shape and refuses each wrong one by name:
+    `numbers[*].units` (the capacity reader's units, the convert table naming the two Pricing Inputs, the airflow
+    refusal), `extra_kinds` (the Misc four's shared kind), `unit_lines` ("Nos/Ro") and `defaults.<attr>.unlisted` (the
+    brand note). The pricer's half (TS) is pinned in vrf2bCapacity.test.ts; the asset in test_vrf_v57."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v56.json"), "r", encoding="utf-8") as fh:
+            cls.v56 = json.load(fh)
+        cls.vrf56 = next(c for c in cls.v56["category_configs"] if c["category_id"] == "hvac_vrf")
+
+    def _cfg(self, drop=()):
+        return vrf2b_fixture_config(self.vrf56, drop)
+
+    def _refused(self, cfg, *needles):
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        for n in needles:
+            self.assertIn(n, str(cm.exception))
+
+    def test_v2b_01_POSITIVE_the_fixture_with_all_four_keys_validates_and_v56_as_shipped_still_does(self):
+        config_validation._validate_config(self._cfg())
+        config_validation._validate_config(copy.deepcopy(self.vrf56))
+        for d in ("units", "misc", "brand", "nosro"):
+            config_validation._validate_config(self._cfg(drop=(d,)))       # each key is optional on its own
+
+    def test_v2b_02_NEGATIVE_units_shapes_refused_by_name(self):
+        cases = [
+            (lambda u: u.pop("convert"), "convert must name every unit other than the base"),
+            (lambda u: u["convert"].pop("kW"), "convert must name every unit other than the base"),
+            (lambda u: u.__setitem__("base", "MW"), "base must be one of the units in words"),
+            (lambda u: u.__setitem__("refuse", "airflow - price by hand"), "refuse must be a sentence carrying {said}"),
+            (lambda u: u.__setitem__("refuse_words", []), "refuse_words must be a non-empty list"),
+            (lambda u: u["words"]["kW"].append("tr"), "is declared for both"),
+            (lambda u: u["convert"]["HP"].pop("label"), "must be {input, label}"),
+            (lambda u: u.__setitem__("bogus", 1), "unknown key(s): bogus"),
+            (lambda u: u.__setitem__("words", {"HP": ["hp"]}), "words must map at least two units"),
+        ]
+        for mutate, needle in cases:
+            cfg = self._cfg()
+            mutate(cfg["list_spec"]["pricing"]["numbers"]["capacity"]["units"])
+            self._refused(cfg, needle)
+
+    def test_v2b_03_POSITIVE_a_misc_pipeline_is_admitted_through_extra_kinds(self):
+        cfg = self._cfg()
+        self.assertEqual(cfg["list_spec"]["pricing"]["extra_kinds"], ["hvac_misc_item"])
+        config_validation._validate_config(cfg)
+
+    def test_v2b_04_NEGATIVE_without_extra_kinds_a_misc_pipeline_is_refused_by_the_kind_pins(self):
+        cfg = self._cfg()
+        del cfg["list_spec"]["pricing"]["extra_kinds"]
+        self._refused(cfg, "match_master_row must match the pricing kind 'hvac_vrf_item'")
+        # and the component_ref pin reads the same set
+        self.assertIn("hvac_misc_item", config_validation._pricing_kinds(self._cfg()["list_spec"]["pricing"]))
+        self.assertNotIn("hvac_misc_item", config_validation._pricing_kinds(self.vrf56["list_spec"]["pricing"]))
+
+    def test_v2b_05_NEGATIVE_extra_kinds_shapes_refused(self):
+        for bad, needle in ((["hvac_piping_item"], "is not one of the config's item_kinds"),
+                            (["hvac_vrf_item"], "repeats the pricing kind"),
+                            (["hvac_misc_item", "hvac_misc_item"], "distinct item kinds"),
+                            ([], "distinct item kinds"),
+                            ("hvac_misc_item", "distinct item kinds")):
+            cfg = self._cfg()
+            cfg["list_spec"]["pricing"]["extra_kinds"] = bad
+            self._refused(cfg, needle)
+
+    def test_v2b_06_NEGATIVE_unit_lines_must_name_a_declared_spelling_with_a_line(self):
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["unit_lines"] = {"Set": "unit 'Set' read as Nos"}
+        self._refused(cfg, "unit_lines: 'Set' is not a unit_classes spelling")
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["unit_lines"] = {"Nos/Ro": ""}
+        self._refused(cfg, "unit_lines must map unit spellings to a non-empty line")
+
+    def test_v2b_07_NEGATIVE_unlisted_needs_a_single_value_and_two_lines_carrying_said(self):
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["defaults"]["brand"]["unlisted"] = {"several": "several brands", "off_sheet": "brand {said} off the sheet"}
+        self._refused(cfg, "unlisted must be {several, off_sheet}")
+        cfg = self._cfg()
+        cfg["list_spec"]["pricing"]["defaults"]["cooling"]["unlisted"] = {"several": "{said}", "off_sheet": "{said}"}
+        self._refused(cfg, "unlisted needs a single value")
+
+    def test_v2b_08_the_used_by_walk_names_both_vrf_inputs_from_the_convert_table_only(self):
+        self.assertEqual(config_validation.number_units_inputs(self._cfg()["list_spec"]["pricing"]),
+                         {"vrf_hp_per_tr": ["capacity"], "vrf_kw_per_tr": ["capacity"]})
+        self.assertEqual(config_validation.number_units_inputs(self.vrf56["list_spec"]["pricing"]), {})
+        self.assertEqual(config_validation.number_units_inputs(None), {})
