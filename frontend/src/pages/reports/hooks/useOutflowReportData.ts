@@ -95,7 +95,13 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
             'type', // This is the link to 'Expense Type' DocType
             'type.expense_name as expense_type_name', // <--- THIS IS THE FIX
             'description',
-            'comment'
+            'comment',
+            // The Invoice column (#1603): the file, a Porter expense's link, and the No-invoice mark.
+            'invoice_attachment',
+            'porter_order',
+            'no_invoice_reason',
+            'no_invoice_by',
+            'no_invoice_at'
         ],
         filters: expenseFilters,
         limit: 0

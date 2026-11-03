@@ -34,6 +34,8 @@ import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import SITEURL from "@/constants/siteURL";
 import { OUTFLOW_SEARCHABLE_FIELDS, OUTFLOW_DATE_COLUMNS } from '../config/outflowReportsTable.config'; // We will create this config file next
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
@@ -141,6 +143,9 @@ export function OutflowReportTable() {
     // 3. Memoized lookups and options for performance
     const getProjectName = useCallback(memoize((id?: string) => projects?.find(p => p.name === id)?.project_name || id || '--'), [projects]);
     const getVendorName = useCallback(memoize((id?: string) => vendors?.find(v => v.name === id)?.vendor_name || id || 'Others'), [vendors]);
+    // Who marked an expense No invoice, by name, for the Invoice column's hover (#1603).
+    const { data: users } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 0 });
+    const getUserName = useCallback(memoize((id?: string) => users?.find(u => u.name === id)?.full_name || id || '--'), [users]);
 
     // Add a name to the report data for easier searching if needed
     const processedReportData = useMemo(() => {
@@ -165,7 +170,7 @@ export function OutflowReportTable() {
     }, [expenseTypes]);
 
     // 4. Define columns and facet filter options
-    const columns = useMemo(() => getOutflowReportColumns(getProjectName, getVendorName), [getProjectName, getVendorName]);
+    const columns = useMemo(() => getOutflowReportColumns(getProjectName, getVendorName, getUserName, SITEURL), [getProjectName, getVendorName, getUserName]);
 
     const facetFilterOptions = useMemo(() => ({
         project: { title: "Project", options: projectOptions },

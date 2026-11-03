@@ -9,12 +9,57 @@ import { OutflowRowData } from "../../hooks/useOutflowReportData";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Download, Info } from "lucide-react";
+import { outflowInvoiceCell, outflowInvoiceExportText } from "../../utils/outflowInvoiceCell";
 
 
 // Type for the function that will provide the project name from the ID
 type GetNameFn = (id?: string) => string;
 
-export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName: GetNameFn): ColumnDef<OutflowRowData>[] => [
+/** The Invoice column (#1603): a Project Expense's invoice link, its No-invoice mark, or a dash; blank on a payment. */
+const invoiceColumn = (getUserName: GetNameFn, siteUrl: string): ColumnDef<OutflowRowData> => ({
+    id: "invoice",
+    header: "Invoice",
+    enableSorting: false,
+    cell: ({ row }) => {
+        const cell = outflowInvoiceCell(row.original, getUserName);
+        switch (cell.kind) {
+            case "invoice":
+                return (
+                    <a
+                        href={siteUrl + cell.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open invoice"
+                        className="whitespace-nowrap font-medium text-blue-600 underline hover:text-blue-800"
+                    >
+                        View invoice
+                    </a>
+                );
+            case "no_invoice":
+                return (
+                    <span className="whitespace-nowrap font-medium text-amber-700" title={cell.detail}>
+                        {cell.label}
+                    </span>
+                );
+            case "none":
+                return <span className="text-gray-400">—</span>;
+            case "blank":
+                return null;
+        }
+    },
+    meta: {
+        exportValue: (row: OutflowRowData) => outflowInvoiceExportText(row, getUserName, siteUrl),
+        exportHeaderName: "Invoice",
+    },
+});
+
+export const getOutflowReportColumns = (
+    getProjectName: GetNameFn,
+    getVendorName: GetNameFn,
+    getUserName: GetNameFn = (id) => id || "--",
+    // The site's origin for the invoice link (`SITEURL`), passed in so this file loads without a browser.
+    siteUrl = "",
+): ColumnDef<OutflowRowData>[] => [
     {
         accessorKey: "payment_date",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" />,
@@ -116,4 +161,5 @@ export const getOutflowReportColumns = (getProjectName: GetNameFn, getVendorName
             exportHeaderName: "Ref"
         },
     },
+    invoiceColumn(getUserName, siteUrl),
 ];
