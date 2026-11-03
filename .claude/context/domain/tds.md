@@ -44,13 +44,19 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   - `edit_request.edit_tds_pick`: the Admin's "Edit TDS Item" of a From Repository row, the same way.
     The row stays a pick and takes its entry's datasheet. Both edits run the send's duplicate and
     replacement checks, and delete a replaced Rejected row only when the edit saves.
-  - `edit_request.resolve_rejected_tds(doc_name, make)`: Resolve (GLOSSARY). Admin or PMO
-    Executive; a Rejected, non-`PCUS-` row only. Switches only the make, to another Repository make
-    of the same TDS Item not on the project at any status (`_refuse_duplicates` plus
-    `_refuse_rejected_duplicate`), through the same `_save_edit`. The row becomes a Pending pick with
-    the entry's datasheet; request id, BOQ Ref, description and `tds_rejection_reason` stay. TDS
-    History offers it as the Resolve button on Rejected rows, whose delete lives in that dialog;
-    the dialog lists makes with `resolveMakeChoices`.
+  - `edit_request.resolve_rejected_tds(doc_name, make, tds_attachment, custom)`: Resolve (GLOSSARY).
+    Admin or PMO Executive; a Rejected row only, through the same `_save_edit`. Item + make must not
+    be on the project at any status (`_refuse_duplicates` plus `_refuse_rejected_duplicate`). A
+    Repository row switches only the make, to another Repository make of its TDS Item, and becomes a
+    Pending pick with the entry's datasheet (`tds_attachment` and `custom` refused). A `PCUS-` row is
+    edited like a request but stays Project Custom: `custom` carries name, Work Package, Category, BOQ
+    line and description (`CUSTOM_RESOLVE_FIELDS`), the make must be in the Makelist when it changes,
+    something must change, and a new datasheet is optional (the old upload is deleted when one is
+    sent). Request id and `tds_rejection_reason` stay. TDS History offers it as the Resolve button on
+    Rejected rows, whose delete lives in that dialog; the dialog reads `resolveMakeChoices`
+    (Repository) and `customMakeChoices` / `customResolveCheck` (Project Custom,
+    `TdsResolveCustomFields`). The approval page's `edit_tds_request` / `EditRequestItemModal` is a
+    separate, Admin-only path for waiting rows and shares only the option lists and `submit.py` checks.
   - `client_status.set_client_status(doc_names, action, reason)`: the only writer of Client Status.
 - **Client Status is its own four fields, never a `tds_status` value** (ADR-0025 Amendment B):
   `client_status` (Select: blank / *Approved by Client* / *Rejected by Client*), `client_status_by`

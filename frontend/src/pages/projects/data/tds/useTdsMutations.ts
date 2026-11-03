@@ -311,10 +311,11 @@ export const useSetClientStatus = () => {
 };
 
 /**
- * Resolve a Rejected row: switch it to another Repository make of its TDS Item and send it back
- * for approval as a Pending pick (`api/tds/edit_request.resolve_rejected_tds`, which re-checks the
- * role, that the row is still Rejected and that the make is free on the project). Invalidates
- * history and existing project items caches.
+ * Resolve a Rejected row and send it back for approval as Pending: another Repository make of its
+ * TDS Item, or for a Project Custom row its edited `custom` fields, make and optional
+ * `tdsAttachment`, the file_url of the caller's unattached upload (`api/tds/edit_request.resolve_rejected_tds`, which re-checks the
+ * role, that the row is still Rejected and that the item + make is free on the project).
+ * Invalidates history and existing project items caches.
  */
 export const useResolveRejectedTds = () => {
     const { call, loading } = useFrappePostCall<{
@@ -323,9 +324,20 @@ export const useResolveRejectedTds = () => {
     const { mutate } = useSWRConfig();
     const { currentUser } = useFrappeAuth();
 
-    const resolve = async (projectId: string, name: string, make: string) => {
+    const resolve = async (
+        projectId: string,
+        name: string,
+        make: string,
+        tdsAttachment?: string,
+        custom?: Record<string, string>
+    ) => {
         try {
-            const result = await call({ doc_name: name, make });
+            const result = await call({
+                doc_name: name,
+                make,
+                tds_attachment: tdsAttachment ?? "",
+                ...(custom && { custom: JSON.stringify(custom) }),
+            });
             try {
                 await Promise.all([
                     mutate(tdsKeys.historyItems(projectId)),

@@ -9,6 +9,9 @@ import {
   STORED_STATUS,
   cartRequestTypeOf,
   customItemKey,
+  customMakeChoices,
+  customResolveCheck,
+  customResolveDraftOf,
   datasheetFileName,
   entryAddedSinceRequest,
   historyStatusLabel,
@@ -294,6 +297,63 @@ describe("resolveMakeChoices", () => {
     expect(resolveMakeChoices(rejected, ["MakeA"], []).blocked).toBe("noOtherMake");
     const taken = repo.filter(m => m !== "MakeA").map((m, i) => ({ name: `t-${i}`, tds_item_id: "TDS-ITEM-1", tds_make: m }));
     expect(resolveMakeChoices(rejected, repo, taken)).toEqual({ makes: [], blocked: "allOnProject" });
+  });
+});
+
+describe("customMakeChoices", () => {
+  const row = { name: "c-1", tds_item_id: "PCUS-000001", tds_item_name: "Facade Light", tds_make: "Philips" };
+  const makelist = ["Havells", "Philips", "Wipro", "Syska"].map(name => ({ name }));
+  const rows = [
+    row,
+    { name: "c-2", tds_item_id: "PCUS-000001", tds_item_name: " FACADE light ", tds_make: "Wipro", tds_status: "Rejected" },
+    // Another item's make, or a Repository item of the same name, takes nothing from this one.
+    { name: "c-3", tds_item_id: "PCUS-000002", tds_item_name: "Cove Strip", tds_make: "Havells" },
+    { name: "c-4", tds_item_id: "TDS-ITEM-9", tds_item_name: "Facade Light", tds_make: "Syska" },
+  ];
+
+  it("offers every Makelist make the item doesn't already have on the project, its own included", () => {
+    expect(customMakeChoices(row, "Facade Light", makelist, rows).map(m => m.name)).toEqual(["Havells", "Philips", "Syska"]);
+    expect(customMakeChoices(row, "Facade Light", makelist, undefined)).toHaveLength(4);
+  });
+
+  it("follows the name being typed", () => {
+    expect(customMakeChoices(row, "cove strip", makelist, rows).map(m => m.name)).toEqual(["Philips", "Wipro", "Syska"]);
+  });
+});
+
+describe("customResolveCheck", () => {
+  const row = {
+    name: "c-1", tds_item_id: "PCUS-000001", tds_item_name: "Facade Light", tds_make: "Philips",
+    tds_work_package: "Electrical Work", tds_category: "Lighting", tds_boq_line_item: "7.1", tds_description: null,
+  };
+  const draft = customResolveDraftOf(row);
+
+  it("saves once any field or the datasheet changes, never requiring a new sheet", () => {
+    expect(customResolveCheck(row, draft, false, [row])).toMatchObject({ changed: [], canSave: false });
+    expect(customResolveCheck(row, { ...draft, tds_item_name: " Facade Light " }, false, [row]).canSave).toBe(false);
+    expect(customResolveCheck(row, draft, true, [row]).canSave).toBe(true);
+    expect(customResolveCheck(row, { ...draft, make: "Wipro", category: "Fixtures" }, false, [row])).toMatchObject({
+      changed: ["category", "make"],
+      canSave: true,
+    });
+    expect(customResolveCheck(row, { ...draft, description: "IP66" }, false, [row]).changed).toEqual(["description"]);
+  });
+
+  it("needs a name, Work Package, Category and make", () => {
+    for (const field of ["tds_item_name", "work_package", "category", "make"] as const) {
+      expect(customResolveCheck(row, { ...draft, [field]: " " }, true, [row])).toMatchObject({ complete: false, canSave: false });
+    }
+  });
+
+  it("refuses the draft's name ignoring case + make already on the project at any status", () => {
+    const rows = [
+      row,
+      { name: "c-2", tds_item_id: "PCUS-000002", tds_item_name: "COVE strip", tds_make: "Wipro", tds_status: "Rejected" },
+      { name: "c-3", tds_item_id: "TDS-ITEM-9", tds_item_name: "Cove Strip", tds_make: "Havells" },
+    ];
+    const renamed = { ...draft, tds_item_name: "Cove Strip" };
+    expect(customResolveCheck(row, { ...renamed, make: "Wipro" }, false, rows)).toMatchObject({ clash: rows[1], canSave: false });
+    expect(customResolveCheck(row, { ...renamed, make: "Havells" }, false, rows)).toMatchObject({ clash: undefined, canSave: true });
   });
 });
 

@@ -421,11 +421,16 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
   for approval as an ordinary *Pending* pick that carries the new Make's datasheet. If the row was a New
   Make, the datasheet it uploaded is discarded. Only the Make changes. The new Make must have a Repository
   Entry for this TDS Item, and must not already be on the project at any status, *Rejected* included. A
-  Project Custom or legacy row can't be resolved. The Admin's rejection reason is kept, but it is shown
+  **Project Custom** row is resolved by editing it like a request on the approval page: its name, Work
+  Package, Category, Make (from the make list), BOQ line, description and datasheet may all change, but it
+  stays a Project Custom item. At least one of them must change. A new datasheet is never required: once
+  anything changes, the user is asked to check the current one still matches. A rename to a name already on
+  the project joins that item; the name + Make must not already be on the project at any status. A legacy
+  row can't be resolved. The Admin's rejection reason is kept, but it is shown
   only while the row is *Rejected*. Admin and PMO Executive may resolve, and the server checks this. A
   *Rejected* row is deleted from the same Resolve dialog, not from the table. It differs from re-sending
   the same item + Make on a new request, which replaces the rejected row with a new row under a new
-  request id. (Owner, 2026-11-03.)
+  request id. (Owner, 2026-11-03; Project Custom full edit 2026-11-03.)
   *Avoid*: resubmit, reopen, edit (for this).
 
 - **Request Type** — what a waiting Project TDS row asks the approver for: **From Repository** (an

@@ -11,7 +11,8 @@ takes the Repository Entry of the TDS Item + make it is edited to, and that entr
 exactly as a send stores a pick.
 
 `resolve_rejected_tds` resolves a Rejected row (GLOSSARY "Resolve"): an Admin or PMO Executive
-switches it to another Repository make of its TDS Item, and it waits again as a Pending pick.
+switches it to another Repository make of its TDS Item, or edits a Project Custom row as
+`edit_tds_request` edits a request (but it stays Project Custom), and it waits again as Pending.
 
 All three plan and check the row with the same code as a send (`submit.py`), under the same project
 lock: the same duplicate checks, replacement check, Category check and datasheet claim. The edit
@@ -32,10 +33,12 @@ from nirmaan_stack.api.tds.submit import (
 	_SAVEPOINT,
 	_assign_project_custom_ids,
 	_check_replacements,
+	_item_make_key,
 	_parse_rows,
 	_plan_row,
 	_project_send_lock,
 	_refuse_duplicates,
+	_stored_key,
 	attach_upload,
 	delete_row_datasheet,
 	is_project_custom_id,
@@ -126,62 +129,122 @@ def edit_tds_pick(doc_name, row):
 
 
 @frappe.whitelist(methods=["POST"])
-def resolve_rejected_tds(doc_name, make):
-	"""Resolve one Rejected row: switch it to another make of its TDS Item and send it back for approval.
+def resolve_rejected_tds(doc_name, make, tds_attachment=None, custom=None):
+	"""Resolve one Rejected row and send it back for approval as Pending.
 
-	`doc_name`: the `Project TDS Item List` row, Rejected and not a Project Custom row.
-	`make`: a make with a Repository Entry for the row's TDS Item, other than the row's own.
+	`doc_name`: the `Project TDS Item List` row, Rejected.
+	`make`: for a TDS Repository item, a make with a Repository Entry for the row's TDS Item, other
+	than the row's own. For a Project Custom row, a Makelist make, or its own to keep the make.
+	`tds_attachment`: Project Custom only, optional: file_url of the caller's unattached upload, a
+	new datasheet. Without it the row keeps its current one.
+	`custom`: Project Custom only, optional: JSON object (or dict) of the row's other fields as
+	edited; a field left out keeps the row's value:
+	    {
+	        "tds_item_name": "Facade Light",
+	        "work_package": "Electrical Work",
+	        "category": "Lighting",              # under `work_package`
+	        "tds_boq_line_item": "BOQ 7.1",
+	        "description": "IP66, 3000K",
+	    }
 
-	Only the make changes. The row keeps its request id, BOQ Ref and description, becomes a Pending
-	pick carrying that entry's datasheet (a rejected New Make's own upload is deleted), and keeps its
-	rejection reason, which the screen shows only while a row is Rejected.
+	A Repository item's row becomes a Pending pick carrying that entry's datasheet (a rejected New
+	Make's own upload is deleted); it keeps its BOQ Ref and description. A Project Custom row stays
+	Project Custom with the edited fields: a rename takes the `PCUS-` id of that name on the project,
+	or the next one, and a new datasheet replaces the old upload, which is deleted. Either way the
+	row keeps its request id and rejection reason, which the screen shows only while a row is
+	Rejected.
 
-	Refuses (nothing saved) when the caller is not Admin or PMO Executive, the row is not a Rejected
-	row of a TDS Repository item, the make is the row's own, the TDS Item has no entry for the make,
-	or the item + make is already on the project at any status, Rejected included.
+	Refuses (nothing saved) when the caller is not Admin or PMO Executive; the row is not Rejected;
+	a Repository row's make is its own or has no entry, or a datasheet or `custom` is sent for it; a
+	Project Custom row changes nothing, misses its name, Work Package or Category, has a Category not
+	under its Work Package, or changes its make to one not in the Makelist; or the item + make is
+	already on the project at any status, Rejected included. A legacy row (`ITEM-`, `CUS-`) matches
+	no TDS Item and is refused.
 
 	Returns: {"name": <row>, "tds_item_id": ..., "tds_status": "Pending"}
 	"""
 	if not has_role_profile(frappe.session.user, RESOLVE_PROFILES):
 		frappe.throw(_("Only Admin or PMO can resolve a rejected TDS request."), frappe.PermissionError)
 	make = (make or "").strip()
+	new_sheet = tds_attachment or ""
+	fields = (frappe.parse_json(custom) if isinstance(custom, str) else custom) or None
 
 	def plan_resolve(user, doc):
-		if make == doc.tds_make:
-			frappe.throw(_("Pick a make other than {0}.").format(doc.tds_make))
-		(cart_row,) = _parse_rows(
-			[{"tds_item_id": doc.tds_item_id, "make": make, "tds_boq_line_item": doc.tds_boq_line_item}]
-		)
-		plan = _plan_row(cart_row, user, set())
-		# Only the make changes; a send stores no description on a pick.
-		plan["tds_description"] = doc.tds_description or ""
+		if is_project_custom_id(doc.tds_item_id):
+			plan = _plan_custom_resolve(doc, make, new_sheet, fields or {}, user)
+		else:
+			if fields:
+				frappe.throw(_("Only a Project Custom item's details can be edited here."))
+			plan = _plan_pick_resolve(doc, make, new_sheet, user)
 		_refuse_rejected_duplicate(doc, plan)
 		return plan
 
 	return _save_edit(doc_name, _is_resolvable, _not_resolvable, plan_resolve)
 
 
-def _refuse_rejected_duplicate(doc, plan):
-	"""Refuse a make that is Rejected on another row of the project. `_refuse_duplicates` covers
-	every other status; it skips Rejected rows because a resubmit replaces them."""
-	other = frappe.db.get_value(
-		ROW_DOCTYPE,
-		{
-			"tdsi_project_id": doc.tdsi_project_id,
-			"tds_item_id": plan["tds_item_id"],
-			"tds_make": plan["tds_make"],
-			"tds_status": STATUS_REJECTED,
-			"name": ["!=", doc.name],
-		},
-		["name", "tds_request_id"],
-		as_dict=True,
+def _plan_pick_resolve(doc, make, new_sheet, user):
+	"""Another Repository make of the row's TDS Item; the row takes that entry's datasheet."""
+	if new_sheet:
+		frappe.throw(_("A TDS Repository item takes its make's datasheet from the Repository."))
+	if make == doc.tds_make:
+		frappe.throw(_("Pick a make other than {0}.").format(doc.tds_make))
+	(cart_row,) = _parse_rows(
+		[{"tds_item_id": doc.tds_item_id, "make": make, "tds_boq_line_item": doc.tds_boq_line_item}]
 	)
-	if other:
-		frappe.throw(
-			_("{0} ({1}) is already on this project in request {2}.").format(
-				plan["tds_item_name"], plan["tds_make"], other.tds_request_id or "—"
+	plan = _plan_row(cart_row, user, set())
+	# Only the make changes; a send stores no description on a pick.
+	plan["tds_description"] = doc.tds_description or ""
+	return plan
+
+
+# A Project Custom row's fields Resolve may edit besides the make: `custom` key -> stored field.
+CUSTOM_RESOLVE_FIELDS = {
+	"tds_item_name": "tds_item_name",
+	"work_package": "tds_work_package",
+	"category": "tds_category",
+	"tds_boq_line_item": "tds_boq_line_item",
+	"description": "tds_description",
+}
+
+
+def _plan_custom_resolve(doc, make, new_sheet, fields, user):
+	"""The row edited as a Project Custom request (`_plan_project_custom`): every field from `fields`,
+	falling back to the row's own, and the new datasheet or the row's current one."""
+	if new_sheet == doc.tds_attachment:
+		new_sheet = ""
+	edited = {key: fields.get(key, doc.get(field)) or "" for key, field in CUSTOM_RESOLVE_FIELDS.items()}
+	changed = make != (doc.tds_make or "") or any(
+		str(edited[key]).strip() != (doc.get(field) or "").strip() for key, field in CUSTOM_RESOLVE_FIELDS.items()
+	)
+	if not (changed or new_sheet):
+		frappe.throw(_("Change something or upload a new datasheet."))
+	# The picker offers the Makelist, as Request New does; a row's own make may predate it.
+	if make != doc.tds_make and not frappe.db.exists("Makelist", make):
+		frappe.throw(_("{0} is not in the make list. Pick a make from the list.").format(make or "That make"))
+	(cart_row,) = _parse_rows(
+		[{**edited, "is_project_custom": True, "make": make, "tds_attachment": new_sheet or doc.tds_attachment}]
+	)
+	return _plan_row(cart_row, user, set(), kept_attachment=doc.tds_attachment)
+
+
+def _refuse_rejected_duplicate(doc, plan):
+	"""Refuse an item + make that is Rejected on another row of the project. `_refuse_duplicates`
+	covers every other status; it skips Rejected rows because a resubmit replaces them. Matched as
+	there: the TDS Item, or a Project Custom row's folded name."""
+	key = _item_make_key(plan["tds_item_id"], plan["custom_name_key"], plan["tds_make"])
+	rejected = frappe.get_all(
+		ROW_DOCTYPE,
+		filters={"tdsi_project_id": doc.tdsi_project_id, "tds_status": STATUS_REJECTED, "name": ["!=", doc.name]},
+		fields=["tds_item_id", "tds_item_name", "tds_make", "tds_request_id"],
+		limit_page_length=0,
+	)
+	for other in rejected:
+		if _stored_key(other) == key:
+			frappe.throw(
+				_("{0} ({1}) is already on this project in request {2}.").format(
+					plan["tds_item_name"], plan["tds_make"], other.tds_request_id or "—"
+				)
 			)
-		)
 
 
 def _require_admin():
@@ -271,13 +334,8 @@ def _is_waiting_pick(row):
 
 
 def _is_resolvable(row):
-	"""A Rejected row of a TDS Repository item: not a Project Custom row, which has no Repository makes."""
-	return row.tds_status == STATUS_REJECTED and not is_project_custom_id(row.tds_item_id)
+	return row.tds_status == STATUS_REJECTED
 
 
 def _not_resolvable(row):
-	if row.tds_status != STATUS_REJECTED:
-		return _("Only a Rejected row can be resolved; this one is {0}.").format(history_status_label(row.tds_status))
-	return _("{0} is a Project Custom item, so its make can't be changed. Delete the row instead.").format(
-		row.tds_item_name
-	)
+	return _("Only a Rejected row can be resolved; this one is {0}.").format(history_status_label(row.tds_status))

@@ -181,6 +181,95 @@ export function resolveMakeChoices(
   return { makes, blocked: makes.length ? null : "allOnProject" };
 }
 
+/**
+ * The makes a Rejected Project Custom row can be resolved to, while it is named `itemName`: every
+ * Makelist make (`name`) but the ones another Project Custom row of the project already holds for
+ * that name (ignoring case), at any status. The row's own make stays on offer.
+ */
+export function customMakeChoices<M extends { name: string }>(
+  row: { name: string },
+  itemName: string,
+  makes: readonly M[],
+  projectRows: readonly (TdsProjectRow & { name: string })[] | undefined
+): M[] {
+  const item = foldItemName(itemName);
+  const taken = new Set(
+    (projectRows ?? [])
+      .filter(r => r.name !== row.name && isProjectCustomId(r.tds_item_id) && foldItemName(r.tds_item_name) === item)
+      .map(r => (r.tds_make ?? "").trim())
+  );
+  return makes.filter(m => !taken.has(m.name));
+}
+
+/** A Rejected Project Custom row's fields as Resolve edits them (`custom` + `make` on the server). */
+export interface CustomResolveDraft {
+  tds_item_name: string;
+  work_package: string;
+  category: string;
+  make: string;
+  tds_boq_line_item: string;
+  description: string;
+}
+
+/** The stored fields of a Project Custom row the draft starts from. */
+export interface CustomResolveRow extends TdsProjectRow {
+  name: string;
+  tds_work_package?: string | null;
+  tds_category?: string | null;
+  tds_boq_line_item?: string | null;
+  tds_description?: string | null;
+}
+
+/** What each draft field is called in the "you changed …" note. */
+export const CUSTOM_RESOLVE_FIELD_LABEL: Record<keyof CustomResolveDraft, string> = {
+  tds_item_name: "item name",
+  work_package: "work package",
+  category: "category",
+  make: "make",
+  tds_boq_line_item: "BOQ line",
+  description: "description",
+};
+
+/** The draft a Rejected Project Custom row's Resolve starts from: the row as stored. */
+export function customResolveDraftOf(row: CustomResolveRow): CustomResolveDraft {
+  return {
+    tds_item_name: row.tds_item_name ?? "",
+    work_package: row.tds_work_package ?? "",
+    category: row.tds_category ?? "",
+    make: row.tds_make ?? "",
+    tds_boq_line_item: row.tds_boq_line_item ?? "",
+    description: row.tds_description ?? "",
+  };
+}
+
+/**
+ * Whether a Rejected Project Custom row can be resolved with `draft` and, when `hasNewSheet`, a new
+ * datasheet (GLOSSARY "Resolve"):
+ * - `changed`: the draft fields that differ from the row, ignoring outer spaces;
+ * - `complete`: a name, Work Package, Category and make;
+ * - `clash`: another Project Custom row of the project with the draft's name (ignoring case) +
+ *   make, at any status;
+ * - `canSave`: complete, something changed (a field or the datasheet) and no clash.
+ * A new datasheet is never required. The server refuses the same cases (`edit_request.py`
+ * `_plan_custom_resolve`).
+ */
+export function customResolveCheck<T extends TdsProjectRow & { name: string }>(
+  row: CustomResolveRow,
+  draft: CustomResolveDraft,
+  hasNewSheet: boolean,
+  projectRows: readonly T[] | undefined
+): { changed: (keyof CustomResolveDraft)[]; complete: boolean; clash: T | undefined; canSave: boolean } {
+  const before = customResolveDraftOf(row);
+  const fields = Object.keys(before) as (keyof CustomResolveDraft)[];
+  const changed = fields.filter(f => draft[f].trim() !== before[f].trim());
+  const complete = [draft.tds_item_name, draft.work_package, draft.category, draft.make].every(v => !!v.trim());
+  const key = customItemKey(draft.tds_item_name, draft.make);
+  const clash = (projectRows ?? []).find(
+    r => r.name !== row.name && isProjectCustomId(r.tds_item_id) && customItemKey(r.tds_item_name, r.tds_make) === key
+  );
+  return { changed, complete, clash, canSave: complete && (changed.length > 0 || hasNewSheet) && !clash };
+}
+
 function sameItemMake(row: TdsProjectRow, candidate: TdsResubmitCandidate): boolean {
   if (candidate.is_project_custom) {
     return (
