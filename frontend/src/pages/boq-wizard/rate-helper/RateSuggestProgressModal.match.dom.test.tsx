@@ -26,7 +26,10 @@ import {
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const PACES = { suggest_seconds_per_row: 3.12, match_fixed_seconds: 120, match_seconds_per_row: 1.0 };
+// DEV2-B5 S2 (mechanical inversion, the SAFE ESTIMATE ruling 11:11): Suggest = fixed + one part a batch of 20 rows (B4
+// pinned 3.12 s a row). Fixture paces; the dev2 ones are pinned below and in test_rate_match.
+const PACES = { suggest_fixed_seconds: 13, suggest_seconds_per_batch: 53, suggest_batch_rows: 20, match_fixed_seconds: 120, match_seconds_per_row: 1.0 };
+const DEV2 = { suggest_fixed_seconds: 13, suggest_seconds_per_batch: 53, suggest_batch_rows: 20, match_fixed_seconds: 65, match_seconds_per_row: 0.45 };
 
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
@@ -56,29 +59,38 @@ function modal(match?: MatchPhaseState | null) {
 }
 
 describe("DEV2-B4 the estimate line (total + split, safe: p90, rounded up)", () => {
-  it("20 rows: suggest ceil(20 x 3.12 / 60) = 2, match ceil((120 + 20 x 1.0) / 60) = 3, total 5", () => {
+  it("20 rows: suggest ceil((13 + 1 x 53) / 60) = 2, match ceil((120 + 20 x 1.0) / 60) = 3, total 5", () => {
     const e = matchWaitEstimate(20, PACES);
     expect([e.suggestMin, e.matchMin, e.totalMin]).toEqual([2, 3, 5]);
     expect(e.line).toBe("This will take about 5 minutes in all: about 2 to suggest rates and about 3 to match with previously priced BoQs.");
   });
 
-  it("rounds UP, never down: 19 rows of 3.12 s = 59.3 s -> 1 minute; 20 rows = 62.4 s -> 2", () => {
-    expect(matchWaitEstimate(19, PACES).suggestMin).toBe(1);
+  it("rounds UP, never down: 1 row = one batch = 66 s -> 2 minutes; 0 rows -> 1 (never \"0 minutes\")", () => {
+    expect(matchWaitEstimate(1, PACES).suggestMin).toBe(2);
     expect(matchWaitEstimate(20, PACES).suggestMin).toBe(2);
-    expect(matchWaitEstimate(0, PACES).suggestMin).toBe(1);   // never "0 minutes"
+    expect(matchWaitEstimate(0, PACES).suggestMin).toBe(1);
   });
 
-  it("a whole sheet of 206 rows: 11 + 6 = 17 minutes", () => {
+  it("the batch term counts BATCHES of 20, not rows: 1 .. 20 rows the same, 41 rows = 3 batches = 172 s -> 3", () => {
+    expect(matchWaitEstimate(1, PACES).suggestMin).toBe(matchWaitEstimate(20, PACES).suggestMin);
+    expect(matchWaitEstimate(40, PACES).suggestMin).toBe(2);
+    expect(matchWaitEstimate(41, PACES).suggestMin).toBe(3);
+  });
+
+  it("a whole sheet of 206 rows: 11 batches -> 10 + 6 = 16 minutes", () => {
     const e = matchWaitEstimate(206, PACES);
-    expect([e.suggestMin, e.matchMin, e.totalMin]).toEqual([11, 6, 17]);
+    expect([e.suggestMin, e.matchMin, e.totalMin]).toEqual([10, 6, 16]);
   });
 
-  it("the paces dev2 measured (api/boq/rate_match.PACES): 20 rows -> 2 + 2 = 4; 206 rows -> 11 + 3 = 14", () => {
-    const DEV2 = { suggest_seconds_per_row: 3.12, match_fixed_seconds: 65, match_seconds_per_row: 0.45 };
+  it("the paces dev2 measured (api/boq/rate_match.PACES): 20 rows -> 2 + 2 = 4; 206 rows -> 10 + 3 = 13", () => {
     expect(matchWaitEstimate(20, DEV2).line).toBe(
       "This will take about 4 minutes in all: about 2 to suggest rates and about 2 to match with previously priced BoQs.");
     const w = matchWaitEstimate(206, DEV2);
-    expect([w.suggestMin, w.matchMin, w.totalMin]).toEqual([11, 3, 14]);
+    expect([w.suggestMin, w.matchMin, w.totalMin]).toEqual([10, 3, 13]);
+  });
+
+  it("the Suggest part equals the server's suggest_estimate_minutes (test_rate_match pins the same numbers)", () => {
+    expect([0, 1, 20, 21, 40, 41, 206, 361].map((n) => matchWaitEstimate(n, DEV2).suggestMin)).toEqual([1, 2, 2, 2, 2, 3, 10, 17]);
   });
 
   it("switch OFF or no paces -> no line at all", () => {

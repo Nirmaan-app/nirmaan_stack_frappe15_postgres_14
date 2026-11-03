@@ -93,13 +93,13 @@
    ]
   },
   "nirmaan_stack.api.boq.test_rate_match": {
-   "seconds": 19.2,
+   "seconds": 18.1,
    "series": [],
    "writes": [],
    "reads": []
   },
   "nirmaan_stack.api.boq.test_rate_suggest": {
-   "seconds": 40.2,
+   "seconds": 42.3,
    "series": [
     "BOQN-26-",
     "BQSH-26-",
@@ -133,8 +133,10 @@
     "tabBoQ General Specs Sheet",
     "tabBoQ Rate Category Config",
     "tabBoQ Rate Master Item",
+    "tabBoQ Rate Match Run",
     "tabBoQ Review Row",
     "tabBoQ Row BCS Rate",
+    "tabBoQ Row Spec Card",
     "tabBoQ Sheet Draft",
     "tabBoQ Sheet Pricing Lock",
     "tabCEO Hold Reason",
@@ -145,7 +147,6 @@
     "tabProject Work Headers",
     "tabProject Work Package Category Make",
     "tabProject Zone Child Table",
-    "tabReminder",
     "tabServer Script",
     "tabWorkflow"
    ]

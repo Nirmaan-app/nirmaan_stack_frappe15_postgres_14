@@ -49,12 +49,20 @@ _M_MARKER_TTL_SEC = _MATCH_JOB_TIMEOUT_SEC * 2
 _M_STATUS_TTL_SEC = 3600
 POOL_REBUILD_TIMEOUT_SEC = 3600
 
-# THE PACES (seconds; measured in dev2, p90). Suggest: 188 stored complete whole-sheet runs (run_at - creation over
-# len(attempted_rows)): p90 3.12 s a row (DEV2-B4 P0 (b)). Matching: DEV2-B4 S4's 9 sheets of 4 BoQs, seconds = fixed
-# + rows x per-row: fixed = p90 of the four <= 30-row sheets' wall (26.6 / 60.1 / 63.7 / 65.4 s) = 64.9 -> 65;
-# per-row = p90 of (wall - 64.9) / rows over the five >= 90-row sheets (0.284 .. 0.444) = 0.443 -> 0.45.
+# THE PACES (seconds; measured in dev2, p90).
+# SUGGEST (DEV2-B5 S2, the SAFE estimate; B4's 3.12 s a row under-ran small passes - the cert's 20 rows took 203 s):
+#   seconds = fixed + batches x per_batch, batches = ceil(rows / 20) (extraction._BATCH). Fitted on 189 stored
+#   complete runs (run_at - creation; a completed selected-row pass sized from the capture log, two unsized ones left
+#   out) by a p90 quantile fit: fixed 13 s, per batch 48 s; the >300-row band then covered 8 / 9 (< 90 %), so the
+#   per-batch part was raised ONCE to the smallest whole second covering >= 90 % of the runs in every size band:
+#   53 s -> 1-20 rows 30/31, 21-100 70/74, 101-300 74/75, >300 9/9 (the dialog rounds each phase UP to minutes).
+# MATCHING: DEV2-B4 S4's 9 sheets of 4 BoQs, seconds = fixed + rows x per-row: fixed = p90 of the four <= 30-row
+#   sheets' wall (26.6 / 60.1 / 63.7 / 65.4 s) = 64.9 -> 65; per-row = p90 of (wall - 64.9) / rows over the five
+#   >= 90-row sheets (0.284 .. 0.444) = 0.443 -> 0.45. Re-checked in DEV2-B5 on B4 S4 + B5 S1.
 PACES = {
-    "suggest_seconds_per_row": 3.12,
+    "suggest_fixed_seconds": 13.0,
+    "suggest_seconds_per_batch": 53.0,
+    "suggest_batch_rows": 20,
     "match_fixed_seconds": 65.0,
     "match_seconds_per_row": 0.45,
 }
@@ -182,6 +190,28 @@ def _match_worker(run_name=None, boq=None, sheet_name=None, suggest_run_id=None,
     frappe.cache().delete_value(_marker_key(boq, sheet_name))
     frappe.publish_realtime("boq:match_sheet_done", payload, **rt)
     return payload
+
+
+def suggest_estimate_minutes(rows, paces=None):
+    """The Suggest part of the dialog's estimate, as RateSuggestProgressModal.matchWaitEstimate computes it (the two are
+    pinned equal): ceil((fixed + ceil(rows / batch_rows) x per_batch) / 60), at least 1 minute."""
+    import math
+    p = paces or PACES
+    batches = math.ceil(max(0, int(rows or 0)) / max(1, int(p["suggest_batch_rows"])))
+    return max(1, math.ceil((p["suggest_fixed_seconds"] + batches * p["suggest_seconds_per_batch"]) / 60))
+
+
+SIZE_BANDS = ((1, 20), (21, 100), (101, 300), (301, None))
+
+
+def estimate_coverage(runs, paces=None):
+    """{band: (covered, runs)} for stored runs [(rows, seconds)]: a run is covered when the estimate's whole minutes
+    x 60 >= its real seconds. The S2 proof: every band >= 90 % (owner 2026-11-03 11:11, "give a safe number")."""
+    out = {}
+    for lo, hi in SIZE_BANDS:
+        rs = [(n, s) for n, s in runs if n >= lo and (hi is None or n <= hi)]
+        out[(lo, hi)] = (sum(1 for n, s in rs if suggest_estimate_minutes(n, paces) * 60 >= s), len(rs))
+    return out
 
 
 def estimate_left_seconds(rows_total, seconds_so_far):

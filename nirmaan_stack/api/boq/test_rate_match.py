@@ -51,14 +51,75 @@ class TestClocks(FrappeTestCase):
         self.assertGreaterEqual(RM._STALE_MATCH_SECONDS, RM._MATCH_JOB_TIMEOUT_SEC + RM._RQ_KILL_GRACE_SEC)
 
     def test_the_paces_are_the_measured_p90s(self):
-        # DEV2-B4: Suggest from 188 stored runs (p90 3.12 s a row); matching from S4's 9 sheets (65 s + 0.45 s a row)
-        self.assertEqual(RM.PACES, {"suggest_seconds_per_row": 3.12, "match_fixed_seconds": 65.0, "match_seconds_per_row": 0.45})
-        self.assertTrue(all(isinstance(v, float) and v > 0 for v in RM.PACES.values()))
+        # DEV2-B5 S2 (mechanical inversion, the SAFE ESTIMATE ruling 11:11; B4 pinned suggest_seconds_per_row 3.12):
+        # Suggest = 13 s + 53 s a batch of 20 rows (p90 fit on 189 stored runs, per batch raised once 48 -> 53 for the
+        # >300-row band); matching from B4 S4's 9 sheets (65 s + 0.45 s a row)
+        self.assertEqual(RM.PACES, {"suggest_fixed_seconds": 13.0, "suggest_seconds_per_batch": 53.0, "suggest_batch_rows": 20,
+                                    "match_fixed_seconds": 65.0, "match_seconds_per_row": 0.45})
+        self.assertNotIn("suggest_seconds_per_row", RM.PACES)
+        self.assertTrue(all(isinstance(v, (int, float)) and v > 0 for v in RM.PACES.values()))
 
     def test_the_time_left_never_goes_below_zero(self):
         total = RM.PACES["match_fixed_seconds"] + RM.PACES["match_seconds_per_row"] * 10
         self.assertEqual(RM.estimate_left_seconds(10, 0), int(round(total)))
         self.assertEqual(RM.estimate_left_seconds(10, total + 500), 0)
+
+
+# DEV2-B5 S2: the (pass rows, seconds = run_at - creation) of the 189 stored COMPLETE Suggest runs in dev2 on
+# 2026-11-03 (s2_fit.py; a completed selected-row pass sized from the capture log; BRSR-26-00043 / -00044 unsized, out)
+STORED_RUNS = (
+    (169, 330.2), (12, 31.5), (169, 330.7), (59, 124.3), (28, 65.3), (68, 155.5), (65, 176.4), (106, 182.5),
+    (155, 247.2), (27, 48.5), (54, 131.5), (118, 179.0), (202, 348.7), (202, 343.9), (138, 231.2), (91, 144.2),
+    (162, 267.3), (225, 391.6), (122, 224.5), (123, 226.6), (124, 223.5), (122, 226.0), (103, 252.9), (45, 146.5),
+    (146, 316.0), (147, 292.6), (147, 311.1), (29, 44.3), (70, 141.9), (121, 280.4), (155, 282.0), (200, 451.0),
+    (176, 342.7), (200, 424.4), (25, 54.4), (247, 527.7), (113, 168.6), (201, 439.7), (14, 97.9), (152, 334.4),
+    (155, 329.1), (127, 260.7), (69, 170.6), (122, 217.9), (65, 193.9), (78, 183.7), (203, 406.0), (193, 729.1),
+    (148, 306.6), (65, 177.4), (148, 306.0), (548, 1070.7), (310, 801.9), (260, 703.1), (97, 289.4), (99, 246.6),
+    (429, 1049.3), (294, 726.3), (294, 733.6), (134, 313.9), (3, 8.1), (14, 29.0), (146, 376.6), (10, 20.5),
+    (111, 246.4), (361, 579.5), (148, 329.9), (30, 101.6), (55, 150.5), (282, 713.5), (282, 729.1), (284, 726.0),
+    (199, 454.2), (69, 176.2), (546, 1050.0), (145, 372.4), (13, 14.8), (546, 1066.8), (4, 9.3), (63, 164.9),
+    (1, 7.7), (142, 256.3), (153, 390.6), (266, 548.7), (134, 331.6), (197, 469.7), (44, 169.6), (44, 187.6),
+    (154, 386.9), (47, 86.1), (47, 87.1), (455, 1113.0), (357, 976.9), (455, 1111.9), (45, 69.1), (26, 82.1),
+    (85, 122.7), (206, 540.9), (30, 62.4), (221, 487.0), (217, 492.2), (108, 179.2), (35, 82.9), (202, 418.0),
+    (52, 91.2), (141, 362.8), (293, 738.2), (35, 89.7), (36, 79.3), (6, 6.6), (85, 150.6), (32, 7.9), (118, 247.8),
+    (16, 50.1), (81, 209.6), (11, 38.0), (97, 223.5), (143, 292.9), (14, 24.7), (18, 42.6), (119, 242.6), (23, 46.4),
+    (145, 403.2), (66, 102.7), (198, 432.4), (24, 17.1), (73, 112.3), (16, 22.3), (156, 351.0), (2, 6.4), (42, 71.6),
+    (1, 4.8), (12, 61.6), (51, 114.0), (13, 30.7), (184, 422.6), (66, 151.0), (94, 166.7), (51, 160.2), (163, 362.6),
+    (77, 267.5), (19, 33.2), (56, 173.2), (217, 499.7), (64, 106.4), (56, 160.1), (52, 100.4), (195, 372.7),
+    (190, 443.1), (42, 116.1), (45, 89.0), (100, 201.4), (14, 60.7), (5, 20.5), (43, 104.7), (96, 198.1),
+    (185, 413.5), (68, 117.9), (39, 162.2), (213, 495.4), (16, 29.8), (46, 141.8), (171, 365.9), (23, 69.3),
+    (17, 29.7), (17, 31.0), (73, 174.3), (28, 76.7), (3, 8.3), (28, 74.1), (28, 74.4), (94, 177.5), (3, 7.9),
+    (19, 35.6), (44, 119.0), (94, 187.3), (34, 99.1), (280, 674.7), (20, 47.1), (20, 49.7), (20, 47.6), (81, 195.3),
+    (111, 222.4), (41, 127.5), (83, 197.5), (39, 131.0), (99, 247.4), (83, 238.0), (20, 202.7),
+)
+
+
+class TestSuggestEstimate(FrappeTestCase):
+    """THE SAFE ESTIMATE (owner 2026-11-03 11:11 "give a safe number"): Suggest = fixed + ceil(rows / 20) x per batch,
+    rounded UP to whole minutes; on the stored runs it covers >= 90 % in EVERY size band."""
+
+    def test_the_formula(self):
+        # 20 rows = 1 batch: ceil((13 + 53) / 60) = 2; 21 rows = 2 batches: ceil(119 / 60) = 2; 206 = 11: ceil(596 / 60) = 10
+        self.assertEqual([RM.suggest_estimate_minutes(n) for n in (0, 1, 20, 21, 40, 41, 206, 361)], [1, 2, 2, 2, 2, 3, 10, 17])
+
+    def test_the_batch_term_counts_batches_not_rows(self):
+        self.assertEqual(RM.suggest_estimate_minutes(1), RM.suggest_estimate_minutes(20))
+        self.assertLess(RM.suggest_estimate_minutes(20), RM.suggest_estimate_minutes(400))
+
+    def test_coverage_is_at_least_90_percent_in_every_band(self):
+        cov = RM.estimate_coverage(STORED_RUNS)
+        self.assertEqual(sum(n for _, n in cov.values()), 189)
+        self.assertEqual(cov, {(1, 20): (30, 31), (21, 100): (70, 74), (101, 300): (74, 75), (301, None): (9, 9)})
+        for band, (covered, n) in cov.items():
+            self.assertGreaterEqual(covered / n, 0.9, band)
+
+    def test_the_unadjusted_fit_and_the_b4_pace_each_miss_a_band(self):
+        fit = dict(RM.PACES, suggest_seconds_per_batch=48.0)          # the p90 fit before the one adjustment
+        self.assertLess(min(c / n for c, n in RM.estimate_coverage(STORED_RUNS, fit).values()), 0.9)
+        import math
+        b4 = {(lo, hi): (sum(1 for r, s in STORED_RUNS if lo <= r and (hi is None or r <= hi) and max(1, math.ceil(r * 3.12 / 60)) * 60 >= s),
+                         sum(1 for r, s in STORED_RUNS if lo <= r and (hi is None or r <= hi))) for lo, hi in RM.SIZE_BANDS}
+        self.assertLess(b4[(1, 20)][0] / b4[(1, 20)][1], 0.9)        # B4's 3.12 s a row under-ran the small passes
 
 
 class TestTrigger(FrappeTestCase):

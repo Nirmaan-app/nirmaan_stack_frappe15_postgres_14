@@ -180,18 +180,23 @@ export function suggestAiStatusWarning(aiStatus: string | undefined | null): str
 // ── DEV2-B4: the matching phase and the wait estimate ─────────────────────────────────────────────────────────────
 /** The paces get_match_status serves (seconds, measured in dev2 at p90; api/boq/rate_match.PACES). */
 export interface MatchPaces {
-  suggest_seconds_per_row: number;
+  /** DEV2-B5 S2 (the SAFE estimate, owner 2026-11-03 11:11): Suggest = a fixed part + one part per batch of
+   *  `suggest_batch_rows` rows (extraction._BATCH), each fitted at p90 on the stored runs. */
+  suggest_fixed_seconds: number;
+  suggest_seconds_per_batch: number;
+  suggest_batch_rows: number;
   match_fixed_seconds: number;
   match_seconds_per_row: number;
 }
 
-/** PURE. The confirm dialog's estimate: each phase from the rows at its p90 pace, rounded UP to whole minutes (at
- *  least 1); the total = the two parts added.
- *    suggest = ceil(rows x suggest_seconds_per_row / 60)
+/** PURE. The confirm dialog's estimate: each phase at its p90 pace, rounded UP to whole minutes (at least 1); the
+ *  total = the two parts added.
+ *    suggest = ceil((suggest_fixed_seconds + ceil(rows / suggest_batch_rows) x suggest_seconds_per_batch) / 60)
  *    match   = ceil((match_fixed_seconds + rows x match_seconds_per_row) / 60)  */
 export function matchWaitEstimate(rows: number, p: MatchPaces): { suggestMin: number; matchMin: number; totalMin: number; line: string } {
   const n = Math.max(0, rows);
-  const suggestMin = Math.max(1, Math.ceil((n * p.suggest_seconds_per_row) / 60));
+  const batches = Math.ceil(n / Math.max(1, p.suggest_batch_rows));
+  const suggestMin = Math.max(1, Math.ceil((p.suggest_fixed_seconds + batches * p.suggest_seconds_per_batch) / 60));
   const matchMin = Math.max(1, Math.ceil((p.match_fixed_seconds + n * p.match_seconds_per_row) / 60));
   const totalMin = suggestMin + matchMin;
   return {
