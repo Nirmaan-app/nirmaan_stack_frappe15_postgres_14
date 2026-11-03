@@ -3084,9 +3084,9 @@ const SheetPricingPage = () => {
     const discipline = resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null;
     const categoryId = liveCategoriesByExcelRow.get(helperPanel.excelRow)?.effective_category_id ?? null;
     return rowUsesPreRunHelper(discipline, categoryId, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
-      ? buildHelperList(preRunHelper)
+      ? buildHelperList(preRunHelper, previouslyPricedHelper)
       : helperList;
-  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, liveCategoriesByExcelRow, configsByCategory, helperList]);
+  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, liveCategoriesByExcelRow, configsByCategory, helperList, previouslyPricedHelper]);
 
   // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
   // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).
