@@ -317,10 +317,9 @@ class TestALinkAndAJobOnOneTxnId(OneExpensePerTxnIdCase):
         late_out, _ = self._late_and_early(self._job, self._link)
         self.assertNotIn("error", late_out, late_out.get("error"))
         self.assertEqual(self._settled_for_the_txn_id(), [self.expense])
-        # The late job line ends either as the "Already imported" skip naming the Linked Expense (the index refused
-        # it) or as Error (the naming series refused it first, as with #1588's two overlapping jobs; owner-accepted).
+        # The index refuses the late job's write: its line is the "Already imported" skip naming the Linked Expense
+        # (measured: Skipped on 3 of 3 runs).
         job_line = self._job_line()
-        self.assertIn(job_line.row_status, ("Skipped", "Error"), job_line.outcome_note)
-        if job_line.row_status == "Skipped":
-            self.assertIn("Already imported", job_line.outcome_note)
-            self.assertIn(self.expense, job_line.outcome_note)
+        self.assertEqual(job_line.row_status, "Skipped", job_line.outcome_note)
+        self.assertIn("Already imported", job_line.outcome_note)
+        self.assertIn(self.expense, job_line.outcome_note)
