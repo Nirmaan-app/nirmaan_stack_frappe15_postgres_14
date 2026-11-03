@@ -36,7 +36,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMaste
 import { mergeItemsByName } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import { isSuggestion, type ExtractionRow } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
-import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, makePricingSheetHelper, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { COMING_SOON_REASON, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, makePricingSheetHelper, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import {
   AWAITING_CORPUS_DIVERGENCES,
   AWAITING_SWEEP_DIVERGENCES,
@@ -1737,5 +1737,382 @@ describe("12e-5c AC13 -- one Stage B row per new shape (runs BRSR-26-00718 .. 00
     const ins = (x: Shown) => x.v.items[0].sections?.[0].view.items[0].fields.find((f) => f.id === "pipe_size_mm")?.value;
     expect(ins(p)).toBe("22.23");
     expect(ins(p)).not.toBe(ins(c));
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * VRF-2a (owner 2026-11-03; PARITY ruling 12:15 "check automatically that calculator and panel give the same answer
+ * on every item") -- HVAC v56: VRF PRICES IN THE CALCULATOR, both surfaces compared on every item.
+ *
+ * TWO CONFIGS, AND WHY. The live v56 `hvac_vrf` carries `calculator_only` (owner Q1 A, temporary, removed at VRF-4): the
+ * BoQ panel declines it and only the calculator (`calculatorSurface`) prices it. Parity is therefore asserted on the
+ * config WITH THE KEY PROJECTED OUT -- exactly what both surfaces will run at VRF-4 -- and two further pins tie that
+ * projection to what ships today: (1) the live config + the calculator's flag computes BYTE-IDENTICAL results to the
+ * projected config, on every SKU and every named case; (2) the live config WITHOUT the flag (the BoQ panel) declines
+ * with today's coming-soon text. The harness (`calculatorPanelParity.harness.ts`) is not changed: its calculator
+ * helper is one flag short of `PricingCalculator` until VRF-4 removes the key, and pin (1) is what makes that safe.
+ *
+ * THE SHEET, INDEPENDENTLY: `VRF_SHEET` below is the R-SRC workbook's VRF sheet ("HVAC_BOQ_BCS PRICING_ Nitesh Edits - 2 nov
+ * 2026.xlsx", sha256 30588ddb...), read cell by cell (openpyxl, cached values) in VRF-2a, never from either mint: row,
+ * BRAND, Model, BOQ SUPPLY rounded up (R-ROUND), BOQ INSTALLATION. Rows 105 / 106 are the two retired ductables.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+const VRF_SHEET: ReadonlyArray<readonly [number, string, string, number, number]> = [
+  [2, "BLUE STAR", "IVRFB-28TCN", 568920, 28000],
+  [3, "BLUE STAR", "IVRFB-26TCN", 547440, 26000],
+  [4, "BLUE STAR", "IVRFB-24TCN", 511560, 24000],
+  [5, "BLUE STAR", "IVRFB-22TC / TCN", 486120, 22000],
+  [6, "BLUE STAR", "IVRFB-20TC / TCN", 476040, 20000],
+  [7, "BLUE STAR", "IVRFB-18TC / TCN", 452040, 18000],
+  [8, "BLUE STAR", "IVRFB-16TCN", 381600, 16000],
+  [9, "BLUE STAR", "IVRFB-16TC", 436920, 16000],
+  [10, "BLUE STAR", "IVRFB-14TCN", 363360, 14000],
+  [11, "BLUE STAR", "IVRFB-14TC", 405240, 14000],
+  [12, "BLUE STAR", "IVRFB-12TC / TCN", 312480, 12000],
+  [13, "BLUE STAR", "IVRFB-10TC / TCN", 301560, 10000],
+  [14, "BLUE STAR", "IVRFB-08TC / TCN", 289800, 8000],
+  [15, "BLUE STAR", "IVRFB-07TC", 264240, 7000],
+  [16, "BLUE STAR", "IVRFB-28THN", 591600, 28000],
+  [17, "BLUE STAR", "IVRFB-26THN", 567360, 26000],
+  [18, "BLUE STAR", "IVRFB-24THN", 537000, 24000],
+  [19, "BLUE STAR", "IVRFB-22TH / THN", 509640, 22000],
+  [20, "BLUE STAR", "IVRFB-20TH / THN", 502440, 20000],
+  [21, "BLUE STAR", "IVRFB-18TH / THN", 483600, 18000],
+  [22, "BLUE STAR", "IVRFB-16THN", 401400, 16000],
+  [23, "BLUE STAR", "IVRFB-16TH", 453120, 16000],
+  [24, "BLUE STAR", "IVRFB-14THN", 381600, 14000],
+  [25, "BLUE STAR", "IVRFB-14TH", 423480, 14000],
+  [26, "BLUE STAR", "IVRFB-12TH / THN", 324000, 12000],
+  [27, "BLUE STAR", "IVRFB-10TH / THN", 308640, 10000],
+  [28, "BLUE STAR", "IVRFB-08TH / THN", 305280, 8000],
+  [29, "BLUE STAR", "IVRFB-07TH", 286080, 7000],
+  [30, "BLUE STAR", "IVRFB-04SC", 114120, 4000],
+  [31, "BLUE STAR", "IVRFB-05SC", 125664, 5000],
+  [32, "BLUE STAR", "IVRFB-06SC", 152724, 6000],
+  [33, "BLUE STAR", "IVRFB-08SC", 185988, 8000],
+  [34, "BLUE STAR", "IVRFB-10SC", 209616, 10000],
+  [35, "BLUE STAR", "IVRFB-12SC", 225060, 12000],
+  [36, "BLUE STAR", "IVRFB-14SC", 298464, 14000],
+  [37, "BLUE STAR", "IVRFB-16SC", 305316, 16000],
+  [38, "BLUE STAR", "IVRFB-04SH", 125796, 4000],
+  [39, "BLUE STAR", "IVRFB-05SH", 135960, 5000],
+  [40, "BLUE STAR", "IVRFB-06SH", 151800, 6000],
+  [41, "BLUE STAR", "IVRFB-08SH", 196548, 8000],
+  [42, "BLUE STAR", "IVRFB-10SH", 222000, 10000],
+  [43, "BLUE STAR", "IVRFB-12SH", 244224, 12000],
+  [44, "BLUE STAR", "IVRFB-14SH", 313104, 14000],
+  [45, "BLUE STAR", "IVRFB-16SH", 322200, 16000],
+  [46, "BLUE STAR", "VHW-10A", 18240, 1800],
+  [47, "BLUE STAR", "VHW-12A", 18360, 1800],
+  [48, "BLUE STAR", "VHW-16A", 20640, 1800],
+  [49, "BLUE STAR", "VHW-18A", 20760, 1800],
+  [50, "BLUE STAR", "VHW-20A", 23160, 1800],
+  [51, "BLUE STAR", "VHW-24A", 23520, 1800],
+  [52, "BLUE STAR", "VHW-30", 30840, 1800],
+  [53, "BLUE STAR", "VHW-34", 31920, 1800],
+  [54, "BLUE STAR", "VLC-12", 36960, 3500],
+  [55, "BLUE STAR", "VLC-16", 37080, 3500],
+  [56, "BLUE STAR", "VLC-18", 37320, 3500],
+  [57, "BLUE STAR", "VLC-20", 38400, 3500],
+  [58, "BLUE STAR", "VLC-24", 39360, 3500],
+  [59, "BLUE STAR", "VLC-27", 39960, 3500],
+  [60, "BLUE STAR", "VLC-34", 43200, 3500],
+  [61, "BLUE STAR", "VLC-38", 43680, 3500],
+  [62, "BLUE STAR", "VLC-48", 44040, 3500],
+  [63, "BLUE STAR", "VLC-60A", 61680, 3500],
+  [64, "BLUE STAR", "VCC-08", 30480, 3500],
+  [65, "BLUE STAR", "VCC-10", 30960, 3500],
+  [66, "BLUE STAR", "VCC-12", 31320, 3500],
+  [67, "BLUE STAR", "VCC-16", 32400, 3500],
+  [68, "BLUE STAR", "VCC-18", 32880, 3500],
+  [69, "BLUE STAR", "VOC-08", 48960, 3500],
+  [70, "BLUE STAR", "VOC-10", 50280, 3500],
+  [71, "BLUE STAR", "VOC-12", 51480, 3500],
+  [72, "BLUE STAR", "VOC-16", 66720, 3500],
+  [73, "BLUE STAR", "VOC-19", 69120, 3500],
+  [74, "BLUE STAR", "VOC-24", 75600, 3500],
+  [75, "BLUE STAR", "VTC-08", 46440, 3500],
+  [76, "BLUE STAR", "VTC-10", 47760, 3500],
+  [77, "BLUE STAR", "VTC-12", 48480, 3500],
+  [78, "BLUE STAR", "VTC-16", 56400, 3500],
+  [79, "BLUE STAR", "VTC-18", 57720, 3500],
+  [80, "BLUE STAR", "VTC-20", 59160, 3500],
+  [81, "BLUE STAR", "VTC-24", 78000, 3500],
+  [82, "BLUE STAR", "VFC-18", 42000, 3500],
+  [83, "BLUE STAR", "VFC-24", 43560, 3500],
+  [84, "BLUE STAR", "VFC-36", 48480, 3500],
+  [85, "BLUE STAR", "VFC-48", 52080, 3500],
+  [86, "BLUE STAR", "VFC-60", 54360, 3500],
+  [87, "BLUE STAR", "VVC-24B", 41040, 3500],
+  [88, "BLUE STAR", "VVC-27B", 41880, 3500],
+  [89, "BLUE STAR", "VVC-34B", 49560, 3500],
+  [90, "BLUE STAR", "VVC-38B", 51000, 3500],
+  [91, "BLUE STAR", "VVC-48B", 51240, 3500],
+  [92, "BLUE STAR", "DCS-10", 23640, 1800],
+  [93, "BLUE STAR", "DCS-12", 24720, 1800],
+  [94, "BLUE STAR", "DCS-16", 25080, 1800],
+  [95, "BLUE STAR", "DCS-18", 25440, 1800],
+  [96, "BLUE STAR", "DCS-24", 26880, 1800],
+  [97, "BLUE STAR", "DSD-18", 24840, 5500],
+  [98, "BLUE STAR", "DSD-24", 25680, 5500],
+  [99, "BLUE STAR", "DSD-30", 31560, 5500],
+  [100, "BLUE STAR", "DSD-36", 34920, 5500],
+  [101, "BLUE STAR", "DSD-48", 40560, 5500],
+  [102, "BLUE STAR", "DSD-60", 55200, 7500],
+  [103, "BLUE STAR", "DSD-72", 58080, 7500],
+  [104, "BLUE STAR", "DSD-96", 62280, 7500],
+  [105, "BLUE STAR", "VFM-264A", 146400, 7500],
+  [106, "BLUE STAR", "VFM-216A", 126120, 7500],
+  [107, "BLUE STAR", "DFM-60", 73800, 7500],
+  [108, "BLUE STAR", "DFM-96", 94680, 7500],
+  [109, "BLUE STAR", "DFM-120", 99960, 11000],
+  [110, "BLUE STAR", "DTFA-42", 49560, 7500],
+  [111, "BLUE STAR", "DTFA-66", 60840, 7500],
+  [112, "BLUE STAR", "DTFA-82", 71760, 7500],
+  [113, "BLUE STAR", "NA", 4200, 800],
+  [114, "BLUE STAR", "DAEKIT-050", 40920, 1000],
+  [115, "BLUE STAR", "DAEKIT-065", 42120, 1000],
+  [116, "BLUE STAR", "DAEKIT-080", 43320, 1000],
+  [117, "BLUE STAR", "DAEKIT-100", 43920, 1000],
+  [118, "BLUE STAR", "DAEKIT-150", 44040, 1000],
+  [119, "BLUE STAR", "DAEKIT-200", 45240, 1000],
+  [120, "BLUE STAR", "DAEKIT-300", 51480, 1000],
+  [121, "BLUE STAR", "CDCO-D171-00", 1200, 200],
+  [122, "BLUE STAR", "CDCO-D170-00", 2880, 200],
+  [123, "BLUE STAR", "", 42000, 1500],
+  [124, "DAIKIN", "RXQ20BRY16", 425685, 32000],
+  [125, "DAIKIN", "RXQ16BRY16", 351728, 25600],
+  [126, "DAIKIN", "RXQ12BRY16", 264230, 19200],
+  [127, "DAIKIN", "RXQ6BRY16", 199460, 9600],
+  [128, "DAIKIN", "18HP+16HP", 943316, 54400],
+  [129, "DAIKIN", "RXYQ20BRY11", 536804, 32000],
+  [130, "DAIKIN", "RXYQ8BRY16", 253743, 12800],
+  [131, "DAIKIN", "RXYQ6BRY16", 239030, 9600],
+  [132, "DAIKIN", "NA", 125890, 8000],
+  [133, "DAIKIN", "NA", 141609, 9600],
+  [134, "DAIKIN", "NA", 66360, 7500],
+  [135, "DAIKIN", "NA", 101640, 7500],
+  [136, "DAIKIN", "NA", 107160, 7500],
+  [137, "DAIKIN", "NA", 45728, 3500],
+  [138, "DAIKIN", "NA", 48600, 3500],
+  [139, "DAIKIN", "NA", 50640, 3500],
+  [140, "DAIKIN", "NA", 57360, 3500],
+  [141, "DAIKIN", "NA", 58440, 3500],
+  [142, "DAIKIN", "NA", 66956, 3500],
+  [143, "DAIKIN", "NA", 51120, 3500],
+  [144, "DAIKIN", "NA", 54720, 3500],
+  [145, "DAIKIN", "NA", 56640, 3500],
+  [146, "DAIKIN", "NA", 59760, 3500],
+  [147, "DAIKIN", "NA", 62040, 3500],
+  [148, "DAIKIN", "NA", 28200, 1800],
+  [149, "DAIKIN", "NA", 31560, 1800],
+  [150, "DAIKIN", "NA", 32760, 1800],
+  [151, "DAIKIN", "NA", 4200, 800],
+  [152, "DAIKIN", "NA", 2160, 200],
+  [153, "DAIKIN", "NA", 3360, 200],
+];
+
+describe("HVAC VRF (VRF-2a, v56) -- the calculator prices every VRF SKU at the sheet's figure; panel = calculator on every item; the BoQ panel stays off", () => {
+  const v56 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v56.json", import.meta.url),
+  );
+  const VRF = "hvac_vrf";
+  // brand is an ITEM column, projected into the attributes at read time (extraction.PROJECTED_ITEM_COLUMNS / the API)
+  const items56: RateMasterItem[] = v56.items.map((it) => ({
+    ...it, discipline: v56.discipline,
+    attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes },
+  } as RateMasterItem));
+  const live = new Map<string, RateCategoryConfig>(v56.category_configs.map((c) => [c.category_id, c]));
+  const projected = new Map<string, RateCategoryConfig>([...live].map(([k, c]) => {
+    if (k !== VRF) return [k, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [k, rest as RateCategoryConfig];
+  }));
+  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items56, extractionByRow: new Map(), calculatorSurface: true });
+  const vc = (unit: string, a: Record<string, string>): ParityCase => ({ cat: VRF, unit, desc: "", attrs: {}, items: [a] });
+  /** One case through both surfaces on the projected config, plus the two ties to what ships today. */
+  const run = (c: ParityCase) => {
+    const r = runParity(projected, items56, c, "full");
+    const flag = calcFlag.compute(calculatorCtx("HVAC", VRF), r.feed.overrides);
+    const boq = panelHelper(live, items56, c).compute(panelCtx(c));
+    return { ...r, flagSame: JSON.stringify(flag) === JSON.stringify(r.calculator), boq };
+  };
+  const view = (x: unknown) => (x as ItemListSuggestion).itemList!;
+  const figs = (x: unknown): [number, number] | string => {
+    const v = view(x);
+    return v.rowPriced ? [v.totals!.supply_rate as number, v.totals!.install_rate as number] : (v.reason ?? "?");
+  };
+  const skus = items56.filter((it) => it.kind === "hvac_vrf_item");
+
+  it("the fixture: v56 holds 150 VRF SKUs, the two ductables gone, and the sheet table is 152 rows (rows 2..153)", () => {
+    expect(skus).toHaveLength(150);
+    expect(VRF_SHEET).toHaveLength(152);
+    expect(VRF_SHEET.map((r) => r[0])).toEqual(Array.from({ length: 152 }, (_, i) => i + 2));
+    expect(skus.map((s) => s.attributes.model)).not.toContain("VFM-216A");
+    expect(skus.map((s) => s.attributes.model)).not.toContain("VFM-264A");
+    expect((live.get(VRF) as { calculator_only?: unknown }).calculator_only).toBe(true);
+    expect((projected.get(VRF) as { calculator_only?: unknown }).calculator_only).toBeUndefined();
+  });
+
+  it("every one of the 150 SKUs: the calculator's price = the sheet (BOQ SUPPLY rounded up, BOQ INSTALLATION); panel = calculator; the live calculator = the projection; the live BoQ panel declines", () => {
+    const sheet = new Map(VRF_SHEET.map((r) => [r[0], r]));
+    const bad: string[] = [];
+    let priced = 0, equal = 0, flagSame = 0, declined = 0;
+    for (const sku of skus) {
+      const a = sku.attributes as Record<string, unknown>;
+      const attrs: Record<string, string> = { item: String(a.item), brand: String(a.brand) };
+      for (const k of ["cooling", "discharge", "compressor", "way", "remote_type"]) if (a[k] !== undefined) attrs[k] = String(a[k]);
+      if (a.capacity !== undefined) attrs.capacity = String(a.capacity);
+      const row = (sku as { source?: { row?: number } }).source?.row as number;
+      const sh = sheet.get(row)!;
+      const r = run(vc("Nos", attrs));
+      const want: [number, number] = [sh[3], sh[4]];
+      const got = figs(r.calculator);
+      if (r.divergences.length) bad.push(`row ${row} ${a.model}: ` + r.divergences.map((d) => d.what).join(" | "));
+      if (hasPrice(r.calculator)) priced++;
+      if (JSON.stringify(got) === JSON.stringify(want)) equal++; else bad.push(`row ${row} ${a.model}: calculator ${JSON.stringify(got)} vs sheet ${JSON.stringify(want)}`);
+      if (String(sh[1]).toUpperCase() !== String(a.brand).toUpperCase()) bad.push(`row ${row}: brand ${a.brand} vs sheet ${sh[1]}`);
+      if (a.model !== undefined && sh[2] !== a.model) bad.push(`row ${row}: model ${a.model} vs sheet ${sh[2]}`);
+      if (r.flagSame) flagSame++;
+      if (r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON) declined++;
+    }
+    expect(bad).toEqual([]);
+    expect({ priced, equal, flagSame, declined }).toEqual({ priced: 150, equal: 150, flagSame: 150, declined: 150 });
+  }, 120000);
+
+  it("the generated sweep: 13 families x 1 unit class x (filled, above the largest, between, nothing) = 46 cases, not one divergence", () => {
+    const cases = itemListCasesForCategory(projected.get(VRF)!, items56);
+    expect(cases).toHaveLength(46);
+    expect(new Set(cases.map((c) => c.items?.[0]?.item as string)).size).toBe(13);
+    expect(new Set(cases.map((c) => c.unit))).toEqual(new Set(["Nos"]));
+    const bad: string[] = [];
+    for (const c of cases) {
+      const r = run(c);
+      if (r.divergences.length) bad.push(`${JSON.stringify(c.items)}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
+      if (!r.flagSame) bad.push(`${JSON.stringify(c.items)}: the live calculator differs from the projection`);
+    }
+    expect(bad).toEqual([]);
+  }, 120000);
+
+  // Every rule, by name: [label, unit, the item's answers, the expected figures or refusal (identical on both surfaces)]
+  const NAMED: Array<[string, string, Record<string, string>, [number, number] | string]> = [
+    ["brand not stated -> Blue Star (C1, IVRFB-16TC)", "Nos", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+    ["Daikin stated, Heat Pump, 8 HP (C2, RXYQ8BRY16)", "Nos", { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, [253743, 12800]],
+    ["Heat Pump stated -> the heat-pump SKU (IVRFB-16TH)", "Nos", { item: "Outdoor Unit", cooling: "Heat Pump", capacity: "16" }, [453120, 16000]],
+    ["Single Compressor stated (Blue Star 16, IVRFB-16TCN)", "Nos", { item: "Outdoor Unit", compressor: "Single Compressor", capacity: "16" }, [381600, 16000]],
+    ["cassette way not stated -> FOUR-WAY, 1.5 TR (C3)", "Nos", { item: "Cassette", capacity: "1.5" }, [37320, 3500]],
+    ["remote type not stated -> Wired (C5)", "Nos", { item: "Remote Controller" }, [2880, 200]],
+    ["remote Cordless stated", "Nos", { item: "Remote Controller", remote_type: "Cordless" }, [1200, 200]],
+    ["central controller, Daikin -> Blue Star (C5)", "Nos", { item: "Touch Screen Central Controller", brand: "Daikin" }, [42000, 1500]],
+    ["central controller, no brand", "Nos", { item: "Touch Screen Central Controller" }, [42000, 1500]],
+    ["refnet, Blue Star: one flat price", "Nos", { item: "Refnet/Y-Joint", brand: "Blue Star" }, [4200, 800]],
+    ["refnet, Daikin: one flat price", "Nos", { item: "Refnet/Y-Joint", brand: "Daikin" }, [4200, 800]],
+    ["15 HP -> 16 (next size up)", "Nos", { item: "Outdoor Unit", capacity: "15" }, [436920, 16000]],
+    ["2 HP -> 7 (below the smallest)", "Nos", { item: "Outdoor Unit", capacity: "2" }, [264240, 7000]],
+    ["40 HP refuses (above the largest)", "Nos", { item: "Outdoor Unit", capacity: "40" }, "capacity 40 is above the largest size on the sheet (28)"],
+    ["ductable 8 TR, Blue Star: the largest left (DSD-96)", "Nos", { item: "Ductable", brand: "Blue Star", capacity: "8" }, [62280, 7500]],
+    ["ductable 11 TR, Blue Star, refuses (R-RETIRE; C4)", "Nos", { item: "Ductable", brand: "Blue Star", capacity: "11" }, "capacity 11 is above the largest size on the sheet (8)"],
+    ["ductable 18 TR, Blue Star, refuses (VFM-216A retired)", "Nos", { item: "Ductable", brand: "Blue Star", capacity: "18" }, "capacity 18 is above the largest size on the sheet (8)"],
+    ["ductable 22 TR, Blue Star, refuses (VFM-264A retired)", "Nos", { item: "Ductable", brand: "Blue Star", capacity: "22" }, "capacity 22 is above the largest size on the sheet (8)"],
+    ["ductable 11 TR, Daikin, refuses", "Nos", { item: "Ductable", brand: "Daikin", capacity: "11" }, "capacity 11 is above the largest size on the sheet (8)"],
+    ["indoor type not stated refuses (C6)", "Nos", { item: "None", capacity: "2" }, "no item could be told for this item"],
+    ["'none of these' refuses for a person", "Nos", { item: "none of these" }, "no SKU in the catalogue for 'none of these' -- the user decides"],
+    ["Daikin on Verticool refuses by name (D-7; C6)", "Nos", { item: "Verticool", brand: "Daikin", capacity: "2" }, "No SKU for Verticool: brand Daikin - price this row by hand"],
+    ["Daikin Side discharge Heat Pump refuses by name", "Nos", { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", discharge: "Side", capacity: "8" },
+      "No SKU for Outdoor Unit: brand Daikin, cool / heat Heat Pump, discharge Side, compressor Standard - price this row by hand"],
+    ["no capacity stated refuses", "Nos", { item: "Outdoor Unit" }, "no capacity stated"],
+    ["unit 'nos'", "nos", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+    ["unit 'No.'", "No.", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+    ["unit 'No.s'", "No.s", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+    ["unit 'EACH'", "EACH", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+    ["unit 'Nos/Ro' counts as Nos (QR-2 A)", "Nos/Ro", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+    ["no unit: priced in the item's own unit", "", { item: "Outdoor Unit", capacity: "16" }, [436920, 16000]],
+  ];
+
+  it(`every rule, by name (${NAMED.length} cases): the figure or the refusal, identical on both surfaces; the live calculator = the projection; the BoQ panel declines`, () => {
+    expect(NAMED).toHaveLength(30);
+    const bad: string[] = [];
+    const reached = new Set<string>();
+    for (const [label, unit, a, want] of NAMED) {
+      const r = run(vc(unit, a));
+      for (const p of resolutionPaths(r.panel)) reached.add(p);
+      if (r.divergences.length) bad.push(`${label}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
+      if (JSON.stringify(figs(r.calculator)) !== JSON.stringify(want)) bad.push(`${label}: calculator ${JSON.stringify(figs(r.calculator))} vs ${JSON.stringify(want)}`);
+      if (!r.flagSame) bad.push(`${label}: the live calculator differs from the projection`);
+      if (!(r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON)) bad.push(`${label}: the live BoQ panel did not decline`);
+    }
+    expect(bad).toEqual([]);
+    for (const p of ["item-list priced", "item-list refused", "item refused", "default fired", "ladder size-up"]) expect([...reached]).toContain(p);
+  }, 120000);
+
+  it("the defaults are AMBER with their own rule lines on both surfaces (brand, cool / heat, discharge, compressor, way, remote type)", () => {
+    const fieldsOf = (x: unknown) => view(x).items[0].fields;
+    const cases: Array<[Record<string, string>, Record<string, [string, string]>]> = [
+      [{ item: "Outdoor Unit", capacity: "16" }, {
+        brand: ["Blue Star", "no brand stated - priced as Blue Star"],
+        cooling: ["Cool Only", "cooling not stated - priced as Cool Only (team default: heat pump only when the BoQ mentions it)"],
+        discharge: ["Top", "discharge not stated - priced as Top discharge (team default)"],
+        compressor: ["Standard", "compressor not stated - priced as Standard (team default)"] }],
+      [{ item: "Cassette", capacity: "1.5" }, { way: ["FOUR-WAY", "cassette way not stated - priced as 4-way (team default)"] }],
+      [{ item: "Remote Controller" }, { remote_type: ["Wired", "remote type not stated - priced as Wired (R-SMALL)"] }],
+    ];
+    for (const [a, want] of cases) {
+      const r = run(vc("Nos", a));
+      for (const surface of [r.panel] as unknown[]) {
+        const fs = fieldsOf(surface);
+        for (const [id, [value, rule]] of Object.entries(want)) {
+          const f = fs.find((x) => x.id === id)!;
+          expect({ id, value: f.value, defaulted: f.defaulted, rule: f.rule }).toEqual({ id, value, defaulted: true, rule });
+        }
+      }
+      // a STATED value is never amber: Daikin stated on the outdoor unit is the pick, not a default
+      if (a.item === "Outdoor Unit") {
+        const d = run(vc("Nos", { ...a, brand: "Daikin", capacity: "8" }));
+        expect(fieldsOf(d.panel).find((x) => x.id === "brand")!.defaulted).toBe(false);
+      }
+    }
+  });
+
+  it("the controller map has its own line: a Daikin pick on the central controller is priced as Blue Star and says so", () => {
+    const r = run(vc("Nos", { item: "Touch Screen Central Controller", brand: "Daikin" }));
+    const b = view(r.panel).items[0];
+    const lines = [...b.working, ...b.fields.map((f) => f.note ?? ""), ...b.fields.map((f) => f.rule ?? "")].join(" | ");
+    expect(lines).toContain("the central controller is Blue Star only on the sheet - a Daikin pick is priced as Blue Star (R-SMALL)");
+  });
+
+  it("the unit exclusions, by name: Kg, Set, Sets, Lot, per HP, RMT -- the panel refuses each by name, never a figure; the calculator's picker does not offer them (cause C)", () => {
+    const want: Record<string, string> = {
+      Kg: "Outdoor Unit is not stocked per 'Kg' (stocked per Nos) - price this row by hand",   // QR-3 A: no weight class until VRF-2c
+      Set: "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand",
+      Sets: "Outdoor Unit is not stocked per 'Sets' (stocked per Nos) - price this row by hand",
+      Lot: "Outdoor Unit is not stocked per 'Lot' (stocked per Nos) - price this row by hand",
+      "per HP": "Outdoor Unit is not stocked per 'per HP' (stocked per Nos) - price this row by hand",
+      RMT: "Outdoor Unit is not stocked per 'RMT' (stocked per Nos) - price this row by hand",
+    };
+    for (const [unit, reason] of Object.entries(want)) {
+      const c = vc(unit, { item: "Outdoor Unit", capacity: "16" });
+      const r = run(c);
+      expect({ unit, panel: figs(r.panel) }).toEqual({ unit, panel: reason });
+      expect(hasPrice(r.panel)).toBe(false);
+      expect(r.divergences.length).toBeGreaterThan(0);
+      expect(classifyDivergence(r, c)).toBe("C_unit_not_offered");
+    }
+  });
+
+  it("KNOWN DIVERGENCE, NAMED until VRF-2c (VRF-R2 R11): an off-sheet brand ('Toshiba') -- both surfaces refuse, in different words, no figure on either", () => {
+    const r = run(vc("Nos", { item: "Outdoor Unit", brand: "Toshiba", capacity: "16" }));
+    expect(r.divergences.length).toBe(2);
+    expect(hasPrice(r.panel)).toBe(false);
+    expect(hasPrice(r.calculator)).toBe(false);
+    expect(figs(r.calculator)).toBe("choose again: brand -- the value picked is not stocked with the other answers on this item");
+    expect(String(figs(r.panel))).toContain("Toshiba");
+  });
+
+  it("VACUITY: handing the calculator a different size diverges (the comparison can see a VRF difference)", () => {
+    const c = vc("Nos", { item: "Outdoor Unit", capacity: "16" });
+    expect(run(c).divergences).toEqual([]);
+    const pr = panelHelper(projected, items56, c).compute(panelCtx(c), {});
+    const cr = calcFlag.compute(calculatorCtx("HVAC", VRF), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "18" }, other: [] }] }), [ROW_UNIT_OVERRIDE_KEY]: "Nos" });
+    expect((pr as ItemListSuggestion).values.supply_rate).toBe(436920);
+    expect((cr as ItemListSuggestion).values.supply_rate).toBe(452040);
   });
 });

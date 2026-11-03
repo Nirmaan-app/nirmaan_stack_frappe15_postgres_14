@@ -113,8 +113,11 @@ function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
   const isVrf1 = (it: RateMasterItem) => it.kind === "hvac_vrf_item" || it.kind === "hvac_misc_item"
     || (it.kind === "hvac_pricing_input" && it.attributes?.shared_by === "vrf");
   const n = (k: string) => items.filter((it) => isVrf1(it) && it.kind === k).length;
-  if (n("hvac_vrf_item") !== 152 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") !== 2) {
-    throw new Error("VRF-1's 152 + 4 + 2 items are not all in the stored asset");
+  // INVERTED at VRF-2a (HVAC v56; R-RETIRE retires the Blue Star ductables VFM-216A / VFM-264A) by mechanical authority: BEFORE
+  // `n("hvac_vrf_item") !== 152` and "VRF-1's 152 + 4 + 2 items". The set aside is still exactly VRF's own (the served fixture
+  // predates VRF-1), so it still throws unless every one is present -- 150 + 4 + 2 now.
+  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") !== 2) {
+    throw new Error("VRF's 150 + 4 + 2 items (v56) are not all in the stored asset");
   }
   return items.filter((it) => !isVrf1(it));
 }

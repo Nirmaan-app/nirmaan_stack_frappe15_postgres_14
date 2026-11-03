@@ -469,7 +469,11 @@ class TestVrf1AssetV55(FrappeTestCase):
     def test_12_v55_is_the_newest_and_v54_stays(self):
         d = os.path.dirname(_asset_path(V55))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 55)
-        self.assertEqual(sorted(ns), list(range(1, 56)))
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
+        self.assertEqual(max(ns), 56)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 56)))`
+        self.assertEqual(sorted(ns), list(range(1, 57)))
         self.assertTrue(os.path.exists(_asset_path(V54)))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v56.json")))
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v56.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v56.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))

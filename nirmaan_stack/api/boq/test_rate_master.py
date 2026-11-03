@@ -11950,7 +11950,8 @@ def _read_frontend_src(*parts):
 # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v52.json"`
 # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v53.json"   # ADP-5c: v53 = v52 + the ADP-5c question (C1 / C3-C6, VCD aluminium, the coating sentence + Coating as written), the VCD Aluminium SKU, the cross-talk 300 x 300 default and existing_work`
 # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v54.json"`
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v55.json"   # VRF-1: v55 = v54 + the VRF catalogue (152 SKUs), the four shared Misc items and the two VRF conversion inputs; data only
+# INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `CURRENT_HVAC_ASSET = "rate_master_hvac_all_v55.json"`
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v56.json"   # VRF-2a: v56 = v55 less the two Blue Star ductables (R-RETIRE) + the VRF pricing block behind calculator_only (Q1 A)
 # SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
 # frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
 # historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
@@ -17803,14 +17804,16 @@ class TestServedRatesAreStored(FrappeTestCase):
         # INVERTED at ADP-1 (owner A4): BEFORE assertEqual(..., 11) -- the three ADP inputs join
         # INVERTED at VRF-1 (HVAC v55 LOADED; owner QR-4 "A"; mechanical authority): BEFORE assertEqual(..., 14) -- the two VRF inputs join
         self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 16)   # 12e-2: 7 + the four Piping accessories inputs; ADP-1: + 3; VRF-1: + 2
-        self.assertEqual(counts[("HVAC", "hvac_vrf_item")], 152)   # VRF-1: the VRF catalogue
+        # INVERTED at VRF-2a (HVAC v56 LOADED; R-RETIRE; mechanical authority): BEFORE assertEqual(..., 152) -- the two Blue Star ductables retired
+        self.assertEqual(counts[("HVAC", "hvac_vrf_item")], 150)   # VRF-1: the VRF catalogue; VRF-2a: - VFM-216A, VFM-264A
         self.assertEqual(counts[("HVAC", "hvac_misc_item")], 4)    # VRF-1: the four shared Misc items
         self.assertGreaterEqual(counts[("HVAC", "hvac_adp_item")], 1)
         self.assertEqual(counts[("HVAC", "hvac_piping_item")], 40)   # 12e-1: the Piping catalogue
         # INVERTED at ADP-1 (owner H4 / A4): BEFORE 379 -- two per-number plenum SKUs retired, three ADP inputs added
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE 380 -- the VCD Aluminium SKU added
         # INVERTED at VRF-1 (HVAC v55 LOADED; owner QR-4 "A"; mechanical authority): BEFORE 381 -- 152 VRF SKUs, 4 Misc items, 2 inputs added
-        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 539)   # 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158
+        # INVERTED at VRF-2a (HVAC v56 LOADED; R-RETIRE; mechanical authority): BEFORE 539 -- the two Blue Star ductables retired
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 537)   # 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158; VRF-2a: - 2
         # ELR-3a (owner R-9; mechanical authority): WAS 1402. v69 is live with the nine assembly-step Pricing Inputs, so the
         # served Electrical total is EALL_ITEMS (1411); the per-item byte-for-byte check above is unchanged.
         self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "Electrical"), EALL_ITEMS)
@@ -19516,7 +19519,8 @@ class TestSlice12d1bAsset(FrappeTestCase):
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v52.json")`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v53.json")   # ADP-5c (BEFORE: v52, ADP-5b)`
         # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v54.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")   # VRF-1 (BEFORE: v54, ADP-5d)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")   # VRF-2a (BEFORE: v55, VRF-1)
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19678,7 +19682,8 @@ class TestSlice12d2Asset(FrappeTestCase):
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v52.json")`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v53.json")   # ADP-5c (BEFORE: v52, ADP-5b)`
         # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v54.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")   # VRF-1 (BEFORE: v54, ADP-5d)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")   # VRF-2a (BEFORE: v55, VRF-1)
 
     def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19811,7 +19816,8 @@ class TestSlice12d2FAsset(FrappeTestCase):
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v52.json")`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v53.json")   # ADP-5c (BEFORE: v52, ADP-5b)`
         # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v54.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")   # VRF-1 (BEFORE: v54, ADP-5d)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")   # VRF-2a (BEFORE: v55, VRF-1)
 
     def test_v30_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -20055,7 +20061,8 @@ class TestSlice12d4aAsset(FrappeTestCase):
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v52.json")`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v53.json")   # ADP-5c (BEFORE: v52, ADP-5b)`
         # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v54.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")   # VRF-1 (BEFORE: v54, ADP-5d)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")   # VRF-2a (BEFORE: v55, VRF-1)
 
     def test_v31_02_exactly_four_new_items_every_existing_item_byte_identical_and_every_other_top_level_key_identical(self):
         prev = {it["item_uid"]: it for it in self.prev["items"]}
@@ -20249,7 +20256,8 @@ class TestSlice12d4aFAsset(FrappeTestCase):
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v52.json")`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v53.json")   # ADP-5c (BEFORE: v52, ADP-5b)`
         # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v54.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")   # VRF-1 (BEFORE: v54, ADP-5d)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")   # VRF-2a (BEFORE: v55, VRF-1)
 
     def test_v32_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -20369,7 +20377,8 @@ class TestSlice12d4cAsset(FrappeTestCase):
         # INVERTED at ADP-5c (HVAC v53; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v52.json")`
         # INVERTED at ADP-5d (HVAC v54; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v53.json")   # ADP-5c (BEFORE: v52, ADP-5b)`
         # INVERTED at VRF-1 (HVAC v55; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v54.json")`
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")   # VRF-1 (BEFORE: v54, ADP-5d)
+        # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v55.json")`
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v56.json")   # VRF-2a (BEFORE: v55, VRF-1)
 
     def test_v33_02_items_and_every_other_top_level_key_are_byte_identical(self):
         # 12e-1: v34 added the 40 Piping items; this pin is about the v32 -> v33 mint, so they are normalised
