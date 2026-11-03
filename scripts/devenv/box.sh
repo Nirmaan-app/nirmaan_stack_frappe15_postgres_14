@@ -8,7 +8,7 @@
 #       --stop-before agent|owner|orca|link           release only the groups before it (release order: agent
 #                                                     owner orca link); the link stays, so enroll can run again
 #       --box-gone                                    the box will never answer: undo this laptop's side, list the rest
-#   box.sh update <box>                               reserved (step 4)
+#   box.sh update <box>                               bring the box's dev environment in line with this laptop's
 #
 # The box layer is CATALOG below; enroll walks it top-down, release bottom-up, and --dry-run is release with every
 # effect printed instead of run. Before enroll changes anything it records what it found, one value per item, in
@@ -19,6 +19,11 @@
 # there has commits this laptop lacks, or while its Orca has live terminals.
 # Release ends by cutting its own line (Remote Login off, Tailscale logged out), last, from one SSH session that asks
 # for the box's password; this laptop then proves each from outside.
+# Update leaves the box layer alone and runs with tasks on the box (their branches are box/*). It hands over master
+# (fast-forward only, through handoff.sh), gives the dev root this laptop's devenv.sh and CLAUDE.md (its box-layer
+# blocks swapped for the box's own, its paths for the box's), each only when it differs and keeping the old copy as
+# <file>.bak-update-<date>, then runs bootstrap.sh's steps there (never compose) and doctor. Replacing
+# docker-compose.yml and loading fresh data are the owner's: update prints the command for each.
 # Exit 3: the box did not answer; run the same command again once it is awake. Exit 4: a step needs the owner at a
 # terminal (the box's password, a pasted token); the message names the command to run there.
 #
@@ -378,7 +383,7 @@ block_edit() {
     { print }
     END { put() }'
 }
-box_devroot() { echo "$HOME/$CO/../.."; }   # box: the dev root above the checkout, as task.sh finds it
+box_devroot() ( cd "$HOME/$CO/../.." && pwd )   # box: the dev root above the checkout, as task.sh finds it
 get_file() { cat "$(box_devroot)/CLAUDE.md"; }   # box
 put_file() { local f; f="$(box_devroot)/CLAUDE.md"; cat > "$f.devbox-new"; mv "$f.devbox-new" "$f"; }   # box: stdin after this script
 host_name() { scutil --get LocalHostName; }   # box
@@ -387,17 +392,21 @@ box_file_edit() {   # [text]: the box's development/CLAUDE.md through block_edit
   printf '%s' "${cur%x}" | block_edit "$BOX_NAME" top "${1:-}" | box_feed put_file
 }
 ob_claude_md() { grep -qxF "<!-- box-layer $BOX_NAME -->" "$(box_devroot)/CLAUDE.md" 2>/dev/null && echo present || echo absent; }   # box
-ap_claude_md() {
-  local host; host="$(box_call host_name)"
-  box_file_edit "**You are on box \`$BOX_NAME\` (\`$host.local\`), an agent box, not the owner's laptop.** This block wins over
+box_block_text() {   # <the box's LocalHostName>: what the block heading the box's development/CLAUDE.md says
+  echo "**You are on box \`$BOX_NAME\` (\`$1.local\`), an agent box, not the owner's laptop.** This block wins over
 anything below about which machine you are on. Never push, never open a PR, never touch GitHub issues. Run at most
 ${BOX_AGENTS:-1} implementers or browser walks at once. Code arrives from the owner's laptop through
 \`scripts/devenv/handoff.sh\`. Data on this box older than 7 days: ask the owner before relying on it."
+}
+ap_claude_md() {
+  local host; host="$(box_call host_name)"
+  box_file_edit "$(box_block_text "$host")"
   ok "claude-md     the box-layer block heads $BOX_NAME's development/CLAUDE.md"
 }
 un_claude_md() { act edit "remove the <!-- box-layer $BOX_NAME --> block from $BOX_NAME's development/CLAUDE.md" box_file_edit; }
 
-laptop_claude_md() { echo "$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/../../.." && pwd)/CLAUDE.md"; }
+laptop_devroot() ( cd "$(git rev-parse --path-format=absolute --git-common-dir)/../../.." && pwd )
+laptop_claude_md() { echo "$(laptop_devroot)/CLAUDE.md"; }
 local_edit() { block_edit "$BOX_NAME" "$2" "${3:-}" < "$1" > "$1.devbox-new"; mv "$1.devbox-new" "$1"; }   # <file> <where> [text]
 ob_laptop_row() { grep -qxF "<!-- box-layer $BOX_NAME -->" "$(laptop_claude_md)" 2>/dev/null && echo present || echo absent; }
 ap_laptop_row() {
@@ -423,6 +432,33 @@ un_registry_orca() {
 }
 
 branches() { git -C "$HOME/$CO" for-each-ref --format='%(objectname) %(refname:short)' 'refs/heads/box/*'; }   # box
+co_branch() { git -C "$HOME/$CO" symbolic-ref -q --short HEAD || echo "a detached HEAD"; }   # box
+master_firsts() { git -C "$HOME/$CO" rev-list --first-parent -n 1000 master; }   # box: newest first
+
+sync_file() {   # box: <name in the dev root> [mode]: make it hold stdin after this script; a changed file is copied first
+  local f b n=1 d new cur
+  f="$(box_devroot)/$1" d="$(date +%Y%m%d)"
+  new="$(cat; echo x)"; new="${new%x}"
+  if [ -f "$f" ]; then
+    cur="$(cat "$f"; echo x)"
+    if [ "${cur%x}" = "$new" ]; then echo same
+    else
+      b="$f.bak-update-$d"
+      while [ -e "$b" ]; do n=$((n + 1)); b="$f.bak-update-$d-$n"; done   # an earlier backup is never overwritten
+      cp -p "$f" "$b"; cp -p "$f" "$f.devbox-new"
+      printf '%s' "$new" > "$f.devbox-new"; mv "$f.devbox-new" "$f"
+      echo "written; the old copy is $(basename "$b")"
+    fi
+  else printf '%s' "$new" > "$f"; echo "written (there was none)"; fi
+  [ -z "${2:-}" ] || chmod "$2" "$f"
+}
+boot_steps() {   # box: <step>...: bootstrap.sh in the checkout, one after another, stopping at the first that fails
+  local s; cd "$HOME/$CO"
+  for s in "$@"; do
+    bash scripts/devenv/bootstrap.sh "$s" || { echo "STOP  bootstrap.sh $s failed on $BOX_NAME; the steps after it did not run" >&2; return 1; }
+  done
+}
+doctor_box() { cd "$HOME/$CO"; bash scripts/devenv/bootstrap.sh doctor || true; }   # box: it exits 1 when not ready
 
 # box_gui <command>: run it in a new Orca terminal on the box's server, in the checkout, the way an agent starts;
 # its output lands in GUI_OUT. The one route into the box's login session, where the keychain is open.
@@ -686,9 +722,13 @@ release_walk() {   # the catalog bottom-up; under DRY=1 it prints the plan and c
   [ -n "$STOP_BEFORE" ] || finish
 }
 
-release() {
+layer_exists() {   # <what that means for this command>
   git config -f "$DEVBOX_REGISTRY" --get-regexp "^layer\.$BOX_NAME\." >/dev/null \
-    || die "box $BOX_NAME was not enrolled by box.sh ($DEVBOX_REGISTRY has no [layer \"$BOX_NAME\"]): nothing to release"
+    || die "box $BOX_NAME was not enrolled by box.sh ($DEVBOX_REGISTRY has no [layer \"$BOX_NAME\"]): $1"
+}
+
+release() {
+  layer_exists "nothing to release"
   refusals
   PLAN="$(mktemp "${TMPDIR:-/tmp}/box-plan.XXXXXX")"; trap 'rm -f "$PLAN"' EXIT
   ( DRY=1; release_walk ) > "$PLAN"
@@ -710,11 +750,92 @@ release() {
   [ -n "$STOP_BEFORE" ] && ok "released $BOX_NAME up to the $STOP_BEFORE group; the rest stays, and enroll can run again" || ok "released $BOX_NAME"
 }
 
+# ---------------------------------------------------------------- update: the dev environment, not the box layer
+BOOT_STEPS='bench link pylock frontend build playwright'
+CODE="not reached" FILES="not reached" TOOLS="not reached" DATA="not reached"
+summary() { echo; echo "== $BOX_NAME after update"; printf 'code   %s\nfiles  %s\ntools  %s\ndata   %s\n' "$CODE" "$FILES" "$TOOLS" "$DATA"; }
+
+strip_blocks() {   # stdin to stdout without any box's block
+  awk '/^<!-- box-layer [a-z0-9-]+ -->$/ { skip = 1; next } skip { if ($0 ~ /^<!-- \/box-layer [a-z0-9-]+ -->$/) skip = 0; next } { print }'
+}
+swap_path() {   # <from> <to>: stdin to stdout with every <from> read as <to>, literally
+  FROM="$1" TO="$2" awk '{ out = ""
+    while ((i = index($0, ENVIRON["FROM"])) > 0) { out = out substr($0, 1, i - 1) ENVIRON["TO"]; $0 = substr($0, i + length(ENVIRON["FROM"])) }
+    print out $0 }'
+}
+
+diverged() {   # <verdict>: master on the box has commits this laptop lacks. Moving it by force is the owner's.
+  local c fork="" firsts
+  firsts="$(box_call master_firsts)" || exit $?
+  while read -r c; do git merge-base --is-ancestor "$c" master 2>/dev/null && { fork="$c"; break; }; done <<< "$firsts"
+  [ -n "$fork" ] || die "master on $BOX_NAME ($1) shares none of its last 1000 commits with this laptop's master; nothing was changed"
+  die "master on $BOX_NAME has commits this laptop lacks ($1); nothing was changed. To make it this laptop's master,
+      keep them on a backup branch, then step master back to $fork, the newest commit of it this laptop has.
+      On $BOX_NAME, in ~/$BOX_CO:
+      git branch $BOX_NAME-backup/master-$(date +%Y%m%d) master
+      git checkout -B master $fork
+      Then here: scripts/devenv/box.sh update $BOX_NAME (it hands master over as a fast-forward).$([ "$1" != BOX_AHEAD ] || printf '\n      Or keep those commits: scripts/devenv/handoff.sh from %s master' "$BOX_NAME")"
+}
+
+update() {
+  local v st was from to host r doc days
+  layer_exists "run box.sh enroll $BOX_NAME first"
+  box_reach
+  v="$(box_call co_branch)" || exit $?
+  [ "$v" = master ] || die "~/$BOX_CO on $BOX_NAME has $v checked out, not master: update moves master and builds from it. There: git switch master, then run update again"
+
+  step "code      master, fast-forward only"
+  st="$("$(dirname "$SELF")/handoff.sh" status "$BOX_NAME" master)" || exit $?
+  v="$(printf '%s\n' "$st" | sed -n 's/^verdict: //p')"
+  export BOX_STARTED=1
+  case "$v" in
+    IN_SYNC) CODE="master already at $(git rev-parse --short master)" ;;
+    LAPTOP_AHEAD|ONLY_LAPTOP)
+      was="$(printf '%s\n' "$st" | sed -n 's/^box    master: \([^ ]*\).*/\1/p')"
+      "$(dirname "$SELF")/handoff.sh" to "$BOX_NAME" master
+      CODE="master fast-forwarded to $(git rev-parse --short master) (was $([ -n "$was" ] && echo "${was:0:9}" || echo none))" ;;
+    DIVERGED|BOX_AHEAD) diverged "$v" ;;
+    *) die "master: $v (scripts/devenv/handoff.sh status $BOX_NAME master)" ;;
+  esac
+  ok "$CODE"
+
+  step "files     the dev root's devenv.sh and CLAUDE.md, this laptop's for $BOX_NAME"
+  from="$(laptop_devroot)"; to="$(box_call box_devroot)" || exit $?
+  [ -f "$from/devenv.sh" ] && [ -f "$from/CLAUDE.md" ] || die "this laptop's dev root $from lacks devenv.sh or CLAUDE.md"
+  r="$(box_feed sync_file devenv.sh 755 < "$from/devenv.sh")" || exit $?
+  ok "devenv.sh  $r"; FILES="devenv.sh $r"
+  host="$(box_call host_name)" || exit $?
+  r="$(strip_blocks < "$from/CLAUDE.md" | swap_path "$from" "$to" | block_edit "$BOX_NAME" top "$(box_block_text "$host")" \
+    | box_feed sync_file CLAUDE.md)" || exit $?
+  ok "CLAUDE.md  $r"; FILES="$FILES; CLAUDE.md $r"
+
+  step "tools     bootstrap.sh on $BOX_NAME: $BOOT_STEPS, then doctor (never compose)"
+  box_call boot_steps $BOOT_STEPS || { r=$?; TOOLS="stopped at the failing step above"; summary; exit "$r"; }
+  doc="$(box_call doctor_box)" || exit $?
+  printf '%s\n' "$doc"
+  TOOLS="ran $BOOT_STEPS; $(printf '%s\n' "$doc" | sed -n 's/^doctor: //p')"
+  case "$doc" in *"differs from compose.yml"*)
+    echo "note  docker-compose.yml on $BOX_NAME differs from compose.yml. Replacing it recreates the containers, so only"
+    echo "      with your OK, on $BOX_NAME in ~/$BOX_CO: scripts/devenv/bootstrap.sh compose --force"
+    TOOLS="$TOOLS; docker-compose.yml differs (note above)" ;;
+  esac
+
+  step "data      the box's own; update never loads any"
+  DATA="$(printf '%s\n' "$doc" | sed -nE 's/^(WARN|ok) +data is ([0-9]+ days old \([^)]*\)).*/\2/p')"
+  days="${DATA%% *}"
+  if [ -n "$DATA" ] && [ "$days" -le 7 ]; then ok "data on $BOX_NAME is $DATA"
+  else
+    [ -n "$DATA" ] || DATA="of unknown age (doctor found no data_stamp.json)"
+    echo "note  data on $BOX_NAME is $DATA. To load a fresh backup, from this laptop: scripts/devenv/data.sh send $BOX_NAME <backup>"
+    DATA="$DATA: send a fresh backup (note above)"
+  fi
+  summary
+}
+
 CMD="${1:-}"
 case "$CMD" in
-  enroll|release) ;;
-  update) die "update is not built yet (step 4)" ;;
-  *) sed -n '2,28p' "$SELF"; exit 1 ;;
+  enroll|release|update) ;;
+  *) sed -n '2,/^# The whole body/p' "$SELF"; exit 1 ;;
 esac
 [ -n "${2:-}" ] || die "usage: box.sh $CMD <box>"
 box_load "$2"; shift 2

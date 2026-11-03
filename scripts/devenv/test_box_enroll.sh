@@ -47,6 +47,20 @@ a=("$@"); host="${a[${#a[@]}-2]}"; home="$(echo "$STUB_BOXES"/*@"$host")"
 [ -s "$home/.stub/tailscale" ] || { sleep 3; echo "nc: connectx to $host port 22 (tcp) failed: Operation timed out" >&2; exit 1; }
 [ "$(cat "$home/.stub/remote-login")" != off ] || { echo "nc: connectx to $host port 22 (tcp) failed: Connection refused" >&2; exit 1; }
 EOF
+cat > "$T/bin/scp" <<'EOF'
+#!/bin/bash
+echo "scp $*" >> "$STUB_LOG"
+args=(); while [ $# -gt 0 ]; do case "$1" in -o) shift 2 ;; -q) shift ;; *) args+=("$1"); shift ;; esac; done
+at() { case "$1" in *@*:*) p="${1#*:}"; echo "$STUB_BOXES/${1%%:*}/${p#\~/}" ;; *) echo "$1" ;; esac; }
+cp "$(at "${args[0]}")" "$(at "${args[1]}")"
+EOF
+# bootstrap.sh as the box's checkout holds it: each step logged; doctor prints the box's .stub/doctor lines.
+cat > "$T/bootstrap.sh" <<'EOF'
+#!/bin/bash
+echo "bootstrap $1" >> "$STUB_LOG"
+[ "$1" != "$(cat ~/.stub/bootstrap-fails 2>/dev/null)" ] || { echo "FAIL  $1 broke" >&2; exit 1; }
+[ "$1" != doctor ] || { cat ~/.stub/doctor 2>/dev/null; echo "doctor: box ready"; }
+EOF
 cat > "$T/bin/sleep" <<'EOF'
 #!/bin/bash
 exec /bin/sleep "$(awk -v s="$1" 'BEGIN { print s / 10 }')"
@@ -166,7 +180,7 @@ case "$1 $2" in
   *) exit 1 ;;
 esac
 EOF
-chmod +x "$T/bin/"* "$T/apps/Orca.app/Contents/Resources/bin/orca"
+chmod +x "$T/bin/"* "$T/apps/Orca.app/Contents/Resources/bin/orca" "$T/bootstrap.sh"
 printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>1.4.246</string></dict></plist>\n' > "$T/apps/Orca.app/Contents/Info.plist"
 echo "the app" > "$T/apps/Orca.app/Contents/Resources/app.asar"
 export PATH="$T/bin:$T/apps/Orca.app/Contents/Resources/bin:$PATH"
@@ -190,7 +204,7 @@ world() {
   git config -f "$R" box.air.ssh me@air-test; git config -f "$R" box.air.checkout work/y/variants/master
   git config -f "$R" box.air.agents 3
   LAP="$W/dev/variants/master"; mkdir -p "$LAP/scripts/devenv"
-  cp "$HERE/box.sh" "$HERE/boxes.sh" "$LAP/scripts/devenv/"
+  cp "$HERE/box.sh" "$HERE/boxes.sh" "$HERE/handoff.sh" "$T/bootstrap.sh" "$LAP/scripts/devenv/"
   git -C "$LAP" init -q -b master; git -C "$LAP" add -A
   git -C "$LAP" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
   printf '# Laptop overrides\n\n| `hostname` | Machine |\n|---|---|\n| `lap.local` | the laptop |\n\n**After the table.**\n' > "$W/dev/CLAUDE.md"
@@ -215,7 +229,7 @@ state() { echo "== register"; register; echo "== air"; tree_sum "$A"; echo "== l
 # ---- enroll
 world first
 bx update air
-rc_is 1 "update is reserved"; has "STOP  update is not built yet (step 4)" "update says it is step 4"
+rc_is 1 "update refuses a box enroll never touched"; has "not enrolled by box.sh ($R has no [layer \"air\"]): run box.sh enroll air first" "the refusal says to enroll first"
 bx enroll air --sudo
 rc_is 1 "an unknown option STOPs"; same "$(layer started)" none "an unknown option records nothing"
 echo Linux > "$A/.stub/uname"
@@ -443,6 +457,88 @@ release --box-gone --confirm "$(plan_id)"
 rc_is 0 "release --box-gone"; log_lacks "ssh " "release --box-gone never uses SSH"
 same "$(git config -f "$R" --get-regexp '^(box|layer)\.air\.' || echo none)" none "the registry holds nothing of air"
 same "$(shasum < "$W/dev/CLAUDE.md")" "$(printf '# Laptop overrides\n\n| `hostname` | Machine |\n|---|---|\n| `lap.local` | the laptop |\n\n**After the table.**\n' | shasum)" "the laptop's CLAUDE.md is as before"
+
+# ---- update
+# The laptop's dev root as the owner keeps it: its paths, a machine table, another box's block and, once enrolled, air's.
+lap_md() { printf '# Laptop overrides\n\n`DEVENV` means `%s/devenv.sh`.\n\n| `hostname` | Machine |\n|---|---|\n| `lap.local` | the laptop |\n\n<!-- box-layer contabo -->\nAlso a box: contabo.\n<!-- /box-layer contabo -->\n**After the table.** Worktrees go in %s/benches.\n' "$1" "$1"; }
+commit_on() { git -C "$1" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "$2"; }
+up() { bx update air; }
+world upd
+DAY="$(date +%Y%m%d)" BOXCO="$A/work/y/variants/master" BROOT="$A/work/y"; BMD="$BROOT/CLAUDE.md"
+lap_md "$W/dev" > "$W/dev/CLAUDE.md"
+printf '#!/usr/bin/env bash\n# the old path\nexec "$(cd "$(dirname "$0")" && pwd)/variants/master/scripts/devenv/devenv.sh" "$@"\n' > "$W/dev/devenv.sh"
+chmod 755 "$W/dev/devenv.sh"
+bx enroll air; rc_is 0 "enroll before the update tests"
+grep -qF '<!-- box-layer air -->' "$W/dev/CLAUDE.md" || fail "the laptop's CLAUDE.md holds air's line"; pass "the laptop's CLAUDE.md holds air's line"
+
+echo off > "$A/.stub/remote-login"
+up; rc_is 3 "update with the box unreachable exits 3"; has "Nothing was changed" "it says nothing was changed"
+echo on > "$A/.stub/remote-login"
+git -C "$BOXCO" checkout -q -b side
+up; rc_is 1 "update refuses a box checkout off master"; has "has side checked out, not master" "the refusal names the branch"
+git -C "$BOXCO" checkout -q master
+
+PRE_MD="$(cat "$BMD")"
+block() { sed -n '1,/^<!-- \/box-layer air -->$/p'; }
+commit_on "$LAP" "laptop work"
+git -C "$LAP" config devbox-task.t1.box air
+printf 'WARN  data is 12 days old (2026-10-23T10:00, backup-x.tar.gz): ask the owner for a fresh backup\nnote  /f/.devcontainer/docker-compose.yml differs from compose.yml (compose --force replaces it, recreating the containers)\n' > "$A/.stub/doctor"
+fresh_log; up
+rc_is 0 "update while a task record names the box"
+same "$(git -C "$BOXCO" rev-parse master)" "$(git -C "$LAP" rev-parse master)" "the box's master is the laptop's"
+same "$(git -C "$BOXCO" status --porcelain)" "" "the box checkout moved with it, clean"
+has "code   master fast-forwarded to $(git -C "$LAP" rev-parse --short master)" "the summary gives the code line"
+cmp -s "$W/dev/devenv.sh" "$BROOT/devenv.sh" || fail "devenv.sh is the laptop's, verbatim"; pass "devenv.sh is the laptop's, verbatim"
+same "$(stat -f %Lp "$BROOT/devenv.sh")" 755 "devenv.sh is 755"
+same "$(block < "$BMD")" "$(printf '%s\n' "$PRE_MD" | block)" "the box's CLAUDE.md opens with enroll's block, word for word"
+same "$(sed '1,/^<!-- \/box-layer air -->$/d' "$BMD")" "$(lap_md "$BROOT" | sed '/^<!-- box-layer contabo -->$/,/^<!-- \/box-layer contabo -->$/d')" \
+  "below it, the laptop's CLAUDE.md with the box's paths and no other block"
+same "$(grep -c '^<!-- box-layer ' "$BMD")" 1 "air's own block is the only one"
+same "$(cat "$BMD.bak-update-$DAY")" "$PRE_MD" "the box's old CLAUDE.md is kept as CLAUDE.md.bak-update-<date>"
+same "$(ls "$BROOT" | grep -c bak-update || true)" 1 "a new devenv.sh needs no backup"
+same "$(sed -n 's/^bootstrap //p' "$STUB_LOG" | tr '\n' ' ')" "bench link pylock frontend build playwright doctor " "the bootstrap steps run in order, then doctor"
+log_lacks "bootstrap compose" "update never runs compose"
+has "on air in ~/work/y/variants/master: scripts/devenv/bootstrap.sh compose --force" "a differing compose file gets the owner's command"
+has "note  data on air is 12 days old" "stale data is named with its age"
+has "from this laptop: scripts/devenv/data.sh send air <backup>" "stale data gets the send line"
+has "files  devenv.sh written (there was none); CLAUDE.md written; the old copy is CLAUDE.md.bak-update-$DAY" "the summary gives the files line"
+has "tools  ran bench link pylock frontend build playwright; box ready; docker-compose.yml differs" "the summary gives the tools line"
+has "data   12 days old" "the summary gives the data line"
+
+BEFORE="$(tree_sum "$A")"; fresh_log; up
+rc_is 0 "a second update"; has "code   master already at" "master is already there"
+has "files  devenv.sh same; CLAUDE.md same" "both files are already right"
+same "$(tree_sum "$A")" "$BEFORE" "a second update changes no file on the box"
+
+echo '# a later line' >> "$W/dev/devenv.sh"; FIRST_BAK="$(cat "$BMD.bak-update-$DAY")"
+printf 'ok    data is 2 days old (2026-11-02T10:00, backup-y.tar.gz)\n' > "$A/.stub/doctor"
+up; rc_is 0 "update after the laptop's devenv.sh changed"
+has "files  devenv.sh written; the old copy is devenv.sh.bak-update-$DAY; CLAUDE.md same" "only devenv.sh is written"
+cmp -s "$W/dev/devenv.sh" "$BROOT/devenv.sh" || fail "devenv.sh follows the laptop's"; pass "devenv.sh follows the laptop's"
+lacks "data.sh send" "fresh data gets no send line"; has "data   2 days old" "the summary gives the fresh data's age"
+echo '**A new rule.**' >> "$W/dev/CLAUDE.md"
+up; rc_is 0 "update after the laptop's CLAUDE.md changed again the same day"
+same "$(cat "$BMD.bak-update-$DAY")" "$FIRST_BAK" "an earlier backup is never overwritten"
+same "$(cat "$BMD.bak-update-$DAY-2")" "$(lap_md "$BROOT" | sed '/^<!-- box-layer contabo -->$/,/^<!-- \/box-layer contabo -->$/d' | cat <(printf '%s\n' "$PRE_MD" | block) -)" "the second backup holds the first update's file"
+
+echo pylock > "$A/.stub/bootstrap-fails"; fresh_log; up
+rc_is 1 "a failing bootstrap step stops update"; has "bootstrap.sh pylock failed on air" "the stop names the step"
+log_lacks "bootstrap frontend" "no step after the failing one runs"; has "tools  stopped at the failing step above" "the summary says where tools stopped"
+: > "$A/.stub/bootstrap-fails"
+
+commit_on "$BOXCO" "box-only work"; BOX_ONLY="$(git -C "$BOXCO" rev-parse master)"
+up; rc_is 1 "update stops when the box's master is ahead"; has "Or keep those commits: scripts/devenv/handoff.sh from air master" "it offers to bring them back"
+commit_on "$LAP" "laptop-only work"
+BEFORE="$(tree_sum "$A")"; fresh_log; up
+rc_is 1 "update stops on a diverged master"; has "master on air has commits this laptop lacks (DIVERGED); nothing was changed" "the stop says so"
+same "$(git -C "$BOXCO" rev-parse master)" "$BOX_ONLY" "the box's master stays where it was"
+same "$(tree_sum "$A")" "$BEFORE" "no file on the box changed"; log_lacks "bootstrap" "no bootstrap step ran"
+printf '%s\n' "$OUT" | sed -n 's/^      \(git .*\)$/\1/p' > "$W/recipe"
+same "$(sed 's/ [0-9a-f]\{40\}$/ <sha>/' "$W/recipe")" "$(printf 'git branch air-backup/master-%s master\ngit checkout -B master <sha>' "$DAY")" "the recipe backs master up, then steps it back"
+(cd "$BOXCO" && while read -r l; do eval "$l"; done < "$W/recipe") > /dev/null 2>&1
+up; rc_is 0 "update after the owner ran the recipe"
+same "$(git -C "$BOXCO" rev-parse master)" "$(git -C "$LAP" rev-parse master)" "the box's master is the laptop's at last"
+same "$(git -C "$BOXCO" rev-parse "air-backup/master-$DAY")" "$BOX_ONLY" "the box's own commits stay on the backup branch"
 
 # ---- no secret anywhere but agent.env
 for s in "$GH_SECRET" "$CLAUDE_SECRET"; do

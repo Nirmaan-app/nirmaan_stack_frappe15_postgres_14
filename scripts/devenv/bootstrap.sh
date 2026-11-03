@@ -223,6 +223,9 @@ doctor() {
   local bad=0
   check() { if eval "$2"; then ok "$1"; else echo "FAIL  $1"; bad=1; fi; }
   check "containers running" 'running "$CONTAINER" && running "$PG"'
+  if [ -f "$COMPOSE" ] && ! cmp -s "$SELF_DIR/compose.yml" "$COMPOSE"; then
+    echo "note  $COMPOSE differs from compose.yml (compose --force replaces it, recreating the containers)"
+  fi
   check "frappe at $(lock 'd["frappe"]["ref"]')" \
     '[ "$(git -C "$BENCH/apps/frappe" rev-parse HEAD 2>/dev/null)" = "$(lock "d[\"frappe\"][\"commit\"]")" ]'
   local n i name; n="$(lock 'len(d["apps"])')"
