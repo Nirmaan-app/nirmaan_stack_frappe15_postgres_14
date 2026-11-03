@@ -2,16 +2,12 @@
  * The page shell the expense queues of Pending Invoices Upload share: Credit Card (`CardInvoiceUploads`, #1570) and
  * Cashbook (`CashbookInvoiceUploads`, #1592). Each queue keeps its own columns, filters and endpoints; this holds
  * what they did twice: loading the list, the Attach invoice and No invoice actions (both take the spend off the
- * list, so the list is refetched after each) and their two dialogs (`InvoiceQueueDialogs`). `InvoiceQueueFrame`
- * adds the loading and error states, the filter bar with its count and a plain table with its Actions column; the
- * Credit Card queue shows its rows through the shared DataTable instead, around the same list and dialogs.
+ * list, so the list is refetched after each) and their two dialogs (`InvoiceQueueDialogs`). Both queues show
+ * their rows through the shared DataTable, around the same list and dialogs.
  */
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
-import { TailSpin } from "react-loader-spinner";
 
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import {
     type CardInvoiceValues,
@@ -87,29 +83,6 @@ export const useInvoiceQueue = <Row,>({ api, list, attach, noInvoice, cacheKey, 
 
 export type InvoiceQueueState<Row> = ReturnType<typeof useInvoiceQueue<Row>>;
 
-interface InvoiceQueueFrameProps<Row> {
-    queue: InvoiceQueueState<Row>;
-    /** Which of the two actions this viewer gets. */
-    actions: { attach: boolean; noInvoice: boolean };
-    /** Shown when the list fails to load and the server gave no sentence. */
-    loadError: string;
-    /** The queue's own filter controls; the count sits after them. */
-    filters: ReactNode;
-    /** "3 card spends waiting for an invoice". */
-    countText: string;
-    /** The column headings before Actions. */
-    headers: { label: string; className?: string }[];
-    /** The rows after filtering. */
-    shown: Row[];
-    rowKey: (row: Row) => string;
-    targetOf: (row: Row) => QueueTarget;
-    /** The cells of one row, before its Actions cell. */
-    cells: (row: Row) => ReactNode;
-    emptyText: string;
-    /** The No invoice textarea's id, unique per queue. */
-    reasonInputId: string;
-}
-
 /** The Attach invoice and No invoice dialogs of one queue, open while the queue names a spend for them. */
 export const InvoiceQueueDialogs = <Row,>({ queue, reasonInputId }: { queue: InvoiceQueueState<Row>; reasonInputId: string }) => {
     const { attaching, setAttaching, mutate } = queue;
@@ -144,70 +117,5 @@ export const InvoiceQueueDialogs = <Row,>({ queue, reasonInputId }: { queue: Inv
                 inputId={reasonInputId}
             />
         </>
-    );
-};
-
-export const InvoiceQueueFrame = <Row,>({
-    queue, actions, loadError, filters, countText, headers, shown, rowKey, targetOf, cells, emptyText, reasonInputId,
-}: InvoiceQueueFrameProps<Row>) => {
-    const { setAttaching } = queue;
-
-    if (queue.isLoading) {
-        return <div className="flex justify-center py-10"><TailSpin color="#0ea5e9" height={28} width={28} /></div>;
-    }
-    if (queue.error) {
-        return <div className="py-10 text-center text-sm text-destructive">{getFrappeError(queue.error) || loadError}</div>;
-    }
-
-    return (
-        <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end gap-3">
-                {filters}
-                <span className="text-sm text-muted-foreground pb-2">{countText}</span>
-            </div>
-
-            <div className="rounded-md border overflow-x-auto">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            {headers.map((h) => <TableHead key={h.label} className={h.className}>{h.label}</TableHead>)}
-                            <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {shown.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={headers.length + 1} className="h-24 text-center text-muted-foreground">
-                                    {emptyText}
-                                </TableCell>
-                            </TableRow>
-                        ) : shown.map((row) => {
-                            const target = targetOf(row);
-                            return (
-                                <TableRow key={rowKey(row)}>
-                                    {cells(row)}
-                                    <TableCell className="text-right whitespace-nowrap">
-                                        <div className="flex justify-end gap-2">
-                                            {actions.attach && (
-                                                <Button size="sm" variant="outline" onClick={() => setAttaching(target)}>
-                                                    Attach invoice
-                                                </Button>
-                                            )}
-                                            {actions.noInvoice && (
-                                                <Button size="sm" variant="ghost" onClick={() => queue.openNoInvoice(target)}>
-                                                    No invoice
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            );
-                        })}
-                    </TableBody>
-                </Table>
-            </div>
-
-            <InvoiceQueueDialogs queue={queue} reasonInputId={reasonInputId} />
-        </div>
     );
 };
