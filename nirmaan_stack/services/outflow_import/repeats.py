@@ -76,6 +76,9 @@ class RepeatSplit:
     #: The lines left out as exact repeats of an EARLIER IMPORT (not of a line earlier in this file), in file
     #: order. Cashbook reads their bill links: a repeat may bring a bill added since (#1593).
     earlier_exact: tuple = ()
+    #: Each earlier batch the exact repeats of an earlier import came from, with how many, in the order the file
+    #: first meets it (#1605). Its counts sum to `repeats_not_saved - repeated_in_file`; `repeat_of_batch` is its first.
+    repeats_by_batch: tuple[tuple[str, int], ...] = ()
 
 
 def terminal_line(line: KeptLine) -> bool:
@@ -123,6 +126,7 @@ def split_repeats(
     repeated_in_file = 0
     repeat_of_batch = None
     earlier_exact: list = []
+    by_batch: dict[str, int] = {}
     for row in rows:
         status = getattr(row, "status_raw", "") or ""
         identity = identity_of(row)
@@ -142,6 +146,7 @@ def split_repeats(
             earlier_exact.append(row)
             if repeat_of_batch is None:
                 repeat_of_batch = earlier.label
+            by_batch[earlier.label] = by_batch.get(earlier.label, 0) + 1
             continue
         if line.in_file and line.in_file.exact:
             repeats += 1
@@ -154,4 +159,5 @@ def split_repeats(
         repeat_of_batch=repeat_of_batch,
         repeated_in_file=repeated_in_file,
         earlier_exact=tuple(earlier_exact),
+        repeats_by_batch=tuple(by_batch.items()),
     )

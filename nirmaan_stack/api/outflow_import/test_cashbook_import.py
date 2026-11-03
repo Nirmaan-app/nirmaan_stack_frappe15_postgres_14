@@ -980,6 +980,17 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
         self.assertEqual((payload["duplicate_rows"], payload["new_rows"]), (1, 0))
         self.assertIn(batch, payload["duplicate_message"])
 
+    def test_repeats_from_two_earlier_imports_name_each_with_its_count(self):
+        """#1605: the preview named only the first repeat's batch though the repeats came from two imports."""
+        first = self._stage(self._file(self.data[:3]))
+        second = self._stage(self._file(self.data[3:5]))
+        payload = self._post(cb.preview_cashbook_statement, self.full)
+        self.assertEqual(payload["duplicate_rows"], 5)
+        self.assertEqual(
+            payload["duplicate_message"],
+            f"5 of 10 transfers were already imported: 3 in {first}, 2 in {second}. They will not be saved.",
+        )
+
     def test_an_identical_in_flight_line_twice_in_one_file_is_saved_once(self):
         pending = self.data[0].replace('"SUCCESS"', '"PENDING"')
         self.assertNotEqual(pending, self.data[0], "the fixture line changed shape; this asserts nothing")

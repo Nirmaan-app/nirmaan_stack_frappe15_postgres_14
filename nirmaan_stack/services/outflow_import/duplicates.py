@@ -454,6 +454,18 @@ class DuplicateVerdict:
         return (self.duplicates / self.total) if self.total else 0.0
 
 
+def _counts_by_batch(earlier_batches, from_earlier_imports: int) -> "tuple[tuple[str, int], ...]":
+    """The per-import counts to list, or `()` when the message names one batch (or none) as before (#1605).
+
+    Listed only for two or more named imports whose counts sum to the repeats of an earlier import: a list that
+    added up to less than N would misstate it, and the one-batch sentence is the safe fallback.
+    """
+    pairs = tuple((batch, int(count)) for batch, count in (earlier_batches or ()) if batch and int(count or 0) > 0)
+    if len(pairs) < 2 or sum(count for _, count in pairs) != from_earlier_imports:
+        return ()
+    return pairs
+
+
 def assess_duplicates(
     total: int,
     duplicates: int,
@@ -461,6 +473,7 @@ def assess_duplicates(
     filename: str | None = None,
     repeated_in_file: int = 0,
     repeats_with_work: int = 0,
+    earlier_batches: "tuple[tuple[str, int], ...]" = (),
 ) -> DuplicateVerdict:
     """Decide refuse / warn / proceed for a statement with `duplicates` of `total` rows seen before.
 
@@ -479,6 +492,11 @@ def assess_duplicates(
     `repeats_with_work` is how many of `duplicates` still bring work although they are not saved: on Cashbook,
     a bill for an existing Expense still waiting for one (#1593). A file of nothing but repeats is then
     accepted, with a warning saying so.
+
+    `earlier_batches` is each earlier import the repeats came from, with its count
+    (`repeats.RepeatSplit.repeats_by_batch`, #1605). With two or more, the message names each one with its count,
+    and the lines repeated in this file as one more count, so the counts sum to `duplicates`. With one, or with counts
+    that do not sum to the repeats of an earlier import, it names `earliest_batch` as before.
     """
     total = max(int(total or 0), 0)
     duplicates = min(max(int(duplicates or 0), 0), total)
@@ -493,12 +511,23 @@ def assess_duplicates(
 
     where = f" in batch {earliest_batch}" if earliest_batch else ""
     what = f"'{filename}'" if filename else "this file"
+    by_batch = _counts_by_batch(earlier_batches, duplicates - repeated_in_file)
     if repeated_in_file == duplicates:
         seen = "are repeated in this file"
+    elif by_batch:
+        # A list ends its sentence: "...: 4 in A, 10 in B. They will not be saved." (#1605).
+        counts = [f"{count} in {batch}" for batch, count in by_batch]
+        if repeated_in_file:
+            counts.append(f"{repeated_in_file} repeated in this file")
+            seen = f"were already imported or repeated in this file: {', '.join(counts)}"
+        else:
+            seen = f"were already imported: {', '.join(counts)}"
     elif repeated_in_file:
         seen = f"were already imported{where} or repeated in this file"
     else:
         seen = f"were already imported{where}"
+    # What follows the clause: joined on with "and" after a plain clause, a sentence of its own after a list.
+    and_not_saved = ". They will not be saved" if by_batch else " and will not be saved"
 
     if new == 0 and repeats_with_work > 0:
         bills = "1 of them brings a bill" if repeats_with_work == 1 else f"{repeats_with_work} of them bring bills"
@@ -507,7 +536,7 @@ def assess_duplicates(
             total=total, duplicates=duplicates, new=0,
             refuse=False, warn=True, earliest_batch=earliest_batch,
             message=(
-                f"All {total} transfers in {what} {seen} and will not be saved again. "
+                f"All {total} transfers in {what} {seen}{and_not_saved} again. "
                 f"{bills} for {waiting} still waiting for one."
             ),
         )
@@ -528,7 +557,7 @@ def assess_duplicates(
             refuse=False, warn=True, earliest_batch=earliest_batch,
             message=(
                 f"Only {new} of {total} transfers in {what} are new. "
-                f"The other {duplicates} {seen} and will not be saved."
+                f"The other {duplicates} {seen}{and_not_saved}."
             ),
         )
 

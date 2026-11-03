@@ -882,6 +882,7 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = ()) -> Dupl
         earliest_batch=plan.split.repeat_of_batch,
         filename=filename,
         repeated_in_file=plan.split.repeated_in_file,
+        earlier_batches=plan.split.repeats_by_batch,
         repeats_with_work=len(late),
     )
 
