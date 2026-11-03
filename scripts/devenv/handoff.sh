@@ -2,12 +2,12 @@
 # Hand a branch between the laptop and a dev box (a VM built with bootstrap.sh). Run on the laptop, from any checkout
 # of the repo. Commits travel as git bundles over SSH; nothing here talks to GitHub, and nothing is a push.
 #
-#   handoff.sh status <host> <branch>   where the branch stands on both sides (read-only)
-#   handoff.sh to <host> <branch>       give the box the laptop's commits on <branch>
-#   handoff.sh from <host> <branch>     bring the box's commits on <branch> back to the laptop
+#   handoff.sh status <box> <branch>   where the branch stands on both sides (read-only)
+#   handoff.sh to <box> <branch>       give the box the laptop's commits on <branch>
+#   handoff.sh from <box> <branch>     bring the box's commits on <branch> back to the laptop
 #
-# <host> is an SSH target, e.g. dev@contabo. The box's checkout is $DEVBOX_CHECKOUT (default, under the box user's
-# home: work/nirmaan/deploy_setup/frappe_docker/development/nirmaan_stack_variants/master).
+# <box> is a box name from the registry (scripts/devenv/boxes.sh), which holds its SSH target and checkout.
+# Exit 3: the box did not answer; run the same command again once it is awake.
 #
 # Rules (the same as env_sync.sh's laptop/desktop loop):
 # - Fast-forward only. A side whose branch has commits the other lacks is never overwritten: status says DIVERGED,
@@ -72,12 +72,14 @@ fi
 # ---------------------------------------------------------------- on the laptop
 SELF="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
 cd "$(dirname "$SELF")"; cd "$(git rev-parse --show-toplevel)"
-BOX_CO="${DEVBOX_CHECKOUT:-work/nirmaan/deploy_setup/frappe_docker/development/nirmaan_stack_variants/master}"
-CMD="${1:-}"; HOST="${2:-}"; BR="${3:-}"
+. "$(dirname "$SELF")/boxes.sh"
+CMD="${1:-}"; BR="${3:-}"
 case "$CMD" in status|to|from) ;; *) sed -n '2,20p' "$SELF"; exit 1 ;; esac
-[ -n "$HOST" ] && [ -n "$BR" ] || die "usage: handoff.sh $CMD <host> <branch>"
+[ -n "${2:-}" ] && [ -n "$BR" ] || die "usage: handoff.sh $CMD <box> <branch>"
 git check-ref-format --branch "$BR" >/dev/null || die "not a branch name: $BR"
-box() { ssh -o BatchMode=yes "$HOST" bash -s -- _box "$BOX_CO" "$@" < "$SELF"; }
+box_load "$2"
+box_reach
+box() { box_ssh bash -s -- _box "$BOX_CO" "$@" < "$SELF"; }
 here_has() { git cat-file -e "$1^{commit}" 2>/dev/null; }
 FILE="handoff-$(echo "$BR" | tr '/' '_')-$$.bundle"
 
@@ -98,11 +100,11 @@ V="$(verdict)"
 
 case "$CMD" in
   status)
-    echo "laptop $BR: ${L:-(none)}"; echo "box    $BR: ${R:-(none)}   ($HOST)"
+    echo "laptop $BR: ${L:-(none)}"; echo "box    $BR: ${R:-(none)}   (box $BOX_NAME, $BOX_SSH)"
     echo "verdict: $V"
     case "$V" in
-      LAPTOP_AHEAD|ONLY_LAPTOP) echo "next: handoff.sh to $HOST $BR" ;;
-      BOX_AHEAD|ONLY_BOX) echo "next: handoff.sh from $HOST $BR" ;;
+      LAPTOP_AHEAD|ONLY_LAPTOP) echo "next: handoff.sh to $BOX_NAME $BR" ;;
+      BOX_AHEAD|ONLY_BOX) echo "next: handoff.sh from $BOX_NAME $BR" ;;
       DIVERGED) echo "next: STOP. Both sides have commits the other lacks; the owner decides (nothing auto-merges)." ;;
     esac ;;
   to)
@@ -111,31 +113,31 @@ case "$CMD" in
       LAPTOP_AHEAD|ONLY_LAPTOP) ;;
       NOWHERE) die "no branch $BR on the laptop" ;;
       DIVERGED) die "DIVERGED: each side has commits on $BR the other lacks. The owner decides; nothing auto-merges." ;;
-      *) die "$V: the box has commits on $BR the laptop lacks. Run 'handoff.sh from $HOST $BR' first." ;;
+      *) die "$V: the box has commits on $BR the laptop lacks. Run 'handoff.sh from $BOX_NAME $BR' first." ;;
     esac
     if [ "$(box has "$L")" = yes ]; then box receive "$BR" - "$L" "$R"
     else
       tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
       basis=(); while read -r c; do here_has "$c" && basis+=("^$c"); done < <(box known)
       git bundle create -q "$tmp/$FILE" "refs/heads/$BR" ${basis[@]+"${basis[@]}"} || die "could not bundle $BR"
-      scp -q -o BatchMode=yes "$tmp/$FILE" "$HOST:$FILE"
+      box_scp "$tmp/$FILE" "BOX:$FILE"
       box receive "$BR" "$FILE" "$L" "$R"
     fi
-    ok "handed $BR to $HOST: box at ${L:0:9} (was $([ -n "$R" ] && echo "${R:0:9}" || echo none)). Work there with: devenv.sh create <task> --on $BR" ;;
+    ok "handed $BR to box $BOX_NAME: box at ${L:0:9} (was $([ -n "$R" ] && echo "${R:0:9}" || echo none)). Work there with: devenv.sh create <task> --on $BR" ;;
   from)
     case "$V" in
       IN_SYNC) ok "laptop already has $BR at ${L:0:9}"; exit 0 ;;
       BOX_AHEAD|ONLY_BOX) ;;
       NOWHERE) die "no branch $BR on the box" ;;
       DIVERGED) die "DIVERGED: each side has commits on $BR the other lacks. The owner decides; nothing auto-merges." ;;
-      *) die "$V: the laptop has commits on $BR the box lacks. Run 'handoff.sh to $HOST $BR' first." ;;
+      *) die "$V: the laptop has commits on $BR the box lacks. Run 'handoff.sh to $BOX_NAME $BR' first." ;;
     esac
     d="$(box dirty "$BR")"; [ -z "$d" ] || die "the box has uncommitted changes in $d; they would stay behind. Commit them there first."
     if ! here_has "$R"; then
       tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
       got="$(box send "$BR" "$FILE" $(git for-each-ref --format='%(objectname)' refs/heads refs/remotes refs/tags | sort -u))"
       [ "$got" != none ] || die "the box could not bundle $BR"
-      scp -q -o BatchMode=yes "$HOST:$FILE" "$tmp/$FILE"; ssh -o BatchMode=yes "$HOST" rm -f "$FILE"
+      box_scp "BOX:$FILE" "$tmp/$FILE"; box_ssh rm -f "$FILE"
       git bundle verify -q "$tmp/$FILE" >/dev/null 2>&1 || die "the bundle from the box does not verify"
       git fetch -q "$tmp/$FILE" "refs/heads/$BR:refs/handoff/$BR" --force
     fi

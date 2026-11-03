@@ -107,4 +107,107 @@ rc_is 0 "agent route on an env: box"; has alive "agent_alive sees the terminal";
 log_has "orca agent launch --environment test-orca --agent claude --surface terminal --focus --worktree path:/wt --prompt the prompt --json" "agent_launch passes env: as --environment"
 log_has "orca terminal close --environment test-orca --terminal term_t1" "agent_stop closes on the box's server"
 
+# ---- task.sh and handoff.sh, on a temp laptop repo (it holds the task records) and a checkout of it per box
+L="$T/laptop"; mkdir -p "$L/scripts/devenv"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$L/scripts/devenv/"
+cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
+#!/bin/bash
+# Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
+set -e
+wt="$(cd ../.. && pwd)/benches/$2/apps/nirmaan_stack"
+case "$1" in
+  create) git worktree add -q "$wt" "$4"; echo "Ready $2" ;;
+  destroy) git -C "$wt" checkout -q --detach; echo "destroyed $2" ;;
+esac
+EOF
+printf 'import sys\nprint("ok    test dod", sys.argv[1])\n' > "$L/scripts/devenv/dod.py"
+chmod +x "$L/scripts/devenv/devenv.sh"
+git -C "$L" init -q -b master
+git -C "$L" add -A
+git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
+git -C "$L" branch box/legacy
+AIR="$T/boxes/me@air-test/work/y/variants/master"
+git clone -q "$L" "$T/boxes/t@contabo-test/work/x/variants/master"; git clone -q "$L" "$AIR"
+echo "the brief" > "$T/brief.md"
+task() { run env ${TASK_ENV:-} /bin/bash "$L/scripts/devenv/task.sh" "$@"; }
+rec() { git -C "$L" config "devbox-task.$1.box" || echo none; }
+branch() { git -C "$L" rev-parse -q --verify "refs/heads/box/$1" >/dev/null && echo yes || echo no; }
+same() { [ "$1" = "$2" ] || fail "$3 (got '$1', want '$2')"; pass "$3"; }
+line() { echo "$OUT" | grep -qE "$1" || fail "$2 (no line matching $1)"; pass "$2"; }
+
+fresh_log
+task start t1 --box mini --no-agent
+rc_is 1 "start on an unknown box STOPs"; has "no box 'mini'" "start on an unknown box names it"
+same "$(branch t1) $(rec t1)" "no none" "an unknown box leaves no branch and no record"
+task start t1 --box nock --no-agent
+rc_is 1 "start on a box without a checkout STOPs"; has "box.nock.checkout <path under its home>" "start prints the checkout fix line"
+same "$(branch t1) $(rec t1)" "no none" "a box without a checkout leaves no branch and no record"
+task start t1 --box air
+rc_is 1 "start with an agent on a box without orca STOPs"; has "box air has no Orca server" "the refusal names the box"
+has "use --no-agent" "the refusal says --no-agent"
+same "$(branch t1) $(rec t1)" "no none" "the no-orca refusal leaves no branch and no record"
+log_lacks "ssh" "the no-orca refusal never reaches the box"
+TASK_ENV="STUB_DOWN=1" task start t1 --box contabo --no-agent
+rc_is 3 "start on an unreachable box is exit 3"; has "box contabo (t@contabo-test) did not answer over SSH" "start names the unreachable box"
+has "Nothing was changed" "start on an unreachable box says nothing changed"
+same "$(branch t1) $(rec t1)" "no none" "an unreachable box leaves no branch and no record"
+
+task status legacy
+rc_is 1 "status of an unrecorded task STOPs"; has "git config devbox-task.legacy.box <box>" "status prints the one-line fix"
+task status legacy --box air
+rc_is 1 "status refuses --box"; has "takes no options" "status says the box comes from the record"
+run /bin/bash "$L/scripts/devenv/handoff.sh" status t@contabo-test box/legacy
+rc_is 1 "handoff.sh refuses an ssh target"; has "no box 't@contabo-test'" "handoff.sh asks for a box name"
+
+task start t2 --box air --no-agent --brief "$T/brief.md"
+rc_is 0 "start t2 on air"; has "box   air (me@air-test), checkout ~/work/y/variants/master   [--box]" "start prints the box line first"
+same "$(rec t2)" air "start records the box"
+same "$(git -C "$AIR" rev-parse box/t2)" "$(git -C "$L" rev-parse box/t2)" "the branch reached the air box"
+same "$(cat "$T/boxes/me@air-test/claude-artifacts/dod/box-t2/BRIEF.md")" "the brief" "the brief reached the air box"
+has "ok    test dod start" "the Definition of Done was turned on"
+task start t2 --box contabo --no-agent
+rc_is 1 "a --box that contradicts the record STOPs"; has "task t2 is on box air (git config devbox-task.t2.box)" "the STOP names the recorded box"
+fresh_log
+task start t2 --no-agent
+rc_is 0 "a rerun of start goes to the recorded box"; has "box   air (me@air-test)" "the rerun names air"; has "[from the record]" "the rerun says the record chose"
+log_lacks "t@contabo-test" "the rerun never touches the default box"
+task status t2
+rc_is 0 "status t2"; has "[from the record]" "status takes the box from the record"; has "verdict: IN_SYNC" "status reaches the recorded box"
+has "ok    test dod check" "status runs the Definition of Done check"
+task done t2
+rc_is 0 "done t2"; has "laptop already has box/t2" "done asks the recorded box"
+
+fresh_log
+task start t3 --brief "$T/brief.md"
+rc_is 0 "start t3 with an agent on the default box"; has "[the default]" "start without --box takes the default"
+same "$(rec t3)" contabo "the default box is recorded"
+log_has "orca agent launch --environment test-orca --agent claude" "the agent is launched on contabo's Orca server"
+log_has "--prompt You are an agent on a dev box, working on task 't3'" "the agent gets the task prompt"
+has "Claude is working in 't3'" "start sees the agent's terminal"
+
+TASK_ENV="STUB_FAIL_ON=_box STUB_FAIL_RC=255" task start t4 --box air --no-agent
+rc_is 3 "a box lost mid-start is exit 3"; has "Steps already done stay done" "a box lost mid-start says rerun"
+same "$(branch t4) $(rec t4)" "yes air" "the branch and record made before the loss stay"
+task start t4 --no-agent
+rc_is 0 "the rerun finishes start t4"; has "[from the record]" "the rerun of t4 finds its box in the record"
+
+TASK_ENV="STUB_FAIL_ON=destroy" task clean t2
+rc_is 1 "clean stops when the box side fails"; same "$(rec t2)" air "a failed clean keeps the record"
+task clean t2
+rc_is 0 "clean t2"; has "deleted the box branch box/t2" "clean removes the box branch"; has "cleaned t2 on box air" "clean names the box"
+same "$(rec t2)" none "clean unsets the record"
+git -C "$AIR" rev-parse -q --verify refs/heads/box/t2 >/dev/null && fail "the air box still has box/t2"; pass "the air box no longer has box/t2"
+fresh_log
+task clean t3
+rc_is 0 "clean t3"; log_has "orca terminal close --environment test-orca --terminal term_t1" "clean closes the agent's terminal"
+same "$(rec t3)" none "clean t3 unsets the record"
+
+git -C "$L" config devbox-task.gone.box contabo
+fresh_log
+TASK_ENV="STUB_DOWN=1 DEVBOX_REGISTRY=$T/none.conf" task list
+rc_is 0 "list works with every box down and no registry"
+line '^t4 +air$' "list shows a recorded task"; line '^legacy +no record$' "list shows an unrecorded task"
+line '^gone +contabo \(no laptop branch\)$' "list shows a record whose laptop branch is gone"
+log_lacks "ssh" "list never uses SSH"
+
 echo; echo "all $N checks passed"
