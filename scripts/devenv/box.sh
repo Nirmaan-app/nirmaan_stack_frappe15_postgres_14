@@ -449,6 +449,9 @@ if [ "${1:-}" = _box ]; then
   CO="$2" BOX_NAME="$3" DRY="$4" ITEM="$5"; shift 5
   # ~/.zshenv hands every SSH command the agents' tokens; the box half reads the owner's own logins.
   unset GH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
+  # A non-login SSH command gets only the system PATH; gh and claude live in Homebrew. Without this, gh reads as
+  # absent and release would leave the owner's GitHub login behind. Appended, so a PATH that already holds them wins.
+  PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
   cd "$HOME"
   "$@"
   exit
