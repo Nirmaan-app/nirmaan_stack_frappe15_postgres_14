@@ -339,7 +339,9 @@ put_env() {   # box: <name>; its value is the line on stdin after this script. N
 }
 zshenv_on() {   # box: every zsh reads ~/.zshenv, the login shells Orca terminals start included
   grep -qxF "$ZSHENV_START" .zshenv 2>/dev/null && return
-  printf '%s\n%s\n%s\n' "$ZSHENV_START" "[ -r ~/$DEVBOX_DIR/agent.env ] && . ~/$DEVBOX_DIR/agent.env" "$ZSHENV_END" >> .zshenv
+  # An SSH command gets only the system PATH, and task.sh runs devenv.sh (docker) over SSH; Homebrew holds gh, claude.
+  printf '%s\n%s\n%s\n%s\n' "$ZSHENV_START" 'export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"' \
+    "[ -r ~/$DEVBOX_DIR/agent.env ] && . ~/$DEVBOX_DIR/agent.env" "$ZSHENV_END" >> .zshenv
 }
 ap_agent_env() {
   local src="${GH_FROM:-$(git config -f "$DEVBOX_REGISTRY" devbox.default || true)}"
