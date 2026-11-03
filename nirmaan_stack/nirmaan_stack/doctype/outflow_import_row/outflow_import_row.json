@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "OFR-.YY.-.######",
- "creation": "2026-08-06 00:00:00.000000",
+ "creation": "2026-08-06 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -49,6 +48,7 @@
   "skip_origin",
   "skip_kind",
   "card_refund_partner",
+  "cashbook_refund_partner",
   "outcome_note",
   "duplicate_basis",
   "decided_at",
@@ -229,11 +229,11 @@
    "read_only": 1
   },
   {
+   "default": "0",
    "description": "Checked when this row's suggested record was chosen by the machine rather than by a person. It is exactly 'suggested_name is set' -- a human never writes a suggestion -- and it is STORED rather than derived so Desk list views, the report builder and permissions can filter on it, which they cannot do with an expression. The same reason Outflow Import Batch carries denormalised counters. SAFETY RULE: it is written in the same frappe.db.set_value as suggested_doctype/suggested_name at every write site and never on its own, so it cannot drift from the pair it describes.",
    "fieldname": "auto_matched",
    "fieldtype": "Check",
    "label": "Auto Matched",
-   "default": "0",
    "read_only": 1
   },
   {
@@ -284,7 +284,7 @@
    "fieldname": "skip_kind",
    "fieldtype": "Select",
    "label": "Skip Kind",
-   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair\nPaired wallet refund",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (\u20b92)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair\nPaired wallet refund",
    "read_only": 1
   },
   {
@@ -324,35 +324,35 @@
    "read_only": 1
   },
   {
+   "description": "Denormalised from the batch so the master table can filter by it without a join. Cashfree or Cashbook.",
    "fieldname": "source",
    "fieldtype": "Data",
-   "label": "Source",
-   "read_only": 1,
    "in_standard_filter": 1,
-   "description": "Denormalised from the batch so the master table can filter by it without a join. Cashfree or Cashbook."
+   "label": "Source",
+   "read_only": 1
   },
   {
+   "description": "Cashbook only. The expense type the plan chose from this row's remark, stored so the background job writes exactly what the preview showed rather than deciding again.",
    "fieldname": "suggested_expense_type",
    "fieldtype": "Data",
    "label": "Suggested Expense Type",
-   "read_only": 1,
-   "description": "Cashbook only. The expense type the plan chose from this row's remark, stored so the background job writes exactly what the preview showed rather than deciding again."
+   "read_only": 1
   },
   {
+   "description": "Which way the money went, as the STATEMENT said it -- copied verbatim from services/outflow_import/parser.RawRow.direction. AN EXPLICIT FIELD, NEVER A SIGNED AMOUNT: amounts.amounts_match, both SQL pool queries, the settle guard and every summary sum assume a positive magnitude, so a negative amount would pass all of them and settle the wrong way round in silence. BLANK MEANS THE STATEMENT DID NOT SAY, AND MUST NEVER BE READ AS 'Debit BY DEFAULT'. A gateway export (Cashfree, Cashbook) has a single amount column and states no direction at all, so it stages blank; a bank passbook (ICICI) states it by which of Withdrawal / Deposit it filled in, and blank there means BOTH were filled -- corrupt input the parser refused to guess about, and which the exclusion rules therefore cannot judge either. Rows staged before this field existed were backfilled to Debit by patches/v3_0/backfill_outflow_row_direction.py, which is scoped to the two outflow-only gateway sources for exactly that reason.",
    "fieldname": "direction",
    "fieldtype": "Select",
+   "in_standard_filter": 1,
    "label": "Direction",
    "options": "\nDebit\nCredit",
-   "read_only": 1,
-   "in_standard_filter": 1,
-   "description": "Which way the money went, as the STATEMENT said it -- copied verbatim from services/outflow_import/parser.RawRow.direction. AN EXPLICIT FIELD, NEVER A SIGNED AMOUNT: amounts.amounts_match, both SQL pool queries, the settle guard and every summary sum assume a positive magnitude, so a negative amount would pass all of them and settle the wrong way round in silence. BLANK MEANS THE STATEMENT DID NOT SAY, AND MUST NEVER BE READ AS 'Debit BY DEFAULT'. A gateway export (Cashfree, Cashbook) has a single amount column and states no direction at all, so it stages blank; a bank passbook (ICICI) states it by which of Withdrawal / Deposit it filled in, and blank there means BOTH were filled -- corrupt input the parser refused to guess about, and which the exclusion rules therefore cannot judge either. Rows staged before this field existed were backfilled to Debit by patches/v3_0/backfill_outflow_row_direction.py, which is scoped to the two outflow-only gateway sources for exactly that reason."
+   "read_only": 1
   },
   {
+   "default": "0",
    "description": "Set by Unreconcile (#1280): this open line keeps its previous suggestion, but that pick was already confirmed once and undone, so it must be confirmed by hand. settle_row(bulk=1) -- what 'Confirm all matched' sends -- refuses a marked line, and get_confirmable_rows / the summary's confirmable_rows leave it out. Cleared by any successful settle of the line (expenses._refresh_row_allocation). The match run never writes it, so a re-run leaves it alone.",
    "fieldname": "confirm_by_hand",
    "fieldtype": "Check",
    "label": "Confirm By Hand",
-   "default": "0",
    "read_only": 1
   },
   {
@@ -429,12 +429,18 @@
    "fieldtype": "Attach",
    "label": "Stored Bill",
    "read_only": 1
+  },
+  {
+   "description": "A Cashbook Statement line skipped as a Paired wallet refund: the Txn Id of the other line of the pair (the spend a refund gives back, or the refund that gives back this spend). Written when the import stages the line (#1602).",
+   "fieldname": "cashbook_refund_partner",
+   "fieldtype": "Data",
+   "label": "Cashbook Refund Partner",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
- "istable": 0,
  "links": [],
- "modified": "2026-11-02 10:51:42.478237",
+ "modified": "2026-11-03 19:02:53.240404",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

@@ -12,6 +12,7 @@ import {
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_BY_HAND,
+    SKIP_KIND_CASHBOOK_REFUND_PAIR,
     SKIP_KIND_INFLOW_RECORDED,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
@@ -133,6 +134,11 @@ export const skipSourceSummary = (row: OutflowImportRow): SkipSourceSummary => {
             title: "",
             facts: facts(["By", row.decided_by], ["On", day(row.decided_at)]),
         });
+    } else if (kind === SKIP_KIND_CASHBOOK_REFUND_PAIR) {
+        // #1602: the other line of the pair, kept on the line at staging. A line paired before then has
+        // none, and shows the tag and the hover as it always did; the sentence is never parsed for it.
+        const partner = (row.cashbook_refund_partner ?? "").trim();
+        reference = partner ? `Paired with ${partner}` : "";
     } else if (kind === SKIP_KIND_NO_AMOUNT) {
         groups.push({ title: "", facts: facts(["Amount", "Nothing was debited"]) });
     }

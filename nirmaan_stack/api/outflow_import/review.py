@@ -2975,6 +2975,9 @@ def get_outflow_rows(
                -- Cashbook Statement only: the line's Type (#1595). An open Collect payment offers Create expense
                -- and Skip by hand only (spec #1585), and the screen tells it apart by this.
                r.row_kind,
+               -- Cashbook Statement only: a Paired wallet refund's other line, by Txn Id (#1602). The Skipped
+               -- popup shows "Paired with <it>" under the tag.
+               r.cashbook_refund_partner,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,
