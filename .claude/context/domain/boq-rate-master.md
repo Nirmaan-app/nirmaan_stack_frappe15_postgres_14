@@ -66,7 +66,58 @@ prints the PLAN (calls, tokens, $) with no call; `--archive` keeps every request
 re-scores a saved run. Never build a pool (the bench's or production's) while a Python suite runs: test_rate_master's
 re-save moves the pricing stamp mid-build. The `--max-*` budget reserves every in-flight call's upper bound (its input +
 the 32000 reply cap): at 50 calls at once that is ~2.3M tokens / ~$0.9 held, so a budget must sit that far above the
-run's projection, and today a refusal stops the run (the runner reads it as a connection error - B4 fixes that).
+run's projection. A call over the budget is SKIPPED - named in table.json `budget_skipped`, the run goes on (DEV2-B4:
+the wrapper raises `call_runner.CallerRefused`, which the runner records as `caller_refused` and never reads as a
+connection error). `--extra-verdicts <file>...` adds later verdict files by path (the bench folder's manifest stays as
+it is). THE GATE SITS INSIDE THE JUDGE'S OWN SPREAD: the judge model answers the same request differently run to run
+(DEV2-B4: 24 of the 26 targets whose result moved sent a byte-identical request; about +/-3 on top 5), so read a NO-GO
+by its cause - compare the requests and lists with the last run before blaming a change. A variance-aware gate is an
+open owner item (answer 2 to DEV2-B4 Q2).
+
+**THE PRICE-DRIVING RULE: A READING DRIVES THE PRICE WHEN BLANKING IT CHANGES THE PRICE ON >= 10 % OF THE ROWS IT WAS
+TESTED ON AND ON >= 5 ROWS (owner 2026-11-03 01:56 "this rule needs to be updated for sure"; 10:59 "ok": DEV2-B3 F2b
+rule (iii)).** `serverPricingStep.measureDrivingFields` blanks each read field alone on EVERY stored row (no sample) and
+re-prices: withheld OR priced at other values both count as "changed price"; a field that meets the rule is "needed";
+else one whose pair-blank withholds on as many is "either-or"; else it is not a driver. The old 50 % rule counted only
+withheld and dropped hvac_adp neck_mm / size_mm; do not bring it back, and do not sample (DEV2-B2's 400-row sample moved
+lists with the row order). DEV2-B4 proved the lists = F2b's rule (iii) lists on 21 / 21 categories (119 fields); a pool
+build now spends ~245 s on the measure.
+
+**HISTORICAL MATCHING RUNS AFTER A COMPLETE SUGGEST RUN, AS ITS OWN JOB (owner SEQUENCE G1, 2026-11-02 16:13).**
+`rate_master._suggest_worker` hands a COMPLETE run - after its own commit, before its done payload - to
+`api/boq/rate_match.start_after_suggest`, which queues ONE `BoQ Rate Match Run` (queued -> running -> complete / failed /
+halted) and its job on `long`, with its own job id, marker and status keys (`boq_match_marker` / `boq_match_status`) and
+the same three derived clocks as Suggest's (job timeout 1800 < stale 2100 < marker TTL 3600). A halted or failed Suggest
+run starts no match; a live match run on the sheet blocks a second. With `match_enabled` OFF the trigger reads only that
+one stored value (straight from the database, `cache=False` - a meta / cache read once read a mocked cache as ON) and
+the Suggest payload is byte for byte as before; ON, the payload gains `match: {queued, run | reason}`. The trigger and
+the job never touch the Suggest run: a failure marks the MATCH run failed with its reason. The job
+(`services/boq_rate_match/match_run.py`): `pool.ensure_pool` (fallback), targets = the Suggest run's own rows with their
+readings (their v1 from the pool's measured driving fields), cards reuse-first (`cards.card_sheet`), lanes on
+`match_lane_workers` (setting, default 2) FORKED processes sharing one loaded pool, judge + N1b, results stored, spend
+recorded (cards and judge apart; never capped). A selected-row Suggest run matches those rows only and CARRIES every
+other row from the previous active match run at the same committed version; a resume matches the rows not yet
+matched. COMPLETE -> active=1, the prior active run retired (kept). NEVER TOUCH FRAPPE ON THE CALL RUNNER'S THREADS: the
+judge runs on its own thread and the job's thread reports progress (S4 attempt 1 died on "object is not bound").
+`tasks/match_run_healer.py` (*/5) halts a queued / running run past its clocks with no live job ("stale - worker
+gone"). Endpoints: `get_match_status` (OFF -> `{match_enabled: false}` only) and `get_match_results` (the active run).
+A TEST THAT DRIVES THE REAL SUGGEST WORKER MUST PIN THE SWITCH (patch `rate_match.match_enabled`): with dev2's
+switch ON the trigger otherwise enqueues a real match job for the test's fixture (DEV2-B4's full set did; it failed
+closed) and an exact payload-key pin reads the live setting (test_rate_master test_81, inverted in C4b).
+
+**THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
+2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
+amber). DIFFERENT is never stored as shown. Each stored match carries the candidate's key (boq / sheet / excel_row),
+verdict, colour, N1b note, its supply / install / total rate AS STORED in BoQ Cell Pricing (`combined_rate` is the
+total; nothing is derived), unit and date priced; each row also keeps the judge's raw order.
+
+**THE WAIT IS DISCLOSED BEFORE THE RUN AND THE PROGRESS SHOWN DURING IT (owner G1; 2026-11-03 11:11 "total estimate -
+suggest rate + historical rates - with splits - give a safe number").** With matching ON the Suggest confirm dialog
+carries ONE line: total + split, each phase = ceil((fixed + rows x pace) / 60) at dev2's p90
+(`rate_match.PACES`: Suggest 3.12 s a row from 188 stored runs; matching 65 s + 0.45 s a row from DEV2-B4 S4), and the
+progress modal follows the Suggest phase with "Matching with previously priced BoQs - x of y rows", elapsed and time
+left, ending "done" / "failed: <reason>". Switch OFF: neither appears (the modal proved DOM-equal to the pre-B4 one).
+The Suggest pace has no fixed part: a 20-row run measured 203 s against its 2-minute estimate in the B4 cert (open).
 
 **THE SERVER PRICING STEP IS BUILT FROM THE BROWSER'S PRICING SOURCE ON EVERY DEPLOY; IT IS NEVER COPIED, AND ITS PARITY
 VITEST RUNS WHENEVER A PRICING FILE CHANGES (owner G2 option A, DEV2-B2).** Historical matching's RULES lane, the values
@@ -88,8 +139,13 @@ Parity 2).
 DEPLOY NOTE (DEV2-B2): the frontend build produces the bundle (`yarn build` -> `node scripts/build_pricing_step.mjs`;
 no migrate), and the worker that builds the pool or runs matching needs `node` on its PATH (production's image: Node
 18.18.2 on every service; the bundle targets node18 and builds byte-equal under 18.18.2). The pool rebuild is ONE call,
-`pool.rebuild_pool()` (no arguments, under the pool's FileLock); B4 adds the daily 06:00 IST scheduler entry (cron in
-the site's time zone - confirm it is Asia/Kolkata); `ensure_pool`'s 24 h age check stays as the fallback.
+`pool.rebuild_pool()` (no arguments, under the pool's FileLock). THE 06:00 REBUILD (owner 2026-11-02 21:41, DEV2-B4):
+hooks.py cron "0 6 * * *" -> `rate_match.daily_pool_rebuild`, which ENQUEUES `pool.rebuild_pool` on `long` with a
+3600 s timeout - never point the cron at rebuild_pool itself: Frappe runs a "Cron" job on `default` at 300 s and a
+build takes ~450 s. Frappe's cron reads the SYSTEM time zone (now_datetime -> System Settings time_zone): dev2 holds
+Asia/Kolkata; PRODUCTION MUST HOLD Asia/Kolkata for 06:00 to be IST, and its scheduler must be on. `ensure_pool`'s 24 h
+age check stays as the fallback; a suite that re-saves a rate-master item makes the cached pool stale (rebuilt on next
+use).
 
 **LMS PRICING IS INVERTED RELATIVE TO ITS OWN FIRST DESIGN, AND THE FACTOR IS 1.3 EITHER WAY
 (owner ruling, asset v55).** For `lighting_mgmt_system`: **BCS = the catalogue `rate`

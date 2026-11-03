@@ -50348,3 +50348,65 @@ R-H2SPEC, R-H2T, R-H2AB, R-H2AC; DEV2-B1 answer 3 (the suites' known writes). Sl
   for 206 rows (B4 picks).
 - No retry on a malformed reply (S8 re-asked once): P2 had 1 such target (T086), T4 run 1 had 1.
 - The pool cache files are not synced to the laptop (rebuilt on demand); the bench folder is dev2-only until copied.
+
+## Slice DEV2-B4 - H2 build 4 of 6: matching wired behind "Suggest rates" (after Suggest, the wait disclosed, progress shown), the 06:00 pool rebuild, the new price-driving rule - as built 2026-11-03
+
+Desktop session `devb4` on dev2, delegated by the laptop. SIX commits (two fixes: C4 because S4 found a defect, C4b
+because the full suite's one pin read the live switch, see 3):
+C1 `72c631fb2` (rule (iii) on changed price, all rows; the bench / runner skip a caller's refusal), C2 `1dab7171b` (the
+match run doctype, trigger, worker, endpoints, healer, 06:00 entry; one migrate), C4 `c91d5d286` (fix: the judge's
+progress never touches frappe on the runner's threads), C3 `c63fc538e` (the dialog's estimate line + the modal's
+matching phase), C4b `f9e7fd25f` (test: the Suggest payload's pre-B4 keys pinned with matching OFF), C5 (this entry +
+`boq-rate-master.md`). Paid: S1 bench $1.6527, S4 $3.2219 (attempt 1 $0.2071 + attempt
+2 $3.0148), S5 $0.5312 (Suggest 20 rows at Opus $0.4758 + judge $0.0554) = $5.41 of the $12 slice cap. One setting
+written: `match_enabled` = 1 in dev2 (left ON for B5; production's default stays OFF). Report and ledger:
+`2026-11-03_DEV2-B4_Report.md` / `_Ledger.md` (desktop and laptop: `Historical Rate Suggest\DEV2-B4\`).
+
+Owner rulings carried: SEQUENCE (G1, 2026-11-02 16:13: match after Suggest; the wait disclosed and progress shown);
+DAILY REBUILD (21:41: 06:00 IST); PRICE-DRIVING RULE (2026-11-03 01:56 / 10:59: changed price >= 10 % AND >= 5 rows, all
+rows); DISPLAY ORDER (11:06: green, amber, red; the judge's order within); the ESTIMATE (11:11: total + split, a safe
+number); NO COST CAP (2026-11-02 23:23); DEV2-B1 answer 3. Slice answers (relayed 13:35):
+- Answer 2 (to Q2, S1 NO-GO by one target on each top-5 line: bench 176 / 161, held-out 62 / 61): "ok for both" -> (A)
+  accept rule (iii) on the traced cause (379 / 400 requests byte-equal to B3's; 24 of 26 changed results came from
+  byte-identical requests = the judge's run-to-run variance; the rule alone moves H077 / H099 and on B3's replies scores
+  178 / 160, 64 / 58); commit C1, continue. OPEN: a variance-aware bench gate.
+- Answer 1 (to Q1, S4: BOQ-26-00007 / -00019 have no Suggest run in dev2): "ok for both" -> (A) BOQ-26-00279 Electrical
+  (361) for -00019, BOQ-26-00258 ELECTRICAL BOQ (310) for -00007; -00393 as its 6 sheets with a run (461); -00328 as
+  briefed.
+
+### 1. Built
+- C1: `serverPricingStep.measureDrivingFields` - rule (iii) (`meetsDrivingRule`, DRIVING_MIN_SHARE 0.10 /
+  DRIVING_MIN_ROWS 5) on every stored row; `pricing_step` sends no sample; `call_runner.CallerRefused` (named
+  `caller_refused`, never a failure); `h2_bench` skips an over-budget call (`budget_skipped`), `--extra-verdicts`, `--tag`.
+- C2: doctype `BoQ Rate Match Run` (+ 2 lower-case indexes, the manifest pin 42 -> 44); `api/boq/rate_match.py`
+  (trigger, job, status / results, PACES, daily_pool_rebuild); `services/boq_rate_match/match_run.py` +
+  `match_targets.py`; `tasks/match_run_healer.py`; hooks (the healer, cron "0 6 * * *"); setting `match_lane_workers`
+  (default 2); `rate_master._suggest_worker` calls the trigger after a COMPLETE run's commit.
+- C4: `match_run._Progress` only counts; `_judge_with_progress` reports from the job's thread.
+- C3: the confirm dialog's ONE estimate line and the modal's second phase (switch OFF: neither).
+
+### 2. Proved
+- S1: the new lists = F2b's rule (iii) lists on 21 / 21 categories (119 fields); V1 1,833 rows changed vs the bench
+  pool (= F2b); the real rebuild 450.6 s, peak RSS python 2,808 MB + node 2,181 MB. Bench re-run NO-GO by cause (above).
+- S4 (paid; the product pool has no candidate cards until B6): 9 sheets complete, 1,338 calls, 14.7M tokens; per sheet
+  wall 26.6 s (3 rows) .. 201.5 s (310 rows); peak RSS (all processes) 3.4-3.7 GB; lanes 35.0 s / 206 rows at 2 workers
+  (25.0 s at 3, 2.3 GB). PACES: matching 65 s + 0.45 s a row (p90 of S4), Suggest 3.12 s a row (p90 of 188 runs).
+- S5 cert (dev2.localhost:8180, 20 selected rows of BOQ-26-00328): the dialog said "about 4 minutes in all: about 2 to
+  suggest rates and about 2 to match"; measured Suggest 203 s + match 64 s; the modal showed the matching phase 0 -> 20
+  of 20 with elapsed / time left and ended "done"; `get_match_results` = the 20 rows fresh + 186 carried, display order
+  held, no DIFFERENT shown; switch OFF (a scratch page state): today's dialog, no line.
+- Suites: FULL Python BoQ 100 modules / 4,706 tests (before 97 / 4,650) green after the one pin inversion; FULL vitest
+  BoQ 145 files / 5,939 passed; tsc 0 new. T2 vacuity 15 cases (11 Python + 4 TypeScript) red then green.
+- Replay: D2 differs from D0 ONLY on the cert's 20 re-extracted rows of BOQ-26-00328 (ac7 8, ac7v2 20); 0 elsewhere.
+
+### 3. Found and fixed / open
+- S4 attempt 1 halted on BOQ-26-00328: the progress callback touched frappe.db on the runner's threads -> "object is not
+  bound" -> the runner stopped (50 judge calls sent, $0.2071); fixed in C4, re-run complete.
+- C2's targeted set: test_rate_master's harness mocks frappe.cache and my meta-based switch read then read ON; the switch
+  now reads the stored value directly.
+- OPEN: (a) a variance-aware bench gate (answer 2); (b) the Suggest estimate has no fixed part (20 rows took 203 s vs 2
+  min); (c) candidate cards in the product pool wait for B6's pool carding (S4 vs B3 T4 not like for like); (d)
+  production's System Settings time_zone must be Asia/Kolkata and its scheduler on for the 06:00 rebuild; (e) with the
+  switch ON, a full-set test that drives the real Suggest worker (fixture BOQ-TEST-CLASSIFY-52059a87 / Wiring) made the
+  trigger enqueue a real match job (16:10: it failed closed, no call) - pin the switch OFF in such tests (B5); (f) S5's judge calls
+  ran on the product path and are not archived.
