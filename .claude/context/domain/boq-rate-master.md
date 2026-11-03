@@ -2426,6 +2426,49 @@ sheet gives them: no round-up in the mint (R-ROUND rounds at pricing; 12 Daikin 
 - **Two pins read the LIVE catalogue, not the file** (`test_piping_v34` live_04, `test_rate_master` sv_01): they move with the
   LOAD. A mint whose commit precedes its load leaves them red until the load.
 
+**VRF-2a: VRF PRICES IN THE CALCULATOR ONLY, BEHIND A TEMPORARY `calculator_only` SWITCH; THE TWO BLUE STAR DUCTABLES ABOVE 8 TR ARE RETIRED (owner Q1 A / R-RETIRE / team defaults / R-BRAND / R-SMALL, 2026-11-02..03; HVAC v56).**
+`hvac_vrf` now carries an item-list pricing block (`matching_mode` "item_list", `list_spec.pricing`, kind `hvac_vrf_item`) for
+the 13 VRF families, so its rules RUN -- and `calculator_only: true`, so only the HVAC Pricing CALCULATOR prices it:
+- **The switch (Q1 A, TEMPORARY -- VRF-4 MUST REMOVE IT):** "A temporary "calculator only" switch for VRF, removed at VRF-4 ... BoQ
+  rows and Suggest stay off until VRF-4. Removing it becomes a required item in VRF-4." It sets aside 12d-2's "never a second
+  on/off switch" for VRF alone until VRF-4. Server: `config_validation._validate_calculator_only` allows the key ONLY on
+  `_CALCULATOR_ONLY_CATEGORIES` = {hvac_vrf} (anywhere else refused, naming the reason; an explicit false and a config without
+  `list_spec.pricing.families` refused), and `extraction.config_is_eligible` is false with it on that set (ignored elsewhere,
+  like the client) -- so `assemble_population` admits
+  no VRF row and Suggest never asks the model about one. Client: `pricingSheetHelper.isEligibleConfig(config, {calculator})` is
+  false for it unless the caller is the calculator; `makePricingSheetHelper`'s `calculatorSurface` dep carries that, set by
+  `PricingCalculator` ONLY (the BoQ pricing page never names it). `isCalculatorOnlyConfig` honours the key on hvac_vrf only --
+  the client's mirror of the validator -- because the frozen v18..v28 assets still carry FA7's retired key on Insulation and
+  many tests price them (honouring it everywhere declined those frozen configs: 58 frontend tests and 2 Python pins, measured). **Removal at VRF-4:**
+  the key from the asset, `_CALCULATOR_ONLY_CATEGORIES` + `_validate_calculator_only` + the allowlist entry, the two return-line
+  clauses in `config_is_eligible`, `isCalculatorOnlyConfig` + `CALCULATOR_ONLY_CATEGORIES` + the `opts` argument + the
+  `calculatorSurface` dep, the calculator's flag; the parity block's projection then becomes the live config, and the harness's
+  `calculatorHelper` is again the calculator's construction verbatim.
+- **The delegated side door** (`extraction.build_items_spec` sections ask another category's questions with no eligibility
+  test) is closed for VRF only because no config delegates a section to hvac_vrf -- pinned in `test_vrf_v56` 03 and in the mint.
+- **R-RETIRE (2026-11-03 12:15 / 12:23):** "remove the 18Tr and 22 Tr ductable units from blue star from the catalog. these do not
+  come as standard"; "leave these unpriced. no splitting" -- rmi-8eb521699247 (VFM-216A, 18.0TR, VRF sheet row 106) and
+  rmi-8ee7b38ab8fc (VFM-264A, 22.0TR, row 105) are left out of v56, and the load's replace retires them (active 0, rows kept). No
+  asset key or gate atom records an item retirement (v47's precedent): this paragraph, the commit and the plan entry carry it.
+  Both brands' ductable ladders now end at 8 TR, and no `compose` key exists: a ductable above 8 TR refuses "capacity N is above
+  the largest size on the sheet (8)".
+- **The rules in config:** brand default Blue Star, amber, "no brand stated - priced as Blue Star" (R-BRAND (a); a stated sheet
+  brand prices as that brand; the field stays a dropdown); the team defaults (2026-11-02) Cool Only, Top discharge, Standard
+  compressor, FOUR-WAY cassette and remote Wired (R-SMALL), each an `absent_as_none` default (amber, no "*"); the central
+  controller is Blue Star only: a Daikin pick prices as Blue Star with its own line (`value_map`); refnet one flat price per brand;
+  "none of these" refuses, and an indoor unit whose type is not stated refuses with the item dropdown (no `family_when_none`);
+  capacity in the family's own unit (HP outdoor, TR indoor / kit): the stated size, else the next size up, below the smallest the
+  smallest, above the largest refuses; supply = ROUNDUP(cost_supply x (1 + supply_markup)), install = ROUNDUP(boq_install)
+  (R-INSTALL "follow the sheet", R-ROUND). Daikin on a family it does not stock refuses by name (D-7).
+- **VRF's own unit table:** ONE class, count, "Nos" first (the panel reads "How many in one Nos"); "Nos/Ro" counts as Nos with NO
+  note line yet (QR-2 A: the "read as Nos" note is a REQUIRED VRF-2c item, before VRF-4); kg / kgs are LEFT OUT until VRF-2c
+  (QR-3 A: a second class makes the Derivation tab's unit-rule line read "per metre and per square metre", fixed text in
+  `itemListRuleOrder`); Set / Sets / Lot / per HP are in no class and refuse until VRF-3.
+- **Not here:** the HP / TR / kW reader, the unit picker beside the typed box and the unit on each capacity option (VRF-2b; U2 A:
+  in 2a the field reads "Capacity" and its sizes are bare numbers), the Misc four and the brand note for several / off-sheet
+  brands (VRF-2c: a stated "Toshiba" refuses on both surfaces in different words, a named parity divergence until then), the
+  outdoor split (VRF-3), BoQ rows live and the model questions (VRF-4).
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
