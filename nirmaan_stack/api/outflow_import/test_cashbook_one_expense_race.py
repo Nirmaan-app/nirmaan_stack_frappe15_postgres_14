@@ -205,3 +205,116 @@ class TestTwoOverlappingConfirms(OneExpensePerTxnIdCase):
             ):
                 frappe.delete_doc("File", file, ignore_permissions=True, force=True)
             _purge(batch)
+
+
+class TestALinkAndAJobOnOneTxnId(OneExpensePerTxnIdCase):
+    """A person's hand Link and the import job write two lines of one Txn Id at the same moment (#1601).
+
+    Batches A and B are staged from one plan (two overlapping confirms that planned together). B's twin of one
+    Txn Id is workable by hand, and a person Links it to an existing expense while A's job runs.
+
+    WHERE THE RACE BITES. Every match insert takes the `OFM-.YY.-` naming-series row `FOR UPDATE`, so two
+    transactions that OVERLAP and both insert a match row are serialised by accident: the later one fails with
+    a serialization failure (the two last tests). The double booking needs the Link to commit while the job
+    runs but before the job's transaction for that line begins -- the person acts on a line the job has listed
+    and not reached yet (the first test). Before #1601 the job then created a second Expense: the Link's match
+    row (`created_by_import` 0) was outside the one-Expense-per-Txn-Id index. #1601: the index covers a
+    Cashbook Link too, so the job's line becomes "Already imported", naming the linked Expense."""
+
+    def setUp(self):
+        super().setUp()
+        from nirmaan_stack.api.outflow_import.cashbook_link_fixture import (
+            delete_planted_expense,
+            open_line_by_hand,
+            plant_pending_expense,
+        )
+
+        parsed = parse_statement(FIXTURE.read_bytes(), source="Cashbook")
+        plan = cb._build_plan(parsed)
+        self.a, self.b = (
+            cb._stage(parsed, plan, file_url="/private/files/test-statement.csv",
+                      filename="test-statement.csv", user=ACTOR).name
+            for _ in range(2)
+        )
+        frappe.db.commit()
+        self.addCleanup(_purge, self.b)
+        self.addCleanup(_purge, self.a)
+        pending = frappe.get_all(
+            "Outflow Import Row",
+            filters={"import_batch": self.b, "row_status": "Pending match run"},
+            fields=["name", "transfer_id"],
+            order_by="name asc",
+        )
+        # Not the job's FIRST line: that one is written in the transaction that lists the lines.
+        self.assertGreaterEqual(len(pending), 2, "the fixture plans fewer than two expenses")
+        self.line = pending[-1]
+        self.txn = self.line.transfer_id
+        self.job_line = frappe.db.get_value(
+            "Outflow Import Row", {"import_batch": self.a, "transfer_id": self.txn}, "name"
+        )
+        self.expense = plant_pending_expense(open_line_by_hand(self.line.name))
+        self.addCleanup(delete_planted_expense, self.expense)
+
+    def _link(self):
+        from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
+
+        return link_rows_to_expense(f'["{self.line.name}"]', "Non Project Expenses", self.expense)
+
+    def _job(self):
+        return cb._cashbook_worker(self.a, ACTOR)
+
+    def _settled_for_the_txn_id(self) -> list:
+        frappe.db.commit()  # a fresh snapshot for this connection, after the others committed
+        return frappe.db.sql(
+            """SELECT DISTINCT target_name FROM "tabOutflow Row Match"
+               WHERE transfer_id = %s AND match_kind = 'Settled' AND target_doctype IN %s""",
+            (self.txn, tuple(EXPENSE_DOCTYPES)),
+            pluck=True,
+        )
+
+    def _job_line(self):
+        return frappe.db.get_value(
+            "Outflow Import Row", self.job_line, ["row_status", "outcome_note"], as_dict=True
+        )
+
+    def test_a_link_committed_while_the_job_runs_is_not_booked_again_by_the_job(self):
+        """The job has listed its lines; a person Links B's twin of one of them, on their own connection, and
+        commits before the job reaches it. Red before #1601: two Expenses for the Txn Id."""
+        real_write_one = cb._write_one
+        link_out = {}
+
+        def a_person_links_first(row_name, *args, **kwargs):
+            if row_name == self.job_line:
+                person = threading.Thread(
+                    target=_on_own_connection, args=(*self._site(), self._link, link_out)
+                )
+                person.start()
+                person.join(300)
+            return real_write_one(row_name, *args, **kwargs)
+
+        with patch.object(cb, "_write_one", side_effect=a_person_links_first):
+            job_out = {}
+            job = threading.Thread(target=_on_own_connection, args=(*self._site(), self._job, job_out))
+            job.start()
+            job.join(300)
+        self.assertNotIn("error", link_out, link_out.get("error"))
+        self.assertNotIn("error", job_out, job_out.get("error"))
+
+        self.assertEqual(self._settled_for_the_txn_id(), [self.expense])
+        job_line = self._job_line()
+        self.assertEqual(job_line.row_status, "Skipped", job_line.outcome_note)
+        self.assertIn("Already imported", job_line.outcome_note)
+        self.assertIn(self.expense, job_line.outcome_note)
+
+    def test_a_link_whose_snapshot_is_older_than_the_jobs_commit_is_refused_with_a_sentence(self):
+        late_out, _ = self._late_and_early(self._link, self._job)
+        self.assertEqual(len(self._settled_for_the_txn_id()), 1)
+        self.assertIn("error", late_out)
+        # Refused, and in words: the naming series or the index refuses it, never as a raw database error.
+        self.assertRegex(late_out["error"].splitlines()[0], r"^(ConcurrentAllocationError|AlreadyImportedError)\(")
+
+    def test_a_job_whose_snapshot_is_older_than_the_links_commit_books_nothing_twice(self):
+        late_out, _ = self._late_and_early(self._job, self._link)
+        self.assertNotIn("error", late_out, late_out.get("error"))
+        self.assertEqual(self._settled_for_the_txn_id(), [self.expense])
+        self.assertNotEqual(self._job_line().row_status, "Settled")

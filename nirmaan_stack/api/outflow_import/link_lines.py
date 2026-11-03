@@ -28,6 +28,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _guard_money_not_recorded,
     _statement_file_url,
     guard_line_may_be_settled_by_hand,
+    refuse_link_of_a_held_txn_id,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
@@ -46,6 +47,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
     RECONCILIATION_PENDING,
 )
+from nirmaan_stack.services.outflow_import.import_created_expense import is_import_created_expense_refusal
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.settle import (
     ExpenseSettlementError,
@@ -150,7 +152,12 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
             }
             for staged, _ in loaded
         ]
-    except Exception:
+    except Exception as exc:
+        # #1601: a ticked Cashbook line's Txn Id is already held Settled by another line, to another Expense.
+        if is_import_created_expense_refusal(exc):
+            refuse_link_of_a_held_txn_id(
+                [staged.transfer_id for staged, _ in loaded], target_doctype, target_name, exc
+            )
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)

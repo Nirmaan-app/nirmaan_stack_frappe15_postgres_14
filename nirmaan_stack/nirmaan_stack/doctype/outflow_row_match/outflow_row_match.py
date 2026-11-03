@@ -160,14 +160,17 @@ def ensure_one_import_created_expense_per_transfer():
     Expense (measured; `scripts/formal/cashbook_one_expense/`).
 
     * EXPENSES ONLY. A Vendor Refund create writes one created row per part, all on one transfer id.
-    * CREATED ONLY. A Link to an existing record (`created_by_import` 0) is not a create, and one bank
-      transfer may legitimately pay several existing records.
+    * CREATED, OR A CASHBOOK LINE'S LINK (#1601). Elsewhere a Link to an existing record (`created_by_import`
+      0) is not a create, and one bank transfer may legitimately pay several existing records. A wallet Txn
+      Id is one spend, so a person's Link of a Cashbook line (`source` 'Cashbook') holds it as a create does:
+      the job's later create of the same Txn Id, or a Link of its twin line to another Expense, is refused.
     * SETTLED ONLY. Unreconcile stamps the row Reversed, which frees the key: a reopened line can be
-      created again.
+      created, or Linked, again.
 
-    `IF NOT EXISTS` makes a re-run safe. Called from `on_doctype_update` and from
-    `patches/v3_0/outflow_match_one_created_expense_per_transfer.py`, which first refuses a database
-    that already breaks the rule (`import_created_expense.transfers_with_two_import_created_expenses`).
+    ⚠️ `IF NOT EXISTS` MATCHES BY NAME, so on a database built before #1601 this is a no-op that leaves the
+    narrower index in place. `patches/v3_0/outflow_match_one_expense_per_cashbook_txn.py` drops and rebuilds it.
+    Called from `on_doctype_update` and from both patches, each of which first refuses a database that already
+    breaks the rule (`import_created_expense.transfers_with_two_import_created_expenses`).
     """
     frappe.db.sql(
         f"""CREATE UNIQUE INDEX IF NOT EXISTS {IMPORT_CREATED_EXPENSE_INDEX}

@@ -72,6 +72,8 @@ def record_settlement(staged, doc, result, actor) -> None:
             "import_row": staged.name,
             "import_batch": doc["import_batch"],
             "transfer_id": staged.transfer_id,
+            # #1601: the one-Expense-per-Txn-Id index holds a Cashbook line's Link by this snapshot.
+            "source": line_source(staged.name, doc),
             "target_doctype": result.doctype,
             "target_name": result.name,
             # `target_amount` means "how much of THIS TRANSFER went to this target". Since the import
@@ -100,6 +102,17 @@ def record_settlement(staged, doc, result, actor) -> None:
         }
     )
     match.insert(ignore_permissions=True)
+
+
+def line_source(row_name: str, doc) -> str | None:
+    """The line's `source`, for `Outflow Row Match.source` (#1601): from the row the caller already read when it
+    carries the column, else read from the line itself. Frozen on the match row after insert, like every
+    snapshot here.
+
+    ⚠️ READ IT, NEVER ASSUME IT. `ofm_match_import_created_expense_unique` holds a Cashbook line's Link by this
+    value, so a blank one on a Cashbook line would let its Txn Id take a second Expense."""
+    source = (doc.get("source") or "").strip()
+    return source or frappe.db.get_value(ROW_DOCTYPE, row_name, "source") or None
 
 
 def target_snapshot(doctype: str, name: str) -> dict:

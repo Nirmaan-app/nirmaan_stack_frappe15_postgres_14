@@ -425,10 +425,11 @@ schema-wide. Used by `Payee` (`doctype/payee/payee.py`, spec #1420): the unique 
 controller's duplicate refusal for two saves racing. Also used by `Credit Card Statement` (spec #1565, #1566):
 `credit_card_statement_holder_period_unique` on `(holder, period_from, period_to)`, the backstop under the
 card upload's same-holder-and-period refusal. And by `Outflow Row Match` (spec #1585 C, #1588):
-`ofm_match_import_created_expense_unique`, a PARTIAL unique index on `(transfer_id)` over Settled, import-created
-Expense match rows, built by `ensure_one_import_created_expense_per_transfer` (also called by the patch
-`v3_0.outflow_match_one_created_expense_per_transfer`, which first refuses a database that already breaks it); its
-name is how a refusal is recognised (`services/outflow_import/import_created_expense`).
+`ofm_match_import_created_expense_unique`, a PARTIAL unique index on `(transfer_id)` over Settled Expense match rows
+that the import created or that settle a Cashbook line (#1601), built by `ensure_one_import_created_expense_per_transfer`
+(also called by the patches `v3_0.outflow_match_one_created_expense_per_transfer` and
+`v3_0.outflow_match_one_expense_per_cashbook_txn`, which widened it; each first refuses a database that already
+breaks it); its name is how a refusal is recognised (`services/outflow_import/import_created_expense`).
 
 ---
 

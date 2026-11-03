@@ -129,6 +129,7 @@ from nirmaan_stack.services.outflow_import.status import (
     RECORDED_ACTION_CREATE,
     RECORDED_ACTION_LINK,
     RECORDED_DUPLICATE,
+    LINK_REFUSED_TXN_ID_HELD,
     SKIP_REASON_ALREADY_IMPORTED_AS,
     derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
@@ -217,6 +218,34 @@ def already_imported_sentence(transfer_id: str | None) -> str | None:
     return SKIP_REASON_ALREADY_IMPORTED_AS.format(
         batch=holder["import_batch"], records=f"{holder['target_doctype']} {holder['target_name']}"
     )
+
+
+def refuse_link_of_a_held_txn_id(transfer_ids, target_doctype: str, target_name: str, exc: Exception) -> None:
+    """The one-Expense-per-Txn-Id index refused a hand Link of a Cashbook line (#1601): another line already holds
+    the Txn Id Settled to a different Expense. Say so, naming that Expense (`LINK_REFUSED_TXN_ID_HELD`), never the
+    database error. Raises; returns never.
+
+    ⚠️ A FULL ROLLBACK, NOT THE SAVEPOINT'S, for `_refuse_as_already_imported`'s reason: the holder was committed
+    after this request's snapshot, so only a new transaction can read it. Nothing of this request is kept.
+
+    ⚠️ ONLY A HOLDER OTHER THAN THE PICKED EXPENSE IS TOLD. When none is left by the time it is read (Unreconciled
+    meanwhile), or the one holding it is the Expense the person picked (#1601: a Link to the same Expense is not this
+    refusal), the original error stands, as before #1601."""
+    frappe.db.rollback()
+    for transfer_id in transfer_ids:
+        holder = import_created_expense_holding(transfer_id) if transfer_id else None
+        if holder and (holder["target_doctype"], holder["target_name"]) != (target_doctype, target_name):
+            frappe.throw(
+                LINK_REFUSED_TXN_ID_HELD.format(
+                    transfer_id=transfer_id,
+                    records=f"{holder['target_doctype']} {holder['target_name']}",
+                    batch=holder["import_batch"],
+                    target=target_name,
+                ),
+                title="Already recorded",
+                exc=AlreadyImportedError,
+            )
+    raise exc
 
 
 class ConcurrentAllocationError(frappe.ValidationError):
@@ -376,7 +405,10 @@ def _settle_and_commit(
         # This is the ONE path that rewrites an approved figure to the bank's (slice X1), and the
         # note is the only place on this screen that fact survives.
         refresh_row_allocation(staged.name, actor, result)
-    except Exception:
+    except Exception as exc:
+        # #1601: a Link of a Cashbook line whose Txn Id another line holds Settled to a different Expense.
+        if target_doctype != PAYMENT_DOCTYPE and is_import_created_expense_refusal(exc):
+            refuse_link_of_a_held_txn_id([staged.transfer_id], target_doctype, target_name, exc)
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
         # and the database is exactly as it was before this row was attempted.
         #
