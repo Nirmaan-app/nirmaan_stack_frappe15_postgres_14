@@ -5,8 +5,9 @@
     run_match(run_name, *, only_rows=None, resume=False, client=None, card_client=None, progress=None) -> summary
 
 Called by the match job (api/boq/rate_match._match_worker). Steps, each timed:
-  1. ensure_pool    the cached pool (pool.ensure_pool: rebuilt only when missing, older than 24 h or stale -- the
-                    06:00 IST rebuild keeps it fresh, so this is the fallback);
+  1. job_pool       THE POOL RULE (DEV2-B6 S1, below): a cached pool file is always USED - a stale one too, noted
+                    "pool stale" in usage.pool with the stamp it used, and ONE background rebuild queued; built
+                    inline only when no usable file exists (the 06:00 IST rebuild keeps it fresh);
   2. targets        the Suggest run's own rows: every row of the run, or `only_rows` (a selected-row Suggest), or on
                     a resume the rows the previous match run at the same committed version has not matched;
   3. cards          cards.card_sheet for the target rows -- REUSE FIRST (a stored ok card is never re-asked); paid
@@ -25,6 +26,7 @@ limit, ...) -> halted with the reason, active stays 0; any error -> the caller m
 is only ever READ here.
 """
 import json
+import os
 import time
 
 import frappe
@@ -124,6 +126,47 @@ def _judge_with_progress(judge, wrapped, report, every_s=2.0):
     return box["out"]
 
 
+def job_pool(path=None, builder=None, queue_rebuild=None):
+    """THE POOL RULE for a user's match run (DEV2-B6 S1; DEV2-B5 A11: 440 s of pass 2's 481.8 s was an inline rebuild
+    after the pricing stamp moved). A run never waits for a rebuild while a cached pool file exists:
+      fresh and current   used as is; nothing queued.
+      STALE               its pricing stamp is no longer current, or the file is older than 24 h: USED as it is; the
+                          run notes "pool stale" and the stamp it used (usage.pool - no new field); ONE background
+                          rebuild is queued (rate_match.queue_pool_rebuild: long, the 06:00 job's id, never a twin).
+      no usable file      missing, unreadable or another format: built inline as before (pool.ensure_pool, under its
+                          one lock); a lock wait that times out -> MatchRefused "pool not ready: ...".
+    The 06:00 job and pool.rebuild_pool are unchanged. `path` / `builder` / `queue_rebuild` are seams (tests).
+    -> (pool, {"rebuilt", "stale", "stamp_used", "stamp_current", "rebuild_queued"})."""
+    from filelock import Timeout
+    from nirmaan_stack.services.boq_rate_match import pool as P
+
+    path = path or P.pool_path()
+    stamp = P._current_stamp()
+    cached = None
+    if os.path.exists(path):
+        try:
+            cached = P.load_pool(path)
+        except Exception as exc:  # noqa: BLE001 -- unusable: built inline below
+            frappe.logger("boq_rate_match").warning("match pool file unreadable: %s: %s", type(exc).__name__, exc)
+        if cached is not None and getattr(cached, "format", None) != P.POOL_FORMAT:
+            cached = None
+    if cached is not None:
+        used = (cached.pricing or {}).get("stamp")
+        why = [w for w, bad in (("pricing stamp changed", used != stamp), ("older than 24 h", not P.is_fresh(path))) if bad]
+        info = {"rebuilt": False, "stale": None, "stamp_used": used, "stamp_current": stamp, "rebuild_queued": False}
+        if why:
+            if queue_rebuild is None:
+                from nirmaan_stack.api.boq.rate_match import queue_pool_rebuild as queue_rebuild
+            info.update(stale="pool stale: " + ", ".join(why), rebuild_queued=bool(queue_rebuild()))
+        return cached, info
+    try:
+        pool, rebuilt = P.ensure_pool(path=path, builder=builder)
+    except Timeout:
+        raise MatchRefused("pool not ready: the earlier-BoQ pool is being built by another job")
+    return pool, {"rebuilt": rebuilt, "stale": None, "stamp_used": (pool.pricing or {}).get("stamp"),
+                  "stamp_current": stamp, "rebuild_queued": False}
+
+
 def _previous_active(boq, sheet_name, cv, exclude):
     rows = frappe.get_all(MATCH_DOCTYPE, filters={"boq": boq, "sheet_name": sheet_name, "active": 1,
                                                   "status": "complete", "name": ["!=", exclude]},
@@ -141,7 +184,7 @@ def run_match(run_name, *, only_rows=None, resume=False, client=None, card_clien
     an error (the caller marks the run failed). -> {"status", "rows_total", "rows_done", "halt_reason", "usage"}."""
     from nirmaan_stack.api.boq.wizard import ai_settings as AS
     from nirmaan_stack.services.boq_rate_match import call_runner, cards as C, judge as J, lanes as L
-    from nirmaan_stack.services.boq_rate_match import match_targets as MTG, pool as P, pricing_step as PS
+    from nirmaan_stack.services.boq_rate_match import match_targets as MTG, pricing_step as PS
 
     report = progress or (lambda phase, done: None)
     secs, t0 = {}, time.time()
@@ -162,7 +205,7 @@ def run_match(run_name, *, only_rows=None, resume=False, client=None, card_clien
 
     report("pool", 0)
     tp = time.time()
-    pool, rebuilt = P.ensure_pool()
+    pool, pool_info = job_pool()
     secs["pool"] = round(time.time() - tp, 1)
 
     res_rows = srun["results"]
@@ -230,7 +273,7 @@ def run_match(run_name, *, only_rows=None, resume=False, client=None, card_clien
                   "not_sent": run_r.get("not_sent", []), "max_in_flight": run_r.get("max_in_flight"),
                   "seed": JUDGE_SEED, "model": js["model"]},
         "seconds": {**secs, "total": round(time.time() - t0, 1)},
-        "lane_workers": nw, "pool": {"as_of": pool.as_of, "rebuilt": rebuilt, "rows": len(pool.rows)},
+        "lane_workers": nw, "pool": {"as_of": pool.as_of, "rows": len(pool.rows), **pool_info},
         "rows": {"targets": len(targets), "judged_once": len(firsts), "carried": len(carried), "with_card": tinfo["with_card"]},
         "scope": scope if (only_rows or resume) else None, "carried_from": prev_name if carried else None,
         "pricing": {**{k: tinfo[k] for k in ("pricing_available", "pricing_reason")}, "prepare": pinfo},

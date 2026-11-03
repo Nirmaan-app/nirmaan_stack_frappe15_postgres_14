@@ -20,14 +20,17 @@ group). --archive DIR keeps every request and raw reply (block 54).
 WHERE THE DATA LIVES: the site's private folder, `private/boq_rate_match/bench/` (client BoQ text never enters the
 repo): manifest.json (as_of, seed, every file's sha256) and the files it names. The script refuses when a file is
 missing or its sha256 differs. The bench pool is cached beside them (bench_pool_v<FORMAT>.pkl, pool.ensure_pool).
-The CARD lane and the payload's cards come from the bench's Haiku cards (haiku_cards_all.jsonl) through a card source
-(the doctype holds none until B6).
+The CARD lane and the payload's cards come from the bench's Haiku cards (haiku_cards_all.jsonl) through a card source;
+with --stored-cards (DEV2-B6, the app path) from the site's `BoQ Row Spec Card` rows instead (pool.StoredCards, as the
+product's pool reads them), cached as bench_pool_stored_v<FORMAT>.pkl. A trap's own card stays the bench file's.
 
 WHEN TO RUN IT: before any change of the judge model, the card model, the judge prompt or the lanes - and after, to
 compare. It costs one judge call a target (660), at the settings' prices; --dry builds the requests only and prints
 the PLAN line (calls, tokens, $), no call is made. Budget flags (--max-calls / --max-tokens / --max-usd) are the
 caller's test budget: a call that would pass one is SKIPPED (named, counted in table.json budget_skipped) and the run
-goes on (DEV2-B4); the product itself has no cost cap. --extra-verdicts adds later verdict files by path.
+goes on (DEV2-B4); the product itself has no cost cap. DEV2-B6: a call in flight reserves chars / 2 + the MEASURED p90
+reply (P90_REPLY_TOKENS), not the 32,000 reply ceiling; the caps stay hard on the REAL totals - once one is reached no
+further call is sent (table.json budget_reached says so). --extra-verdicts adds later verdict files by path.
 
 usage (in the bench container, from frappe-bench):
   env/bin/python -I apps/nirmaan_stack/scripts/_instruments/h2_bench.py --site <site> --out <dir> [--dry]
@@ -40,7 +43,6 @@ import json
 import os
 import random
 import sys
-import threading
 import time
 
 SETS = ("bench", "heldout", "mutation", "paraphrase", "s0")
@@ -130,11 +132,14 @@ def card_source(path):
     return BenchCards()
 
 
-def bench_pool(bench):
+def bench_pool(bench, stored_cards=False):
+    """The bench pool (cached beside the bench files). stored_cards (DEV2-B6): the cards of the site's spec-card rows
+    (the product's reader), in a file of its own - the bench-file pool is never overwritten by it."""
     from nirmaan_stack.services.boq_rate_match import pool as P
 
-    path = os.path.join(bench.folder, f"bench_pool_v{P.POOL_FORMAT}.pkl")
-    return P.ensure_pool(path=path, builder=lambda: P.build_pool(as_of=bench.as_of, card_source=card_source(bench.cards)))
+    path = os.path.join(bench.folder, f"bench_pool_{'stored_' if stored_cards else ''}v{P.POOL_FORMAT}.pkl")
+    src = P.StoredCards() if stored_cards else card_source(bench.cards)
+    return P.ensure_pool(path=path, builder=lambda: P.build_pool(as_of=bench.as_of, card_source=src))
 
 
 def targets(bench, pool):
@@ -160,71 +165,17 @@ def targets(bench, pool):
     return out
 
 
-class RecordingClient:
-    """Wraps the model client: archives every request and raw reply (with the rate-limit headers) and refuses a call
-    that would pass the caller's test budget (upper bound reserved before the send). No model call happens here."""
+def _sibling(name):
+    """A module beside this file, loaded by path (the bench runs with python -I: its folder is not on sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(f"_h2_{name}", os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{name}.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-    def __init__(self, client, archive=None, max_calls=None, max_tokens=None, max_usd=None, price_in=0, price_out=0):
-        self.client, self.archive = client, archive
-        self.skipped = []          # DEV2-B4: calls the test budget refused (named, counted); the run went on
-        self.caps = (max_calls, max_tokens, max_usd)
-        self.prices = (price_in, price_out)
-        self.lock = threading.Lock()
-        self.calls = self.tokens = self.r_tokens = 0
-        self.usd = self.r_usd = 0.0
-        self.messages = self
-        if archive:
-            os.makedirs(archive, exist_ok=True)
 
-    def _write(self, name, rec):
-        if self.archive:
-            with self.lock, open(os.path.join(self.archive, name), "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
-
-    def create(self, **kw):
-        content = kw["messages"][0]["content"]
-        up_t = int(len(content) / 2) + kw["max_tokens"]
-        up_usd = (int(len(content) / 2) * self.prices[0] + kw["max_tokens"] * self.prices[1]) / 1e6
-        mc, mt, mu = self.caps
-        with self.lock:
-            if ((mc is not None and self.calls + 1 > mc) or (mt is not None and self.tokens + self.r_tokens + up_t > mt)
-                    or (mu is not None and self.usd + self.r_usd + up_usd > mu)):
-                # DEV2-B4 (owner answer 3 to DEV2-B3 Q3): SKIP this call, never stop the run. CallerRefused is the
-                # runner's own refusal type, so it is never read as a connection error.
-                why = (f"test budget: this call would pass the budget (calls {self.calls}, tokens "
-                       f"{self.tokens}+{self.r_tokens}, usd {self.usd:.4f}+{self.r_usd:.4f})")
-                self.skipped.append(why)
-                from nirmaan_stack.services.boq_rate_match.call_runner import CallerRefused
-                raise CallerRefused(why)
-            self.calls += 1
-            self.r_tokens += up_t
-            self.r_usd += up_usd
-        n = self.calls
-        self._write("requests.jsonl", {"n": n, "ts": time.time(), "request": kw})
-        t0 = time.time()
-        headers, resp, err = {}, None, None
-        try:
-            raw = self.client.messages.with_raw_response.create(**kw)
-            headers = {k: v for k, v in raw.headers.items() if k.startswith("anthropic-ratelimit") or k in ("request-id", "retry-after")}
-            resp = raw.parse()
-        except Exception as e:  # noqa: BLE001 -- archived, then raised for the runner to classify
-            err = e
-        u = getattr(resp, "usage", None)
-        tin = sum(int(getattr(u, k, 0) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")) if u else 0
-        tout = int(getattr(u, "output_tokens", 0) or 0) if u else 0
-        with self.lock:
-            self.r_tokens -= up_t
-            self.r_usd -= up_usd
-            self.tokens += tin + tout
-            self.usd += (tin * self.prices[0] + tout * self.prices[1]) / 1e6
-        self._write("replies.jsonl", {
-            "n": n, "secs": round(time.time() - t0, 3), "headers": headers,
-            "reply_text": "".join(getattr(b, "text", "") or "" for b in (getattr(resp, "content", None) or [])) if resp else None,
-            "stop_reason": getattr(resp, "stop_reason", None), "usage": {"input": tin, "output": tout},
-            "error": f"{type(err).__name__}: {err}" if err else None, "status": getattr(err, "status_code", None)})
-        if err:
-            raise err
-        return resp
+_RC = _sibling("h2_recording_client")       # DEV2-B6: the test client (RecordingClient, the p90 reply reserve)
+RecordingClient, P90_REPLY_TOKENS, reply_reserve = _RC.RecordingClient, _RC.P90_REPLY_TOKENS, _RC.reply_reserve
 
 
 # ---- the scoring: DEV2-S8 x_s8.py, unchanged in substance (groups from the pool: the same partition, DEV2-B2) ----
@@ -394,6 +345,8 @@ def main():
     ap.add_argument("--tag", default="b4", help="the blind export's file tag (unjudged_pairs_<tag>.json)")
     ap.add_argument("--extra-verdicts", nargs="*", default=[], help="later verdict files (X3 answer format), read "
                     "after the manifest's in the order given; a later file wins for a pair")
+    ap.add_argument("--stored-cards", action="store_true", help="the pool's and the payload's cards from the site's "
+                    "BoQ Row Spec Card rows (the app path; DEV2-B6) instead of the bench's card file")
     a = ap.parse_args()
     os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "sites"))
     import frappe
@@ -418,7 +371,7 @@ def run(a, frappe):
     seed = a.seed if a.seed is not None else bench.seed
     secs = {}
     t0 = time.time()
-    pool, rebuilt = bench_pool(bench)
+    pool, rebuilt = bench_pool(bench, stored_cards=a.stored_cards)
     secs["pool"] = round(time.time() - t0, 1)
     sc = Scorer(bench, pool)
     if a.selfcheck:
@@ -441,7 +394,7 @@ def run(a, frappe):
     plan = {"calls": len(calls), "projected_tokens": est_in + est_out, "projected_input": est_in, "projected_output": est_out,
             "projected_usd": round(usd, 3), "refused_by_size_guard": sum(1 for c in calls if call_runner.estimate_tokens(c) > settings["max_request_tokens"]),
             "model": settings["model"], "reply_max_tokens": settings["reply_max_tokens"], "calls_at_once": settings["calls_at_once"],
-            "seed": seed, "pool_rebuilt": rebuilt, "pool_as_of": pool.as_of, **info}
+            "seed": seed, "pool_rebuilt": rebuilt, "pool_as_of": pool.as_of, "stored_cards": bool(a.stored_cards), **info}
     caps = (a.max_calls, a.max_tokens, a.max_usd)
     plan["caps_ok"] = all(c is None or v <= c for c, v in zip(caps, (plan["calls"], plan["projected_tokens"], plan["projected_usd"])))
     json.dump(plan, open(os.path.join(a.out, "plan.json"), "w"), indent=1)
@@ -479,6 +432,7 @@ def run(a, frappe):
     tab = table(sc, orders, verdicts, bench)
     tab.update(run=res["run"] | {"attempts": len(res["run"]["attempts"])}, secs=secs, seed=seed, settings=res["settings"],
                prompt_version=res["prompt_version"], no_verdict=sorted(t for t, x in orders.items() if not x["ok"]),
+               budget_reached=client.reached,
                budget_skipped={"count": len(client.skipped),
                                "targets": [r["name"] for r in res["run"]["refused"] if r["reason"] == "caller_refused"]},
                extra_verdicts=bench.extra_verdicts)

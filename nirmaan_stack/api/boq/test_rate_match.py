@@ -17,6 +17,8 @@ reached only through patched seams (nothing is written).
                    are the ACTIVE run's, in the stored (display) order
   the 06:00 entry  hooks cron "0 6 * * *" names daily_pool_rebuild; it enqueues pool.rebuild_pool on long with its own
                    timeout (a Cron job runs on default at 300 s)  /  the */5 list carries the match healer
+  the stale-pool rebuild (DEV2-B6 S1) queue_pool_rebuild queues pool.rebuild_pool on long under the 06:00 job's id
+                   /  one already queued or running -> nothing queued, False  /  a queue error never raises
 """
 import json
 from types import SimpleNamespace
@@ -346,3 +348,32 @@ class TestSchedulerEntries(FrappeTestCase):
         self.assertEqual((kw["queue"], kw["timeout"], kw["deduplicate"]), ("long", RM.POOL_REBUILD_TIMEOUT_SEC, True))
         self.assertGreater(RM.POOL_REBUILD_TIMEOUT_SEC, 300)
         frappe.get_attr(args[0])       # the target resolves to pool.rebuild_pool (it is not called here)
+
+
+class TestQueuePoolRebuild(FrappeTestCase):
+    """DEV2-B6 S1: the one background rebuild a stale run asks for."""
+
+    def test_it_queues_rebuild_pool_on_long_under_the_daily_jobs_id(self):
+        with patch("frappe.utils.background_jobs.is_job_enqueued", return_value=False), \
+                patch.object(frappe, "enqueue") as enq:
+            self.assertTrue(RM.queue_pool_rebuild())
+        args, kw = enq.call_args
+        self.assertEqual(args[0], "nirmaan_stack.services.boq_rate_match.pool.rebuild_pool")
+        self.assertEqual((kw["queue"], kw["timeout"], kw["job_id"], kw["deduplicate"]),
+                         ("long", RM.POOL_REBUILD_TIMEOUT_SEC, RM.POOL_REBUILD_JOB_ID, True))
+        with patch.object(frappe, "enqueue") as enq2:
+            RM.daily_pool_rebuild()
+        self.assertEqual(enq2.call_args[1]["job_id"], RM.POOL_REBUILD_JOB_ID)   # the same id: never a twin
+
+    def test_one_already_queued_or_running_queues_nothing(self):
+        with patch("frappe.utils.background_jobs.is_job_enqueued", return_value=True), \
+                patch.object(frappe, "enqueue") as enq:
+            self.assertFalse(RM.queue_pool_rebuild())
+        enq.assert_not_called()
+
+    def test_a_queue_error_never_raises(self):
+        with patch("frappe.utils.background_jobs.is_job_enqueued", return_value=False), \
+                patch.object(frappe, "enqueue", side_effect=RuntimeError("redis down")), \
+                patch.object(frappe, "log_error") as le:
+            self.assertFalse(RM.queue_pool_rebuild())
+        le.assert_called_once()

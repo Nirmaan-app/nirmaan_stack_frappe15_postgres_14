@@ -436,3 +436,25 @@ def daily_pool_rebuild():
     frappe.enqueue("nirmaan_stack.services.boq_rate_match.pool.rebuild_pool", queue="long",
                    timeout=POOL_REBUILD_TIMEOUT_SEC, job_id="boq_match_pool_daily_rebuild", deduplicate=True)
     return True
+
+
+# DEV2-B6 S1: the job id every pool rebuild is queued under - the 06:00 job's own (above), so a stale run's request,
+# a second stale run and the 06:00 job never queue a twin while one is queued or running (frappe's deduplicate).
+POOL_REBUILD_JOB_ID = "boq_match_pool_daily_rebuild"
+
+
+def queue_pool_rebuild():
+    """THE ONE BACKGROUND REBUILD a user's match run asks for when it used a STALE cached pool (DEV2-B6 S1; the pool
+    rule in match_run.job_pool): pool.rebuild_pool on `long` with its own timeout, under POOL_REBUILD_JOB_ID.
+    -> True when this call queued it; False when a rebuild under that id is already queued or running (nothing
+    queued). Never raises: a failure to queue is logged and the run goes on with the pool it has."""
+    from frappe.utils.background_jobs import is_job_enqueued
+    try:
+        if is_job_enqueued(POOL_REBUILD_JOB_ID):
+            return False
+        frappe.enqueue("nirmaan_stack.services.boq_rate_match.pool.rebuild_pool", queue="long",
+                       timeout=POOL_REBUILD_TIMEOUT_SEC, job_id=POOL_REBUILD_JOB_ID, deduplicate=True)
+        return True
+    except Exception:  # noqa: BLE001 -- the run keeps the stale pool; the 06:00 job is the fallback
+        frappe.log_error(title="BoQ match pool rebuild not queued", message=frappe.get_traceback())
+        return False

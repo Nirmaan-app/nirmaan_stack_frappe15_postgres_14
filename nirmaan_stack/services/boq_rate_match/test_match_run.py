@@ -16,8 +16,16 @@ only: no model call, and the database is never written (every read and write the
   forked lanes     the lists from N forked processes = the lists from one process, in target order
   progress         (DEV2-B4 S4 fix) the judge's client wrapper only counts on the runner's threads; the job's own
                    thread reports  /  a reporter that needs frappe is never called off that thread
+  the pool rule    (DEV2-B6 S1) stale -> USED, "pool stale" + the stamp it used noted, ONE rebuild queued  /  two stale
+                   runs -> still one queued  /  older than 24 h -> used + queued  /  missing or unreadable -> built
+                   inline, nothing queued  /  fresh -> used, nothing queued  /  a lock timeout with no file ->
+                   "pool not ready"  /  the run's usage.pool carries the notes (no new field)
 """
 import json
+import os
+import shutil
+import tempfile
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -26,6 +34,10 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.services.boq_rate_match import match_run as MR
 from nirmaan_stack.services.boq_rate_match import match_targets as MTG
+
+
+POOL_INFO = {"rebuilt": False, "stale": "pool stale: pricing stamp changed", "stamp_used": {"code": "c1", "asset": "a1"},
+             "stamp_current": {"code": "c1", "asset": "a2"}, "rebuild_queued": True}
 
 
 def _vmap():
@@ -149,7 +161,7 @@ class _Harness:
             patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_match_settings", return_value={"match_enabled": enabled}),
             patch("nirmaan_stack.api.boq.wizard.ai_settings.require_match_settings", return_value=js),
             patch("nirmaan_stack.api.boq.wizard.ai_settings.match_lane_workers", return_value=2),
-            patch("nirmaan_stack.services.boq_rate_match.pool.ensure_pool", return_value=(_pool(), False)),
+            patch.object(MR, "job_pool", return_value=(_pool(), dict(POOL_INFO))),
             patch("nirmaan_stack.services.boq_rate_match.pricing_step.load_asset", return_value=({"configs": {}}, "v")),
             patch("nirmaan_stack.services.boq_rate_match.cards.card_sheet", side_effect=card_sheet),
             patch.object(MTG, "build_targets", side_effect=build_targets),
@@ -240,7 +252,7 @@ class TestRunMatch(FrappeTestCase):
         self.assertIn("rate_limit_429", fin["halt_reason"])
 
     def test_switch_off_refuses_before_the_pool_is_read(self):
-        with _Harness(self, enabled=False) as h, patch("nirmaan_stack.services.boq_rate_match.pool.ensure_pool") as ep:
+        with _Harness(self, enabled=False) as h, patch.object(MR, "job_pool") as ep:
             with self.assertRaises(MR.MatchRefused):
                 MR.run_match("BRMR-1")
             ep.assert_not_called()
@@ -338,3 +350,110 @@ class TestForkedLanes(FrappeTestCase):
                          'S|{"a": 2, "b": 1}')
         self.assertIsNone(MTG.rules_key({"priced": False, "signature": "S"}))
         self.assertIsNone(MTG.rules_key(None))
+
+
+class TestJobPool(FrappeTestCase):
+    """THE POOL RULE (DEV2-B6 S1): a user's run never waits for a rebuild while a cached pool file exists."""
+
+    def setUp(self):
+        from nirmaan_stack.services.boq_rate_match import pool as P
+        self.P = P
+        self.dir = tempfile.mkdtemp(prefix="job_pool_test_")
+        self.path = os.path.join(self.dir, "match_pool_v1.pkl")
+        self.builds, self.queued = 0, []
+        self.stamp = {"code": "c1", "asset": "a1"}
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def _builder(self):
+        self.builds += 1
+        return self.P.Pool({"format": self.P.POOL_FORMAT, "rows": [], "kept": set(), "sel": {}, "nxt": {},
+                            "pricing": {"stamp": dict(self.stamp)}, "as_of": "x", "n": self.builds})
+
+    def _queue(self):
+        self.queued.append(1)
+        return True
+
+    def _run(self, queue=None):
+        with patch.object(self.P, "_current_stamp", return_value=dict(self.stamp)):
+            return MR.job_pool(path=self.path, builder=self._builder, queue_rebuild=queue or self._queue)
+
+    def _write_cached(self):
+        self.P.save_pool(self._builder(), self.path)
+        self.builds = 0
+
+    def test_fresh_and_current_is_used_and_nothing_is_queued(self):
+        self._write_cached()
+        pool, info = self._run()
+        self.assertEqual((pool.n, self.builds, self.queued), (1, 0, []))
+        self.assertEqual((info["stale"], info["rebuilt"], info["rebuild_queued"]), (None, False, False))
+
+    def test_a_stale_stamp_is_used_noted_and_one_rebuild_queued(self):
+        self._write_cached()
+        self.stamp = {"code": "c1", "asset": "a2"}           # the asset part moved (DEV2-B5 pass 2's case)
+        pool, info = self._run()
+        self.assertEqual(pool.n, 1)                           # the cached pool, as it is
+        self.assertEqual(self.builds, 0)                      # never built inline
+        self.assertEqual(len(self.queued), 1)
+        self.assertTrue(info["stale"].startswith("pool stale"))
+        self.assertIn("pricing stamp changed", info["stale"])
+        self.assertEqual(info["stamp_used"], {"code": "c1", "asset": "a1"})
+        self.assertEqual(info["stamp_current"], {"code": "c1", "asset": "a2"})
+        self.assertTrue(info["rebuild_queued"])
+        self.assertFalse(info["rebuilt"])
+
+    def test_two_stale_runs_queue_one_rebuild_through_the_real_queue_function(self):
+        from nirmaan_stack.api.boq import rate_match as RM
+        self._write_cached()
+        self.stamp = {"code": "c2", "asset": "a1"}
+        queued = []
+
+        def enqueue(*a, **kw):
+            queued.append(kw["job_id"])
+        with patch("frappe.utils.background_jobs.is_job_enqueued", side_effect=lambda jid: jid in queued), \
+                patch.object(frappe, "enqueue", side_effect=enqueue):
+            _, first = self._run(queue=RM.queue_pool_rebuild)
+            _, second = self._run(queue=RM.queue_pool_rebuild)
+        self.assertEqual(queued, [RM.POOL_REBUILD_JOB_ID])    # ONE job, not a twin
+        self.assertEqual((first["rebuild_queued"], second["rebuild_queued"]), (True, False))
+        self.assertTrue(first["stale"] and second["stale"])
+        self.assertEqual(self.builds, 0)
+
+    def test_older_than_24_hours_is_used_and_queued(self):
+        self._write_cached()
+        old = time.time() - self.P.POOL_MAX_AGE_SEC - 60
+        os.utime(self.path, (old, old))
+        pool, info = self._run()
+        self.assertEqual((pool.n, self.builds, len(self.queued)), (1, 0, 1))
+        self.assertIn("older than 24 h", info["stale"])
+
+    def test_a_missing_file_is_built_inline_and_nothing_queued(self):
+        pool, info = self._run()
+        self.assertEqual((self.builds, self.queued), (1, []))
+        self.assertTrue(info["rebuilt"])
+        self.assertIsNone(info["stale"])
+        self.assertTrue(os.path.exists(self.path))
+
+    def test_an_unreadable_file_is_built_inline(self):
+        with open(self.path, "wb") as f:
+            f.write(b"not a pickle")
+        _, info = self._run()
+        self.assertEqual((self.builds, self.queued, info["rebuilt"]), (1, [], True))
+
+    def test_no_file_and_a_lock_timeout_is_pool_not_ready(self):
+        from filelock import FileLock
+        with FileLock(self.path + ".lock"), patch.object(self.P, "REBUILD_WAIT_SEC", 0.3):
+            with self.assertRaises(MR.MatchRefused) as cm:
+                self._run()
+        self.assertTrue(str(cm.exception).startswith("pool not ready"))
+        self.assertEqual(self.builds, 0)
+
+    def test_the_run_notes_the_pool_rule_in_usage_pool(self):
+        with _Harness(self) as h:
+            MR.run_match("BRMR-1")
+        use = json.loads(h.final()["usage"])
+        self.assertEqual(use["pool"]["stale"], "pool stale: pricing stamp changed")
+        self.assertEqual(use["pool"]["stamp_used"], {"code": "c1", "asset": "a1"})
+        self.assertTrue(use["pool"]["rebuild_queued"])
+        self.assertEqual(use["pool"]["rows"], 6)

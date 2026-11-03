@@ -93,25 +93,10 @@
    ]
   },
   "nirmaan_stack.api.boq.test_rate_match": {
-   "seconds": 19.7,
+   "seconds": 17.5,
    "series": [],
    "writes": [],
-   "reads": [
-    "tabAbout Us Team Member",
-    "tabBlock Module",
-    "tabBlog Category",
-    "tabBlog Post",
-    "tabCompany History",
-    "tabHas Domain",
-    "tabHelp Article",
-    "tabNewsletter",
-    "tabSocial Login Key",
-    "tabTop Bar Item",
-    "tabWeb Form",
-    "tabWeb Page",
-    "tabWeb Template",
-    "tabWeb Template Field"
-   ]
+   "reads": []
   },
   "nirmaan_stack.api.boq.test_rate_match_feedback": {
    "seconds": 19.7,
@@ -2546,8 +2531,25 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_match.test_export_spec_cards": {
+   "seconds": 19.9,
+   "series": [],
+   "writes": [
+    "tabBOQs",
+    "tabBoQ Row Spec Card"
+   ],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBOQ Nodes",
+    "tabBlock Module",
+    "tabBoQ Sheet",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.services.boq_rate_match.test_h2_bench": {
-   "seconds": 11.2,
+   "seconds": 12.4,
    "series": [],
    "writes": [],
    "reads": []
@@ -2580,7 +2582,7 @@
    ]
   },
   "nirmaan_stack.services.boq_rate_match.test_match_run": {
-   "seconds": 14.1,
+   "seconds": 15.2,
    "series": [],
    "writes": [],
    "reads": []

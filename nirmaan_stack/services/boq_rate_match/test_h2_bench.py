@@ -14,6 +14,11 @@ no database read or write, no bench file (a temporary folder at most).
   budget skip     (DEV2-B4) a call over the test budget is SKIPPED, named and counted, the run goes on  /  within the
                   budget nothing is skipped; the refusal is the runner's CallerRefused, never a plain error
   extra verdicts  (DEV2-B4) a later verdict file given by path wins for a pair  /  without it the manifest's stands
+  stored cards    (DEV2-B6) --stored-cards builds the bench pool with the site's stored cards (pool.StoredCards) in
+                  its own file  /  without it the bench file's cards and the bench_pool_v<N>.pkl file, as before
+  the guard       (DEV2-B6) a call reserves chars / 2 + the measured p90 reply, not max_tokens: no refusal while real use
+                  is well under the caps  /  a REAL total at the cap -> every later call refused, the run says so  /
+                  the old worst-case reservation (32,000 per call in flight) would have refused here
 """
 import importlib.util
 import json
@@ -222,3 +227,107 @@ class TestExtraVerdicts(FrappeTestCase):
         self.assertEqual((b1.vv["T1|K"], b1.vv["T1|K2"]), ("CLOSE", "CLOSE"))
         self.assertEqual(b1.extra_verdicts[0]["entries"], 1)
         self.assertEqual(b0.extra_verdicts, [])
+
+
+def _inner_usage(tin, tout):
+    sent = []
+
+    class Raw:
+        headers = {}
+
+        def parse(self):
+            return SimpleNamespace(content=[SimpleNamespace(text="{}")], stop_reason="end_turn",
+                                   usage=SimpleNamespace(input_tokens=tin, output_tokens=tout,
+                                                         cache_read_input_tokens=0, cache_creation_input_tokens=0))
+
+    def create(**kw):
+        sent.append(kw["messages"][0]["content"].split("|", 1)[0])
+        return Raw()
+    return SimpleNamespace(messages=SimpleNamespace(with_raw_response=SimpleNamespace(create=create))), sent
+
+
+class TestBudgetGuard(FrappeTestCase):
+    """DEV2-B6 S1 (owner answer 2 to DEV2-B5): reserve the measured p90 reply; the caps stay hard on the REAL totals."""
+
+    def _reqs(self, names, judge=True, max_tokens=32000):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        body = "\n\nCANDIDATES:\n" if judge else ""
+        return [cr.CallRequest(name=n, content=(n + "|" + body).ljust(2000, "x"), model="m", max_tokens=max_tokens,
+                               price_in=0.1, price_out=0.5) for n in names]
+
+    def _limits(self, at_once=1):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        return cr.Limits(calls_at_once=at_once, retry_wait_s=0, burst_failures=1, burst_window_s=60, max_request_tokens=10 ** 6)
+
+    def test_the_reserve_is_the_measured_p90_of_its_kind_never_above_max_tokens(self):
+        self.assertEqual(HB.reply_reserve("T\n\nCANDIDATES:\n1", 32000), 3920)
+        self.assertEqual(HB.reply_reserve("a card request", 32000), 13819)
+        self.assertEqual(HB.reply_reserve("x CANDIDATES: y", 100), 100)
+
+    def test_no_refusal_while_real_use_is_well_under_the_cap(self):
+        # 10 judge calls of ~1,000 + 3,000 real tokens = ~40,000 real against a 60,000 cap. The OLD guard reserved
+        # chars / 2 + 32,000 = 33,000 a call: the second call would already have been refused (33,000 x 2 > 60,000).
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        inner, sent = _inner_usage(1000, 3000)
+        client = HB.RecordingClient(inner, max_tokens=60000, max_usd=10.0)
+        out = cr.run(self._reqs([f"J{i}" for i in range(10)]), limits=self._limits(), client=client)
+        self.assertEqual(len(sent), 10)
+        self.assertEqual((out.refused, client.skipped, client.reached), ([], [], None))
+        self.assertEqual(client.tokens, 40000)
+
+    def test_the_old_worst_case_reservation_is_gone(self):
+        inner, _sent = _inner_usage(1000, 3000)
+        client = HB.RecordingClient(inner, max_tokens=40000)
+        client.r_tokens = 33000                       # one call in flight under the OLD reservation (1,000 + 32,000)
+        # a second call: chars / 2 = 1,000 + the p90 3,920 = 4,920 -> 37,920 <= 40,000: sent (the old guard: 66,000 > 40,000)
+        client.create(model="m", max_tokens=32000, messages=[{"role": "user", "content": "J|\n\nCANDIDATES:\n".ljust(2000, "x")}])
+        self.assertEqual(client.skipped, [])
+
+    def test_a_real_total_at_the_cap_stops_every_later_call_and_says_so(self):
+        from nirmaan_stack.services.boq_rate_match import call_runner as cr
+        inner, sent = _inner_usage(1000, 5000)        # 6,000 real tokens a call (a reply above the p90)
+        client = HB.RecordingClient(inner, max_tokens=12000)
+        out = cr.run(self._reqs(["A", "B", "C", "D", "E"]), limits=self._limits(), client=client)
+        # B is sent (6,000 real + its reserve 1,000 + 3,920 <= 12,000); its reply brings the real total to the cap
+        self.assertEqual(sent, ["A", "B"])
+        self.assertEqual(client.tokens, 12000)
+        self.assertIn("reached a cap", client.reached)
+        self.assertEqual([r["name"] for r in out.refused], ["C", "D", "E"])
+        self.assertTrue(all("test budget reached" in w for w in client.skipped))
+        self.assertIsNone(out.stop_reason)            # the run goes on and ends; nothing is read as an error
+
+    def test_a_real_usd_total_at_the_cap_stops_too(self):
+        inner, sent = _inner_usage(10000, 0)          # $0.001 a call at 0.1 / M in
+        client = HB.RecordingClient(inner, max_usd=0.002, price_in=0.1, price_out=0.5)
+        for n in ("A", "B", "C"):
+            try:
+                client.create(model="m", max_tokens=10, messages=[{"role": "user", "content": n + "|x"}])
+            except Exception as e:  # noqa: BLE001
+                from nirmaan_stack.services.boq_rate_match import call_runner as cr
+                self.assertIsInstance(e, cr.CallerRefused)
+        self.assertEqual(sent, ["A", "B"])
+        self.assertIsNotNone(client.reached)
+
+
+class TestStoredCards(FrappeTestCase):
+    """DEV2-B6: the final bench on the app path - dev2's stored cards in the pool and the payload."""
+
+    def _pool_call(self, stored):
+        from unittest import mock
+        from nirmaan_stack.services.boq_rate_match import pool as P
+        bench = SimpleNamespace(folder="/tmp/x", as_of="2026-11-01 02:00:00", cards="/tmp/x/haiku_cards_all.jsonl")
+        with mock.patch.object(P, "ensure_pool", return_value=("pool", False)) as ep,                 mock.patch.object(P, "build_pool", return_value="built") as bp:
+            HB.bench_pool(bench, stored_cards=stored)
+            path = ep.call_args[1]["path"]
+            ep.call_args[1]["builder"]()
+        return path, bp.call_args[1]["card_source"], P
+
+    def test_stored_cards_use_the_products_reader_in_their_own_file(self):
+        path, src, P = self._pool_call(True)
+        self.assertTrue(path.endswith(f"bench_pool_stored_v{P.POOL_FORMAT}.pkl"))
+        self.assertIsInstance(src, P.StoredCards)
+
+    def test_without_it_the_bench_files_cards_as_before(self):
+        path, src, P = self._pool_call(False)
+        self.assertTrue(path.endswith(f"bench_pool_v{P.POOL_FORMAT}.pkl"))
+        self.assertNotIsInstance(src, P.StoredCards)
