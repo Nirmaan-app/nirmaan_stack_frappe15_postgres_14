@@ -2,7 +2,7 @@
 # Model-check the Cashbook one-expense-per-Txn-Id property. One command:
 #
 #   scripts/formal/cashbook_one_expense/run.sh              # every config
-#   scripts/formal/cashbook_one_expense/run.sh phase1 today # only these configs
+#   scripts/formal/cashbook_one_expense/run.sh phase1 before_1585 # only these configs
 #
 # Each <name>.cfg starts with "# EXPECTED: PASS" or "# EXPECTED: FAIL". The script exits 0 when every
 # config came out as expected, and 1 when any did not. A FAIL prints the shortest bad sequence of steps.
