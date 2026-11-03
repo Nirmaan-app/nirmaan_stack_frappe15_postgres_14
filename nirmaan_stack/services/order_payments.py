@@ -17,7 +17,6 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import payment_tds
-from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
 #: How a refusal names the action: the request endpoint asks for money, an insert anywhere else pays it,
@@ -66,17 +65,12 @@ def work_order_summary(sr, exclude_payment: str | None = None) -> dict:
 	)
 
 
-def skips_invoice_check(user: str | None) -> bool:
-	"""Does a payment raised by `user` skip the invoice check? An L1 approver or the CEO does (#1488)."""
-	return raiser_level(user) is not None
-
-
 def assert_within_work_order_limit(
 	sr, amount, gst_payment: bool, action: PaymentAction = "request", exclude_payment: str | None = None
 ) -> None:
 	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030), when
-	the Work Order fails the invoice check and the session user does not skip it, or when it is
-	negative (#1488).
+	the Work Order fails the invoice check, or when it is negative (#1488). Nobody skips the invoice
+	check, not even the `Administrator` account (owner, 2026-10-30).
 
 	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Three callers:
 	`create_payment_request_for_service` (`action="request"`), the `Project Payments` insert
@@ -86,7 +80,7 @@ def assert_within_work_order_limit(
 	if the payment were requested anew at its new figure.
 	"""
 	limit = work_order_summary(sr, exclude_payment)["limit"]
-	refusal = request_refusal(limit, amount, gst_payment, not skips_invoice_check(frappe.session.user))
+	refusal = request_refusal(limit, amount, gst_payment)
 	if not refusal:
 		return
 	act, done = _VERBS[action]

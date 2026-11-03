@@ -157,6 +157,13 @@ MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LE
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
+# Upload / replace a Paid expense's invoice from the Payments queue's Payment Done tab (owner, 2026-10-31): the
+# queue's settle roles plus HR. The invoice file, number and date only; no other field of a Paid expense opens
+# up. ENFORCEMENT boundary of `api/expenses/paid_invoice.set_paid_expense_invoice`, which saves elevated.
+# Mirrored client-side by `PAID_INVOICE_PROFILES` in
+# `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` -- keep the two lists in sync.
+PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
 # `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
@@ -176,6 +183,11 @@ ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 # the two in sync.
 ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
 ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
+
+# Mark an asset Lost/Damaged and bring it back Found/Repaired (owner, 2026-10-31): Admin and HR only -- not PMO,
+# not procurement, not the holder. `api/assets/lost_damaged.py` enforces it; mirrored client-side by
+# `canMarkLostDamaged` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
 # Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
 # Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRightLeft, ChevronDown, ClipboardCheck, ClipboardList, ClipboardX, ExternalLink, FileCheck, History, PackagePlus, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ClipboardCheck, ClipboardList, ClipboardX, ExternalLink, FileCheck, History, PackageCheck, PackagePlus, PackageX, UserMinus, UserPlus } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,8 @@ const TONE_STYLE: Record<HistoryTone, { icon: React.ReactNode; dot: string }> = 
     unassigned: { icon: <UserMinus className="h-3.5 w-3.5" />, dot: 'bg-red-100 text-red-700' },
     department: { icon: <ArrowRightLeft className="h-3.5 w-3.5" />, dot: 'bg-indigo-100 text-indigo-700' },
     audit: { icon: <ClipboardCheck className="h-3.5 w-3.5" />, dot: 'bg-teal-100 text-teal-700' },
+    lost: { icon: <PackageX className="h-3.5 w-3.5" />, dot: 'bg-red-600 text-white' },
+    found: { icon: <PackageCheck className="h-3.5 w-3.5" />, dot: 'bg-emerald-600 text-white' },
 };
 
 // Each audit event its own icon and colour (owner, 2026-10-14): asked, sent, missed.
@@ -30,6 +32,8 @@ const FILTERS: { tone: HistoryTone | 'all'; label: string }[] = [
     { tone: 'unassigned', label: 'Unassigned' },
     { tone: 'declaration', label: 'Declarations' },
     { tone: 'audit', label: 'Audits' },
+    { tone: 'lost', label: 'Lost/Damaged' },
+    { tone: 'found', label: 'Found/Repaired' },
     { tone: 'department', label: 'Department' },
     { tone: 'added', label: 'Added' },
 ];

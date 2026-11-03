@@ -12,6 +12,7 @@
 #                                      with a fresh backup of the laptop's, after a proved desktop backup
 #   env_sync.sh reports               copy new or newer files from the desktop's Desktop to the laptop's Desktop
 #   env_sync.sh watch [--logs NAME]    one monitoring snapshot: desktop commits, changes, servers, Claude sessions
+#   env_sync.sh print                  the settings this checkout resolves to (env.local included); runs nothing
 #
 # Delegating work to a Claude session on the desktop (the session runs in the owner's console session through Task
 # Scheduler, so no SSH connection has to stay open):
@@ -23,7 +24,8 @@
 #
 # Flags: --allow-dirty (transfer although uncommitted tracked changes stay behind), --no-restart (skip the destale),
 # --discard-desktop-writes (db-push although the desktop changed since the laptop's last pull: those writes are lost).
-# Overrides: .claude/state/env.local (git-ignored) may set the ENV_SYNC_* variables below.
+# Overrides: .claude/state/env.local (git-ignored) may set the ENV_SYNC_* variables below. A second environment (dev2)
+# sets its containers, desktop bench, site, vite port and start scripts there (docs/agents/environments.md, dev2).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,6 +42,21 @@ PG_C="${ENV_SYNC_PG_CONTAINER:-frappe_docker_devcontainer-postgresql-1}"
 C_BENCH=/workspace/development/frappe-bench           # the same path inside both machines' containers
 STAGE=envsync                                          # frappe-bench/envsync: seen by the host and the container
 SDIR="$D_BENCH/$STAGE/sessions"                       # the desktop's brief / message / status / launch files
+SITE="${ENV_SYNC_SITE:-localhost}"                    # the Frappe site (dev2: dev2.localhost)
+VITE_PORT="${ENV_SYNC_VITE_PORT:-8080}"               # vite's port inside the container (dev2: 8180)
+START_BENCH="${ENV_SYNC_START_BENCH:-$C_BENCH/$STAGE/start_bench.sh}"   # run with docker exec -d; main's starts bench, then vite
+START_VITE="${ENV_SYNC_START_VITE:-}"                 # a separate vite start script, run once :8000 is open (dev2)
+STOP_PATTERN="${ENV_SYNC_STOP_PATTERN:-}"             # empty: stop_bench.sh's own process pattern
+# The settings the remote scripts read go into the container only when they differ from main dev's defaults, so main's
+# command lines stay exactly as they were. CENV is for a local docker exec, DENV for one typed into the desktop's
+# PowerShell (single quotes keep a pattern's '|' and spaces literal there).
+CENV=(); DENV=""
+cenv() { CENV+=(-e "$1=$2"); DENV+=" -e '$1=$2'"; }
+[ "$SITE" != localhost ] && cenv ENV_SYNC_SITE "$SITE"
+[ "$VITE_PORT" != 8080 ] && cenv ENV_SYNC_VITE_PORT "$VITE_PORT"
+[ -n "$STOP_PATTERN" ] && cenv ENV_SYNC_STOP_PATTERN "$STOP_PATTERN"
+PING_H=(); D_PING=""                                   # a Host header only for a site that is not the default
+[ "$SITE" != localhost ] && PING_H=(-H "Host: $SITE") && D_PING=" -H 'Host: $SITE'"
 # The desktop's fingerprint as of the laptop's last db-pull (db-pull writes it, db-push checks it, db-push refreshes it).
 PULL_RECORD="${ENV_SYNC_PULL_RECORD:-$BENCH_HOST/$STAGE/last_pull_fingerprint.txt}"
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
@@ -68,22 +85,31 @@ rrun() {
   local interp=bash; [ "$kind" = py ] && interp=env/bin/python
   ensure_stage
   if [ "$m" = laptop ]; then
-    MSYS_NO_PATHCONV=1 docker exec -u frappe -w "$C_BENCH" "$FRAPPE_C" $interp "$C_BENCH/$STAGE/$s" "$@" 2>&1
+    MSYS_NO_PATHCONV=1 docker exec -u frappe -w "$C_BENCH" "${CENV[@]}" "$FRAPPE_C" $interp "$C_BENCH/$STAGE/$s" "$@" 2>&1
   else
-    dps "docker exec -u frappe -w $C_BENCH $FRAPPE_C $interp $C_BENCH/$STAGE/$s $*"
+    dps "docker exec -u frappe -w $C_BENCH$DENV $FRAPPE_C $interp $C_BENCH/$STAGE/$s $*"
+  fi
+}
+
+# start_detached <laptop|desktop> <container path of a start script>
+start_detached() {
+  if [ "$1" = laptop ]; then
+    MSYS_NO_PATHCONV=1 docker exec -d -u frappe "${CENV[@]}" "$FRAPPE_C" bash "$2"
+  else
+    dps "docker exec -d -u frappe$DENV $FRAPPE_C bash $2" > /dev/null
   fi
 }
 
 start_services() {
   local m="$1" out
-  if [ "$m" = laptop ]; then
-    MSYS_NO_PATHCONV=1 docker exec -d -u frappe "$FRAPPE_C" bash "$C_BENCH/$STAGE/start_bench.sh"
-  else
-    dps "docker exec -d -u frappe $FRAPPE_C bash $C_BENCH/$STAGE/start_bench.sh" > /dev/null
+  start_detached "$m" "$START_BENCH"
+  if [ -n "$START_VITE" ]; then                         # vite second, so it never proxies to a bench that isn't there
+    for _ in $(seq 1 60); do grep -q '8000 open' <<< "$(rrun "$m" bash ports.sh)" && break; sleep 5; done
+    start_detached "$m" "$START_VITE"
   fi
   for _ in $(seq 1 60); do
     out=$(rrun "$m" bash ports.sh)
-    if echo "$out" | grep -q '8000 open' && echo "$out" | grep -q '8080 open'; then echo "$m: bench :8000 and vite :8080 are up"; return 0; fi
+    if grep -q '8000 open' <<< "$out" && grep -q "$VITE_PORT open" <<< "$out"; then echo "$m: bench :8000 and vite :$VITE_PORT are up"; return 0; fi
     sleep 5
   done
   echo "$m: WARNING the servers are not up after 5 minutes; see /tmp/envsync_logs/ in its container"
@@ -96,8 +122,8 @@ fp_of() { rrun "$1" py db_fingerprint.py | grep '^fp_'; }
 wait_ping() {
   local m="$1" r=""
   for _ in $(seq 1 60); do
-    if [ "$m" = laptop ]; then r=$(MSYS_NO_PATHCONV=1 docker exec "$FRAPPE_C" curl -s -m 5 http://127.0.0.1:8000/api/method/ping 2>/dev/null)
-    else r=$(dps "docker exec $FRAPPE_C curl -s -m 5 http://127.0.0.1:8000/api/method/ping"); fi
+    if [ "$m" = laptop ]; then r=$(MSYS_NO_PATHCONV=1 docker exec "$FRAPPE_C" curl -s -m 5 "${PING_H[@]}" http://127.0.0.1:8000/api/method/ping 2>/dev/null)
+    else r=$(dps "docker exec $FRAPPE_C curl -s -m 5$D_PING http://127.0.0.1:8000/api/method/ping"); fi
     case "$r" in *pong*) echo "$m: /api/method/ping answers"; return 0;; esac
     sleep 5
   done
@@ -113,11 +139,11 @@ d_cp_to_pg() {
 # After new code lands on a machine: migrate when schema-shaped files changed, destale unless only docs changed.
 after_transfer() {
   local m="$1" changed="$2" mig=""
-  echo "$changed" | grep -qE '(/doctype/.*\.json|patches\.txt|hooks\.py|/fixtures/.*\.json)$' && mig="--migrate"
-  if ! echo "$changed" | grep -qvE '(\.md$|^\.claude/|^docs/|^scripts/)'; then echo "$m: nothing served changed (docs / scripts only), no restart needed"; return 0; fi
+  grep -qE '(/doctype/.*\.json|patches\.txt|hooks\.py|/fixtures/.*\.json)$' <<< "$changed" && mig="--migrate"
+  if ! grep -qvE '(\.md$|^\.claude/|^docs/|^scripts/)' <<< "$changed"; then echo "$m: nothing served changed (docs / scripts only), no restart needed"; return 0; fi
   if [ "${NO_RESTART:-0}" = 1 ]; then echo "$m: --no-restart given; destale it yourself before trusting what it serves"; return 0; fi
   echo "$m: destaling${mig:+ with migrate} ..."
-  rrun "$m" bash destale.sh $mig | grep -vE '^(8000|8080) closed$' || die "$m: destale failed"
+  rrun "$m" bash destale.sh $mig | grep -vE "^(8000|$VITE_PORT) closed\$" || die "$m: destale failed"
   start_services "$m"
 }
 
@@ -256,12 +282,12 @@ cmd_db_push() {
   out=$(rrun desktop bash prove_backup.sh "$dprefix"); printf '%s\n' "$out" | sed 's/^/  /'
   [ "$(kv proof "$out")" = ok ] || die "the desktop backup did not prove whole; nothing changed"
   out=$(d_cp_to_pg "$D_BENCH/sites/$(dirname "$dprefix")" "$(basename "$dprefix")-database.sql.gz" /tmp/envsync_check.sql.gz)
-  printf '%s\n' "$out" | grep -q '^error=' && die "copying the desktop dump into its postgres container failed; nothing changed:\n$out"
+  grep -q '^error=' <<< "$out" && die "copying the desktop dump into its postgres container failed; nothing changed:\n$out"
   out=$(d_cp_to_pg "$D_BENCH/$STAGE" scratch_check.sh /tmp/envsync_scratch_check.sh)
-  printf '%s\n' "$out" | grep -q '^error=' && die "copying scratch_check.sh failed; nothing changed:\n$out"
+  grep -q '^error=' <<< "$out" && die "copying scratch_check.sh failed; nothing changed:\n$out"
   echo "desktop: test-restoring the safety copy into a scratch database ..."
   out=$(dps "docker exec $PG_C bash /tmp/envsync_scratch_check.sh $db /tmp/envsync_check.sql.gz"); printf '%s\n' "$out" | sed 's/^/  /'
-  printf '%s\n' "$out" | grep -qx 'check=PASS' || die "the desktop backup's test restore did not pass; nothing changed"
+  grep -qx 'check=PASS' <<< "$out" || die "the desktop backup's test restore did not pass; nothing changed"
 
   echo "laptop: backing up ..."
   out=$(rrun laptop bash backup.sh); lprefix=$(kv prefix "$out")
@@ -283,13 +309,13 @@ cmd_db_push() {
   echo "desktop: stopping bench and restoring the laptop's backup ..."
   rrun desktop bash stop_bench.sh > /dev/null
   out=$(d_cp_to_pg "$D_BENCH/sites/$(dirname "$lprefix")" "$(basename "$lprefix")-database.sql.gz" /tmp/envsync_restore.sql.gz)
-  printf '%s\n' "$out" | grep -q '^error=' && die "copying the laptop dump into the desktop's postgres failed; the desktop database is unchanged (bench is stopped):\n$out"
+  grep -q '^error=' <<< "$out" && die "copying the laptop dump into the desktop's postgres failed; the desktop database is unchanged (bench is stopped):\n$out"
   out=$(d_cp_to_pg "$D_BENCH/$STAGE" restore_db.sh /tmp/envsync_restore_db.sh)
-  printf '%s\n' "$out" | grep -q '^error=' && die "copying restore_db.sh failed; the desktop database is unchanged (bench is stopped):\n$out"
+  grep -q '^error=' <<< "$out" && die "copying restore_db.sh failed; the desktop database is unchanged (bench is stopped):\n$out"
   out=$(dps "docker exec $PG_C bash /tmp/envsync_restore_db.sh $db /tmp/envsync_restore.sql.gz"); printf '%s\n' "$out" | grep -v '^NOTICE' | sed 's/^/  /'
-  printf '%s\n' "$out" | grep -q "^restored $db" || die "the desktop restore failed; bench is stopped. Recover with the runbook rollback (the previous database is ${db}_envsync_prev)."
+  grep -q "^restored $db" <<< "$out" || die "the desktop restore failed; bench is stopped. Recover with the runbook rollback (the previous database is ${db}_envsync_prev)."
   out=$(rrun desktop bash restore_files.sh "$lprefix"); printf '%s\n' "$out" | sed 's/^/  /'
-  printf '%s\n' "$out" | grep -qx 'migrate ok' || die "files or migrate failed on the desktop; bench is stopped. The previous database is ${db}_envsync_prev, the old file folders *.envsync_prev."
+  grep -qx 'migrate ok' <<< "$out" || die "files or migrate failed on the desktop; bench is stopped. The previous database is ${db}_envsync_prev, the old file folders *.envsync_prev."
   start_services desktop
   wait_ping desktop || die "the desktop restored, but bench does not answer; see /tmp/envsync_logs/ in its container"
 
@@ -301,7 +327,7 @@ cmd_db_push() {
   { echo "# env_sync db-push - $(date '+%F %T')"; echo
     echo "- started $t0, ended $(date '+%F %T')"
     echo "- code: IN_SYNC at $(lgit rev-parse --short=9 HEAD) on $L_BRANCH"
-    echo "- desktop safety backup (proved by a scratch restore, kept): $(basename "$dprefix") in sites/localhost/private/backups"
+    echo "- desktop safety backup (proved by a scratch restore, kept): $(basename "$dprefix") in sites/$SITE/private/backups"
     echo "- laptop backup restored on the desktop: $(basename "$lprefix")"
     echo "- the desktop's previous database: ${db}_envsync_prev (file folders *.envsync_prev)"
     if [ "${DISCARD:-0}" = 1 ]; then echo "- --discard-desktop-writes was given"; fi
@@ -332,6 +358,22 @@ cmd_reports() {
     fi
   done <<< "$list"
   echo "reports: $copied item(s) copied from the desktop to $L_REPORTS"
+}
+
+cmd_print() {
+  echo "env_sync settings for $REPO"
+  echo "  env.local           $([ -f "$REPO/.claude/state/env.local" ] && echo "$REPO/.claude/state/env.local" || echo "none (main dev's defaults)")"
+  echo "  desktop             $DESKTOP   bench $D_BENCH"
+  echo "  laptop bench        $BENCH_HOST"
+  echo "  containers          $FRAPPE_C / $PG_C"
+  echo "  site                $SITE"
+  echo "  vite port           $VITE_PORT"
+  echo "  start               $START_BENCH${START_VITE:+, then (once :8000 is open) $START_VITE}"
+  echo "  stop pattern        ${STOP_PATTERN:-the default in remote/stop_bench.sh}"
+  echo "  ping                curl -s -m 5${PING_H[*]:+ ${PING_H[*]}} http://127.0.0.1:8000/api/method/ping"
+  echo "  container env       ${CENV[*]:-none}"
+  echo "  launcher task       envsync-claude-launch-$(basename "$(dirname "$(dirname "$D_BENCH")")")"
+  echo "  pull record         $PULL_RECORD"
 }
 
 cmd_watch() {
@@ -378,7 +420,7 @@ run_task() {
   local extra="" out; [ -n "${3:-}" ] && extra=" -SessionId $3"     # PowerShell 5.1 drops an empty '' argument
   out=$(dps "powershell -NoProfile -ExecutionPolicy Bypass -File '$D_BENCH/$STAGE/desktop/start_task.ps1' -Name $1 -Mode $2$extra" | sed '1s/^\xEF\xBB\xBF//')
   printf '%s\n' "$out" | sed 's/^/  /'
-  printf '%s\n' "$out" | grep -q '^done=' || die "the desktop launch failed"
+  grep -q '^done=' <<< "$out" || die "the desktop launch failed"
 }
 
 cmd_session_start() {
@@ -459,6 +501,9 @@ print(" ".join(r["sessionId"][:8] for r in rows if r.get("name") == sys.argv[1] 
   for id in $ids; do dps "claude stop $id"; done        # claude stop takes the short id
 }
 
+# The dispatch is one block that ends in exit: bash reads a script as it runs it, and from-desktop can fast-forward
+# this very file, so nothing after the block may be read from the new copy.
+{
 CMD="${1:-}"; [ $# -gt 0 ] && shift
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -474,8 +519,10 @@ done
 case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*) ensure_stage;; esac   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
-  db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;;
+  db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
-  *) sed -n "2,26p" "$0" | sed 's/^# \{0,1\}//'; exit 1;;
+  *) sed -n "2,28p" "$0" | sed 's/^# \{0,1\}//'; exit 1;;
 esac
+exit
+}

@@ -2,8 +2,9 @@
  * The page shell the expense queues of Pending Invoices Upload share: Credit Card (`CardInvoiceUploads`, #1570) and
  * Cashbook (`CashbookInvoiceUploads`, #1592). Each queue keeps its own columns, filters and endpoints; this holds
  * what they did twice: loading the list, the Attach invoice and No invoice actions (both take the spend off the
- * list, so the list is refetched after each), the loading and error states, the filter bar with its count, and
- * the table frame with its Actions column and its two dialogs.
+ * list, so the list is refetched after each) and their two dialogs (`InvoiceQueueDialogs`). `InvoiceQueueFrame`
+ * adds the loading and error states, the filter bar with its count and a plain table with its Actions column; the
+ * Credit Card queue shows its rows through the shared DataTable instead, around the same list and dialogs.
  */
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -109,9 +110,8 @@ interface InvoiceQueueFrameProps<Row> {
     reasonInputId: string;
 }
 
-export const InvoiceQueueFrame = <Row,>({
-    queue, actions, loadError, filters, countText, headers, shown, rowKey, targetOf, cells, emptyText, reasonInputId,
-}: InvoiceQueueFrameProps<Row>) => {
+/** The Attach invoice and No invoice dialogs of one queue, open while the queue names a spend for them. */
+export const InvoiceQueueDialogs = <Row,>({ queue, reasonInputId }: { queue: InvoiceQueueState<Row>; reasonInputId: string }) => {
     const { attaching, setAttaching, mutate } = queue;
     // A stable object: the dialog resets its form whenever `expense` changes identity.
     const attachingExpense = useMemo(
@@ -120,6 +120,37 @@ export const InvoiceQueueFrame = <Row,>({
             : null,
         [attaching],
     );
+
+    return (
+        <>
+            {attaching && attachingExpense && (
+                <UpdateInvoiceDetailsDialog
+                    isOpen
+                    setIsOpen={(open) => { if (!open) setAttaching(null); }}
+                    expense={attachingExpense}
+                    doctype={attaching.doctype}
+                    cardSave={queue.saveInvoice}
+                    onSuccess={() => mutate()}
+                />
+            )}
+
+            <NoInvoiceDialog
+                expense={queue.noInvoiceFor?.name ?? null}
+                reason={queue.reason}
+                setReason={queue.setReason}
+                saving={queue.marking}
+                onClose={() => queue.setNoInvoiceFor(null)}
+                onSubmit={queue.submitNoInvoice}
+                inputId={reasonInputId}
+            />
+        </>
+    );
+};
+
+export const InvoiceQueueFrame = <Row,>({
+    queue, actions, loadError, filters, countText, headers, shown, rowKey, targetOf, cells, emptyText, reasonInputId,
+}: InvoiceQueueFrameProps<Row>) => {
+    const { setAttaching } = queue;
 
     if (queue.isLoading) {
         return <div className="flex justify-center py-10"><TailSpin color="#0ea5e9" height={28} width={28} /></div>;
@@ -176,26 +207,7 @@ export const InvoiceQueueFrame = <Row,>({
                 </Table>
             </div>
 
-            {attaching && attachingExpense && (
-                <UpdateInvoiceDetailsDialog
-                    isOpen
-                    setIsOpen={(open) => { if (!open) setAttaching(null); }}
-                    expense={attachingExpense}
-                    doctype={attaching.doctype}
-                    cardSave={queue.saveInvoice}
-                    onSuccess={() => mutate()}
-                />
-            )}
-
-            <NoInvoiceDialog
-                expense={queue.noInvoiceFor?.name ?? null}
-                reason={queue.reason}
-                setReason={queue.setReason}
-                saving={queue.marking}
-                onClose={() => queue.setNoInvoiceFor(null)}
-                onSubmit={queue.submitNoInvoice}
-                inputId={reasonInputId}
-            />
+            <InvoiceQueueDialogs queue={queue} reasonInputId={reasonInputId} />
         </div>
     );
 };

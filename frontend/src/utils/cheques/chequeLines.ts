@@ -23,6 +23,6 @@ export const LINE_TYPE = {
     PO_WO: "PO/WO Payment",
     PROJECT_EXPENSE: "Project Expense",
     NON_PROJECT_EXPENSE: "Non-project Expense",
-    /** A Security Deposit cheque's line: a PO it secures (#1486; never a Work Order, spec #1514). */
+    /** A Security Deposit cheque's line: a PO or Work Order it secures (#1486, ADR-0035 Amendment C). */
     SECURED: "Secured PO/WO",
 } as const satisfies Record<string, ChequeLineType>;

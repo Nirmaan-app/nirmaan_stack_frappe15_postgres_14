@@ -1661,12 +1661,39 @@ def point_count_of(description):
     return _PT_COUNT_WORDS.get(m.group(1).lower()) if m else None
 
 
-def secondary_length_m(item):
+# ELR-3a (owner R-R1 Q3, 2026-10-28): the Pricing Input the n x 5 read-back multiplies by -- "Point wiring - circuit
+# length per further point" (5 m in Electrical v69). The SAME input point_wiring's rules read for a looped point and for
+# each further point, so the stored length and the rule can never be two different numbers.
+SECONDARY_LENGTH_INPUT = "pw_circuit_length_further"
+
+
+def secondary_length_per_point():
+    """ELR-3a: the LIVE value of `SECONDARY_LENGTH_INPUT` (its `factor`), or None when no active Electrical Pricing Input
+    carries it or its value is not a positive number. One read; the caller reads it once per batch."""
+    for r in frappe.get_all(_MASTER_ITEM, filters={"active": 1, "kind": "electrical_pricing_input"},
+                            fields=["attributes", "rates"]):
+        attrs = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        if attrs.get("item") != SECONDARY_LENGTH_INPUT:
+            continue
+        rates = r["rates"] if isinstance(r["rates"], dict) else json.loads(r["rates"] or "{}")
+        v = rates.get("factor")
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 < v < float("inf"):
+            return float(v)
+        return None
+    return None
+
+
+def secondary_length_m(item, per_point=None):
     """THE n x 5 MECHANISM (owner ruling 2026-09-05: "ok. still buid the mechanism").
 
     A row that names ONLY secondary points in its OWN text and states a count of n covers n
-    secondaries, so its circuit length is n x 5 -- not the flat 5 every secondary row takes today.
-    Returns the length, or None when the rule does not apply and the flat 5 stands.
+    secondaries, so its circuit length is n x `per_point` -- not the flat per-point length every secondary row
+    takes today. Returns the length, or None when the rule does not apply and the flat length stands.
+
+    ELR-3a (owner R-R1 Q3): `per_point` is the LIVE "circuit length per further point" Pricing Input
+    (`secondary_length_per_point`), never a literal 5. None (the input absent or unreadable) -> None: no length is
+    written and the rules' own per-point value prices the row -- a guessed 5 would be the literal this replaced.
+    The stored length is fixed when it is read back; a later edit of the input does not reach it (owner Q3, accepted).
 
     ⚠️ ITS POPULATION IS CURRENTLY ZERO AND THAT IS REPORTED, NOT HIDDEN. Measured over 30,184 line
     items: no point_wiring row matches. The two rows an earlier census offered were the amperage
@@ -1674,10 +1701,16 @@ def secondary_length_m(item):
     next such row is right the first time -- and it is pinned by a SYNTHETIC test precisely because
     the corpus does not exercise it.
     """
+    if per_point is None:
+        return None
     n = point_count_of(item.get("description"))
     if n is None or n <= 1:
         return None
-    return n * 5 if _pt_own_types(item) == {"S"} else None
+    if _pt_own_types(item) != {"S"}:
+        return None
+    # a whole length stays a whole number (20, never 20.0): the stored value is byte-identical to the literal era's
+    length = n * per_point
+    return int(length) if float(length).is_integer() else length
 
 
 def _pt_own_types(item):
@@ -3000,6 +3033,9 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 # An id that IS a number but was not sent stays in `ids_not_in_batch`, as it always has.
                 "items_no_id": [],
             }
+            # ELR-3a (owner R-R1 Q3): the per-point length the n x 5 read-back multiplies by, read from the live
+            # Pricing Input ONCE per batch and only when a row could use it (`_n5_unread` until then)
+            _n5_per_point = _n5_unread = object()
             for el in _extract_json_array(text):
                 rid = _reply_row_id(el)
                 if rid is None:
@@ -3241,7 +3277,9 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     # ⚠️ ONLY when the model stated no length of its own -- a pricer's or the
                     # model's explicit number always outranks a derived one.
                     if "circuit_length_m" in defs_by_id and not _stated(row_out, "circuit_length_m"):
-                        _n5 = secondary_length_m(_item_pt)
+                        if _n5_per_point is _n5_unread:
+                            _n5_per_point = secondary_length_per_point()
+                        _n5 = secondary_length_m(_item_pt, _n5_per_point)
                         if _n5 is not None:
                             row_out["circuit_length_m"] = {"value": _n5, "confidence": 1.0}
                             row_map["circuit_length_m"] = {

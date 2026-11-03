@@ -28,8 +28,9 @@ THE INVOICE CHECK (owner, 2026-10-17, #1488; GLOSSARY.md, *Invoice check*):
 
 Raised is every payment that is not Rejected, base and GST alike, gross of TDS. The check looks at
 the Work Order BEFORE the new payment, so a first payment always passes and the payment itself may
-be any size the limit allows. An L1 approver or the CEO skips it: the caller says so, since who is
-raising is not a figure. A negative amount is refused for everyone (refunds are Vendor Refunds).
+be any size the limit allows. Only the `Administrator` system account skips it (owner, 2026-10-29;
+Admin-profile users and the CEO no longer do): the caller says so, since who is raising is not a figure.
+A negative amount is refused for everyone (refunds are Vendor Refunds).
 
 ⚠️ THE `min(..., Work Order GST)` IS THE TDS GUARD, NOT A TIDY-UP. The invoice cap checks only an
 invoice's total, so an invoice with over-stated GST would otherwise let base value go out as a GST
@@ -119,13 +120,12 @@ def part_cap(part_left, total_left) -> dict:
 	return {"cap": round(max(0.0, flt(part_left)), 2), "binds": "part"}
 
 
-def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool = True) -> dict | None:
+def request_refusal(limit: dict, amount, gst_payment: bool) -> dict | None:
 	"""Why a request of `amount` breaks the limit, or None when it is allowed.
 
 	Returns `{"part": "negative" | "no_gst" | "base" | "gst" | "total", "left": <the figure it broke>}`,
-	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check.
-	`check_invoices` is False for a raiser who skips that check (an L1 approver or the CEO). A negative
-	amount is refused for everyone: money coming back is a Vendor Refund (#1488).
+	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check, which
+	nobody skips. A negative amount is refused for everyone: money coming back is a Vendor Refund (#1488).
 	"""
 	amount = flt(amount)
 	if amount < 0:
@@ -133,7 +133,7 @@ def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool
 	if gst_payment and not limit["gst_on"]:
 		return {"part": "no_gst", "left": 0}
 	check = limit["invoice_check"]
-	if check_invoices and not check["passes"]:
+	if not check["passes"]:
 		return {"part": "invoice", "raised": check["raised"], "invoiced": check["invoiced"]}
 	part, part_left = ("gst", limit["gst_left"]) if gst_payment else ("base", limit["base_left"])
 	if amount > part_left + TOLERANCE:

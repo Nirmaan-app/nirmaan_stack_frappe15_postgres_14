@@ -27,7 +27,8 @@ NPE = "Non Project Expenses"
 PE = "Project Expenses"
 RENT = "Office Rent"
 
-FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures", "expense_type.json")
+# A new site's Office Rent form (`services/expense_type_seed`).
+FIXTURE = os.path.join(os.path.dirname(__file__), "expense_types_seed.json")
 
 
 class TestWhichTypeAndRate(unittest.TestCase):

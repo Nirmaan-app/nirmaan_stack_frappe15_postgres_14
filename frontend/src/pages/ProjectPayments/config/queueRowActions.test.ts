@@ -11,6 +11,7 @@ import {
   canWorkQueueRows,
   isHeldQueueRow,
   isPaidExpense,
+  PAID_INVOICE_PROFILES,
   QUEUE_EDIT_PROFILES,
 } from "./queueRowActions";
 
@@ -108,22 +109,30 @@ describe("canHoldQueueRow — an Approved PO / WO payment, for the three settle 
   });
 });
 
-describe("canUploadInvoiceRow — a Paid expense, only where the server lets the viewer edit Paid", () => {
-  it("never where the server withholds Paid (an Accountant's answer)", () => {
-    for (const role of [...QUEUE_EDIT_PROFILES, ...OTHER_ROLES]) {
-      for (const ledger of LEDGERS) {
-        for (const status of STATUSES) expect(canUploadInvoiceRow(row(ledger, status), role, ACCOUNTS_EDITS)).toBe(false);
+describe("canUploadInvoiceRow — a Paid expense, for Admin, Accounts and HR (owner, 2026-10-31)", () => {
+  const HR = ["Nirmaan HR Executive Profile", "Nirmaan HR Lead Profile"];
+
+  it("the five roles, on a Paid expense of either ledger", () => {
+    expect(PAID_INVOICE_PROFILES).toEqual([...QUEUE_EDIT_PROFILES, ...HR]);
+    for (const role of PAID_INVOICE_PROFILES) {
+      expect(canUploadInvoiceRow(row("Non Project Expenses", " Paid "), role)).toBe(true);
+      expect(canUploadInvoiceRow(row("Project Expenses", "Paid"), role)).toBe(true);
+    }
+  });
+
+  it("never a PO / WO payment, nor an expense not yet Paid", () => {
+    for (const role of PAID_INVOICE_PROFILES) {
+      for (const status of STATUSES) expect(canUploadInvoiceRow(row("Project Payments", status), role)).toBe(false);
+      for (const status of STATUSES.filter((s) => s !== "Paid")) {
+        expect(canUploadInvoiceRow(row("Project Expenses", status), role)).toBe(false);
       }
     }
   });
 
-  it("shows where the server lets the viewer edit Paid (Admin, Accountant Lead), on expenses only", () => {
-    const withPaid = [...ACCOUNTS_EDITS, "Paid"];
-    for (const role of QUEUE_EDIT_PROFILES) {
-      expect(canUploadInvoiceRow(row("Non Project Expenses", " Paid "), role, withPaid)).toBe(true);
-      expect(canUploadInvoiceRow(row("Project Payments", "Paid"), role, withPaid)).toBe(false);
+  it("nobody else", () => {
+    for (const role of OTHER_ROLES.filter((r) => !HR.includes(r as string))) {
+      expect(canUploadInvoiceRow(row("Project Expenses", "Paid"), role)).toBe(false);
     }
-    for (const role of OTHER_ROLES) expect(canUploadInvoiceRow(row("Project Expenses", "Paid"), role, withPaid)).toBe(false);
   });
 });
 

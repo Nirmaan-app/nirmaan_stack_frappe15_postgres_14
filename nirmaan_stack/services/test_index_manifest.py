@@ -44,6 +44,29 @@ def _search_index_entries() -> set:
     return out
 
 
+def _module_constants(tree: ast.Module) -> dict:
+    """{NAME: value} for every top-level `NAME = <literal>` assignment of a module."""
+    out = {}
+    for stmt in tree.body:
+        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)):
+            try:
+                out[stmt.targets[0].id] = ast.literal_eval(stmt.value)
+            except ValueError:
+                continue
+    return out
+
+
+def _call_arg(node: ast.AST, constants: dict, path: str):
+    """A literal, or a bare name resolved through the module's own top-level literal constants (an
+    upstream controller passes `PARENT_INDEX`). Anything else is refused BY NAME, never guessed."""
+    if isinstance(node, ast.Name):
+        if node.id not in constants:
+            raise ValueError(f"{path}: add_index argument {node.id!r} is not a top-level literal constant")
+        return constants[node.id]
+    return ast.literal_eval(node)
+
+
 def _controller_calls() -> dict:
     """{(doctype, columns, unique): explicit name or None} for every add_index / add_unique call in a
     doctype controller, read from the source."""
@@ -53,12 +76,13 @@ def _controller_calls() -> dict:
             continue
         with open(path, encoding="utf-8") as fh:
             tree = ast.parse(fh.read())
+        constants = _module_constants(tree)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr in ("add_index", "add_unique")):
                 continue
-            args = [ast.literal_eval(a) for a in node.args]
-            kwargs = {k.arg: ast.literal_eval(k.value) for k in node.keywords}
+            args = [_call_arg(a, constants, path) for a in node.args]
+            kwargs = {k.arg: _call_arg(k.value, constants, path) for k in node.keywords}
             fields = [args[1]] if isinstance(args[1], str) else list(args[1])
             name = args[2] if len(args) > 2 else kwargs.get("index_name") or kwargs.get("constraint_name")
             out[(args[0], tuple(fields), node.func.attr == "add_unique")] = name
@@ -93,10 +117,23 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
     def test_the_controller_scan_finds_the_known_calls(self):
         # Guards the scan itself: a broken AST walk returning nothing would make the equality vacuous.
         calls = _controller_calls()
-        self.assertEqual(len(calls), 30)
+        self.assertEqual(len(calls), 40)
         self.assertEqual(calls[("Outflow Row Match", ("import_batch",), False)], "ofm_match_batch_idx")
         self.assertIn(("BoQ Committed Sheet Grid Row", ("parent",), False), calls)
-        self.assertEqual(len(_search_index_entries()), 92)
+        # a name passed as a module constant (asset_history.py PARENT_INDEX) resolves to its value
+        self.assertEqual(calls[("Asset History", ("parent",), False)], "asset_history_parent_index")
+        self.assertEqual(len(_search_index_entries()), 101)
+
+    def test_a_name_that_is_no_literal_constant_is_refused_by_name(self):
+        # Negative half of the resolver: a bare name with no top-level literal behind it is refused,
+        # naming it -- never read as None, which would silently pass a call as unnamed.
+        tree = ast.parse("X = 'x_idx'\nY = make()\nfrappe.db.add_index('D', ['c'], Y)\n")
+        consts = _module_constants(tree)
+        self.assertEqual(consts, {"X": "x_idx"})
+        call = tree.body[2].value
+        self.assertEqual(_call_arg(ast.parse("X", mode="eval").body, consts, "p.py"), "x_idx")
+        with self.assertRaisesRegex(ValueError, "'Y' is not a top-level literal constant"):
+            _call_arg(call.args[2], consts, "p.py")
 
 
 class TestTheNames(FrappeTestCase):

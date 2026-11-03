@@ -39,6 +39,8 @@ export const ASSET_MASTER_FIELDS = [
     'asset_state',
     'asset_email',
     'current_assignee',
+    // Marked Lost/Damaged (owner, 2026-10-31): never offered for assigning.
+    'lost_damaged',
     'creation',
     'modified',
 ] as const;
@@ -140,6 +142,8 @@ export const ASSET_CACHE_KEYS = {
     // Per-category counts: all assets, and the ones someone holds (useCategoryAssetCounts)
     CATEGORY_ASSET_COUNTS: 'asset_counts_by_category',
     CATEGORY_ASSIGNED_COUNTS: 'assigned_asset_counts_by_category',
+    /** Lost/Damaged per category (owner, 2026-10-31): they hold nobody but aren't Unassigned. */
+    CATEGORY_LOST_DAMAGED_COUNTS: 'lost_damaged_asset_counts_by_category',
 
     // Category dropdowns (shared across all dialogs)
     CATEGORIES_DROPDOWN: `${ASSET_CATEGORY_DOCTYPE}_dropdown`,

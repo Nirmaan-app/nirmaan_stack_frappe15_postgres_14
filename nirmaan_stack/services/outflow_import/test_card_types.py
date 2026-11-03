@@ -83,9 +83,9 @@ class TestChoosingASpendsType(unittest.TestCase):
         self.assertEqual(choose_type(None, AiAnswer(FALLBACK_EXPENSE_TYPE, 0.95), LIVE), (FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK))
 
 
-class TestTheFixtureAndTheSchemaAgree(unittest.TestCase):
-    def test_misc_expenses_is_a_non_project_type_in_the_fixture(self):
-        types = json.loads((_APP / "fixtures" / "expense_type.json").read_text(encoding="utf-8"))
+class TestTheSeedAndTheSchemaAgree(unittest.TestCase):
+    def test_misc_expenses_is_a_non_project_type_in_the_seed(self):
+        types = json.loads((_APP / "services" / "expense_types_seed.json").read_text(encoding="utf-8"))
         [misc] = [row for row in types if row["name"] == FALLBACK_EXPENSE_TYPE]
         self.assertEqual(misc["non_project"], 1)
 

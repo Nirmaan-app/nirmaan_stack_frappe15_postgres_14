@@ -99,6 +99,7 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `audits.set_category_audit(category, required)` - POST, Admin only. Switches a category's monthly audit; on opens the month's audits at once
 - `history.get_asset_history` - named filters (event / department / person / asset / dates / category type); Admin + HR, audit events also for the Asset Audit tab's viewers
 - `history.get_asset_history_table` / `get_asset_history_facets` - the History tab's server data table (`useServerDataTable` `apiEndpoint`) and its header-filter counts; Admin + HR only
+- `lost_damaged.mark_lost_damaged(asset, reason)` / `mark_found_repaired(asset, reason)` - POST, Admin + HR only. Marking a held asset unassigns it at once; Found/Repaired returns it to Unassigned
 - `mine.get_my_assets` - the caller's own assets, whatever project they are booked against
 - `projects.get_won_projects` - the Assign dialog's project picker
 

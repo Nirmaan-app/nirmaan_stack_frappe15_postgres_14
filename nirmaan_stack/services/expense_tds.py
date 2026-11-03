@@ -66,7 +66,12 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
-from nirmaan_stack.services.expense_statuses import EXPENSE_APPROVED, EXPENSE_CEO_PENDING, EXPENSE_REQUESTED
+from nirmaan_stack.services.expense_statuses import (
+    EXPENSE_APPROVED,
+    EXPENSE_CEO_PENDING,
+    EXPENSE_PAID,
+    EXPENSE_REQUESTED,
+)
 from nirmaan_stack.services.outflow_import.amounts import amounts_match, rupees
 from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.payment_tds import (
@@ -99,7 +104,7 @@ class ExpenseTdsRule:
 
 
 #: THE rule (spec #1522): Office Rent, 10%, 194-I; the landlord, named by Office Rent's form
-#: (`fixtures/expense_type.json`, pinned by `services/test_expense_tds_rule`).
+#: (a new site's form: `services/expense_types_seed.json`, pinned by `services/test_expense_tds_rule`).
 OFFICE_RENT_TDS = ExpenseTdsRule(
     expense_type="Office Rent",
     rate=10.0,
@@ -187,6 +192,16 @@ def existing_expense_deduction(expense: str | None) -> str | None:
     if not expense:
         return None
     return frappe.db.get_value(TDS_DOCTYPE, {"non_project_expense": expense}, "name")
+
+
+def sync_expense_payment_date(doc) -> None:
+    """The Office Rent twin of `payment_tds.sync_payment_date`: copy the Expense's `payment_date` onto its
+    tax record while it is Paid, clear it when it leaves Paid (owner 2026-10-29). `db.set_value`, no hooks
+    and no `modified`, for the same reasons: it is a copy of a date, not an edit to the tax."""
+    record = existing_expense_deduction(doc.name)
+    if record:
+        value = doc.get("payment_date") if doc.get("status") == EXPENSE_PAID else None
+        frappe.db.set_value(TDS_DOCTYPE, record, "payment_date", value, update_modified=False)
 
 
 #: What a screen is served of a withheld record (`withheld_tds_of`): the full rent, the rate, the tax and

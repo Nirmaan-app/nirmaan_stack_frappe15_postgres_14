@@ -24,11 +24,12 @@ import { cn } from "@/lib/utils";
 import type { RateMasterItem } from "./rateMasterTypes";
 import type { InputReach } from "./pricingInputReach";
 import {
-  adderConditionText, baseMultiplierByColumn, computeImpact, ctxValuesOf, editableFieldsOf, isPercentField,
-  pctText, skuKey, workingLegs,
+  adderConditionText, assemblyOnlySentence, baseMultiplierByColumn, computeImpact, ctxValuesOf, editableFieldsOf,
+  isPercentField, pctText, pricingInputRangeRefusal, skuKey, workingLegs,
   type SkuImpactRow,
   sampleGeometryText,
 } from "./pricingInputImpact";
+import { computeExampleImpacts, EXAMPLE_LEG_LABEL, type ExampleImpact } from "./pricingInputExamples";
 import { PRICING_INPUT_COLUMN_LABELS } from "./rateMasterSpec";
 import { downloadErrorMessage } from "./rateMasterDownload";
 import { LEG_CLASS_LABEL, legClassOf } from "./pricingInputExact";
@@ -222,6 +223,34 @@ export function PricingInputImpactPanel({
     };
   }, [stored, edited, reach, itemsByUid, adderCtx, exactCtx, allConfigs]);
 
+  /** ELR-3a: this input's edited values that differ from the stored ones -- what Save writes and the examples price */
+  const editPatch = useMemo(() => {
+    const p: Record<string, number> = {};
+    for (const k of Object.keys(edited)) if (edited[k] !== stored[k]) p[k] = edited[k];
+    return p;
+  }, [edited, stored]);
+  /**
+   * ELR-3a (owner R-9, R-18, Q5): an ASSEMBLY-ONLY input's worked examples, before and after the unsaved edit, priced
+   * by the product's own compute (`pricingInputExamples`). Recomputed as the value is typed; nothing is saved.
+   */
+  const examples = useMemo<ExampleImpact[]>(
+    () => (impact.shape === "assembly_only"
+      ? computeExampleImpacts(String(attrs.item ?? ""), editPatch, reach, allConfigs as never, allItems)
+      : []),
+    [impact.shape, attrs.item, editPatch, reach, allConfigs, allItems],
+  );
+  /** ELR-3a (owner Q4): a typed value outside the input's range, refused here in the server's own words, before Save */
+  const rangeRefusal = useMemo(() => {
+    for (const k of Object.keys(editPatch)) {
+      const t = pricingInputRangeRefusal(reach?.assemblyRange, String(attrs.name ?? attrs.item ?? ""), k, editPatch[k]);
+      if (t) return t;
+    }
+    return null;
+  }, [editPatch, reach, attrs.name, attrs.item]);
+  /** ELR-4c (owner R-ELR2 (h): "skip the examples and show the range sentence once"; P6 "Q2 a"): an out-of-range value
+   *  prices no example, so none is listed -- the range sentence below says why, once */
+  const shownExamples = rangeRefusal ? [] : examples;
+
   /** ⚠️ an adder's figures ARE one install case, so the panel says which (owner item 3) */
   const conditionText = useMemo(() => adderConditionText(impact.adderWhen), [impact.adderWhen]);
 
@@ -335,7 +364,13 @@ export function PricingInputImpactPanel({
           <div className={cn("rounded px-2 py-1.5 text-[11px] leading-snug",
                              impact.changed ? "bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
                                             : "bg-muted text-muted-foreground")}>
-            {impact.changed ? (
+            {impact.shape === "assembly_only" ? (
+              // ELR-3a (owner Q7): an input no SKU's rate reads says so, naming the category whose rules it feeds --
+              // it replaces the pair shape's "open a SKU" sentence, which pointed at SKUs that do not exist
+              <p data-testid="impact-assembly-only">
+                {assemblyOnlySentence((reach?.readByCategories ?? []).map(categoryLabel), shownExamples.length > 0)}
+              </p>
+            ) : impact.changed ? (
               <>
                 <p>
                   This changes the <strong>{impact.legLabel.replace("SKU rate ", "").replace(/[()]/g, "")}</strong> rate
@@ -352,6 +387,8 @@ export function PricingInputImpactPanel({
               <p>{IMPACT_COPY.nothingYet}</p>
             )}
           </div>
+
+          {shownExamples.length ? <ExampleList examples={shownExamples} changed={impact.changed} /> : null}
 
           {/* ⚠️ NO SHAPE SUPPRESSES THE LIST ANY MORE (owner ruling, 2026-09-29). A flat adder used to
               render one sentence and no rows, on the reading that it scales nothing -- true of the
@@ -508,6 +545,7 @@ export function PricingInputImpactPanel({
         </>
       )}
 
+      {rangeRefusal ? <p className="text-[11px] text-rose-700" data-testid="impact-range-refusal">{rangeRefusal}</p> : null}
       {error ? <p className="text-[11px] text-rose-700" data-testid="impact-error">{error}</p> : null}
       <p className="text-[11px] text-amber-800 dark:text-amber-200">
         {impact.changed ? IMPACT_COPY.preview : IMPACT_COPY.unchanged}
@@ -515,7 +553,7 @@ export function PricingInputImpactPanel({
       </p>
       {canEdit ? (
         <div className="flex items-center gap-2">
-          <Button size="sm" className="h-7 text-xs" disabled={!impact.changed || saving} onClick={doSave}
+          <Button size="sm" className="h-7 text-xs" disabled={!impact.changed || saving || !!rangeRefusal} onClick={doSave}
                   data-testid="impact-save">
             {IMPACT_COPY.save}
           </Button>
@@ -526,6 +564,60 @@ export function PricingInputImpactPanel({
         </div>
       ) : null}
     </aside>
+  );
+}
+
+/**
+ * ELR-3a (owner R-9, Q5) -- THE WORKED EXAMPLES. Per example: supply, install and total, before -> after, the change
+ * and the %. Every figure and every text arrives computed (`computeExampleImpacts` prices through the product's compute,
+ * `exampleLegChange` words the change): this component RENDERS ONLY -- a source pin holds it to no arithmetic. An
+ * example the edit does not move says "No change", with the config's reason where it gives one.
+ */
+function ExampleList({ examples, changed }: { examples: ExampleImpact[]; changed: boolean }) {
+  return (
+    <section className="flex flex-col gap-2" data-testid="impact-examples">
+      <p className="text-[11px] font-medium text-muted-foreground">Worked examples</p>
+      {examples.map((ex) => (
+        <div key={`${ex.category}-${ex.example.id}`} className="rounded border p-2 text-[11px]"
+             data-testid={`impact-example-${ex.example.id}`}>
+          <p className="font-medium">{ex.example.id} · {ex.example.name}</p>
+          {ex.example.source ? <p className="text-muted-foreground">{ex.example.source}</p> : null}
+          {!ex.before.ok ? (
+            <p className="text-rose-700">Does not price today: {ex.before.reason}</p>
+          ) : !ex.after.ok ? (
+            <p className="text-rose-700">Does not price with this value: {ex.after.reason}</p>
+          ) : (
+            <table className="mt-1 w-full table-fixed tabular-nums">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="text-left font-medium" />
+                  <th className="text-right font-medium">before</th>
+                  <th className="text-right font-medium">after</th>
+                  <th className="text-right font-medium">change</th>
+                  <th className="text-right font-medium">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ex.legs.map((l) => (
+                  <tr key={l.leg}>
+                    <td>{EXAMPLE_LEG_LABEL[l.leg]}</td>
+                    <td className="text-right">{fmt(l.before)}</td>
+                    <td className={cn("text-right", l.moved && "font-semibold text-rose-700")}>{changed ? fmt(l.after) : "—"}</td>
+                    <td className="text-right">{l.moved ? l.changeText : "—"}</td>
+                    <td className="text-right">{l.moved && l.pctText ? l.pctText : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {changed && ex.before.ok && ex.after.ok && !ex.moved ? (
+            <p className="mt-0.5 text-muted-foreground" data-testid={`impact-example-${ex.example.id}-nochange`}>
+              No change{ex.example.no_change_reason ? ` — ${ex.example.no_change_reason}` : ""}
+            </p>
+          ) : null}
+        </div>
+      ))}
+    </section>
   );
 }
 

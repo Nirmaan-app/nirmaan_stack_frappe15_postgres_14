@@ -493,7 +493,20 @@ export const BOQ_TEMPLATES_ACCESS: readonly string[] = [
   ESTIMATES_EXECUTIVE_PROFILE,
 ];
 
-/** `/project-invoices` -- Accountant block, the Sales block and PMO (view-only, owner 2026-10-28). */
+/**
+ * `/rate-master` -- the Rate Master page, its sidebar entry and its freeze read: Admin only, plus
+ * the hardcoded Administrator (owner, 2026-10-20 11:29 / 12:09, RM-ACCESS-1). Estimates LOST the
+ * read-only view they had under `PricingRoute`. The route guard reads this list; the sidebar entry,
+ * edit and freeze controls and the freeze read ask `isNirmaanAdmin`, which admits the same population
+ * and mirrors the server's `pricing._is_nirmaan_admin`.
+ *
+ * ⚠️ NARROWER THAN WHO PRICES. The pricing workbooks (calculator) stay on `PricingRoute` and the BoQ
+ * pricing panel on `UPLOAD_BOQ_ACCESS`; both read the catalogue through `get_rate_master_items` /
+ * `get_rate_category_config`, which stay open to every logged-in user. Never gate those on this list.
+ */
+export const RATE_MASTER_ACCESS: readonly string[] = [ADMIN_PROFILE];
+
+/** `/project-invoices` -- Accountant block plus the Sales block. PMO excluded. */
 export const PROJECT_INVOICES_ACCESS: readonly string[] = [
   ADMIN_PROFILE,
   ACCOUNTANT_PROFILE,

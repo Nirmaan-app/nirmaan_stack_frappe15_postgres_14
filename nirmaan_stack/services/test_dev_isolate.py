@@ -29,7 +29,8 @@ iso = _script()
 
 
 class TestRefusals(FrappeTestCase):
-    """The guards: the script refuses anything but the marked local dev site, and refuses without --yes."""
+    """The guards: the script refuses anything but the marked local dev sites (localhost, dev2.localhost), and refuses
+    without --yes. Pure: no database (DEV2-1 runs this class alone, through a runner that never connects)."""
 
     def test_the_marked_dev_site_with_yes_passes(self):
         self.assertEqual(iso.refusals("localhost", GOOD_CONF, True), [])
@@ -53,6 +54,28 @@ class TestRefusals(FrappeTestCase):
     def test_developer_mode_off_or_a_remote_db_refuses(self):
         self.assertTrue(iso.refusals("localhost", {**GOOD_CONF, "developer_mode": 0}, True))
         self.assertTrue(iso.refusals("localhost", {**GOOD_CONF, "db_host": "10.0.0.5"}, True))
+
+    # DEV2-1: the second dev environment's site is allowed; every other guard still applies to it.
+    def test_the_marked_dev2_site_with_yes_passes(self):
+        self.assertEqual(iso.refusals("dev2.localhost", GOOD_CONF, True), [])
+
+    def test_dev2_without_the_marker_or_yes_or_with_a_remote_db_refuses(self):
+        self.assertEqual(len(iso.refusals("dev2.localhost", {**GOOD_CONF, "nirmaan_env": None}, True)), 1)
+        self.assertEqual(len(iso.refusals("dev2.localhost", {**GOOD_CONF, "developer_mode": 0}, True)), 1)
+        self.assertEqual(len(iso.refusals("dev2.localhost", {**GOOD_CONF, "db_host": "10.0.0.5"}, True)), 1)
+        self.assertEqual(iso.refusals("dev2.localhost", GOOD_CONF, False), ["--yes not given"])
+
+    def test_a_lookalike_site_refuses(self):
+        for site in ("dev3.localhost", "dev2.localhost.example.com", "localhost.", "DEV2.localhost", ""):
+            why = iso.refusals(site, GOOD_CONF, True)
+            self.assertEqual(len(why), 1, site)
+            self.assertIn("site", why[0])
+
+    def test_a_production_config_under_the_dev2_name_refuses_on_every_guard(self):
+        prod = {"developer_mode": 0, "db_host": "10.0.0.5"}
+        why = iso.refusals("dev2.localhost", prod, True)
+        self.assertEqual(len(why), 3)
+        self.assertTrue(any("nirmaan_env" in w for w in why))
 
 
 class TestIsolateVerifyRestore(FrappeTestCase):

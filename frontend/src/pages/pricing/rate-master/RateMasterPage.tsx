@@ -67,8 +67,8 @@ const EXPORT_ASSET_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_maste
 // only writer, so a file can never be applied on arrival. Both are ADMIN-gated server-side.
 const PREVIEW_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.preview_rate_master_csv";
 const APPLY_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.apply_rate_master_csv";
-// SLICE RMF-1: the deployment freeze. The READ is login-only (the banner is page state, so every
-// user who can reach this page sees it); the two WRITES are admin-gated server-side.
+// SLICE RMF-1: the deployment freeze. The two WRITES are admin-gated server-side. RM-ACCESS-1 (owner
+// 2026-10-20): the READ is admin-gated server-side too, and this page calls it only for an admin.
 const FREEZE_STATE_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_freeze";
 const FREEZE_METHOD = "nirmaan_stack.api.boq.rate_master.freeze_rate_master";
 const UNFREEZE_METHOD = "nirmaan_stack.api.boq.rate_master.unfreeze_rate_master";
@@ -109,9 +109,10 @@ export function RateMasterPage() {
   const computedRates = itemsData?.message?.computed_rates ?? undefined;
   const config = configData?.message?.config ?? null;
 
-  // RM-4a: admin gate (owner option (a)). `role` off the already-warm useUserData (PricingRoute warmed
+  // RM-4a: admin gate (owner option (a)). `role` off the already-warm useUserData (the route guard warmed
   // it); the shared isNirmaanAdmin mirrors the server _is_nirmaan_admin. When false the tabs render
-  // read-only (controls HIDDEN, not disabled). Server-authoritative regardless.
+  // read-only (controls HIDDEN, not disabled). Server-authoritative regardless. RM-ACCESS-1: the route
+  // now admits admins only, so a non-admin never reaches this page.
   // SLICE 12b(B) -- the impact panel. All configs for the discipline (the shared plumbing), the reach
   // walk memoised on [configs, items], and which input the panel is open on.
   const { configsByCategory, onConfigLoaded } = useConfigsByCategory();
@@ -199,10 +200,12 @@ export function RateMasterPage() {
   // byte-identical to the pre-freeze screen -- the same fail-open direction the server takes,
   // and for the same reason (a transient error must not brick editing while naming a deployment
   // nobody is doing).
+  // RM-ACCESS-1: a null SWR key fetches nothing, so a non-admin (refused server-side) never calls it.
   const {
     data: freezeData,
     mutate: mutateFreeze,
-  } = useFrappeGetCall<{ message: RateMasterFreezeState }>(FREEZE_STATE_METHOD, undefined, "rate-master-freeze");
+  } = useFrappeGetCall<{ message: RateMasterFreezeState }>(
+    FREEZE_STATE_METHOD, undefined, isAdmin ? "rate-master-freeze" : null);
   const freezeState = freezeData?.message ?? UNFROZEN;
   const writesBlocked = isRateMasterWriteBlocked(freezeState);
 

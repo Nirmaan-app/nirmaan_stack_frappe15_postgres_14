@@ -1,0 +1,616 @@
+{
+ "_about": "ELR-2 permanent working-line sweep: real stored answers (replay 2026-10-28, rows chosen so every Electrical-engine (category, key) working line appears on the panel); category, unit and stored cells only.",
+ "rows": [
+  {
+   "case": 1,
+   "category": "cabletray_raceway",
+   "discipline": "Electrical",
+   "unit": "mtr",
+   "attributes": {
+    "tray_type": {
+     "value": "Solid",
+     "defaulted": true
+    },
+    "material": {
+     "value": "GI"
+    },
+    "thickness_mm": {
+     "value": 2
+    },
+    "thickness_swg": {
+     "value": null
+    },
+    "width_mm": {
+     "value": 300
+    },
+    "cover": {
+     "value": "No",
+     "defaulted": true
+    },
+    "installation_type": {
+     "value": "Floor"
+    },
+    "floor_cutting": {
+     "value": "No",
+     "defaulted": true
+    },
+    "floor_refilling": {
+     "value": "No",
+     "defaulted": true
+    }
+   }
+  },
+  {
+   "case": 2,
+   "category": "conduit_piping",
+   "discipline": "Electrical",
+   "unit": "Mtrs.",
+   "attributes": {
+    "conduit_type": {
+     "value": "PVC"
+    },
+    "size_mm": {
+     "value": 32
+    }
+   }
+  },
+  {
+   "case": 3,
+   "category": "db_switchgear",
+   "discipline": "Electrical",
+   "unit": "Nos",
+   "attributes": {
+    "db_shell_item": {
+     "value": "VTPN DB 12WAY WITH MCB INCOMER"
+    },
+    "db_shell_qty": {
+     "value": 1,
+     "defaulted": true
+    },
+    "mcb1_item": {
+     "value": "63A FP MCB C CURVE"
+    },
+    "mcb1_qty": {
+     "value": 1
+    },
+    "mcb2_item": {
+     "value": "40A FP MCB C CURVE"
+    },
+    "mcb2_qty": {
+     "value": 3
+    },
+    "mcb3_item": {
+     "value": "32A FP MCB C CURVE"
+    },
+    "mcb3_qty": {
+     "value": 1
+    },
+    "mcb4_item": {
+     "value": "25A FP MCB C CURVE"
+    },
+    "mcb4_qty": {
+     "value": 6
+    },
+    "mcb5_item": {
+     "value": "16A SP MCB C CURVE"
+    },
+    "mcb5_qty": {
+     "value": 6
+    },
+    "enclosure_item": {
+     "value": "None"
+    },
+    "enclosure_qty": {
+     "value": 1,
+     "defaulted": true
+    }
+   }
+  },
+  {
+   "case": 4,
+   "category": "db_switchgear",
+   "discipline": "Electrical",
+   "unit": "Nos.",
+   "attributes": {
+    "db_shell_item": {
+     "value": "None"
+    },
+    "db_shell_qty": {
+     "value": null
+    },
+    "mcb1_item": {
+     "value": "63A RCBO 300mA (FP)"
+    },
+    "mcb1_qty": {
+     "value": 1,
+     "defaulted": true
+    },
+    "mcb2_item": {
+     "value": "None"
+    },
+    "mcb2_qty": {
+     "value": null
+    },
+    "mcb3_item": {
+     "value": "None"
+    },
+    "mcb3_qty": {
+     "value": null
+    },
+    "mcb4_item": {
+     "value": "None"
+    },
+    "mcb4_qty": {
+     "value": null
+    },
+    "mcb5_item": {
+     "value": "None"
+    },
+    "mcb5_qty": {
+     "value": null
+    },
+    "enclosure_item": {
+     "value": "MCB ENCLOSURE BOX 4POLE"
+    },
+    "enclosure_qty": {
+     "value": 1,
+     "defaulted": true
+    }
+   }
+  },
+  {
+   "case": 5,
+   "category": "earthing",
+   "discipline": "Electrical",
+   "unit": "mtrs",
+   "attributes": {
+    "material": {
+     "value": "CU"
+    },
+    "type": {
+     "value": "50 x 6 MM Earth Strip"
+    },
+    "with_busbar": {
+     "value": "Without",
+     "defaulted": true
+    }
+   }
+  },
+  {
+   "case": 6,
+   "category": "hvac_raceway",
+   "discipline": "HVAC",
+   "unit": "Rmt",
+   "attributes": {
+    "tray_type": {
+     "value": "Perforated"
+    },
+    "material": {
+     "value": "GI"
+    },
+    "thickness_mm": {
+     "value": null
+    },
+    "thickness_swg": {
+     "value": 16
+    },
+    "width_mm": {
+     "value": 450
+    },
+    "cover": {
+     "value": "No",
+     "defaulted": true
+    },
+    "installation_type": {
+     "value": "Ceiling",
+     "defaulted": true
+    },
+    "floor_cutting": {
+     "value": "No",
+     "defaulted": true
+    },
+    "floor_refilling": {
+     "value": "No",
+     "defaulted": true
+    }
+   }
+  },
+  {
+   "case": 7,
+   "category": "industrial_sockets",
+   "discipline": "Electrical",
+   "unit": "Nos",
+   "attributes": {
+    "item": {
+     "value": "Industrial Socket with MCB"
+    },
+    "enclosure": {
+     "value": "IP44/54 - Splash Proof"
+    },
+    "rating": {
+     "value": "32A"
+    },
+    "pole": {
+     "value": "3 Pin / 2P+E"
+    },
+    "paired_mcb": {
+     "value": null
+    },
+    "mcb_present": {
+     "value": "Yes"
+    },
+    "mcb_amp_a": {
+     "value": 32
+    },
+    "mcb_pole_stated": {
+     "value": "None"
+    },
+    "mcb_curve_stated": {
+     "value": "D"
+    }
+   }
+  },
+  {
+   "case": 8,
+   "category": "junction_box_raceway",
+   "discipline": "Electrical",
+   "unit": "nos",
+   "attributes": {
+    "face_mm": {
+     "value": 250
+    }
+   }
+  },
+  {
+   "case": 9,
+   "category": "lighting_mgmt_system",
+   "discipline": "Electrical",
+   "unit": "Nos.",
+   "attributes": {
+    "description": {
+     "value": "Supply, Installation, Testing & Commissioning of Wireless personlised control Keypad with a WPC approved frequency of 865 Mhz, 3 Button with raise and lower for smaller rooms, with faceplate,mounts on glass surfaces also, with 10 year battery life along with necessary fixing arrangements and programming at site etc, complete as required similar to Lutron PN2-3BRL-TAW-LO1 +LPFP S1 TAW"
+    },
+    "brand": {
+     "value": "Lutron"
+    }
+   }
+  },
+  {
+   "case": 10,
+   "category": "miscellaneous",
+   "discipline": "Electrical",
+   "unit": "Lot",
+   "attributes": {
+    "description": {
+     "value": "Floor Cutting and Chipping"
+    }
+   }
+  },
+  {
+   "case": 11,
+   "category": "point_wiring",
+   "discipline": "Electrical",
+   "unit": "Pt.",
+   "attributes": {
+    "wire1_core": {
+     "value": 1,
+     "defaulted": true
+    },
+    "wire1_runs": {
+     "value": 2
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5
+    },
+    "wire2_core": {
+     "value": 1,
+     "defaulted": true
+    },
+    "wire2_runs": {
+     "value": 1
+    },
+    "wire2_thickness_sqmm": {
+     "value": 1.5
+    },
+    "points": {
+     "value": 1
+    },
+    "circuit_length_m": {
+     "value": null
+    },
+    "conduit_type": {
+     "value": "PVC"
+    },
+    "circuit_wire_included": {
+     "value": "Yes"
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "defaulted": true
+    },
+    "circuit_wire1_runs": {
+     "value": 2
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": 2.5
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "defaulted": true
+    },
+    "circuit_wire2_runs": {
+     "value": 1
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": 1.5
+    },
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH"
+    },
+    "switch_qty": {
+     "value": 1,
+     "defaulted": true
+    },
+    "socket_item": {
+     "value": "6A/16A 3-Pin Socket"
+    },
+    "socket_qty": {
+     "value": 1,
+     "defaulted": true
+    },
+    "blank_item": {
+     "value": "None"
+    },
+    "blank_qty": {
+     "value": null
+    },
+    "plate_item": {
+     "value": null
+    },
+    "plate_qty": {
+     "value": 1,
+     "defaulted": true
+    },
+    "colour": {
+     "value": "White",
+     "defaulted": true
+    },
+    "back_box": {
+     "value": "Yes",
+     "defaulted": true
+    },
+    "conduit_handoff": {
+     "value": "No"
+    },
+    "other_conduit": {
+     "value": "None"
+    },
+    "conduit_price_excluded": {
+     "value": null
+    }
+   }
+  },
+  {
+   "case": 12,
+   "category": "point_wiring",
+   "discipline": "Electrical",
+   "unit": "Nos",
+   "attributes": {
+    "wire1_core": {
+     "value": 3
+    },
+    "wire1_runs": {
+     "value": 1,
+     "defaulted": true
+    },
+    "wire1_thickness_sqmm": {
+     "value": 2.5
+    },
+    "wire2_core": {
+     "value": null
+    },
+    "wire2_runs": {
+     "value": null
+    },
+    "wire2_thickness_sqmm": {
+     "value": "None"
+    },
+    "points": {
+     "value": 2
+    },
+    "circuit_length_m": {
+     "value": null
+    },
+    "conduit_type": {
+     "value": null
+    },
+    "circuit_wire_included": {
+     "value": "No",
+     "defaulted": true
+    },
+    "circuit_wire1_core": {
+     "value": 1,
+     "defaulted": true
+    },
+    "circuit_wire1_runs": {
+     "value": 1,
+     "defaulted": true
+    },
+    "circuit_wire1_thickness_sqmm": {
+     "value": "None"
+    },
+    "circuit_wire2_core": {
+     "value": 1,
+     "defaulted": true
+    },
+    "circuit_wire2_runs": {
+     "value": 1,
+     "defaulted": true
+    },
+    "circuit_wire2_thickness_sqmm": {
+     "value": "None"
+    },
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH"
+    },
+    "switch_qty": {
+     "value": 1
+    },
+    "socket_item": {
+     "value": "6A/16A 3-Pin Socket"
+    },
+    "socket_qty": {
+     "value": 2
+    },
+    "blank_item": {
+     "value": "None"
+    },
+    "blank_qty": {
+     "value": null
+    },
+    "plate_item": {
+     "value": null
+    },
+    "plate_qty": {
+     "value": 1,
+     "defaulted": true
+    },
+    "colour": {
+     "value": "White"
+    },
+    "back_box": {
+     "value": "Yes",
+     "defaulted": true
+    },
+    "conduit_handoff": {
+     "value": "Either"
+    },
+    "other_conduit": {
+     "value": "None"
+    },
+    "conduit_price_excluded": {
+     "value": null
+    },
+    "point_type": {
+     "value": "Secondary"
+    }
+   }
+  },
+  {
+   "case": 13,
+   "category": "popup_boxes",
+   "discipline": "Electrical",
+   "unit": "Nos",
+   "attributes": {
+    "module_count": {
+     "value": 10
+    },
+    "has_modules": {
+     "value": "Yes"
+    },
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH"
+    },
+    "switch_qty": {
+     "value": 1
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket"
+    },
+    "socket1_qty": {
+     "value": 3
+    },
+    "socket2_item": {
+     "value": "RJ 11 Telephone"
+    },
+    "socket2_qty": {
+     "value": 3
+    },
+    "socket3_item": {
+     "value": "None"
+    },
+    "socket3_qty": {
+     "value": null
+    },
+    "socket4_item": {
+     "value": "None"
+    },
+    "socket4_qty": {
+     "value": null
+    },
+    "blank_item": {
+     "value": "None"
+    },
+    "plate_item": {
+     "value": null
+    },
+    "plate_qty": {
+     "value": 1
+    },
+    "colour": {
+     "value": "White",
+     "defaulted": true
+    }
+   }
+  },
+  {
+   "case": 14,
+   "category": "switches_sockets",
+   "discipline": "Electrical",
+   "unit": "Nos",
+   "attributes": {
+    "switch_item": {
+     "value": "16A 1 WAY SWITCH"
+    },
+    "switch_qty": {
+     "value": 2
+    },
+    "socket1_item": {
+     "value": "6A 3-Pin Socket"
+    },
+    "socket1_qty": {
+     "value": 2
+    },
+    "socket2_item": {
+     "value": "6A 3-Pin Socket"
+    },
+    "socket2_qty": {
+     "value": 2
+    },
+    "socket3_item": {
+     "value": "USB Charger - C+C Type"
+    },
+    "socket3_qty": {
+     "value": 1
+    },
+    "socket4_item": {
+     "value": "None"
+    },
+    "socket4_qty": {
+     "value": null
+    },
+    "blank_item": {
+     "value": "None"
+    },
+    "plate_item": {
+     "value": null
+    },
+    "plate_qty": {
+     "value": 1.0,
+     "defaulted": true
+    },
+    "colour": {
+     "value": "White",
+     "defaulted": true
+    },
+    "back_box": {
+     "value": "Yes",
+     "defaulted": true
+    },
+    "box_modules_stated": {
+     "value": null
+    }
+   }
+  }
+ ]
+}

@@ -69,6 +69,27 @@ describe("canAssignAssetType", () => {
   });
 });
 
+describe("canMarkLostDamaged", () => {
+  it("lets Admin, HR Executive, HR Lead and the Administrator user mark Lost/Damaged and Found/Repaired", () => {
+    expect(getAssetPermissions("a@x", "Nirmaan Admin Profile").canMarkLostDamaged).toBe(true);
+    expect(getAssetPermissions("a@x", "Nirmaan HR Executive Profile").canMarkLostDamaged).toBe(true);
+    expect(getAssetPermissions("a@x", "Nirmaan HR Lead Profile").canMarkLostDamaged).toBe(true);
+    expect(getAssetPermissions("Administrator", null).canMarkLostDamaged).toBe(true);
+  });
+
+  it("refuses PMO, procurement and everyone else, holders included (owner, 2026-10-31)", () => {
+    for (const role of ["Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile",
+                        "Nirmaan Procurement Lead Profile", "Nirmaan Project Manager Profile", null]) {
+      expect(getAssetPermissions("a@x", role).canMarkLostDamaged).toBe(false);
+    }
+  });
+
+  it("matches the server's ASSET_LOST_DAMAGED_PROFILES", () => {
+    const source = readFileSync(resolve(__dirname, "../../../../../nirmaan_stack/services/role_profiles.py"), "utf-8");
+    expect(source).toContain("ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)");
+  });
+});
+
 describe("HR Lead", () => {
   it("has every asset permission HR Executive has (owner, 2026-10-15)", () => {
     const flags = (role: string) => {

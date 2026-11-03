@@ -3,8 +3,8 @@
 
 """Pure: a Security Deposit cheque's rules (#1486, spec #1477, ADR-0035).
 
-A deposit cheque is held as a guarantee: it pays nothing, may name the Vendor's POs it secures (a
-"Secured PO/WO" line, record only; never a Work Order, spec #1514), is Issued when recorded on a typed issue date and is
+A deposit cheque is held as a guarantee: it pays nothing, may name the Vendor's POs and Work Orders it secures
+(a "Secured PO/WO" line, record only; ADR-0035 Amendment C), is Issued when recorded on a typed issue date and is
 Cancelled only by hand with a note. It is never cleared.
 
 No database. Run with `devenv.sh unit nirmaan_stack.services.cheques.test_deposit_rules`.
@@ -48,18 +48,34 @@ class TestASecuredLineIsARecordOnly(unittest.TestCase):
         record = {"vendor": "VEN-1", "project": "PROJ-1"}
         self.assertIsNone(rules.secured_line_problem(_secured(), cheque_vendor="VEN-1", record=record))
 
-    def test_a_work_order_is_refused_even_the_vendor_s_own(self):
-        # Spec #1514 story 18, ADR-0035 Amendment A: Work Orders are never paid by cheque, so no deposit names one.
-        self.assertEqual(
-            rules.secured_line_problem(_secured(WO, "SR/1/00004/26-27"), cheque_vendor="VEN-1",
+    def test_the_vendor_s_work_order_in_its_project_is_accepted(self):
+        # ADR-0035 Amendment C: a Work Order is paid Online, but its Vendor may hold a deposit for it.
+        self.assertIsNone(
+            rules.secured_line_problem(_secured(WO, "SR-00001-000004"), cheque_vendor="VEN-1",
                                        record={"vendor": "VEN-1", "project": "PROJ-1"}),
-            "SR/1/00004/26-27 is a Work Order: a Security Deposit cheque secures POs only.",
+        )
+
+    def test_another_vendor_s_work_order_or_one_in_another_project_is_refused(self):
+        self.assertEqual(
+            rules.secured_line_problem(_secured(WO, "SR-00001-000004"), cheque_vendor="VEN-1",
+                                       record={"vendor": "VEN-2", "project": "PROJ-1"}),
+            "SR-00001-000004 is not a PO or Work Order of this cheque's Vendor.",
+        )
+        self.assertEqual(
+            rules.secured_line_problem(_secured(WO, "SR-00001-000004"), cheque_vendor="VEN-1",
+                                       record={"vendor": "VEN-1", "project": "PROJ-2"}),
+            "SR-00001-000004 is not in project PROJ-1.",
         )
 
     def test_a_typed_payee_secures_nothing(self):
         self.assertEqual(
             rules.secured_line_problem(_secured(), cheque_vendor=None, record={"vendor": "VEN-1", "project": "PROJ-1"}),
-            "a cheque made out to a typed payee names no PO.",
+            "a cheque made out to a typed payee names no PO or Work Order.",
+        )
+        self.assertEqual(
+            rules.secured_line_problem(_secured(WO, "SR-00001-000004"), cheque_vendor=None,
+                                       record={"vendor": "VEN-1", "project": "PROJ-1"}),
+            "a cheque made out to a typed payee names no PO or Work Order.",
         )
 
     def test_another_vendor_s_record_or_a_missing_one_is_refused(self):
@@ -67,11 +83,15 @@ class TestASecuredLineIsARecordOnly(unittest.TestCase):
                          "PO/1/00012/26-27 was not found.")
         self.assertEqual(
             rules.secured_line_problem(_secured(), cheque_vendor="VEN-1", record={"vendor": "VEN-2", "project": "PROJ-1"}),
-            "PO/1/00012/26-27 is not a PO of this cheque's Vendor.",
+            "PO/1/00012/26-27 is not a PO or Work Order of this cheque's Vendor.",
         )
         self.assertEqual(
             rules.secured_line_problem(_secured(record_doctype=None), cheque_vendor="VEN-1", record=None),
-            "pick the PO.",
+            "pick the PO or Work Order.",
+        )
+        self.assertEqual(
+            rules.secured_line_problem(_secured(record_doctype="Project Payments"), cheque_vendor="VEN-1", record=None),
+            "pick the PO or Work Order.",
         )
 
 
@@ -82,13 +102,13 @@ class TestWhichLinesEachTypeTakes(unittest.TestCase):
                                          "project": "PROJ-1", "payment_name": "PAY-1", "amount": 10})
         self.assertEqual(
             rules.line_kind_problem(payment_line, cheque_type=SD),
-            "a Security Deposit cheque pays nothing: its lines only name the POs it secures.",
+            "a Security Deposit cheque pays nothing: its lines only name the POs and Work Orders it secures.",
         )
 
     def test_a_payment_cheque_takes_no_secured_line(self):
         self.assertEqual(
             rules.line_kind_problem(_secured(), cheque_type=PAY),
-            "only a Security Deposit cheque names a PO it secures.",
+            "only a Security Deposit cheque names a PO or Work Order it secures.",
         )
 
 

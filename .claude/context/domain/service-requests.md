@@ -20,10 +20,10 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   Rejected, base and GST, gross of vendor-borne TDS) − `amount_invoiced` must be < ₹100, measured BEFORE the new
   payment. It lives in the pure `services/work_order_payment_limit` (`invoice_check`, `request_refusal`) and is
   enforced where the WO limit is: `create_payment_request_for_service` and the Project Payments insert
-  validation (the Accountant's paid entry, Desk, REST), as the session user. An L1 approver or the CEO skips it
-  (`order_payments.skips_invoice_check`, via `approval_raiser.raiser_level`); split leftovers and adjustments
+  validation (the Accountant's paid entry, Desk, REST). Nobody skips it, the CEO and the `Administrator`
+  account included (owner, 2026-10-30). Split leftovers and adjustments
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
-  Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
+  Refunds). `get_payment_summary` returns it as `limit.invoice_check`.
 - **A WO's remarks are readable only by users who may read that WO** (story 4): the endpoints check it
   (`api/sr_remarks.assert_can_read_work_order`), and the Nirmaan Comments `has_permission` and
   `permission_query_conditions` hooks (`controllers/nirmaan_comments`) scope the doctype itself, because the
@@ -50,10 +50,12 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   (the doc's `before_insert` refuses any insert without `flags.made_by_generate`), changed only by the moves in
   `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), deleted only in the
   app (`on_trash` `refuse_delete` needs `flags.deleted_in_app`: Admin's `delete_generated_invoice` of a Voided one,
-  or its Vendor Invoice's delete); the Deleted Document copy keeps its RA number and FINAL-n place
-  (`_deleted_records`, `wo_generated_invoices.ra_number_of_record`), so a delete never frees a number. Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
+  or its Vendor Invoice's delete). A delete frees the record's RA number and -n place (ADR-0040 Amdt B): the
+  next RA number is one above the highest still held (Voided included; a gap below it is never filled), and
+  `next_ra_number` reads "RA-n" only from Pending / Approved Vendor Invoices, so a Rejected upload left behind
+  by a deleted record holds nothing. Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
   runs PostgreSQL at REPEATABLE READ, so a row lock alone left a waiting generate reading the old highest RA
-  number (the concurrency test caught it). Generate and void commit. The type is never chosen: `generate_invoice` takes only the amount and saves the FINAL when it brings `billed` to the WO amount, to within ₹10 (`wo_generated_invoices.is_final`, the `FULLY_PAID_TOLERANCE`), else an RA; the Generate dialog previews it from `billed` (`isFinalAmount`) and its "Put Paid" button fills in `left`. A FINAL generated after a voided one prints FINAL-2, FINAL-3 (`invoice_number`'s `final_number`, counting every FINAL the WO has had), so a voided number is never printed again. The limit counts Pending + Approved Vendor
+  number (the concurrency test caught it). Generate and void commit. The type is never chosen: `generate_invoice` takes only the amount and saves the FINAL when it brings `billed` to the WO amount, to within ₹10 (`wo_generated_invoices.is_final`, the `FULLY_PAID_TOLERANCE`), else an RA; the Generate dialog previews it from `billed` (`isFinalAmount`) and its "Put Paid" button fills in `left`. The FINAL shows no "FINAL" anywhere (ADR-0040 Amdt A): its number is the bare `INV-<FY>-<project>-<WO>`, and one generated after a voided one gets -2, -3 (`invoice_number`'s `final_number`, counting the FINALs the WO still has, Voided included), so a voided number is not printed twice while it is kept; FINALs saved before keep their `-FINAL` numbers. The limit counts Pending + Approved Vendor
   Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Pending invoice its
   upload creates, so #1547 must create that invoice in the same save that moves the record to *Signed*. Only an
   Approved WO with `gst` explicitly off (`work_order_gst.gst_is_explicitly_off`; blank is not off) and a

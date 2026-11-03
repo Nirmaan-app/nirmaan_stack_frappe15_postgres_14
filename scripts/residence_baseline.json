@@ -1,6 +1,6 @@
 {
   "a1_explicit_any": {
-    "count": 1754,
+    "count": 1798,
     "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
     "rule": "A1"
   },
@@ -45,7 +45,7 @@
     "rule": "R1"
   },
   "s1_oversized_files": {
-    "count": 338,
+    "count": 340,
     "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
     "rule": "S1"
   },

@@ -48,6 +48,12 @@ export interface GridColumnInputs {
    * Read only in `specMode`.
    */
   showSpecDetails?: boolean;
+  /**
+   * ELR-1 (owner R-ELR0 "7 ok", Q3 "a"): the grid shows the DOWNLOAD's columns, in its order, with the file's id beneath
+   * each header -- on every grid priced from row-level attributes (`followsFileLayout`) and on every Pricing Inputs
+   * grid. A spec-driven grid already does (ADP-4b). Absent / false: the layout below is byte-identical to before.
+   */
+  fileMode?: boolean;
 }
 
 export const COL_ACTIONS = "actions";
@@ -58,6 +64,8 @@ export const COL_BRAND = "brand";
 export const COL_UNIT = "unit";
 export const COL_PI_SHARED_BY = "pi:shared_by";
 export const COL_PI_USED_BY = "pi:used_by";
+/** ELR-1 (Q3): a Pricing Input's remark in its OWN column, where the file puts it (file mode only). */
+export const COL_PI_REMARKS = "pi:remarks";
 export const COL_PI_ITEMS = "pi:items";
 export const COL_SOURCE_SHEET = "source_sheet";
 export const COL_SOURCE_ROW = "source_row";
@@ -69,6 +77,16 @@ export const COL_DISCIPLINE = "file:discipline";
 export const COL_CATEGORY = "file:category";
 
 export const attrColKey = (id: string): GridColumnKey => `attr:${id}`;
+
+/**
+ * ELR-1 (owner R-ELR0 "7 ok"; Q2 / Q3 "a", 2026-10-27) -- PURE. Whether a grid follows its download file: every
+ * Pricing Inputs grid (both disciplines, one rule), and every SKU grid that is neither spec-driven (ADP-4b's own
+ * layout) nor priced as a list of items (Insulation, Piping and ADP keep theirs). Decided by the config's SHAPE,
+ * never a discipline or category name. An item-kind-less category never reaches the grid (its empty state).
+ */
+export function followsFileLayout(o: { specMode: boolean; piMode: boolean; itemList: boolean }): boolean {
+  return o.piMode || (!o.specMode && !o.itemList);
+}
 export const rateColKey = (k: string): GridColumnKey => `rate:${k}`;
 
 /**
@@ -83,6 +101,31 @@ export const rateColKey = (k: string): GridColumnKey => `rate:${k}`;
 export function gridColumnKeys(o: GridColumnInputs): GridColumnKey[] {
   const keys: GridColumnKey[] = [];
   if (o.canEdit) keys.push(COL_ACTIONS);
+  /**
+   * ELR-1 (owner Q3 "a"): a Pricing Inputs grid in file mode is the file's columns in the file's order -- item_uid,
+   * discipline, category, the input, its value columns, unit, shared_by, remarks, used_by -- and the screen's own
+   * "items" control (the impact list) last, beside the admin actions it pairs with.
+   */
+  if (o.fileMode && o.piMode) {
+    keys.push(COL_ITEM_UID, COL_DISCIPLINE, COL_CATEGORY);
+    if (o.showKindCol) keys.push(COL_KIND);
+    keys.push(COL_PI_NAME);
+    for (const k of o.rateCols) keys.push(rateColKey(k));
+    keys.push(COL_UNIT, COL_PI_SHARED_BY, COL_PI_REMARKS, COL_PI_USED_BY);
+    if (o.showImpactCol) keys.push(COL_PI_ITEMS);
+    return keys;
+  }
+  /** ELR-1 (owner R-ELR0 "7 ok"): a SKU grid in file mode takes the ADP-4b order with its observed attribute columns in
+   *  the text pair's place: item_uid, discipline, category, [kind], brand, unit, attributes, rates, the two formulas. */
+  if (o.fileMode && !o.specMode && !o.piMode) {
+    keys.push(COL_ITEM_UID, COL_DISCIPLINE, COL_CATEGORY);
+    if (o.showKindCol) keys.push(COL_KIND);
+    keys.push(COL_BRAND, COL_UNIT);
+    for (const d of o.attrCols) keys.push(attrColKey(d.id));
+    for (const k of o.rateCols) keys.push(rateColKey(k));
+    keys.push(COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL);
+    return keys;
+  }
   /**
    * ADP-4b (owner D7, 2026-10-21: "a toggle, off by default, so the screen equals the file"): a SPEC-DRIVEN grid is the
    * download's columns in the download's order (`csv_exporter.build_category_rows`: item_uid, discipline, category,
@@ -154,6 +197,8 @@ export function fileColumnId(key: GridColumnKey, fileAttrIds: ReadonlySet<string
   const fixed: Record<string, string> = {
     [COL_ITEM_UID]: "item_uid", [COL_DISCIPLINE]: "discipline", [COL_CATEGORY]: "category", [COL_KIND]: "kind",
     [COL_BRAND]: "brand", [COL_UNIT]: "unit", [COL_FORMULA_SUPPLY]: "supply_formula", [COL_FORMULA_INSTALL]: "install_formula",
+    // ELR-1 (Q3): a Pricing Inputs file's own columns -- consulted only where the grid shows file ids
+    [COL_PI_NAME]: "item", [COL_PI_SHARED_BY]: "shared_by", [COL_PI_REMARKS]: "remarks", [COL_PI_USED_BY]: "used_by",
   };
   if (fixed[key]) return fixed[key];
   if (key.startsWith("rate:")) return key.slice(5);

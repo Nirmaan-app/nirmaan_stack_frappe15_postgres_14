@@ -41,6 +41,8 @@ interface AssetCardProps {
     showUnassignAction?: boolean;
     onAssignClick?: () => void;
     onUnassignClick?: () => void;
+    /** Marked Lost/Damaged (owner, 2026-10-31): a red badge, and no Assign button whatever `showAssignAction` says. */
+    lostDamaged?: boolean;
 }
 
 const conditionColorMap: Record<string, string> = {
@@ -63,6 +65,7 @@ export const AssetCard: React.FC<AssetCardProps> = ({
     showUnassignAction = false,
     onAssignClick,
     onUnassignClick,
+    lostDamaged = false,
 }) => {
     const [isHovered, setIsHovered] = useState(false);
 
@@ -138,6 +141,12 @@ export const AssetCard: React.FC<AssetCardProps> = ({
                     </div>
                 )}
 
+                {lostDamaged && (
+                    <Badge variant="outline" className="text-xs font-medium bg-red-50 text-red-700 border-red-200">
+                        Lost/Damaged
+                    </Badge>
+                )}
+
                 {/* Condition Badge */}
                 {condition && (
                     <Badge
@@ -195,7 +204,7 @@ export const AssetCard: React.FC<AssetCardProps> = ({
                     </Link>
 
                     {/* Action button based on assignment status */}
-                    {showAssignAction && !isAssigned && onAssignClick && (
+                    {showAssignAction && !lostDamaged && !isAssigned && onAssignClick && (
                         <TooltipProvider delayDuration={0}>
                             <Tooltip>
                                 <TooltipTrigger asChild>

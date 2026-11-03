@@ -1,0 +1,2392 @@
+{
+ "BOQ-26-00102|Electrical|112": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "1M Blanker"
+   },
+   "box_modules_stated": {
+    "confidence": 0.7,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply and fixing of 1no. of single module dummy plate suitable to fix on above front plate.",
+  "headings": [
+   "SWITCH AND SOCKETS",
+   "Supply, fixing, testing and commissioning of Modular Switch & Socket combination in suitable modular box and Metal Clad sockets with MCB in Open/Recessed system.The necessary civil works shall be done for connected works and no extra payment will be made for the same. (On non availability of specified rating industrial sockets, immediate higher rating socket must be provided with given control breakers)."
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00139|RFQ|732": {
+  "cat": "popup_boxes",
+  "cells": {
+   "blank_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "colour": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "White"
+   },
+   "has_modules": {
+    "confidence": 0.95,
+    "value": "Yes"
+   },
+   "module_count": {
+    "confidence": 0.95,
+    "value": 8
+   },
+   "plate_item": {
+    "confidence": 0.55,
+    "value": "8M"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket1_item": {
+    "confidence": 0.55,
+    "value": "6A/16A 3-Pin Socket"
+   },
+   "socket1_qty": {
+    "confidence": 0.7,
+    "value": 2
+   },
+   "socket2_item": {
+    "confidence": 0.5,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.5,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.5,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "value": null
+   }
+  },
+  "desc": "Supply ,Installation , Testing & Commissioning of Pop-up type flush mounting boxes for Office furniture or on table comprising of: i) 8 modules Aluminium Finish Box. ii) Universal Socket 2 Nos. iii) RJ45 I/O's - 2 No iv) HDMI- 1No. Complete as required.",
+  "headings": [
+   "POINT WIRING"
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00171|Electrical|297": {
+  "cat": "earthing",
+  "cells": {
+   "material": {
+    "confidence": 0.95,
+    "value": "CU"
+   },
+   "type": {
+    "confidence": 0.9,
+    "value": "Bus bar"
+   },
+   "with_busbar": {
+    "confidence": 0.9,
+    "value": "With"
+   }
+  },
+  "desc": "0.5 Mtr long 25 x 6 mm Copper Busbar",
+  "headings": [
+   "EARTHING",
+   "Supply & Erection of following Copper/GI Busbar with mounting brackets on Insulators with tapped holes in Powder Coated Earth box with vision glass in front side."
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00174|Electrical |104": {
+  "cat": "db_switchgear",
+  "cells": {
+   "db_shell_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "db_shell_qty": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "enclosure_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "enclosure_qty": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "mcb1_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb1_qty": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "mcb2_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb2_qty": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "mcb3_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb3_qty": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "mcb4_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb4_qty": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "mcb5_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb5_qty": {
+    "confidence": 0.0,
+    "value": null
+   }
+  },
+  "desc": "DB BOX for mounting dimming , swithcing module - 4 tier 40 module flexi DB",
+  "headings": [
+   "DISTRIBUTION BOARD (DB)",
+   "LMS DB'S"
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00174|Electrical |240": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.85,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.8,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.75,
+    "value": "3M"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket1_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.8,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.8,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.85,
+    "value": null
+   }
+  },
+  "desc": "3 Module GI back box for data,TV, HDMI outlets in partions",
+  "headings": [
+   "POWER RECEPTACLES.",
+   "Data Backbox"
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00174|Electrical |251": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_length_m": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_type": {
+    "confidence": 0.9,
+    "value": "PVC"
+   },
+   "plate_item": {
+    "confidence": 0.5,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "points": {
+    "confidence": 0.95,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "switch_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_core": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "wire1_runs": {
+    "confidence": 0.9,
+    "value": 3
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.9,
+    "value": 1.5
+   },
+   "wire2_core": {
+    "confidence": 0.4,
+    "value": null
+   },
+   "wire2_runs": {
+    "confidence": 0.4,
+    "value": null
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   }
+  },
+  "desc": "Single light point controlled by Occupancy Sensor",
+  "headings": [
+   "POINT WIRING",
+   "Sensor control"
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00174|Electrical |309": {
+  "cat": "cabletray_raceway",
+  "cells": {
+   "cover": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "floor_cutting": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "floor_refilling": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "installation_type": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Ceiling"
+   },
+   "material": {
+    "confidence": 0.9,
+    "value": "MS POWDER COATED"
+   },
+   "thickness_mm": {
+    "confidence": 0.9,
+    "value": 2
+   },
+   "tray_type": {
+    "confidence": 0.97,
+    "value": "Perforated"
+   },
+   "width_mm": {
+    "confidence": 0.97,
+    "value": 600
+   }
+  },
+  "desc": "600 x 50mm Size",
+  "headings": [
+   "CABLE TRAYS",
+   "Perforated Type Cable tray (Powder coated) (For LT Cables)"
+  ],
+  "unit": "Mtr"
+ },
+ "BOQ-26-00174|Electrical |321": {
+  "cat": "cabletray_raceway",
+  "cells": {
+   "cover": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "floor_cutting": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "floor_refilling": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "installation_type": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Ceiling"
+   },
+   "material": {
+    "confidence": 0.9,
+    "value": "MS POWDER COATED"
+   },
+   "thickness_mm": {
+    "confidence": 0.9,
+    "value": 2
+   },
+   "tray_type": {
+    "confidence": 0.97,
+    "value": "Perforated"
+   },
+   "width_mm": {
+    "confidence": 0.97,
+    "value": 80
+   }
+  },
+  "desc": "80 x 50mm Size",
+  "headings": [
+   "CABLE TRAYS",
+   "Perforated Type Cable tray (Powder coated) (For LT Cables)"
+  ],
+  "unit": "Mtr"
+ },
+ "BOQ-26-00174|Electrical |470": {
+  "cat": "earthing",
+  "cells": {
+   "material": {
+    "confidence": 0.95,
+    "value": "GI"
+   },
+   "type": {
+    "confidence": 0.85,
+    "value": "50 x 6 MM Earth Strip"
+   },
+   "with_busbar": {
+    "confidence": 0.9,
+    "value": "With"
+   }
+  },
+  "desc": "Busbar of 0.5 Mtr length made out of 50x6 mm GI strip with drill holes of M8 at 25mm interval mounted on insulators.",
+  "headings": [
+   "EARTHING"
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00174|Electrical |488": {
+  "cat": "miscellaneous",
+  "cells": {
+   "description": {
+    "confidence": 0.97,
+    "value": "MS Fabricated Items"
+   }
+  },
+  "desc": "MS Fabricated Items",
+  "headings": [
+   "MISCELLANEOUS ITEMS"
+  ],
+  "unit": "Kg."
+ },
+ "BOQ-26-00183|Electrical Works|102": {
+  "cat": "conduit_piping",
+  "cells": {
+   "conduit_type": {
+    "confidence": 0.95,
+    "value": "MS"
+   },
+   "size_mm": {
+    "confidence": 0.97,
+    "value": 25
+   }
+  },
+  "desc": "25mm dia 16SWG GI flexible conduit complete with check nuts, end connectors & couplers suitable to fix into junction box / raceway / Cable tray All cables terminated with MS Gland and double earthing wire/strip",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Supply, installation, testing & Commissioning of following conduits with all accessories. Price should be inclusive of floor/wall/partition chipping works requires for fixing of all necessary conduit accessories."
+  ],
+  "unit": "Rmt"
+ },
+ "BOQ-26-00183|Electrical Works|12": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "colour": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.3,
+    "value": "1M & 2M"
+   },
+   "plate_qty": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket1_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "switch_item": {
+    "confidence": 0.7,
+    "value": "10A 1 WAY SWITCH"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "value": 1
+   }
+  },
+  "desc": "One no. 5/15 amps one way switch with modular face plate",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Providing all modular switch boards's materials, accessories, labour for light, exhaust fans, price including GI fan outlet box, modular switch outlet boxes, switch plates, 5/15A one or two way modular switches, 5/15A modular switched socket, etc., including testing and commissioning in complete. The rate for point wiring shall include only the modular switch boards with accessories."
+  ],
+  "unit": "Sets"
+ },
+ "BOQ-26-00183|Electrical Works|19": {
+  "cat": "wiring_cabling",
+  "cells": {
+   "core": {
+    "confidence": 0.97,
+    "value": 3
+   },
+   "insulation": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "UNARMOURED"
+   },
+   "material": {
+    "confidence": 0.9,
+    "value": "COPPER"
+   },
+   "runs": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "thickness_sqmm": {
+    "confidence": 0.97,
+    "value": 1.5
+   }
+  },
+  "desc": "3C x 1.5 sqmm cable in MS conduit / cable tray .",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "LIGHTING CIRCUIT MAIN & POINT WIRING"
+  ],
+  "unit": "Rm"
+ },
+ "BOQ-26-00183|Electrical Works|25": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.7,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "colour": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "plate_qty": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket1_item": {
+    "confidence": 0.6,
+    "value": "6A 3-Pin Socket"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "socket2_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "switch_item": {
+    "confidence": 0.5,
+    "value": "10A 1 WAY SWITCH"
+   },
+   "switch_qty": {
+    "confidence": 0.6,
+    "value": 1
+   }
+  },
+  "desc": "Supply and installation of type a set of 1 No. 6A, 5 Pin round, modular type switched socket outlet including G.I / PVC Surface outlet box (Fire Damper/ Fan / VAV / Exit Light)",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "POWER RECEPTACLES"
+  ],
+  "unit": "No."
+ },
+ "BOQ-26-00183|Electrical Works|28": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.7,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "colour": {
+    "confidence": 0.4,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "plate_qty": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket1_item": {
+    "confidence": 0.6,
+    "value": "6A 3-Pin Socket"
+   },
+   "socket1_qty": {
+    "confidence": 0.85,
+    "value": 2
+   },
+   "socket2_item": {
+    "confidence": 0.4,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "switch_item": {
+    "confidence": 0.6,
+    "value": "16A 1 WAY SWITCH"
+   },
+   "switch_qty": {
+    "confidence": 0.7,
+    "value": 1
+   }
+  },
+  "desc": "Supply and installation of type a set of 2 No. 6A, 5 Pin round, modular type with 1 No 16A switched socket outlet including G.I / PVC Surface outlet box (Sink Tap sensors)",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "POWER RECEPTACLES"
+  ],
+  "unit": "No."
+ },
+ "BOQ-26-00183|Electrical Works|68": {
+  "cat": "db_switchgear",
+  "cells": {
+   "db_shell_item": {
+    "confidence": 0.9,
+    "value": "SPN DB 8WAY"
+   },
+   "db_shell_qty": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "enclosure_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "enclosure_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "mcb1_item": {
+    "confidence": 0.9,
+    "value": "40A RCCB 30mA (DP)"
+   },
+   "mcb1_qty": {
+    "confidence": 0.85,
+    "value": 1
+   },
+   "mcb2_item": {
+    "confidence": 0.9,
+    "value": "10A SP MCB D CURVE"
+   },
+   "mcb2_qty": {
+    "confidence": 0.85,
+    "value": 6
+   },
+   "mcb3_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb3_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "mcb4_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb4_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "mcb5_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "mcb5_qty": {
+    "confidence": 0.5,
+    "value": null
+   }
+  },
+  "desc": "ELDB's as described above",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Design, fabrication, assembling, wiring, supply, installation, testing & commissioning of Final Distribution boards made out of pre-treated and powder coated 1.2mm sheet steel and glazed steel door in double door enclosure with MCB's / ELCB's mounted on din channel, insulated prong bus bars rated for 100A and with separate neutral and earth terminals and in 1,2,3 & 4 pole versions as asked for or as required along with the cable end boxes on all sides of the DB's as per the requirement or Cup-board layout suggested by Architect/Consultant. Conforming to IS: 8623-Part-I with IP43 protection for indoor & IP54 for outdoor. DB's outgoing to be considered as working + 2 spare. All cables terminated with MS Gland and double earthing wire/strip",
+   "Emergency LDB"
+  ],
+  "unit": "Set"
+ },
+ "BOQ-26-00183|Electrical Works|77": {
+  "cat": "db_switchgear",
+  "cells": {
+   "db_shell_item": {
+    "confidence": 0.9,
+    "value": "TPN DB 6WAY (DOUBLE DOOR IP 43)"
+   },
+   "db_shell_qty": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "enclosure_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "enclosure_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "mcb1_item": {
+    "confidence": 0.9,
+    "value": "63A FP MCB C CURVE"
+   },
+   "mcb1_qty": {
+    "confidence": 0.85,
+    "value": 1
+   },
+   "mcb2_item": {
+    "confidence": 0.9,
+    "value": "63A RCCB 30mA(DP)"
+   },
+   "mcb2_qty": {
+    "confidence": 0.8,
+    "value": 9
+   },
+   "mcb3_item": {
+    "confidence": 0.85,
+    "value": "16A SP MCB C CURVE"
+   },
+   "mcb3_qty": {
+    "confidence": 0.8,
+    "value": 36
+   },
+   "mcb4_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "mcb4_qty": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "mcb5_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "mcb5_qty": {
+    "confidence": 0.5,
+    "value": null
+   }
+  },
+  "desc": "L+PDB's as described above",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Design, fabrication, assembling, wiring, supply, installation, testing & commissioning of Final Distribution boards made out of pre-treated and powder coated 1.2mm sheet steel and glazed steel door in double door enclosure with MCB's / ELCB's mounted on din channel, insulated prong bus bars rated for 100A and with separate neutral and earth terminals and in 1,2,3 & 4 pole versions as asked for or as required along with the cable end boxes on all sides of the DB's as per the requirement or Cup-board layout suggested by Architect/Consultant. Conforming to IS: 8623-Part-I with IP43 protection for indoor & IP54 for outdoor. DB's outgoing to be considered as working + 2 spare. All cables terminated with MS Gland and double earthing wire/strip",
+   "LIGHTING + POWER DB's"
+  ],
+  "unit": "Set"
+ },
+ "BOQ-26-00183|Electrical Works|80": {
+  "cat": "wiring_cabling",
+  "cells": {
+   "core": {
+    "confidence": 0.97,
+    "value": 4
+   },
+   "insulation": {
+    "confidence": 0.95,
+    "value": "ARMOURED"
+   },
+   "material": {
+    "confidence": 0.95,
+    "value": "ALUMINIUM"
+   },
+   "runs": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "thickness_sqmm": {
+    "confidence": 0.97,
+    "value": 16
+   }
+  },
+  "desc": "4 core 16 sq.mm XLPE Al. Ar.",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Supply, Laying, testing & commissioning of the following 1100V PVC sheathed and armoured XLPE insulated cables as per IS :7098 Part-1 (XLPE) IS: 1554 (FRLS PVC) & specifications: All cables terminated with MS Gland and double earthing wire/strip"
+  ],
+  "unit": "Rmt"
+ },
+ "BOQ-26-00183|Electrical Works|88": {
+  "cat": "earthing",
+  "cells": {
+   "material": {
+    "confidence": 0.97,
+    "value": "CU"
+   },
+   "type": {
+    "confidence": 0.95,
+    "value": "8 SWG Wire"
+   },
+   "with_busbar": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Without"
+   }
+  },
+  "desc": "8 SWG bare copper wire. ( For DB's earthing)",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Supplying and fixing of following copper /GI tapes & Copper / AI. wires / cables along with cable end terminations & all necessary fixing accessories, and effecting connections : As Per IS:7098 Part I of 1988 & IS:1554 (1100V grade, XLPE & FRLS PVC insulated cables )"
+  ],
+  "unit": "Rmt"
+ },
+ "BOQ-26-00183|Electrical Works|98": {
+  "cat": "conduit_piping",
+  "cells": {
+   "conduit_type": {
+    "confidence": 0.98,
+    "value": "MS"
+   },
+   "size_mm": {
+    "confidence": 0.97,
+    "value": 20
+   }
+  },
+  "desc": "20mm dia 2.0mm thick FRLS MS Conduit",
+  "headings": [
+   "ELECTRICAL WORKS",
+   "Supply, installation, testing & Commissioning of following conduits with all accessories. Price should be inclusive of floor/wall/partition chipping works requires for fixing of all necessary conduit accessories."
+  ],
+  "unit": "Rmt"
+ },
+ "BOQ-26-00184|Electrical Est|103": {
+  "cat": "cabletray_raceway",
+  "cells": {
+   "cover": {
+    "confidence": 0.85,
+    "value": "Yes"
+   },
+   "floor_cutting": {
+    "confidence": 0.9,
+    "value": "Yes"
+   },
+   "floor_refilling": {
+    "confidence": 0.9,
+    "value": "Yes"
+   },
+   "installation_type": {
+    "confidence": 0.95,
+    "value": "Floor"
+   },
+   "material": {
+    "confidence": 0.85,
+    "value": "GI"
+   },
+   "thickness_mm": {
+    "confidence": 0.9,
+    "value": 1.6
+   },
+   "tray_type": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Solid"
+   },
+   "width_mm": {
+    "confidence": 0.98,
+    "value": 250
+   }
+  },
+  "desc": "250 mm (wide) x40 mm (height)",
+  "headings": [
+   "RACEWAYS , CABLE TRAYS AND CABLES",
+   "Fabricating supplying to site of installation, in floor including chase cutting of floor,leveling, refilling and making good the same from 1.6 mm thick and 2 mm thick cover pregalvanised MS CRCA sheet, totally enclosed, height 40 mm . The two lengths of raceways shall be fitted with Collars , 50 mm wide, 3 mm thick , press fit type. The raceways shall be clamped to the floor slab with GI clamps , 3mm thick and shall be screwed to the floor slab. The joint between raceway and junction box will be made with GI flexible strip( 3 nos), 3 mm thick, 4 inches long ,15 mm wide which will be nut bolted to the Junction box complete as required etc."
+  ],
+  "unit": "RM"
+ },
+ "BOQ-26-00184|Electrical Est|63": {
+  "cat": "conduit_piping",
+  "cells": {
+   "conduit_type": {
+    "confidence": 0.97,
+    "value": "PVC"
+   },
+   "size_mm": {
+    "confidence": 0.98,
+    "value": 40
+   }
+  },
+  "desc": "40 mm dia conduit (2.0 mm thick)",
+  "headings": [
+   "CONDUITING FOR LOW VOLTAGE AND CCTV SYSTEM",
+   "Providing and fixing in position the following FRLS PVC conduits including all accessories concealed in F. ceiling/wall as required including 1.6 mm thick PVC junction or pull boxes with cover compl­te with 1.6 mm dia. G.I. pull wires in the length of conduit."
+  ],
+  "unit": "RM"
+ },
+ "BOQ-26-00190|Sheet1|167": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "blank_qty": {
+    "confidence": 0.2,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_type": {
+    "confidence": 0.2,
+    "value": null
+   },
+   "plate_item": {
+    "confidence": 0.85,
+    "value": "8M"
+   },
+   "plate_qty": {
+    "confidence": 0.85,
+    "value": 2
+   },
+   "points": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.85,
+    "value": "6A 3-Pin Socket"
+   },
+   "socket_qty": {
+    "confidence": 0.9,
+    "value": 6
+   },
+   "switch_item": {
+    "confidence": 0.85,
+    "value": "16A 1 WAY SWITCH- With Indicator"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "value": 2
+   },
+   "wire1_core": {
+    "confidence": 0.9,
+    "value": 3
+   },
+   "wire1_runs": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.9,
+    "value": 4
+   },
+   "wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   }
+  },
+  "desc": "With 2 nos. 8 module modular switch boards with 6 nos. of 6A, 240 V modular universal sockets (Shuttered) controlled by 2 nos. 16A flat switch with LED indicator [For Workstation UPS power]",
+  "headings": [
+   "SECTION -D - POINT WIRING",
+   "Primary Power Point Supply, installation, testing and commissioning of UPS/ Raw Power outlets (Universal) along with modular flat switch, modular plate, suitable GI box and blanking plate wherever required complete in all respect. The switch boards are to be concealed inside the partition of the cubicles/ walls/ modular partition grooves along with making good chases to the damaged portion of the wall, column to uphold the architectural beauty. The item shall include supply and laying of 3C X 4 Sq, mm. (P+N+E) LSZH Copper conductor flexible cable of 1.1 KV grade from the UPS/ Raw Power DB to the respective power outlets through pre laid conduits/ raceways and terminations at both end complete in all respect. [For work station/ printer/ cabin working table/ reception/ meeting hall area etc.]"
+  ],
+  "unit": "Point"
+ },
+ "BOQ-26-00190|Sheet1|170": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "blank_qty": {
+    "confidence": 0.2,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.0,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_type": {
+    "confidence": 0.2,
+    "value": null
+   },
+   "plate_item": {
+    "confidence": 0.85,
+    "value": "3M"
+   },
+   "plate_qty": {
+    "confidence": 0.85,
+    "value": 1
+   },
+   "points": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.85,
+    "value": "6A 3-Pin Socket"
+   },
+   "socket_qty": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "switch_item": {
+    "confidence": 0.8,
+    "value": "10A 1 WAY SWITCH - With Indicator"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "wire1_core": {
+    "confidence": 0.9,
+    "value": 3
+   },
+   "wire1_runs": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.9,
+    "value": 4
+   },
+   "wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   }
+  },
+  "desc": "With 1 no. 3 module modular switch boards with 1 no. of 6A, 240 V modular universal socket (Shuttered) controlled by 1 no. 6A flat switch with LED indicator [For Miscellaneous Raw Power for pedestal fan etc.]",
+  "headings": [
+   "SECTION -D - POINT WIRING",
+   "Primary Power Point Supply, installation, testing and commissioning of UPS/ Raw Power outlets (Universal) along with modular flat switch, modular plate, suitable GI box and blanking plate wherever required complete in all respect. The switch boards are to be concealed inside the partition of the cubicles/ walls/ modular partition grooves along with making good chases to the damaged portion of the wall, column to uphold the architectural beauty. The item shall include supply and laying of 3C X 4 Sq, mm. (P+N+E) LSZH Copper conductor flexible cable of 1.1 KV grade from the UPS/ Raw Power DB to the respective power outlets through pre laid conduits/ raceways and terminations at both end complete in all respect. [For work station/ printer/ cabin working table/ reception/ meeting hall area etc.]"
+  ],
+  "unit": "Point"
+ },
+ "BOQ-26-00190|Sheet1|69": {
+  "cat": "wiring_cabling",
+  "cells": {
+   "core": {
+    "confidence": 0.95,
+    "value": 3.5
+   },
+   "insulation": {
+    "confidence": 0.98,
+    "value": "ARMOURED"
+   },
+   "material": {
+    "confidence": 0.97,
+    "value": "ALUMINIUM"
+   },
+   "runs": {
+    "confidence": 0.9,
+    "value": 2
+   },
+   "thickness_sqmm": {
+    "confidence": 0.96,
+    "value": 70
+   }
+  },
+  "desc": "Supplying, erecting and terminating XLPE armoured cable 3½ core 70 sq. mm. Aluminium conductor with continuous 5.48 sq. mm. (12 SWG) Copper earth wire (2 runs) complete erected with glands and lugs, on wall/ trusses/ pole or laid in provided trench/ pipe as per specifications. (From to DG TO Main Floor panel and From Ground Floor EB Metring Panel to Main Floor panel )",
+  "headings": [
+   "SECTION- B - LT CABLES, CABLE TRAYS, FLOOR TRUNKING"
+  ],
+  "unit": "Metre"
+ },
+ "BOQ-26-00194|ELE|197": {
+  "cat": "industrial_sockets",
+  "cells": {
+   "enclosure": {
+    "confidence": 0.7,
+    "defaulted": true,
+    "value": "IP44/54 - Splash Proof"
+   },
+   "item": {
+    "confidence": 0.9,
+    "value": "Industrial Socket with MCB"
+   },
+   "mcb_amp_a": {
+    "confidence": 0.95,
+    "value": 20
+   },
+   "mcb_curve_stated": {
+    "confidence": 0.95,
+    "value": "D"
+   },
+   "mcb_pole_stated": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "mcb_present": {
+    "confidence": 0.98,
+    "value": "Yes"
+   },
+   "paired_mcb": {
+    "confidence": 0.99,
+    "value": null
+   },
+   "pole": {
+    "confidence": 0.9,
+    "value": "3 Pin / 2P+E"
+   },
+   "rating": {
+    "confidence": 0.85,
+    "value": "16/20A"
+   }
+  },
+  "desc": "20Amp three pin insulated earth interlocking socket with top & 20 amp MCB D Curve, IP- 55,Single phase IP 55 socket mounted inside IP55 enclosure",
+  "headings": [
+   "POWER OUTLETS",
+   "Supply, Installation, Testing & Commissioning of following Power Sockets confirming to (IEC 60309-1/60309-2) mounted with specified switchgear inside the specified enclosure .The rate to include termination of incoming wires/cables with appropriate size of lugs & applicable PVC/Brass cable glands"
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00194|ELE|328": {
+  "cat": "junction_box_raceway",
+  "cells": {
+   "face_mm": {
+    "confidence": 0.97,
+    "value": 350
+   }
+  },
+  "desc": "350 mm x 350 mm x 50 mm",
+  "headings": [
+   "RACEWAYS & WIRING",
+   "Supply & Installation of Following in Powder Coated Junction boxes shall have knock-outs on all sides suitable for Raceways/conduits. With PAINTED GI Plate The knock out shall be removed at site as per requirements."
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00196|ELECTRICAL|353": {
+  "cat": "cabletray_raceway",
+  "cells": {
+   "cover": {
+    "confidence": 0.9,
+    "value": "Yes"
+   },
+   "floor_cutting": {
+    "confidence": 0.85,
+    "value": "Yes"
+   },
+   "floor_refilling": {
+    "confidence": 0.8,
+    "value": "Yes"
+   },
+   "installation_type": {
+    "confidence": 0.9,
+    "value": "Floor"
+   },
+   "material": {
+    "confidence": 0.9,
+    "value": "GI"
+   },
+   "thickness_mm": {
+    "confidence": 0.8,
+    "value": null
+   },
+   "thickness_swg": {
+    "confidence": 0.9,
+    "value": 16
+   },
+   "tray_type": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Solid"
+   },
+   "width_mm": {
+    "confidence": 0.97,
+    "value": 450
+   }
+  },
+  "desc": "450 x 40mm",
+  "headings": [
+   "RACEWAYS",
+   "Floor Raceways - GI Raceways"
+  ],
+  "unit": "MTS"
+ },
+ "BOQ-26-00201|Electrical BOQ|167": {
+  "cat": "cabletray_raceway",
+  "cells": {
+   "cover": {
+    "confidence": 0.9,
+    "value": "Yes"
+   },
+   "floor_cutting": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "floor_refilling": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "No"
+   },
+   "installation_type": {
+    "confidence": 0.9,
+    "value": "Floor"
+   },
+   "material": {
+    "confidence": 0.9,
+    "value": "GI"
+   },
+   "thickness_mm": {
+    "confidence": 0.7,
+    "value": null
+   },
+   "thickness_swg": {
+    "confidence": 0.85,
+    "value": 1.6
+   },
+   "tray_type": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Solid"
+   },
+   "width_mm": {
+    "confidence": 0.95,
+    "value": 200
+   }
+  },
+  "desc": "200 x 40 mm. GI Raceway",
+  "headings": [
+   "FLOOR RACEWAYS - POWER Supply and Iaying of following size GI raceway with cover, made out of 1.6mm thick SWG GI for body GI for cover. Junction boxes to be provided with enough supports inside the box. Raceway installed above false ceiling/floor shall include necessary mounting supports, junction boxes and accessories to fix it firmly to the ground/ ceiling. The rate quote shall include providing earthing for the Wireway trunking. All edges, cut faces shall be free of burrs & shall be smooth. The channels shall be earthed at the boxes and at the joints with 4sq.mm copper Wire with end terminations screws so that earth is continuous. Jointing of the race ways to be done with welding. Colour code should be followed for cover as per project incharge."
+  ],
+  "unit": "METER"
+ },
+ "BOQ-26-00217|ELE-2F|69": {
+  "cat": "industrial_sockets",
+  "cells": {
+   "enclosure": {
+    "confidence": 0.9,
+    "value": "IP44/54 - Splash Proof"
+   },
+   "item": {
+    "confidence": 0.7,
+    "value": "Industrial Socket with Socket Outlet Interlocked"
+   },
+   "mcb_amp_a": {
+    "confidence": 0.9,
+    "value": null
+   },
+   "mcb_curve_stated": {
+    "confidence": 0.95,
+    "value": "None"
+   },
+   "mcb_pole_stated": {
+    "confidence": 0.95,
+    "value": "None"
+   },
+   "mcb_present": {
+    "confidence": 0.95,
+    "value": "No"
+   },
+   "paired_mcb": {
+    "confidence": 0.95,
+    "value": null
+   },
+   "pole": {
+    "confidence": 0.85,
+    "value": "3 Pin / 2P+E"
+   },
+   "rating": {
+    "confidence": 0.4,
+    "value": "32A"
+   }
+  },
+  "desc": "25A -2P+E switch socket outlet with plug top",
+  "headings": [
+   "POWER OUTLETS (SOCKETS) The UPS Modular are with white colour front plate & Black/Grey colour for rawpower",
+   "Supply, Installation, Testing and Commissioning of interlock type socket in IP 44 protection enclosure operating voltage 180 -250V including all required accessories as per site conditions."
+  ],
+  "unit": "Nos"
+ },
+ "BOQ-26-00232|Internal  office|87": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.7,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_type": {
+    "confidence": 0.85,
+    "value": "MS"
+   },
+   "plate_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "points": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.8,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.8,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.7,
+    "value": null
+   },
+   "wire1_core": {
+    "confidence": 0.9,
+    "value": 3
+   },
+   "wire1_runs": {
+    "confidence": 0.85,
+    "value": 3
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.9,
+    "value": 1.5
+   },
+   "wire2_core": {
+    "confidence": 0.4,
+    "value": null
+   },
+   "wire2_runs": {
+    "confidence": 0.4,
+    "value": null
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   }
+  },
+  "desc": "1 light point controlled by Existing 6A existing switch /Sensor",
+  "headings": [
+   "Point Wiring"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00241|BOQ | Electircal|145": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "circuit_wire1_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire1_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire1_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "circuit_wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "circuit_wire_included": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": "No"
+   },
+   "colour": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_handoff": {
+    "confidence": 0.85,
+    "value": "No"
+   },
+   "conduit_price_excluded": {
+    "confidence": 0.5,
+    "value": "No"
+   },
+   "conduit_type": {
+    "confidence": 0.95,
+    "value": "PVC"
+   },
+   "other_conduit": {
+    "confidence": 0.9,
+    "value": "Flexible"
+   },
+   "plate_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "point_type": {
+    "confidence": 1.0,
+    "value": "Secondary"
+   },
+   "points": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "wire1_core": {
+    "confidence": 0.95,
+    "value": 3
+   },
+   "wire1_runs": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.95,
+    "value": 1.5
+   },
+   "wire2_core": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "wire2_runs": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.85,
+    "value": "None"
+   }
+  },
+  "desc": "SITC of wiring for lighting average length measured from the First light/sensor/Switch to secondary light in the circuit,including point ferrules & number stickers & Pin type lugs at both ends. Conduit: Minimum 2mm thick 25/32mm PVC FRLS PVC conduit(FRLS TYPE) including cutting the chases in wall , ceiling/surface mounted & making good the same. Size of the conduit will be as per the no. of wires/cables. PVC insulated copper conductor cable / wire (FRLS Type) etc. complete as required & as per specifications. Steel flexible conduits with PVC gland/couplers shall be used for drops. The rate shall also include cost of providing light fixture point ferrules & number stickers. ( Note-Vendor to check the average running meter of cable required from the shared tender dwg and Quote accordingly for the point wiring. No running meter of cable for point wiring will be accepted for billing)",
+  "headings": [],
+  "unit": "Each"
+ },
+ "BOQ-26-00241|BOQ | Electircal|146": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "circuit_wire1_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire1_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire1_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "circuit_wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "circuit_wire_included": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": "No"
+   },
+   "colour": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_handoff": {
+    "confidence": 0.85,
+    "value": "No"
+   },
+   "conduit_price_excluded": {
+    "confidence": 0.5,
+    "value": "No"
+   },
+   "conduit_type": {
+    "confidence": 0.95,
+    "value": "PVC"
+   },
+   "other_conduit": {
+    "confidence": 0.9,
+    "value": "Flexible"
+   },
+   "plate_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "point_type": {
+    "confidence": 1.0,
+    "value": "Primary"
+   },
+   "points": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.85,
+    "value": null
+   },
+   "wire1_core": {
+    "confidence": 0.95,
+    "value": 3
+   },
+   "wire1_runs": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.95,
+    "value": 1.5
+   },
+   "wire2_core": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "wire2_runs": {
+    "confidence": 0.5,
+    "value": null
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.85,
+    "value": "None"
+   }
+  },
+  "desc": "SITC of wiring for lighting average length measured from the ELDB MCB to first light in the circuit,including point ferrules & number stickers & Pin type lugs at both ends. Conduit: Minimum 2mm thick 25/32mm PVC FRLS PVC conduit(FRLS TYPE) including cutting the chases in wall , ceiling/surface mounted & making good the same. Size of the conduit will be as per the no. of wires/cables. PVC insulated copper conductor cable / wire (FRLS Type) etc. complete as required & as per specifications. Steel flexible conduits with PVC gland/couplers shall be used for drops. The rate shall also include cost of providing light fixture point ferrules & number stickers. ( Note-Vendor to check the average running meter of cable required from the shared tender dwg and Quote accordingly for the point wiring. No running meter of cable for point wiring will be accepted for billing)",
+  "headings": [],
+  "unit": "Each"
+ },
+ "BOQ-26-00245|ELECTRICAL BOQ|221": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.2,
+    "value": null
+   },
+   "circuit_wire1_core": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire1_runs": {
+    "confidence": 0.6,
+    "value": 3
+   },
+   "circuit_wire1_thickness_sqmm": {
+    "confidence": 0.6,
+    "value": 6
+   },
+   "circuit_wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_thickness_sqmm": {
+    "confidence": 0.5,
+    "value": "None"
+   },
+   "circuit_wire_included": {
+    "confidence": 0.85,
+    "value": "Yes"
+   },
+   "colour": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_handoff": {
+    "confidence": 0.5,
+    "value": "Either"
+   },
+   "conduit_price_excluded": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "conduit_type": {
+    "confidence": 0.8,
+    "value": "PVC"
+   },
+   "other_conduit": {
+    "confidence": 0.5,
+    "value": "Flexible"
+   },
+   "plate_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "point_type": {
+    "confidence": 1.0,
+    "value": "Primary"
+   },
+   "points": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "wire1_core": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "wire1_runs": {
+    "confidence": 0.95,
+    "value": 3
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.95,
+    "value": 6
+   },
+   "wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   }
+  },
+  "desc": "Upto xx Meters",
+  "headings": [
+   "POWER WIRING [ LHSFT / FRLS MMS PVC CONDUITS ]",
+   "6 sqmm x 3w cu ckt power point wiring with conduit including circuit termination for RAW POWER & UPS POWER from MCB DB - Primary Point"
+  ],
+  "unit": "Pts"
+ },
+ "BOQ-26-00245|ELECTRICAL BOQ|223": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.85,
+    "value": 6
+   },
+   "circuit_wire1_core": {
+    "confidence": 0.6,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire1_runs": {
+    "confidence": 0.55,
+    "value": 3
+   },
+   "circuit_wire1_thickness_sqmm": {
+    "confidence": 0.55,
+    "value": 6
+   },
+   "circuit_wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "circuit_wire2_thickness_sqmm": {
+    "confidence": 0.5,
+    "value": "None"
+   },
+   "circuit_wire_included": {
+    "confidence": 0.8,
+    "value": "Yes"
+   },
+   "colour": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_handoff": {
+    "confidence": 0.5,
+    "value": "Either"
+   },
+   "conduit_price_excluded": {
+    "confidence": 0.3,
+    "value": null
+   },
+   "conduit_type": {
+    "confidence": 0.8,
+    "value": "PVC"
+   },
+   "other_conduit": {
+    "confidence": 0.5,
+    "value": "Flexible"
+   },
+   "plate_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "point_type": {
+    "confidence": 1.0,
+    "value": "Secondary"
+   },
+   "points": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.6,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "wire1_core": {
+    "confidence": 0.9,
+    "value": 1
+   },
+   "wire1_runs": {
+    "confidence": 0.95,
+    "value": 3
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.95,
+    "value": 6
+   },
+   "wire2_core": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_runs": {
+    "confidence": 0.3,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.7,
+    "value": "None"
+   }
+  },
+  "desc": "Upto 6 Meters",
+  "headings": [
+   "POWER WIRING [ LHSFT / FRLS MMS PVC CONDUITS ]",
+   "6 sqmm x 3w cu ckt power point wiring with conduit including circuit termination for RAW POWER & UPS POWER from MCB DB - Secondary Point"
+  ],
+  "unit": "Pts"
+ },
+ "BOQ-26-00256|ELECTRICAL|667": {
+  "cat": "lighting_mgmt_system",
+  "cells": {
+   "brand": {
+    "confidence": 0.7,
+    "value": "Lutron"
+   },
+   "description": {
+    "confidence": 0.9,
+    "value": "Supply of QS cable for power and data simialr to Lutron QS‐CBL‐LSZH Cable Adheres to CE standards for Low Smoke Generation (EN 60332‐1‐2), Halogen Gas Emission (EN 61034‐2), and Flame Retardation (EN 60754‐1&2). • Five Conductors: Common – 0.75 mm2 (18 AWG) Power – 0.75 mm2 (18 AWG) MUX Data – 0.25 mm2 (22 AWG) _ Data – 0.25 mm2 (22 AWG) Drain Wire – 0.2 mm2 (24 AWG) Laying in suitable conduits to be done by Electrical contractor."
+   }
+  },
+  "desc": "QS cable for power and data simialr to Lutron QS-CBL-LSZH Cable Adheres to CE standards for Low Smoke Generation (EN 60332-1-2), Halogen Gas Emission (EN 61034-2), and Flame Retardation (EN 60754-1&2). • Five Conductors: Common – 0.75 mm2 (18 AWG) Power – 0.75 mm2 (18 AWG) MUX Data – 0.25 mm2 (22 AWG) _ Data – 0.25 mm2 (22 AWG) Drain Wire – 0.2 mm2 (24 AWG)",
+  "headings": [
+   "Supply, Installation, Testing and Commissioning of of following size 2mm thick rigid FRLS PVC conduits & accessories fixing in ceiling/wall/Parition etc"
+  ],
+  "unit": "Mtrs"
+ },
+ "BOQ-26-00298|ELECTRICAL BOQ |603": {
+  "cat": "switches_sockets",
+  "cells": {
+   "back_box": {
+    "confidence": 0.6,
+    "corroborated": false,
+    "value": "No"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "box_modules_stated": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "colour": {
+    "confidence": 0.4,
+    "corroborated": false,
+    "defaulted": true,
+    "value": "White"
+   },
+   "plate_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "plate_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket1_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket1_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket2_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket2_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket3_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket3_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "socket4_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "socket4_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": "None"
+   },
+   "switch_qty": {
+    "confidence": 0.9,
+    "corroborated": false,
+    "value": null
+   }
+  },
+  "desc": "Supply & Installation , Testing and Commissioning of male connector of weiland make or equivalent make",
+  "headings": [
+   "4P MCB BOX with Polycarbonate enclosures (Indoor - IP 52)",
+   "VAV & FIRE EXIT SINAGES Circuit & looping:"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00328|BOQ|583": {
+  "cat": "lighting_mgmt_system",
+  "cells": {
+   "brand": {
+    "confidence": 0.95,
+    "value": "Lutron"
+   },
+   "description": {
+    "confidence": 0.9,
+    "value": "Supply, Installation, Testing & Commissioning of Wireless personlised control Keypad with a WPC approved frequency of 865 Mhz, 3 Button with raise and lower for smaller rooms, with faceplate,mounts on glass surfaces also, with 10 year battery life along with necessary fixing arrangements and programming at site etc, complete as required similar to Lutron PN2-3BRL-TAW-LO1 +LPFP S1 TAW"
+   }
+  },
+  "desc": "Supply,installation,testing and commissioning of Wall Mounted Pico 3 button keypad, Scene Selector with master raise / lower, Lutron model no. - PN2- 3BRL- TAW-LO1 , complete as required.",
+  "headings": [
+   "DIMMIMG SYSTEM (IN CONFERENCE ROOM 24 PAX, BOARD ROOM 28 PAX, 12 PAX MEETING ROOM & 16 PAX MEETING ROOM)"
+  ],
+  "unit": "Nos."
+ },
+ "BOQ-26-00348|Ele-BOQ|19": {
+  "cat": "point_wiring",
+  "cells": {
+   "back_box": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": "Yes"
+   },
+   "blank_item": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "blank_qty": {
+    "confidence": 0.9,
+    "value": null
+   },
+   "circuit_length_m": {
+    "confidence": 0.9,
+    "value": null
+   },
+   "circuit_wire1_core": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "circuit_wire1_runs": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "circuit_wire1_thickness_sqmm": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "circuit_wire2_core": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "circuit_wire2_runs": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "circuit_wire2_thickness_sqmm": {
+    "confidence": 0.85,
+    "value": "None"
+   },
+   "circuit_wire_included": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": "No"
+   },
+   "colour": {
+    "confidence": 0.8,
+    "defaulted": true,
+    "value": "White"
+   },
+   "conduit_handoff": {
+    "confidence": 0.85,
+    "value": "Yes"
+   },
+   "conduit_price_excluded": {
+    "confidence": 0.8,
+    "value": "Yes"
+   },
+   "conduit_type": {
+    "confidence": 0.7,
+    "value": "None"
+   },
+   "other_conduit": {
+    "confidence": 0.75,
+    "value": "None"
+   },
+   "plate_item": {
+    "confidence": 0.6,
+    "value": null
+   },
+   "plate_qty": {
+    "confidence": 0.5,
+    "defaulted": true,
+    "value": 1
+   },
+   "point_type": {
+    "confidence": 1.0,
+    "value": "Primary"
+   },
+   "points": {
+    "confidence": 0.85,
+    "defaulted": true,
+    "value": 1
+   },
+   "socket_item": {
+    "confidence": 0.9,
+    "value": "None"
+   },
+   "socket_qty": {
+    "confidence": 0.9,
+    "value": null
+   },
+   "switch_item": {
+    "confidence": 0.8,
+    "value": "10A 1 WAY SWITCH"
+   },
+   "switch_qty": {
+    "confidence": 0.85,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_core": {
+    "confidence": 0.97,
+    "value": 3
+   },
+   "wire1_runs": {
+    "confidence": 0.9,
+    "defaulted": true,
+    "value": 1
+   },
+   "wire1_thickness_sqmm": {
+    "confidence": 0.97,
+    "value": 1.5
+   },
+   "wire2_core": {
+    "confidence": 0.9,
+    "value": null
+   },
+   "wire2_runs": {
+    "confidence": 0.9,
+    "value": null
+   },
+   "wire2_thickness_sqmm": {
+    "confidence": 0.9,
+    "value": "None"
+   }
+  },
+  "desc": "Supplying, wiring, connecting & commissioning the Primary Light Points with 3 Core 1.5 Sqmm. PVC Insulated multistranded copper Multicore FRLS Cables (one each for Phase, Neutral and earth) in powder coated perforated raceway in ceiling with necessary clamps, screws, etc., including supplying and fixing 6 AMPS Switch in Manufacturer's mounting box fixed flush with the wall",
+  "headings": [
+   "WIRING SYSTEM",
+   "PRIMARY POINT WIRING IN RACEWAY ( RATE OF RACEWAY TO BE QUOTED IN SEPARATE ITEM)"
+  ],
+  "unit": "No"
+ }
+}

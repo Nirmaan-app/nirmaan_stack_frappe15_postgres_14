@@ -75,6 +75,16 @@ DERIVED_FONT_HEX = "FF7F7F7F"
 DERIVED_BORDER_HEX = "FF9C9C9C"
 
 
+def integral_number(value):
+    """ELR-1 (owner R-NUM B, 2026-10-27: "1200", not "1200.0", every discipline): a stored float that is a whole
+    number as the int it equals; every other value unchanged. The ONE rule both writers (CSV text, Excel cell) use,
+    so the file shows a number the way the Data Viewer does. The importer reads "1200" and "1200.0" as one value,
+    so an unchanged file still previews 0 changes."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def is_xlsx(raw):
     """True when the bytes are a zip container (every .xlsx is one). A str is never an xlsx."""
     return isinstance(raw, (bytes, bytearray)) and bytes(raw[:4]) == XLSX_MAGIC
@@ -149,9 +159,9 @@ def write_xlsx(headers, rows, numeric_columns, formula_row=None, wrap_columns=()
                     cell.protection = unlocked
                 continue
             if name in numeric and isinstance(value, (int, float)) and not isinstance(value, bool):
-                cell.value = value
+                cell.value = integral_number(value)
             else:
-                cell.value = str(value)
+                cell.value = str(integral_number(value))
                 cell.number_format = TEXT_FORMAT
             if name in wrap:
                 cell.font = Font(color=FORMULA_CELL_COLOR)

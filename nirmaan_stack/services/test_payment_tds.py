@@ -63,10 +63,12 @@ class TestPaymentTDS(FrappeTestCase):
 			)
 		frappe.db.sql(
 			"""INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, status, total_amount, amount_paid)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 1000000, 0)""",
+				   docstatus, idx, project, vendor, status, total_amount, amount_paid, amount_invoiced)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 1000000, 0, 1000000)""",
 			(cls.sr, U, U, cls.project, cls.vendor2),
 		)
+		# Invoiced in full: an approval re-runs the invoice check, which nobody skips (owner, 2026-10-30),
+		# and these Work Orders carry several payments each.
 		for name, categories in (
 			(cls.sr_misc, ["Miscellaneous Services"]),
 			(cls.sr_both, ["Miscellaneous Services", "Transportation Services"]),
@@ -74,9 +76,9 @@ class TestPaymentTDS(FrappeTestCase):
 		):
 			frappe.db.sql(
 				"""INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
-					   docstatus, idx, project, vendor, status, total_amount, amount_paid,
+					   docstatus, idx, project, vendor, status, total_amount, amount_paid, amount_invoiced,
 					   service_category_list)
-				   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 1000000, 0, %s)""",
+				   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', 1000000, 0, 1000000, %s)""",
 				(
 					name, U, U, cls.project, cls.vendor2,
 					frappe.as_json({"list": [{"name": c} for c in categories]}),

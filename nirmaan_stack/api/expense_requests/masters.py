@@ -216,8 +216,7 @@ def rename_expense_type(name: str, new_name: str):
 	⚠️ REFUSED for a name the code looks up by name (`names_referenced_in_code`): renaming one
 	would silently switch off the bank-import fallback.
 
-	⚠️ The `Expense Type` FIXTURE is keyed by name and re-imported on every migrate, so the
-	fixture must be updated too or the next migrate re-creates the old name as a second type.
+	`Expense Type` is not a fixture (owner, 2026-11-02), so a rename here lasts through migrate.
 	"""
 	_require_admin()
 	old = (name or "").strip()

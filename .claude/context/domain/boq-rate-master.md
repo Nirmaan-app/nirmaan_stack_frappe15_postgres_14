@@ -2031,8 +2031,8 @@ the config and its line must be GONE -- beside a NEGATIVE pin that no config key
 Input is named by the LABEL its Pricing Inputs row carries (`GI framework sheet factor`), never its item id; the
 label lives on the ITEM, so the tab receives the discipline's items; pipeline ids are written as plain words. A
 config message's `(R4)` / `(owner ...)` tag is stripped by `plainSentence` at render, so a config may keep its
-provenance without it reaching a pricer. The same mechanism lists ADP's rules (owner-approved); Electrical, alias
-and vendor-quote tabs stay EMPTY and are pinned so.
+provenance without it reaching a pricer. The same mechanism lists ADP's rules (owner-approved); alias and vendor-quote
+tabs stay EMPTY and are pinned so. An Electrical (attribute-path) category's list is `attributeRuleOrder`, see ELR-1 below; point wiring, switches & sockets and pop-up boxes list theirs through `assemblyRuleOrder`, see ELR-4a below, and so do the other eight Electrical categories, see ELR-4b below.
 
 **EVERY PRICER-FACING LINE PASSES THROUGH THE ONE PLAIN-ENGLISH FUNCTION (owner P1 / P2, 2026-10-08,
 slice 12d-5).** `frontend/src/pages/pricing/rate-master/plainEnglish.ts` holds `plainSentence`, the
@@ -2096,6 +2096,326 @@ other spelling refuses by name), shared by the calculator's typed "Other..." pip
 
 
 **A LIVE-SITE RATE TEST LEAVES THE MASTER'S PROVENANCE AS IT FOUND IT (CU-B, 2026-10-18).** A test that writes through the live grid path (`update_rate_master_item`) re-mints the derived rows in a NEW batch on every edit and every restore (`loader.recompute_derived_after_write`), so restoring the VALUES is not enough: `test_piping_v34` `test_live_01` records the active MS 300 / 250 rows before its edit and afterwards reactivates exactly those rows, deletes the rows it minted and the Version rows its saves wrote, and pins that the active row and the uid's row set are as before. Before this, every run left the live rows in a test batch (CU-0: 140 two-row batches, one live; the live pair was swapped back to v45's own batch `rmbulk-c7b9569bd0e8` in CU-B AC4). A new live-write test does the same.
+
+**THE RATE MASTER PAGE, ITS SIDEBAR ENTRY AND THE FREEZE READ ARE ADMIN-ONLY; THE PRICING READS ARE NOT
+(owner 2026-10-20 11:29 / 12:09, RM-ACCESS-1).** Admin = Administrator or `Nirmaan Admin Profile`. Estimates
+users lost the read-only view they had under `PricingRoute`. Who sees what:
+- **Frontend: one check.** The shared `constants/roles.isNirmaanAdmin` admits the same population as
+  `RATE_MASTER_ACCESS` read through `roleRouteState` (pinned in `rmAccess1.test.ts`). It gates the sidebar item, the edit and freeze controls and the freeze read's caller (a null
+  SWR key for anyone else). The route is `<RoleRoute allowed={RATE_MASTER_ACCESS} />`, so a non-admin who types
+  `/rate-master` gets the app's "Access Denied" page. No other in-app link to the page exists; `rmAccess1.test.ts`
+  sweeps `src/` by name, so a new link must be gated with the same check.
+- **Server.** `get_rate_master_freeze` calls `_require_rate_admin` (`pricing._is_nirmaan_admin`), so a non-admin
+  gets PermissionError (`test_rmf_16` to `test_rmf_19`). This is the admin GATE on a read, not the freeze GUARD in
+  the gate; RMF-1 still forbids the guard there (`test_rmf_14`).
+- **Pricing stays open.** The calculator stays on `PricingRoute` (Admin + Estimates) and the BoQ pricing panel on
+  `UPLOAD_BOQ_ACCESS`. Both price through `get_rate_master_items` and `get_rate_category_config`, which stay
+  login-only (`test_rmf_18`); never gate them on the Rate Master list.
+- **Not changed (owner 2026-10-26 23:55):** `start_suggest` is login-only (F2), the System Manager Desk / REST
+  door (F3, R8), the catalogue reads are open (F4), and the stray whitelist on `_resolve_spec_write` (F1).
+**ELR-1: THE ATTRIBUTE PATH RENDERS A DEFINITION'S `note`, AND THE FIELD AUDIT MEASURES IT (owner R-NOTES-RULE; R-SCOPE 5,
+2026-10-27).** A category priced from row-level attributes (every Electrical category, HVAC Raceway / Cables by alias)
+shows an attribute definition's `note` on the panel and the calculator as the field's `typedNote`, in the SAME blue box
+and the SAME class (`RateHelperPanel.TYPED_NOTE_CLASS`) the item-list path uses for its typed notes. `panelFieldAudit`
+has an ATTRIBUTE branch: renders = the attributes `compute` returns for a stored row; typed = a field drawn with no
+options; mandatory = with every other field answered and this one asked-and-blank the gate withholds the price and marks
+it "*". It names no attribute, category or discipline. It ENFORCES for EVERY Electrical category since ELR-2 (the
+expected-missing list in `panelFieldAudit.test.ts` is EMPTY; a config that loses a note is refused by name). A note
+never reaches the model: attribute-mode `build_attribute_defs` projects `{id, label, type, values}` only (proved
+byte-identical on v66 -> v67 and v67 -> v68 for every Electrical group).
+
+**ELR-1: THE NO-UNIT / RATE-ONLY NOTE IS ON BOTH PATHS (owner R-UNIT, 12c-U carried; Q1 ruling 2026-10-27).** A PRICED
+attribute-path BoQ row whose unit is blank or rate-only (`isRateOnlyUnit` / `splitRateOnlyUnit`, the item-list
+predicates) carries `workings.unitNote`, drawn in the item-list path's amber box (`UnitNoteBox`): the 12c-U lead, then
+"-> priced per <the matched catalogue row's unit>, the catalogue's unit for this item", or, for an ASSEMBLY, "-> priced
+as one <category display name> item". Assembly = a primary pipeline that sums two or more components of the category's
+OWN item kinds, or a category with no own item kind (point wiring); else the `match_master_row` row's unit; else one
+own-kind component whose rows share one unit (an industrial socket). Decided from the config and the priced result,
+never by a category name. Display only: no figure moves, a refusing row and the calculator carry none, and the attribute
+path still never refuses on a unit.
+
+**ELR-1: A NON-SPEC SKU GRID AND EVERY PRICING INPUTS GRID SHOW THE DOWNLOAD (owner R-ELR0 "7 ok"; Q2 / Q3 rulings
+2026-10-27).** `rateMasterGridColumns.followsFileLayout`: every Pricing Inputs grid (both disciplines, one rule -- no
+discipline is named) and every SKU grid that is neither spec-driven (ADP keeps ADP-4b's own layout) nor priced as a list
+of items (Insulation, Piping keep theirs) shows the download's columns in the download's order: item_uid, discipline,
+category, [kind], brand, unit, the OBSERVED attribute keys (a declared definition no item fills is not a column; a key
+the items carry with no definition is), the rates, the two formula columns -- each header a plain label with the file's
+column id beneath; the admin actions (and the Pricing Inputs "items" control) stay. A Pricing Inputs grid lists the
+inputs by name, the remark in its own column, `used_by` as the file DERIVES it, `shared_by` blank where empty. The
+Category cell shows the display name (N-7). Proved cell for cell against the exporter's own CSV and Excel
+(`RateMasterDataViewer.file.dom.test.tsx`), with Insulation, Piping, ADP and the empty-state grids hash-identical to
+before. point_wiring and every item-kind-less category keep the empty-state line, unchanged (Q2).
+
+**ELR-1: THE DOWNLOAD WRITES A WHOLE NUMBER AS AN INTEGER, EVERY DISCIPLINE (owner R-NUM B, 2026-10-27 23:00).**
+`xlsx_io.integral_number` is the one rule: the CSV text and the Excel cell of a whole-number float are the integer
+("1200", never "1200.0"); a fractional value is written as stored. The importer reads "1200" and "1200.0" as one value,
+so an unchanged file still previews 0 changes (proved on every category of both disciplines, CSV and Excel).
+
+**ELR-1: AN ATTRIBUTE-PATH CATEGORY'S DERIVATION RULES LIST IS WRITTEN FROM ITS PIPELINES; A CATEGORY WITH A LIST DRAWS NO
+EXTRACTION RULES CARD (owner R-DERIV 2026-09-27; R-ELR0 "1 ok"; Q4 ruling 2026-10-27).** `itemListRuleOrder.
+attributeRuleOrder` lists the BoQ pipelines' rules in run order (BCS not listed), each line's numbers from the step's own
+parameters, Pricing Inputs by their Pricing Inputs name, and its reason from `DERIVATION_RULINGS[category_id]` or
+"reason not recorded". Only a category with an entry there gets a list (wiring_cabling as of ELR-1); the other eleven
+keep the pointer line and their extraction card. ELR-4 adds them by entries and lines. Where a list exists the
+extraction "Rules" card (raw ids, `applies_to`, guidance naming fields) is not drawn; the guidance stays in the config.
+
+**ELR-2: AN ATTRIBUTE-PATH WORKING LINE READS THE PRICING INPUT'S OWN NAME AND THE FIELD'S LABEL, NEVER AN INTERNAL KEY
+(owner R-WORD "6 ok" and R-MISC, 2026-10-27; the Phase A answer, 2026-10-28).** Every line in a section's `matchedRows`
+on the attribute path (panel and calculator, HVAC Raceway / Cables by alias) is built by ONE function,
+`attributeWorkingLines.attributeWorkingLine`. A `rate_ref` line is "<the Pricing Input row's own `name`, its trailing
+column words swapped for this line's column word> = <value>": a percentage column as % ("Switchgear discount = 70%"),
+an amount as "<name> (<unit>) = Rs <value> per metre". The name is read from the items, never from a list in code, so a
+rename on the Rate Master page shows on the next price. A `component_ref` line is "<label>: <item> x <qty> = <amount>",
+where the label is the step's `display_label` in the asset, else the label of the field its catalogue item is bound to
+(`ref.item: "@<field>"`). `display_label` exists ONLY for a component that binds no single field (wires, circuit wires,
+point-wiring conduit and back box, blanks, switches & sockets' back box, the industrial socket); a new such component
+needs one, or its line is "(unnamed input) = <value>". The quantity is the trace's structured `qty` (display-only),
+never the "rate R x qty Q" prose. A formula component with no quantity shows "<item> = <amount>" ("Bus bar = 0").
+Amounts in Indian grouping, at most 2 decimals. `plainPricerText` is NOT used here (it garbles these lines); the
+item-list path keeps it.
+
+**ELR-2: THE PERMANENT NO-INTERNAL-NAME SWEEP.** `attributeWorkingLines.test.ts` runs, on panel AND calculator, a
+fixture of real stored rows chosen to reach every Electrical-engine working-line kind
+(`pricing/__fixtures__/elr2WorkingLines.json`), plus every catalogue SKU of every Electrical category and both HVAC
+aliases. Every line must match a NAMED approved template ("other" = 0), and no shown line (matched rows or section
+derivation) may carry snake_case. A new Pricing Input subject or component label is added to the template table in the
+same change that ships it.
+
+**ELR-2: NOTES ARE ENFORCED FOR EVERY ELECTRICAL CATEGORY.** Every typed + rendered + mandatory field carries its
+owner-approved note (v68: the 28, the Runs note since v67). Point-wiring and circuit-wire run notes state the
+three-conductor rule (owner R9, 2026-08-07, and the conductor floor, 2026-09-03). That floor is applied only at
+EXTRACTION (`extraction.apply_conductor_floor`); the calculator applies none, which is an open rule gap for ELR-R2.
+
+**ELR-3a: A STEP THAT BUILDS AN ASSEMBLY READS A PRICING INPUT THROUGH FOUR ARMS, AND ONLY THOSE (owner R-9, R-R1 Q1-Q8,
+2026-10-27 / 28).** `map_attribute` may carry `table_from_ctx` ({source value: ctx key}) and `default_from_ctx` (a ctx
+key); `derive_attribute` `constants_from_ctx` ({constant: ctx key}); `circuit_fit` `usable_from_ctx` ({conduit type:
+[one ctx key per size]}). Each REPLACES its literal (`table`, `default`, `constants`, `usable`): a step carrying both is
+refused by the validator at save and by the interpreter at run, never merged. The ctx keys are `rate_ref` results
+(`pi_<item>_<target>`) the mint APPENDS; the hoist runs them first. A key no `rate_ref` of the pipeline loads is refused
+at save naming it; a key never computed refuses the row naming it. `default_from_ctx` is resolved BEFORE the None-pick
+test reads the default (a stated "None" stretch is still kept). Any other `_from_ctx` on these three step types stays
+refused by name. The registry is `ASSEMBLY_CTX_ARMS` (interpreter) = `_ASSEMBLY_CTX_ARMS` (config_validation), pinned
+equal. First users: point_wiring's 15 / 5 / 30 and six conduit fills (Electrical v69).
+
+**ELR-3a: AN ASSEMBLY-ONLY INPUT ADDS NO WORKING LINE, AND A DERIVED NOTE SHOWS THE NUMBER PRICING USED (owner Q1 a / Q2 a,
+2026-10-28).** A `rate_ref` whose result a pipeline reads ONLY through the four arms (`assemblyOnlyCtxKeys`) is left out
+of the section's `matchedRows` on the BoQ panel and the calculator -- the bill reads exactly as it did while the number
+was a literal. A key also read anywhere else keeps its line. The "Worked out: 15 + (2 - 1) x 5 = 20 m" note substitutes
+the constants the interpreter BOUND (`derivedAttr.constants`, display-only, present only for `constants_from_ctx`), and
+the map note tests a `table_from_ctx`'s KEYS, so neither shows a ctx key nor goes stale when the input is edited.
+
+**ELR-3a: THE ASSEMBLY-ONLY PANEL SHAPE AND THE WORKED EXAMPLES (owner R-9, R-18, Q5, Q7).** An input READ by a category's
+rules that reaches no SKU, no candidate SKU and is not a flat adder takes the impact panel shape `assembly_only` (HVAC's
+flexible duct length per piece and the nine point-wiring inputs, as of v69 / v54). Its panel says "This number moves no
+SKU's own rate. It changes how <category> builds its price" (+ " - worked examples below." where the category has
+examples), replacing the pair shape's "open a SKU" sentence. The examples live in the category config as
+`impact_examples` [{id, name, source?, attrs, no_change_reason?}] -- real stored row shapes, minted with the asset, every
+attr a declared attribute (validated by name). Before and after are BOTH `makePricingSheetHelper(...).compute` of the
+example (after = the catalogue with the edited value patched in, `itemsWithInput`), recomputed as the value is typed,
+before Save; the change and % come from `exampleLegChange`. No arithmetic in `pricingInputExamples.ts` or the panel's
+example list (source-pinned). `pricingInputExamples.test.ts` pins each example's before figures and fails by name if one
+stops pricing or illustrates nothing.
+
+**ELR-3a: AN ASSEMBLY-STEP INPUT HAS A RANGE, DERIVED FROM THE ARM THAT READS IT (owner R-R1 Q4).** A length (read by a
+map / derive arm) must be more than 0, with no upper limit; a conduit fill (read by `usable_from_ctx`) more than 0 and
+at most 1. `config_validation.pricing_input_ranges(configs)` derives it -- no list of ids. It is enforced at the Rate
+Master save (update AND create, `_guard_pricing_input_values`) and on file upload (`build_plan`), in ONE wording
+(`csv_importer.validate_pricing_input_value(value, label, value_range)`, "<name> (<column>): a length must be more than
+0 (got 0)."); the panel shows the same sentence before Save and disables Save; the interpreter refuses a fill outside
+(0, 1] naming the input. Every other input keeps the general rule (zero allowed, negative refused).
+
+**ELR-3a: A WHOLE-NUMBER PRICING INPUT IS STORED AS A FLOAT (15.0, not 15).** The upload reads a cell back as a float, so a
+value stored as an integer previews as a change ("15" -> "15.0") on an untouched file. The HVAC factor convention (2.5,
+300.0) already held. The guard is the live round trip (`test_elr3a_assembly_inputs` TestElr3aLive: the real Electrical
+Pricing Inputs download previews 44 unchanged / 0 changed); a future mint of a whole-number input stores a float. The
+download still writes the integer text (ELR-1).
+
+**ELR-3a: v69 REACHES PRODUCTION ONLY BY DEPLOYMENT MODE (owner R-PI).** v69 ADDS nine Electrical Pricing Inputs that
+production does not hold and changes none. A load supersedes wholesale per kind, so a v69 built from dev's catalogue
+would restore every production edit to the 35 existing inputs (and every SKU) made since that copy. The route is:
+freeze production, export it, build the asset from that export + this slice's declared change (the nine items, the 12
+arms, the 27 rate_refs, the prose, `impact_examples`), load. No deploy happened in ELR-3a.
+
+**ELR-3b: THE PLATE-QUANTITY DEFAULT IS THE SERVER'S CASE (b), ON THE PANEL AND THE CALCULATOR, THROUGH ONE FUNCTION (owner
+R-8; R-V1 2026-10-27 "2 v1"; R-V1b / R-V1c 2026-10-29).** `computedPlateQtyDefaults(config, valueOf)` in
+`pricingSheetHelper.ts` mirrors `extraction.fill_paired_slot_defaults` case (b) and `paired_fill_plan`, read from the
+config and never from a name. An item is COMPUTED when it is the `requires_named` item of an `extraction_defaults` spec
+with a `default` AND a `module_fit` ladder `bind` (the face plate). When its quantity and the item are both BLANK and the
+box is OCCUPIED (a term of the first `module_fit` step whose `none_when` item is filled, not "None" and not blank, carries
+a quantity above zero), the quantity takes the declared default. `compute()` calls it once, before `cellOf`, so the BoQ
+panel and the calculator (the same `compute()`, with no extraction) give one answer. Its cell replaces a stored BLANK cell
+(the never-asked map cannot: it fills only a key the stored row lacks) and is marked `defaulted`: the existing "default"
+badge and "(defaulted -- no positive text identification)" line, NOT the never-asked line (the field was asked). It shows
+NO confidence (R-V1c; a server re-read carries 0.5 - display only, the value and the price are the same). A quantity the
+pricer typed (any override, a cleared box included) is never filled. NOT filled: an EMPTY box (every switch / socket None
+or blank - V2 was not ruled), a NAMED plate (ADP-3a U7, calculator only, unchanged) and a "None" plate. The server code
+is unchanged. It is a PRICE CHANGE wherever stored rows carry a blank plate quantity beside an occupied box, production
+included; the deploy pack names it.
+
+**ELR-4a: A MODULE-FITTING CATEGORY'S RULES LIST IS WRITTEN FROM ITS SOURCES, IN THE OWNER'S APPROVED WORDS (owner R-DERIV
+2026-09-27; R-APPROVE 2026-10-29 "option b"; R-Q4).** Point wiring (14 lines), switches & sockets (7) and pop-up boxes (6)
+list their rules through `assemblyRuleOrder` in `itemListRuleOrder.ts`. `attributeRuleOrder` sends a category there when
+EVERY key of its `DERIVATION_RULINGS` entry is an assembly line (`isAssemblyRulings`); wiring's keys are its own, so its 13
+lines take the ELR-1 path untouched. The KEY ORDER of the entry IS the line order (run order: the AI's read, then the BoQ
+pipeline steps; BCS not listed). A line EXISTS ONLY WHILE ITS SOURCE DOES (`assemblyFacts`):
+- a config STEP - `map_attribute` (the length table, the conduit-included chain, conduit type, the circuit stretch and the
+  secondary exclusion), `derive_attribute`, `circuit_fit`, `module_fit` (terms, ladders, the zero path, the pick, blanks,
+  `include_when`), the per-part `component_ref` supply / install, `sum_components` + `scale` + `roundup`,
+  `match_master_row` + the per-module `scale`;
+- a config RULE the AI is given (R9 the wires and points, S1-S3 the switch, S4 the bare box, P1 includes-modules);
+- a config DEFAULT (`extraction_defaults`: points, back box, colour, circuit wiring);
+- the CONFIG MARKER a code rule reads, the code rule named and tested to exist in `extraction.py`: `conductor_floor` ->
+  `apply_conductor_floor`; a `point_type` definition -> `point_type_of` / `secondary_length_m`; `requires_named` ->
+  `fill_paired_slot_defaults`; `absent_dependents` -> `force_absent_dependents`.
+Every Pricing Input (by its label), size, count, default and item name in a line is READ from that source; the words around
+them are the owner's approved wording, held in `ASSEMBLY_TEXT` (per category where the approved words differ - the
+quantities line). Each line ends "-- why:" with its approved reason or "reason not recorded". The pin is structural: delete
+a line's source on a copy and the line goes; change a value and the text follows; no snake_case, no rule id, no Pricing
+Input value. These three tabs draw no extraction Rules card (R-Q4). A NEW line needs the owner's approval of its words
+(R-APPROVE) and a source; never a line without one.
+
+**ELR-4a: POINT WIRING'S "BLANK PLATE" IS COMPUTED, NOT ASKED (owner R-PW-BLANK 2026-10-29; R-KEEP 2026-10-27 "4 let it
+be"; Q1 (A)).** The blanks are worked out by `module_fit` (the plate's modules less the modules used, a '1M Blanker' per
+spare, "Blank plate qty" honoured below the spare and capped above it); the blank component reads `@blank_fit_item`, never
+the row's `blank_item`, so the field priced nothing and only gated the row. Electrical v70 sets `"panel": false` on point
+wiring's `blank_item`: gone from the panel, the calculator and the "needed to price" gate. It is STILL ASKED of the model
+(`build_attribute_defs` skips only `extract: false` / `selector: false`), so the model's question is byte-identical. In its
+place both screens draw `blanksWorkedOutNote(config)` (`pricingSheetHelper.ts`) - written from the config's blanks block,
+for a block that shows its blanker on NO field (no `display_attr`) - as the `leadNote` of the blanks' quantity field
+(`RateHelperPanel.tsx`). Switches & sockets and pop-up boxes carry `display_attr: "blank_item"`, keep the field and draw no
+note. The change prices rows that refused ONLY on a blank "Blank plate" (the AI asked, returned blank): 21 on dev
+(BOQ-26-00190, -00332, -00366), now at the figures of the same row read "None"; 67 still-refusing rows stop naming it. A
+PRICE CHANGE on production too, counted on production's own rows.
+
+**ELR-4a: v70 REACHES PRODUCTION ONLY BY DEPLOYMENT MODE, WITH v69 (owner R-PI).** v70 = v69 + wording (the multi-core
+clause on point wiring's four runs notes; its config notes and golden pw5's note, both copies, naming the Pricing Inputs)
++ the `blank_item` flag; no item, rate or step moved. A load is wholesale per kind (`_load_multi` replaces every config):
+deploy v69 and v70 together - freeze, export, build, load - never one asset's config by hand.
+
+**ELR-4b: EVERY ELECTRICAL CATEGORY BUT THE PRICING INPUTS LISTS ITS RULES (owner R-APPROVE, the P6 answer 2026-10-29).**
+DB & switchgear (9), industrial sockets (8), earthing (3), conduit (3), cable tray (6), junction box (2), lighting
+management (2) and miscellaneous (2) list through `assemblyRuleOrder` like ELR-4a's three: their `DERIVATION_RULINGS`
+keys are in `ELECTRICAL_TEXT`, their facts come from `electricalFacts`, and the ELR-4a contract holds - a line exists only
+while its source does, every Pricing Input (by label), default, count and field label is read from it, and the approved
+words sit around them. The sources beyond ELR-4a's: the composite's `composite_slots` and `decomposition_rules` (DB);
+the rules R2 / R3 / R4 / R8 / R12 / R7 / R13 / R11; `catalog_fit` (`direction`, `on_miss`, `on_missing_fact`,
+`prefer_attr`, `absent_when`); the pole / SWG / curve `map_attribute`s; the `if_attr` x0 component; the conditional
+`component` / legacy `component_ref` adders; `match_master_row`; `matching_mode` `item_identity`; `extraction_defaults`
+with `text_overrides`; `synonyms`. Code rules by marker: the composite's breaker catalogue -> `breaker_catalog_for` /
+`apply_pole_plus_neutral_ladder`; `inch_trade_mm` -> `apply_inch_trade_size`. Vocabulary the owner approved AS WORDS (the
+four-pole and SP+N families, the breaker words, the parts the catalogue does not carry) stays words, and a test ties each
+word to the config table or rule that rules it. A JSON table keyed by fractions is written in VALUE order: JavaScript puts
+integer-like keys ("1", "2") before "3/4". Wiring has 15 lines (insulation and runs / cores after line 2); its conduit line
+says "at the size the BoQ states" only while its pipeline carries no `catalog_fit` on the conduit's bound size, so ELR-4d's
+fit changes the line with the code. The pop-up boxes reason quotes the owner without the raw "(owner R1)" (Q1).
+
+**ELR-4b: A FACTOR-0 CONDITIONAL ADDER READS "NOT INCLUDED" (owner R-ELR2 (g), 2026-10-29).** In
+`attributeWorkingLines.ts`, a formula-shape `component_ref` (no quantity) whose matched condition gives it `factor: 0`
+writes "<item>: not included" ("Bus bar: not included" on an earthing row Without); any other factor keeps "<item> =
+<amount>" ("Bus bar = 3,000" With). The words follow the step's own `params` - the condition the interpreter priced - never
+a second reading of the answers. Display only, panel and calculator alike; the replay's ac7v2 stores
+`workings.derivation`, not the sections' matched rows, so this line does not reach it.
+
+**ELR-4b: AN ALIAS CATEGORY HAS NO RATE MASTER TAB (owner R-ALIAS-A, 2026-10-30 "a").** HVAC Cables / Raceway are
+`holds_items: false`, and `rateMasterPageEntry` drops such categories from the Rate Master page, so `AliasDerivation`
+(`RateMasterDerivation.tsx`: the target's list word for word under one lead line, read through the page's own SWR keys)
+renders nowhere today. It is kept, tested and dormant; listing the aliases on the Rate Master is a later slice's approved
+change. A tab claim is checked against the PAGE's category list, not the tab's pure functions.
+
+**ELR-4b: TODAY'S BEHAVIOUR THE LISTS DESCRIBE, NOT ENDORSE (owner Q3 a / Q7 / R-EARTH).** A DB row whose parts are all
+None prices at Rs 0, not a refusal (38 rows on dev, 2026-10-29); a row read as earthing Material "BUS BAR" matches the Bus
+bar item itself, and With adds it again (4 rows at 8,700); the Type "Bus bar" rows at CU / GI refuse and are priced by
+hand. Each is an open item for its own fix.
+
+**ELR-4c: EVERY ELECTRICAL DERIVATION LINE HAS A NAMED CASE (owner R-39, block 39; the P6 answer 2026-10-30 "Q6 a").**
+`frontend/src/pages/pricing/electricalRuleCases.ts` holds one positive and one negative case per line (77 lines, 12
+categories, 169 cases at v70), each run through `makePricingSheetHelper(...).compute` on the live asset with its figures and
+its line's own effect on screen asserted (`electricalRuleReachability.test.ts`), and each run through the calculator = panel
+driver (`electricalCalculatorPanelParity.test.ts`; the one accepted difference is `A_wiring_primary`). THE GUARD
+(`electricalGuardDiff`): the lines the cases name must EQUAL the lines `attributeRuleOrder` generates from the configs, so a
+new line with no case, or a case naming a dead line, fails. Nothing is excluded: the 17 lines that describe the AI's READ
+(`MODEL_READ_LINES`) have model-read cases (the AI's answer fed through the panel; the reading itself stays tied to its config
+rule by the ELR-4a / 4b tie tests). A new or reworded Electrical line ships with its two cases; a mint that moves a figure
+fails a case by name. The stored rows the cases use are `__fixtures__/electricalRuleRows.json`, cells verbatim.
+
+**ELR-4c: AN ASSEMBLY INPUT A ROW USED GETS ONE WORKING LINE (owner R-ELR2 (c), "one line per input used"; P6 "Q1 b").**
+ELR-3a kept the assembly-only Pricing Inputs (lengths, the stretch, conduit fills) off the working bill; now a point wiring
+row shows one "<the input's name> = <value> <unit> (Pricing Input)" line per input its pricing USED
+(`usedAssemblyInputs`, `attributeWorkingLines.ts`, from the step traces): a map's table entry or default that resolved the
+value; a `derive_attribute` constant that moves the result (evaluated again at 0 - so a 1-point formula row shows the
+first-point length only, Q1 b); the fill of the size the conduit was fitted to. A stated value, a skipped map, an absent
+conduit and a refusal add none. Display only, panel and calculator alike.
+
+**ELR-4c: MONEY IS SHOWN TO 2 DECIMALS; THE PRICE IS NOT ROUNDED (owner R-FLOAT 2026-10-30 "ok"; P6 "Q3 a" / "Q3b a").**
+`moneyValue` (`attributeWorkingLines.ts`) is the one rule: the panel's header figure, the block figures, the copy control,
+the "Use this value" box and the working lines Supply / Install / Combined show 216.05, never 216.04999999999998; "Use this
+value" and the feedback log's computed value carry that same value. `values` (what pricing computed) is untouched, so no
+stored figure moves; the replay's ac7v2 rewords only the rows that showed a long float (507 at v70: earthing 382, conduit
+125).
+
+**ELR-4c: A RANGED PRICING INPUT IS CHECKED AGAINST ITS RANGE BEFORE "CANNOT BE NEGATIVE" (owner R-ELR2 (h); P6 "Q2 a").**
+`csv_importer.validate_pricing_input_value` checks the length / fill range first, so a negative fill or length gets the
+range sentence on both write paths (the upload and the Rate Master save) and on the page (`pricingInputRangeRefusal`); an
+input with no range keeps "cannot be negative". Out of range, the impact panel lists no worked example and shows the range
+sentence once.
+
+**ELR-4c: THE "*" FOLLOWS THE FIELD THE PRICER MUST FILL (P6 "Q4 a" / "Q5 a").** A target the pipeline fills from a field
+that is ON SCREEN and blank carries no "*" - the source does (TS-15: the calculator's "Circuit wiring stretch" while
+"Circuit wiring included" is blank); the gate is unchanged, and since ELR-4d (R-TS15) the refusal sentence names the source
+only. A needed target a
+HIDDEN field can also fill (the tray thickness from the BoQ's gauge) carries `eitherWords` - on the BoQ panel "* this, or a
+thickness the BoQ gives another way", no hidden field named (R-SWG); the calculator keeps the plain "*".
+
+**ELR-4d: THE CONDUCTOR FLOOR APPLIES ON EVERY SCREEN (owner R-3C; R-3C-CALC 2026-10-29 "1 option ii"; P6 "Q2 a", "Q7 b").**
+`rate-helper/conductorFloor.ts` is the TS twin of `extraction.apply_conductor_floor`; `compute` applies it to the effective
+values, so the BoQ panel and the calculator share one arithmetic and a typed count below three is raised too. Change a rule in
+one language and `__fixtures__/conductorFloorCases.json` must change with it: `conductorFloor.test.ts` and
+`test_conductor_floor_parity.py` both read that table. The raised field shows `derivedValue` + `substituted` ("(computed)") and
+a `landed` note, "Raised to three conductors.", and claims no confidence or default mark. A number box the floor raises keeps
+what is typed while it has focus and selects its text on focus (`floorBoxValue`, `isFloorRaised`), since re-showing 3 under the
+caret turned "12" into "32" and "1" into "31". A stored row is inert: the extraction already raised it.
+
+**ELR-4d: A `hop_only` FIT FITS WIRING'S CONDUIT (owner R-W6 2026-10-29 "3 fix"; v71).** `cable_boq`'s `catalog_fit` carries
+`hop_only: true`: it acts only on a stated number the catalogue does not stock at the row's `where` (the next size up, the
+Conduit category's `fit_up` note; above the largest the row does not price) and otherwise leaves no trace and binds nothing,
+so a stocked, None or blank size reads exactly as before. Three readers must keep ignoring such a step: `selfFitBinds` (a plain
+self-fit makes a blank size a needed input: 4,030 stored rows refused on scratch), `varyingAttrLine` (its kind would add
+conduit facts to a cable no-match sentence) and `fitLabels` (a `component_ref` matches the NUMBER strictly, so a hop goes
+through `fit_into` alone). The fit is dormant on screen today: wiring's size is a closed list on the dropdown and for the model,
+and no stored row has an unstocked size; a typed entry would need `extract_as` and so a change to the model's question.
+
+**ELR-4d: A DB ROW WITH NO PART REFUSES (owner R-DB-MANUAL 2026-07-31; P6 "Q3 a"; v71).** `sum_components` may declare
+`none_refusal: "<sentence>"`: when EVERY component was zeroed by `none_skips`, the pipeline returns `no_match` and
+`noneRefusalOf` reads the sentence; the helper shows it as the basis and once in the first block. A part named at quantity 0
+is not absent and still sums to 0. `db_buildup_bcs` does not declare it, because the ruling does not name it.
+
+**ELR-5: AN EMPTY SWITCHES & SOCKETS ROW REFUSES TOO (owner R-SS0; P4 "Q1 a, Q2 c, Q3 b", 2026-10-31; v72).** `swsock_boq` declares
+`none_refusal: "No part of this row matched the catalogue - price it by hand."`. A `none_skips` part whose own `qty.if_attr` switched it
+off (Back box = No) now counts as absent for that check; without this the back box reads "3M x 0" and the refusal never fires. Only
+`none_refusal` reads that set, so a pipeline that declares nothing is unchanged. A part named at quantity 0 (`from_attr`, `from_fit`) is
+still a part. Back box = Yes on an empty board still prices the 3M box. A blank plate with no quantity still asks for "Plate qty"
+(R-V1). A blanker named alone refuses as well: the blanker comes from the fit, and with no plate there is no spare module; pricing it
+alone is logged for a later slice. `swsock_bcs` does not declare the sentence (deferred to the BCS build, with R-BCS). Line 5 of the
+tab, "Plate, back box and blanks", shows the sentence from the config.
+
+**AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
+`python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
+test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
+it. MUST MOVE - the `CURRENT_*_ASSET` constant, an assertion naming the old file as current, a data-dir scan pinned to the
+old version (`max(ns) == <old>`), an assertion that the new file does not exist, a suite constant holding a count the mint
+changed - and the script exits 1 until every one has moved. LIKELY TO BREAK - a latest-asset reader that compares the
+current asset with an older mint (`now` vs `was`; it forgives a declared change only through a named `_without_*`
+normaliser, also listed: the new one chains there), a reader of the latest asset by bare file PREFIX
+(`latestAsset("rate_master_electrical_all_v")` - the form ELR-3a's hand search missed: `servedVsStoredPricing.test.ts`), an
+old count inside an assertion, a digest of the old file. REVIEW - every other latest-asset reader and every other line
+naming the old version (often a deliberate historical pin; never "fix" one of those). A hand grep for the old file name
+and `CURRENT_EALL_ASSET` finds the MUST class only. To check a past mint: `--rev <mint>^ --asset-rev <mint>`.
+Then run the readers it names, and test_rate_master, through the parallel runner (root `CLAUDE.md` § Commands,
+`scripts/run_tests_parallel.py --modules <file>`; Python only - vitest and tsc on their own): test_rate_master is the long pole (about 25 minutes, its
+167-test `TestRateMaster` class is 95% of it) and holds the rate-master naming series under `SELECT ... FOR UPDATE` for
+all of it, so it never runs beside another module that inserts rate-master rows - the runner holds those back by their
+measured locks and runs every other module beside it.
+
 ---
 
 ## Rate-master invariants filed under Domain Gotchas

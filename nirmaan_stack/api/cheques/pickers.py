@@ -16,7 +16,7 @@ from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 @frappe.whitelist()
 def get_securable_records(vendor: str) -> list[dict]:
-    """The Vendor's open POs, each with its project: what a Security Deposit cheque may name as secured
-    (#1486). Never a Work Order (spec #1514)."""
+    """The Vendor's open POs and Work Orders, each with its project: what a Security Deposit cheque may name
+    as secured (#1486; Work Orders again since ADR-0035 Amendment C)."""
     assert_cheque_access(frappe.session.user)
     return pickers.securable_records(vendor)
