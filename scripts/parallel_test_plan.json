@@ -2530,6 +2530,21 @@
    "writes": [],
    "reads": []
   },
+  "nirmaan_stack.services.boq_rate_match.test_load_spec_cards": {
+   "seconds": 16.4,
+   "series": [],
+   "writes": [
+    "tabBOQs",
+    "tabBoQ Row Spec Card"
+   ],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.services.boq_rate_match.test_match_run": {
    "seconds": 14.1,
    "series": [],
