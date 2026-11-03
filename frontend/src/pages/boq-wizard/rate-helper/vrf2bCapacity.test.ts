@@ -7,6 +7,7 @@
  * proves the CODE -- each new key on its own, positive AND negative, and that a config without the keys is untouched.
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import {
@@ -391,6 +392,22 @@ describe("VRF-2b -- the screen: option units (U2 A), the picker (U1), other form
     // opening the box again keeps nothing stale either: the picker shows the item's own unit
     st = applyItemEdit(st, { op: "set_other", index: 0, id: "capacity", on: true });
     expect(field(run(VRF, "Nos", st.items[0] as unknown as Record<string, unknown>), "capacity").unitPicker?.value).toBe("TR");
+  });
+
+  it("the select's pick on a picker field is ONE operation (value + box closed + picker dropped): 16HP picked after TR = 16 HP (cert run 2)", () => {
+    const st: ItemListEditState = { items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "16", [`capacity${UNIT_PICK_SUFFIX}`]: "TR" }, other: ["capacity"] }] };
+    const after = applyItemEdit(st, { op: "set_attr", index: 0, id: "capacity", value: "16", other: false });
+    expect(after.items[0].attrs[`capacity${UNIT_PICK_SUFFIX}`]).toBeUndefined();
+    expect(after.items[0].other).toBeUndefined();
+    const r = run(VRF, "Nos", after.items[0] as unknown as Record<string, unknown>);
+    expect([r.itemList!.totals!.supply_rate, r.itemList!.totals!.install_rate]).toEqual([436920, 16000]);
+    // NEGATIVE (BEFORE): the box-and-picker state the two-call handler left priced 16 TR = 20 HP
+    expect(run(VRF, "Nos", st.items[0] as unknown as Record<string, unknown>).itemList!.totals!.supply_rate).toBe(476040);
+    // the panel sends exactly that one operation for a field with a picker, and only for such a field
+    const src = readFileSync(new URL("./RateHelperPanel.tsx", import.meta.url), "utf-8");
+    expect(src).toMatch(/if \(f\.unitPicker\) \{[\s\S]{0,600}?onEdit\(\{ op: "set_attr", index: i, id: f\.id, value: e\.target\.value, other: false \}\);\s*return;/);
+    // every other field keeps its two calls, byte for byte (U8)
+    expect(src).toMatch(/onEdit\(\{ op: "set_other", index: i, id: f\.id, on: false \}\);\s*onEdit\(\{ op: "set_attr", index: i, id: f\.id, value: e\.target\.value \}\);/);
   });
 
   it("NEGATIVE (U8): no other category's form carries a picker or unit labels -- Piping's size field is as before", () => {

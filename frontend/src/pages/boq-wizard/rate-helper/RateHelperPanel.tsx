@@ -1495,6 +1495,14 @@ function ItemListBlocks({
                                      ...(e.target.value !== f.gate.equals ? { dropSection: f.gate.section } : {}) });
                             return;
                           }
+                          if (f.unitPicker) {
+                            // VRF-2b (owner QR-1 U1 A; found in the cert): a field with a unit picker sends the pick as ONE
+                            // operation -- the value, the box closed and the picker's value dropped together -- because
+                            // two calls here are each applied to the same render's state and the second drops the first,
+                            // which left a picked "16HP" read in the picker's TR. Every other field is unchanged.
+                            onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value, other: false });
+                            return;
+                          }
                           onEdit({ op: "set_other", index: i, id: f.id, on: false });
                           onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });
                         }}

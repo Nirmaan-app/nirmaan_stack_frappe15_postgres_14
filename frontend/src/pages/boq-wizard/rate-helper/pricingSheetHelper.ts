@@ -4077,6 +4077,8 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (!at(op.index)) return state;
       at(op.index).attrs[op.id] = op.value;
       if (op.other === false) setOther(op.index, op.id, false);
+      // VRF-2b (QR-1 U1 A): a pick from the list (the select's one operation) drops the unit picker's value too
+      if (op.other === false) delete at(op.index).attrs[`${op.id}${UNIT_PICK_SUFFIX}`];
       if (op.dropSection !== undefined && at(op.index).sections) {
         const rest = { ...at(op.index).sections };
         delete rest[op.dropSection];
