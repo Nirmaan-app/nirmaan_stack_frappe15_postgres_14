@@ -315,10 +315,16 @@ class TestEndpoints(FrappeTestCase):
         rows = [{"excel_row": 3, "matches": [{"key": "g", "colour": "green"}, {"key": "a", "colour": "amber"}]}]
         got = [{"name": "BRMR-2", "status": "complete", "commit_version": 4, "suggest_run": "BRSR-1", "run_at": None,
                 "results": json.dumps({"rows": rows}), "usage": json.dumps({"judge": {"spent_usd": 0.1}})}]
-        with patch.object(frappe, "get_all", return_value=got) as ga:
+        # DEV2-B5 S3 (mechanical inversion, R-H2AI): the stored rows are returned as stored, and each shown match gains
+        # `flag` (its latest "not a match" feedback; none here) and `description` (the matched row's text; none here).
+        with patch.object(frappe, "get_all", return_value=got) as ga, patch.object(RM, "current_flags", return_value={}) as cf, \
+                patch.object(frappe.db, "sql", return_value=[]):
             out = RM.get_match_results("B", "S")
         self.assertEqual(ga.call_args.kwargs["filters"], {"boq": "B", "sheet_name": "S", "active": 1})
-        self.assertEqual(out["run"]["rows"], rows)
+        cf.assert_called_once_with("B", "S", 4)
+        self.assertEqual([{**r, "matches": [{k: v for k, v in m.items() if k not in ("flag", "description")} for m in r["matches"]]}
+                          for r in out["run"]["rows"]], rows)
+        self.assertEqual({(m["flag"], m["description"]) for r in out["run"]["rows"] for m in r["matches"]}, {(None, None)})
         self.assertEqual(out["run"]["usage"]["judge"]["spent_usd"], 0.1)
         with patch.object(frappe, "get_all", return_value=[]):
             self.assertEqual(RM.get_match_results("B", "S"), {"run": None})

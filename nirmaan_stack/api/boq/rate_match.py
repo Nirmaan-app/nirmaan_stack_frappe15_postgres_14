@@ -258,9 +258,176 @@ def get_match_results(boq=None, sheet_name=None):
     r = rows[0]
     res = json.loads(r["results"]) if isinstance(r["results"], str) else (r["results"] or {})
     use = json.loads(r["usage"]) if isinstance(r["usage"], str) else (r["usage"] or {})
+    out_rows = res.get("rows") or []
+    _attach_flags(boq, sheet_name, r["commit_version"], out_rows)
+    _attach_texts(out_rows)
     return {"run": {"name": r["name"], "status": r["status"], "commit_version": r["commit_version"],
-                    "suggest_run": r["suggest_run"], "run_at": r["run_at"], "rows": res.get("rows") or [],
+                    "suggest_run": r["suggest_run"], "run_at": r["run_at"], "rows": out_rows,
                     "usage": use}}
+
+
+# ── "NOT A MATCH" (DEV2-B5 S3; owner R-H2AI: "Not a match" with an optional reason and note, CAPTURED and stored to
+# improve matching later, with Undo; a match marked not a match is struck through and left out of the range) ──────
+FEEDBACK_DOCTYPE = "BoQ Rate Match Feedback"
+NOT_A_MATCH, UNDO = "not_a_match", "undo"
+FEEDBACK_REASONS = ("Different spec", "Different item", "Different unit", "Different scope", "Other")
+NOTE_MAX_CHARS = 1000
+
+
+def _match_key(boq, sheet_name, excel_row):
+    return f"{boq}|{sheet_name}|{int(excel_row)}"
+
+
+def current_flags(boq, sheet_name, commit_version):
+    """{(excel_row, match key): latest feedback row} for one sheet at one committed version. APPEND-ONLY store: the
+    LATEST row (by creation, then name) for a (row, match) wins; an "undo" as the latest means not flagged."""
+    rows = frappe.get_all(FEEDBACK_DOCTYPE, filters={"boq": boq, "sheet_name": sheet_name, "commit_version": commit_version},
+                          fields=["name", "excel_row", "match_boq", "match_sheet_name", "match_excel_row", "action",
+                                  "reason", "note", "user", "marked_at", "creation"],
+                          order_by="creation asc, name asc")
+    latest = {}
+    for f in rows:
+        latest[(int(f["excel_row"]), _match_key(f["match_boq"], f["match_sheet_name"], f["match_excel_row"]))] = f
+    return latest
+
+
+def _attach_flags(boq, sheet_name, commit_version, rows):
+    """Each shown match gets `flag`: {action, reason, note, user, marked_at} when its latest feedback is not_a_match,
+    else None. Only read; the stored results are never changed."""
+    latest = current_flags(boq, sheet_name, commit_version) if rows else {}
+    for row in rows:
+        for m in row.get("matches") or []:
+            f = (latest.get((int(row["excel_row"]), _match_key(m.get("boq"), m.get("sheet_name"), m.get("excel_row"))))
+                 if m.get("excel_row") is not None else None)
+            m["flag"] = ({k: f[k] for k in ("action", "reason", "note", "user", "marked_at")}
+                         if f and f["action"] == NOT_A_MATCH else None)
+
+
+def _attach_texts(rows):
+    """Each shown match gets `description`: the matched row's own text from its CURRENT committed node (one read for
+    the whole sheet) - the card's short label; the pop-up shows the full payload (get_match_detail). None if gone."""
+    keys = sorted({(m.get("boq"), m.get("sheet_name"), int(m.get("excel_row"))) for r in rows for m in r.get("matches") or []
+                   if m.get("boq") and m.get("excel_row") is not None})
+    texts = {}
+    for i in range(0, len(keys), 500):
+        chunk = keys[i:i + 500]
+        cond = " or ".join(["(s.boq = %s and s.sheet_name = %s and n.source_row_number = %s)"] * len(chunk))
+        vals = [v for k in chunk for v in k]
+        for b, sn, er, d in frappe.db.sql(f'''select s.boq, s.sheet_name, n.source_row_number, n.description
+                from "tabBOQ Nodes" n join "tabBoQ Sheet" s on s.name = n.sheet
+                where s.is_current = 1 and n.is_current = 1 and ({cond})''', vals):
+            texts[(b, sn, int(er))] = d
+    for r in rows:
+        for m in r.get("matches") or []:
+            m["description"] = texts.get((m.get("boq"), m.get("sheet_name"), int(m.get("excel_row") or 0)))
+
+
+def _shown_match(match_run, boq, sheet_name, excel_row, match_boq, match_sheet_name, match_excel_row):
+    """The run doc (as_dict) when `match_run` is a match run of (boq, sheet_name) whose stored row `excel_row` SHOWS the
+    match (match_boq, match_sheet_name, match_excel_row); otherwise refused - an unknown match is never recorded."""
+    run = frappe.db.get_value(MATCH_DOCTYPE, match_run, ["name", "boq", "sheet_name", "commit_version", "results"],
+                              as_dict=True) if match_run else None
+    if not run or (run["boq"], run["sheet_name"]) != (boq, sheet_name):
+        frappe.throw("This match run does not belong to this sheet.", title="Unknown match")
+    res = json.loads(run["results"]) if isinstance(run["results"], str) else (run["results"] or {})
+    key = _match_key(match_boq, match_sheet_name, match_excel_row)
+    for row in res.get("rows") or []:
+        if int(row.get("excel_row")) == int(excel_row):
+            if any(_match_key(m.get("boq"), m.get("sheet_name"), m.get("excel_row")) == key for m in row.get("matches") or []):
+                return run
+            break
+    frappe.throw("That row is not a match shown for this row.", title="Unknown match")
+
+
+def _guard_can_price(boq, sheet_name, commit_version):
+    """A user may mark only on a sheet they can price, as the pricing page decides it: the sheet's CURRENT committed
+    version is the run's, it is not deliberately locked, and its single-editor lock is free, theirs or stale (read
+    only - the lock is never taken here)."""
+    from frappe.utils import now_datetime
+    from nirmaan_stack.api.boq.wizard.pricing import _get_sheet_is_locked
+    from nirmaan_stack.api.boq.wizard.pricing_lock import read_lock_info
+
+    cur = frappe.db.get_value("BoQ Sheet", {"boq": boq, "sheet_name": sheet_name, "is_current": 1}, "commit_version")
+    if cur is None or int(cur) != int(commit_version or 0):
+        frappe.throw("The sheet has been committed again since these matches were made.", title="Sheet changed")
+    if _get_sheet_is_locked(boq, sheet_name, cur):
+        frappe.throw("The sheet is locked, so its matches cannot be marked.", frappe.PermissionError, title="Sheet is locked")
+    info = read_lock_info(boq, sheet_name, cur, frappe.session.user, now_datetime())
+    if info is not None and not (info["is_locked_by_me"] or info["is_stale"]):
+        frappe.throw("Someone else is pricing this sheet right now.", frappe.PermissionError, title="Sheet in use")
+
+
+def _write_feedback(action, boq, sheet_name, excel_row, match_run, match_boq, match_sheet_name, match_excel_row,
+                    reason=None, note=None):
+    _require_login()
+    if not boq or not sheet_name or excel_row in (None, "") or match_excel_row in (None, ""):
+        frappe.throw("boq, sheet_name, excel_row and the match are required.", title="Missing field")
+    excel_row, match_excel_row = int(excel_row), int(match_excel_row)
+    run = _shown_match(match_run, boq, sheet_name, excel_row, match_boq, match_sheet_name, match_excel_row)
+    _guard_can_price(boq, sheet_name, run["commit_version"])
+    latest = current_flags(boq, sheet_name, run["commit_version"]).get(
+        (excel_row, _match_key(match_boq, match_sheet_name, match_excel_row)))
+    flagged = bool(latest and latest["action"] == NOT_A_MATCH)
+    if action == NOT_A_MATCH and flagged:
+        frappe.throw("This match is already marked not a match.", title="Already marked")
+    if action == UNDO and not flagged:
+        frappe.throw("This match is not marked not a match, so there is nothing to undo.", title="Nothing to undo")
+    reason = (reason or "").strip() or None
+    if reason and reason not in FEEDBACK_REASONS:
+        frappe.throw(f"Reason must be one of: {', '.join(FEEDBACK_REASONS)}.", title="Invalid reason")
+    note = (note or "").strip() or None
+    if note and len(note) > NOTE_MAX_CHARS:
+        frappe.throw(f"The note is longer than {NOTE_MAX_CHARS} characters.", title="Note too long")
+    doc = frappe.get_doc({"doctype": FEEDBACK_DOCTYPE, "boq": boq, "sheet_name": sheet_name, "excel_row": excel_row,
+                          "commit_version": run["commit_version"], "match_boq": match_boq,
+                          "match_sheet_name": match_sheet_name, "match_excel_row": match_excel_row,
+                          "match_run": run["name"], "action": action,
+                          "reason": reason if action == NOT_A_MATCH else None,
+                          "note": note if action == NOT_A_MATCH else None,
+                          "user": frappe.session.user, "marked_at": frappe.utils.now()})
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"ok": True, "name": doc.name, "action": action,
+            "flag": ({"action": NOT_A_MATCH, "reason": doc.reason, "note": doc.note, "user": doc.user,
+                      "marked_at": doc.marked_at} if action == NOT_A_MATCH else None)}
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_not_a_match(boq=None, sheet_name=None, excel_row=None, match_run=None, match_boq=None, match_sheet_name=None,
+                     match_excel_row=None, reason=None, note=None):
+    """Mark a shown match "not a match" (optional reason from FEEDBACK_REASONS, optional note). Appends one row."""
+    return _write_feedback(NOT_A_MATCH, boq, sheet_name, excel_row, match_run, match_boq, match_sheet_name,
+                           match_excel_row, reason, note)
+
+
+@frappe.whitelist(methods=["POST"])
+def undo_not_a_match(boq=None, sheet_name=None, excel_row=None, match_run=None, match_boq=None, match_sheet_name=None,
+                     match_excel_row=None):
+    """Undo the latest "not a match" on a shown match. Appends one "undo" row; nothing is deleted."""
+    return _write_feedback(UNDO, boq, sheet_name, excel_row, match_run, match_boq, match_sheet_name, match_excel_row)
+
+
+@frappe.whitelist()
+def get_match_detail(boq=None, sheet_name=None, excel_row=None, match_run=None, match_boq=None, match_sheet_name=None,
+                     match_excel_row=None):
+    """THE POP-UP's read for one SHOWN match: the matched BoQ's project and name, and the matched row's payload block -
+    rebuilt by the builder the pool used (extraction._ai_item over context_builder.build_sheet_context, through
+    cards.sheet_items), i.e. what the judge read - with its payload sha; `can_open` = the user may open that BoQ
+    (frappe read permission). Refused for a match the run does not show."""
+    _require_login()
+    from nirmaan_stack.services.boq_rate_match import cards as C
+
+    if match_excel_row in (None, "") or excel_row in (None, ""):
+        frappe.throw("excel_row and match_excel_row are required.", title="Missing field")
+    _shown_match(match_run, boq, sheet_name, int(excel_row), match_boq, match_sheet_name, int(match_excel_row))
+    b = frappe.db.get_value("BOQs", match_boq, ["name", "boq_name", "project"], as_dict=True) or {}
+    project_name = frappe.db.get_value("Projects", b.get("project"), "project_name") if b.get("project") else None
+    cv, items, _missing = C.sheet_items(match_boq, match_sheet_name, excel_rows=[int(match_excel_row)])
+    item = items[0][1] if items else None
+    return {"boq": match_boq, "boq_name": b.get("boq_name"), "project": b.get("project"), "project_name": project_name,
+            "sheet_name": match_sheet_name, "excel_row": int(match_excel_row), "committed_version": cv,
+            "payload": item, "payload_sha256": C.payload_sha256(item) if item else None,
+            "can_open": bool(b) and bool(frappe.has_permission("BOQs", "read", doc=match_boq))}
 
 
 def daily_pool_rebuild():

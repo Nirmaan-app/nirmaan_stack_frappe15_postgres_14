@@ -118,7 +118,10 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
         # Guards the scan itself: a broken AST walk returning nothing would make the equality vacuous.
         calls = _controller_calls()
         # DEV2-B4: 42 -> 44, BoQ Rate Match Run's two add_index calls (boq/sheet_name/active, suggest_run)
-        self.assertEqual(len(calls), 44)
+        # DEV2-B5: 44 -> 45, BoQ Rate Match Feedback's one (boq/sheet_name/excel_row)
+        self.assertEqual(len(calls), 45)
+        self.assertEqual(calls[("BoQ Rate Match Feedback", ("boq", "sheet_name", "excel_row"), False)],
+                         "boq_rate_match_feedback_boq_sheet_name_excel_row_idx")
         self.assertEqual(calls[("BoQ Rate Match Run", ("boq", "sheet_name", "active"), False)],
                          "boq_rate_match_run_boq_sheet_name_active_idx")
         self.assertEqual(calls[("Outflow Row Match", ("import_batch",), False)], "ofm_match_batch_idx")

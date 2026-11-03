@@ -75,6 +75,7 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('BoQ Rate Master Snapshot', ('import_batch',), 'BoQ_Rate_Master_Snapshot_import_batch_idx', False),
     ('BoQ Rate Master Snapshot', ('discipline', 'version'), 'BoQ_Rate_Master_Snapshot_discipline_version_idx', False),
     ('BoQ Rate Match Run', ('boq', 'sheet_name', 'active'), 'boq_rate_match_run_boq_sheet_name_active_idx', False),
+    ('BoQ Rate Match Feedback', ('boq', 'sheet_name', 'excel_row'), 'boq_rate_match_feedback_boq_sheet_name_excel_row_idx', False),
     ('BoQ Rate Match Run', ('suggest_run',), 'boq_rate_match_run_suggest_run_idx', False),
     ('BoQ Rate Suggestion Event', ('boq',), 'BoQ_Rate_Suggestion_Event_boq_idx', False),
     ('BoQ Rate Suggestion Event', ('run_id',), 'BoQ_Rate_Suggestion_Event_run_id_idx', False),
