@@ -136,8 +136,9 @@ up to 5 matches in the stored display order; each dot carries its words as title
 "Matching ..." / "No earlier match found" / "Matching failed: <reason>". The pop-up reads `get_match_detail` (only a
 SHOWN match): the matched row's payload rebuilt by the pool's builder (`cards.sheet_items` -> `extraction._ai_item`),
 `can_open` = frappe read permission on that BoQ AND (client) `boqAccess.canOpenBoqHub`. The pricing route reads
-`?row=<excel_row>` (`rowParamOf`): clears the view filters and scrolls there once. Before any Suggest run a row on the
-pre-run helper path keeps the stub (a source pin in pricingSheetHelper.test holds `buildHelperList(preRunHelper)`).
+`?row=<excel_row>` (`rowParamOf`): clears the view filters and scrolls there once. The pre-run panel list carries the
+closure too (`buildHelperList(preRunHelper, previouslyPricedHelper)`, pinned in pricingSheetHelper.test - owner answer 3),
+so a row before any Suggest run shows "Matching not run yet".
 
 **"NOT A MATCH" IS APPEND-ONLY FEEDBACK (owner R-H2AI: captured to improve matching later, with Undo; DEV2-B5).**
 Doctype `BoQ Rate Match Feedback`: one row per action (`not_a_match` / `undo`), reason from a fixed Select (Different

@@ -50413,8 +50413,10 @@ number); NO COST CAP (2026-11-02 23:23); DEV2-B1 answer 3. Slice answers (relaye
 
 ## Slice DEV2-B5 - H2 build 5 of 6: the "Previously priced" card, its pop-up, "Not a match" with Undo; dev2 pool cards; the safe Suggest estimate - as built 2026-11-03
 
-Desktop session `devb5` on dev2, delegated by the laptop. SIX commits: C1 `094d5cb64`, C2 `8ced2125c`, C3 `f20ba3414`,
-C4 `f2e3fe7cd`, C4b `48849cc00` (a fix found preparing the cert), and C5 (this entry + `boq-rate-master.md`):
+Desktop session `devb5` on dev2, delegated by the laptop. EIGHT commits: C1 `094d5cb64`, C2 `8ced2125c`, C3 `f20ba3414`,
+C4 `f2e3fe7cd`, C4b `48849cc00` (a fix found preparing the cert), C5 `d77d336bb` (this entry + `boq-rate-master.md`), C4c
+`dde41af66` (owner answer 3: pre-run rows show "Matching not run yet"; the one owner-approved pin line) and C5b (this
+update):
 - C1 is the spec-card loader under R-H2W.
 - C2 is the safe Suggest estimate + the Suggest test pins.
 - C3 is the feedback doctype, its endpoints and the flag in results; it carries the one migrate.
@@ -50432,6 +50434,8 @@ DEV2-B1 answer 3. Slice answers:
   This was a second pass on the 89 rows only, with the reservation ceiling 11M for that pass and the real use kept
   under 9M / $2. Done: BRMR-26-00015, 85 sent, 4 still refused by the $ reservation. OPEN: the guard should reserve the
   measured p90 reply size.
+- Answer 4 (21:08): the owner left; keep working as planned without the laptop - followed.
+- Answer 3 (21:02, "option A"): update the ONE pinned line and restore the pre-run call - done in C4c (see 3).
 - Answer 1 (17:54, S6): three BoQs for the owner's own end-to-end check, free and read-only. Done in `_Owner_Check.md`.
   Only Electrical and HVAC have Suggest rows in dev2, so the third BoQ is HVAC chilled water.
 
@@ -50470,8 +50474,10 @@ DEV2-B1 answer 3. Slice answers:
 
 ### 3. Found and fixed / open
 - C4b: "Mts." was read as another unit (found picking cert rows); fixed + pinned.
-- The pre-run panel list keeps `buildHelperList(preRunHelper)`: a source pin in pricingSheetHelper.test (out of scope)
-  holds it. Before any Suggest run, a row on that path shows the stub.
+- C4's vitest related met a source pin in pricingSheetHelper.test (out of scope) holding `buildHelperList(preRunHelper)`;
+  I reverted the call, the laptop relayed it, and owner answer 3 (21:02, "option A") approved updating that ONE line. C4c
+  restored the call, so pre-run rows show "Matching not run yet". The FULL vitest set was re-run: 148 / 5,964 passed.
+  Answers 3 and 4 were first missed (not read during the cert) and done after the laptop's 22:23 note.
 - OPEN:
   - (a) the test-budget guard reserves the 32,000 ceiling (answer 2);
   - (b) the B4 cert's 20-row Suggest (203 s) is still a miss at the new paces;
