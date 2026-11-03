@@ -194,7 +194,8 @@ world() {
   git -C "$LAP" init -q -b master; git -C "$LAP" add -A
   git -C "$LAP" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
   printf '# Laptop overrides\n\n| `hostname` | Machine |\n|---|---|\n| `lap.local` | the laptop |\n\n**After the table.**\n' > "$W/dev/CLAUDE.md"
-  A="$STUB_BOXES/me@air-test"; mkdir -p "$A/.ssh" "$A/.stub" "$A/Library/LaunchAgents"
+  A="$STUB_BOXES/me@air-test"; mkdir -p "$A/.ssh" "$A/.stub" "$A/.config/gh"
+  for d in LaunchAgents "Application Support" Logs Caches Preferences HTTPStorages; do mkdir -p "$A/Library/$d"; done   # every macOS home has these
   printf 'ssh-rsa AAAAB3OTHERKEY next@user\nssh-ed25519 AAAAC3TESTLAPTOPKEY me@laptop\n' > "$A/.ssh/authorized_keys"
   echo owner-tailnet > "$A/.stub/tailscale"; echo on > "$A/.stub/remote-login"
   echo owner-gh > "$A/.stub/gh-account"; touch "$A/.stub/keychain"
@@ -204,9 +205,10 @@ world() {
   local C="$STUB_BOXES/t@contabo-test"; mkdir -p "$C/.ssh" "$C/.stub"
   cp "$A/.ssh/authorized_keys" "$C/.ssh/"; echo owner-tailnet > "$C/.stub/tailscale"; echo "$GH_SECRET" > "$C/.stub/gh-token"
 }
-# Every file under a box home but the stub's own state and git internals, by content, with the world's path masked.
-tree_sum() { (cd "$1" && find . -type f ! -path './.stub/*' ! -path '*/.git/*' | LC_ALL=C sort | while IFS= read -r f; do
-  printf '%s %s\n' "$f" "$(sed "s|$W|W|g" "$f" | shasum | cut -c1-12)"; done) }
+# Every folder and file under a box home but the stub's own state and git internals, files by content, with the
+# world's path masked.
+tree_sum() { (cd "$1" && find . \( -path ./.stub -o -name .git \) -prune -o -print | LC_ALL=C sort | while IFS= read -r f; do
+  if [ -f "$f" ]; then printf '%s %s\n' "$f" "$(sed "s|$W|W|g" "$f" | shasum | cut -c1-12)"; else echo "$f/"; fi; done) }
 register() { git config -f "$R" --get-regexp '^(layer|box)\.air\.' | grep -v -e '^layer\.air\.started ' -e '^layer\.air\.proved ' | sed "s|$W|W|g"; }
 state() { echo "== register"; register; echo "== air"; tree_sum "$A"; echo "== laptop"; shasum < "$W/dev/CLAUDE.md"; ls "$STUB_STATE/envs"; }
 
@@ -303,6 +305,144 @@ for c in "observe:ob_tailscale" "keep-awake:keep_awake_on" "orca-app:tar -C" "or
   diff "$CLEAN" "$W/snapshot" > "$W/snapshot.diff" || fail "a crash at $item then a rerun ends as one clean run did (see $W/snapshot.diff)"
   pass "a crash at $item then a rerun ends as one clean run did"
 done
+
+# ---- release
+# Every file and folder of the world, so a dry run can be shown to change nothing.
+everything() { (cd "$W" && find home boxes state dev | LC_ALL=C sort | while IFS= read -r f; do
+  if [ -f "$f" ]; then echo "$f $(shasum < "$f")"; else echo "$f/"; fi; done) | shasum; }
+plan_id() { printf '%s\n' "$OUT" | sed -n 's/^plan \([0-9a-f]\{8\}\) .*/\1/p'; }
+# What the dry run says release will do, and what release then did, in the same shape.
+planned() { printf '%s\n' "$OUT" | sed -n -e 's/^plan  //p' -e '/^left  /p' | sed 's/  \[[^]]*\]$//'; }
+done_lines() { printf '%s\n' "$OUT" | sed -n -e 's/^do    //p' -e '/^left  /p'; }
+release() { bx release air "$@"; }
+confirm_tty() { run_tty /bin/bash "$LAP/scripts/devenv/box.sh" release air --confirm "$@"; }
+last_session_ssh_is_last() { awk '/^ssh .*-t me@air-test/ { s = NR } /^ssh / { l = NR } END { exit !(s && s == l) }' "$STUB_LOG"; }
+
+world rel
+PRE_AIR="$(tree_sum "$A")"; PRE_LAP="$(shasum < "$W/dev/CLAUDE.md")"; PRE_AIR_MD="$(cat "$A/work/y/CLAUDE.md")"
+bx enroll air; rc_is 0 "enroll before the release tests"
+
+bx release contabo --dry-run
+rc_is 1 "release refuses a box enroll never touched"; has "box contabo was not enrolled by box.sh" "the refusal says why"
+release
+rc_is 1 "release without --dry-run or --confirm refuses"; has "run it with --dry-run first" "it asks for the dry run"
+release --dry-run --stop-before lunch
+rc_is 1 "an unknown group refuses"; has "--stop-before takes one of: agent owner orca link" "it lists the groups"
+git -C "$LAP" config devbox-task.t1.box air
+release --dry-run
+rc_is 1 "a task record naming the box refuses"; has "tasks still on box air: t1" "the refusal names the task"
+git -C "$LAP" config --unset devbox-task.t1.box
+BOXCO="$A/work/y/variants/master"
+git -C "$BOXCO" checkout -q -b box/t9; git -C "$BOXCO" -c user.name=a -c user.email=a@example.com commit -q --allow-empty -m "agent work"
+release --dry-run
+rc_is 1 "a box branch with commits the laptop lacks refuses"; has "commits this laptop lacks on: box/t9" "the refusal names the branch"
+git -C "$LAP" fetch -q "$BOXCO" box/t9:box/t9
+echo yes > "$A/.stub/live-terminal"
+release --dry-run
+rc_is 1 "a live Orca terminal refuses"; has "live terminals (term_live1)" "the refusal names the terminal"
+: > "$A/.stub/live-terminal"
+
+BEFORE="$(everything)"; fresh_log
+release --dry-run
+rc_is 0 "release --dry-run"; P1="$(plan_id)"; [ -n "$P1" ] || fail "the dry run ends in a plan id"; pass "the dry run ends in a plan id"
+has "DELETES" "the dry run lists what release deletes"; has "  ~/Applications/Orca.app  [" "the delete list gives the app with its size"
+has "  ~/.config/devbox/agent.env" "the delete list gives the token file"
+same "$(everything)" "$BEFORE" "the dry run changes nothing"
+log_lacks "sudo" "the dry run never runs sudo"; log_lacks "-t me@air-test" "the dry run opens no terminal session"
+release --confirm deadbeef
+rc_is 1 "a stale plan id refuses"; has "the plan is now $P1, not deadbeef" "the refusal prints the live plan id"
+same "$(everything)" "$BEFORE" "a refused release changes nothing"
+
+# Release up to the owner group, then enroll again: what enroll records again equals what it first recorded.
+M1="$(register)"
+release --dry-run --stop-before owner; P2="$(plan_id)"
+release --confirm "$P2" --stop-before owner
+rc_is 0 "release --stop-before owner"
+same "$(layer agent-env) $(layer claude-md) $(layer laptop-row) $(layer registry-orca)" "none none none none" "the agent group's records are gone"
+same "$(layer gh-login)" owner-gh "the owner group stays recorded"
+same "$(git config -f "$R" box.air.orca || echo none)" none "box.air.orca is gone first"
+[ ! -e "$A/.config/devbox" ] || fail "~/.config/devbox is gone"; pass "~/.config/devbox is gone"
+same "$(shasum < "$W/dev/CLAUDE.md")" "$PRE_LAP" "the laptop's CLAUDE.md is byte-identical again"
+same "$(cat "$A/work/y/CLAUDE.md")" "$PRE_AIR_MD" "the Air's CLAUDE.md is as it was"
+bx enroll air
+rc_is 0 "enroll after a partial release"; has "claude auth status: logged in" "the second enroll proves again"
+same "$(register)" "$M1" "enroll records the same values a second time"
+
+# The whole release, by the owner at a terminal.
+fresh_log
+release --dry-run; P3="$(plan_id)"; planned > "$W/planned"
+confirm_tty "$P3"
+rc_is 0 "release air, the whole layer"
+done_lines > "$W/done"
+diff "$W/planned" "$W/done" > "$W/plan.diff" || fail "release did exactly what the dry run listed (see $W/plan.diff)"
+pass "release did exactly what the dry run listed"
+[ "$(wc -l < "$W/done")" -gt 15 ] || fail "the release did each item's work"; pass "the release did each item's work"
+last_session_ssh_is_last || fail "the session that ends the link is the last SSH call"; pass "the session that ends the link is the last SSH call"
+has "port 22 on air-test refused: Remote Login is off" "the laptop proves Remote Login is off"
+has "air-test is silent: air left the tailnet" "the laptop proves the Air left the tailnet"
+has "note  delete air's device in the Tailscale admin console" "release says to delete the device in the admin console"
+POST_AIR="$(tree_sum "$A")"
+same "$(printf '%s\n' "$POST_AIR" | grep -v -e '^./.ssh/authorized_keys ' -e '^./.gitconfig ')" \
+     "$(printf '%s\n' "$PRE_AIR" | grep -v -e '^./.ssh/authorized_keys ' -e '^./.gitconfig ')" "every folder and file on the Air is as before enroll"
+same "$(cat "$A/.ssh/authorized_keys")" "ssh-rsa AAAAB3OTHERKEY next@user" "only this laptop's key left authorized_keys"
+same "$(HOME="$A" git config --global user.name || echo none)" none "the owner's git identity is gone"
+same "$(cat "$A/.stub/remote-login") [$(cat "$A/.stub/tailscale")]" "off []" "Remote Login is off and Tailscale logged out"
+same "$(cat "$A/.stub/gh-account")[$( [ -f "$A/.stub/keychain" ] && echo keychain)]" "[]" "the gh and Claude logins are gone"
+same "$(shasum < "$W/dev/CLAUDE.md")" "$PRE_LAP" "the laptop's CLAUDE.md is byte-identical"
+same "$(git config -f "$R" --get-regexp '^(box|layer)\.air\.' || echo none)" none "the registry holds nothing of air"
+same "$(git config -f "$R" box.contabo.ssh)" t@contabo-test "contabo's entry stays"
+same "$(ls "$STUB_STATE/envs")" "" "this laptop forgot the Air's Orca"
+kill -0 $CAF || fail "the owner's caffeinate still runs after release"; pass "the owner's caffeinate still runs after release"
+
+# Run by an agent: no terminal for the password, so release stops before the link and hands the owner a command.
+world agent
+bx enroll air; rc_is 0 "enroll the agent-run world"
+release --dry-run; fresh_log
+release --confirm "$(plan_id)"
+rc_is 4 "with no terminal, release stops before the link"; has "need  air's password, for sudo" "it says what the owner must give"
+log_lacks "sudo" "nothing asked for sudo"; log_lacks "-t me@air-test" "no session was opened"
+same "$(layer registry) $(layer tailscale) $(layer remote-login) $(layer keep-awake)" "present running owner-tailnet on none" "only the link's records remain"
+P4="$(printf '%s\n' "$OUT" | sed -n 's/.*--confirm \([0-9a-f]\{8\}\).*/\1/p')"
+confirm_tty "$P4"
+rc_is 0 "the owner runs the printed command"; same "$(git config -f "$R" --get-regexp '^layer\.air\.' || echo none)" none "the layer is released"
+
+# A login that cannot be logged out: release stops before the link, so the owner can fix it and rerun.
+world stuck
+bx enroll air; rc_is 0 "enroll the stuck world"
+echo yes > "$A/.stub/gh-logout-fails"
+release --dry-run; fresh_log
+confirm_tty "$(plan_id)"
+rc_is 1 "a gh logout that fails stops release"; has "gh-login is still on air" "the stop names the login"
+has "At air, in Terminal: gh auth logout --hostname github.com --user owner-gh" "the stop gives the at-the-box command"
+log_lacks "-t me@air-test" "no link session after a failed logout"
+same "$(layer gh-login) $(layer tailscale)" "owner-gh running owner-tailnet" "the login and the link stay recorded"
+
+# What the next user changed since enroll stays as they set it.
+world next
+bx enroll air; rc_is 0 "enroll the next-user world"
+HOME="$A" git config --global user.name "Next User"; echo next-tailnet > "$A/.stub/tailscale"
+echo 'export EDITOR=vi' >> "$A/.zshenv"
+release --dry-run
+has "left  git-identity" "the plan leaves the next user's git identity"; has "left  tailscale" "the plan leaves the next user's tailnet"
+has "left  agent-env  ~/.zshenv now holds more" "the plan keeps a ~/.zshenv the next user wrote in"
+confirm_tty "$(plan_id)"
+rc_is 0 "release with the next user's changes"
+same "$(HOME="$A" git config --global user.name)" "Next User" "the next user's git name stays"
+same "$(cat "$A/.stub/tailscale")" next-tailnet "the next user's tailnet stays"
+same "$(cat "$A/.zshenv")" "export EDITOR=vi" "only the devbox block left ~/.zshenv"
+
+# The box will never answer again.
+world gone
+bx enroll air; rc_is 0 "enroll the gone world"
+echo off > "$A/.stub/remote-login"; fresh_log
+release --dry-run --box-gone
+rc_is 0 "release --box-gone --dry-run with the box unreachable"
+has "todo  remote-login  at air: System Settings > General > Sharing > Remote Login off" "box items become at-the-box steps"
+has "plan  orca-pair  edit  orca environment rm air-dev" "the laptop's pairing is in the plan"
+release --box-gone --confirm "$(plan_id)"
+rc_is 0 "release --box-gone"; log_lacks "ssh " "release --box-gone never uses SSH"
+same "$(git config -f "$R" --get-regexp '^(box|layer)\.air\.' || echo none)" none "the registry holds nothing of air"
+same "$(shasum < "$W/dev/CLAUDE.md")" "$(printf '# Laptop overrides\n\n| `hostname` | Machine |\n|---|---|\n| `lap.local` | the laptop |\n\n**After the table.**\n' | shasum)" "the laptop's CLAUDE.md is as before"
 
 # ---- no secret anywhere but agent.env
 for s in "$GH_SECRET" "$CLAUDE_SECRET"; do
