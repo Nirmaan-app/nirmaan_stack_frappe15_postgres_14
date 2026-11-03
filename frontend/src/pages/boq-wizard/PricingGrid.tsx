@@ -395,12 +395,10 @@ export function columnWidthKey(
   return REMARKS_WIDTH_KEY;
 }
 
-/** Seed px for a width-state key: a0/a1/a2 = w-16, a3 = w-36, a4 = Description (280), remarks =
- *  w-48, any descriptor (d:<col>) = w-28. Mirrors the old per-cell Tailwind hints. */
-/** DEV2-B6 (owner answer 4, option B): a RATE column's DEFAULT width, 112 + 28 px, so the priced dot, the 16 px opening
+/** DEV2-B6 (owner answer 4, option B; answer 5: 150 px, a safety margin): a RATE column's DEFAULT width, so the priced dot, the 16 px opening
  *  sparkle, the tick / count badge and the 80 px rate box sit on one line without spilling into the column to the left.
  *  A width the user dragged still wins (widthOf). */
-export const RATE_COL_SEED_PX = 140;
+export const RATE_COL_SEED_PX = 150;
 
 /** PURE. A descriptor column's default width: RATE_COL_SEED_PX for a rate column (its key in `rateKeys`), else
  *  seedForWidthKey's (unchanged). */
@@ -408,6 +406,8 @@ export function seedForDescriptorKey(key: string, rateKeys: ReadonlySet<string>)
   return rateKeys.has(key) ? RATE_COL_SEED_PX : seedForWidthKey(key);
 }
 
+/** Seed px for a width-state key: a0/a1/a2 = w-16, a3 = w-36, a4 = Description (280), remarks =
+ *  w-48, any descriptor (d:<col>) = w-28. Mirrors the old per-cell Tailwind hints. */
 export function seedForWidthKey(key: string): number {
   if (key === "a0" || key === "a1" || key === "a2") return seedWidthPx("w-16");
   if (key === "a3") return seedWidthPx("w-36");
