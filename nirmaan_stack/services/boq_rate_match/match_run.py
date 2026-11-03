@@ -80,11 +80,15 @@ def row_entry(t, x, pool, first_row=None):
 
 class _Progress:
     """Wraps the judge's client: each landed reply marks its target's rows done (a BoQ's identical rows count as
-    one call). The content -> rows map is built from the requests; no model call happens here."""
+    one call). The content -> rows map is built from the requests; no model call happens here.
 
-    def __init__(self, client, rows_by_content, done_before, report):
-        self.client, self.rows_by_content, self.done, self.report = client, rows_by_content, done_before, report
+    ⚠️ It only COUNTS. It runs on the call runner's own threads, where frappe.local (frappe.db, the cache, realtime)
+    is not bound: touching it there raised "object is not bound", which the runner read as a connection error and
+    stopped the run (DEV2-B4 S4 attempt 1). The job's main thread reads `done` and reports it (_judge_with_progress)."""
+
+    def __init__(self, client, rows_by_content, done_before):
         import threading
+        self.client, self.rows_by_content, self.done = client, rows_by_content, done_before
         self.lock = threading.Lock()
         self.messages = self
 
@@ -92,9 +96,32 @@ class _Progress:
         resp = self.client.messages.create(**kw)
         with self.lock:
             self.done += self.rows_by_content.get(kw["messages"][0]["content"], 1)
-            done = self.done
-        self.report("judge", done)
         return resp
+
+
+def _judge_with_progress(judge, wrapped, report, every_s=2.0):
+    """Run `judge()` (which touches no frappe state) on its own thread; the CALLER's thread - the one frappe is bound
+    to - reports wrapped.done as it moves. Re-raises the judge's error."""
+    import threading
+    box = {}
+
+    def go():
+        try:
+            box["out"] = judge()
+        except BaseException as exc:  # noqa: BLE001 -- re-raised on the caller's thread below
+            box["err"] = exc
+
+    th = threading.Thread(target=go, daemon=True)
+    th.start()
+    last = None
+    while th.is_alive():
+        th.join(every_s)
+        if wrapped is not None and wrapped.done != last:
+            last = wrapped.done
+            report("judge", last)
+    if "err" in box:
+        raise box["err"]
+    return box["out"]
 
 
 def _previous_active(boq, sheet_name, cv, exclude):
@@ -179,8 +206,9 @@ def run_match(run_name, *, only_rows=None, resume=False, client=None, card_clien
     by_content = {r["content"]: size[r["id"]] for r in reqs}
     report("judge", done0)
     tj = time.time()
-    wrapped = _Progress(client or call_runner.make_client(), by_content, done0, report) if reqs else client
-    jr = J.judge_items(items, seed=JUDGE_SEED, settings=js, client=wrapped) if reqs else {"targets": {}, "run": {}}
+    wrapped = _Progress(client or call_runner.make_client(), by_content, done0) if reqs else None
+    jr = (_judge_with_progress(lambda: J.judge_items(items, seed=JUDGE_SEED, settings=js, client=wrapped), wrapped, report)
+          if reqs else {"targets": {}, "run": {}})
     secs["judge"] = round(time.time() - tj, 1)
 
     report("storing", len(scope))

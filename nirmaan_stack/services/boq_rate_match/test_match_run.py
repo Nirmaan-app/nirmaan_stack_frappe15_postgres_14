@@ -14,6 +14,8 @@ only: no model call, and the database is never written (every read and write the
   fails closed     switch off / Suggest run not active -> MatchRefused before any read of the pool  /  the Suggest run
                    is never written
   forked lanes     the lists from N forked processes = the lists from one process, in target order
+  progress         (DEV2-B4 S4 fix) the judge's client wrapper only counts on the runner's threads; the job's own
+                   thread reports  /  a reporter that needs frappe is never called off that thread
 """
 import json
 from types import SimpleNamespace
@@ -249,6 +251,56 @@ class TestRunMatch(FrappeTestCase):
             with self.assertRaises(MR.MatchRefused):
                 MR.run_match("BRMR-1")
         self.assertEqual(h.writes, [])
+
+
+class TestProgressOffTheWorkerThreads(FrappeTestCase):
+    """DEV2-B4 S4 attempt 1: the judge's progress must never touch frappe on the call runner's threads."""
+
+    def test_the_wrapper_only_counts_and_the_callers_thread_reports(self):
+        import threading
+        inner = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: "reply"))
+        w = MR._Progress(inner, {"A": 3, "B": 1}, 2)
+        seen = []
+        main = threading.get_ident()
+
+        def judge():
+            t = threading.Thread(target=lambda: [w.create(messages=[{"content": c}]) for c in ("A", "B")])
+            t.start(); t.join()
+            return {"targets": {}, "run": {}}
+
+        out = MR._judge_with_progress(judge, w, lambda phase, done: seen.append((phase, done, threading.get_ident())),
+                                      every_s=0.01)
+        self.assertEqual(out, {"targets": {}, "run": {}})
+        self.assertEqual(w.done, 6)
+        self.assertEqual(seen[-1][:2], ("judge", 6))
+        self.assertTrue(all(tid == main for _p, _d, tid in seen), "reported only from the caller's thread")
+        self.assertFalse(hasattr(w, "report"))
+
+    def test_a_judge_error_is_raised_on_the_callers_thread(self):
+        def judge():
+            raise ValueError("boom")
+        with self.assertRaises(ValueError):
+            MR._judge_with_progress(judge, None, lambda *a: None, every_s=0.01)
+
+    def test_a_reporter_that_needs_frappe_is_never_called_off_the_main_thread(self):
+        # the S4 attempt-1 shape: a report that raises "object is not bound" off the main thread
+        import threading
+        main = threading.get_ident()
+
+        def report(phase, done):
+            if threading.get_ident() != main:
+                raise RuntimeError("object is not bound")
+
+        inner = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: "reply"))
+        w = MR._Progress(inner, {"A": 1}, 0)
+
+        def judge():
+            res = []
+            t = threading.Thread(target=lambda: res.append(w.create(messages=[{"content": "A"}])))
+            t.start(); t.join()
+            return res
+
+        self.assertEqual(MR._judge_with_progress(judge, w, report, every_s=0.01), ["reply"])
 
 
 def _fake_candidates(t, pool):

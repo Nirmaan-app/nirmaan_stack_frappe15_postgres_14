@@ -102,7 +102,7 @@
    ]
   },
   "nirmaan_stack.api.boq.test_rate_match": {
-   "seconds": 18.5,
+   "seconds": 19.2,
    "series": [],
    "writes": [],
    "reads": []
@@ -2540,7 +2540,7 @@
    "reads": []
   },
   "nirmaan_stack.services.boq_rate_match.test_match_run": {
-   "seconds": 15.6,
+   "seconds": 14.1,
    "series": [],
    "writes": [],
    "reads": []
