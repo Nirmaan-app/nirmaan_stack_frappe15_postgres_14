@@ -150,6 +150,8 @@ describe("skipSourceSummary", () => {
             );
             expect(refund.reference).toBe("Paired with OBO7000000000001");
             expect(spend.reference).toBe("Paired with REF-OBO7000000000001");
+            // A Txn Id is longer than the column: the line wraps rather than cut the id off (walk, 2026-11-03).
+            expect(refund.referenceWraps).toBe(true);
         });
 
         it("the hover still carries the full reason", () => {
@@ -176,6 +178,7 @@ describe("skipSourceSummary", () => {
                 row({ skip_kind: "Skipped by hand", decided_by: "asha@example.test", cashbook_refund_partner: "X1" }),
             );
             expect(summary.reference).toBe("asha@example.test");
+            expect(summary.referenceWraps).toBe(false);
         });
     });
 });

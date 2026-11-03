@@ -33,6 +33,11 @@ export interface SkipFactGroup {
 export interface SkipSourceSummary {
     /** One short line under the kind in the cell: the document reference. `""` when there is none. */
     reference: string;
+    /**
+     * The reference line wraps instead of being cut off (#1602): a "Paired with <Txn Id>" is longer than the
+     * column, and the id must be readable without a hover. Every other kind's line truncates as before.
+     */
+    referenceWraps: boolean;
     /** The hover card's body, in order. The reason sentence is always the last group. */
     groups: SkipFactGroup[];
 }
@@ -150,5 +155,9 @@ export const skipSourceSummary = (row: OutflowImportRow): SkipSourceSummary => {
         groups.push({ title: "", facts: facts([kind === SKIP_KIND_BY_HAND ? "Reason" : "Why", reason]) });
     }
 
-    return { reference, groups: groups.filter((g) => g.title || g.facts.length) };
+    return {
+        reference,
+        referenceWraps: kind === SKIP_KIND_CASHBOOK_REFUND_PAIR,
+        groups: groups.filter((g) => g.title || g.facts.length),
+    };
 };
