@@ -148,6 +148,16 @@ case "$CMD" in
     "$SELF_DIR/handoff.sh" from "$BOX_NAME" "$BRANCH"
     export BOX_STARTED=1
     echo; box_ssh "cat ~/$DIR/REPORT.md 2>/dev/null" || echo "(no report on the box)"
+    # Bring the task's walk evidence (screenshots, pages) home: the owner's phone link serves only the laptop's
+    # ~/claude-artifacts. A copy, so the box keeps its own; reruns only add what changed. Markdown stays on the box
+    # (no .md in ~/claude-artifacts, the owner's page rules); the report is printed above.
+    HOME_COPY="$HOME/claude-artifacts/box/$BOX_NAME/$NAME"
+    mkdir -p "$HOME_COPY"
+    for d in "$DIR" "claude-artifacts/verify/$NAME"; do
+      box_ssh "test -d ~/$d" || continue
+      rsync -a --exclude '*.md' -e "ssh ${BOX_SSH_OPTS[*]}" "$BOX_SSH:$d/" "$HOME_COPY/$(basename "$d")/" \
+        && ok "copied the box's ~/$d to $HOME_COPY/$(basename "$d")/"
+    done
     echo; echo "Review: git log --stat master..$BRANCH ; git diff master...$BRANCH"
     echo "Then merge and push yourself. Afterwards: task.sh clean $NAME"
     ;;
