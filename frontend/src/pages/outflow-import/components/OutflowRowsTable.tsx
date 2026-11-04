@@ -1066,7 +1066,11 @@ const SkipTypeCell = ({ row }: { row: OutflowImportRow }) => {
                             {row.skip_kind || "—"}
                         </span>
                         {summary.reference && (
-                            <span className="block truncate text-[11px] text-muted-foreground">
+                            <span
+                                className={`block text-[11px] text-muted-foreground ${
+                                    summary.referenceWraps ? "break-all" : "truncate"
+                                }`}
+                            >
                                 {summary.reference}
                             </span>
                         )}

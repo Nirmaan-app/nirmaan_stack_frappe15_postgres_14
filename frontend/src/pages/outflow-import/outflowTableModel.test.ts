@@ -18,6 +18,7 @@ import {
     pickFitsSingleSelect,
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
+    isMoneyReceivedLine,
     availableDecisionTargets,
     suggestRefundVendor,
     vendorNameKey,
@@ -814,6 +815,16 @@ describe("which way the money went — the ONE definition of the axis", () => {
         );
     });
 
+    it("offers only Create expense on an open Collect payment (spec #1585 \"Open Cashbook lines\")", () => {
+        // Its second choice, Skip by hand, is the Skip box (`canSkipByHand`), not a disposition.
+        expect(
+            availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Collect Payment" } as any)
+        ).toEqual(["new"]);
+        expect(availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Wallet Spend" } as any)).toEqual(
+            ["Project Payments", "Project Expenses", "Non Project Expenses", "new"]
+        );
+    });
+
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
         const first = availableDecisionTargets({ direction: "Credit" } as any);
         first.pop();
@@ -1578,6 +1589,24 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         expect(confirmBlocker(row(), {})).toMatch(/Pick the record/);
     });
 
+    it("says a Pending Cashbook line belongs to its import, in the server's own sentence (#1587)", () => {
+        const pending = row({ row_status: "Pending match run", source: "Cashbook" });
+        expect(confirmBlocker(pending, link)).toBe(
+            "The Cashbook import is still creating this line's expense, so it can't be worked by hand yet."
+        );
+        expect(confirmBlocker(row({ row_status: "Mismatched", source: "Cashbook" }), undefined)).toMatch(
+            /Pick the record/
+        );
+    });
+
+    it("tells an open Collect payment to pick Create expense or Skip, never to link (code review R6)", () => {
+        const collect = row({ row_status: "Mismatched", source: "Cashbook", row_kind: "Collect Payment" });
+        const sentence = "Pick Create expense, or Skip by hand.";
+        expect(confirmBlocker(collect, undefined)).toBe(sentence);
+        expect(confirmBlocker(collect, link)).toBe(sentence);
+        expect(confirmDisabledSentence("decision-incomplete", collect, undefined)).toBe(sentence);
+    });
+
     it("maps every gate reason, and stays silent while busy or live", () => {
         const r = row({ row_status: "Mismatched" });
         expect(confirmDisabledSentence(null, r, link)).toBeNull();
@@ -1585,6 +1614,25 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         expect(confirmDisabledSentence("decision-incomplete", r, undefined)).toMatch(/Pick the record/);
         expect(confirmDisabledSentence("balance-unknown", r, link)).toMatch(/already settled/);
         expect(confirmDisabledSentence("over-allocated", r, link)).toMatch(/untick one/);
+    });
+});
+
+describe("isMoneyReceivedLine", () => {
+    // The Choose dialog's "This transfer is money received" note reads this (spec #1585 story 36).
+    it("is a credit line that offers the money-in choices", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Credit" }))).toBe(true);
+        expect(isMoneyReceivedLine(row({ direction: "Credit", source: "Cashbook", row_kind: "Wallet Credit" }))).toBe(true);
+    });
+
+    it("is never a Collect payment, which is money out and offers only Create expense", () => {
+        const collect = row({ direction: "Debit", source: "Cashbook", row_kind: "Collect Payment" });
+        expect(availableDecisionTargets(collect)).toEqual(["new"]);
+        expect(isMoneyReceivedLine(collect)).toBe(false);
+    });
+
+    it("is never a debit line", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Debit" }))).toBe(false);
+        expect(isMoneyReceivedLine(row({ direction: "" }))).toBe(false);
     });
 });
 

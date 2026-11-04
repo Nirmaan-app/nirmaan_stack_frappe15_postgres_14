@@ -204,5 +204,7 @@ nirmaan_stack.patches.v3_0.remove_asset_returns
 nirmaan_stack.patches.v3_0.backfill_payee_type
 nirmaan_stack.patches.v3_0.drop_expense_category
 nirmaan_stack.patches.v3_0.drop_project_estimates
+nirmaan_stack.patches.v3_0.outflow_match_one_created_expense_per_transfer
+nirmaan_stack.patches.v3_0.outflow_match_one_expense_per_cashbook_txn
 nirmaan_stack.patches.v3_0.backfill_payment_tds_payment_date
 nirmaan_stack.patches.v3_0.merge_misspelled_expense_types

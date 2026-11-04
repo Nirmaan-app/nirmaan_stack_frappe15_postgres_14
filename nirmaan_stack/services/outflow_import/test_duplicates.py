@@ -145,6 +145,26 @@ class TestRefusal(unittest.TestCase):
         self.assertEqual(verdict.new, 1)
 
 
+class TestRepeatsThatStillBringWork(unittest.TestCase):
+    """#1593: a Cashbook repeat that brings a bill for an Expense still waiting for one is work, not nothing."""
+
+    def test_a_file_of_only_repeats_some_bringing_work_is_accepted_and_says_what_it_will_do(self):
+        verdict = assess_duplicates(
+            total=3, duplicates=3, earliest_batch="OFI-26-00007", filename="nov.csv", repeats_with_work=1
+        )
+        self.assertFalse(verdict.refuse)
+        self.assertTrue(verdict.warn)
+        self.assertEqual(verdict.new, 0)
+        self.assertEqual(
+            verdict.message,
+            "All 3 transfers in 'nov.csv' were already imported in batch OFI-26-00007 and will not be saved "
+            "again. 1 of them brings a bill for an existing Expense that is still waiting for one.",
+        )
+
+    def test_without_work_the_same_file_is_still_refused(self):
+        self.assertTrue(assess_duplicates(total=3, duplicates=3, repeats_with_work=0).refuse)
+
+
 class TestWarning(unittest.TestCase):
     def test_at_the_threshold_it_warns_without_blocking(self):
         verdict = assess_duplicates(total=10, duplicates=9, earliest_batch="OFI-26-00007")
@@ -220,6 +240,84 @@ class TestOrdinaryStatements(unittest.TestCase):
         verdict = assess_duplicates(total=0, duplicates=0)
         self.assertFalse(verdict.refuse)
         self.assertEqual(verdict.ratio, 0.0)
+
+
+class TestRepeatsFromSeveralEarlierImports(unittest.TestCase):
+    """#1605: the message named only the batch of the first repeat in the file, even when most repeats came from
+    another import. Each earlier import is named with its own count, the counts summing to the repeats."""
+
+    TWO = (("OFI-26-90001", 4), ("OFI-26-90002", 10))
+
+    def test_two_earlier_imports_are_each_named_with_their_count(self):
+        verdict = assess_duplicates(
+            total=22, duplicates=14, earliest_batch="OFI-26-90001", earlier_batches=self.TWO
+        )
+        self.assertEqual(
+            verdict.message,
+            "14 of 22 transfers were already imported: 4 in OFI-26-90001, 10 in OFI-26-90002. "
+            "They will not be saved.",
+        )
+
+    def test_one_earlier_import_keeps_the_sentence_it_had(self):
+        verdict = assess_duplicates(
+            total=22, duplicates=14, earliest_batch="OFI-26-90001", earlier_batches=(("OFI-26-90001", 14),)
+        )
+        self.assertEqual(
+            verdict.message, "14 of 22 transfers were already imported in batch OFI-26-90001. They will not be saved."
+        )
+
+    def test_repeats_within_the_file_keep_their_own_wording_beside_two_imports(self):
+        verdict = assess_duplicates(
+            total=22, duplicates=16, earliest_batch="OFI-26-90001", earlier_batches=self.TWO, repeated_in_file=2
+        )
+        self.assertEqual(
+            verdict.message,
+            "16 of 22 transfers were already imported or repeated in this file: 4 in OFI-26-90001, "
+            "10 in OFI-26-90002, 2 repeated in this file. They will not be saved.",
+        )
+
+    def test_the_warning_names_each_import(self):
+        verdict = assess_duplicates(
+            total=15, duplicates=14, earliest_batch="OFI-26-90001", earlier_batches=self.TWO, filename="nov.csv"
+        )
+        self.assertTrue(verdict.warn)
+        self.assertEqual(
+            verdict.message,
+            "Only 1 of 15 transfers in 'nov.csv' are new. The other 14 were already imported: "
+            "4 in OFI-26-90001, 10 in OFI-26-90002. They will not be saved.",
+        )
+
+    def test_the_refusal_names_each_import(self):
+        verdict = assess_duplicates(
+            total=14, duplicates=14, earliest_batch="OFI-26-90001", earlier_batches=self.TWO, filename="nov.csv"
+        )
+        self.assertTrue(verdict.refuse)
+        self.assertEqual(
+            verdict.message,
+            "Not imported. All 14 transfers in 'nov.csv' were already imported: 4 in OFI-26-90001, "
+            "10 in OFI-26-90002. Nothing in this file is new, so no records were created.",
+        )
+
+    def test_a_file_of_repeats_bringing_work_names_each_import(self):
+        verdict = assess_duplicates(
+            total=14, duplicates=14, earliest_batch="OFI-26-90001", earlier_batches=self.TWO,
+            filename="nov.csv", repeats_with_work=1,
+        )
+        self.assertEqual(
+            verdict.message,
+            "All 14 transfers in 'nov.csv' were already imported: 4 in OFI-26-90001, 10 in OFI-26-90002. "
+            "They will not be saved again. 1 of them brings a bill for an existing Expense that is still "
+            "waiting for one.",
+        )
+
+    def test_counts_that_do_not_add_up_fall_back_to_the_earliest_batch(self):
+        """A caller's per-import counts that miss some repeats would print a list summing to less than N."""
+        verdict = assess_duplicates(
+            total=22, duplicates=15, earliest_batch="OFI-26-90001", earlier_batches=self.TWO
+        )
+        self.assertEqual(
+            verdict.message, "15 of 22 transfers were already imported in batch OFI-26-90001. They will not be saved."
+        )
 
 
 class TestTheThresholdIsOneConstant(unittest.TestCase):

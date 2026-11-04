@@ -147,6 +147,9 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
         // `matched` is meaningless here: a Cashbook import creates records rather than finding
         // them, so there is nothing for a matcher to have run.
         stepIndex: (state) => (state.staged ? 2 : state.previewed ? 1 : 0),
+        // The Cashbook Statement as downloaded, and nothing else (spec #1585 story 1): its bill links are cell
+        // hyperlinks, which a CSV cannot carry. `cashbook._read_and_parse` refuses any other file.
+        extensions: [".xlsx"],
     },
     "ICICI Bank Statement": {
         steps: BANK_STEPS,

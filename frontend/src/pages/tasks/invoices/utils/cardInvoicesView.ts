@@ -79,10 +79,11 @@ export const NO_EXPENSE_TYPE = "No expense type";
 export const expenseTypeLabel = (row: Pick<CardInvoiceRow, "expense_type">): string =>
     row.expense_type || NO_EXPENSE_TYPE;
 
-/** "KUMAR SHANU (40)" style choices for a column filter: each value once, by name, with its row count. */
-const countedOptions = (values: string[]) => {
+/** "Asha Menon (40)" style choices for a column filter: each value once, by name, with its row count. Blank
+ *  values are left out. */
+export const countedOptions = (values: string[]) => {
     const counts = new Map<string, number>();
-    for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+    for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
     return [...counts.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([value, count]) => ({ label: `${value} (${count})`, value }));

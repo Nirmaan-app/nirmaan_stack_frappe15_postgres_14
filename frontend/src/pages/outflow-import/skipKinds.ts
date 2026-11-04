@@ -18,6 +18,8 @@ export const SKIP_KIND_CARD_PAYMENT = "Card payment received";
 export const SKIP_KIND_CARD_CASHBACK = "Card cashback";
 /** A merchant credit and the card spend it cancels. Unskippable: both lines come back together. */
 export const SKIP_KIND_CARD_REFUND_PAIR = "Card refund pair";
+/** A Cashbook wallet refund and the spend it gives back in full (#1594); each line names the other (#1602). */
+export const SKIP_KIND_CASHBOOK_REFUND_PAIR = "Paired wallet refund";
 
 /**
  * The kinds a bank-statement rule decided: the line was read as money moving inside the bank or between

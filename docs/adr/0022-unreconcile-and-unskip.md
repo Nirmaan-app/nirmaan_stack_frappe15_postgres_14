@@ -367,7 +367,7 @@ legacy figure on a leftover now uses a deduction row instead. The retirement its
     pre-fills from them), so a reopened line must never be `Pending match run` — the status is the
     only fence. Unreconcile lands `Mismatched`; Unskip below has its own landing.
 - **Skip by hand** is allowed on an open Cashbook line, bar one status: **`Pending match run`**, which on
-  Cashbook means "the Cashbook job has not written this line yet" (`SKIP_REFUSED_CASHBOOK_PENDING`) —
+  Cashbook means "the Cashbook job has not written this line yet" (`CASHBOOK_PENDING_LINE_REFUSAL`, since #1587 the refusal of every main-table write) —
   its worker reads the line list once and would overwrite the skip with the expense it creates.
 - **Unskip** a Cashbook line only when its kind is **Skipped by hand**. Every system kind the Cashbook
   import writes stays locked under one sentence, "Only a Cashbook line skipped by hand can be
@@ -410,6 +410,12 @@ still Admin + Accountant Lead only (`unreconcile.get_unreconcile_plan`, `unrecon
 - **Tests inverted, not deleted.** `test_skip_row` / `test_unskip_row` now assert a plain Accountant is
   ALLOWED and someone outside the module is refused; the Reverse and Unreconcile refusals for a plain
   Accountant are untouched.
+
+> **Narrowed for one line kind by spec #1585 (2026-11-02, story 39):** an open **Collect payment** (a Cashbook
+> line whose stored Type is `Collect Payment`) is skipped by hand by an Admin or an Accountant Lead only, because
+> the skip closes on record money that left the company. `review.skip_row` refuses anyone else
+> (`cashbook_collect.COLLECT_PAYMENT_SKIP_REFUSAL`), and `canSkipByHand(row, mayUndo)` takes the viewer's undo
+> access again, for that kind only. Every other line keeps this amendment.
 
 ## Amendment F — Unreconcile several Settled lines at once (2026-09-25, #1320, parent #1317, owner)
 
