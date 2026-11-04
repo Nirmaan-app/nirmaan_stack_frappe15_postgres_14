@@ -4,8 +4,7 @@
   "pythonVersion": "3.11",
   "extraPaths": [
     "/workspace/development/frappe-bench/apps/frappe",
-    "/workspace/development/frappe-bench/apps/nirmaan_stack",
-    "/workspace/development/frappe-bench/apps/doppio"
+    "/workspace/development/frappe-bench/apps/nirmaan_stack"
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": true,

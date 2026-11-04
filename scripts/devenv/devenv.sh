@@ -63,7 +63,7 @@ set -euo pipefail
 
 CONTAINER="${DEVENV_CONTAINER:-frappe_docker_devcontainer-frappe-1}"
 TPL_DB="nirmaan_tpl"
-SHARED_APPS="frappe doppio frappe_gcp_attachment"
+SHARED_APPS="frappe frappe_gcp_attachment"
 export PGHOST=postgresql PGUSER=postgres PGPASSWORD=123
 
 die() { echo "ERROR: $*" >&2; exit 1; }

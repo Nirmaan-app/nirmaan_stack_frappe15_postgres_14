@@ -7,7 +7,7 @@
       ".pyi": "python"
     },
     "env": {
-      "PYTHONPATH": "/workspace/development/frappe-bench/apps/frappe:/workspace/development/frappe-bench/apps/nirmaan_stack:/workspace/development/frappe-bench/apps/doppio"
+      "PYTHONPATH": "/workspace/development/frappe-bench/apps/frappe:/workspace/development/frappe-bench/apps/nirmaan_stack"
     },
     "startupTimeout": 10000,
     "restartOnCrash": true

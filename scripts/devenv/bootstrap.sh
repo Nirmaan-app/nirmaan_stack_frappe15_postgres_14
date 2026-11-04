@@ -144,6 +144,12 @@ bench() {
     fi
     ok "$name at ${app_commit:0:9}"
   done
+  for name in $(ls "$BENCH/apps"); do   # an app the lock dropped leaves the env, so its pins stop counting
+    lock "'$name' in d['apps_txt']" | grep -qx True && continue
+    inside "cd frappe-bench && env/bin/pip show -q $name" >/dev/null 2>&1 || continue
+    inside "cd frappe-bench && env/bin/pip uninstall -y -q $name" >/dev/null || die "could not uninstall $name"
+    ok "$name uninstalled from the env: apps.lock.json no longer lists it (apps/$name is kept)"
+  done
   if [ $moved = 1 ] || ! pins_check >/dev/null; then
     echo "      bench setup requirements: frappe moved, or a package breaks an app's pins (several minutes)"
     inside "cd frappe-bench && bench setup requirements" > "$ROOT/logs-bootstrap-requirements.log" 2>&1 \
@@ -210,6 +216,8 @@ after_frappe_moved() {   # localhost, the Desk assets and the template, on the f
   inside "cd frappe-bench && bench --site localhost migrate" > "$ROOT/logs-bootstrap-migrate.log" 2>&1 \
     || { tail -20 "$ROOT/logs-bootstrap-migrate.log"; die "migrate failed (log: $ROOT/logs-bootstrap-migrate.log)"; }
   ok "localhost migrated"
+  local f; for f in "$ROOT"/benches/*/sites/apps.txt; do [ -f "$f" ] && cp "$BENCH/sites/apps.txt" "$f"; done
+  ok "task envs list the same apps as the bench"
   FORCE=1 build
   "$SELF_DIR/devenv.sh" template-drop >/dev/null 2>&1 || true
   "$SELF_DIR/devenv.sh" template-build | tail -2
@@ -229,6 +237,7 @@ d["frappe"].update(ref=ref, commit=commit)
 json.dump(d, open(path, "w"), indent=1); open(path, "a").write("\n")
 PY
   ok "apps.lock.json: frappe $newest ($commit)"
+  link
   bench
   pins_check || die "frappe $newest's pins are not met after bench setup requirements (above)"
   lock_from_bench; lock_python
@@ -363,7 +372,7 @@ CMD="${1:-}"; shift || true
 case "$CMD" in
   all) host; compose; bench; link; pylock; frontend; build; playwright; doctor || true ;;
   host|compose|bench|link|pylock|frontend|build|playwright|doctor|bump) "$CMD" ;;
-  follow) bench; pylock; after_frappe_moved ;;
+  follow) link; bench; pylock; after_frappe_moved ;;
   lock) pins_check || die "this bench breaks the app pins above; a lock of it would carry them to every box"
         lock_from_bench; lock_python ;;
   *) sed -n '2,26p' "$0"; exit 1 ;;
