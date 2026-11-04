@@ -92,7 +92,7 @@ def read_password() -> str:
 
 def read_statement(content: bytes, password: str = "") -> CardStatement:
     """The PDF's text, read and gated whole. A locked PDF without its password (or with a wrong one), an
-    unreadable PDF, a cash advance or lines that miss the statement's own totals are refused here. The company
+    unreadable PDF or lines that miss the statement's own totals are refused here. The company
     is read, not checked (ADR-0039 Amendment B)."""
     try:
         return read_card_statement(statement_text(content, password))

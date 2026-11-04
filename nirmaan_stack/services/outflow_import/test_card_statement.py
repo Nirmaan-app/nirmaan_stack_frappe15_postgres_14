@@ -138,6 +138,32 @@ class TestMerchantKey(unittest.TestCase):
         self.assertEqual(merchant_key("LIMITED Pune IN"), "LIMITED")
 
 
+def _with_cash_advance(text: str) -> str:
+    """The fixture with a ₹500 cash withdrawal: a line without CR, counted under Cash Advances, not Purchases."""
+    text = _replace(
+        text, "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á2,24,166.02 Á1,37,584.99 Á500.00 Á2,76,821.73"
+    )
+    return _replace(
+        text,
+        "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n",
+        "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n"
+        "12/09/2026 14152099999 CASH WITHDRAWAL BANGALORE IN 0 500.00\n",
+    )
+
+
+class TestACashAdvance(unittest.TestCase):
+    """A cash withdrawal is not refused (owner, ADR-0039 Amendment C): a line without CR is money out, a spend,
+    so the spends must add up to Purchases / Charges plus Cash Advances."""
+
+    def test_a_statement_with_a_cash_advance_is_read_with_the_withdrawal_as_a_spend(self):
+        statement = read_card_statement(_with_cash_advance(_text()))
+        self.assertEqual(statement.totals.cash_advances, Decimal("500.00"))
+        self.assertEqual(len(statement.spends), 41)
+        self.assertEqual(statement.spends_total, Decimal("138084.99"))
+        [withdrawal] = [line for line in statement.lines if line.serno == "14152099999"]
+        self.assertFalse(withdrawal.is_credit)
+
+
 def _replace(text: str, old: str, new: str) -> str:
     assert old in text, old
     return text.replace(old, new)
@@ -203,11 +229,11 @@ class TestRefusals(unittest.TestCase):
         text = _replace(_text(), "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n", "")
         self.assertRefused(text, "₹2,76,654.73", "₹2,76,821.73", "Payments / Credits")
 
-    def test_a_non_zero_cash_advance_is_refused_with_its_own_message(self):
+    def test_a_cash_advance_line_missing_fails_the_totals_gate_naming_cash_advances(self):
         text = _replace(
             _text(), "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á2,24,166.02 Á1,37,584.99 Á500.00 Á2,76,821.73"
         )
-        self.assertRefused(text, "Cash Advances", "₹500")
+        self.assertRefused(text, "₹1,37,584.99", "₹1,38,084.99", "Purchases / Charges + Cash Advances")
 
     def test_text_that_is_not_a_card_statement_is_refused(self):
         self.assertRefused("Hello, this is not a statement.", "ICICI credit card statement")

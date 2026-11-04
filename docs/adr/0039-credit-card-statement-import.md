@@ -123,3 +123,24 @@ a gate that a layout change can turn against the company's own cards.
 
 **Consequences.** Any statement in this layout imports, a personal card's included: Review is the only guard
 against creating company Expenses from the wrong card.
+
+## Amendment C (2026-11-04) — a cash advance is imported as a spend
+
+**Status:** Accepted (owner, 2026-11-04). Amends decision 3 and spec #1565 story 9 ("a statement with a
+non-zero *Cash Advances* total refused"). Every other decision is unchanged.
+
+**Why.** The owner's rule for this import: an upload is blocked only when it was uploaded before, or when the
+file cannot be read or does not add up. A cash withdrawal is money out on the card, printed as a line without
+`CR`, so it is read like any spend.
+
+**Decision.**
+
+- A non-zero *Cash Advances* is no longer refused.
+- The totals gate checks the lines without `CR` against *Purchases / Charges* plus *Cash Advances*, and the `CR`
+  lines against *Payments / Credits*, to the paisa, as before. The refusal names "Purchases / Charges + Cash
+  Advances" when Cash Advances is not zero.
+- The withdrawal is staged and created as a card spend like any other: one Paid Non-Project Expense, its type
+  editable on Review, where the Cash Advances total is shown.
+
+**Consequences.** A withdrawal is not told apart from a purchase. Doing that needs a real statement with a cash
+advance, to learn how the bank prints the line.

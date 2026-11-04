@@ -9,8 +9,8 @@ from the address block, the statement date, the billing period, the five summary
 transaction line, as printed. It refuses, with `CardStatementError`, anything it cannot import whole:
 
   * text that is not this statement's layout (no period, no summary, no holder, no lines);
-  * a non-zero *Cash Advances*;
-  * THE TOTALS GATE (ADR-0039 decision 3): the spends read must equal *Purchases / Charges* and the
+  * THE TOTALS GATE (ADR-0039 decision 3): the spends read must equal *Purchases / Charges* plus *Cash
+    Advances* (a cash withdrawal is a line without CR, read as a spend; Amendment C) and the
     credits read *Payments / Credits*, to the paisa. Plain code reads the PDF; the gate keeps it honest.
 
 THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_statement.txt`):
@@ -259,18 +259,18 @@ def _lines(rows: list[str]):
 
 
 def _gate(statement: CardStatement) -> None:
-    """ADR-0039 decision 3: all or nothing, to the paisa, no override."""
+    """ADR-0039 decision 3: all or nothing, to the paisa, no override.
+
+    A cash withdrawal is a line without CR, so it is read as a spend: the spends add up to Purchases / Charges
+    plus Cash Advances (ADR-0039 Amendment C).
+    """
     totals = statement.totals
-    if totals.cash_advances != 0:
-        raise CardStatementError(
-            f"This statement has Cash Advances of {rupees(totals.cash_advances)}. A cash withdrawal on a card "
-            "cannot be imported, so nothing was imported."
-        )
     problems = []
-    if statement.spends_total != totals.purchases:
+    money_out = totals.purchases + totals.cash_advances
+    if statement.spends_total != money_out:
+        label = "Purchases / Charges" if totals.cash_advances == 0 else "Purchases / Charges + Cash Advances"
         problems.append(
-            f"spends read {rupees(statement.spends_total, paise=True)}, Purchases / Charges "
-            f"{rupees(totals.purchases, paise=True)}"
+            f"spends read {rupees(statement.spends_total, paise=True)}, {label} {rupees(money_out, paise=True)}"
         )
     if statement.credits_total != totals.payments:
         problems.append(

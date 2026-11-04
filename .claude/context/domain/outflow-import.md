@@ -7467,11 +7467,13 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
 
 1. **The reader is pure and the gate is all or nothing.** `services/outflow_import/card_statement.read_card_statement`
    takes the text `card_pdf.statement_text` extracts (pypdf; pages joined by a newline) and refuses with
-   `CardStatementError`: not this layout, a non-zero *Cash Advances*,
-   and spends != *Purchases / Charges* or credits != *Payments / Credits* to the paisa (both figures in the
+   `CardStatementError`: not this layout,
+   or spends != *Purchases / Charges* + *Cash Advances* or credits != *Payments / Credits* to the paisa (both figures in the
    message, `amounts.rupees(paise=True)`). A locked PDF: "This PDF is password-locked. Unlock it and upload
    again." No override exists. A PDF encrypted with an EMPTY user password (an owner password only) opens
    without one, so `statement_text` tries `decrypt("")` first and refuses only if that fails.
+   ⚠️ **A cash advance is not refused** (ADR-0039 Amendment C): a withdrawal is a line without CR, so it is read,
+   staged and created as a spend like any other; only the gate's sum counts *Cash Advances* in.
    ⚠️ **The company is shown, never checked** (ADR-0039 Amendment B, 2026-11-04): the line under the holder is
    the company only when it ends PVT / PRIVATE / LTD / LIMITED / LLP (`_is_company_line`), else blank and
    Review shows *Not printed* (`creditCardImport.cardCompanyLabel`). The holder may sit on the anchor line

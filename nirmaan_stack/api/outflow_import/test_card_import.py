@@ -329,6 +329,23 @@ class TestTheCompanyIsShownNotChecked(CardImportCase):
         self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
 
 
+class TestACashAdvance(CardImportCase):
+    """A cash withdrawal is not refused (ADR-0039 Amendment C): it is a line without CR, staged as a spend."""
+
+    def test_a_statement_with_a_cash_advance_stages_the_withdrawal_as_a_spend(self):
+        text = self._text()
+        for old in ("Á1,37,584.99 Á0.00", "BANGALORE IN 0 400.00\n"):
+            self.assertIn(old, text)
+        text = text.replace("Á1,37,584.99 Á0.00", "Á1,37,584.99 Á500.00")
+        line = f"12/09/2026 {self.serno_base + 999:011d} CASH WITHDRAWAL BANGALORE IN 0 500.00\n"
+        text = text.replace("BANGALORE IN 0 400.00\n", "BANGALORE IN 0 400.00\n" + line, 1)
+        result = self._upload(pdf_from_text(text))
+        self.assertEqual(len(self._rows(result["batch"])), 48)
+        self.assertEqual(float(frappe.get_doc(BATCH_DOCTYPE, result["batch"]).gross_amount), 138084.99)
+        [statement] = self._statements()
+        self.assertEqual(float(statement.cash_advances), 500)
+
+
 class TestCardLinesAreNotBankLines(CardImportCase):
     def test_total_unreconciled_outflow_does_not_move_on_upload(self):
         """The spends wait for the card's own Create. The one unpaired credit (MakeMyTrip ₹801.50) is open
@@ -375,10 +392,6 @@ class TestRefusalsSaveNothing(CardImportCase):
     def test_lines_that_do_not_add_up_to_the_statement_totals(self):
         text = self._text().replace("PARK RESIDENCY Cochin IN 0 1,933.00", "PARK RESIDENCY Cochin IN 0 1,934.00")
         self._assert_refused(pdf_from_text(text), "₹1,37,585.99", "₹1,37,584.99")
-
-    def test_a_non_zero_cash_advance(self):
-        text = self._text().replace("Á1,37,584.99 Á0.00", "Á1,37,584.99 Á100.00")
-        self._assert_refused(pdf_from_text(text), "Cash Advances")
 
     def test_a_user_outside_bulk_import(self):
         outsider = self.users.make(OUTSIDER)
