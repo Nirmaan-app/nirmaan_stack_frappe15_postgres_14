@@ -30,7 +30,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payments import bulk_actions
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services import approval_tiers, payment_tds
 
 TDS_DOCTYPE = "Payment TDS Deduction"
 PAYMENT = "Project Payments"
@@ -303,14 +303,39 @@ class TestBulkApproveTDS(FrappeTestCase):
 		self.assertEqual(self._amount(pid), 38550.0)
 
 	def test_lead_bulk_approve_records_nothing(self):
-		"""Requested -> CEO Pending is not the deductible transition."""
+		"""Requested -> CEO Pending is not the deductible transition.
+
+		Only an amount above `TIER_L2_ABOVE` forwards to the CEO; a 15,000-50,000 lead approve
+		finishes at `Approved` (see the test below), so the amount is read from the constant.
+		"""
 		frappe.set_user(U)  # _authorize_lead admits Administrator
-		pid = self._pay(38550, status="Requested")
+		amount = approval_tiers.TIER_L2_ABOVE + 1000
+		pid = self._pay(amount, status="Requested")
 		res = bulk_actions.bulk_lead_approve_payments([pid], "approve")["data"]
 		self.assertEqual(self._status(pid), "CEO Pending")
 		self.assertEqual(res["tds_recorded"], 0)
 		self.assertIsNone(self._deduction(pid))
-		self.assertEqual(self._amount(pid), 38550.0)
+		self.assertEqual(self._amount(pid), amount)
+
+	def test_lead_bulk_approve_between_the_tiers_lands_approved_and_records_tax(self):
+		"""A 15,000-50,000 lead approve FINISHES the approval, so it is the deductible transition.
+
+		The gate reads each row's landing status, not the lead config's forwarding target: this
+		row lands `Approved` and is netted, exactly as a CEO approve would net it.
+		"""
+		frappe.set_user(U)  # _authorize_lead admits Administrator
+		amount = (approval_tiers.TIER_AUTO_APPROVE_BELOW + approval_tiers.TIER_L2_ABOVE) / 2
+		pid = self._pay(amount, status="Requested")
+		res = bulk_actions.bulk_lead_approve_payments([pid], "approve")["data"]
+		self.assertEqual(res["succeeded"], [pid])
+		self.assertEqual(self._status(pid), "Approved")
+		self.assertEqual(res["tds_recorded"], 1)
+		self.assertEqual(res["tds_failed"], [])
+		# The vendor deducts at 2%.
+		row = frappe.get_doc(TDS_DOCTYPE, self._deduction(pid))
+		self.assertEqual(row.gross_amount, amount)
+		self.assertEqual(row.tds_amount, amount * 0.02)
+		self.assertEqual(self._amount(pid), amount * 0.98)
 
 	def test_running_the_phase_twice_is_safe(self):
 		"""Idempotent, so re-running it over `tds_failed` is a safe repair.

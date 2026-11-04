@@ -268,8 +268,7 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
   failure are in root `CLAUDE.md` § Commands.
 - **Known failing tests:** these fail on `master` for a reason unrelated to recent work. A red run that shows
   only these is not caused by your change. Remove an entry once its issue fixes it.
-  - `nirmaan_stack.api.payments.test_bulk_tds` `TestBulkApproveTDS.test_lead_bulk_approve_records_nothing`
-    (`'Approved' != 'CEO Pending'`): a stale expectation from before the 15k/50k approval tiers ([#1571](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1571)).
+  - None at present.
 
 **A test removes every record it creates, and its clean-up must survive a poisoned transaction:** these suites
 run against the live site database, so a stranded row is permanent dev data. The trap is not a missing
