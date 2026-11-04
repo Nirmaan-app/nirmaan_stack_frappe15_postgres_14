@@ -2548,6 +2548,42 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.services.boq_rate_match.test_fill_spec_cards": {
+   "seconds": 27.1,
+   "series": [],
+   "writes": [
+    "tabBOQs",
+    "tabBoQ Row Spec Card"
+   ],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBOQ Nodes",
+    "tabBlock Module",
+    "tabBoQ AI Run Log",
+    "tabBoQ Category Truth Snapshot",
+    "tabBoQ Cell Amount Formula",
+    "tabBoQ Cell Color",
+    "tabBoQ Cell Dismissal",
+    "tabBoQ Cell Pricing",
+    "tabBoQ Cell Reconciliation Choice",
+    "tabBoQ Cell Remark",
+    "tabBoQ Committed Sheet Grid",
+    "tabBoQ General Specs Sheet",
+    "tabBoQ Rate Match Feedback",
+    "tabBoQ Rate Match Run",
+    "tabBoQ Rate Suggestion Run",
+    "tabBoQ Review Row",
+    "tabBoQ Row BCS Rate",
+    "tabBoQ Row Category",
+    "tabBoQ Sheet",
+    "tabBoQ Sheet Draft",
+    "tabBoQ Sheet Pricing Lock",
+    "tabMilestone Tracker",
+    "tabProjects",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
   "nirmaan_stack.services.boq_rate_match.test_h2_bench": {
    "seconds": 12.4,
    "series": [],
