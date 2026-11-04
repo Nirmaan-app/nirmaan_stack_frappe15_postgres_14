@@ -288,6 +288,29 @@ class TestProgressOffTheWorkerThreads(FrappeTestCase):
         self.assertTrue(all(tid == main for _p, _d, tid in seen), "reported only from the caller's thread")
         self.assertFalse(hasattr(w, "report"))
 
+    def test_a_judge_that_finishes_before_the_first_poll_still_reports_its_count(self):
+        # DEV2-B7 (owner answer 2 to Q1): on a loaded box the caller can be descheduled right after starting the judge
+        # thread; when the judge is done before the first poll, the loop never runs - its final count must still be
+        # reported. The patched start() joins the judge thread before the caller polls, so the race always happens.
+        import threading
+        inner = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: "reply"))
+        w = MR._Progress(inner, {"A": 3, "B": 1}, 2)
+        seen, real_start = [], threading.Thread.start
+
+        def start_then_wait_for_it(t):
+            real_start(t)
+            t.join()
+
+        def judge():
+            for c in ("A", "B"):
+                w.create(messages=[{"content": c}])
+            return {"targets": {}, "run": {}}
+
+        with patch.object(threading.Thread, "start", start_then_wait_for_it):
+            out = MR._judge_with_progress(judge, w, lambda phase, done: seen.append((phase, done)), every_s=0.01)
+        self.assertEqual(out, {"targets": {}, "run": {}})
+        self.assertEqual(seen, [("judge", 6)])
+
     def test_a_judge_error_is_raised_on_the_callers_thread(self):
         def judge():
             raise ValueError("boom")

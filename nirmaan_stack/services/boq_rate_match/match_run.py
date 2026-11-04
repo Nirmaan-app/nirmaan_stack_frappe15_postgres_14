@@ -121,6 +121,7 @@ def _judge_with_progress(judge, wrapped, report, every_s=2.0):
         if wrapped is not None and wrapped.done != last:
             last = wrapped.done
             report("judge", last)
+    if wrapped is not None and wrapped.done != last: report("judge", wrapped.done)  # DEV2-B7: a judge done before the first poll
     if "err" in box:
         raise box["err"]
     return box["out"]
