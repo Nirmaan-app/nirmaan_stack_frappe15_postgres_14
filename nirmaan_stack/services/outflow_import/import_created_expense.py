@@ -26,6 +26,7 @@ __all__ = [
     "IMPORT_CREATED_EXPENSE_PREDICATE",
     "import_created_expense_holding",
     "is_import_created_expense_refusal",
+    "is_unique_refusal_by_index",
     "transfers_with_two_import_created_expenses",
 ]
 
@@ -72,7 +73,14 @@ def import_created_expense_holding(transfer_id: str):
 def is_import_created_expense_refusal(exc: BaseException) -> bool:
     """True only for a write refused by `IMPORT_CREATED_EXPENSE_INDEX` -- recognised by the index's NAME, so
     no other database error (another unique key, a deadlock, a lost race) is ever relabelled "Already
-    imported". Follows the cause chain and Frappe's wrapping (`UniqueValidationError(doctype, name, exc)`)."""
+    imported"."""
+    return is_unique_refusal_by_index(exc, IMPORT_CREATED_EXPENSE_INDEX)
+
+
+def is_unique_refusal_by_index(exc: BaseException, index_name: str) -> bool:
+    """True only for a `UniqueViolation` whose constraint is `index_name`. Follows the cause chain and Frappe's
+    wrapping (`UniqueValidationError(doctype, name, exc)`). Shared with `settled_target_index` (#1606), so the
+    two refusals are recognised one way."""
     seen = set()
     pending = [exc]
     while pending:
@@ -82,7 +90,7 @@ def is_import_created_expense_refusal(exc: BaseException) -> bool:
         seen.add(id(current))
         if isinstance(current, UniqueViolation):
             diag = getattr(current, "diag", None)
-            if getattr(diag, "constraint_name", None) == IMPORT_CREATED_EXPENSE_INDEX:
+            if getattr(diag, "constraint_name", None) == index_name:
                 return True
         pending.extend([current.__cause__, current.__context__])
         pending.extend(arg for arg in getattr(current, "args", ()) if isinstance(arg, BaseException))

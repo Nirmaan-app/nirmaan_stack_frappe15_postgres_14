@@ -48,6 +48,8 @@ from nirmaan_stack.services.outflow_import.import_created_expense import (  # no
     IMPORT_CREATED_EXPENSE_PREDICATE,
     transfers_with_two_import_created_expenses,
 )
+# #1606: a hand Link recognises this index's refusal by this name.
+from nirmaan_stack.services.outflow_import.settled_target_index import SETTLED_TARGET_INDEX
 
 _SETTLED = "Settled"
 _REVERSED = "Reversed"
@@ -142,7 +144,7 @@ def ensure_settled_target_unique():
     stays the single source of truth for the index shape.
     """
     frappe.db.sql(
-        """CREATE UNIQUE INDEX IF NOT EXISTS ofm_match_settled_target_unique
+        f"""CREATE UNIQUE INDEX IF NOT EXISTS {SETTLED_TARGET_INDEX}
            ON "tabOutflow Row Match" (transfer_id, target_doctype, target_name)
            WHERE match_kind = 'Settled'"""
     )

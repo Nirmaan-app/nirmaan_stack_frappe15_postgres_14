@@ -81,6 +81,10 @@ from nirmaan_stack.services.outflow_import.import_created_expense import (
     import_created_expense_holding,
     is_import_created_expense_refusal,
 )
+from nirmaan_stack.services.outflow_import.settled_target_index import (
+    is_settled_target_refusal,
+    settled_target_holding,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
     settleable_statuses,
@@ -129,6 +133,7 @@ from nirmaan_stack.services.outflow_import.status import (
     RECORDED_ACTION_CREATE,
     RECORDED_ACTION_LINK,
     RECORDED_DUPLICATE,
+    LINK_REFUSED_ALREADY_LINKED,
     LINK_REFUSED_TXN_ID_HELD,
     SKIP_REASON_ALREADY_IMPORTED_AS,
     derive_recorded_money_verdict,
@@ -206,6 +211,13 @@ class AlreadyImportedError(frappe.ValidationError):
     that holds it. Nothing was written."""
 
 
+class AlreadyLinkedError(frappe.ValidationError):
+    """A hand Link refused because another line already ties this Txn Id to the Expense the person picked (#1606).
+
+    The database's `ofm_match_settled_target_unique` refused the match insert; the sentence names the Expense and
+    the line that hold it. Nothing was written."""
+
+
 def already_imported_sentence(transfer_id: str | None) -> str | None:
     """"Already imported in batch <batch> as <ledger> <name>." for the Expense the import created for this
     Txn Id, or `None` when none holds it.
@@ -221,31 +233,53 @@ def already_imported_sentence(transfer_id: str | None) -> str | None:
 
 
 def refuse_link_of_a_held_txn_id(transfer_ids, target_doctype: str, target_name: str, exc: Exception) -> None:
-    """When the one-Expense-per-Txn-Id index refused a hand Link of a Cashbook line (#1601) -- another line already
-    holds the Txn Id Settled to a different Expense -- say so, naming that Expense (`LINK_REFUSED_TXN_ID_HELD`),
-    never the database error. Returns at once when `exc` is any other error; otherwise raises.
+    """Turn a hand Link's refusal by one of the two match indexes into a sentence naming who holds it, never the
+    database error. Returns at once when `exc` is any other error; otherwise raises.
+
+    * The one-Expense-per-Txn-Id index (#1601), for a Cashbook line: another line holds the Txn Id Settled to a
+      DIFFERENT Expense -> `LINK_REFUSED_TXN_ID_HELD`, `AlreadyImportedError`.
+    * `ofm_match_settled_target_unique` (#1606), every source: another line already ties the Txn Id to the
+      Expense the person PICKED -> `LINK_REFUSED_ALREADY_LINKED`, `AlreadyLinkedError`, naming that line. A
+      Cashbook line refused for this reason may reach here through either index -- Postgres checks them in its own
+      order -- so the picked Expense holding it is told the same way whichever index spoke.
 
     ⚠️ A FULL ROLLBACK, NOT THE SAVEPOINT'S, for `_refuse_as_already_imported`'s reason: the holder was committed
     after this request's snapshot, so only a new transaction can read it. Nothing of this request is kept.
 
-    ⚠️ ONLY A HOLDER OTHER THAN THE PICKED EXPENSE IS TOLD. When none is left by the time it is read (Unreconciled
-    meanwhile), or the one holding it is the Expense the person picked (#1601: a Link to the same Expense is not this
-    refusal), the original error stands, as before #1601."""
-    if not is_import_created_expense_refusal(exc):
+    ⚠️ RECOGNISED BY THE INDEX'S NAME ONLY. Any other error -- another unique key, a deadlock, a lost race -- is
+    left to the caller untouched, before the rollback. When no holder is left by the time it is read (Unreconciled
+    meanwhile), the original error stands."""
+    by_txn_id_index = is_import_created_expense_refusal(exc)
+    if not (by_txn_id_index or is_settled_target_refusal(exc)):
         return
     frappe.db.rollback()
-    for transfer_id in transfer_ids:
-        holder = import_created_expense_holding(transfer_id) if transfer_id else None
-        if holder and (holder["target_doctype"], holder["target_name"]) != (target_doctype, target_name):
+    held = [transfer_id for transfer_id in transfer_ids if transfer_id]
+    if by_txn_id_index:
+        for transfer_id in held:
+            holder = import_created_expense_holding(transfer_id)
+            if holder and (holder["target_doctype"], holder["target_name"]) != (target_doctype, target_name):
+                frappe.throw(
+                    LINK_REFUSED_TXN_ID_HELD.format(
+                        transfer_id=transfer_id,
+                        records=f"{holder['target_doctype']} {holder['target_name']}",
+                        batch=holder["import_batch"],
+                        target=target_name,
+                    ),
+                    title="Already recorded",
+                    exc=AlreadyImportedError,
+                )
+    for transfer_id in held:
+        line = settled_target_holding(transfer_id, target_doctype, target_name)
+        if line:
             frappe.throw(
-                LINK_REFUSED_TXN_ID_HELD.format(
+                LINK_REFUSED_ALREADY_LINKED.format(
                     transfer_id=transfer_id,
-                    records=f"{holder['target_doctype']} {holder['target_name']}",
-                    batch=holder["import_batch"],
-                    target=target_name,
+                    records=f"{target_doctype} {target_name}",
+                    line=line["import_row"],
+                    batch=line["import_batch"],
                 ),
-                title="Already recorded",
-                exc=AlreadyImportedError,
+                title="Already linked",
+                exc=AlreadyLinkedError,
             )
     raise exc
 
@@ -408,8 +442,9 @@ def _settle_and_commit(
         # note is the only place on this screen that fact survives.
         refresh_row_allocation(staged.name, actor, result)
     except Exception as exc:
-        # #1601: a Link of a Cashbook line whose Txn Id another line holds Settled to a different Expense is told
-        # so here (raises); any other error falls through.
+        # #1601, #1606: a Link refused because another line holds the Txn Id -- Settled to a different Expense
+        # (a Cashbook line), or to this very Expense (any source) -- is told so here (raises); any other error
+        # falls through.
         if target_doctype != PAYMENT_DOCTYPE:
             refuse_link_of_a_held_txn_id([staged.transfer_id], target_doctype, target_name, exc)
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
