@@ -4325,13 +4325,17 @@ describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row 
     // was removed. The owner-worded amber box after a changed split ("... will not split this row again ...") is the second
     // sanctioned "this row"; it is removed too and pinned exactly once, so every OTHER row-assuming phrase stays forbidden.
     const U2_CHANGED = "The helper will not split this row again";
+    // INVERTED again at VRF-3a K2 (owner QR-1 (a) / U9 approved, 2026-11-04 19:07): the calculator field's label "BoQ quantity of
+    // this row" is the third sanctioned "this row"; removed and pinned exactly once like the two above
+    const U9_LABEL = "BoQ quantity of this row";
     for (const [name, raw] of Object.entries(CALC1_SRC)) {
-      const src = stripComments(raw).split(QTY_LABEL).join("").split(U2_CHANGED).join("");
+      const src = stripComments(raw).split(QTY_LABEL).join("").split(U2_CHANGED).join("").split(U9_LABEL).join("");
       for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
     }
     const panel = CALC1_SRC.panel;
     expect(panel.split(QTY_LABEL).length - 1).toBe(1);
     expect(stripComments(CALC1_SRC.helper).split(U2_CHANGED).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.helper).split(U9_LABEL).length - 1).toBe(1);
   });
   it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
     const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });

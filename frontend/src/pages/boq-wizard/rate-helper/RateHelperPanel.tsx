@@ -20,6 +20,7 @@ import {
   itemsOnScreen,
   needPersonSentence,
   ROW_UNIT_OVERRIDE_KEY,
+  ROW_QTY_OVERRIDE_KEY,
   rowTotals,
   type ItemEditOp,
   type ItemListSuggestion,
@@ -700,6 +701,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         view={itemList}
                         onEdit={(op) => setAttr(helper.id, ITEM_LIST_OVERRIDE_KEY, JSON.stringify(applyItemEdit(itemList.editState, op)))}
                         onUnit={(u) => setAttr(helper.id, ROW_UNIT_OVERRIDE_KEY, u)}
+                        onRowQty={(q) => setAttr(helper.id, ROW_QTY_OVERRIDE_KEY, q)}
                       />
                     </div>
                   )}
@@ -1192,11 +1194,14 @@ function ItemListBlocks({
   view,
   onEdit,
   onUnit,
+  onRowQty,
   section,
 }: {
   view: ItemListView;
   onEdit: (op: ItemEditOp) => void;
   onUnit: (unit: string) => void;
+  /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" */
+  onRowQty?: (qty: string) => void;
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
@@ -1245,6 +1250,46 @@ function ItemListBlocks({
   );
   return (
     <div className="space-y-2" data-testid="item-list-blocks">
+      {/* VRF-3a K2 (U4 / U5 / U6, boards 9 / 11): a per-Set or whole-lot row -- a SOLID bar above the card, orange when the
+          row prices on the team rule, red when it does not, and the row's unit and quantity ringed in the same colour */}
+      {!section && view.unitBar && (
+        <div
+          className={cn(
+            "rounded-md px-2 py-1.5 text-white",
+            view.unitBar.tone === "red" ? "bg-red-600 dark:bg-red-700" : "bg-orange-500 dark:bg-orange-600",
+          )}
+          data-testid="item-unit-bar"
+          data-tone={view.unitBar.tone}
+        >
+          <div className="text-xs font-bold uppercase tracking-wide">{view.unitBar.title}</div>
+          {view.unitBar.lines.map((l, li) => (
+            <p key={li} className="mt-0.5 text-[11px] font-medium leading-snug">{l}</p>
+          ))}
+        </div>
+      )}
+      {!section && view.unitBar?.ring && (
+        <div
+          className={cn(
+            "inline-block rounded-full border-2 px-2 py-0.5 text-[11px] font-semibold",
+            view.unitBar.tone === "red" ? "border-red-600 text-red-700 dark:text-red-400" : "border-orange-500 text-orange-700 dark:text-orange-400",
+          )}
+          data-testid="item-unit-ring"
+        >
+          {view.unitBar.ring}
+        </div>
+      )}
+      {!section && view.rowQtyField && (
+        <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-row-qty">
+          <span className="text-muted-foreground">{view.rowQtyField.label}</span>
+          <Input
+            className="h-7 w-28 text-xs"
+            value={view.rowQtyField.value}
+            inputMode="decimal"
+            aria-label={view.rowQtyField.label}
+            onChange={(e) => onRowQty?.(e.target.value)}
+          />
+        </label>
+      )}
       {section && view.items.length === 0 && view.pickFamily && (
         // SLICE 12e-3b (owner D1b): a section open with nothing picked -- its heading and the family list, the
         // same list "+ Add insulation" opens; a pick starts the section blank for that family (S1)
@@ -1638,6 +1683,45 @@ function ItemListBlocks({
               </div>
             );
           })}
+          {/* VRF-3a K2 (U5, board 11): a refnet on a Set row -- what the row covers and the system's unit counts, each a typed
+              field with its one-line note; the formula and the case's sentence below them */}
+          {b.setCount && (
+            <div className="space-y-1 rounded border border-orange-300 bg-orange-50 px-2 py-1.5 dark:border-orange-800 dark:bg-orange-950/30" data-testid="item-set-count">
+              {b.setCount.fields.map((f) => (
+                <label key={f.id} className="block text-xs">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{f.label}</span>
+                    {f.options ? (
+                      <select
+                        className={cn("h-7 max-w-[60%] rounded border bg-background px-1 text-xs", f.value === "" && "border-red-500")}
+                        value={f.value}
+                        aria-label={f.label}
+                        onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                      >
+                        <option value="">- select -</option>
+                        {f.options.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        className={cn("h-7 w-28 text-xs", f.value === "" && "border-red-500")}
+                        value={f.value}
+                        inputMode="numeric"
+                        aria-label={f.label}
+                        onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                      />
+                    )}
+                  </span>
+                  {f.note && <span className="block text-[10px] leading-tight text-muted-foreground">{f.note}</span>}
+                </label>
+              ))}
+              {b.setCount.formula && <p className="text-[11px] text-orange-900 dark:text-orange-200" data-testid="item-set-formula">{b.setCount.formula}</p>}
+              <p className={cn("text-[11px] font-medium", b.setCount.pieces === null && !b.setCount.typed ? "text-red-700 dark:text-red-400" : "text-orange-900 dark:text-orange-200")} data-testid="item-set-sentence">
+                {b.setCount.sentence}
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-2 text-xs">
             {/* SLICE 6b (owner V7): how many of THIS item make up ONE unit of the row -- the row's own quantity
                 plays no part in the rate (the module never reads it).
@@ -1647,7 +1731,7 @@ function ItemListBlocks({
                 tag every other assumed value carries. Nothing reads a quantity from the row. */}
             <span className="flex items-center gap-1 text-muted-foreground">
               {/* ADP-3a (U8): the quantity box is named by this label (it had only a wrapping one) */}
-              <label htmlFor={`${fieldUid}-${i}-qty`}>How many in one {view.unit} of this row</label>
+              <label htmlFor={`${fieldUid}-${i}-qty`}>{view.qtyLabel ?? <>How many in one {view.unit} of this row</>}</label>
               {/* SLICE 12e-3c (owner F10): the quantity is the item's this section sits under, until typed here */}
               {b.qtyMirrorTag && (
                 <span
@@ -1666,6 +1750,11 @@ function ItemListBlocks({
                 </span>
               )}
             </span>
+            {/* VRF-3a K2 (U5): a refnet's withheld pieces box -- blank, ringed red (the box's own classes are unchanged) */}
+            <span
+              className={cn("inline-block rounded-md", b.setCount && b.setCount.pieces === null && !b.setCount.typed && "ring-2 ring-red-600")}
+              data-testid={b.setCount ? "item-set-pieces" : undefined}
+            >
             <Input
               id={`${fieldUid}-${i}-qty`}
               className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}
@@ -1673,6 +1762,7 @@ function ItemListBlocks({
               inputMode="decimal"
               onChange={(e) => onEdit({ op: "set_qty", index: i, qty: e.target.value })}
             />
+            </span>
           </div>
           {b.state === "priced" ? (
             <div className="space-y-0.5 text-xs text-muted-foreground">

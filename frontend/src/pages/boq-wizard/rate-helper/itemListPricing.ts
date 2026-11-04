@@ -638,6 +638,17 @@ export interface ItemListPricingSpec {
    * and never as layers. ABSENT => byte-identical.
    */
   split?: { families: string[]; stated?: boolean; conditions?: { words: string[]; line: string } };
+  /**
+   * VRF-3a K2 (owner SET 2026-11-04 17:00 / 17:37 / 17:39 / 18:49, boards 9 / 11) -- A ROW PRICED PER SET. `units` are the
+   * spellings that mean "per Set" (they sit in a unit class too, so the row prices); the panel shows `bar` (orange) and
+   * labels the per-item quantity `qty_label` ("Pieces in one Set of this row", default 1 amber, editable). `counted`: on
+   * its families (refnets) one Set is NOT one piece -- the pieces come from the system's unit counts and the BoQ quantity
+   * (`countedPieces`). ABSENT => byte-identical.
+   */
+  per_set?: PerSetSpec;
+  /** VRF-3a K2 (owner LOT "Refuse + review list", O-7): unit spellings that name a whole-lot price (Lot, LS, Job, per HP,
+   * "complete system") -- the row refuses with `line` ({unit} as written) and the panel shows the red `bar`. */
+  lot_units?: { units: string[]; bar: string; line: string };
   compose?: ComposeSpec & {
     /** WHICH ladder composes. A value here is a ladder attribute id; no other axis composes. */
     attr: string;
@@ -690,6 +701,90 @@ export interface ItemListPricingSpec {
  * The shape is validated by `config_validation._validate_list_sections`, the cross-category half by
  * `validate_delegated_sections` (import and editor save).
  */
+/** VRF-3a K2: see `ItemListPricingSpec.per_set`. */
+export interface PerSetSpec {
+  units: string[];
+  qty_label: string;
+  bar: { title: string; line: string };
+  counted?: CountedSpec;
+}
+/**
+ * VRF-3a K2 (owner SET 17:00: "outdoor refnets = no. of ODUs -1 indoor refnets = no of IDUs -1"; 17:37 "values within +- 10%",
+ * "the user should also be able to change the qty"; 17:39 "+-10% or +-1 piece, whichever larger"; 18:49 "just round up and
+ * do it...give appropriate note for it"): the families one Set of which holds a COUNTED number of pieces. The three
+ * fields (what the row covers, the outdoor and indoor unit counts) are typed per item; `lines` are the sentences
+ * ({q} BoQ quantity, {E} expected, {W} tolerance, {p} pieces, {n} = q x p, {k} = n - E, {parts} the formula's terms).
+ */
+export interface CountedSpec {
+  families: string[];
+  covers: { id: string; label: string; note?: string; options: Array<{ value: string; sides: string[] }> };
+  counts: Array<{ side: string; id: string; label: string; word: string; note?: string }>;
+  tolerance: { share: number; min: number };
+  bar: string;
+  lines: { formula: string; match: string; below: string; rounded: string; misfit: string; counts_missing: string; qty_missing: string; typed: string };
+}
+
+/** VRF-3a K2: the unit is one of the config's per-Set spellings. PURE. */
+export function isPerSetUnit(spec: ItemListPricingSpec, unit: string | null | undefined): boolean {
+  if (!spec.per_set || unit === null || unit === undefined || unit.trim() === "") return false;
+  const u = normUnit(unit);
+  return spec.per_set.units.some((x) => normUnit(x) === u);
+}
+
+/** VRF-3a K2: the unit is one of the config's whole-lot spellings. PURE. */
+export function isLotUnit(spec: ItemListPricingSpec, unit: string | null | undefined): boolean {
+  if (!spec.lot_units || unit === null || unit === undefined || unit.trim() === "") return false;
+  const u = normUnit(unit);
+  return spec.lot_units.units.some((x) => normUnit(x) === u);
+}
+
+export interface CountedPieces {
+  state: "match" | "below" | "rounded" | "misfit" | "counts_missing" | "qty_missing";
+  pieces: number | null;
+  expected: number | null;
+  formula?: string;
+  sentence: string;
+}
+
+/**
+ * VRF-3a K2 -- HOW MANY PIECES ONE SET OF A COUNTED ITEM HOLDS (refnets). E = the sum, over the sides the row covers, of
+ * (that side's unit count - 1); W = the larger of `share` x E and `min`. The BoQ quantity q within W of E -> 1 piece per
+ * Set; q below E - W with E / q at least 2 -> ROUNDUP(E / q) pieces (a note when q x p overshoots E); anything else, or a
+ * count or the quantity missing -> no pieces (the row is withheld). PURE.
+ */
+export function countedPieces(c: CountedSpec, answers: Record<string, string | undefined>, rowQty: number | null | undefined): CountedPieces {
+  const fmtq = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2))));
+  const fill = (t: string, vals: Record<string, string>) => t.replace(/\{(\w+)\}/g, (m, k) => (k in vals ? vals[k] : m));
+  const covers = c.covers.options.find((o) => o.value === (answers[c.covers.id] ?? "").trim());
+  const sides = covers ? covers.sides : [];
+  const counts = sides.map((sd) => {
+    const def = c.counts.find((x) => x.side === sd);
+    const raw = def ? (answers[def.id] ?? "").trim() : "";
+    const n = raw === "" ? NaN : Number(raw);
+    return { def, n };
+  });
+  if (!covers || !counts.length || counts.some((x) => !x.def || !Number.isInteger(x.n) || x.n < 1)) {
+    return { state: "counts_missing", pieces: null, expected: null, sentence: c.lines.counts_missing };
+  }
+  const E = counts.reduce((a, x) => a + (x.n - 1), 0);
+  const parts = counts.map((x) => `(${x.n} ${x.def!.word} - 1)`).join(" + ");
+  const formula = fill(c.lines.formula, { parts, E: String(E) });
+  const q = typeof rowQty === "number" && Number.isFinite(rowQty) && rowQty > 0 ? rowQty : null;
+  if (q === null) return { state: "qty_missing", pieces: null, expected: E, formula, sentence: c.lines.qty_missing };
+  const W = Math.max(c.tolerance.share * E, c.tolerance.min);
+  const vals: Record<string, string> = { q: fmtq(q), E: String(E), W: fmtq(W) };
+  if (Math.abs(q - E) <= W + 1e-9) return { state: "match", pieces: 1, expected: E, formula, sentence: fill(c.lines.match, vals) };
+  if (q < E - W && E / q >= 2) {
+    const p = Math.ceil(E / q - 1e-9);
+    const n = Math.round(q * p * 100) / 100;
+    const more = { ...vals, p: String(p), n: fmtq(n), k: fmtq(Math.round((n - E) * 100) / 100) };
+    return n === E
+      ? { state: "below", pieces: p, expected: E, formula, sentence: fill(c.lines.below, more) }
+      : { state: "rounded", pieces: p, expected: E, formula, sentence: fill(c.lines.rounded, more) };
+  }
+  return { state: "misfit", pieces: null, expected: E, formula, sentence: fill(c.lines.misfit, vals) };
+}
+
 export interface ListSection {
   id: string;
   label: string;
@@ -4897,6 +4992,10 @@ export function priceItemList(
       };
     }
     // classes.length === 0: nothing to price in at all -- fall through to the unchanged refusal
+  }
+  // VRF-3a K2 (owner LOT "Refuse + review list"): a whole-lot unit refuses with the config's own line, naming the unit as written
+  if (cls === null && isLotUnit(spec, unit)) {
+    return { unit, unitClass: null, priced: false, reason: spec.lot_units!.line.replace("{unit}", unit.trim()), items: [] };
   }
   if (cls === null) {
     // SLICE 12d-4a (owner D11): on a row the catalogue cannot price AT ALL (an unstocked material), that is

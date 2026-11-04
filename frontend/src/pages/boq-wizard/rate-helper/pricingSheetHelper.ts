@@ -93,12 +93,16 @@ import {
   severalSizesTaken,
   listSpecDefs,
   applyFamilyMerge,
+  countedPieces,
+  isLotUnit,
+  isPerSetUnit,
   priceItemList,
   sizeFieldHelp,
   splitRateOnlyUnit,
   twoWayValues,
   typedFieldNote,
   unitClassOf,
+  type CountedPieces,
   type ExtractedListItem,
   type ItemFieldDef,
   type ItemListPricingSpec,
@@ -2130,6 +2134,10 @@ function computeWiring(
 export const ITEM_LIST_OVERRIDE_KEY = "__items__";
 /** The override key holding the ROW UNIT a pricer picked where no row supplies one (the calculator). */
 export const ROW_UNIT_OVERRIDE_KEY = "__row_unit__";
+/** VRF-3a K2 (owner QR-1 (a), U9, 2026-11-04 19:07): the calculator's "BoQ quantity of this row" -- the panel reads the BoQ
+ * row's own quantity (`ctx.quantity`); the calculator has no row, so the pricer types it. Read only by a counted item
+ * (refnets) on a per-Set row. */
+export const ROW_QTY_OVERRIDE_KEY = "__row_qty__";
 
 /** One item as the panel edits it. `base` = the index of the MODEL's item it started from (null for an item
  * the pricer added or changed -- such an item starts BLANK, S1); `family` = a family the pricer picked (null =
@@ -2454,6 +2462,10 @@ export interface ItemBlockView {
   /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
   helperLine?: string;
   changedByYou?: true;
+  /** VRF-3a K2 (U5, board 11): a counted item (a refnet) on a per-Set row -- its three typed fields, the expected-count
+   * formula, the case's sentence, the pieces the rule gave (null = withheld: the box blank and red) and whether the
+   * pricer typed the pieces themselves. */
+  setCount?: { fields: Array<{ id: string; label: string; note?: string; options?: string[]; value: string }>; formula?: string; sentence: string; pieces: number | null; typed: boolean };
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
@@ -2538,6 +2550,14 @@ export interface ItemListView {
    * lines-vs-total note and "Reset to the helper's split". Present ONLY on a row with a split.
    */
   split?: { note: string; sumNote?: string; condition?: string; changed?: string; linesNote?: string; resetLabel: string };
+  /** VRF-3a K2 (U4 / U5 / U6, boards 9 / 11): the bold bar above the card on a per-Set or whole-lot row -- orange when the
+   * row prices on the team rule, red when it is not priced -- and the ringed "Unit Set · Qty q" line. */
+  unitBar?: { tone: "orange" | "red"; title: string; lines: string[]; ring?: string };
+  /** VRF-3a K2 (U4): the per-item quantity box's label on a per-Set row ("Pieces in one Set of this row"). */
+  qtyLabel?: string;
+  /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" -- shown only on a per-Set row with a counted
+   * item. Never on a BoQ row (the row's own quantity is read). */
+  rowQtyField?: { label: string; value: string };
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -2605,6 +2625,15 @@ export function unitChoicesOf(spec: ItemListPricingSpec, families: readonly (str
     seen.add(spelling.trim().toLowerCase());
     seen.add(word);
     out.push(spelling);
+  }
+  // VRF-3a K2 (owner SET; U4 "Set in the Row unit list"): a config pricing per Set offers its first per-Set spelling right
+  // after the spelling of the class it prices in, so the calculator can state a Set row. ABSENT => byte-identical.
+  const ps = spec.per_set?.units?.[0];
+  if (ps && !seen.has(ps.trim().toLowerCase())) {
+    const cls = unitClassOf(spec, ps);
+    const first = cls !== null ? spec.unit_classes[cls]?.[0] : undefined;
+    const at = first !== undefined ? out.indexOf(first) : -1;
+    if (at >= 0) out.splice(at + 1, 0, ps);
   }
   return out;
 }
@@ -3675,6 +3704,31 @@ function computeItemListOwn(
     for (const id of (clearedPicks[i] ?? new Map()).keys()) attributes[id] = { value: null, cleared: true };
     return { ...a, attributes };
   });
+  /**
+   * VRF-3a K2 (owner SET 17:00 / 17:37 / 17:39 / 18:49; QR-1 (a)) -- A COUNTED ITEM ON A PER-SET ROW. A refnet on a Set row
+   * holds as many pieces as the system's unit counts and the BoQ quantity say (`countedPieces`); the pieces become the
+   * item's quantity per row unit. A count or the quantity missing, or a quantity that fits no reading, gives no pieces:
+   * the quantity goes blank and the item refuses, so the row is withheld. A quantity the pricer TYPED wins outright.
+   */
+  const perSetRow = isPerSetUnit(spec, unit);
+  const counted = perSetRow ? spec.per_set?.counted : undefined;
+  const rowQtyText = calculator ? (overrides?.[ROW_QTY_OVERRIDE_KEY] ?? "") : "";
+  const rowQty = calculator
+    ? (rowQtyText.trim() === "" ? null : Number(rowQtyText.trim()))
+    : (typeof ctx.quantity === "number" ? ctx.quantity : null);
+  const countedByBlock = new Map<number, CountedPieces & { typed: boolean }>();
+  if (counted) {
+    forDisplay.forEach((a, i) => {
+      const famV = a.attributes[familyAttr(spec)]?.value;
+      if (typeof famV !== "string" || !counted.families.includes(famV)) return;
+      const e = edits.items[i];
+      const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id)].map((id) => [id, e?.attrs?.[id]]));
+      const rc = countedPieces(counted, answers, rowQty);
+      const typed = e?.qty !== undefined;
+      countedByBlock.set(i, { ...rc, typed });
+      if (!typed) forPricing[i] = { ...forPricing[i], qtyPerRowUnit: rc.pieces !== null ? String(rc.pieces) : "" };
+    });
+  }
   // the row's texts are built above, where `family_merge` first reads them
   // ADP-5d (HN-3): the headings themselves too, so a rule can read the heading directly above the row on its own
   const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint, headingNoteText, ctx.headings ?? []);
@@ -3781,6 +3835,26 @@ function computeItemListOwn(
                          e.family === null && e.base !== null ? modelItems[e.base] : undefined,
                          ladderedPicks[i] ?? new Map());
   });
+  // VRF-3a K2 (U5): a counted item shows its three fields, the formula and the case; withheld, its box is blank and its
+  // refusal is the case's sentence
+  if (counted) {
+    countedByBlock.forEach((rc, i) => {
+      const b = blocks[i];
+      if (!b) return;
+      const e = edits.items[i];
+      const fields = [
+        { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: e?.attrs?.[counted.covers.id] ?? "" },
+        ...counted.counts.map((c) => ({ id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: e?.attrs?.[c.id] ?? "" })),
+      ];
+      const sentence = rc.typed ? counted.lines.typed.replace("{p}", String(e?.qty ?? "")) : rc.sentence;
+      blocks[i] = {
+        ...b,
+        setCount: { fields, ...(rc.formula ? { formula: rc.formula } : {}), sentence, pieces: rc.typed ? null : rc.pieces, typed: rc.typed },
+        ...(!rc.typed ? { qty: rc.pieces !== null ? String(rc.pieces) : "", qtyDefaulted: false } : {}),
+        ...(!rc.typed && rc.pieces === null ? { reason: sentence } : {}),
+      };
+    });
+  }
   const values: Record<string, number> = {};
   if (priced.priced && !unshowableReason) {
     if (typeof priced.supply === "number") values.supply_rate = priced.supply;
@@ -3799,8 +3873,28 @@ function computeItemListOwn(
   else if (unshowableReason) derivation.push(unshowableReason);
   else if (priced.reason) derivation.push(priced.reason);
   const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
+  // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
+  const unitBar = ((): ItemListView["unitBar"] => {
+    if (isLotUnit(spec, unit) && spec.lot_units) {
+      return { tone: "red", title: spec.lot_units.bar, lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+    }
+    if (!perSetRow || !spec.per_set) return undefined;
+    const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? String(rowQty) : "-";
+    const ring = `Unit ${unit.trim()} \u00b7 Qty ${qtyShown}`;
+    const others = blocks.filter((b, i) => !countedByBlock.has(i) && b.family);
+    const setLine = spec.per_set.bar.line.replace("{item}", others[0]?.family ?? blocks[0]?.family ?? "piece");
+    if (countedByBlock.size && counted) {
+      const withheld = [...countedByBlock.values()].some((rc) => !rc.typed && rc.pieces === null);
+      const lines = [...countedByBlock.entries()].flatMap(([i]) => (blocks[i]?.setCount ? [blocks[i].setCount!.sentence] : []));
+      return { tone: withheld ? "red" : "orange", title: counted.bar, lines: [...new Set(lines)].concat(others.length ? [setLine] : []), ring };
+    }
+    return { tone: "orange", title: spec.per_set.bar.title, lines: [setLine], ring };
+  })();
   const view: ItemListView = {
     ...(splitView ? { split: splitView } : {}),
+    ...(unitBar ? { unitBar } : {}),
+    ...(perSetRow && spec.per_set ? { qtyLabel: spec.per_set.qty_label } : {}),
+    ...(calculator && counted && countedByBlock.size ? { rowQtyField: { label: "BoQ quantity of this row", value: rowQtyText } } : {}),
     unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
     ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
     ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),

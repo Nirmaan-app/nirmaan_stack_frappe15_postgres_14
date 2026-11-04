@@ -1084,7 +1084,16 @@ describe("slice 6b / V6, V7 -- the same family more than once; the per-block qua
     // never reads one (the only quantity it knows is the per-block `qtyPerRowUnit`)
     expect(priceItemList.length).toBe(4);
     const src = readFileSync(join(__dirname, "itemListPricing.ts"), "utf8");
-    expect(src).not.toMatch(/row\.(qty|quantity)|rowQty|ctx\.quantity|total_quantity/);
+    // INVERTED at VRF-3a K2 (owner QR-1 (a), 2026-11-04 19:07: "The panel reads the BoQ row's quantity ... the same refnet
+    // rule runs on both") by mechanical authority: BEFORE the whole file was searched. `countedPieces` -- the refnet count on
+    // a per-Set row, called by the panel helper, never by `priceItemList` -- is the ONE reader of a row quantity; it is cut
+    // out before the search, pinned as the only one, and the pricer's signature still carries no quantity
+    const cp = src.indexOf("export function countedPieces(");
+    const cpEnd = src.indexOf("\n}\n", cp);
+    expect(cp).toBeGreaterThan(0);
+    const rest = src.slice(0, cp) + src.slice(cpEnd);
+    expect(rest).not.toMatch(/row\.(qty|quantity)|rowQty|ctx\.quantity|total_quantity/);
+    expect(src.slice(cp, cpEnd)).toMatch(/rowQty/);
   });
 });
 

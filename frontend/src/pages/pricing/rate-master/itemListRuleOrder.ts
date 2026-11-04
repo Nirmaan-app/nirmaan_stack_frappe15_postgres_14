@@ -334,15 +334,17 @@ const famWordRaw = (f: string) => String(f).trim();
 
 /** VRF-2b (QR-3 A): the unit the line-1 refusal example quotes -- "nos", unless the category prices "nos". PURE. */
 function refusalExampleUnit(pr: any): string {
-  const known = new Set(Object.values<any>(pr?.unit_classes ?? {}).flat().map((x) => String(x).trim().toLowerCase()));
-  return ["nos", "Set", "Lot"].find((u) => !known.has(u.toLowerCase())) ?? "nos";
+  // VRF-3a K2: a whole-lot spelling has its own refusal, so it is never this sentence's example; "Mtr" follows the three
+  // only where all three are known or lot units (VRF from v58) -- every earlier pick is unchanged
+  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+  return ["nos", "Set", "Lot", ...(pr?.lot_units ? ["Mtr"] : [])].find((u) => !known.has(u.toLowerCase())) ?? "nos";
 }
 
 /** VRF-2b (QR-3 A): the line-13 examples of a unit the catalogue does not know -- 'Lot', 'Nos/Ro', with a known one
  * swapped for 'Set'. Unchanged ('Lot', 'Nos/Ro') for every category that knows neither. PURE. */
 function unknownUnitExamples(pr: any): string {
-  const known = new Set(Object.values<any>(pr?.unit_classes ?? {}).flat().map((x) => String(x).trim().toLowerCase()));
-  const pick = ["Lot", "Nos/Ro", "Set"].filter((u) => !known.has(u.toLowerCase())).slice(0, 2);
+  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+  const pick = ["Lot", "Nos/Ro", "Set", ...(pr?.lot_units ? ["Mtr", "Sqm"] : [])].filter((u) => !known.has(u.toLowerCase())).slice(0, 2);
   return pick.map((u) => `'${u}'`).join(", ");
 }
 
@@ -1209,6 +1211,24 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     }
     add("A split the pricer has changed is never split again",
         "an edited, removed or added line keeps the lines as set, with a note when they do not add up to the total; 'Reset to the helper's split' puts the helper's split back");
+  }
+  // ── 13d. VRF-3a K2 (owner SET / LOT, boards 9 / 11): a row priced per Set or per Lot -- ADDED LAST (a config without the
+  // keys adds nothing)
+  if (pr.per_set && Array.isArray(pr.per_set.units)) {
+    const ps = pr.per_set;
+    const cnt = ps.counted;
+    const except = cnt && Array.isArray(cnt.families) ? ` (every kind but ${list(cnt.families.map((f: unknown) => famWord(String(f))))})` : "";
+    add(`A row priced per Set takes one Set as one piece${except}`,
+        `${quoteList(ps.units.map(String))} are priced as one piece per Set, with an orange bar saying so; '${String(ps.qty_label ?? "")}' starts at 1 and can be changed`);
+    if (cnt && Array.isArray(cnt.families) && Array.isArray(cnt.counts)) {
+      const sides = cnt.counts.map((c: any) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
+      add(`A ${list(cnt.families.map((f: unknown) => famWord(String(f))))} on a Set row holds the pieces the system's unit counts give`,
+          `${sides} -- what the row covers decides which; the BoQ quantity within ${Math.round(Number(cnt.tolerance?.share ?? 0) * 100)}% of that count (at least ${String(cnt.tolerance?.min ?? 1)}) -> 1 piece per Set; well below it -> the count shared over the Sets, rounded up, with a note; anything else, or a count missing, is not priced; pieces the pricer types win`);
+    }
+  }
+  if (pr.lot_units && Array.isArray(pr.lot_units.units)) {
+    add("A row priced per Lot is not priced",
+        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand; what a Lot holds is read at VRF-4`);
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {

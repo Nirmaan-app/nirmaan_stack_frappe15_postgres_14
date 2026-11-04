@@ -83,6 +83,8 @@ export function buildRowContext(
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
     ...(rows ? { ownNotes: rowOwnNotes(row, rows) } : {}),
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
+    // VRF-3a K2 (QR-1 (a)): the row's quantity, for a refnet on a Set row -- with the page's rows, as the three above
+    ...(rows && typeof row.qty_total === "number" ? { quantity: row.qty_total } : {}),
   };
 }
 

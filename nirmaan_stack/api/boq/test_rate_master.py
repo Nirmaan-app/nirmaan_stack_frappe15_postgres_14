@@ -13257,8 +13257,13 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # INVERTED at VRF-3a (owner R-SPLIT / SHAPE Q3, 2026-11-04) by mechanical authority: BEFORE the
                             # set ended at "unit_lines". `split` is read only by VRF from v58 on; v7 predates it and ADP
                             # declares it nowhere
-                            "split"})
+                            "split",
+                            # INVERTED at VRF-3a K2 (owner SET / LOT, 2026-11-04) by mechanical authority: BEFORE the set ended
+                            # at "split". Both keys are read only by VRF from v58 on; v7 predates them, ADP declares neither
+                            "per_set", "lot_units"})
         self.assertNotIn("split", pr)
+        self.assertNotIn("per_set", pr)
+        self.assertNotIn("lot_units", pr)
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
@@ -20792,3 +20797,89 @@ class TestVrf3aSplitKeys(FrappeTestCase):
             cfg = vrf3a_split_fixture_config(self.vrf57)
             mutate(cfg["list_spec"]["pricing"])
             self._refused(cfg, needle)
+
+
+VRF3A_PER_SET = {
+    "units": ["Set", "Sets"],
+    "qty_label": "Pieces in one Set of this row",
+    "bar": {"title": "PRICED PER SET - CHECK WHAT ONE SET HOLDS.",
+            "line": "The BoQ prices this row per Set. The helper took one Set = 1 {item} (team rule: 1 Set = 1 piece). If the Set holds more, change \"Pieces in one Set\" below."},
+    "counted": {
+        "families": ["Refnet/Y-Joint"],
+        "covers": {"id": "set_covers", "label": "This row covers *", "note": "Which refnets the row buys.",
+                   "options": [{"value": "Whole system (indoor + outdoor)", "sides": ["outdoor", "indoor"]},
+                               {"value": "Outdoor side only", "sides": ["outdoor"]}, {"value": "Indoor side only", "sides": ["indoor"]}]},
+        "counts": [{"side": "outdoor", "id": "set_odu", "label": "Outdoor units in this system *", "word": "outdoor"},
+                   {"side": "indoor", "id": "set_idu", "label": "Indoor units in this system *", "word": "indoor"}],
+        "tolerance": {"share": 0.1, "min": 1},
+        "bar": "REFNETS PRICED PER SET - CHECK THE COUNT.",
+        "lines": {"formula": "Refnets expected: {parts} = {E}", "match": "match {q} {E}", "below": "below {p}",
+                  "rounded": "ROUNDED UP to {p} pieces", "misfit": "misfit", "counts_missing": "counts missing",
+                  "qty_missing": "qty missing", "typed": "typed {p}"},
+    },
+}
+VRF3A_LOT = {"units": ["Lot", "complete system", "LS", "Job", "per HP"], "bar": "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND.",
+             "line": "Unit \"{unit}\" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. What a Lot holds is read at VRF-4. Price this row by hand."}
+
+
+def vrf3a_set_fixture_config(v57_cfg, drop=()):
+    """VRF-3a K2: v57's hvac_vrf with Set in the count class, `per_set` and `lot_units` (vrf3aSet.test.ts adds the same)."""
+    c = copy.deepcopy(v57_cfg)
+    pr = c["list_spec"]["pricing"]
+    if "set" not in drop:
+        pr["unit_classes"]["count"] = list(pr["unit_classes"]["count"]) + ["Set", "Sets"]
+        pr["per_set"] = copy.deepcopy(VRF3A_PER_SET)
+        if "counted" in drop:
+            pr["per_set"].pop("counted")
+    if "lot" not in drop:
+        pr["lot_units"] = copy.deepcopy(VRF3A_LOT)
+    return c
+
+
+class TestVrf3aSetLotKeys(FrappeTestCase):
+    """VRF-3a K2 (owner SET 17:00 / 17:37 / 17:39 / 18:49, LOT) -- the validator accepts `per_set` (with `counted`) and
+    `lot_units` on a correct shape and refuses each wrong one by name. The pricer's half is vrf3aSet.test.ts."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v57.json"), "r", encoding="utf-8") as fh:
+            cls.v57 = json.load(fh)
+        cls.vrf57 = next(c for c in cls.v57["category_configs"] if c["category_id"] == "hvac_vrf")
+
+    def _refused(self, cfg, *needles):
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        for n in needles:
+            self.assertIn(n, str(cm.exception))
+
+    def test_v3a_04_POSITIVE_the_set_and_lot_fixture_validates(self):
+        config_validation._validate_config(vrf3a_set_fixture_config(self.vrf57))
+        for d in (("set",), ("lot",), ("counted",)):
+            config_validation._validate_config(vrf3a_set_fixture_config(self.vrf57, drop=d))
+
+    def test_v3a_05_NEGATIVE_per_set_shapes_refused_by_name(self):
+        def bad(mutate, needle):
+            cfg = vrf3a_set_fixture_config(self.vrf57)
+            mutate(cfg["list_spec"]["pricing"])
+            self._refused(cfg, needle)
+        bad(lambda pr: pr["unit_classes"].__setitem__("count", [u for u in pr["unit_classes"]["count"] if u not in ("Set", "Sets")]), "is in no unit class")
+        bad(lambda pr: pr["per_set"].__setitem__("qty_label", ""), "per_set.qty_label must be a non-empty label")
+        bad(lambda pr: pr["per_set"]["bar"].pop("line"), "per_set.bar needs exactly a title and a line")
+        bad(lambda pr: pr["per_set"].__setitem__("bogus", 1), "per_set: unknown key(s): bogus")
+        bad(lambda pr: pr["per_set"]["counted"].__setitem__("families", ["Chiller"]), "counted.families must be a non-empty list of families")
+        bad(lambda pr: pr["per_set"]["counted"]["covers"]["options"][0].__setitem__("sides", ["roof"]), "each side one of the counts' sides")
+        bad(lambda pr: pr["per_set"]["counted"].__setitem__("tolerance", {"share": -1, "min": 1}), "counted.tolerance needs a non-negative share and min")
+        bad(lambda pr: pr["per_set"]["counted"]["lines"].pop("typed"), "counted.lines needs exactly")
+        bad(lambda pr: pr["per_set"]["counted"]["lines"].__setitem__("formula", "no placeholders"), "lines.formula must name {parts} and {E}")
+        bad(lambda pr: pr["per_set"]["counted"]["counts"][0].pop("word"), "counts entries need side, id, label and word")
+
+    def test_v3a_06_NEGATIVE_lot_units_shapes_refused_by_name(self):
+        def bad(mutate, needle):
+            cfg = vrf3a_set_fixture_config(self.vrf57)
+            mutate(cfg["list_spec"]["pricing"])
+            self._refused(cfg, needle)
+        bad(lambda pr: pr["lot_units"].__setitem__("units", ["Nos"]), "is also in a unit class")
+        bad(lambda pr: pr["lot_units"].__setitem__("line", "no unit named"), "lot_units.line must be a sentence naming {unit}")
+        bad(lambda pr: pr["lot_units"].pop("bar"), "lot_units needs exactly units, bar and line")
+        bad(lambda pr: pr["lot_units"].__setitem__("units", []), "lot_units.units must be a non-empty list")

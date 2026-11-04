@@ -1110,6 +1110,99 @@ _NUMBER_UNITS_KEYS = {"unit_attr", "words", "base", "convert", "refuse_words", "
 _PRICING_COMPOSE_KEYS = _PRICING_COMPOSE_KEYS | {"above_only"}
 _PRICING_KEYS = _PRICING_KEYS | {"split"}
 _SPLIT_KEYS = {"families", "stated", "conditions"}
+# VRF-3a K2 (owner SET 2026-11-04 17:00 / 17:37 / 17:39 / 18:49; LOT "Refuse + review list"): `per_set` -- the spellings that
+# price one Set as one piece (they must also sit in a unit class), the bar and the quantity label, and `counted` (refnets:
+# the pieces from the system's unit counts and the BoQ quantity); `lot_units` -- whole-lot spellings that refuse with a line.
+_PRICING_KEYS = _PRICING_KEYS | {"per_set", "lot_units"}
+_PER_SET_KEYS = {"units", "qty_label", "bar", "counted"}
+_COUNTED_KEYS = {"families", "covers", "counts", "tolerance", "bar", "lines"}
+_COUNTED_LINES = {"formula", "match", "below", "rounded", "misfit", "counts_missing", "qty_missing", "typed"}
+_LOT_KEYS = {"units", "bar", "line"}
+
+
+def _nonempty_str(v):
+    return isinstance(v, str) and bool(v.strip())
+
+
+def _validate_per_set(ps, pr, fams):
+    """VRF-3a K2 -- `list_spec.pricing.per_set`. Every spelling must sit in a unit class (so the row prices); `counted`
+    names priced families, three typed fields (covers with options naming sides, one count per side) and the lines."""
+    loc = "list_spec.pricing.per_set"
+    if not isinstance(ps, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(ps) - _PER_SET_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    units = ps.get("units")
+    if not isinstance(units, list) or not units or not all(_nonempty_str(u) for u in units):
+        _vthrow(f"{loc}.units must be a non-empty list of unit spellings.")
+    known = {str(x).strip().lower().rstrip(".") for v in (pr.get("unit_classes") or {}).values() for x in (v or [])}
+    for u in units:
+        if u.strip().lower().rstrip(".") not in known:
+            _vthrow(f"{loc}.units: '{u}' is in no unit class, so a row in it could not price; add it to the class it prices in.")
+    if not _nonempty_str(ps.get("qty_label")):
+        _vthrow(f"{loc}.qty_label must be a non-empty label.")
+    bar = ps.get("bar")
+    if not isinstance(bar, dict) or set(bar) != {"title", "line"} or not all(_nonempty_str(bar[k]) for k in bar):
+        _vthrow(f"{loc}.bar needs exactly a title and a line.")
+    c = ps.get("counted")
+    if c is None:
+        return
+    cl = f"{loc}.counted"
+    if not isinstance(c, dict) or set(c) != _COUNTED_KEYS:
+        _vthrow(f"{cl} needs exactly {', '.join(sorted(_COUNTED_KEYS))}.")
+    if not isinstance(c["families"], list) or not c["families"] or any(f not in fams for f in c["families"]):
+        _vthrow(f"{cl}.families must be a non-empty list of families this category prices.")
+    counts = c["counts"]
+    if not isinstance(counts, list) or not counts:
+        _vthrow(f"{cl}.counts must be a non-empty list of {{side, id, label, word}}.")
+    sides = set()
+    for x in counts:
+        if not isinstance(x, dict) or not {"side", "id", "label", "word"} <= set(x) or set(x) - {"side", "id", "label", "word", "note"}:
+            _vthrow(f"{cl}.counts entries need side, id, label and word (and an optional note).")
+        if not all(_nonempty_str(x[k]) for k in ("side", "id", "label", "word")):
+            _vthrow(f"{cl}.counts entries need non-empty side, id, label and word.")
+        sides.add(x["side"])
+    cov = c["covers"]
+    if not isinstance(cov, dict) or not {"id", "label", "options"} <= set(cov) or set(cov) - {"id", "label", "options", "note"}:
+        _vthrow(f"{cl}.covers needs id, label and options (and an optional note).")
+    if not isinstance(cov["options"], list) or not cov["options"]:
+        _vthrow(f"{cl}.covers.options must be a non-empty list of {{value, sides}}.")
+    for o in cov["options"]:
+        if (not isinstance(o, dict) or set(o) != {"value", "sides"} or not _nonempty_str(o["value"])
+                or not isinstance(o["sides"], list) or not o["sides"] or any(sd not in sides for sd in o["sides"])):
+            _vthrow(f"{cl}.covers.options: each needs a value and the sides it covers, each side one of the counts' sides.")
+    tol = c["tolerance"]
+    if (not isinstance(tol, dict) or set(tol) != {"share", "min"}
+            or not all(isinstance(tol[k], (int, float)) and not isinstance(tol[k], bool) and tol[k] >= 0 for k in tol)):
+        _vthrow(f"{cl}.tolerance needs a non-negative share and min (owner 17:39: +-10% or +-1 piece, whichever larger).")
+    if not _nonempty_str(c["bar"]):
+        _vthrow(f"{cl}.bar must be a non-empty title.")
+    lines = c["lines"]
+    if not isinstance(lines, dict) or set(lines) != _COUNTED_LINES or not all(_nonempty_str(lines[k]) for k in lines):
+        _vthrow(f"{cl}.lines needs exactly {', '.join(sorted(_COUNTED_LINES))}, each a sentence.")
+    if "{E}" not in lines["formula"] or "{parts}" not in lines["formula"]:
+        _vthrow(f"{cl}.lines.formula must name {{parts}} and {{E}}.")
+    if "{p}" not in lines["rounded"]:
+        _vthrow(f"{cl}.lines.rounded must name {{p}} (the pieces rounded up to).")
+
+
+def _validate_lot_units(lu, pr):
+    """VRF-3a K2 -- `list_spec.pricing.lot_units`: whole-lot spellings (in no unit class: they never price), the bar and
+    the line naming {unit}."""
+    loc = "list_spec.pricing.lot_units"
+    if not isinstance(lu, dict) or set(lu) != _LOT_KEYS:
+        _vthrow(f"{loc} needs exactly units, bar and line.")
+    if not isinstance(lu["units"], list) or not lu["units"] or not all(_nonempty_str(u) for u in lu["units"]):
+        _vthrow(f"{loc}.units must be a non-empty list of unit spellings.")
+    known = {str(x).strip().lower().rstrip(".") for v in (pr.get("unit_classes") or {}).values() for x in (v or [])}
+    for u in lu["units"]:
+        if u.strip().lower().rstrip(".") in known:
+            _vthrow(f"{loc}.units: '{u}' is also in a unit class; a unit cannot both price and refuse.")
+    if not _nonempty_str(lu["bar"]):
+        _vthrow(f"{loc}.bar must be a non-empty title.")
+    if not _nonempty_str(lu["line"]) or "{unit}" not in lu["line"]:
+        _vthrow(f"{loc}.line must be a sentence naming {{unit}} (the unit as the row writes it).")
 _SPLIT_CONDITION_KEYS = {"words", "line"}
 
 
@@ -2070,6 +2163,11 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # VRF-3a: `split` -- PRESENCE, as every key above
     if "split" in pr:
         _validate_split(pr["split"], pr, fams)
+    # VRF-3a K2: `per_set` / `lot_units` -- PRESENCE, as every key above
+    if "per_set" in pr:
+        _validate_per_set(pr["per_set"], pr, fams)
+    if "lot_units" in pr:
+        _validate_lot_units(pr["lot_units"], pr)
     if "unstocked_materials" in pr:
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:

@@ -566,6 +566,11 @@ export interface RateHelperRowContext {
    * `family_merge` words -- every other text rule reads exactly what it read before. OPTIONAL: the calculator omits it.
    */
   headingNotes?: string[];
+  /**
+   * VRF-3a K2 (owner QR-1 (a), 2026-11-04 19:07): the BoQ row's QUANTITY (`qty_total`), built by `buildRowContext` from the
+   * priced row. Read ONLY by a counted item (a refnet) on a per-Set row. OPTIONAL: the calculator has no row and omits it.
+   */
+  quantity?: number;
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.
