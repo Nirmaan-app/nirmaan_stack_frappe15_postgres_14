@@ -28,6 +28,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.outflow_import.expenses import (
     AlreadyImportedError,
+    AlreadyLinkedError,
     create_expense,
     settle_row,
 )
@@ -171,27 +172,40 @@ class TestTheJobFirstThenALink(LinkOneTxnIdCase):
 
 
 class TestALinkToTheSameExpense(LinkOneTxnIdCase):
-    """#1601: "A Link to the same Expense that already holds the Txn Id stays allowed": the new rule never refuses
-    it. A second Settled row of one Txn Id on one Expense was never possible, though: the older
-    `ofm_match_settled_target_unique` (one transfer never settles one record twice, every source) refuses it, as it
-    did on spec/1585. This pins that the outcome is unchanged -- that index's refusal, not the #1601 sentence."""
+    """#1606 (follows #1601): a second line of the Txn Id Linked to the Expense that already holds it. #1601's rule
+    never refuses it, but the older `ofm_match_settled_target_unique` (one transfer never settles one record twice,
+    every source) does, and the person is told so in a sentence naming the Expense and the line that hold it --
+    whichever of the two indexes Postgres checks first."""
 
-    def test_a_second_line_of_the_txn_id_linked_to_its_own_expense_keeps_the_older_refusal(self):
-        a_line, b_line = self._twin(self.a, self.txn), self._twin(self.b, self.txn)
-        a_amount = open_line_by_hand(a_line.name)
-        b_amount = open_line_by_hand(b_line.name)
-        expense = self._plant(a_amount + b_amount)
-        self._link(a_line, expense)
+    def setUp(self):
+        super().setUp()
+        self.a_line, self.b_line = self._twin(self.a, self.txn), self._twin(self.b, self.txn)
+        a_amount = open_line_by_hand(self.a_line.name)
+        b_amount = open_line_by_hand(self.b_line.name)
+        self.expense = self._plant(a_amount + b_amount)
+        self._link(self.a_line, self.expense)
 
-        with self.assertRaises(Exception) as refused:
-            self._link(b_line, expense)
-        frappe.db.rollback()
+    def _assert_refused_in_words(self, attempt):
+        with self.assertRaises(AlreadyLinkedError) as refused:
+            attempt()
+        frappe.db.commit()
 
-        self.assertNotIsInstance(refused.exception, AlreadyImportedError)
-        # Postgres checks the two unique indexes in its own order; either refusal is the pre-#1601 outcome.
-        self.assertRegex(str(refused.exception), "ofm_match_settled_target_unique|" + IMPORT_CREATED_EXPENSE_INDEX)
-        self.assertEqual(settled_expenses_for(self.txn), [expense])
+        message = str(refused.exception)
+        self._assert_no_raw_database_words(message)
+        self.assertNotIn("ofm_match_settled_target_unique", message)
+        self.assertIn(self.txn, message)
+        self.assertIn(self.expense, message)
+        self.assertIn(self.a_line.name, message)
+        self.assertIn(self.a, message)
+        self.assertEqual(settled_expenses_for(self.txn), [self.expense])
         self.assertEqual(self._twin(self.b, self.txn).row_status, ROW_MISMATCHED)
+        self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": self.b_line.name}))
+
+    def test_a_link_of_many_lines_is_refused_naming_the_expense_and_the_line_that_hold_it(self):
+        self._assert_refused_in_words(lambda: self._link(self.b_line, self.expense))
+
+    def test_a_one_line_link_from_decide_is_refused_the_same_way(self):
+        self._assert_refused_in_words(lambda: settle_row(self.b_line.name, NON_PROJECT_EXPENSE_DOCTYPE, self.expense))
 
 
 class TestUnreconcileOfTheLinkedLineFreesTheTxnId(LinkOneTxnIdCase):

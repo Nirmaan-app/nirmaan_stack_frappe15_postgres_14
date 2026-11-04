@@ -327,6 +327,14 @@ LINK_REFUSED_TXN_ID_HELD = (
     "{target} as well: one wallet spend has one expense. To link it here instead, Unreconcile that line "
     "first."
 )
+# A hand Link of a line whose Txn Id another line already ties, Settled, to the SAME record the person picked (#1606):
+# `ofm_match_settled_target_unique` (every source) refused the Link's match row. `{records}` is "<ledger> <name>",
+# `{line}` and `{batch}` the line that holds it. A refusal sentence on the screen, never a skip; like
+# `LINK_REFUSED_TXN_ID_HELD` it does not say "Nothing was linked.", which the Link dialog prints before it.
+LINK_REFUSED_ALREADY_LINKED = (
+    "Txn Id {transfer_id} is already linked to {records} by line {line}, in batch {batch}, so it cannot be linked "
+    "to it a second time: one transfer settles a record once. Skip this line, or Unreconcile that one first."
+)
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 # ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
 # is ever staged is one whose bank status CHANGED -- and the reason names both statuses. The prefix up
