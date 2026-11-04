@@ -778,7 +778,8 @@ export const ImportStatementDialog = ({
 
     /**
      * Upload a Credit Card Statement PDF (#1566). ONE request reads, gates, refuses or stages the whole
-     * statement, as Porter's does: a refused file (another company, totals that disagree) saves nothing.
+     * statement, as Porter's does: a refused file (totals that disagree, a cash advance) saves nothing. The
+     * company is shown on Review, never refused (ADR-0039 Amendment B).
      *
      * A password-locked PDF is refused until its password is sent with it (ADR-0039 Amendment A): a picked file
      * that looks locked, that refusal, or a wrong password shows the PDF password field, and the upload sends

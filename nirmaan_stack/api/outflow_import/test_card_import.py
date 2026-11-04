@@ -297,6 +297,36 @@ class TestUploadingALockedStatement(CardImportCase):
         self.assertNotIn(self.PASSWORD, frappe.as_json(self.result))
 
 
+class TestTheCompanyIsShownNotChecked(CardImportCase):
+    """The upload saves the company the statement prints and Review shows it; no company is refused, and a
+    statement with no company line still imports (ADR-0039 Amendment B)."""
+
+    def test_another_companys_statement_is_saved_with_its_company(self):
+        text = self._text().replace("STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
+        result = self._upload(pdf_from_text(text))
+        [statement] = self._statements()
+        self.assertEqual(statement.company, "ACME TRADERS PVT LTD")
+        self.assertEqual(result["company"], "ACME TRADERS PVT LTD")
+        self.assertEqual(len(self._rows(result["batch"])), 47)
+
+    def test_a_statement_with_no_company_line_is_saved_with_a_blank_company(self):
+        text = self._text().replace("\nSTRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "\nFLAT")
+        result = self._upload(pdf_from_text(text))
+        [statement] = self._statements()
+        self.assertFalse(statement.company)
+        self.assertFalse(result["company"])
+        self.assertEqual(len(self._rows(result["batch"])), 47)
+
+    def test_a_locked_pdf_printing_the_holder_on_the_state_code_line_is_saved_under_that_holder(self):
+        # The bank's locked PDF, opened with its password, joins "State Code: 29" and the holder (2026-11-04).
+        password = "Pdf-Pass-4821"
+        text = self._text().replace("State Code: 29\nMR ", "State Code: 29MR ")
+        self._upload(pdf_from_text(text, password=password), password=password)
+        [statement] = self._statements()
+        self.assertEqual(statement.holder, self.holder)
+        self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
+
+
 class TestCardLinesAreNotBankLines(CardImportCase):
     def test_total_unreconciled_outflow_does_not_move_on_upload(self):
         """The spends wait for the card's own Create. The one unpaired credit (MakeMyTrip ₹801.50) is open

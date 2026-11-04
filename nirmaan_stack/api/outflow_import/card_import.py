@@ -88,7 +88,7 @@ def upload_card_statement():
 
     Refused, with the reason, and with NOTHING saved: a file that is not a .pdf; a password-locked PDF sent
     without its password, or with a wrong one (the screen then asks for it); a statement that is not this
-    layout; a statement not issued to Stratos Infra Technologies; a non-zero Cash Advances; spends that do
+    layout (no holder at `State Code:`); a non-zero Cash Advances; spends that do
     not equal Purchases / Charges or credits that do not equal Payments / Credits, to the paisa (both figures
     shown); a second statement for the same holder and billing period (naming the earlier import); a file
     whose every SerNo is already imported. A line whose SerNo is already imported is LEFT OUT and counted in

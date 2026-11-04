@@ -7477,8 +7477,10 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    Review shows *Not printed* (`creditCardImport.cardCompanyLabel`). The holder may sit on the anchor line
    itself (`State Code: 29MR <HOLDER>`, the locked PDF opened with its password).
 2. **Layout, measured on the 2026-10-01 statement** (fixture `services/outflow_import/tests/fixtures/icici_card_statement.txt`,
-   names faked): pypdf reads the rupee sign as `Á`. Holder and company are the two lines under `State Code:`
-   (the address block), holder with its honorific dropped. The summary is the line under `Previous Balance
+   names faked): pypdf reads the rupee sign as `Á`. The holder is the line under `State Code:`, or the text
+   on that line itself when it starts with a title (`State Code: 29MR <HOLDER>`; a title alone leaves the name
+   below), honorific dropped; the company is the line under the holder when it ends in a company word, else
+   blank (invariant 1). The summary is the line under `Previous Balance
    Purchases / Charges Cash Advances Payments / Credits`. *Total Amount Due* is the larger of the two
    standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
    standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated

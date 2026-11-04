@@ -50,7 +50,8 @@ _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
 _MONEY = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])")
 _STANDALONE_MONEY = re.compile(r"^\s*[^\d\s,.]?\s*([\d,]+\.\d{2})\s*$")
 _SUMMARY_LABEL = "Previous Balance Purchases / Charges Cash Advances Payments / Credits"
-# `rest` is the holder when the PDF prints it on the same line ("State Code: 29MR <HOLDER>").
+# `rest` is the holder when the PDF prints it on the same line ("State Code: 29MR <HOLDER>"), read only when
+# it starts with a title and a name (`_HONORIFIC`); a title alone ("State Code: 29MR") leaves the name below.
 _ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:\s*\d*\s*(?P<rest>.*)$")
 _HONORIFIC = re.compile(r"^(?:MR|MRS|MS|MISS|DR|M/S)\.?\s+", re.IGNORECASE)
 
@@ -189,13 +190,22 @@ def _period(text: str) -> tuple[date, date]:
 
 
 def _address_block(rows: list[str]) -> tuple[str, str]:
-    """The holder line and the company line under `State Code:`. The holder's honorific is dropped."""
+    """The holder and the company from the address block at `State Code:`, the holder's title dropped.
+
+    The holder is the line under the anchor, or the anchor line's own text when that starts with a title
+    (the locked PDF: `State Code: 29MR <HOLDER>`). The company is the next line when it ends in a company
+    word, else blank (ADR-0039 Amendment B).
+    """
     for index, row in enumerate(rows):
         anchor = _ADDRESS_ANCHOR.match(row)
         if not anchor:
             continue
         below = rows[index + 1 :]
-        holder_line = anchor.group("rest") or (below.pop(0) if below else "")
+        rest = anchor.group("rest")
+        if _HONORIFIC.match(rest):
+            holder_line = rest
+        else:
+            holder_line = below.pop(0) if below else ""
         holder = _HONORIFIC.sub("", holder_line).strip()
         if holder:
             company = below[0].strip() if below and _is_company_line(below[0]) else ""

@@ -93,7 +93,7 @@ export const PORTER_STEPS: (WizardStep & { key: PorterStepKey })[] = [
  * The Credit Card Statement's three steps (#1566, ADR-0039).
  *
  * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT, as on Porter. The upload reads the whole PDF and
- * refuses it (another company, totals that do not agree; a locked PDF until its password is typed) before
+ * refuses it (totals that do not agree; a locked PDF until its password is typed) before
  * anything is saved, then stages it.
  * Review shows what was read; nothing is created until the last step.
  */
