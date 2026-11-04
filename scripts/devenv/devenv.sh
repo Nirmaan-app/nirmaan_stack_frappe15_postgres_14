@@ -591,6 +591,14 @@ PY
   else
     echo "  data: date unknown (no data_stamp.json; scripts/devenv/data.sh restore writes one)"
   fi
+  # Production deploys frappe's version-15 head; the boxes follow it by bootstrap.sh bump, which only the owner runs.
+  local have newest
+  have="$(git -C "$M/apps/frappe" describe --tags --exact-match 2>/dev/null || echo "an untagged commit")"
+  newest="$(git ls-remote --tags https://github.com/frappe/frappe 'v15.*' 2>/dev/null | sed 's|.*refs/tags/||' \
+            | grep -E '^v15\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+  if [ -n "$newest" ] && [ "$have" != "$newest" ]; then
+    echo "  WARN frappe is $have; production deploys $newest: tell the owner (scripts/devenv/bootstrap.sh bump). Do not run it yourself."
+  fi
 }
 
 task_for() {    # print the task whose apps/nirmaan_stack is the given worktree

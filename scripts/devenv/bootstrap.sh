@@ -5,6 +5,14 @@
 #   bootstrap.sh <step>       one step: host | compose | bench | link | pylock | frontend | build | playwright
 #   bootstrap.sh doctor       read-only: the box against apps.lock.json, plus the data's and template's age
 #   bootstrap.sh lock         rewrite apps.lock.json and python.lock.txt from this box's bench (after an upgrade)
+#   bootstrap.sh bump         the owner, on the laptop: move frappe to its newest v15 release, rewrite both locks,
+#                             migrate localhost, rebuild the Desk assets and the template. Then the full test suite.
+#   bootstrap.sh follow       every other box, after pulling a bumped lock: the same, with the locked packages
+#
+# Production deploys frappe's version-15 branch head, so the boxes follow it: `bump` about weekly, whenever `doctor`
+# or `devenv.sh up` warns that frappe is behind (owner, 2026-11-04; revisit when a CI/CD pipeline pins one version
+# for both). Every package must meet every app's pins, git pins included (pins_check.py): `bench`, `pylock`, `lock`,
+# `bump` and `doctor` refuse a bench or a lock that breaks one.
 #
 # Every step checks first and skips what is already right, so a step (or `all`) is safe to run again after a failure.
 # `compose` never replaces an existing docker-compose.yml that differs from compose.yml unless given --force (it
@@ -41,6 +49,11 @@ BENCH="$ROOT/frappe-bench"
 lock() { python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(eval(sys.argv[2],{},{"d":d}))' "$LOCK" "$1"; }
 inside() { docker exec -i -w /workspace/development "$CONTAINER" bash -lc "$1"; }   # login shell: pyenv, nvm, bench
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
+pins_check() { inside "cd frappe-bench && env/bin/python -I /workspace/development/nirmaan_stack_variants/$NAME/scripts/devenv/pins_check.py $*"; }
+newest_v15() {   # frappe's newest v15 release tag on GitHub; empty when offline
+  git ls-remote --tags "$(lock 'd["frappe"]["url"]')" 'v15.*' 2>/dev/null | sed 's|.*refs/tags/||' \
+    | grep -E '^v15\.[0-9]+\.[0-9]+$' | sort -V | tail -1
+}
 
 host() {
   step "host"
@@ -105,7 +118,12 @@ bench() {
       || { tail -20 "$ROOT/logs-bootstrap-bench-init.log"; die "bench init failed (log: $ROOT/logs-bootstrap-bench-init.log)"; }
     ok "bench initialised"
   fi
-  [ "$(git -C "$BENCH/apps/frappe" rev-parse HEAD)" = "$commit" ] || die "frappe is not at $ref ($commit)"
+  local moved=0 fr="$BENCH/apps/frappe"
+  if [ "$(git -C "$fr" rev-parse HEAD)" != "$commit" ]; then
+    [ -z "$(git -C "$fr" status --porcelain --untracked-files=no)" ] || die "apps/frappe has local changes; it cannot move to $ref"
+    { git -C "$fr" fetch -q "$url" "$commit" && git -C "$fr" checkout -q "$commit"; } || die "could not move frappe to $ref ($commit)"
+    moved=1
+  fi
   ok "frappe at $ref"
   write_common_config; ok "common_site_config.json"
   printf '%s\n' 'web: bench serve  --port 8000' 'socketio: node apps/frappe/socketio.js' \
@@ -126,6 +144,13 @@ bench() {
     fi
     ok "$name at ${app_commit:0:9}"
   done
+  if [ $moved = 1 ] || ! pins_check >/dev/null; then
+    echo "      bench setup requirements: frappe moved, or a package breaks an app's pins (several minutes)"
+    inside "cd frappe-bench && bench setup requirements" > "$ROOT/logs-bootstrap-requirements.log" 2>&1 \
+      || { tail -20 "$ROOT/logs-bootstrap-requirements.log"; die "bench setup requirements failed"; }
+    pins_check --fix-git >/dev/null || true   # pylock or bump decides; pip leaves a PyPI release where a git pin is asked
+    ok "requirements installed"
+  fi
 }
 
 link() {
@@ -162,12 +187,53 @@ for l in open(sys.argv[1]):
 pylock() {
   step "pylock"
   local diff; diff="$(pylock_diff)"
-  if [ -z "$diff" ]; then skip "env matches python.lock.txt"; return; fi
-  echo "      $(echo "$diff" | grep -c .) packages differ from python.lock.txt; installing the locked versions"
-  inside "cd frappe-bench && env/bin/pip install -q --no-deps -r /workspace/development/nirmaan_stack_variants/$NAME/scripts/devenv/python.lock.txt" \
-    > "$ROOT/logs-bootstrap-pylock.log" 2>&1 || { tail -20 "$ROOT/logs-bootstrap-pylock.log"; die "pip install of python.lock.txt failed"; }
-  diff="$(pylock_diff)"; [ -z "$diff" ] || { echo "$diff" | head; die "the env still differs from python.lock.txt"; }
-  ok "env matches python.lock.txt"
+  if [ -z "$diff" ]; then skip "env matches python.lock.txt"
+  else
+    echo "      $(echo "$diff" | grep -c .) packages differ from python.lock.txt; installing the locked versions"
+    inside "cd frappe-bench && env/bin/pip install -q --no-deps -r /workspace/development/nirmaan_stack_variants/$NAME/scripts/devenv/python.lock.txt" \
+      > "$ROOT/logs-bootstrap-pylock.log" 2>&1 || { tail -20 "$ROOT/logs-bootstrap-pylock.log"; die "pip install of python.lock.txt failed"; }
+    diff="$(pylock_diff)"; [ -z "$diff" ] || { echo "$diff" | head; die "the env still differs from python.lock.txt"; }
+    ok "env matches python.lock.txt"
+  fi
+  pins_check || die "python.lock.txt breaks the app pins above, so it is stale: the owner runs bootstrap.sh bump"
+  ok "every package meets every app's pins, git pins included"
+}
+
+lock_python() {
+  { sed -n '1,2p' "$SELF_DIR/python.lock.txt"
+    inside "cd frappe-bench && env/bin/pip freeze 2>/dev/null" | grep -vE '^(-e |#)' | sort; } > "$SELF_DIR/python.lock.txt.new"
+  mv "$SELF_DIR/python.lock.txt.new" "$SELF_DIR/python.lock.txt"; echo "wrote $SELF_DIR/python.lock.txt"
+}
+
+after_frappe_moved() {   # localhost, the Desk assets and the template, on the frappe now in the bench
+  step "migrate localhost, build, template"
+  inside "cd frappe-bench && bench --site localhost migrate" > "$ROOT/logs-bootstrap-migrate.log" 2>&1 \
+    || { tail -20 "$ROOT/logs-bootstrap-migrate.log"; die "migrate failed (log: $ROOT/logs-bootstrap-migrate.log)"; }
+  ok "localhost migrated"
+  FORCE=1 build
+  "$SELF_DIR/devenv.sh" template-drop >/dev/null 2>&1 || true
+  "$SELF_DIR/devenv.sh" template-build | tail -2
+  echo "next: the full test suite; task envs made before keep their old DB until devenv.sh reset <task>"
+}
+
+bump() {
+  step "bump: frappe to its newest v15 release (production deploys version-15)"
+  local newest commit
+  newest="$(newest_v15)"; [ -n "$newest" ] || die "could not read frappe's tags from GitHub"
+  commit="$(git ls-remote "$(lock 'd["frappe"]["url"]')" "refs/tags/$newest" "refs/tags/$newest^{}" | sort -k2 | tail -1 | cut -f1)"
+  python3 - "$LOCK" "$newest" "$commit" <<'PY'
+import json, sys
+path, ref, commit = sys.argv[1:]
+d = json.load(open(path))
+d["frappe"].update(ref=ref, commit=commit)
+json.dump(d, open(path, "w"), indent=1); open(path, "a").write("\n")
+PY
+  ok "apps.lock.json: frappe $newest ($commit)"
+  bench
+  pins_check || die "frappe $newest's pins are not met after bench setup requirements (above)"
+  lock_from_bench; lock_python
+  after_frappe_moved
+  echo "then commit scripts/devenv/apps.lock.json and python.lock.txt; the other boxes run bootstrap.sh follow"
 }
 
 frontend() {
@@ -237,6 +303,11 @@ doctor() {
   check "apps/nirmaan_stack -> this checkout" '[ "$(cd "$BENCH/apps/nirmaan_stack" 2>/dev/null && pwd -P)" = "$CHECKOUT" ]'
   check "sites/apps.txt as locked" '[ "$(cat "$BENCH/sites/apps.txt" 2>/dev/null)" = "$(lock "chr(10).join(d[\"apps_txt\"])")" ]'
   check "Python packages as locked" '[ -z "$(pylock_diff)" ]'
+  check "every package meets every app's pins, git pins included" 'pins_check'
+  local newest; newest="$(newest_v15)"
+  if [ -z "$newest" ]; then echo "note  could not read frappe's newest v15 release (offline?)"
+  elif [ "$newest" = "$(lock 'd["frappe"]["ref"]')" ]; then ok "frappe is its newest v15 release ($newest)"
+  else echo "WARN  frappe locked at $(lock 'd["frappe"]["ref"]'); production deploys version-15, now $newest: bootstrap.sh bump"; fi
   check "Desk assets built" '[ -f "$BENCH/sites/assets/assets.json" ]'
   check "frontend node_modules" '[ -d "$ROOT/nirmaan_stack_variants/$NAME/frontend/node_modules/.bin" ]'
   check "Python Playwright on the host" 'python3 -c "import playwright" 2>/dev/null'
@@ -291,12 +362,11 @@ CMD="${1:-}"; shift || true
 [ "${1:-}" = --force ] && FORCE=1
 case "$CMD" in
   all) host; compose; bench; link; pylock; frontend; build; playwright; doctor || true ;;
-  host|compose|bench|link|pylock|frontend|build|playwright|doctor) "$CMD" ;;
-  lock) lock_from_bench
-        { sed -n '1,2p' "$SELF_DIR/python.lock.txt"
-          inside "cd frappe-bench && env/bin/pip freeze 2>/dev/null" | grep -vE '^(-e |#)' | sort; } > "$SELF_DIR/python.lock.txt.new"
-        mv "$SELF_DIR/python.lock.txt.new" "$SELF_DIR/python.lock.txt"; echo "wrote $SELF_DIR/python.lock.txt" ;;
-  *) sed -n '2,20p' "$0"; exit 1 ;;
+  host|compose|bench|link|pylock|frontend|build|playwright|doctor|bump) "$CMD" ;;
+  follow) bench; pylock; after_frappe_moved ;;
+  lock) pins_check || die "this bench breaks the app pins above; a lock of it would carry them to every box"
+        lock_from_bench; lock_python ;;
+  *) sed -n '2,26p' "$0"; exit 1 ;;
 esac
 exit
 }
