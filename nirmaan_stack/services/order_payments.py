@@ -17,6 +17,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.gst_payment_requests import pending_gst_amount, pending_requests
 from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
 #: How a refusal names the action: the request endpoint asks for money, an insert anywhere else pays it,
@@ -56,17 +57,23 @@ def load_payments(document_type: str, document_name: str):
 	return payments, tds_by_payment
 
 
-def work_order_summary(sr, exclude_payment: str | None = None) -> dict:
-	"""The payment summary of a Work Order plus its payment limit (`services/work_order_payment_limit`)."""
+def work_order_summary(sr, exclude_payment: str | None = None, exclude_request: str | None = None) -> dict:
+	"""The payment summary of a Work Order plus its payment limit (`services/work_order_payment_limit`).
+
+	The limit counts the Work Order's Pending GST requests, except `exclude_request`: the one being
+	approved, whose amount the new payment is about to hold instead.
+	"""
 	payments, tds_by_payment = load_payments(sr.doctype, sr.name)
 	return work_order_limit(
 		sr.get("total_amount"), sr.get("gst"), sr.get("gst_invoiced"),
 		payments, tds_by_payment, exclude_payment, sr.get("amount_invoiced"),
+		pending_gst_amount(sr.name, exclude_request),
 	)
 
 
 def assert_within_work_order_limit(
-	sr, amount, gst_payment: bool, action: PaymentAction = "request", exclude_payment: str | None = None
+	sr, amount, gst_payment: bool, action: PaymentAction = "request", exclude_payment: str | None = None,
+	exclude_request: str | None = None,
 ) -> None:
 	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030), when
 	the Work Order fails the invoice check, or when it is negative (#1488). Nobody skips the invoice
@@ -79,7 +86,7 @@ def assert_within_work_order_limit(
 	passes that payment as `exclude_payment` and its new gross as `amount`: the edit is measured as
 	if the payment were requested anew at its new figure.
 	"""
-	limit = work_order_summary(sr, exclude_payment)["limit"]
+	limit = work_order_summary(sr, exclude_payment, exclude_request)["limit"]
 	refusal = request_refusal(limit, amount, gst_payment)
 	if not refusal:
 		return
@@ -99,5 +106,9 @@ def assert_within_work_order_limit(
 		reason = ""
 		if limit["gst_released"] <= 0:
 			reason = " " + _("No GST is released yet: approve an invoice carrying GST first.")
+		elif limit["gst_requested"] > 0:
+			waiting = [n for n in pending_requests(sr.name) if n != exclude_request]
+			reason = " " + _("{0} is waiting for the Accountant: {1}.").format(
+				frappe.format_value(limit["gst_requested"], "Currency"), ", ".join(waiting))
 		frappe.throw(_("Maximum amount you can {0} is {1} (GST left).").format(act, left) + reason)
 	frappe.throw(_("Maximum amount you can {0} is {1} (total left, incl. GST)").format(act, left))

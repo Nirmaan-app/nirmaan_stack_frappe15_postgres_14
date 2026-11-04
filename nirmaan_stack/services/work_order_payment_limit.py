@@ -9,8 +9,12 @@ its payments and hands them here; the payment-request endpoint and the payment s
 the result, and the Request Payment dialog shows it without re-deriving anything.
 
     Base left  = max(0, base value - base payments)
-    GST left   = max(0, min(GST Invoiced, Work Order GST) - GST payments)
-    Total left = total incl. GST - all payments          (may go negative on an over-paid order)
+    GST left   = max(0, min(GST Invoiced, Work Order GST) - GST payments - Pending GST requests)
+    Total left = total incl. GST - all payments - Pending GST requests   (may go negative on an over-paid order)
+
+A Pending GST Payment Request (`services/gst_payment_requests`) holds its amount until the Accountant
+decides it, so the same GST cannot be asked for twice; it counts as raised in the invoice check too. The
+summary's own `left` is the payments' alone: only the limit counts the requests.
 
 A request is allowed iff its amount is within the chosen part's left AND within total left, each
 with the ₹10 tolerance the request cap has always had, and the Work Order passes the INVOICE CHECK
@@ -58,12 +62,14 @@ def work_order_limit(
 	tds_by_payment=None,
 	exclude_payment=None,
 	amount_invoiced=0,
+	pending_gst=0,
 ) -> dict:
 	"""The payment summary of a Work Order, measured against its total incl. GST, plus `limit`.
 
 	`payments`: dicts with `name`, `amount`, `status`, `is_gst_payment`. `tds_by_payment`: the tax
 	withheld from each, as in `summarise`. `exclude_payment` is the payment being approved, as there.
-	`amount_invoiced` is the Work Order's Total Amount Invoiced, for the invoice check.
+	`amount_invoiced` is the Work Order's Total Amount Invoiced, for the invoice check. `pending_gst` is
+	what the Work Order's Pending GST requests hold.
 	"""
 	total = round(flt(total_amount), 2)
 	summary = summarise(total, payments, tds_by_payment, exclude_payment)
@@ -79,12 +85,14 @@ def work_order_limit(
 		else:
 			base_paid += p["gross_amount"]
 
+	pending_gst = round(flt(pending_gst), 2)
+	raised += pending_gst
 	wo_gst = work_order_gst(total, gst_flag)
 	base_value = round(total - wo_gst, 2)
 	released = gst_released(gst_invoiced, wo_gst)
 	base_left = round(max(0.0, base_value - base_paid), 2)
-	gst_left = round(max(0.0, released - gst_paid), 2)
-	total_left = summary["left"]
+	gst_left = round(max(0.0, released - gst_paid - pending_gst), 2)
+	total_left = round(summary["left"] - pending_gst, 2)
 
 	summary["limit"] = {
 		"gst_on": gst_is_on(gst_flag),
@@ -94,6 +102,7 @@ def work_order_limit(
 		"gst_released": released,
 		"base_paid": round(base_paid, 2),
 		"gst_paid": round(gst_paid, 2),
+		"gst_requested": pending_gst,
 		"base_left": base_left,
 		"gst_left": gst_left,
 		"total_left": total_left,
