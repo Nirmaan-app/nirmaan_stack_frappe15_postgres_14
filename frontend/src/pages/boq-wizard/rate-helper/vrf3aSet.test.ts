@@ -173,6 +173,7 @@ describe("VRF-3a REFNET -- the pieces in one Set from the system's counts (owner
     expect(w.items[0].setCount?.pieces).toBeNull();
     expect(w.items[0].reason).toBe("The BoQ quantity (20) does not fit the 25 refnets expected - not priced: type the pieces in one Set.");
     expect(w.unitBar?.tone).toBe("red");
+    expect(w.reason).toBe("The BoQ quantity (20) does not fit the 25 refnets expected - not priced: type the pieces in one Set.");
   });
   it("a typed pieces value wins (the rule does not run); a blank quantity field withholds the row (counts missing too)", () => {
     const t = run([refnet(WHOLE, "3", "24", "20")], "Set", "20");
@@ -185,6 +186,17 @@ describe("VRF-3a REFNET -- the pieces in one Set from the system's counts (owner
     const c = run([refnet(WHOLE, "", "24")], "Set", "2");
     expect(c.rowPriced).toBe(false);
     expect(c.unitBar?.tone).toBe("red");
+  });
+  it("a BoQ row (the panel): the three answers read from the row's item and the row's own quantity (ctx.quantity) give the same pieces -- found by the K3 parity", () => {
+    const ext = new Map([[7, { excelRow: 7, description: "", attributes: {}, items: [{ attributes: {
+      item: { value: "Refnet/Y-Joint" }, set_covers: { value: WHOLE }, set_odu: { value: "3" }, set_idu: { value: "24" } } }] } as never]]);
+    const panel = makePricingSheetHelper({ configsByCategory: configsOf(CFG), items: ITEMS, extractionByRow: ext });
+    const v = (panel.compute({ excelRow: 7, description: "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], unit: "Set", quantity: 1 } as never, {}) as unknown as ItemListSuggestion).itemList!;
+    expect(v.items[0].qty).toBe("25");
+    expect(tot(v)).toEqual([105000, 20000]);
+    expect(v.items[0].setCount?.fields.map((f) => f.value)).toEqual([WHOLE, "3", "24"]);
+    expect(v.rowQtyField).toBeUndefined();
+    expect(v.unitBar?.ring).toBe("Unit Set · Qty 1");
   });
   it("NEGATIVE: a refnet on a Nos row is one piece per Nos, no fields; without `counted` a Set refnet is 1 piece like the rest", () => {
     const n = run([refnet(WHOLE, "3", "24")], "Nos", "1");

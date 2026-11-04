@@ -255,13 +255,17 @@ class TestVrf2aAssetV56(FrappeTestCase):
         d = os.path.dirname(_asset_path(V56))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
-        self.assertEqual(max(ns), 57)
+        # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
+        self.assertEqual(max(ns), 58)
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 57)))`
-        self.assertEqual(sorted(ns), list(range(1, 58)))
+        # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 58)))`
+        self.assertEqual(sorted(ns), list(range(1, 59)))
         self.assertTrue(os.path.exists(_asset_path(V55)))
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
+        # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v59.json")))
 
     # ---- 09 LIVE ---------------------------------------------------------------------------------------------------
     def test_09_live_the_loaded_vrf_config_is_v56s_and_not_eligible(self):
@@ -273,7 +277,9 @@ class TestVrf2aAssetV56(FrappeTestCase):
         # mechanical authority: BEFORE `self.assertEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))` (live == v56).
         # The live list_spec is v57's -- v56's plus the VRF-2b keys (test_vrf_v57 08 pins it whole); the claim this test makes
         # (the switch keeps the loaded VRF config out of Suggest) stands, below.
-        with open(_asset_path("rate_master_hvac_all_v57.json"), "r", encoding="utf-8") as fh:
+        # INVERTED again at VRF-3a (HVAC v58 loaded) by mechanical authority: BEFORE the live list_spec was compared with v57's
+        # (`v57cfg = ... rate_master_hvac_all_v57.json`); it is v58's now (test_vrf_v58 07 pins it whole)
+        with open(_asset_path("rate_master_hvac_all_v58.json"), "r", encoding="utf-8") as fh:
             v57cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
         self.assertEqual(_norm(cfg.get("list_spec")), _norm(v57cfg["list_spec"]))
         self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))

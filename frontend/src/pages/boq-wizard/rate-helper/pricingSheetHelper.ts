@@ -3722,7 +3722,9 @@ function computeItemListOwn(
       const famV = a.attributes[familyAttr(spec)]?.value;
       if (typeof famV !== "string" || !counted.families.includes(famV)) return;
       const e = edits.items[i];
-      const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id)].map((id) => [id, e?.attrs?.[id]]));
+      // the three answers as the item carries them -- typed by the pricer or read from the row (a model item's attributes)
+      const said = (id: string) => { const v = a.attributes[id]?.value; return v === null || v === undefined ? undefined : String(v); };
+      const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id)].map((id) => [id, said(id)]));
       const rc = countedPieces(counted, answers, rowQty);
       const typed = e?.qty !== undefined;
       countedByBlock.set(i, { ...rc, typed });
@@ -3842,9 +3844,10 @@ function computeItemListOwn(
       const b = blocks[i];
       if (!b) return;
       const e = edits.items[i];
+      const said = (id: string) => { const v = forDisplay[i]?.attributes[id]?.value; return v === null || v === undefined ? "" : String(v); };
       const fields = [
-        { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: e?.attrs?.[counted.covers.id] ?? "" },
-        ...counted.counts.map((c) => ({ id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: e?.attrs?.[c.id] ?? "" })),
+        { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: said(counted.covers.id) },
+        ...counted.counts.map((c) => ({ id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: said(c.id) })),
       ];
       const sentence = rc.typed ? counted.lines.typed.replace("{p}", String(e?.qty ?? "")) : rc.sentence;
       blocks[i] = {
@@ -3855,6 +3858,12 @@ function computeItemListOwn(
       };
     });
   }
+  // VRF-3a K2 (U5): a row withheld because a refnet's pieces are not worked out says WHY (the case's sentence), not the
+  // pricer's generic "quantity per row unit is blank" that the blank pieces produced
+  const countedReason = priced.reason === "quantity per row unit is blank"
+    ? [...countedByBlock.values()].find((rc) => !rc.typed && rc.pieces === null)?.sentence
+    : undefined;
+  const rowReason = countedReason ?? priced.reason;
   const values: Record<string, number> = {};
   if (priced.priced && !unshowableReason) {
     if (typeof priced.supply === "number") values.supply_rate = priced.supply;
@@ -3871,7 +3880,7 @@ function computeItemListOwn(
   const derivation: string[] = [];
   if (rowPriced) derivation.push(`Row total per 1 ${unit}: supply ${priced.supply} + install ${priced.install}`);
   else if (unshowableReason) derivation.push(unshowableReason);
-  else if (priced.reason) derivation.push(priced.reason);
+  else if (rowReason) derivation.push(rowReason);
   const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
   // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
   const unitBar = ((): ItemListView["unitBar"] => {
@@ -3895,7 +3904,7 @@ function computeItemListOwn(
     ...(unitBar ? { unitBar } : {}),
     ...(perSetRow && spec.per_set ? { qtyLabel: spec.per_set.qty_label } : {}),
     ...(calculator && counted && countedByBlock.size ? { rowQtyField: { label: "BoQ quantity of this row", value: rowQtyText } } : {}),
-    unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
+    unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? rowReason) ? { reason: unshowableReason ?? rowReason } : {}),
     ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
     ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
     items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,

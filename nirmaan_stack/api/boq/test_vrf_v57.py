@@ -192,17 +192,28 @@ class TestVrf2bAssetV57(FrappeTestCase):
     def test_07_v57_is_the_newest_and_v56_stays(self):
         d = os.path.dirname(_asset_path(V57))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 57)
-        self.assertEqual(sorted(ns), list(range(1, 58)))
+        # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
+        self.assertEqual(max(ns), 58)
+        # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 58)))`
+        self.assertEqual(sorted(ns), list(range(1, 59)))
         self.assertTrue(os.path.exists(_asset_path(V56)))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
+        # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
+        self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v59.json")))
 
     def test_08_live_the_loaded_vrf_config_is_v57s(self):
         rows = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "HVAC", "active": 1}, fields=["category_id", "config"])
         live = {r["category_id"]: (json.loads(r["config"]) if isinstance(r["config"], str) else r["config"]) for r in rows}
         cfg = live[CATEGORY]
         self.assertIs(cfg.get("calculator_only"), True)
-        self.assertEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
+        # INVERTED at VRF-3a (HVAC v58 loaded; a test failing solely because the live catalogue moved to the current asset) by
+        # mechanical authority: BEFORE `self.assertEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))` (live == v57).
+        # The live list_spec is v58's -- v57's plus the VRF-3a pricing keys (test_vrf_v58 07 pins it whole); v57's impact
+        # examples, and every claim below, stand.
+        with open(_asset_path("rate_master_hvac_all_v58.json"), "r", encoding="utf-8") as fh:
+            v58cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
+        self.assertEqual(_norm(cfg.get("list_spec")), _norm(v58cfg["list_spec"]))
+        self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
         self.assertEqual(_norm(cfg.get("impact_examples")), _norm(self.cfg["impact_examples"]))
         cfgs = {("HVAC", cid): dict(c, discipline="HVAC") for cid, c in live.items()}
         self.assertFalse(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))

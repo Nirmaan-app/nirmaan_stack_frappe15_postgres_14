@@ -45,8 +45,10 @@ import {
 import {
   calculatorHelper,
   classifyDivergence,
+  compareResults,
   emptyCaseFor,
   extractionRowFor,
+  feedFromPanel,
   hasPrice,
   itemListCasesForCategory,
   panelCtx,
@@ -2316,4 +2318,229 @@ describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc fo
     }
     expect(bad).toEqual([]);
   }, 120000);
+});
+
+/**
+ * VRF-3a (owner R-SPLIT (a) / (b), R-SPLIT-RULE, D-1 / D-2 / D-3 / D-8, SHAPE Q2 / Q3, SET / LOT, QR-1 (a); PARITY "calculator =
+ * panel") -- HVAC v58. The same projection as the VRF-2a / 2b blocks (`calculator_only` off: VRF-4's state). The cases:
+ * VRF-R3's 65 qualifying outdoor rows (47 helper splits, 15 stated, 3 W+S not split; `__fixtures__/vrf3aSplitRows.json`, read
+ * off VRF-R3's probe), boards 1 / 2 / 4 / 5, never below (57-66), edit / remove / add / reset / the seam re-run, Daikin, Side,
+ * D-3, every refnet case, Set per family, the Lot spellings and VRF-R3's 104 Set / Lot / per HP rows.
+ */
+describe("HVAC VRF (VRF-3a, v58) -- the outdoor split, the stated split, Set / refnet / Lot; panel = calculator on every case", () => {
+  const v58 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v58.json", import.meta.url),
+  );
+  type SplitRow = { id: string; how: string; unit: string; qty: number | null; text: string; brand: string; variant: string; item: Record<string, string>;
+    lines: number[] | null; totals: { supply_rate: number; install_rate: number } | null; condition: string | null };
+  type SetLotRow = { id: string; unit: string; qty: number | null; unit_class: string | null; kind: string; family: string | null; v57_reason: string };
+  const FIX = readJsonFixture<{ split_rows: SplitRow[]; set_lot_rows: SetLotRow[] }>(new URL("./__fixtures__/vrf3aSplitRows.json", import.meta.url));
+  const VRF = "hvac_vrf";
+  const items58: RateMasterItem[] = v58.items.map((it) => ({
+    ...it, discipline: v58.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes },
+  } as RateMasterItem));
+  const live = new Map<string, RateCategoryConfig>(v58.category_configs.map((c) => [c.category_id, c]));
+  const projected = new Map<string, RateCategoryConfig>([...live].map(([k, c]) => {
+    if (k !== VRF) return [k, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [k, rest as RateCategoryConfig];
+  }));
+  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items58, extractionByRow: new Map(), calculatorSurface: true });
+  const run = (c: ParityCase) => {
+    const r = runParity(projected, items58, c, "full");
+    const flag = calcFlag.compute(calculatorCtx("HVAC", VRF), r.feed.overrides);
+    const boq = panelHelper(live, items58, c).compute(panelCtx(c));
+    return { ...r, flagSame: JSON.stringify(flag) === JSON.stringify(r.calculator), boq };
+  };
+  const view = (x: unknown) => (x as ItemListSuggestion).itemList!;
+  const figs = (x: unknown): [number, number] | string => {
+    const v = view(x);
+    return v.rowPriced ? [v.totals!.supply_rate as number, v.totals!.install_rate as number] : (v.reason ?? v.items.find((b) => b.reason)?.reason ?? "?");
+  };
+  const caps = (x: unknown) => view(x).items.map((b) => Number(b.fields.find((f) => f.id === "capacity")?.value));
+  const vc = (unit: string, a: Record<string, string>, extra: Partial<ParityCase> = {}): ParityCase => ({ cat: VRF, unit, desc: "", attrs: {}, items: [a], ...extra });
+  // the owner's rule, independently (VRF-R3's enumerator): fewest units -> exact else smallest total above -> cheapest
+  const outdoor = items58.filter((it) => it.kind === "hvac_vrf_item" && (it.attributes as Record<string, unknown>).item === "Outdoor Unit");
+  const ownerRule = (total: number, brand: string, cooling: string, discharge: string, compressor: string): number[] => {
+    const vr = outdoor.filter((x) => (x.attributes as Record<string, unknown>).brand === brand && (x.attributes as Record<string, unknown>).cooling === cooling
+      && (x.attributes as Record<string, unknown>).discharge === discharge && (x.attributes as Record<string, unknown>).compressor === compressor);
+    const sizes = [...new Set(vr.map((x) => Number((x.attributes as Record<string, unknown>).capacity)))].sort((a, b) => b - a);
+    const cost = (s: number) => Number((vr.find((x) => Number((x.attributes as Record<string, unknown>).capacity) === s)!.rates as Record<string, number>).cost_supply);
+    for (let n = Math.max(2, Math.ceil(total / sizes[0] - 1e-9)); n <= 8; n++) {
+      const cands: number[][] = [];
+      const walk = (start: number, chosen: number[]) => {
+        if (chosen.length === n) { if (chosen.reduce((a, b) => a + b, 0) >= total - 1e-9) cands.push([...chosen]); return; }
+        for (let i = start; i < sizes.length; i++) { chosen.push(sizes[i]); walk(i, chosen); chosen.pop(); }
+      };
+      walk(0, []);
+      if (!cands.length) continue;
+      const over = (c: number[]) => c.reduce((a, b) => a + b, 0) - total;
+      const m = Math.min(...cands.map(over));
+      return cands.filter((c) => Math.abs(over(c) - m) < 1e-9).sort((a, b) => a.reduce((s, x) => s + cost(x), 0) - b.reduce((s, x) => s + cost(x), 0))[0];
+    }
+    return [];
+  };
+
+  it("the fixture: v58's hvac_vrf carries the split, Set and Lot keys, the switch still on; 65 split rows (47 / 15 / 3) and 104 Set / Lot rows", () => {
+    const pr = (live.get(VRF) as unknown as { list_spec: { pricing: Record<string, unknown> } }).list_spec.pricing;
+    expect(Object.keys(pr)).toEqual(expect.arrayContaining(["compose", "split", "per_set", "lot_units"]));
+    expect((live.get(VRF) as { calculator_only?: unknown }).calculator_only).toBe(true);
+    expect(FIX.split_rows).toHaveLength(65);
+    expect(FIX.split_rows.filter((r) => r.how === "helper split")).toHaveLength(47);
+    expect(FIX.split_rows.filter((r) => r.how === "stated split")).toHaveLength(15);
+    expect(FIX.split_rows.filter((r) => r.how === "W+S #")).toHaveLength(3);
+    expect(FIX.set_lot_rows).toHaveLength(104);
+  });
+
+  it("VRF-R3's 65 rows: each helper row splits by the owner's rule, each stated row into its modules, each W+S row stays one unit; the figures are VRF-R3's; panel = calculator; the BoQ panel declines", () => {
+    const bad: string[] = [];
+    let helper = 0, stated = 0, ws = 0, parity = 0, declined = 0, flagSame = 0, conds = 0;
+    for (const row of FIX.split_rows) {
+      const c = vc(row.unit, row.item, { desc: row.text });
+      const r = run(c);
+      if (r.divergences.length) bad.push(`${row.id}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | ")); else parity++;
+      if (r.flagSame) flagSame++;
+      if (r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON) declined++;
+      const v = view(r.panel);
+      const got = caps(r.panel);
+      if (row.how === "W+S #") {
+        if (v.items.length === 1 && !v.split) ws++; else bad.push(`${row.id}: W+S split ${JSON.stringify(got)}`);
+      } else if (row.how === "stated split") {
+        const ok = got.length === row.lines!.length && v.split?.note.includes("states a split");
+        if (ok) stated++; else bad.push(`${row.id}: stated ${JSON.stringify(got)} vs ${JSON.stringify(row.lines)}`);
+      } else {
+        const [b, co, di, cm] = row.variant.split("/").map((s) => s.trim());
+        const want = ownerRule(Number(row.item.capacity.replace(/[^\d.]/g, "")), b, co, di, cm);
+        if (JSON.stringify(got) === JSON.stringify(row.lines) && JSON.stringify(got) === JSON.stringify(want)) helper++;
+        else bad.push(`${row.id}: helper ${JSON.stringify(got)} vs fixture ${JSON.stringify(row.lines)} vs rule ${JSON.stringify(want)}`);
+      }
+      if (row.totals && JSON.stringify(figs(r.panel)) !== JSON.stringify([row.totals.supply_rate, row.totals.install_rate])) bad.push(`${row.id}: figures ${JSON.stringify(figs(r.panel))} vs VRF-R3 ${row.totals.supply_rate} / ${row.totals.install_rate}`);
+      if (row.condition && row.how !== "W+S #") { if (v.split?.condition) conds++; else bad.push(`${row.id}: no D-3 note for '${row.condition}'`); }
+    }
+    expect(bad).toEqual([]);
+    expect({ helper, stated, ws, parity, declined, flagSame, conds }).toEqual({ helper: 47, stated: 15, ws: 3, parity: 65, declined: 65, flagSame: 65, conds: 7 });
+  }, 240000);
+
+  it("boards 1 / 2 / 4 / 5 on both surfaces: 54 -> 28 + 26; stated 18 + 18 + 24 with three brands -> Blue Star, 1,415,640 / 60,000; a module above the largest refuses; 43.2 TR -> 54 HP -> 28 + 26", () => {
+    const b1 = run(vc("Nos", { item: "Outdoor Unit", capacity: "54 HP" }));
+    expect([caps(b1.panel), figs(b1.panel), b1.divergences]).toEqual([[28, 26], [1116360, 54000], []]);
+    const b2 = run(vc("Nos", { item: "Outdoor Unit", capacity: "60 HP (18+18+24)", brand: "Daikin / Hitachi / Toshiba" }));
+    expect([caps(b2.panel), figs(b2.panel), b2.divergences]).toEqual([[18, 18, 24], [1415640, 60000], []]);
+    expect(view(b2.panel).items.every((b) => b.fields.find((f) => f.id === "brand")?.rule === "several brands stated (Daikin / Hitachi / Toshiba) - priced as Blue Star")).toBe(true);
+    const b4 = run(vc("Nos", { item: "Outdoor Unit", capacity: "60 HP (30+30)" }));
+    expect([figs(b4.panel), b4.divergences]).toEqual(["Module 30 HP is above the largest size on the sheet (28 HP) - this row is not priced; price it by hand", []]);
+    const b5 = run(vc("Nos", { item: "Outdoor Unit", capacity: "43.2 TR" }));
+    expect([caps(b5.panel), figs(b5.panel), b5.divergences]).toEqual([[28, 26], [1116360, 54000], []]);
+    expect(view(b5.panel).split?.note.startsWith("43.2 TR x 1.25 (HP per TR, Pricing Inputs) = 54 HP.")).toBe(true);
+  });
+
+  it("never below: 57 .. 66 HP each split at or above the total, by the owner's rule, on both surfaces", () => {
+    const bad: string[] = [];
+    for (let t = 57; t <= 66; t++) {
+      const r = run(vc("Nos", { item: "Outdoor Unit", capacity: `${t} HP` }));
+      const got = caps(r.panel);
+      const want = ownerRule(t, "Blue Star", "Cool Only", "Top", "Standard");
+      if (got.reduce((a, b) => a + b, 0) < t || JSON.stringify(got) !== JSON.stringify(want) || r.divergences.length) bad.push(`${t}: ${JSON.stringify(got)} vs ${JSON.stringify(want)} ${r.divergences.length}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("edit / remove / add / reset, then the seam re-run: the panel's lines after each, fed to the calculator, price the same; no re-split", () => {
+    const c = vc("Nos", { item: "Outdoor Unit", capacity: "60 HP" });
+    const ph = panelHelper(projected, items58, c);
+    const p0 = ph.compute(panelCtx(c));
+    const cfg = projected.get(VRF)!;
+    const ops: Array<[string, (s: ItemListEditState) => ItemListEditState, [number, number] | null]> = [
+      ["edit line 3 -> 14", (s) => applyItemEdit(s, { op: "set_attr", index: 2, id: "capacity", value: "14" }), [1428360, 62000]],
+      ["remove line 3", (s) => applyItemEdit(s, { op: "remove", index: 2 }), [1023120, 48000]],
+      ["add a Remote Controller", (s) => applyItemEdit(applyItemEdit(s, { op: "add", family: "Remote Controller" }), { op: "set_attr", index: 3, id: "remote_type", value: "Wired" }), null],
+      ["reset after remove", (s) => applyItemEdit(applyItemEdit(s, { op: "remove", index: 2 }), { op: "reset_split" }), [1335600, 60000]],
+    ];
+    for (const [name, op, want] of ops) {
+      const st = op(view(p0).editState);
+      const p = ph.compute(panelCtx(c), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(st) });
+      const feed = feedFromPanel(p, cfg, c, "full");
+      const cr = calculatorHelper(projected, items58).compute(calculatorCtx("HVAC", VRF), feed.overrides);
+      expect({ name, div: compareResults(p, cr) }).toEqual({ name, div: [] });
+      if (want) expect({ name, figs: figs(p) }).toEqual({ name, figs: want });
+      expect({ name, lines: view(p).items.length }).toEqual({ name, lines: name.startsWith("remove") ? 2 : name.startsWith("add") ? 4 : 3 });
+    }
+  });
+
+  it("Set per family: every VRF family on a Set row prices one piece (= its Nos figure) with the orange bar, on both surfaces; Set / Sets / set / sets", () => {
+    const bad: string[] = [];
+    let n = 0;
+    const cases = itemListCasesForCategory(projected.get(VRF)!, items58).filter((c) => (c.unit ?? "") === "Nos");
+    for (const c of cases) {
+      const fam = c.items?.[0]?.item as string;
+      if (fam === "Refnet/Y-Joint") continue;
+      for (const u of ["Set", "Sets", "set", "sets"]) {
+        const r = run({ ...c, unit: u });
+        const nos = run(c);
+        if (r.divergences.length || JSON.stringify(figs(r.panel)) !== JSON.stringify(figs(nos.panel)) || (view(r.panel).rowPriced && view(r.panel).unitBar?.tone !== "orange")) {
+          bad.push(`${fam} ${u}: ${JSON.stringify(figs(r.panel))} vs Nos ${JSON.stringify(figs(nos.panel))} div ${r.divergences.length}`);
+        } else n++;
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(n).toBeGreaterThan(40);
+  }, 240000);
+
+  it("every refnet case (QR-1 (a): the panel reads the row's quantity, the calculator its field): 25 / 13 rounded / 1 / withheld / counts missing / quantity missing / typed; panel = calculator", () => {
+    const W = "Whole system (indoor + outdoor)";
+    const ref = (o: string, i: string, covers = W) => ({ item: "Refnet/Y-Joint", set_covers: covers, set_odu: o, set_idu: i });
+    const CASES: Array<[string, ParityCase, [number, number] | string]> = [
+      ["3 + 24, qty 1", vc("Set", ref("3", "24"), { qty: 1 }), [105000, 20000]],
+      ["3 + 24, qty 2 (rounded up to 13)", vc("Set", ref("3", "24"), { qty: 2 }), [54600, 10400]],
+      ["4 + 50, qty 52", vc("Set", ref("4", "50"), { qty: 52 }), [4200, 800]],
+      ["3 + 24, qty 20 (withheld)", vc("Set", ref("3", "24"), { qty: 20 }), "The BoQ quantity (20) does not fit the 25 refnets expected - not priced: type the pieces in one Set."],
+      ["indoor side only, 24, qty 23", vc("Set", ref("", "24", "Indoor side only"), { qty: 23 }), [4200, 800]],
+      ["counts missing", vc("Sets", ref("", "24"), { qty: 2 }), "Not priced: say what the row covers and how many outdoor and indoor units the system has - or type the pieces in one Set."],
+      ["quantity missing", vc("Set", ref("3", "24")), "Not priced: type the BoQ quantity of this row - or type the pieces in one Set."],
+    ];
+    for (const [name, c, want] of CASES) {
+      const r = run(c);
+      expect({ name, div: r.divergences, panel: figs(r.panel), calc: figs(r.calculator) }).toEqual({ name, div: [], panel: want, calc: want });
+    }
+  });
+
+  it("Lot: every spelling refuses on the panel with the red bar and the line naming the unit; the calculator cannot state Lot (cause C, by name)", () => {
+    for (const u of ["Lot", "LOT", "lot", "LS", "Job", "per HP", "complete system"]) {
+      const c = vc(u, { item: "Outdoor Unit", capacity: "16" });
+      const r = run(c);
+      expect({ u, panel: figs(r.panel) }).toEqual({ u, panel: `Unit "${u}" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. What a Lot holds is read at VRF-4. Price this row by hand.` });
+      expect(view(r.panel).unitBar).toMatchObject({ tone: "red", title: "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND." });
+      expect(hasPrice(r.panel)).toBe(false);
+      expect(view(r.calculator).unitChoices).not.toContain(u);
+      expect(classifyDivergence(r, c)).toBe("C_unit_not_offered");
+    }
+  });
+
+  it("VRF-R3's 104 Set / Lot / per HP rows (the review list): no row refuses for its unit 'Set' any more; every Lot / per HP row refuses with the Lot line; counted", () => {
+    const tally: Record<string, number> = {};
+    const bad: string[] = [];
+    let diverged = 0;
+    for (const row of FIX.set_lot_rows) {
+      const a: Record<string, string> = row.family ? { item: row.family } : {};
+      const c = vc(row.unit, a, row.qty !== null ? { qty: row.qty } : {});
+      const r = run(c);
+      // a divergence is only ever the calculator not offering the row's unit (cause C, by name): a Lot spelling, or Set on a
+      // kind stocked per Kg only (the MS angle frame) -- never a figure
+      if (r.divergences.length) { diverged++; if (classifyDivergence(r, c) !== "C_unit_not_offered") bad.push(`${row.id}: ${classifyDivergence(r, c)}`); }
+      const f = figs(r.panel);
+      const key = typeof f !== "string" ? "priced"
+        : f.startsWith("Unit \"") ? "lot line"
+        : / is not stocked per '/.test(f) ? "unit refusal"
+        : "refused for a fact";
+      tally[`${row.unit_class ?? "ok-unit"}: ${key}`] = (tally[`${row.unit_class ?? "ok-unit"}: ${key}`] ?? 0) + 1;
+      if ((row.unit_class === "Set") && key === "unit refusal") bad.push(`${row.id} ${row.unit}: ${f}`);
+      if ((row.unit_class === "Lot" || row.unit_class === "per HP") && key !== "lot line") bad.push(`${row.id} ${row.unit}: ${f}`);
+    }
+    expect(bad).toEqual([]);
+    if (process.env.VRF3A_PRINT) console.log("VRF3A_TALLY " + JSON.stringify(tally));
+    // the family alone is fed (VRF-R3's tag; no capacity / no refnet counts), so a Set row prices where the family needs
+    // nothing more and otherwise refuses for that fact -- never for its unit; every Lot / per HP row gets the Lot line
+    expect(diverged).toBe(32);   // 29 Lot + 1 per HP + 2 MS angle frames per Set
+    expect(tally).toEqual({ "Set: priced": 16, "Set: refused for a fact": 44, "Lot: lot line": 29, "per HP: lot line": 1, "(unit ok; whole-price words): refused for a fact": 14 });
+  }, 240000);
 });

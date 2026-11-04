@@ -45,6 +45,7 @@ import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./
 import { calculatorCtx } from "./PricingCalculator";
 import {
   ITEM_LIST_OVERRIDE_KEY,
+  ROW_QTY_OVERRIDE_KEY,
   ROW_UNIT_OVERRIDE_KEY,
   makePricingSheetHelper,
   type ItemListSuggestion,
@@ -58,6 +59,7 @@ import {
   itemFieldDefs,
   itemListPricingSpec,
   listSpecDefs,
+  isPerSetUnit,
   unitClassOf,
   unitFactorOf,
 } from "@/pages/boq-wizard/rate-helper/itemListPricing";
@@ -96,6 +98,9 @@ export interface ParityCase {
   /** SLICE 12d-4a (owner D3): the row's OWN notes, as the PANEL's context carries them. OPTIONAL -- every
    * existing case omits it and its context is byte-identical. */
   ownNotes?: string[];
+  /** VRF-3a (QR-1 (a)): the BoQ row's QUANTITY, as the PANEL's row context carries it (a refnet on a Set row reads it);
+   * fed to the calculator as its "BoQ quantity of this row". OPTIONAL -- every existing case omits it, byte-identical. */
+  qty?: number | null;
 }
 
 type Cells = ExtractionRow["attributes"];
@@ -159,6 +164,7 @@ export function panelCtx(c: ParityCase): RowContextWithUnit {
     unit: c.unit,
     ...(c.headings ? { headings: c.headings } : {}),
     ...(c.ownNotes ? { ownNotes: c.ownNotes } : {}),
+    ...(typeof c.qty === "number" ? { quantity: c.qty } : {}),
   };
 }
 
@@ -210,6 +216,10 @@ function unitForCalculator(
   if (!spec) return { unit: view.unit, unitFeed: "exact" };
   if (view.unit.trim() === "") return { unit: view.unit, unitFeed: "row has no unit" };
   if (view.unitChoices.includes(view.unit)) return { unit: view.unit, unitFeed: "exact" };
+  // VRF-3a (U4): a per-Set spelling ("Sets", "set") is the picker's per-Set choice, never the class's first spelling (Nos)
+  if (isPerSetUnit(spec, view.unit) && spec.per_set && view.unitChoices.includes(spec.per_set.units[0])) {
+    return { unit: spec.per_set.units[0], unitFeed: "spelling mapped to the class" };
+  }
   const factor = unitFactorOf(spec, view.unit);
   if (factor) {
     /**
@@ -295,6 +305,12 @@ export function feedFromPanel(
        * (the box's own binding), never the resolved family -- so the calculator path runs the same reader.
        */
       const famId = spec ? familyAttr(spec) : "family";
+      // VRF-3a (U5): a refnet on a Set row -- its three typed fields are typed in the calculator too; the pieces the rule
+      // gave are NOT typed (the calculator runs the same rule on its own "BoQ quantity of this row"), a typed one is
+      if (b.setCount) {
+        for (const f of b.setCount.fields) if (f.value !== "") attrs[f.id] = f.value;
+        if (!b.setCount.typed) return { base: null, family: b.family, attrs, ...(other.length ? { other } : {}) };
+      }
       if (b.familyControl?.otherMode) {
         other.push(famId);
         return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other };
@@ -302,6 +318,8 @@ export function feedFromPanel(
       return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}) };
     });
     overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits });
+    // VRF-3a (QR-1 (a), U9): the row's quantity, typed into the calculator's own field where a counted item needs it
+    if (view.items.some((b) => b.setCount)) overrides[ROW_QTY_OVERRIDE_KEY] = typeof c.qty === "number" ? String(c.qty) : "";
     const { unit, unitFeed } = unitForCalculator(config, view);
     overrides[ROW_UNIT_OVERRIDE_KEY] = unit;
     return { overrides, hiddenFacts, unitFeed };
