@@ -5,6 +5,7 @@
 #       branch box/<name> off <ref> (default: master) -> hand it to the box -> copy the brief to the box (private,
 #       outside the repo) -> make the env (devenv.sh create <name> --on box/<name>) -> turn the Definition of Done on
 #       -> start Claude in that env, visible in Orca. --no-agent stops before Claude.
+#       Write the brief from scripts/devenv/BRIEF_TEMPLATE.md, keeping the filled copy outside the repo.
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
 #   task.sh done <name>      bring the agent's commits back to the laptop and print its report (review, merge and
 #                            push stay with you)
