@@ -1330,14 +1330,13 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         self.assertEqual(summary["total_rows"], 2)
 
     def test_import_history_returns_the_count(self):
-        from nirmaan_stack.api.outflow_import.review import list_imports
+        from nirmaan_stack.api.outflow_import.test_review import history_row
 
         yesterday, today = self._overlapping()
         self._stage(yesterday)
         batch = self._stage(today)
         frappe.set_user("Administrator")
-        listed = {r["name"]: r for r in list_imports(limit=200)}
-        self.assertEqual(listed[batch.name]["repeats_not_saved"], len(yesterday.rows))
+        self.assertEqual(history_row(batch.name)["repeats_not_saved"], len(yesterday.rows))
 
     def test_an_icici_re_upload_saves_nothing_and_keeps_the_pairs_apart_first_time(self):
         """The widened identity still keeps a tax pair and a GL transfer's two legs apart on the
@@ -1681,7 +1680,7 @@ class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):
         self.assertEqual(summary["charges_amount"], 9.44)
 
     def test_import_history_pairs_the_count_and_the_gross_over_the_same_rows(self):
-        from nirmaan_stack.api.outflow_import.review import list_imports
+        from nirmaan_stack.api.outflow_import.test_review import history_row
 
         yesterday = _parsed_in_a_fresh_transfer_namespace()
         self._stage(yesterday)
@@ -1689,7 +1688,7 @@ class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):
         batch = self._stage(today)
 
         frappe.set_user("Administrator")
-        listed = {r["name"]: r for r in list_imports(limit=200)}[batch.name]
+        listed = history_row(batch.name)
         # Two successful debits (Rs 5,000 + Rs 10,000) and one FAILED line.
         self.assertEqual(listed["successful_rows"], 2)
         self.assertEqual(float(listed["gross_amount"]), 15000.0)
