@@ -2188,6 +2188,8 @@ export interface HelperMark {
   /** the field the size sits in, and the size the split gave this line (in the family's unit) */
   attr: string;
   size: string;
+  /** every size the split made, in order (the row note says the helper's split even after a line is removed; found in the cert) */
+  layers?: string[];
   /** the total split, the family's unit word, whether the lines add up exactly, the largest size of the variant */
   total: number;
   unit: string;
@@ -3466,7 +3468,7 @@ export function splitEdits(
     const { helper: _h, ...from } = e;
     sp.layers.forEach((size, i) => {
       out.push({ ...line, attrs: { ...attrs }, ...(other.length ? { other: [...other] } : {}), helper: {
-        g: idx, i, n: sp.layers.length, attr: fid, size: fmtN(size), total: sp.total, unit: sp.unit, exact: sp.exact, top: sp.top,
+        g: idx, i, n: sp.layers.length, attr: fid, size: fmtN(size), layers: sp.layers.map(fmtN), total: sp.total, unit: sp.unit, exact: sp.exact, top: sp.top,
         rowN: 0, made: helperMadeKey(line), from: { ...from, attrs: { ...from.attrs } },
         ...(sp.readNote ? { readNote: sp.readNote } : {}),
         ...(sp.stated ? { stated: { ...sp.stated, typed: typedSize } } : {}),
@@ -3495,7 +3497,7 @@ function splitViewOf(spec: ItemListPricingSpec, edits: ItemListEditState, layers
   let sumNote: string | undefined;
   for (const g of groups.values()) {
     const m = g[0];
-    const all = m.stated ? m.stated.modules.map(fmtN) : sizesOf(g);
+    const all = m.stated ? m.stated.modules.map(fmtN) : (Array.isArray(m.layers) && m.layers.length ? m.layers : sizesOf(g));
     if (m.stated) {
       const tot = m.stated.total ?? m.stated.sum;
       notes.push(`${m.readNote ? `${m.readNote}. ` : ""}${m.stated.typed ? "You typed" : "The row states"} a split: ${all.join(" + ")}${u} (total ${fmtN(tot)}${u}) -> one line per module, each priced on its own.`);

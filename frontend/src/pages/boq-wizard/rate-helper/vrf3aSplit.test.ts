@@ -192,6 +192,8 @@ describe("VRF-3a -- the hidden tag (Q3): an edit never re-splits; changed by you
     expect(r.items.length).toBe(2);
     expect(tot(r)).toEqual([1023120, 48000]);
     expect(r.split?.changed).toBeDefined();
+    // found in the cert: the row note still says the helper's split, not the lines left
+    expect(r.split?.note).toContain("so the helper split it: 24 + 24 + 12 HP");
     const back = edit(r, { op: "reset_split" });
     expect(lines(back).map((l) => l[0])).toEqual(["24", "24", "12"]);
     expect(tot(back)).toEqual([1335600, 60000]);
