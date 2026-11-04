@@ -4,6 +4,25 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-04: Work Order GST waits for the Accountant; payee holder name; vendor created by
+
+**Summary** (branch `fixes/04-11`, unpushed): a Work Order GST payment is now a **GST Payment Request** until an
+Accountant, Accountant Lead or Admin approves it (ADR-0030 Amendment A, GLOSSARY *GST Payment Request*), decided
+from a new **GST Requests** tab on Payments & Expenses. A Payee holder name with no letter, or naming a bank, is
+refused (`payees.md`). The Vendor page and the Vendors table show who created a vendor and when. Expense Type is
+no longer a fixture, and the misspelled Reimbursments / Software Chagres types are merged (`expenses.md`).
+**Owner owes `bench migrate`** on every site but localhost (new doctype `GST Payment Request`).
+
+| Commit | Change |
+|---|---|
+| `999b84840` | Expense Type out of fixtures; misspelled types merged |
+| `6c836db90` | Payee holder name refused when only numbers or a bank name |
+| `12607aa05` | Vendor "Created by … on …" on the details card; Created By column on the Vendors table |
+| `1658f2357` | `GST Payment Request` doctype, `api/payments/gst_payment_requests`, `services/gst_payment_requests`; pending requests held in the WO limit |
+| `c447545bd` | Request Payment "Send to Accountant"; GST Requests tab; WO page request line; `utils/gstPaymentRequests` |
+
+---
+
 ## 2026-10-30: Work Order invoice check — nobody skips it
 
 **Summary:** the Work Order invoice check (#1488, GLOSSARY *Invoice check*: a new payment only while raised money
