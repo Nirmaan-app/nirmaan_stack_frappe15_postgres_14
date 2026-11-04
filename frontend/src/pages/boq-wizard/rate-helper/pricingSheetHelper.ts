@@ -2158,6 +2158,10 @@ export interface ItemEdit {
   /** ADP-1: the attribute ids this edit carries MIRRORED from the item above (a section's pipe size). Written only by
    * the section pass, which encodes it into its own call; never typed by a person and never in a saved edit state. */
   mirrored?: string[];
+  /** VRF-3a (owner SHAPE Q3 "Hidden tag", 2026-11-04 14:56): this line came from the HELPER's split -- an invisible
+   * marker. While any entry of a row carries one, the split never fires on that row again (its own lines, a re-compute,
+   * after any edit / remove / add, the calculator's re-run of the seam). Written only by `splitEdits`. */
+  helper?: HelperMark;
   /**
    * SLICE 12e-3a (owner 13:40): the edits of the sections ATTACHED to this item, by section id -- a pipe's own
    * insulation. Kept ON the item so removing or changing the item takes its section with it. Absent on every
@@ -2165,6 +2169,36 @@ export interface ItemEdit {
    */
   sections?: Record<string, ItemEdit>;
 }
+/** VRF-3a (Q3): the hidden tag on a line the helper's split made -- what the split was, so the panel can say it, tell an
+ * edited line ("changed by you") and put the row back ("Reset to the helper's split"). */
+export interface HelperMark {
+  /** the split's group: the index of the entry it replaced */
+  g: number;
+  /** this line's place in the split, and how many lines the split made */
+  i: number;
+  n: number;
+  /** the field the size sits in, and the size the split gave this line (in the family's unit) */
+  attr: string;
+  size: string;
+  /** the total split, the family's unit word, whether the lines add up exactly, the largest size of the variant */
+  total: number;
+  unit: string;
+  exact: boolean;
+  top: number;
+  /** the row's entry count right after the split (a line added after it = the split was changed) */
+  rowN: number;
+  /** the line as made -- a line that differs from it now was changed by the pricer */
+  made: string;
+  /** the entry the split replaced -- "Reset to the helper's split" puts it back */
+  from: ItemEdit;
+  /** the reader's line for the total (a conversion) */
+  readNote?: string;
+  /** a split the row WROTE (R-SPLIT (a)): the modules, their sum, the total as written, the text */
+  stated?: { modules: number[]; sum: number; total: number | null; written: string; typed: boolean };
+  /** D-3: the condition the row states about the split, as written */
+  cond?: string;
+}
+
 export interface ItemListEditState {
   items: ItemEdit[];
   /** SLICE 12e-3a (owner 13:42): the INDEPENDENT sections, by section id -- insulation that belongs to no pipe. */
@@ -2201,7 +2235,18 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number, sec
       // ADP-1: the section pass's own mirrored-size marker survives its one encode / decode round
       ...(Array.isArray(e.mirrored) ? { mirrored: e.mirrored.filter((x) => typeof x === "string") } : {}),
       ...(Object.keys(secs).length ? { sections: secs } : {}),
+      // VRF-3a (Q3): the helper's hidden tag survives every encode / decode -- it is what stops a re-split
+      ...(nested ? helperMarkOf(e.helper, count) : {}),
     };
+  };
+  const helperMarkOf = (h: unknown, count: number): { helper: HelperMark } | Record<string, never> => {
+    if (!h || typeof h !== "object") return {};
+    const m = h as HelperMark;
+    const nums = [m.g, m.i, m.n, m.total, m.top, m.rowN];
+    if (!nums.every((x) => typeof x === "number" && Number.isFinite(x)) || typeof m.attr !== "string" || typeof m.size !== "string"
+        || typeof m.made !== "string" || typeof m.unit !== "string" || typeof m.exact !== "boolean" || !m.from || typeof m.from !== "object") return {};
+    const f = one(m.from as ItemEdit, count, false);
+    return { helper: { ...m, from: { base: f.base, family: f.family, attrs: f.attrs, ...(f.qty !== undefined ? { qty: f.qty } : {}), ...(f.other ? { other: f.other } : {}) } } };
   };
   try {
     const parsed = JSON.parse(raw) as ItemListEditState;
@@ -2248,6 +2293,9 @@ export function assembleItems(
     } else if (e.family !== null) {
       attributes[familyAttrId] = { value: e.family };
     }
+    // VRF-3a: a line of the helper's split carries its size as the HELPER's, not a typed value -- the field reads it as one
+    // of its options; a size the pricer types afterwards (in `attrs`) wins below, as every typed value does
+    if (e.helper && !Object.prototype.hasOwnProperty.call(e.attrs, e.helper.attr)) attributes[e.helper.attr] = { value: e.helper.size };
     // SLICE 12d-1b (owner T6): a value the PRICER typed is marked, so the pricer never parses it as layers.
     for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v, typed: true, ...((e.mirrored ?? []).includes(k) ? { mirrored: true } : {}) };
     // SLICE 12e-2 (owner P1): a family TYPED through the family field's "Other..." box (recorded in `other`
@@ -2401,7 +2449,11 @@ export interface FamilyControlView {
 /** One item block, as the panel renders it. */
 export interface ItemBlockView {
   index: number;
-  source: "model" | "user";
+  /** VRF-3a: "helper" -- a line of the helper's split ("Item N · split by the helper") */
+  source: "model" | "user" | "helper";
+  /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
+  helperLine?: string;
+  changedByYou?: true;
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
@@ -2480,6 +2532,12 @@ export interface ItemListView {
    * 474, beside a headline that already said 474).
    */
   totals?: Partial<Record<RateKind, number>>;
+  /**
+   * VRF-3a (U1 / U2 / U3, boards 6-8): the helper's split on this row -- the row note saying what was split and how, the
+   * D-3 condition the row states, and once the pricer changed a line / removed one / added one: the amber box, the
+   * lines-vs-total note and "Reset to the helper's split". Present ONLY on a row with a split.
+   */
+  split?: { note: string; sumNote?: string; condition?: string; changed?: string; linesNote?: string; resetLabel: string };
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -3064,7 +3122,7 @@ function itemBlockView(
     }
     // OWNER FA8(c)/(d): a size field a pricer can type into explains HOW the value will be matched --
     // every number in the explanation read from the LIVE options, never written here.
-    const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [])?.lines : undefined;
+    const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [], family)?.lines : undefined;
     /**
      * ADP-3a (U3 / U4): THE OUTLINE IS KEYED TO THE FIELD. A refusal now says WHICH facts it is about (`missing`,
      * `refusedFor`, `sizeRefused`) and a field is outlined when it feeds one of them -- its own SKU attribute or any
@@ -3173,7 +3231,13 @@ function itemBlockView(
   }
   return {
     index: res.index,
-    source: edit.base !== null && edit.family === null ? "model" : "user",
+    source: edit.helper ? "helper" : edit.base !== null && edit.family === null ? "model" : "user",
+    ...(edit.helper ? {
+      helperLine: edit.helper.stated
+        ? `From the split ${edit.helper.stated.typed ? "you typed" : "the row states"}: ${edit.helper.size} ${edit.helper.unit}`.trim()
+        : `From the helper's split of ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`.replace(/\s+$/, ""),
+      ...(helperLineChanged(edit) ? { changedByYou: true as const } : {}),
+    } : {}),
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
     // SLICE 12e-2 (owner Q16 / Q15 / P1): the `family_text` line, and the family CONTROL where the config
@@ -3320,6 +3384,132 @@ interface OwnPassProbe {
   layers?: Map<number, ItemPriceResult[]>;
 }
 
+/** VRF-3a: a number as the split's lines say it (2 decimals at most). */
+function fmtN(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)));
+}
+
+/** VRF-3a (Q3): the line as the split made it, as one comparable key -- a line that differs from it was changed. */
+function helperMadeKey(e: Pick<ItemEdit, "family" | "attrs" | "qty" | "other">): string {
+  const attrs = Object.keys(e.attrs).sort().map((k) => [k, e.attrs[k]]);
+  return JSON.stringify({ f: e.family, a: attrs, q: e.qty ?? null, o: [...(e.other ?? [])].sort() });
+}
+
+/** VRF-3a (U2): the pricer changed this line of the helper's split. PURE. */
+function helperLineChanged(e: ItemEdit): boolean {
+  return !!e.helper && helperMadeKey(e) !== e.helper.made;
+}
+
+/**
+ * VRF-3a (owner R-SPLIT, D-1, SHAPE Q3) -- PURE. The edit state with every requested split applied: the entry is replaced by
+ * one line per size, each keeping the entry's brand / variant answers (its other attributes, quantity and base) and
+ * carrying the hidden tag. The size sits in the tag, not in `attrs`, so the field shows it as the helper's.
+ */
+export function splitEdits(
+  spec: ItemListPricingSpec,
+  edits: ItemListEditState,
+  splits: ReadonlyMap<number, NonNullable<ItemPriceResult["splitInto"]>>,
+  modelItems: readonly ExtractedListItem[],
+  rowText: string,
+): ItemListEditState {
+  const out: ItemEdit[] = [];
+  edits.items.forEach((e, idx) => {
+    const sp = splits.get(idx);
+    if (!sp) { out.push(e); return; }
+    const fid = spec.numbers[sp.attr]?.from?.[0] ?? sp.attr;
+    const attrs = { ...e.attrs };
+    delete attrs[fid];
+    delete attrs[`${fid}${UNIT_PICK_SUFFIX}`];
+    const other = (e.other ?? []).filter((x) => x !== fid);
+    const line: ItemEdit = { base: e.base, family: e.family, attrs, ...(e.qty !== undefined ? { qty: e.qty } : {}), ...(other.length ? { other } : {}) };
+    const typedSize = Object.prototype.hasOwnProperty.call(e.attrs, fid);
+    const sizeText = typedSize ? e.attrs[fid] : String((e.base !== null ? modelItems[e.base]?.attributes?.[fid]?.value : "") ?? "");
+    const cond = (() => {
+      const c = spec.split?.conditions;
+      if (!c) return undefined;
+      for (const w of c.words) {
+        let m: RegExpExecArray | null = null;
+        try { m = new RegExp(w, "i").exec([sizeText, rowText].join(" | ")); } catch { m = null; }
+        if (m) return m[0].trim();
+      }
+      return undefined;
+    })();
+    const { helper: _h, ...from } = e;
+    sp.layers.forEach((size, i) => {
+      out.push({ ...line, attrs: { ...attrs }, ...(other.length ? { other: [...other] } : {}), helper: {
+        g: idx, i, n: sp.layers.length, attr: fid, size: fmtN(size), total: sp.total, unit: sp.unit, exact: sp.exact, top: sp.top,
+        rowN: 0, made: helperMadeKey(line), from: { ...from, attrs: { ...from.attrs } },
+        ...(sp.readNote ? { readNote: sp.readNote } : {}),
+        ...(sp.stated ? { stated: { ...sp.stated, typed: typedSize } } : {}),
+        ...(cond ? { cond } : {}),
+      } });
+    });
+  });
+  for (const e of out) if (e.helper) e.helper.rowN = out.length;
+  return { ...edits, items: out };
+}
+
+/**
+ * VRF-3a (U1 / U2 / U3, boards 6-8) -- PURE. What the panel says about the helper's split on this row: the row note (the
+ * helper's split or the split the row writes), the D-3 condition, and -- once the pricer changed a line, removed one or
+ * added one -- the amber box, the lines-vs-total note and the reset button. Read off the hidden tags and the priced lines.
+ */
+function splitViewOf(spec: ItemListPricingSpec, edits: ItemListEditState, layersBySource: Map<number, ItemPriceResult[]>): ItemListView["split"] {
+  const marks = edits.items.map((e) => e.helper).filter((h): h is HelperMark => !!h);
+  if (!marks.length) return undefined;
+  const h = marks[0];
+  const u = h.unit ? ` ${h.unit}` : "";
+  const groups = new Map<number, HelperMark[]>();
+  for (const m of marks) groups.set(m.g, [...(groups.get(m.g) ?? []), m]);
+  const sizesOf = (g: HelperMark[]) => [...g].sort((a, b) => a.i - b.i).map((m) => m.size);
+  const notes: string[] = [];
+  let sumNote: string | undefined;
+  for (const g of groups.values()) {
+    const m = g[0];
+    const all = m.stated ? m.stated.modules.map(fmtN) : sizesOf(g);
+    if (m.stated) {
+      const tot = m.stated.total ?? m.stated.sum;
+      notes.push(`${m.readNote ? `${m.readNote}. ` : ""}${m.stated.typed ? "You typed" : "The row states"} a split: ${all.join(" + ")}${u} (total ${fmtN(tot)}${u}) -> one line per module, each priced on its own.`);
+      if (m.stated.total !== null && m.stated.total !== m.stated.sum) {
+        sumNote = `The modules add up to ${fmtN(m.stated.sum)}${u}, not the ${fmtN(m.stated.total)}${u} the split states. Each module is priced as written: check this is what you meant.`;
+      }
+    } else {
+      notes.push(`${m.readNote ? `${m.readNote}. ` : ""}${fmtN(m.total)}${u} is bigger than the largest unit (${fmtN(m.top)}${u}), so the helper split it: ${all.join(" + ")}${u} `
+        + `(${m.exact ? "fewest units that add up exactly" : "fewest units, the smallest total above"}; the cheapest of the equal splits). `
+        + `Each unit is its own item below: change, add or remove them.`);
+    }
+  }
+  const cond = marks.find((m) => m.cond)?.cond;
+  const condLine = cond && spec.split?.conditions ? spec.split.conditions.line.replace("{said}", cond) : undefined;
+  const changed = edits.items.some((e) => helperLineChanged(e))
+    || [...groups.values()].some((g) => g.length < g[0].n)
+    || edits.items.length > h.rowN;
+  let linesNote: string | undefined;
+  if (changed) {
+    const fams = new Set(spec.split?.families ?? []);
+    let sum = 0;
+    edits.items.forEach((_e, i) => {
+      const r = (layersBySource.get(i) ?? [])[0];
+      if (!r || !r.family || !fams.has(r.family)) return;
+      const v = r.readValues?.[h.attr] ?? r.selection?.[h.attr];
+      const n = typeof v === "number" ? v : Number(v);
+      const q = typeof r.qty === "number" && Number.isFinite(r.qty) ? r.qty : 1;
+      if (Number.isFinite(n)) sum += n * q;
+    });
+    const target = h.stated ? (h.stated.total ?? h.stated.sum) : h.total;
+    sum = Math.round(sum * 100) / 100;
+    if (sum !== target) linesNote = `The lines add up to ${fmtN(sum)}${u}; the BoQ says ${fmtN(target)}${u}. The row is still priced as you set it: check this is what you meant.`;
+  }
+  return {
+    note: notes.join(" "),
+    ...(sumNote ? { sumNote } : {}),
+    ...(condLine ? { condition: condLine } : {}),
+    ...(changed ? { changed: "You changed the helper's split. The helper will not split this row again: the lines below stay as you set them. The row total is the sum of the lines." } : {}),
+    ...(linesNote ? { linesNote } : {}),
+    resetLabel: "Reset to the helper's split",
+  };
+}
+
 function computeItemListOwn(
   category: RateCategoryConfig,
   spec: ItemListPricingSpec,
@@ -3355,7 +3545,10 @@ function computeItemListOwn(
   const merge = applyFamilyMerge(spec, assembleItems(decoded, modelItems, familyAttr(spec)), [rowText, ownText, headingNoteText].join(" | "));
   const edits: ItemListEditState = merge ? { ...decoded, items: merge.kept.map((i) => decoded.items[i]) } : decoded;
   if (probe) probe.edits = edits;
-  const assembled = merge ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
+  // VRF-3a (Q3): the helper may split only a row none of whose entries came from a split
+  const anyHelper = edits.items.some((e) => e.helper);
+  const assembled0 = merge ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
+  const assembled = spec.split && !anyHelper ? assembled0.map((a) => ({ ...a, splitAllowed: true as const })) : assembled0;
   // SLICE 12c-S (owner S2 / S10): the picker offers only the units the chosen items can be priced in.
   const chosenFamilies = assembled.map((a) => {
     const v = a.attributes[familyAttr(spec)]?.value;
@@ -3485,6 +3678,20 @@ function computeItemListOwn(
   // the row's texts are built above, where `family_merge` first reads them
   // ADP-5d (HN-3): the headings themselves too, so a rule can read the heading directly above the row on its own
   const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint, headingNoteText, ctx.headings ?? []);
+  /**
+   * VRF-3a (owner R-SPLIT (a) / (b), D-1, SHAPE Q3) -- THE HELPER'S SPLIT, AT THE SEAM. An item the pricer asked to split
+   * (above the largest of its resolved variant, or a split the row writes) is replaced by one REAL entry per line, each
+   * carrying the hidden tag, and the row is computed again from that edit state -- which is what `editState` returns,
+   * so the panel's next operation applies to the lines. The second pass carries the tags, so it never splits again.
+   */
+  if (spec.split && !anyHelper) {
+    const splits = new Map<number, NonNullable<ItemPriceResult["splitInto"]>>();
+    priced.items.forEach((p, idx) => { if (p.splitInto) splits.set(typeof p.sourceIndex === "number" ? p.sourceIndex : idx, p.splitInto); });
+    if (splits.size) {
+      const next = splitEdits(spec, edits, splits, modelItems, [rowText, ownText].join(" | "));
+      return computeItemListOwn(category, spec, items, ctx, ext, inRun, { ...(overrides ?? {}), [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(next) }, probe);
+    }
+  }
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so
@@ -3591,7 +3798,9 @@ function computeItemListOwn(
   if (rowPriced) derivation.push(`Row total per 1 ${unit}: supply ${priced.supply} + install ${priced.install}`);
   else if (unshowableReason) derivation.push(unshowableReason);
   else if (priced.reason) derivation.push(priced.reason);
+  const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
   const view: ItemListView = {
+    ...(splitView ? { split: splitView } : {}),
     unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
     ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
     ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
@@ -4039,6 +4248,9 @@ export type ItemEditOp =
   | { op: "change_family"; index: number; family: string }
   | { op: "add"; family: string }
   | { op: "remove"; index: number }
+  /** VRF-3a (U2): "Reset to the helper's split" -- every line of a split goes, the entry each split replaced comes back,
+   *  and the row splits again at the next compute */
+  | { op: "reset_split" }
   /** SLICE 12c-S (F15): the pricer opened, or closed, this field's "Other..." box. `on` false also
    *  covers picking a real option, which is what takes the field back out of typing. */
   | { op: "set_other"; index: number; id: string; on: boolean }
@@ -4123,6 +4335,17 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (!at(op.index)) return state;
       items.splice(op.index, 1);
       return done(items);
+    case "reset_split": {
+      const seen = new Set<number>();
+      const out: ItemEdit[] = [];
+      for (const e of items) {
+        if (!e.helper) { out.push(e); continue; }
+        if (seen.has(e.helper.g)) continue;
+        seen.add(e.helper.g);
+        out.push({ ...e.helper.from, attrs: { ...e.helper.from.attrs } });
+      }
+      return done(out);
+    }
     case "section": {
       // the delegated category's OWN operation, applied to the one stored edit of that section
       const target = op.pipe !== null ? at(op.pipe)?.sections?.[op.section] : state.sections?.[op.section]?.[op.index];
@@ -4159,7 +4382,7 @@ export function needPersonSentence(bad: number, lines: number): string {
 
 /** PURE. What the correction record carries for the items ON SCREEN at Use: one entry per block, its family,
  * whether the model identified it or the pricer added it, every field's value as shown, and the quantity. */
-export function itemsOnScreen(view: ItemListView): Array<{ family: string | null; source: "model" | "user"; attributes: Record<string, string>; qty: string }> {
+export function itemsOnScreen(view: ItemListView): Array<{ family: string | null; source: "model" | "user" | "helper"; attributes: Record<string, string>; qty: string }> {
   const entry = (b: ItemBlockView) => ({
     family: b.family,
     source: b.source,

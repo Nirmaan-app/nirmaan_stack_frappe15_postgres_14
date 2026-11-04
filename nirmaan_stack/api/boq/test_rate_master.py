@@ -13253,7 +13253,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # INVERTED at VRF-2b (owner RECON Q2 `extra_kinds`, QR-2 A Nos/Ro, 2026-11-03) by mechanical
                             # authority: BEFORE the set ended at "companion_items". The two keys are read only by VRF
                             # from v57 on; v7 predates them and ADP declares neither
-                            "extra_kinds", "unit_lines"})
+                            "extra_kinds", "unit_lines",
+                            # INVERTED at VRF-3a (owner R-SPLIT / SHAPE Q3, 2026-11-04) by mechanical authority: BEFORE the
+                            # set ended at "unit_lines". `split` is read only by VRF from v58 on; v7 predates it and ADP
+                            # declares it nowhere
+                            "split"})
+        self.assertNotIn("split", pr)
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
@@ -20714,3 +20719,76 @@ class TestVrf2bInputReach(FrappeTestCase):
             with self.assertRaises(Exception) as cm:
                 config_validation._validate_config(self._with_examples([ex]))
             self.assertIn(needle, str(cm.exception))
+
+
+VRF3A_CONDITIONS = {
+    "words": [
+        "at least\\s+\\d+(?:\\.\\d+)?\\s*(?:hp|tr)\\s*each",
+        "single\\s+module",
+        "single\\s+odu",
+        "(?:module selection\\s+)?as per site conditions?",
+    ],
+    "line": "The row says \"{said}\": the helper split it by the team rule anyway (fewest units, then the cheapest) - check this is what the row asks for.",
+}
+
+
+def vrf3a_split_fixture_config(v57_cfg, drop=()):
+    """VRF-3a K1: v57's hvac_vrf with the split keys the mint adds (`compose` with `above_only`, `split`) -- the same keys
+    vrf3aSplit.test.ts adds in TypeScript. `drop` leaves named pieces out."""
+    c = copy.deepcopy(v57_cfg)
+    pr = c["list_spec"]["pricing"]
+    if "compose" not in drop:
+        pr["compose"] = {"attr": "capacity", "tolerance": 34, "max_layers": 6, "cost_key": "cost_supply"}
+        if "above_only" not in drop:
+            pr["compose"]["above_only"] = True
+    if "split" not in drop:
+        pr["split"] = {"families": ["Outdoor Unit"], "stated": True, "conditions": copy.deepcopy(VRF3A_CONDITIONS)}
+    return c
+
+
+class TestVrf3aSplitKeys(FrappeTestCase):
+    """VRF-3a K1 (owner R-SPLIT / R-SPLIT-RULE / D-1..D-8 / SHAPE Q2-Q3) -- the validator accepts `compose.above_only` and
+    `split` on a correct shape and refuses each wrong one by name. The pricer's half (TS) is pinned in vrf3aSplit.test.ts;
+    the asset in test_vrf_v58."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v57.json"), "r", encoding="utf-8") as fh:
+            cls.v57 = json.load(fh)
+        cls.vrf57 = next(c for c in cls.v57["category_configs"] if c["category_id"] == "hvac_vrf")
+
+    def _refused(self, cfg, *needles):
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        for n in needles:
+            self.assertIn(n, str(cm.exception))
+
+    def test_v3a_01_POSITIVE_the_split_fixture_validates_and_v57_as_shipped_still_does(self):
+        config_validation._validate_config(vrf3a_split_fixture_config(self.vrf57))
+        config_validation._validate_config(copy.deepcopy(self.vrf57))
+        # compose with above_only alone is legal (a two-sided compose too); split is optional
+        config_validation._validate_config(vrf3a_split_fixture_config(self.vrf57, drop=("split",)))
+        config_validation._validate_config(vrf3a_split_fixture_config(self.vrf57, drop=("split", "above_only")))
+
+    def test_v3a_02_NEGATIVE_split_needs_compose_with_above_only(self):
+        self._refused(vrf3a_split_fixture_config(self.vrf57, drop=("compose",)), "split needs list_spec.pricing.compose")
+        self._refused(vrf3a_split_fixture_config(self.vrf57, drop=("above_only",)), "needs list_spec.pricing.compose.above_only true")
+
+    def test_v3a_03_NEGATIVE_split_and_above_only_shapes_refused_by_name(self):
+        cases = [
+            (lambda pr: pr["split"].__setitem__("families", []), "split.families must be a non-empty list"),
+            (lambda pr: pr["split"].__setitem__("families", ["Chiller"]), "names 'Chiller', which is not a family"),
+            (lambda pr: pr["split"].__setitem__("stated", "yes"), "split.stated must be true or false"),
+            (lambda pr: pr["split"].__setitem__("bogus", 1), "split: unknown key(s): bogus"),
+            (lambda pr: pr["split"]["conditions"].pop("line"), "conditions needs exactly words and line"),
+            (lambda pr: pr["split"]["conditions"].__setitem__("line", "no placeholder"), "must be a sentence naming {said}"),
+            (lambda pr: pr["split"]["conditions"].__setitem__("words", ["("]), "is not a valid pattern"),
+            (lambda pr: pr["split"]["conditions"].__setitem__("words", []), "conditions.words must be a non-empty list"),
+            (lambda pr: pr["compose"].__setitem__("above_only", "true"), "compose.above_only must be true or false"),
+            (lambda pr: pr.__setitem__("split", {}), "split must be a non-empty object"),
+        ]
+        for mutate, needle in cases:
+            cfg = vrf3a_split_fixture_config(self.vrf57)
+            mutate(cfg["list_spec"]["pricing"])
+            self._refused(cfg, needle)

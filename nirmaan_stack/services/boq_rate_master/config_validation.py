@@ -1103,6 +1103,55 @@ _PRICING_KEYS = _PRICING_KEYS | {"extra_kinds", "unit_lines"}
 # family's own unit through the Pricing Inputs (see `_validate_number_units`).
 _PRICING_NUMBER_KEYS = _PRICING_NUMBER_KEYS | {"units"}
 _NUMBER_UNITS_KEYS = {"unit_attr", "words", "base", "convert", "refuse_words", "refuse"}
+# VRF-3a (owner R-SPLIT-RULE 2026-11-01 12:02, D-8): `compose.above_only` -- only combinations at or above the stated value
+# (the two-sided tolerance stays the default, so Insulation is unchanged). `split` (R-SPLIT (a) / (b), D-1 / D-2 / D-3,
+# SHAPE Q2 / Q3): on its families a composition becomes separate LINES the panel helper makes (never layers), `stated`
+# reads a split the row writes, `conditions` quotes what the row states about the split. See `_validate_split`.
+_PRICING_COMPOSE_KEYS = _PRICING_COMPOSE_KEYS | {"above_only"}
+_PRICING_KEYS = _PRICING_KEYS | {"split"}
+_SPLIT_KEYS = {"families", "stated", "conditions"}
+_SPLIT_CONDITION_KEYS = {"words", "line"}
+
+
+def _validate_split(sp, pr, fams):
+    """VRF-3a -- `list_spec.pricing.split`: the families whose composition is the helper's split into separate lines.
+    Needs `compose` (the axis, the ceiling and the ranking are compose's) with `above_only` true -- a split that could
+    go BELOW the row's total is the 60 -> 28 + 28 the owner's rule forbids. Every family named must be priced here."""
+    loc = "list_spec.pricing.split"
+    if not isinstance(sp, dict) or not sp:
+        _vthrow(f"{loc} must be a non-empty object.")
+    unk = set(sp) - _SPLIT_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    cp = pr.get("compose")
+    if not isinstance(cp, dict):
+        _vthrow(f"{loc} needs list_spec.pricing.compose (its axis, its ceiling and its ranking are compose's).")
+    if cp.get("above_only") is not True:
+        _vthrow(f"{loc} needs list_spec.pricing.compose.above_only true: a split never goes below the row's total "
+                "(owner R-SPLIT-RULE: fewest units, exactly, else the smallest total above).")
+    fl = sp.get("families")
+    if not isinstance(fl, list) or not fl or not all(isinstance(f, str) and f.strip() for f in fl):
+        _vthrow(f"{loc}.families must be a non-empty list of family names.")
+    for f in fl:
+        if f not in fams:
+            _vthrow(f"{loc}.families names '{f}', which is not a family this category prices.")
+    if "stated" in sp and not isinstance(sp["stated"], bool):
+        _vthrow(f"{loc}.stated must be true or false.")
+    if "conditions" in sp:
+        c = sp["conditions"]
+        if not isinstance(c, dict) or set(c) != _SPLIT_CONDITION_KEYS:
+            _vthrow(f"{loc}.conditions needs exactly words and line.")
+        if not isinstance(c["words"], list) or not c["words"]:
+            _vthrow(f"{loc}.conditions.words must be a non-empty list of patterns.")
+        for w in c["words"]:
+            if not isinstance(w, str) or not w.strip():
+                _vthrow(f"{loc}.conditions.words must hold non-empty patterns.")
+            try:
+                re.compile(w)
+            except re.error as e:
+                _vthrow(f"{loc}.conditions.words: '{w}' is not a valid pattern ({e}).")
+        if not isinstance(c["line"], str) or "{said}" not in c["line"]:
+            _vthrow(f"{loc}.conditions.line must be a sentence naming {{said}} (the condition as the row writes it).")
 
 
 def _pricing_kinds(pr):
@@ -1758,6 +1807,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         ck = cp.get("cost_key")
         if ck is not None and (not isinstance(ck, str) or not ck.strip()):
             _vthrow("list_spec.pricing.compose.cost_key must be a non-empty rate key.")
+        if "above_only" in cp and not isinstance(cp["above_only"], bool):
+            _vthrow("list_spec.pricing.compose.above_only must be true or false.")
         oo = cp.get("outer_only")
         if oo is not None:
             if not isinstance(oo, dict) or set(oo) != _PRICING_OUTER_ONLY_KEYS:
@@ -2016,6 +2067,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # ADP-5a (SCOPE-5a-1): `family_merge` -- PRESENCE before any `or` idiom, as every key above
     if "family_merge" in pr:
         _validate_family_merge(pr["family_merge"], fams, numbers)
+    # VRF-3a: `split` -- PRESENCE, as every key above
+    if "split" in pr:
+        _validate_split(pr["split"], pr, fams)
     if "unstocked_materials" in pr:
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:

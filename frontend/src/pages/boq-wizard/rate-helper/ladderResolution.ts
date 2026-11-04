@@ -124,6 +124,13 @@ export interface ComposeSpec {
    * is what every composition did before this key existed.
    */
   cost_key?: string;
+  /**
+   * VRF-3a (owner R-SPLIT-RULE 2026-11-01 12:02, D-8): ONLY combinations AT OR ABOVE the stated value -- "Make the units add
+   * up exactly to the total. If no combination of stocked sizes does, use the smallest total above it." A candidate
+   * below the stated value is never considered; the ranking below is unchanged (fewest -> closest, which is then the
+   * smallest total above -> cost). ABSENT or false => the two-sided tolerance, so Insulation is byte-identical.
+   */
+  above_only?: boolean;
 }
 
 export interface Composition {
@@ -174,6 +181,7 @@ export function composeSize(
     const total = layers.reduce((a, b) => a + b, 0);
     const delta = total - stated;
     if (Math.abs(delta) > spec.tolerance) return;
+    if (spec.above_only === true && delta < 0) return;
     const cand: Composition = { layers: [...layers], delta };
     if (!best || betterThan(cand, best, costOf)) best = cand;
   };

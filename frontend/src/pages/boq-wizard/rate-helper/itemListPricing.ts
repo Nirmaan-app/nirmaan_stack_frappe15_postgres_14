@@ -627,6 +627,17 @@ export interface ItemListPricingSpec {
   /** SLICE 12c (owner Q8): what to do when a stated value is ABOVE the top rung of one named ladder
    * -- build it out of two or more rungs instead of refusing. ABSENT => it still refuses, exactly as
    * before. The tolerance and the layer ceiling are config, never code. */
+  /**
+   * VRF-3a (owner R-SPLIT (a) + (b) 2026-11-01 11:59, R-SPLIT-RULE 12:02, D-1 / D-2 / D-3 / D-8 15:03, SHAPE Q2 / Q3 2026-11-04
+   * 14:56) -- THE HELPER SPLIT. On the named families a composition on `compose.attr` is not one block of layers: it
+   * becomes SEPARATE LINES, each a real item the pricer can change, add to or remove (the panel helper does that at the
+   * `applyFamilyMerge` seam). `stated`: a split the row WRITES ("60 HP (18+18+24)", "26(14+12)HP", "20+18 HP") is read as
+   * one line per module, each through the ladder (next size up); a module above the largest refuses the row by name (D-2).
+   * `conditions`: words a row may state about the split ("at least 20 HP each", "Single module") -- quoted in an amber
+   * note, the split still follows the rule (D-3). On a config with this key, `compose` applies to these families ONLY
+   * and never as layers. ABSENT => byte-identical.
+   */
+  split?: { families: string[]; stated?: boolean; conditions?: { words: string[]; line: string } };
   compose?: ComposeSpec & {
     /** WHICH ladder composes. A value here is a ladder attribute id; no other axis composes. */
     attr: string;
@@ -877,6 +888,9 @@ export interface ExtractedListItem {
   /** ADP-5a (SCOPE-5a-1): `applyFamilyMerge` priced this item as another family -- the family it was answered as, the
    * line to say and the number it is priced at. Set by that function only; absent on every other item. */
   merged?: { from: string; line: string; at?: string };
+  /** VRF-3a (Q3 hidden tag): the panel helper allows the helper split on this item -- set ONLY on a row none of whose items
+   * came from a split (the split never fires on its own lines, after an edit, or on a re-compute). Absent => no split. */
+  splitAllowed?: true;
 }
 
 export interface DefaultedAttr {
@@ -928,6 +942,28 @@ export interface ItemPriceResult {
    * to re-price it as several layered items. Carried on the result rather than handled here because
    * ONE item cannot return several prices, and the rungs are derived here and must not be derived
    * twice. */
+  /**
+   * VRF-3a: set INSTEAD of pricing when a `split` family's item is above the largest size of its resolved variant (the
+   * helper split) or states its own split (`stated`). A request to the panel helper to replace this item with one line
+   * per entry of `layers` -- largest first for the helper's split, as written for a stated one. State "blank", so a
+   * caller that does not split never prices the item.
+   */
+  splitInto?: {
+    attr: string;
+    /** the total in the family's unit (the reader's value, after any conversion) */
+    total: number;
+    layers: number[];
+    /** the layers add up exactly to the total */
+    exact: boolean;
+    /** the largest size of the item's resolved variant */
+    top: number;
+    /** the family's unit word for this axis ("HP"), "" where the reader declares none */
+    unit: string;
+    /** the reader's own line(s) for the total (a conversion: "43.2 TR x 1.25 (...) = 54 HP") */
+    readNote?: string;
+    /** a STATED split: the modules as written, their sum and the total as written (null when the row wrote none) */
+    stated?: { modules: number[]; sum: number; total: number | null; written: string };
+  };
   composeInto?: {
     attr: string;
     /** The stated value AS THE NUMBER READER READ IT. ⚠️ Carried rather than re-read from the extracted
@@ -2203,10 +2239,26 @@ export function readCapacity(text: string | number | null | undefined, reader: N
     }
     return { ...f, unit: null, air: null };
   });
+  // VRF-3a (R1, board 10): a bare number followed by a range gap ("-", an en dash or "to") and then an AIRFLOW number belongs
+  // to that airflow -- "1700-1800cfm" is one airflow range, never a capacity of 1700 beside an airflow of 1800. It is
+  // said as the range ("1700-1800 CFM"). Only here, in the `units` branch: every other reader is byte-identical.
+  const rangeTo = new Map<number, number>();
+  for (let i = 0; i + 1 < tagged.length; i++) {
+    const a = tagged[i], b = tagged[i + 1];
+    if (a.air !== null || a.unit !== null || b.air === null) continue;
+    if (!/^\s*(?:-|\u2013|to)\s*$/.test(s.slice(a.end, b.start))) continue;
+    tagged[i] = { ...a, air: b.air };
+    rangeTo.set(i, i + 1);
+  }
+  const rangeEnds = new Set(rangeTo.values());
   const airflow = tagged.filter((t) => t.air !== null);
   const caps = tagged.filter((t) => t.unit !== null);
   const bare = tagged.filter((t) => t.air === null && t.unit === null);
-  const airSaid = airflow.map((t) => `${fmt(t.n)} ${U.refuse_words[t.air!].toUpperCase()}`);
+  const airSaid = tagged.flatMap((t, i) => {
+    if (t.air === null || rangeEnds.has(i)) return [];
+    const to = rangeTo.get(i);
+    return [`${fmt(t.n)}${to !== undefined ? `-${fmt(tagged[to].n)}` : ""} ${U.refuse_words[t.air].toUpperCase()}`];
+  });
   if (found.length === 0) return { blank: `no number in '${raw}' for ${reader.name}` };
   if (caps.length === 0 && airflow.length > 0) {
     // VRF-2b K5 (owner 2026-11-04 "Now, before push"; QR-K5a "option B"): outside its brackets the text gives an airflow
@@ -2234,6 +2286,10 @@ export function readCapacity(text: string | number | null | undefined, reader: N
   // the text without its airflow parts, for the ordinary reader (ranges, several values, ...)
   let rest = s;
   for (const t of [...airflow].sort((a, b) => b.start - a.start)) {
+    // VRF-3a (R1): a range's first number goes with its gap (the second number and its word go on their own turn)
+    const ti = tagged.indexOf(t);
+    const to = rangeTo.get(ti);
+    if (to !== undefined) { rest = rest.slice(0, t.start) + " " + rest.slice(tagged[to].start); continue; }
     const m = /^\s*airflow[a-z]/.exec(s.slice(t.end));
     rest = rest.slice(0, t.start) + " " + rest.slice(t.end + (m ? m[0].length : 0));
   }
@@ -2280,6 +2336,64 @@ function bracketedCapacities(text: string, U: CapacityUnits, airWords: Array<{ w
     }
   }
   return out;
+}
+
+/**
+ * VRF-3a (owner R-SPLIT (a), SHAPE Q2 "Make 3 lines") -- A SPLIT THE ROW WRITES, read off a capacity text: ONE chain of two
+ * or more numbers joined by "+" ("18+18+24", "14HP+24HP"), optionally in brackets after the total ("60 HP (18+18+24)",
+ * "26(14+12)HP", "38 HP - Out door unit (14HP+24HP)"). The unit is the one unit word written on the modules, after the
+ * bracket or on the total; none -> bare (the family's unit, or the picker's on a typed box). Null when the text holds no
+ * chain, more than one chain, two different unit words, or a working + standby count ("2# 12 HP" stays one unit: W+S is
+ * VRF-4's) -- the ordinary reader then reads it exactly as before. PURE.
+ */
+export function readStatedSplit(text: string | number | null | undefined, reader: NumberReader):
+  { modules: number[]; total: number | null; unit: string | null; written: string } | null {
+  const U = reader.units;
+  if (!U || text === null || text === undefined || typeof text === "number") return null;
+  const raw = unicodeFractions(String(text)).trim();
+  if (raw === "" || !raw.includes("+")) return null;
+  const low = raw.toLowerCase();
+  if (/\d\s*#/.test(low)) return null;
+  const words = Object.entries(U.words).flatMap(([k, ws]) => ws.map((w) => ({ k, w: w.toLowerCase() }))).sort((a, b) => b.w.length - a.w.length);
+  const W = words.map((x) => escapeRe(x.w)).join("|");
+  const NUM = "\\d+(?:\\.\\d+)?";
+  const UNIT = `(?:\\s*(?:${W})(?![a-z0-9]))?`;
+  const chains = [...low.matchAll(new RegExp(`${NUM}${UNIT}(?:\\s*\\+\\s*${NUM}${UNIT})+`, "g"))];
+  if (chains.length !== 1) return null;
+  const ch = chains[0];
+  const start = ch.index ?? 0;
+  const end = start + ch[0].length;
+  const unitOf = (frag: string): string | null => {
+    const w = words.find((x) => new RegExp(`^\\s*${escapeRe(x.w)}(?![a-z0-9])`).test(frag));
+    return w ? w.k : null;
+  };
+  const modules: number[] = [];
+  const units = new Set<string>();
+  for (const m of ch[0].matchAll(new RegExp(NUM, "g"))) {
+    modules.push(Number(m[0]));
+    const u = unitOf(ch[0].slice((m.index ?? 0) + m[0].length));
+    if (u) units.add(u);
+  }
+  if (modules.length < 2 || modules.some((n) => !(n > 0))) return null;
+  const before = low.slice(0, start);
+  const after = low.slice(end);
+  const bracketed = /\(\s*$/.test(before) && /^\s*\)/.test(after);
+  if (bracketed) {
+    const u = unitOf(after.replace(/^\s*\)/, ""));
+    if (u) units.add(u);
+  }
+  let total: number | null = null;
+  if (bracketed) {
+    const nums = [...before.matchAll(new RegExp(NUM, "g"))];
+    const last = nums[nums.length - 1];
+    if (last) {
+      total = Number(last[0]);
+      const u = unitOf(before.slice((last.index ?? 0) + last[0].length));
+      if (u) units.add(u);
+    }
+  }
+  if (units.size > 1) return null;
+  return { modules, total, unit: units.size ? [...units][0] : null, written: raw.slice(start, end).replace(/\s+/g, "") };
 }
 
 /** VRF-2b: convert `value` (in unit `from`) to the family's unit through `base`, writing the line. PURE. */
@@ -3381,6 +3495,8 @@ function priceOneItem(
   const noneSaid = new Set<string>();
   // SLICE 12e-2 (owner Q14): the SECOND inch conversion carried beside a read, per axis, for the ladder
   const altReads: Record<string, { alt: number; raw: string }> = {};
+  // VRF-3a: a split the row writes, per axis -- the modules in the family's unit, read in the units branch below
+  const statedSplits: Record<string, { modules: number[]; written: string; total: number | null; sum: number; note?: string }> = {};
   // SLICE 12e-3b: an axis whose stated text was two or more sizes -- the sizes as named and the one taken
   const severalReads: Record<string, { sizes: string[]; chosen: string }> = {};
   // SLICE 12e-4b (owner F-3): an axis whose taken size came from a list written with no unit at all
@@ -3421,7 +3537,8 @@ function priceOneItem(
       // only (T6: a pricer's typed entry is never parsed as layers). It used to run only when the single-number
       // read came back BLANK -- and "Double layer of 19mm thick" is not blank to that reader, it is a 19, so
       // every such row priced ONE layer. A cell the layers reader does not accept is read exactly as before.
-      if (spec.compose && attr === spec.compose.attr && layersFrom === null) {
+      // VRF-3a: a config with `split` never reads its axis as layers (its own stated split reads the modules as lines)
+      if (spec.compose && attr === spec.compose.attr && layersFrom === null && !spec.split) {
         for (const src of reader.from) {
           const cell = item.attributes?.[src];
           if (!cell || cell.typed === true) continue;
@@ -3504,6 +3621,27 @@ function priceOneItem(
           const pick = item.attributes?.[`${src}${UNIT_PICK_SUFFIX}`]?.value;
           // the PICKER counts only where the pricer set it beside a typed box; untouched, a bare number is in the family's unit
           const picker = cell?.typed === true && typeof pick === "string" && pick.trim() ? pick : null;
+          // VRF-3a (R-SPLIT (a), SHAPE Q2): a split the row writes is read as its modules -- each converted like a capacity
+          // -- and handed to the ladder below as one line per module. Only on a `split.stated` family the helper may split.
+          const capCtx = { familyUnit: famUnit, factorOf: (id: string) => pricingInputFactor(projected, id), picker, family };
+          const ss = item.splitAllowed && spec.split?.stated && family !== null && spec.split.families.includes(family) && attr === spec.compose?.attr
+            ? readStatedSplit(rawValue(item, src), reader) : null;
+          if (ss) {
+            const said = (n: number) => (ss.unit ? `${fmt(n)} ${ss.unit}` : fmt(n));
+            const mods = ss.modules.map((m) => readCapacity(said(m), reader, capCtx));
+            const tot = ss.total !== null ? readCapacity(said(ss.total), reader, capCtx) : null;
+            if (mods.every((m) => m !== null && "value" in m) && (tot === null || "value" in tot)) {
+              const vals = mods.map((m) => (m as { value: number }).value);
+              const notes = [...new Set(mods.map((m) => (m as { note?: string }).note).filter((x): x is string => !!x))];
+              statedSplits[attr] = {
+                modules: vals, written: ss.written, total: tot && "value" in tot ? tot.value : null,
+                sum: Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100,
+                ...(notes.length ? { note: notes.join("; ") } : {}),
+              };
+              got = { value: Math.max(...vals) };
+              break;
+            }
+          }
           got = readCapacity(rawValue(item, src), reader, { familyUnit: famUnit, factorOf: (id) => pricingInputFactor(projected, id), picker, family });
           if (got !== null) {
             if ("value" in got && got.note) (out.unitReads ??= {})[attr] = got.note;
@@ -3592,7 +3730,7 @@ function priceOneItem(
       if ("blank" in got) {
         // SLICE 12d-1b (owner T4): the compose axis may be STATED AS LAYERS ("65 mm + 32 mm"). A model answer
         // that reads so is carried to the composition path below; a pricer's TYPED entry is not (T6).
-        if (spec.compose && attr === spec.compose.attr && layersFrom === null) {
+        if (spec.compose && attr === spec.compose.attr && layersFrom === null && !spec.split) {
           for (const src of reader.from) {
             const cell = item.attributes?.[src];
             if (!cell || cell.typed === true) continue;
@@ -4154,6 +4292,20 @@ function priceOneItem(
     // not a miss. Resolving FIRST matters: without it, 22.2 would ladder UP to 28.58 and buy a size the
     // row never asked for. ABSENT `size_match` => `matched` is null and the ladder decides, as before.
     const sizes = rungs.map((r) => r.size);
+    // VRF-3a (R-SPLIT (a), D-2): a split the row writes becomes one line per module, each on this variant's ladder (next
+    // size up there); a module above this variant's largest refuses the row, naming it
+    const st = statedSplits[attr];
+    if (st) {
+      const top = rungs[rungs.length - 1];
+      const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+      const u = famUnit ? ` ${famUnit}` : "";
+      const over = st.modules.find((m) => m > top.size);
+      if (over !== undefined) return { ...blank(`Module ${fmt(over)}${u} is above the largest size on the sheet (${fmt(top.size)}${u}) - this row is not priced; price it by hand`), selection: sel, sizeRefused: attr };
+      return { ...blank(`split into ${st.modules.length} lines`), selection: { ...sel },
+               splitInto: { attr, total: st.total ?? st.sum, layers: [...st.modules], exact: st.total === null || st.total === st.sum, top: top.size, unit: famUnit,
+                            ...(st.note ? { readNote: st.note } : {}),
+                            stated: { modules: [...st.modules], sum: st.sum, total: st.total, written: st.written } } };
+    }
     let matched = resolveSize(want, sizes, spec.size_match);
     /**
      * SLICE 12e-2 (owner Q14 / Q14a, 2026-10-10) -- THE LADDER'S TWO EXTRA RUNGS, each by key presence.
@@ -4252,6 +4404,21 @@ function priceOneItem(
             return null;
           }
         : undefined;
+      // VRF-3a (R-SPLIT (b), R-SPLIT-RULE, D-1 / D-8): on a config with `split`, a composition applies ONLY to its families,
+      // and becomes separate LINES (`splitInto`) -- never layers -- and only where the panel helper allows it (Q3). Every
+      // other family of such a config refuses above the largest exactly as before (DUCTABLE: "no splitting").
+      if (spec.split && spec.compose && spec.compose.attr === attr) {
+        const splitFam = family !== null && spec.split.families.includes(family);
+        const sp = splitFam && item.splitAllowed ? composeSize(want, sizes, spec.compose, costOf) : null;
+        if (sp) {
+          const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+          const readNote = out.unitReads?.[attr];
+          return { ...blank(`split into ${sp.layers.length} lines`), selection: { ...sel },
+                   splitInto: { attr, total: want, layers: [...sp.layers].sort((a, b) => b - a), exact: sp.delta === 0, top: top.size, unit: famUnit,
+                                ...(readNote ? { readNote } : {}) } };
+        }
+        return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel, sizeRefused: attr };
+      }
       const comp = spec.compose && spec.compose.attr === attr ? composeSize(want, sizes, spec.compose, costOf) : null;
       if (comp) {
         return { ...out, selection: { ...sel }, composeInto: { attr, stated: want, layers: [...comp.layers].sort((a, b) => a - b), delta: comp.delta, top: top.size, ...pipeAsReadOf() } };
@@ -5332,6 +5499,8 @@ export function sizeFieldHelp(
   spec: ItemListPricingSpec,
   attr: string,
   stocked: readonly string[],
+  /** VRF-3a: the block's family -- on a config with `split`, only its families split above the largest. */
+  family?: string | null,
 ): SizeFieldHelp | null {
   const reader = spec.numbers[attr];
   if (!reader) return null;
@@ -5411,7 +5580,22 @@ export function sizeFieldHelp(
   }
 
   // (4) ABOVE THE LARGEST -- layers, or a refusal
-  if (composes && spec.compose) {
+  // VRF-3a (R-SPLIT (b), R-SPLIT-RULE): on a config with `split` the composition is the helper's split into separate units,
+  // and only on its families (every other family refuses above the largest) -- the example is built by the same search
+  if (composes && spec.compose && spec.split) {
+    const c = spec.compose;
+    const ex = spec.split.families.includes(family ?? "") ? composeSize(largest * 2 - smallest, nums, c) : null;
+    if (ex && ex.layers.length > 1) {
+      const target = largest * 2 - smallest;
+      lines.push(`Bigger than the largest stocked size (${sizeText(largest)}) is split by the helper into separate units -- the fewest `
+                 + `units, adding up exactly (else the smallest total above), the cheapest of the equal splits: ${sizeText(target)} is `
+                 + `priced as ${[...ex.layers].sort((a, b) => b - a).map(sizeText).join(" + ")}, each its own item.`);
+      if (spec.split.stated) lines.push(`A split the BoQ writes (${sizeText(smallest)}+${sizeText(smallest)}) is priced as one item per module.`);
+    } else {
+      lines.push(`Larger than the largest stocked size (${sizeText(largest)}${unit}) is not priced, `
+                 + `and the reason is shown.`);
+    }
+  } else if (composes && spec.compose) {
     const c = spec.compose;
     const target = largest + Math.max(2, Math.round(smallest / 2));
     const comp = composeSize(target, nums, c);
@@ -5445,7 +5629,7 @@ export function sizeFieldHelp(
   }
 
   const egs = nums.slice(0, 2).map(sizeText).join(", ");
-  const note = composes
+  const note = composes && !spec.split
     ? `Type the ${name} in ${reader.unit ?? "mm"} as the BoQ states it, e.g. ${egs}, `
       + `or ${sizeText(smallest)}+${sizeText(smallest)} for two layers.`
     : `Type the ${name} the BoQ states, in ${reader.unit ?? "mm"} (e.g. ${egs}).`;

@@ -1296,13 +1296,38 @@ function ItemListBlocks({
       {!section && view.items.some((b) => b.fields.some((f) => f.required || f.group)) && (
         <p className="text-[10px] text-muted-foreground" data-testid="needed-to-price-note">* needed to price</p>
       )}
+      {/* VRF-3a (U1 / U2 / U3, boards 6-8): the helper's split on this row -- what it did, the condition the row states, and
+          once the pricer changed it, the amber box with "Reset to the helper's split" */}
+      {!section && view.split && (
+        <div className="space-y-1" data-testid="item-split">
+          <UnitNoteBox note={view.split.note} testId="item-split-note" />
+          {view.split.condition && <UnitNoteBox note={view.split.condition} testId="item-split-condition" />}
+          {view.split.sumNote && <UnitNoteBox note={view.split.sumNote} testId="item-split-sum-note" />}
+          {view.split.changed && (
+            <div
+              className="space-y-1 rounded border border-amber-400 bg-amber-100 px-2 py-1.5 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+              data-testid="item-split-changed"
+            >
+              <p>{view.split.changed}</p>
+              {view.split.linesNote && <p data-testid="item-split-lines-note">{view.split.linesNote}</p>}
+              <button
+                type="button"
+                onClick={() => onEdit({ op: "reset_split" })}
+                className="h-6 rounded border border-amber-500 bg-background px-2 text-[11px] font-medium hover:bg-amber-50 dark:hover:bg-amber-950"
+              >
+                {view.split.resetLabel}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {view.items.map((b, i) => (
         <Fragment key={i}>
         <div className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {i + 1}</>} &middot; {b.source === "model" ? "identified by model" : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : "split by the helper"}</span> : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -1337,6 +1362,12 @@ function ItemListBlocks({
               )}
             </div>
           </div>
+          {/* VRF-3a (U1): a line of the helper's split says where it came from */}
+          {b.helperLine && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-helper-line">
+              {b.helperLine}
+            </p>
+          )}
           {b.familyRaw && !b.familyLine && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
               BoQ says &ldquo;{b.familyRawLabel ?? b.familyRaw}&rdquo;: priced as {b.family} (your rule).

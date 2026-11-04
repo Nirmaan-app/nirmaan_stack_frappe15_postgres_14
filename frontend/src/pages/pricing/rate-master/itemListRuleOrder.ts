@@ -651,7 +651,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
 
   // ── 4. how the facts are read ─────────────────────────────────────────────────────────────────────
   const composed = pr.compose?.attr ? String(pr.compose.attr) : "";
-  if (composed) {
+  // VRF-3a: a config with `split` never reads its axis as layers -- its split lines are said in 13c below
+  if (composed && !pr.split) {
     const outer = pr.compose.outer_only?.attr
       ? `, the ${name(String(pr.compose.outer_only.attr))} on the outer layer only`
       : "";
@@ -930,7 +931,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // SLICE 12e-2 (owner Q14a / Q17): the two declared rungs, in the order the ladder tries them
     if (typeof pr.size_match?.near === "number") bits.push(`a size within ${pr.size_match.near} ${pr.numbers?.[a]?.unit ?? "mm"} of a stocked size counts as that size`);
     if (pr.size_match?.below_smallest === "smallest") bits.push("below the smallest stocked size takes the smallest");
-    if (a === composed) {
+    if (a === composed && pr.split) {
+      // VRF-3a (R-SPLIT (b), R-SPLIT-RULE, DUCTABLE): the helper's split, on the split families only
+      const fams = (Array.isArray(pr.split.families) ? pr.split.families : []).map((f: unknown) => famWord(String(f)));
+      bits.push(`above the largest stocked size of its brand and variant, ${list(fams.map((f: string) => `${/^[aeiou]/i.test(f) ? "an" : "a"} ${f}`))} is split by the helper into ${pr.compose.max_layers} or fewer separate units -- the fewest units, adding up exactly, else the smallest total above, then the cheapest -- each unit its own item with the row's brand and variant; every other item above the largest refuses, naming the size`);
+    } else if (a === composed) {
       bits.push(`above the largest stocked size, built from ${pr.compose.max_layers} or fewer layers`
                 + ` within ${pr.compose.tolerance} -- the fewest layers, then the closest, then the cheapest, all at one ${ladders.filter((x) => x !== composed).map(name).join(" / ") || "size"}`);
     } else {
@@ -947,7 +952,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
           [`${conv.map(([u]) => u).join(" and ")} through the Pricing Inputs (${conv.map(([, c]) => inputLabel(String(c?.input ?? ""))).join(", ")}), with the working shown`,
            // VRF-2b K5 (owner 2026-11-04): an airflow-only text reads a capacity the row gives in brackets
            `an airflow (${list((cu.refuse_words ?? []).map((w: string) => String(w).toUpperCase()))}) is not converted and refuses, unless the row also gives a ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} in brackets, which is read`,
-           "where the row states two units, the item's own unit is used"].join("; "));
+           "where the row states two units, the item's own unit is used",
+           // VRF-3a (R1, board 10): an airflow range is one airflow
+           ...(pr.split ? [`an airflow range ('1700-1800 ${String((cu.refuse_words ?? ["cfm"])[0]).toUpperCase()}') is one airflow`] : [])].join("; "));
     }
     // SLICE 12e-4b (owner F-1): the nearest-size rule declared for THIS axis alone
     const axisNear = pr.numbers?.[a]?.near;
@@ -1186,6 +1193,22 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
          Array.isArray(r.words) && r.words.length ? `${quoteList(r.words.map(String))} in the row, its headings or the note of the heading directly above it do the same` : "",
          at ? `priced at the ${famWord(r.family)}'s ${at}: the stated size, else the next stocked size up; above the largest it refuses` : "",
          typeof r.line === "string" ? `with a line '${r.line}${at ? `, <size>${unit}` : ""}'` : ""].filter(Boolean).join("; "), "family_merge");
+  }
+  // ── 13c. VRF-3a (owner R-SPLIT (a) / (b), D-2 / D-3, SHAPE Q3): the split's own lines -- ADDED LAST (a config without
+  // `split` adds nothing, so every earlier tab is unchanged)
+  if (pr.split && Array.isArray(pr.split.families)) {
+    const fams = list(pr.split.families.map((f: unknown) => famWord(String(f))));
+    const ax = composed ? name(composed) : "size";
+    if (pr.split.stated) {
+      add(`A split the row writes is priced as one ${fams} per module`,
+          `'60 HP (18+18+24)', '26(14+12)HP', '20+18 HP', '14HP+24HP' -- each module the stated ${ax}, else the next size up on the item's brand and variant; a module above the largest refuses the row, naming it; modules that do not add up to the total written get a note; a working + standby count ('2# 12 HP') stays one unit`);
+    }
+    if (pr.split.conditions && Array.isArray(pr.split.conditions.words)) {
+      add("A condition the row states about the split is quoted in an amber note",
+          "'at least 20 HP each', 'Single module', 'Single ODU', 'as per Site Conditions' -- the split still follows the rule; check it meets what the row asks for");
+    }
+    add("A split the pricer has changed is never split again",
+        "an edited, removed or added line keeps the lines as set, with a note when they do not add up to the total; 'Reset to the helper's split' puts the helper's split back");
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
