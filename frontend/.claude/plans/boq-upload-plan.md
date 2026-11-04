@@ -50550,3 +50550,17 @@ pins moved (MUST MOVE 29 -> 34 mechanical edits -> 0) and two wave-2 pins invert
 - **Deploy:** v57 by a wholesale HVAC load; K1-K3 code. VRF still prices only in the calculator; no BoQ page changes.
 - **VRF-4 MUST remove `calculator_only`** (VRF-2a's list) **and** the `calculatorSurface: true` the worked examples pass.
 - **Open:** VRF-3 (the outdoor split, extras, Set / Lot / per HP); VRF-4 (BoQ rows live, the model questions, removing calculator_only and calculatorSurface). Observed, not a 2b change: an item that refuses shows its defaults as '- select -' until it prices (VRF-2a's display); the factor field's 'today 3.52' rounds 3.517 to 2 dp.
+
+### VRF-2b K5 - the bracketed capacity behind an airflow-only text (owner 2026-11-04 "Now, before push"; code only)
+Chat review of Lists.xlsx "CFM rows": 60 of the 66 rows refused as airflow-only also give the size in brackets ("670Cfm Wall
+Mounted Type (2.0 TR)"). K5 (`itemListPricing.readCapacity` + `bracketedCapacities`): when the text outside its brackets gives
+an airflow and no unit-word capacity, and ONE bracket holds a capacity in the reader's units, that capacity is read, converted as
+usual, with the line "670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"; a bare number outside is named and
+not read (QR-K5a "option B", owner 12:32: the "1" of "1-way", the "4" of "4- Way"); two -> "several values"; none -> as before. Only
+in the `units` branch (VRF); other readers byte-identical (test). Derivation line 10's detail gains "..., unless the row also gives
+a capacity in TR, HP or kW in brackets, which is read" (title unchanged). No config key, no asset, no load. Tests: vrf2bCapacity
++18 (58, the 7 QR-K5a rows by name), R-39 W14f / W14f-calc / W14g-neg / W14h, parity named +3 (19); vacuity 17 / 3 / 9 / 1 red. Probe, HEAD vs K5 bundles: with VRF-R2's
+phrases 16 CFM rows now price (most phrases stop before the bracket), 0 rows outside the CFM rows move; with the whole row text,
+59 of 66 price, all from the bracket (at HEAD 7 priced, each on a stray number outside it -- QR-K5a B now reads the bracket), and
+7 refuse: the 6 truly airflow-only rows and the 12.8 TR ductable (above the largest size, by name). Lists: `2026-11-04_VRF-2b_Lists.xlsx`. Cert C5 / C5b / C10 and the suites:
+`2026-11-04_VRF-2b_K5_Addendum.md`.

@@ -1513,6 +1513,11 @@ describe("VRF-2b (v57) -- R-39: every VRF Derivation-tab rule fires from the pan
     { id: "W14c", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Concealed Split", capacity: "670 CFM" }, re: ["capacity is stated only as an airflow (670 CFM) - an airflow is not converted to HP / TR - price this row by hand"], priced: false },
     { id: "W14d", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "22.5 TR / 18 HP" }, re: ["capacity:the row states 18 HP and 22.5 TR - 18 HP is used (Outdoor Unit is stocked in HP); 22.5 TR is not read"], priced: true },
     { id: "W14a-calc", rule: VT.conv, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16", capacity__unit: "TR" }, other: ["capacity"], re: ["capacity:16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP"], priced: true, figures: [476040, 20000] },
+    // VRF-2b K5 (owner 2026-11-04): an airflow-only text reads the capacity given in brackets; two refuse; none refuses as today
+    { id: "W14f", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Hi-Wall", brand: "Blue Star", capacity: "670Cfm Wall Mounted Type (2.0 TR)" }, re: ["capacity:670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"], priced: true, figures: [23520, 1800] },
+    { id: "W14f-calc", rule: VT.conv, path: "calc", kind: "pos", family: "Hi-Wall", attrs: { brand: "Blue Star", capacity: "670Cfm (2.0 TR)" }, other: ["capacity"], re: ["capacity:670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"], priced: true, figures: [23520, 1800] },
+    { id: "W14g-neg", rule: VT.conv, path: "panel", kind: "neg", unit: "Nos", model: { item: "Hi-Wall", brand: "Blue Star", capacity: "670 CFM (2.0 TR) (2.5 TR)" }, re: ["several values stated for capacity ('670 CFM (2.0 TR) (2.5 TR)')"], not: ["in brackets is read"], priced: false },
+    { id: "W14h", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Cassette", way: "ONE-WAY", capacity: "610Cfm Cassette Type (2.0TR) - 1-way" }, re: ["capacity:610 CFM is an airflow - not read; 1 outside the brackets is not read; (2.0TR) in brackets is read -> 2 TR"], priced: true },
     { id: "W14e-neg", rule: VT.conv, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["Pricing Inputs", "airflow"], priced: true, figures: [436920, 16000] },
     // VRF-2b: the 2b paths of lines that stayed -- Nos/Ro's line (1), the Misc four (4), seventeen kinds (2)
     { id: "W1d", rule: VT.unit, path: "panel", kind: "pos", unit: "Nos/Ro", model: OD16, re: ["unit 'Nos/Ro' read as Nos"], priced: true, figures: [436920, 16000] },
@@ -1567,7 +1572,7 @@ describe("VRF-2b (v57) -- R-39: every VRF Derivation-tab rule fires from the pan
       const mine = VCASES.filter((c) => c.rule === t);
       expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
     }
-    expect(VCASES).toHaveLength(33 + 15);
+    expect(VCASES).toHaveLength(33 + 15 + 4);   // + K5's W14f / W14f-calc / W14g-neg / W14h (QR-K5a B)
     // the projected config generates the same tab (the key changes who may price, never which rules exist)
     expect(itemListRuleOrder(projected.get(VRF), items57).map((l) => l.title)).toEqual(titles());
   });

@@ -2481,6 +2481,12 @@ v57 = v56 with only `hvac_vrf` changed; `calculator_only` STAYS (VRF-4 removes i
   airflow-ONLY text refuses naming it ("capacity is stated only as an airflow (670 CFM) - ..."); beside a capacity it is set aside
   with a line ("459 CFM is an airflow - not read"; QR-1b item 4 A); two capacity units -> the family's, the other named in a line;
   neither the family's -> refuse; several values / ranges / brackets exactly as `readNumber` (the refusal quotes the row's words).
+  **K5 (owner 2026-11-04 "Now, before push"; QR-K5a "option B"):** when the text OUTSIDE its brackets gives an airflow and NO
+  unit-word capacity, and ONE bracket holds a capacity in the reader's units ("670Cfm Wall Mounted Type (2.0 TR)", "610Cfm Cassette
+  Type (2.0TR) - 1-way"), that capacity is read, converted as usual, with the line "670 CFM is an airflow - not read; (2.0 TR) in
+  brackets is read -> 2 TR" (`bracketedCapacities`); a bare number outside is named, never read ("1 outside the brackets is not
+  read"); two bracketed capacities -> "several values"; none -> as before (airflow alone refuses, a bare number beside it is read). Only inside the `units` branch: a reader without `units` is byte-identical.
+  Derivation line 10 adds "..., unless the row also gives a capacity in TR, HP or kW in brackets, which is read". Code only.
   Lines: "16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP", "4 HP / 1.25 (...) = 3.2 TR", "45 kW / 3.517 (kW per TR, ...) x 1.25
   (HP per TR, ...) = 15.99 HP". The working carries them prefixed "capacity:"; the PANEL shows them as the capacity field's note
   (with the ladder: "... = 1.42 TR -> priced as 1.5 TR (next size up)"), not in the block's working.

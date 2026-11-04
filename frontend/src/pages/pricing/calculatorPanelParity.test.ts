@@ -2215,6 +2215,9 @@ describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc fo
     ["both units -> the family's ('22.5 TR / 18 HP' -> 18 HP)", "Nos", { item: "Outdoor Unit", capacity: "22.5 TR / 18 HP" }, [452040, 18000], "the row states 18 HP and 22.5 TR - 18 HP is used (Outdoor Unit is stocked in HP); 22.5 TR is not read"],
     ["CFM only refuses, named (C5)", "Nos", { item: "Concealed Split", capacity: "670 CFM" }, "capacity is stated only as an airflow (670 CFM) - an airflow is not converted to HP / TR - price this row by hand", ""],
     ["a capacity beside an airflow is read ('1.0 TR / 459 CFM')", "Nos", { item: "Cassette", capacity: "1.0 TR / 459 CFM" }, [36960, 3500], "459 CFM is an airflow - not read"],
+    ["K5: an airflow-only text reads the bracketed capacity ('670Cfm Wall Mounted Type (2.0 TR)' -> VHW-24A)", "Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "670Cfm Wall Mounted Type (2.0 TR)" }, [23520, 1800], "670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"],
+    ["K5 (QR-K5a B): the bracket wins over a stray number outside ('459Cfm 4- Way Cassette Type (1.02TR)' -> 1 TR, not 4)", "Nos", { item: "Cassette", capacity: "459Cfm 4- Way Cassette Type (1.02TR)- High Static" }, [36960, 3500], "459 CFM is an airflow - not read; 4 outside the brackets is not read; (1.02TR) in brackets is read -> 1.02 TR -> priced as 1 TR (the sheet's own spelling of this size)"],
+    ["K5: two bracketed capacities refuse as several values", "Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "670 CFM (2.0 TR) (2.5 TR)" }, "several values stated for capacity ('670 CFM (2.0 TR) (2.5 TR)')", ""],
     ["several values refuse as today", "Nos", { item: "Outdoor Unit", capacity: "20+18 HP" }, "several values stated for capacity ('20+18 HP')", ""],
     ["brand off the sheet ('Toshiba') -> Blue Star, named", "Nos", { item: "Outdoor Unit", brand: "Toshiba", capacity: "16" }, [436920, 16000], "brand Toshiba is not on the sheet - priced as Blue Star"],
     ["several brands -> Blue Star, named", "Nos", { item: "Outdoor Unit", brand: "Daikin / Blue Star", capacity: "16" }, [436920, 16000], "several brands stated (Daikin / Blue Star) - priced as Blue Star"],
@@ -2225,7 +2228,7 @@ describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc fo
   ];
 
   it(`every 2b rule, by name (${NAMED.length} cases): the figure or the refusal and the line, identical on both surfaces; the live calculator = the projection; the BoQ panel declines`, () => {
-    expect(NAMED).toHaveLength(16);
+    expect(NAMED).toHaveLength(19);   // + K5's three
     const bad: string[] = [];
     for (const [label, unit, a, want, line] of NAMED) {
       const r = run(vc(unit, a));

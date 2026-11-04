@@ -2156,7 +2156,10 @@ export interface CapacityContext {
  *   * A number followed by a unit word is in that unit; a bare number is in the picker's unit, else the family's.
  *     A unit word written in the box beats the picker, with a line.
  *   * A number followed by an airflow word (CFM, CMH, m3/h) is NOT a capacity. A text stating ONLY airflow refuses
- *     with the config's sentence naming it; beside a capacity it is set aside with a line.
+ *     with the config's sentence naming it; beside a capacity it is set aside with a line. K5: when the text outside
+ *     its brackets gives an airflow and no unit-word capacity, and ONE bracket holds a capacity in the reader's units,
+ *     that capacity is read with a line ("(2.0 TR) in brackets is read -> 2 TR"), a bare number outside named and not
+ *     read (QR-K5a B); two bracketed capacities refuse as several values.
  *   * Two different capacity units in one text: the family's unit is used and the other named in a line; neither in
  *     the family's unit refuses (no guess).
  *   * Everything else -- several values, a range, brackets -- is read by `readNumber` exactly as today.
@@ -2205,8 +2208,26 @@ export function readCapacity(text: string | number | null | undefined, reader: N
   const bare = tagged.filter((t) => t.air === null && t.unit === null);
   const airSaid = airflow.map((t) => `${fmt(t.n)} ${U.refuse_words[t.air!].toUpperCase()}`);
   if (found.length === 0) return { blank: `no number in '${raw}' for ${reader.name}` };
-  if (caps.length === 0 && bare.length === 0) {
-    return { blank: U.refuse.replace("{said}", airSaid.join(", ")) };
+  if (caps.length === 0 && airflow.length > 0) {
+    // VRF-2b K5 (owner 2026-11-04 "Now, before push"; QR-K5a "option B"): outside its brackets the text gives an airflow
+    // and NO capacity with a unit word, but a bracket holds a capacity in one of the reader's units ("670Cfm Wall
+    // Mounted Type (2.0 TR)", "610Cfm Cassette Type (2.0TR) - 1-way") -- that bracketed capacity is read, converting as
+    // usual, with a line; a bare number outside (the "1" of "1-way") is named and not read. Two or more bracketed
+    // capacities refuse as "several values". No bracketed capacity -> as before: airflow alone refuses, and a bare
+    // number beside the airflow is read (QR-1b item 4). Brackets anywhere else are stripped exactly as before.
+    const held = bracketedCapacities(unicodeFractions(raw), U, airWords, unitKeys);
+    if (held.length > 1) return { blank: `several values stated for ${reader.name} ('${raw}')` };
+    if (held.length === 1) {
+      const b = held[0];
+      const inner = readCapacity(b.inner, reader, ctx);
+      if (!inner || !("value" in inner)) return inner;
+      const k5 = [`${airSaid.join(", ")} is an airflow - not read`];
+      if (bare.length) k5.push(`${bare.map((t) => fmt(t.n)).join(", ")} outside the brackets ${bare.length === 1 ? "is" : "are"} not read`);
+      k5.push(`(${b.inner.trim()}) in brackets is read -> ${fmt(b.n)} ${b.unit}`);
+      if (inner.note) k5.push(inner.note);
+      return { value: inner.value, note: k5.join("; ") };
+    }
+    if (bare.length === 0) return { blank: U.refuse.replace("{said}", airSaid.join(", ")) };
   }
   const lines: string[] = [];
   if (airflow.length) lines.push(`${airSaid.join(", ")} is an airflow - not read`);
@@ -2238,6 +2259,27 @@ export function readCapacity(text: string | number | null | undefined, reader: N
   if (r.note) lines.push(r.note);
   if (stated && picker && picker !== stated && ctx.picker) lines.push(`you typed ${stated} - ${stated} is used, not the picker's ${picker}`);
   return convertCapacity(r.value, stated ?? picker ?? fam, reader, ctx, lines);
+}
+
+/**
+ * VRF-2b K5: every capacity written inside a bracket -- a number followed by one of the reader's unit words (an
+ * airflow word inside the bracket is skipped, never read). Each hit carries its bracket's inner text as written. PURE.
+ */
+function bracketedCapacities(text: string, U: CapacityUnits, airWords: Array<{ w: string; i: number }>, unitKeys: string[]):
+  Array<{ inner: string; n: number; unit: string }> {
+  const out: Array<{ inner: string; n: number; unit: string }> = [];
+  for (const m of text.matchAll(/\(([^)]*)\)/g)) {
+    const inner = m[1];
+    let low = inner.toLowerCase();
+    for (const { w, i } of airWords) low = low.replace(new RegExp(`${escapeRe(w.toLowerCase())}(?![a-z0-9])`, "g"), ` airflow${String.fromCharCode(97 + i)} `);
+    for (const f of numbersIn(low)) {
+      const after = low.slice(f.end);
+      if (/^\s*airflow[a-z]/.test(after)) continue;
+      const unit = unitKeys.find((k) => U.words[k].some((w) => new RegExp(`^\\s*${escapeRe(w.toLowerCase())}(?![a-z0-9])`).test(after)));
+      if (unit) out.push({ inner, n: f.n, unit });
+    }
+  }
+  return out;
 }
 
 /** VRF-2b: convert `value` (in unit `from`) to the family's unit through `base`, writing the line. PURE. */

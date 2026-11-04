@@ -12,7 +12,7 @@ import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-mast
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import {
   familyKindOf, familyUnitOf, itemListPricingSpec, kindIn, matchStatedToOptionDetailed, priceItemList, pricingInputFactor,
-  projectUnitClass, readCapacity, specKinds, unitPickerUnits, fieldOptionsFromSkus, UNIT_PICK_SUFFIX,
+  projectUnitClass, readCapacity, readNumber, specKinds, unitPickerUnits, fieldOptionsFromSkus, UNIT_PICK_SUFFIX,
   type ExtractedListItem, type ItemListPricingSpec,
 } from "./itemListPricing";
 import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, makePricingSheetHelper, type ItemListEditState, type ItemListSuggestion } from "./pricingSheetHelper";
@@ -200,6 +200,109 @@ describe("VRF-2b -- the capacity reader (HP / TR / kW through the two VRF Pricin
   });
 });
 
+describe("VRF-2b K5 -- an airflow-only text reads the capacity the row gives in brackets (owner 2026-11-04 'Now, before push')", () => {
+  it("'670Cfm Wall Mounted Type (2.0 TR)' on a Blue Star Hi-Wall -> 2 TR = VHW-24A 23,520 / 1,800, with the line", () => {
+    const r = price({ item: "Hi-Wall", brand: "Blue Star", capacity: "670Cfm Wall Mounted Type (2.0 TR)" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].selection.capacity).toBe(2);
+    expect(sku(r)).toBe("VHW-24A");
+    expect(figs(r)).toEqual([23520, 1800]);
+    expect(working(r)).toContain("capacity: 670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR");
+  });
+
+  it("the bracketed capacity is converted as usual: '9000 CFM (16 TR)' on an Outdoor Unit -> 20 HP, 476,040 / 20,000", () => {
+    const r = price({ item: "Outdoor Unit", capacity: "9000 CFM (16 TR)" });
+    expect(figs(r)).toEqual([476040, 20000]);
+    expect(working(r)).toContain("capacity: 9000 CFM is an airflow - not read; (16 TR) in brackets is read -> 16 TR; 16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP");
+  });
+
+  it("the sheet's own spellings read: '1130Cfm Cassette Type (3.2TR)', '2047Cfm Duct Type (5.48TR)'", () => {
+    const c = price({ item: "Cassette", capacity: "1130Cfm Cassette Type (3.2TR)" });
+    expect(c.priced).toBe(true);
+    expect(working(c).join(" ")).toContain("(3.2TR) in brackets is read -> 3.2 TR");
+    const d = price({ item: "Ductable", brand: "Blue Star", capacity: "2047Cfm Duct Type (5.48TR)" });
+    expect(working(d).join(" ")).toContain("(5.48TR) in brackets is read -> 5.48 TR");
+  });
+
+  it("a TYPED box with the picker reads the bracket too (C5b: '670Cfm (2.0 TR)' on a Hi-Wall)", () => {
+    const r = price({ item: "Hi-Wall", brand: "Blue Star", capacity: "670Cfm (2.0 TR)", [`capacity${UNIT_PICK_SUFFIX}`]: "TR" }, "Nos", SPEC, ITEMS, true);
+    expect(figs(r)).toEqual([23520, 1800]);
+  });
+
+  it("NEGATIVE: an airflow with no bracketed capacity still refuses with today's sentence", () => {
+    for (const t of ["670 CFM", "MIN 1100 CFM", "670 CFM (2.0)", "670 CFM (Wall Mounted)", "670 CFM (459 CFM)", "1200 m3/h (approx)"]) {
+      const r = price({ item: "Concealed Split", capacity: t });
+      expect(r.priced, t).toBe(false);
+      expect(r.items[0].reason, t).toContain("capacity is stated only as an airflow (");
+    }
+  });
+
+  it("NEGATIVE: two bracketed capacities refuse as several values, quoting the row", () => {
+    expect(price({ item: "Hi-Wall", brand: "Blue Star", capacity: "670 CFM (2.0 TR) (2.5 TR)" }).items[0].reason)
+      .toContain("several values stated for capacity ('670 CFM (2.0 TR) (2.5 TR)')");
+    expect(price({ item: "Hi-Wall", brand: "Blue Star", capacity: "670 CFM (2 TR / 3 TR)" }).items[0].reason)
+      .toContain("several values stated for capacity ('670 CFM (2 TR / 3 TR)')");
+  });
+
+  // QR-K5a (owner 12:32 "option B - fix them now"): the 7 rows that read a stray bare number outside the bracket
+  const SEVEN: Array<[string, string | null, string, number | null, string]> = [
+    ["Cassette", "ONE-WAY", "610Cfm Cassette Type (2.0TR) - 1-way", 2, "610 CFM is an airflow - not read; 1 outside the brackets is not read; (2.0TR) in brackets is read -> 2 TR"],
+    ["Cassette", "ONE-WAY", "460Cfm Cassette Type (1.6TR) - 1-way", 1.6, "(1.6TR) in brackets is read -> 1.6 TR"],
+    ["Cassette", "ONE-WAY", "390Cfm Cassette Type (1.3TR) - 1-way", 1.3, "(1.3TR) in brackets is read -> 1.3 TR"],
+    ["Cassette", "ONE-WAY", "340Cfm Cassette Type (1.0TR) - 1-way", 1, "(1.0TR) in brackets is read -> 1 TR"],
+    ["Cassette", "FOUR-WAY", "459Cfm 4- Way Cassette Type (1.02TR)- High Static", 1.02, "459 CFM is an airflow - not read; 4 outside the brackets is not read; (1.02TR) in brackets is read -> 1.02 TR"],
+    ["Cassette", "FOUR-WAY", "865Cfm 4- Way Cassette Type (2.55TR)- High Static", 2.55, "(2.55TR) in brackets is read -> 2.55 TR"],
+    ["Ductable", null, "4700Cfm Floor Mounted Ductable Type (12.8 TR) with inbuilt Electrical Panel & MS base frame duly applied with 2 coat of primer & one coat of black enamel paint.", null, ""],
+  ];
+  it.each(SEVEN)("QR-K5a B: %s %s '%s' reads the bracket, never the stray number outside", (family, way, text, tr, line) => {
+    const attrs: Record<string, string> = { item: family, capacity: text };
+    if (way) attrs.way = way;
+    const r = price(attrs);
+    if (tr === null) {
+      // 12.8 TR is above the largest ductable: it refuses by name instead of pricing the stray "2" of "2 coat"
+      expect(r.priced).toBe(false);
+      expect(r.items[0].reason).toContain("capacity 12.8 is above the largest size on the sheet");
+      return;
+    }
+    // priced exactly as the bracketed size stated alone
+    const alone: Record<string, string> = { item: family, capacity: `${tr} TR` };
+    if (way) alone.way = way;
+    expect(r.priced).toBe(true);
+    expect(figs(r)).toEqual(figs(price(alone)));
+    expect(r.items[0].selection.capacity).toBe(price(alone).items[0].selection.capacity);
+    expect(working(r).join(" ")).toContain(line);
+  });
+
+  it("NEGATIVE (QR-K5a): with no bracketed capacity, a bare number beside an airflow is still read (QR-1b item 4)", () => {
+    const r = price({ item: "Outdoor Unit", capacity: "16 / 9000 CFM" });
+    expect(figs(r)).toEqual([436920, 16000]);
+    expect(working(r).join(" ")).toContain("9000 CFM is an airflow - not read");
+    expect(working(r).join(" ")).not.toContain("outside the brackets");
+  });
+
+  it("NEGATIVE: a capacity outside the brackets keeps today's reading (the bracket stays dropped)", () => {
+    expect(price({ item: "Outdoor Unit", capacity: "2.0 HP (1.6 TR)" }).items[0].selection.capacity).toBe(7);
+    const r = price({ item: "Cassette", capacity: "1.0 TR / 459 CFM (3.2 TR)" });
+    expect(r.items[0].selection.capacity).toBe(1);
+    expect(working(r).join(" ")).not.toContain("in brackets is read");
+  });
+
+  it("NEGATIVE: every other category's readers are byte-identical on bracketed airflow texts (no `units` -> readNumber)", () => {
+    const texts = ["670Cfm Wall Mounted Type (2.0 TR)", "9000 CFM (16 TR)", "25 mm (1 inch)", "670 CFM", "(2.0 TR)"];
+    let readers = 0;
+    for (const id of ["hvac_insulation", "hvac_piping", "hvac_adp"]) {
+      const cfg = v56.category_configs.find((c) => c.category_id === id);
+      const spec = cfg ? itemListPricingSpec(cfg) : null;
+      for (const rd of Object.values(spec?.numbers ?? {})) {
+        expect(rd.units).toBeUndefined();
+        readers += 1;
+        for (const t of texts) expect(readCapacity(t, rd, { familyUnit: null, factorOf: () => null }), `${id} ${t}`).toEqual(readNumber(t, rd));
+      }
+    }
+    expect(readers).toBeGreaterThan(1);
+  });
+});
+
 describe("VRF-2b -- the unit picker (Q3) on a TYPED box", () => {
   it("a bare typed number is in the picker's unit; untouched, in the family's", () => {
     const r = price({ item: "Outdoor Unit", capacity: "16", [`capacity${UNIT_PICK_SUFFIX}`]: "TR" }, "Nos", SPEC, ITEMS, true);
@@ -333,6 +436,10 @@ describe("VRF-2b -- the Derivation lines (QR-3 A, U7)", () => {
     // owner QR-1b (2026-11-04 01:26): the exact titles of the two new lines
     expect(lines.some((l) => l.startsWith("A capacity in TR, HP or kW that is not the item's own unit is converted first."))).toBe(true);
     expect(lines.some((l) => l.startsWith("Several brands, or one brand not on the sheet, are priced as Blue Star, naming the row's words."))).toBe(true);
+  });
+  it("K5: line 10 says a capacity in brackets is read behind an airflow", () => {
+    const conv = lines.find((l) => l.startsWith("A capacity in TR, HP or kW that is not the item's own unit is converted first."))!;
+    expect(conv).toContain("is not converted and refuses, unless the row also gives a capacity in TR, HP or kW in brackets, which is read");
   });
   it("NEGATIVE: every other category's lines are byte-identical (Insulation line 4, Piping line 1 example 'nos')", () => {
     const ins = v56.category_configs.find((c) => c.category_id === "hvac_insulation")!;

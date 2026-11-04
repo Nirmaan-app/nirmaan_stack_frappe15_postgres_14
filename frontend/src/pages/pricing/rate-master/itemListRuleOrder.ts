@@ -945,7 +945,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       const unitsNamed = [String(cu.base ?? ""), ...Object.keys(cu.words ?? {}).filter((u) => u !== cu.base)].filter(Boolean);
       add(`A ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} that is not the item's own unit is converted first`,
           [`${conv.map(([u]) => u).join(" and ")} through the Pricing Inputs (${conv.map(([, c]) => inputLabel(String(c?.input ?? ""))).join(", ")}), with the working shown`,
-           `an airflow (${list((cu.refuse_words ?? []).map((w: string) => String(w).toUpperCase()))}) is not converted and refuses`,
+           // VRF-2b K5 (owner 2026-11-04): an airflow-only text reads a capacity the row gives in brackets
+           `an airflow (${list((cu.refuse_words ?? []).map((w: string) => String(w).toUpperCase()))}) is not converted and refuses, unless the row also gives a ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} in brackets, which is read`,
            "where the row states two units, the item's own unit is used"].join("; "));
     }
     // SLICE 12e-4b (owner F-1): the nearest-size rule declared for THIS axis alone
