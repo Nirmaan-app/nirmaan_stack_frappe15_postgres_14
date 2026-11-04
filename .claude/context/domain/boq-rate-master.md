@@ -2523,6 +2523,58 @@ v57 = v56 with only `hvac_vrf` changed; `calculator_only` STAYS (VRF-4 removes i
   IVRFB-20TC / TCN"); `inputs` limits an example to those inputs' panels. VRF: two per input.
 - **Not here:** the outdoor split, extras, Set / Lot (VRF-3); BoQ rows live and the model questions (VRF-4).
 
+**VRF-3a: THE OUTDOOR SPLIT (HELPER AND STATED), THE AIRFLOW RANGE, SET = 1 PIECE, THE REFNET COUNT, LOT REFUSES (owner R-SPLIT (a) / (b) / R-SPLIT-RULE / D-1..D-8 2026-11-01, SHAPE Q2 / Q3 / LOT 2026-11-04 14:56, SET 17:00 / 17:37 / 17:39 / 18:49, QR-1 (a) 19:07; HVAC v58).**
+v58 = v57 with only `hvac_vrf` changed (inside it only `list_spec.pricing` and `notes`); `calculator_only` STAYS (VRF-4 removes it and
+the `calculatorSurface: true` it implies). Every key below is optional and generic: a config that declares none is byte-identical.
+- **`compose.above_only`** (R-SPLIT-RULE "make the units add up exactly to the total; if no combination of stocked sizes does, use
+  the smallest total above it"): `composeSize` drops every candidate below the stated value; the ranking is unchanged (fewest ->
+  closest, now the smallest total above -> cost). Absent = two-sided (Insulation's 143 rows unchanged).
+- **`split`** -- `families` (VRF: Outdoor Unit only; DUCTABLE "leave these unpriced. no splitting": every other family refuses
+  above the largest as before), `stated`, `conditions` ({words, line}). Needs `compose` with `above_only` (validated). On a config
+  with it, `compose` applies to the split families ONLY and NEVER as layers (the layers reader is skipped).
+  - **The helper's split (R-SPLIT (b), D-1, D-8):** an item above the largest size of its RESOLVED variant (R-BRAND + the team
+    defaults; after any HP / TR / kW conversion) is answered with `splitInto` (state blank: the pure pricer never prices it); the
+    panel helper replaces it, at the `applyFamilyMerge` seam, with one REAL edit entry per line (largest first; each keeps the
+    row's brand / variant answers, base and quantity) and computes the row again. VRF: `compose` {attr capacity, tolerance 34
+    (the largest outdoor size, so the fewest-units split is always in reach), max_layers 6, cost_key cost_supply, above_only}.
+    54 HP -> 28 + 26; 60 -> 24 + 24 + 12; 66 -> 28 + 26 + 12; 43.2 TR -> 54 HP -> 28 + 26.
+  - **The hidden tag (Q3):** each line carries `ItemEdit.helper` (`HelperMark`: group, place, size, total, unit, exact, the
+    variant's largest, the row's entry count after the split, the line as made, the entry it replaced, a stated split, the D-3
+    words), kept by `decodeItemEdits`. While ANY entry of a row carries one, `splitAllowed` is not set and nothing splits -- its
+    own lines, a re-compute, after an edit / remove / add, and the calculator's re-run of the seam (the parity feed carries no
+    tag; the lines are at or under the largest, so they never split). A line that differs from how it was made reads "changed by
+    you"; then the amber box ("You changed the helper's split. The helper will not split this row again ...") + the lines-vs-total
+    note + `reset_split` ("Reset to the helper's split": every group's entry comes back, the row splits again). The size sits in
+    the tag, so the field shows the helper's value, not a typed one. ADP's `family_merge` is untouched (its self-undo not copied).
+  - **The stated split (R-SPLIT (a), Q2, D-2):** `readStatedSplit` reads ONE "+" chain -- "60 HP (18+18+24)", "26(14+12)HP",
+    "20+18 HP", "14HP+24HP", "18+18+24" (calculator box and row text) -- into one line per module, each through the variant's
+    ladder (next size up); it beats the helper; a module above the variant's largest refuses the row ("Module 30 HP is above the
+    largest size on the sheet (28 HP) - this row is not priced; price it by hand"); a sum unlike the total written gets an amber
+    note; "2# 12 HP" (working + standby) stays one unit (VRF-4). The 5 rows v57 priced silently as ONE unit at the total are gone.
+  - **D-3:** a condition the row states ("at least 20 HP each", "Single module", "Single ODU", "as per Site Conditions") is quoted
+    in an amber note; the split still follows the rule.
+- **R1 (board 10):** in `readCapacity`'s `units` branch a bare number followed by "-", an en dash or "to" and an airflow number
+  is that airflow: "1700-1800cfm" refuses "capacity is stated only as an airflow (1700-1800 CFM) ...". Readers without `units`
+  are byte-identical.
+- **`per_set`** (SET 17:00 "1 set = 1 piece is valid for everything except refnets"): `units` (Set, Sets -- they also sit in the
+  count class, so the row prices), `qty_label` ("Pieces in one Set of this row", default 1 amber, editable), `bar` (orange, above
+  the card) and the ringed "Unit Set · Qty q". The calculator's Row unit offers Set after Nos.
+  - **`counted`** (refnets; 17:00 "outdoor refnets = no. of ODUs -1 indoor refnets = no of IDUs -1"; 17:37 "+- 10%", "the user
+    should also be able to change the qty"; 17:39 "+-10% or +-1 piece, whichever larger"; 18:49 "just round up ... give
+    appropriate note"): three typed fields per refnet on a Set row (what the row covers; outdoor / indoor unit counts); E = the
+    sum over the sides covered of (count - 1); W = max(10% of E, 1); the BoQ quantity q: |q - E| <= W -> 1 piece per Set; q < E - W
+    and E / q >= 2 -> ROUNDUP(E / q) pieces ("ROUNDED UP to 13 pieces in one Set. 2 Sets x 13 = 26 pieces, 1 more than the 25
+    expected - check."); else, or a count / q missing -> no pieces: the box blank and ringed red, the bar red, the row withheld. A
+    typed pieces value wins. `countedPieces` is pure; the panel reads q from `ctx.quantity` (`buildRowContext`: the row's
+    `qty_total`), the calculator from its own "BoQ quantity of this row" (`ROW_QTY_OVERRIDE_KEY`, shown only on a Set row with a
+    refnet; QR-1 (a), U9).
+- **`lot_units`** (LOT "Refuse + review list"): Lot, LS, Job, per HP, "complete system" (in no unit class) refuse with the config's
+  line naming the unit as written, under a red bar; the calculator cannot state Lot (cause C in the parity harness). The unit
+  refusal now reads "per Nos, per Set or per Kg".
+- **Derivation:** the capacity ladder line names the helper's split (Outdoor only); line 10 adds the airflow range; six lines
+  are added last (stated split, D-3, never split again, Set = 1 piece, the refnet count, Lot). VRF's guard: 20 titles.
+- **Not here:** extras from other sheets and the blank-quantity hold (VRF-3b); the model questions, W+S, go-live (VRF-4).
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds

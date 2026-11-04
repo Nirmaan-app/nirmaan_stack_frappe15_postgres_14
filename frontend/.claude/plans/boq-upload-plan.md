@@ -50564,3 +50564,94 @@ phrases 16 CFM rows now price (most phrases stop before the bracket), 0 rows out
 59 of 66 price, all from the bracket (at HEAD 7 priced, each on a stray number outside it -- QR-K5a B now reads the bracket), and
 7 refuse: the 6 truly airflow-only rows and the 12.8 TR ductable (above the largest size, by name). Lists: `2026-11-04_VRF-2b_Lists.xlsx`. Cert C5 / C5b / C10 and the suites:
 `2026-11-04_VRF-2b_K5_Addendum.md`.
+
+## Slice VRF-R3 - read-only recon for VRF-3: the outdoor split, extras, Set / Lot (2026-11-04) - DELIVERED
+
+Desktop session, delegated by the laptop. HEAD 5d399c737; no commit, no repo change, no database write, no model call; every
+demonstration ran the product's own functions on scratch copies of v57. Replay 18,106 rows, ac7 `25cb3eb9...` / ac7v2
+`9aaf20bf...` byte-equal at D0 and D2.
+
+- **R1:** "1700-1800cfm" read the 1700 as a capacity (the number before a range dash was not tagged airflow); 2 true ranges
+  (BOQ-26-00149 r175 / r221). One rule in the VRF reader.
+- **R2:** the seam is `applyFamilyMerge` (PSH); nothing adds a line without the pricer; `composeSize` goes BELOW the row on 5
+  rows (60 -> 28 + 28). The owner rule run on all 65 qualifying outdoor rows: 47 helper splits all exact, 15 stated priced, 3
+  "2#" W+S not split; board 1 reproduced exactly (54 HP -> 28 + 26). 5 stated-split rows price silently as ONE unit at the total.
+- **R3:** extras from other sheets have no clean config path (a section prices in the row unit; family attribute clash;
+  same-discipline lookups; wiring_cabling is attribute-mode) -> QR-1.
+- **R4:** 104 Set / Lot / per HP rows (90 refuse by name; the calculator's Row unit offered Nos only).
+- **QR-1 (owner 14:56, "Two slices: 3a then 3b"):** VRF-3a = range, split (helper + stated), Set / Lot with its review list;
+  VRF-3b = all extras from other sheets + the blank-quantity hold; both before VRF-4.
+- Report, Lists workbook (12 sheets), screenshots: `BoQ main lane\VRF-R3\` on both machines.
+
+## Slice VRF-3a - the outdoor split, the stated split, Set / refnet / Lot, the airflow range (HVAC v58) - as built 2026-11-04
+
+Desktop session, delegated by the laptop. Start tip 5d399c737. Tier 3 (asset v58) + Tier 2 (price logic). Five code commits (K1-K3 as planned; K3b / K3c fixes found by the cert) plus this docs
+commit; no model call. dev2 idle throughout (DEV2-B7 done 14:56).
+
+**Owner rulings carried:** R-SPLIT (2026-11-01 11:59, a + b), R-SPLIT-RULE (12:02), D-1 / D-2 / D-3 / D-8 (15:03), DUCTABLE (11-03
+12:23 "no splitting"), SHAPE (11-04 14:56: Q2 "Make 3 lines", Q3 "Hidden tag", LOT "Refuse + review list"), SET (17:00 / 17:37 /
+17:39 / 18:49), boards 6-11 (18:52 "yes proceed"), STANDING, PARITY, R-BRAND / R-ROUND as v57. Mid-slice: **QR-1** (19:07 "ok go
+with a"): the calculator's "BoQ quantity of this row" on refnet Set rows (U9 approved); the panel reads the row's quantity.
+
+### 1. P0 (read-only)
+- VRF-R3's R1 / R2 / R4 / R6 / R8 file:lines re-read at 5d399c737: all exact. Readers of `composeSize`: `priceOneItem` and
+  `sizeFieldHelp` (+ tests); an item's `source` is set in `itemBlockView` only; the Row unit list is `unitChoicesOf`.
+- **Corrections (no step change):** the row context carried no quantity (QR-1's premise) -> `ctx.quantity` added in two next-to
+  files (`rateHelperTypes.ts`, `rateSuggestionModel.ts` `buildRowContext`: the row's `qty_total`); `test_vrf_v56.py:196` ("no
+  splitting") reads the v56 FILE, which still has no split, so it was not inverted (the v58 split is pinned in test_vrf_v58 02);
+  VRF-R3's "refnet Set = one spelling" is superseded by the owner's refnet rule (17:00).
+
+### 2. Built
+Commit **K1 `cc9384036`** (feat, code only): `ladderResolution.ts` -- `compose.above_only` (a candidate below the stated value is
+dropped; absent = two-sided, Insulation unchanged). `itemListPricing.ts` -- the R1 airflow range in `readCapacity` (units branch);
+`readStatedSplit` (one "+" chain -> one line per module, through the variant's ladder; D-2 refusal "Module m HP is above the
+largest size on the sheet (L HP) - this row is not priced; price it by hand"); `splitInto` on an item above its variant's largest
+on a split family (the pure pricer never prices it); `splitAllowed`; the layers reader skipped on a split config.
+`pricingSheetHelper.ts` -- `ItemEdit.helper` (`HelperMark`, the hidden tag, kept by `decodeItemEdits`), `splitEdits` at the
+`applyFamilyMerge` seam (one real entry per line, largest first, then the row is computed again), `splitViewOf` (row note, D-3
+note, sum note, "changed by you" box, lines-vs-total note), `reset_split`. `RateHelperPanel.tsx` -- "split by the helper" /
+"changed by you" headings, the split box + Reset. `itemListRuleOrder.ts` -- the split ladder bit, the range clause, lines 13c.
+`config_validation.py` -- `split` + `above_only` validated. Tests: vrf3aSplit.test.ts, TestVrf3aSplitKeys; two pins inverted.
+Commit **K2 `9be63f8d7`** (feat): `per_set` (Set = 1 piece, the orange bar, the ringed "Unit Set · Qty q", "Pieces in one Set of
+this row" default 1 amber), `per_set.counted` + `countedPieces` (the refnet rule: E = sum of (count - 1) over the sides covered,
+W = max(10% of E, 1); match -> 1 piece, below -> ROUNDUP(E / q) with the ROUNDED UP note, else withheld, red), `lot_units` (Lot /
+LS / Job / per HP / complete system refuse with the config's line under a red bar), the calculator's "BoQ quantity of this row"
+(`ROW_QTY_OVERRIDE_KEY`, Set rows with a refnet only; QR-1 (a)), the Row unit offers Set; Derivation 13d; validation. Tests:
+vrf3aSet.test.ts, TestVrf3aSetLotKeys; three source pins met (two inverted; the quantity-box className kept by moving the ring
+to a wrapper).
+Commit **K3 `4e9dec39e`** (feat, the asset): `mint_hvac_v58_vrf3a.py` + README row; `rate_master_hvac_all_v58.json` (sha256
+236c4208...) = v57 with only hvac_vrf changed (compose {capacity, tolerance 34, max_layers 6, cost_supply, above_only}; split
+{Outdoor Unit, stated, conditions}; Set / Sets in the count class; per_set + counted; lot_units; unit refusal "per Nos, per Set or
+per Kg"; calculator_only kept); test_vrf_v58 (7, measured into the plan); the parity block "HVAC VRF (VRF-3a, v58)" and the R-39
+block "VRF-3a (v58)" (20 titles, 58 cases); fixture `vrf3aSplitRows.json` (65 split + 104 Set / Lot rows); 37 latest-asset pins
+moved (MUST MOVE 31 -> 0) and two wave-2 live pins inverted (test_vrf_v56 09, test_vrf_v57 08), BEFORE kept; no price pin moved.
+K3 also fixes a defect parity found in K2: the refnet answers were read only from typed edits (a model item read "counts
+missing"), and the row reason now carries the refnet sentence.
+Commits **K3b `92f19919d`** and **K3c `4b1647ceb`** (fixes found by the cert, each followed by a full de-stale and the whole cert
+again): after a line is removed the row note keeps the helper's split (`HelperMark.layers`); a split family's size box commits on
+blur / Enter (`CommitInput`), so "60 HP (18+18+24)" is read whole and not split at "60".
+- **Mint gate** v57 -> v58 PASS; `--latest` PASS. **Stub proof** identical; eligible set unchanged; no other config declares the keys.
+- **Load (before K3):** pre-load snapshot `BRMS-26-01409`, batch `rmbulk-153a69f4c93f` (537 / 11); live == file; only hvac_vrf's
+  config moved (48f35590 -> afd442fb); HVAC items 04616a22 unchanged; Electrical unchanged.
+
+### 3. Proofs and counts
+- **Probe** (on v58): the 65 outdoor split rows priced 8 -> 65 (62 split into lines), 0 divergences; the 104 Set / Lot rows priced
+  0 -> 16, Lot line 30, 44 refused for a fact (never for the unit); 32 divergences, all cause C (29 Lot + 1 per HP: the calculator
+  cannot state Lot; 2 MS angle frames on Set rows: the calculator offers only Kg); the 2 true ranges refuse naming "1700-1800 CFM".
+  Lists: `2026-11-04_VRF-3a_Lists.xlsx` (Split rows, Set-Lot review, Range rows, Probe, Named parity cases).
+- **Replay** after the load and at the end 18,106 rows, 0 moves. **Suggest population** 109 sheets 5,049, VRF 0.
+- **Vacuity:** K1 12 frontend + 3 Python breaks; K2 11 + 3; K3 8 breaks on scratch copies of v58 (each red on vitest AND
+  test_vrf_v58); K3b 1; K3c 2 -- every break red, every file restored sha-equal.
+- **Suites:** related, once after the last code commit (4b1647ceb), each run alone (before = VRF-2b's saved logs): Python 24 modules all OK, 1,313 -> 1,326 (test_rate_master 758 -> 764, test_vrf_v58 +7; every other module equal); vitest related on the 14 changed frontend files 97 files / 5,089 / 5,089, 0 'Failed to start' (VRF-2b K5's related set: 86 / 4,585); tsc FULL 0 new (2894 / 2888). Logs: 2026-11-04_VRF-3a_related_python.log (+ _raw.tgz), _related_vitest.log / .json, _tsc_full.log.
+- **Cert (pass 3 of record, after three full de-stales):** C1-C12 PASS on :8080 -- 54 HP -> 28 + 26 (568,920 + 547,440 / 28,000 +
+  26,000); 60 -> 24 + 24 + 12, edit / remove / reset; 66 -> 28 + 26 + 12; typed "60 HP (18+18+24)" -> 1,415,640 / 60,000,
+  "26(14+12)HP" -> 717,720 / 26,000, "60 HP (30+30)" refuses by name; 43.2 TR -> 54 HP -> 28 + 26; Set controller 42,000 / 1,500
+  (2 pieces 84,000 / 3,000); refnet 3 + 24 qty 1 -> 25 pieces, qty 2 -> ROUNDED UP to 13, 4 + 50 qty 52 -> 1 piece, qty 20 ->
+  withheld; "1700-1800cfm" refuses; the Derivation's 20 lines; the BoQ page declines VRF rows; counts = D0 + the load.
+
+### 4. Deploy note and open items
+- **Deploy:** v58 by a wholesale HVAC load; K1-K3c code. VRF still prices only in the calculator; no BoQ page changes.
+- **VRF-4 MUST remove `calculator_only`** (VRF-2a's list) **and** the `calculatorSurface: true` the worked examples pass.
+- **Open:** VRF-3b (extras from other sheets, the blank-quantity hold); VRF-4 (BoQ rows live, the model questions, "2#" W+S,
+  removing calculator_only and calculatorSurface). The stated-split / D-3 / field-help wordings were written in the slice (owner
+  review welcome). test_vrf_v56.py:196 left as is (a v56-file pin).
