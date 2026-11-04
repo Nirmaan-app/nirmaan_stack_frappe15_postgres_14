@@ -179,25 +179,6 @@ class TestTheAddressBlock(unittest.TestCase):
         self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
         self.assertEqual(statement.company, "ACME TRADERS PVT LTD")
 
-    def test_a_holder_printed_on_the_state_code_line_is_read(self):
-        # The password-locked PDF, opened with its password, joins the two lines.
-        text = _replace(_text(), "State Code: 29\nMR ARJUN TESTHOLDER\n", "State Code: 29MR ARJUN TESTHOLDER\n")
-        statement = read_card_statement(text)
-        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
-        self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
-
-    def test_a_title_alone_on_the_state_code_line_belongs_to_the_name_below_it(self):
-        text = _replace(_text(), "State Code: 29\nMR ARJUN TESTHOLDER\n", "State Code: 29MR\nARJUN TESTHOLDER\n")
-        statement = read_card_statement(text)
-        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
-        self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
-
-    def test_other_words_on_the_state_code_line_are_not_taken_for_the_holder(self):
-        text = _replace(_text(), "State Code: 29\n", "State Code: 29 KARNATAKA\n")
-        statement = read_card_statement(text)
-        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
-        self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
-
     def test_with_no_company_line_the_company_is_blank_and_the_address_is_not_taken_for_it(self):
         text = _replace(_text(), "MR ARJUN TESTHOLDER\nSTRATOS INFRA TECHNOLOGIES PVT LTD\n", "MR ARJUN TESTHOLDER\n")
         statement = read_card_statement(text)

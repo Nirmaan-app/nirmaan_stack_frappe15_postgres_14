@@ -28,8 +28,8 @@ A line is `DD/MM/YYYY`, an 11-digit SerNo, the transaction details, the reward p
 international amount, the amount and an optional `CR`. A line dated before the period, or out of date
 order, is kept as printed. The card numbers printed as headings in the list are not read (ADR-0039).
 
-The company is read to be SHOWN on Review, never checked (ADR-0039 Amendment B). The password-locked PDF,
-opened with its password, prints the holder on the anchor line: `State Code: 29MR <HOLDER>`.
+The company is read to be SHOWN on Review, never checked (ADR-0039 Amendment B). The layout is the text
+pypdf 6.13.3 (Frappe's pin) extracts; pypdf 3.17.4 joins some of these lines and misreads the statement.
 """
 
 from __future__ import annotations
@@ -50,8 +50,7 @@ _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
 _MONEY = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])")
 _STANDALONE_MONEY = re.compile(r"^\s*[^\d\s,.]?\s*([\d,]+\.\d{2})\s*$")
 _SUMMARY_LABEL = "Previous Balance Purchases / Charges Cash Advances Payments / Credits"
-# `rest`: what the PDF prints after the state code on the anchor line (see `_address_block`).
-_ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:\s*\d*\s*(?P<rest>.*)$")
+_ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:")
 _HONORIFIC = re.compile(r"^(?:MR|MRS|MS|MISS|DR|M/S)\.?\s+", re.IGNORECASE)
 
 # The words a company name ends in. The line under the holder is the company only when it ends in one;
@@ -189,26 +188,15 @@ def _period(text: str) -> tuple[date, date]:
 
 
 def _address_block(rows: list[str]) -> tuple[str, str]:
-    """The holder and the company from the address block at `State Code:`, the holder's title dropped.
-
-    The holder is the line under the anchor, or the anchor line's own text when that starts with a title
-    (the locked PDF: `State Code: 29MR <HOLDER>`). The company is the next line when it ends in a company
-    word, else blank (ADR-0039 Amendment B).
-    """
+    """The holder (the line under `State Code:`, title dropped) and the company: the line under the holder
+    when it ends in a company word, else blank (ADR-0039 Amendment B)."""
     for index, row in enumerate(rows):
-        anchor = _ADDRESS_ANCHOR.match(row)
-        if not anchor:
+        if not _ADDRESS_ANCHOR.match(row) or index + 1 >= len(rows):
             continue
-        below = rows[index + 1 :]
-        rest = anchor.group("rest")
-        if _HONORIFIC.match(rest):
-            holder_line = rest
-        else:
-            holder_line = below.pop(0) if below else ""
-        holder = _HONORIFIC.sub("", holder_line).strip()
+        holder = _HONORIFIC.sub("", rows[index + 1]).strip()
+        below = rows[index + 2] if index + 2 < len(rows) else ""
         if holder:
-            company = below[0].strip() if below and _is_company_line(below[0]) else ""
-            return holder, company
+            return holder, below.strip() if _is_company_line(below) else ""
     raise _not_this_layout("the card holder's address block")
 
 

@@ -107,10 +107,11 @@ and for the stored PDF to have no password.
 **Status:** Accepted (owner, 2026-11-04). Amends decision 2 ("refuses a statement not issued to Stratos Infra
 Technologies"). Every other decision is unchanged.
 
-**Why.** The password-locked PDF, opened with its password (Amendment A), prints the holder on the same line as
-`State Code: 29`. The reader took each address line one place too low, read the street address as the company,
-and refused the company's own statement as another company's. The owner chose to drop the check rather than keep
-a gate that a layout change can turn against the company's own cards.
+**Why.** A statement was refused as another company's ("issued to OBEYA VERVE 11376 A 5TH MAIN"): the reader
+took each address line one place too low. The cause was the dev bench's pypdf 3.17.4, which joins
+`State Code: 29` and the holder into one line; Frappe pins pypdf 6.13.3, which reads them apart, and the stale
+version came from `scripts/devenv/python.lock.txt`. The owner chose to drop the check anyway, rather than keep a
+gate that a reading fault can turn against the company's own cards.
 
 **Decision.**
 
@@ -119,7 +120,6 @@ a gate that a layout change can turn against the company's own cards.
 - The company is the line under the holder only when it ends in a company word (PVT, PRIVATE, LTD, LIMITED, LLP).
   Otherwise the statement printed no company, the line is the street address, and the company is left blank;
   Review shows *Not printed*. A statement with no company line still imports.
-- The holder is read whether the PDF prints it under `State Code:` or on the same line.
 
 **Consequences.** Any statement in this layout imports, a personal card's included: Review is the only guard
 against creating company Expenses from the wrong card.

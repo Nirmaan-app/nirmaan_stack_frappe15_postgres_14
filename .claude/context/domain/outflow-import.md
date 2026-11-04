@@ -7476,13 +7476,13 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    staged and created as a spend like any other; only the gate's sum counts *Cash Advances* in.
    ⚠️ **The company is shown, never checked** (ADR-0039 Amendment B, 2026-11-04): the line under the holder is
    the company only when it ends PVT / PRIVATE / LTD / LIMITED / LLP (`_is_company_line`), else blank and
-   Review shows *Not printed* (`creditCardImport.cardCompanyLabel`). The holder may sit on the anchor line
-   itself (`State Code: 29MR <HOLDER>`, the locked PDF opened with its password).
+   Review shows *Not printed* (`creditCardImport.cardCompanyLabel`).
 2. **Layout, measured on the 2026-10-01 statement** (fixture `services/outflow_import/tests/fixtures/icici_card_statement.txt`,
-   names faked): pypdf reads the rupee sign as `Á`. The holder is the line under `State Code:`, or the text
-   on that line itself when it starts with a title (`State Code: 29MR <HOLDER>`; a title alone leaves the name
-   below), honorific dropped; the company is the line under the holder when it ends in a company word, else
-   blank (invariant 1). The summary is the line under `Previous Balance
+   names faked): pypdf reads the rupee sign as `Á`. The holder is the line under `State Code:`, honorific
+   dropped; the company is the line under the holder when it ends in a company word, else blank (invariant 1).
+   ⚠️ This is the text of pypdf 6.13.3 (Frappe's pin). pypdf 3.17.4 joins lines (`State Code: 29MR <HOLDER>`,
+   `Corporate GSTIN -October 1, 2026`, both money lines into one) and misreads holder, company, statement date
+   and Total Amount Due; it came from a stale `scripts/devenv/python.lock.txt` (2026-11-04). The summary is the line under `Previous Balance
    Purchases / Charges Cash Advances Payments / Credits`. *Total Amount Due* is the larger of the two
    standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
    standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated

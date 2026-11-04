@@ -317,17 +317,6 @@ class TestTheCompanyIsShownNotChecked(CardImportCase):
         self.assertFalse(result["company"])
         self.assertEqual(len(self._rows(result["batch"])), 47)
 
-    def test_a_locked_pdf_printing_the_holder_on_the_state_code_line_is_saved_under_that_holder(self):
-        # The bank's locked PDF, opened with its password, joins "State Code: 29" and the holder.
-        password = TestUploadingALockedStatement.PASSWORD
-        text = self._text()
-        self.assertIn("State Code: 29\nMR ", text)
-        text = text.replace("State Code: 29\nMR ", "State Code: 29MR ")
-        self._upload(pdf_from_text(text, password=password), password=password)
-        [statement] = self._statements()
-        self.assertEqual(statement.holder, self.holder)
-        self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
-
 
 class TestACashAdvance(CardImportCase):
     """A cash withdrawal is not refused (ADR-0039 Amendment C): it is a line without CR, staged as a spend."""
