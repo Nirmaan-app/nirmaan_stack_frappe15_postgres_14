@@ -143,6 +143,10 @@ export const cardTotalsRows = (card: Pick<CardImport, "totals">): { label: strin
 export const cardPeriodLabel = (card: Pick<CardImport, "period_from" | "period_to">): string =>
     `${day(card.period_from)} to ${day(card.period_to)}`;
 
+/** The company as the statement printed it, for the accountant to check on Review (ADR-0039 Amendment B).
+ *  Blank when the line under the holder was not a company name. */
+export const cardCompanyLabel = (card: Pick<CardImport, "company">): string => card.company?.trim() || "Not printed";
+
 /** A date as every screen shows it. */
 export const cardDay = day;
 

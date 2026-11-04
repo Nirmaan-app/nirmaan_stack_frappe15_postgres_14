@@ -11,6 +11,7 @@ import {
     CARD_WRONG_PASSWORD,
     canDiscardCard,
     cardAsksForPassword,
+    cardCompanyLabel,
     cardCountsLine,
     cardDiscardConfirmation,
     cardHistoryTitle,
@@ -165,6 +166,13 @@ describe("the read-only Review", () => {
             { label: "Payments / Credits", amount: 276821.73 },
             { label: "Total Amount Due", amount: 84929.28 },
         ]);
+    });
+
+    it("shows the company as printed, and says so when the statement printed none (ADR-0039 Amendment B)", () => {
+        expect(cardCompanyLabel(cardImport())).toBe("STRATOS INFRA TECHNOLOGIES PVT LTD");
+        expect(cardCompanyLabel(cardImport({ company: "ACME TRADERS LLP" }))).toBe("ACME TRADERS LLP");
+        expect(cardCompanyLabel(cardImport({ company: "" }))).toBe("Not printed");
+        expect(cardCompanyLabel(cardImport({ company: null }))).toBe("Not printed");
     });
 });
 

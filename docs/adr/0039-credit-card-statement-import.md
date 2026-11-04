@@ -101,3 +101,25 @@ and for the stored PDF to have no password.
   check is only a hint: the server still decides, and Upload stays enabled with the field empty, since a PDF
   encrypted with an owner password only carries the entry yet opens without one. After either refusal above,
   the field must be filled.
+
+## Amendment B (2026-11-04) — the company name is shown, not checked
+
+**Status:** Accepted (owner, 2026-11-04). Amends decision 2 ("refuses a statement not issued to Stratos Infra
+Technologies"). Every other decision is unchanged.
+
+**Why.** The password-locked PDF, opened with its password (Amendment A), prints the holder on the same line as
+`State Code: 29`. The reader took each address line one place too low, read the street address as the company,
+and refused the company's own statement as another company's. The owner chose to drop the check rather than keep
+a gate that a layout change can turn against the company's own cards.
+
+**Decision.**
+
+- The upload no longer refuses a statement for the company it names. The accountant checks the company, shown on
+  Review, before Create.
+- The company is the line under the holder only when it ends in a company word (PVT, PRIVATE, LTD, LIMITED, LLP).
+  Otherwise the statement printed no company, the line is the street address, and the company is left blank;
+  Review shows *Not printed*. A statement with no company line still imports.
+- The holder is read whether the PDF prints it under `State Code:` or on the same line.
+
+**Consequences.** Any statement in this layout imports, a personal card's included: Review is the only guard
+against creating company Expenses from the wrong card.

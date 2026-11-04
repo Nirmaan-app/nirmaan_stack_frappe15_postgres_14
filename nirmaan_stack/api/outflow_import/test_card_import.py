@@ -340,10 +340,6 @@ class TestRefusalsSaveNothing(CardImportCase):
     def test_a_file_that_is_not_a_pdf(self):
         self._assert_refused(self._text().encode(), ".pdf", filename="card-statement.csv")
 
-    def test_a_statement_of_another_company(self):
-        text = self._text().replace("STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
-        self._assert_refused(pdf_from_text(text), "ACME TRADERS PVT LTD", "Stratos Infra Technologies")
-
     def test_lines_that_do_not_add_up_to_the_statement_totals(self):
         text = self._text().replace("PARK RESIDENCY Cochin IN 0 1,933.00", "PARK RESIDENCY Cochin IN 0 1,934.00")
         self._assert_refused(pdf_from_text(text), "₹1,37,585.99", "₹1,37,584.99")

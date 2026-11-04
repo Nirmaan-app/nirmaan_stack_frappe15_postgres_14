@@ -6,8 +6,8 @@
     devenv.sh unit nirmaan_stack.services.outflow_import.test_card_statement
 
 The fixture is the text `pypdf` extracts from the 2026-10-01 ICICI corporate card statement, pages 1-2,
-with the holder, the address, the card and account numbers replaced by obvious fakes. The company stays
-Stratos Infra Technologies, so the company check passes. The real PDF never enters the repo.
+with the holder, the address, the card and account numbers replaced by obvious fakes. The real PDF never
+enters the repo.
 """
 
 import io
@@ -143,6 +143,37 @@ def _replace(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
+class TestTheAddressBlock(unittest.TestCase):
+    """The holder and the company, however the PDF lays them out (ADR-0039 Amendment B): the company is shown
+    on Review for the accountant to check, never a reason to refuse."""
+
+    def test_a_statement_of_another_company_is_read_with_its_name(self):
+        text = _replace(_text(), "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
+        statement = read_card_statement(text)
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(statement.company, "ACME TRADERS PVT LTD")
+
+    def test_a_holder_printed_on_the_state_code_line_is_read(self):
+        # The password-locked PDF, opened with its password, joins the two lines (measured 2026-11-04).
+        text = _replace(_text(), "State Code: 29\nMR ARJUN TESTHOLDER\n", "State Code: 29MR ARJUN TESTHOLDER\n")
+        statement = read_card_statement(text)
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(statement.company, "STRATOS INFRA TECHNOLOGIES PVT LTD")
+
+    def test_with_no_company_line_the_company_is_blank_and_the_address_is_not_taken_for_it(self):
+        text = _replace(_text(), "MR ARJUN TESTHOLDER\nSTRATOS INFRA TECHNOLOGIES PVT LTD\n", "MR ARJUN TESTHOLDER\n")
+        statement = read_card_statement(text)
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(statement.company, "")
+        self.assertEqual(len(statement.lines), 47)
+
+    def test_a_company_ending_in_llp_or_private_limited_is_a_company_line(self):
+        for name in ("ACME TRADERS LLP", "Acme Traders Private Limited"):
+            with self.subTest(name=name):
+                text = _replace(_text(), "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", f"{name}\nFLAT")
+                self.assertEqual(read_card_statement(text).company, name)
+
+
 class TestRefusals(unittest.TestCase):
     """Every refusal happens in the reader, before anything is saved."""
 
@@ -151,18 +182,6 @@ class TestRefusals(unittest.TestCase):
             read_card_statement(text)
         for fragment in fragments:
             self.assertIn(fragment, str(caught.exception))
-
-    def test_a_statement_of_another_company_is_refused(self):
-        text = _replace(_text(), "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
-        self.assertRefused(text, "ACME TRADERS PVT LTD", "Stratos Infra Technologies")
-
-    def test_private_limited_is_the_same_company_as_pvt_ltd(self):
-        text = _replace(
-            _text(),
-            "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT",
-            "Stratos Infra Technologies Private Limited\nFLAT",
-        )
-        self.assertEqual(read_card_statement(text).company, "Stratos Infra Technologies Private Limited")
 
     def test_a_missing_line_fails_the_totals_gate_showing_both_figures(self):
         text = _replace(_text(), "11/09/2026 14152002790 PATEL NOVELTY AND GIFT BANGALORE IN 0 320.00\n", "")

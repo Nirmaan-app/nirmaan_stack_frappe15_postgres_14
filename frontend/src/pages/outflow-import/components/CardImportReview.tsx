@@ -18,6 +18,7 @@ import {
 } from "../cardCreate";
 import {
     CARD_UPLOADED_NOTE,
+    cardCompanyLabel,
     cardCountsLine,
     cardDay,
     cardPeriodLabel,
@@ -76,7 +77,7 @@ export const CardImportReview = ({
                 </div>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
                     <dt className="text-muted-foreground">Company</dt>
-                    <dd>{card.company}</dd>
+                    <dd>{cardCompanyLabel(card)}</dd>
                     <dt className="text-muted-foreground">Statement date</dt>
                     <dd>{cardDay(card.statement_date)}</dd>
                     <dt className="text-muted-foreground">File</dt>

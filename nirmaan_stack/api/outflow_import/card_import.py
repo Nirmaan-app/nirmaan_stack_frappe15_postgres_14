@@ -22,7 +22,7 @@ THE STEPS
 ⚠️ IT NEVER RUNS THE MATCHER (`sources.NEVER_MATCHED_SOURCES`). The generic upload refuses this source.
 
 ⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `save_file` commits inside the request (the cloud
-attachment hook), so every refusal -- a locked PDF, another company, the totals gate, a cash advance, the
+attachment hook), so every refusal -- a locked PDF, the totals gate, a cash advance, the
 same holder and period, nothing new -- happens before it.
 
 ⚠️ ITS SPENDS ARE NOT BANK LINES. Until Create settles them they are outside the main table's population

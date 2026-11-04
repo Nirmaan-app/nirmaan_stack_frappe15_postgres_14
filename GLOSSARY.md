@@ -197,7 +197,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 ## Company credit cards
 
-- **Credit Card Statement** — the bank's monthly statement for one company credit card, listing every spend and every credit on that card in its billing period. It is the record of what the card spent: the bank statement only shows the card's bill being paid, never what the card bought. A Credit Card Statement is known by its **card holder** and its billing period; the company receives one per card per month, and each card has one holder. Only a statement issued to the company (Stratos Infra Technologies) is a company card's statement. (Owner, 2026-10-25.)
+- **Credit Card Statement** — the bank's monthly statement for one company credit card, listing every spend and every credit on that card in its billing period. It is the record of what the card spent: the bank statement only shows the card's bill being paid, never what the card bought. A Credit Card Statement is known by its **card holder** and its billing period; the company receives one per card per month, and each card has one holder. The accountant decides a statement is a company card's when importing it; the company name printed on it does not decide it. (Owner, 2026-10-25; amended 2026-11-04.)
   *Avoid*: card bill, CC statement.
 
 - **Card spend** — a line of a Credit Card Statement that is money the card paid out (a line not marked CR). Each one is recorded as exactly one *Paid* **Non-Project** Expense (a card never pays for a project's work), with no vendor, and then waits for its invoice. (Owner, 2026-10-25.)
