@@ -73,6 +73,27 @@ export const NOTE_BOX_CLASS =
   "ml-1 flex gap-1 rounded border border-blue-300 bg-blue-50 px-1.5 py-1 text-blue-900 "
   + "dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-100";
 export const NOTE_ICON_CLASS = "mt-[1px] h-3 w-3 shrink-0 text-blue-600 dark:text-blue-300";
+/**
+ * VRF-3a (found in the cert): a text box that hands its value over when the pricer leaves it or presses Enter. Its draft is
+ * its own until then. The caller keys it on the committed value, so a new value from outside (a reset, another item) starts
+ * a fresh draft -- no effect syncs the prop into state (frontend/CODING_STANDARDS.md, React effects 4).
+ */
+function CommitInput({ value, className, ariaLabel, onCommit }: { value: string; className?: string; ariaLabel: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => { if (draft !== value) onCommit(draft); };
+  return (
+    <Input
+      className={className}
+      value={draft}
+      aria-label={ariaLabel}
+      data-commit-on-blur="true"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") commit(); }}
+    />
+  );
+}
+
 /** ELR-1 (AC2): a field's TYPED note -- what to type -- in the one style both paths use (the item-list field's
  * `typedNote` and an attribute definition's `note`), inside the NOTE_BOX_CLASS box. */
 export const TYPED_NOTE_CLASS = "text-[10px] leading-tight opacity-90";
@@ -1593,7 +1614,18 @@ function ItemListBlocks({
                         ))}
                         {f.allowOther && <option value={OTHER_VALUE}>{OTHER_LABEL}</option>}
                       </select>
-                      {f.allowOther && otherMode(f) && (
+                      {f.allowOther && otherMode(f) && f.splitOnCommit && (
+                        // VRF-3a (found in the cert): a split family's size box hands its text over on leaving the box
+                        // or Enter -- never mid-typing, so "60 HP (18+18+24)" is read whole
+                        <CommitInput
+                          key={f.typedValue}
+                          className={cn("h-7 w-20 text-xs", tone)}
+                          value={f.typedValue}
+                          ariaLabel={`${f.label} -- the value the BoQ states`}
+                          onCommit={(v) => onEdit({ op: "set_attr", index: i, id: f.id, value: v })}
+                        />
+                      )}
+                      {f.allowOther && otherMode(f) && !f.splitOnCommit && (
                         <Input
                           className={cn("h-7 w-20 text-xs", tone)}
                           /**

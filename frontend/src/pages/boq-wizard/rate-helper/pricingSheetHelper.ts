@@ -2418,6 +2418,10 @@ export interface ItemFieldView extends ItemFieldDef {
   /** VRF-2b (owner Q3 / U1): the unit picker beside the typed box of a reader declaring `units` -- the item attribute
    *  it writes (`<id>__unit`), the units offered, the one shown (the pricer's pick, else the family's), the family's. */
   unitPicker?: { id: string; units: string[]; value: string; defaultUnit: string };
+  /** VRF-3a (found in the cert): the size box of a `split` family -- a value typed here is handed to the pricer when the
+   * pricer leaves the box or presses Enter, not on every keystroke (a split fired on the first number typed, "60" of
+   * "60 HP (18+18+24)", and the row split before the rest of the text was in). Present only there. */
+  splitOnCommit?: true;
 }
 
 /**
@@ -3227,6 +3231,7 @@ function itemBlockView(
       ...(note ? { note } : {}),
       ...(optionLabels ? { optionLabels } : {}),
       // VRF-2b (owner Q3 / U1): the unit picker beside the typed box -- only on a reader declaring `units`
+      ...(f.allowOther && spec.split && spec.compose?.attr === f.skuAttr && family !== null && spec.split.families.includes(family) ? { splitOnCommit: true as const } : {}),
       ...(capUnit && f.allowOther ? { unitPicker: {
         id: `${f.id}${UNIT_PICK_SUFFIX}`,
         units: unitPickerUnits(spec.numbers[f.skuAttr]),

@@ -18,6 +18,7 @@ import {
 } from "./pricingSheetHelper";
 import { calculatorCtx } from "../../pricing/PricingCalculator";
 import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
+import { readFileSync } from "node:fs";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
 const v57 = readJsonFixture<Asset>(new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v57.json", import.meta.url));
@@ -306,5 +307,23 @@ describe("VRF-3a -- the Derivation lines (U8)", () => {
     expect(L57.some((l) => l.includes("split"))).toBe(false);
     expect(L57.some((l) => l.includes("airflow range"))).toBe(false);
     expect(L.length).toBe(L57.length + 3);
+  });
+});
+
+describe("VRF-3a -- the split family's size box commits on leaving the box (found in the cert)", () => {
+  it("the Outdoor Unit's capacity field carries splitOnCommit; NEGATIVE: an indoor family, a Ductable and a config without `split` do not", () => {
+    const fieldOf = (v: ItemListView) => v.items[0].fields.find((f) => f.id === "capacity")!;
+    expect(fieldOf(runBlocks([outdoor("16")])).splitOnCommit).toBe(true);
+    expect(fieldOf(runBlocks([{ base: null, family: "Cassette", attrs: { capacity: "2" }, other: ["capacity"] }])).splitOnCommit).toBeUndefined();
+    expect(fieldOf(runBlocks([{ base: null, family: "Ductable", attrs: { capacity: "4" }, other: ["capacity"] }])).splitOnCommit).toBeUndefined();
+    expect(fieldOf(runBlocks([outdoor("16")], "Nos", calcOf(withVrf3a(base57(), ["split"])))).splitOnCommit).toBeUndefined();
+  });
+  it("(source) the panel draws that box as a CommitInput handing the value over on blur and Enter, and every other typed box as before", () => {
+    const panel = readFileSync(new URL("./RateHelperPanel.tsx", import.meta.url), "utf8");
+    expect(panel).toContain("{f.allowOther && otherMode(f) && f.splitOnCommit && (");
+    expect(panel).toContain("onBlur={commit}");
+    expect(panel).toContain('onKeyDown={(e) => { if (e.key === "Enter") commit(); }}');
+    expect(panel).toContain("{f.allowOther && otherMode(f) && !f.splitOnCommit && (");
+    expect(panel).toContain('onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}');
   });
 });
