@@ -50545,3 +50545,81 @@ Owner answers this slice:
   - (b) no dev2 row has a match without a Suggest badge, so the "widen" case is proven by tests only;
   - (c) the host `test_run_tests_parallel.py` failure from DEV2-B4 C2 stands;
   - (d) test_rate_master's resume driver still reads the live switch (no write).
+
+## Slice DEV2-B7 - the one-time spec-card fill-in for existing BoQs (no Suggest): the script, its dry run, a capped trial on dev2, its place in the go-live checklist - as built 2026-11-04
+
+Desktop session `devb7` on dev2, delegated by the laptop. Three commits:
+- C1 `0b2d3436d`: `scripts/_instruments/fill_spec_cards.py`, its tests (`test_fill_spec_cards`, 16) and the parallel plan
+  entry.
+- FIX `89fdb08a7`: a pre-existing race found by the T3 full set (owner answer 2, option B, an approved out-of-scope line).
+  `match_run._judge_with_progress` reports `wrapped.done` once more after its poll loop. A judge that finished before
+  the first poll used to report nothing, and `test_match_run`'s progress test failed under load. The fix commit adds a
+  test that forces the race.
+- C2 is this entry + `boq-rate-master.md`.
+
+Paid: S3's capped trial, $0.2353 of the $1 slice cap (caps 60 calls / 1,500,000 tokens / $0.50). Card calls only: no
+Suggest, no matching run, no setting written. Nothing deployed. Report, ledger and checklist v4:
+`2026-11-04_DEV2-B7_Report.md` / `_Ledger.md` / `H2_GoLive_Checklist_2026-11-04_v4.md` (`Historical Rate Suggest\DEV2-B7\`).
+
+Owner rulings and answers this slice:
+- FILL-IN (12:40 - 12:45): a one-off tool, run once on production after go-live, outside working hours, with no
+  Suggest.
+- CARDS AT COMMIT (12:41 / 12:42): `match_cards_at_commit` goes ON at go-live with `match_enabled` (checklist 3.10).
+- R-H2W: a card is valid only for the row's current payload sha, prompt version and model; an ok card is never
+  overwritten.
+- Answer 1 (13:45, "its training data"): BOQ-26-00371 "test 3 BOQ Ankita" stays out of matching and the fill-in.
+  Delivered: a read-only list of the pool BoQs whose names suggest training but whose project the test-project rule
+  misses, and checklist v4 step 3.5b (rename the project to start with "Test Project - " before the card load and the
+  pool build). No data changed in dev2.
+- Answer 2 (14:02, "option B. All 4 Ankita's BoQ are training data"): the race fix above, plus all four of Ankita's
+  BoQs (-00366, -00369, -00371, -00386) confirmed in 3.5b.
+
+### 1. Built
+- `fill_spec_cards.py`:
+  - the row set is the pool's corpus (`pool._corpus`) minus test projects;
+  - each row is classed valid / stale / failed / none by the pool's own card lookup;
+  - newest BoQs first, then sheet, then row; a payload equal to an earlier row's is left to that card;
+  - per sheet, `cards.card_sheet(excel_rows=...)` - no card logic of its own;
+  - `--dry` (a read-only connection, no client; the projection from `cards.plan_sheet`), `--limit`, `--boq`,
+    `--newest-first` (default on), `--report`;
+  - a 429 / usage limit / burst / error / Ctrl+C stops cleanly with the summary (exit code 1);
+  - it prints the `pool.rebuild_pool` command and never rebuilds by itself.
+- cards.py and pool.py are unchanged.
+
+### 2. Proved
+- P0:
+  - the card path: `card_sheet` is public and takes the rows;
+  - the corpus: 30,766 rows, equal to the cached pool's;
+  - the runner's limits;
+  - the measured card call: 18.6 rows, in 9,421 / out 8,710 tokens, 31.6 s;
+  - what cards at commit cover: every rate-editable row of a sheet committed after go-live, priced or not. The
+    payload holds no rate, so pricing never stales a card.
+- S2, the dry run on dev2:
+  - 30,766 pool rows; 1,387 test-project rows skipped;
+  - 27,703 valid, 0 stale, 0 failed, 1,676 none (1,621 distinct payloads; 68 of them in today's KEPT set);
+  - projected 132 calls / 1,957,098 tokens / $0.5167 / 43.7 min.
+- S3, the capped trial (`--limit 650`, newest first, every request and reply archived):
+  - 650 rows on 40 sheets of 22 BoQs, in 60 calls (= the sum of ceil(rows / 20) a sheet): 650 ok, 0 failed, no stop;
+  - 781,794 tokens, $0.2353, 17.5 min;
+  - all 650 keys equal their rows' current sha + prompt + model;
+  - the 27,372 cards stored before are byte-equal afterwards;
+  - a seeded sample of 10 was checked by hand: all correct;
+  - the second dry run is smaller by exactly 650 (971 left: 73 calls, ~$0.31);
+  - the trial carded 68 rows of Ankita's practice BoQs (-00371 34, -00386 25, -00366 9). They were not deleted: the
+    3.5b rename leaves them out of production's pool.
+- T2 vacuity, 7 / 7 on scratch copies, each red then green:
+  - the valid-card skip;
+  - never-overwrite, both in the selection and in cards.card_sheet's own reuse guard;
+  - the stale rule;
+  - the 429 stop;
+  - dry writes nothing;
+  - the race fix's line.
+- Suites:
+  - FULL Python BoQ set after C1: 104 modules / 4,774 tests, 103 OK. The one error was the race; the module passed
+    alone 8 / 8 and the race was reproduced. Before: 103 / 4,758.
+  - After the fix: `test_match_run` 28 / 28, and the fix's targeted set 17 / 17 modules OK (test_rate_master 739, test_rate_suggest 75, ...).
+
+### 3. Open
+- The fill-in runs on production after go-live (checklist v4 section 7), with one re-run about a week later.
+- Production may hold more training BoQs created since the dev copy. The deployer lists them for the owner before 3.5b.
+- The host `test_run_tests_parallel.py` failure from DEV2-B4 C2 (the plan lists tasks.test_match_run_healer) stands.

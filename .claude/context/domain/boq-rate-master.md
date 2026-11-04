@@ -198,10 +198,42 @@ rolled-back transaction (byte-equal, count unchanged).
 `match_enabled` = 0 -> fill the card / judge model (`claude-haiku-5-5`) and prices -> read the pricing step's stamp ->
 load the dev2 cards file with `load_spec_cards.py --dry`, then without (a skip-mismatch share = rows changed since the
 dev copy) -> build the pool once by hand (`pool.rebuild_pool`, ~8 min) -> check the 06:00 entry -> the owner switches
-`match_enabled` ON -> one watched real run. Checks first (read-only): worker Node 18.x, a worker on `long`, System
+`match_enabled` ON and `match_cards_at_commit` ON -> one watched real run -> AFTER GO-LIVE, outside working hours, the
+ONE-TIME CARD FILL-IN (below; checklist v4 section 7: `fill_spec_cards.py --dry`, the real run, then `pool.rebuild_pool`).
+Checks first (read-only): worker Node 18.x, a worker on `long`, System
 Settings time_zone Asia/Kolkata, the scheduler on, ~6 GB free for a pool build, the Anthropic key present, no rate-master
 asset in the diff (Deployment Mode does not apply). ROLLBACK: untick `match_enabled` (instant; Suggest unaffected); a
 code revert only if needed; the new doctypes are inert; nothing to undo in the rate master.
+
+**THE ONE-TIME CARD FILL-IN CARDS EVERY EARLIER PRICED ROW THAT HAS NO VALID CARD, NEWEST BoQs FIRST, WITH CARD CALLS
+ONLY (owner 2026-11-04 12:40-12:45: "build the spec cards of existing BoQs at once without triggering its suggest
+rates"; "a one time exercise which we will do after deployment"; DEV2-B7).** `scripts/_instruments/fill_spec_cards.py
+--site <site> [--dry] [--limit N] [--boq B]... [--no-newest-first] [--report f.json]`, run in the bench container from
+frappe-bench. THE ROW SET is the pool's own corpus (`pool._corpus`: every current committed sheet's priced,
+rate-editable rows) minus test projects (`pool.is_test_project`) - not today's KEPT subset, which moves as versions
+settle. VALID = an ok card for the row's CURRENT payload sha + `cards.prompt_version()` + the settings'
+`match_card_model` (R-H2W; `match_index.StoredCards`' own lookup); a row with only an older card (stale) or a
+malformed / failed card of its current key is carded, the older card STAYS, an ok card is never overwritten. It cards
+through `cards.card_sheet(boq, sheet, excel_rows=...)` per sheet - the commit job's function (payload, sha, prompt,
+<= 20 rows a request, the call runner's limits, parse, store): NO card logic of its own, no Suggest, no matching run, no
+setting; it writes only `BoQ Row Spec Card` rows (their tokens / USD are the spend record). A row whose payload equals
+an earlier row's in the run is left to that card (cards are shared by sha). ORDER: BoQs by their latest sheet commit,
+newest first (so a stopped run has done the recent BoQs), then sheet, then Excel row. `--dry` uses a read-only
+connection, builds no client and projects from `cards.plan_sheet` (calls, chars / 2 in, 495 out tokens a row, 31.6 s a
+call wave, sheets one after another). SAFE TO STOP AND RE-RUN: a sheet's cards are committed as soon as its calls come
+back; a re-run skips what is valid; a malformed / failed / refused row is listed with its reason and not retried in that
+run; a 429, usage limit, burst, error or Ctrl+C stops cleanly with the summary (exit code 1). It never rebuilds the pool:
+it prints `bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`. CARDS AT COMMIT
+(`match_cards_at_commit`, go-live step 3.10) card every rate-editable row of a sheet committed after go-live, priced or
+not (the payload holds no rate, so pricing never stales a card); what only the fill-in covers is the go-live gap, rows of
+a pre-go-live sheet priced after the fill-in ran, and a commit card that failed - hence one re-run about a week after
+go-live. dev2 (DEV2-B7): 30,766 pool rows, 1,387 test-project rows skipped, 27,703 valid, 1,676 none (1,621 distinct
+payloads), 0 stale; the dry run projected 132 calls / ~1.96M tokens / ~$0.52 / ~44 min; the capped trial is in the
+DEV2-B7 plan entry. Tests: `test_fill_spec_cards`. TRAINING BoQs STAY OUT OF MATCHING AND THE FILL-IN ONLY UNDER A
+TEST-PROJECT NAME (owner answers 1 / 2 to DEV2-B7: BOQ-26-00366 / -00369 / -00371 / -00386 are practice BoQs): the only exclusion is
+`pool.is_test_project` ("testproject" in the project name, spaces removed), so a confirmed training BoQ's PROJECT is renamed
+(prefix `Test Project - `; go-live checklist v4 step 3.5b, before the card load and the pool build) - never a new rule
+in code, never a data change from dev.
 
 **THE SERVER PRICING STEP IS BUILT FROM THE BROWSER'S PRICING SOURCE ON EVERY DEPLOY; IT IS NEVER COPIED, AND ITS PARITY
 VITEST RUNS WHENEVER A PRICING FILE CHANGES (owner G2 option A, DEV2-B2).** Historical matching's RULES lane, the values
