@@ -41,7 +41,9 @@ export const APPROVAL_STATUS = {
  * So this file describes COLUMNS for the tabs that already exist; it does not
  * define tabs.
  */
-export type ApprovalTab = PPTabValue;
+// GST Requests is not a queue tab: its rows are GST Payment Requests, listed by `GstRequestsTab`, not
+// payments or expenses from `get_approval_queue`.
+export type ApprovalTab = Exclude<PPTabValue, typeof PP_TABS.GST_REQUESTS>;
 
 /**
  * ⚠️ THERE IS NO "select" COLUMN HERE, DELIBERATELY.
