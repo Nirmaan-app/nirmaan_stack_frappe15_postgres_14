@@ -154,7 +154,7 @@ class TestTheAddressBlock(unittest.TestCase):
         self.assertEqual(statement.company, "ACME TRADERS PVT LTD")
 
     def test_a_holder_printed_on_the_state_code_line_is_read(self):
-        # The password-locked PDF, opened with its password, joins the two lines (measured 2026-11-04).
+        # The password-locked PDF, opened with its password, joins the two lines.
         text = _replace(_text(), "State Code: 29\nMR ARJUN TESTHOLDER\n", "State Code: 29MR ARJUN TESTHOLDER\n")
         statement = read_card_statement(text)
         self.assertEqual(statement.holder, "ARJUN TESTHOLDER")

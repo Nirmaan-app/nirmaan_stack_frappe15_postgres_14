@@ -318,9 +318,11 @@ class TestTheCompanyIsShownNotChecked(CardImportCase):
         self.assertEqual(len(self._rows(result["batch"])), 47)
 
     def test_a_locked_pdf_printing_the_holder_on_the_state_code_line_is_saved_under_that_holder(self):
-        # The bank's locked PDF, opened with its password, joins "State Code: 29" and the holder (2026-11-04).
-        password = "Pdf-Pass-4821"
-        text = self._text().replace("State Code: 29\nMR ", "State Code: 29MR ")
+        # The bank's locked PDF, opened with its password, joins "State Code: 29" and the holder.
+        password = TestUploadingALockedStatement.PASSWORD
+        text = self._text()
+        self.assertIn("State Code: 29\nMR ", text)
+        text = text.replace("State Code: 29\nMR ", "State Code: 29MR ")
         self._upload(pdf_from_text(text, password=password), password=password)
         [statement] = self._statements()
         self.assertEqual(statement.holder, self.holder)

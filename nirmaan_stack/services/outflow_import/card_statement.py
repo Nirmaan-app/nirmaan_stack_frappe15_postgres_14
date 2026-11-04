@@ -50,8 +50,7 @@ _LONG_DATE = re.compile(r"^\s*([A-Za-z]+ \d{1,2}, \d{4})\s*$")
 _MONEY = re.compile(r"(?<![\d,])([\d,]+\.\d{2})(?![\d])")
 _STANDALONE_MONEY = re.compile(r"^\s*[^\d\s,.]?\s*([\d,]+\.\d{2})\s*$")
 _SUMMARY_LABEL = "Previous Balance Purchases / Charges Cash Advances Payments / Credits"
-# `rest` is the holder when the PDF prints it on the same line ("State Code: 29MR <HOLDER>"), read only when
-# it starts with a title and a name (`_HONORIFIC`); a title alone ("State Code: 29MR") leaves the name below.
+# `rest`: what the PDF prints after the state code on the anchor line (see `_address_block`).
 _ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:\s*\d*\s*(?P<rest>.*)$")
 _HONORIFIC = re.compile(r"^(?:MR|MRS|MS|MISS|DR|M/S)\.?\s+", re.IGNORECASE)
 
