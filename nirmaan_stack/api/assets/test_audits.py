@@ -23,7 +23,8 @@ Run: bench --site localhost run-tests --module nirmaan_stack.api.assets.test_aud
 """
 
 import json
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from datetime import datetime
 from unittest.mock import patch
 
 import frappe
@@ -59,6 +60,19 @@ def _answer(problem=None):
     if problem is None:
         return {"id": QUESTION_ID, "q": QUESTION, "a": YES}
     return {"id": QUESTION_ID, "q": QUESTION, "a": NO, "flag": 1, "text": problem}
+
+
+@contextmanager
+def _site_clock_at(moment: datetime):
+    """Stop Frappe's clock (`now()`, `today()`, `getdate()`) at `moment`, in the site's time zone.
+
+    FrappeTestCase.freeze_time needs freezegun, which this bench does not install (#1607); the same
+    patch as `api/payees/test_paid_to.py`. A module that bound `now_datetime` by name at import keeps
+    the real clock: here only history timestamps, which no assertion reads.
+    """
+    with patch.object(frappe.utils.data, "now_datetime", return_value=moment), \
+            patch.object(frappe.utils, "now_datetime", return_value=moment):
+        yield
 
 
 class TestMonthlyAssetAudit(FrappeTestCase):
@@ -218,7 +232,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         self.assertEqual([r.reason for r in created], [f"{self.month} · handover"])
 
     def test_a_handover_from_the_28th_opens_next_months_audit(self):
-        with self.freeze_time(f"{self.the_28th} 10:00:00"):
+        with _site_clock_at(datetime.fromisoformat(f"{self.the_28th} 10:00:00")):
             asset, assignment = self._assign()
         row = self._row(assignment)
         self.assertEqual((row.audit_status, row.audit_month), ("Pending", self.next_month))
