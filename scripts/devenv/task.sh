@@ -12,12 +12,19 @@
 #   task.sh clean <name>     after you merged: remove the env and the branch on the box (refused while the box has
 #                            commits the laptop lacks)
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
+#   task.sh watch [--every <seconds>]
+#                            each recorded task's agent: working, finished (its report's Status is DONE or BLOCKED),
+#                            crashed (no agent in its env and no finished report) or unreachable (the box did not
+#                            answer). One SSH per box, read only. A change prints ALERT and raises a macOS notification;
+#                            the last state per task is kept in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch/<name>.
+#                            --every repeats until Ctrl-C.
 #
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
 # <box>: a box in the registry (scripts/devenv/boxes.sh); without --box, the registry's default. start records the
 # box in the repo's git config (devbox-task.<name>.box), and every later command goes to that box.
-# Exit 3: the box did not answer; run the same command again once it is awake. The brief and the report live on the
-# box in ~/claude-artifacts/dod/box-<name>/ (the repo is public: a brief may describe what must not be published).
+# Exit 3: the box did not answer; run the same command again once it is awake (watch reports it as a state instead).
+# The brief and the report live on the box in ~/claude-artifacts/dod/box-<name>/ (the repo is public: a brief may
+# describe what must not be published).
 # The whole body sits in { ... } so bash parses it before running: editing this file mid-run is safe.
 {
 set -euo pipefail
@@ -30,9 +37,96 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 cd "$(git -C "$SELF_DIR" rev-parse --show-toplevel)"
 . "$SELF_DIR/boxes.sh"
 
+# The one rule for a task's state. alive: 1 or 0 for a claude process whose folder is the task's env, - when the box
+# did not answer. A finished Claude session stays alive waiting for input, so alive alone never means working.
+task_state() {
+  case "$1:$2" in
+    -:*) echo unreachable ;;
+    ?:DONE|?:BLOCKED) echo finished ;;
+    1:*) echo working ;;
+    *) echo crashed ;;
+  esac
+}
+
+# Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<the first
+# paragraph under ## Status in its report, joined: reports wrap it>". Paths are compared physical (pwd -P), as /proc
+# and lsof report them, and exactly: the macOS box also runs spare claude daemons in other folders.
+watch_probe() {
+  cat <<'EOF'
+co="$1"; shift
+root="$(cd ~/"$co"/../.. && pwd -P)" || exit 4
+case "$(uname)" in
+  Linux) cwds="$(for p in $(pgrep '^claude'); do readlink "/proc/$p/cwd"; done 2>/dev/null)" ;;
+  *) cwds="$(lsof -a -c claude -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" ;;
+esac
+for n in "$@"; do
+  alive=0; printf '%s\n' "$cwds" | grep -qxF "$root/benches/$n/apps/nirmaan_stack" && alive=1
+  line="$(awk 'f && /^#/ {exit} f && NF {gsub(/\t/, " "); p = p (p == "" ? "" : " ") $0; next} f && p != "" {exit}
+    /^## Status/ {f=1} END {print p}' ~/claude-artifacts/dod/box-"$n"/REPORT.md 2>/dev/null)"
+  printf '%s\t%s\t%s\n' "$n" "$alive" "$line"
+done
+EOF
+}
+
+WATCH_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/watch"
+
+watch_pass() {
+  local recs box names n out rc note row alive line word state detail old alerts="" f
+  mkdir -p "$WATCH_DIR"
+  recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
+  echo; echo "== $(date '+%Y-%m-%d %H:%M:%S')  task watch"
+  [ -n "$recs" ] || echo "no task records (task.sh start makes them)"
+  for box in $(printf '%s\n' "$recs" | awk 'NF {print $2}' | sort -u); do
+    names="$(printf '%s\n' "$recs" | awk -v b="$box" '$2 == b {print $1}')"
+    out="" note=""
+    if ! note="$(box_load "$box" 2>&1)"; then note="${note#STOP  }"
+    else
+      box_load "$box"; rc=0
+      out="$(watch_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
+      case "$rc" in 0) ;; 255) note="did not answer over SSH" ;; *) note="the probe failed on the box (exit $rc)" ;; esac
+    fi
+    for n in $names; do
+      row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
+      alive=- line=""
+      [ -z "$row" ] || IFS=$'\t' read -r _ alive line <<<"$row"
+      word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
+      state="$(task_state "$alive" "$word")"
+      case "$state" in
+        finished) detail="$(printf '%s\n' "$line" | sed 's/\([.!?]\)[[:space:]].*/\1/')" ;;
+        unreachable) detail="${note:-no answer for this task}" ;;
+        *) detail="" ;;
+      esac
+      printf '%-28s %-10s %-11s %s\n' "$n" "$box" "$state" "$detail"
+      old="$(cat "$WATCH_DIR/$n" 2>/dev/null || echo unseen)"
+      # A first sight alerts only when something is wrong; a working or finished task is just shown.
+      if [ "$old" != "$state" ] && { [ "$old" != unseen ] || [ "$state" = crashed ] || [ "$state" = unreachable ]; }; then
+        alerts="$alerts$n on $box: $old -> $state"$'\n'
+      fi
+      echo "$state" > "$WATCH_DIR/$n.new" && mv "$WATCH_DIR/$n.new" "$WATCH_DIR/$n"
+    done
+  done
+  printf '%s' "$alerts" | while IFS= read -r a; do
+    echo "ALERT $a"
+    if command -v osascript >/dev/null; then
+      osascript -e "display notification \"$a\" with title \"task.sh watch\"" >/dev/null 2>&1 || true
+    fi
+  done
+  for f in "$WATCH_DIR"/*; do
+    [ -e "$f" ] || continue
+    n="${f##*/}"
+    printf '%s\n' "$recs" | awk -v n="$n" '$1 == n {f=1} END {exit !f}' && continue
+    rm -f "$f"; echo "gone  $n: no task record, its watch state removed"
+  done
+}
+
 CMD="${1:-}"
 case "$CMD" in
   start|status|done|clean) ;;
+  watch)
+    [ $# = 1 ] || { [ $# = 3 ] && [ "$2" = --every ] && [[ "$3" =~ ^[1-9][0-9]*$ ]]; } \
+      || die "usage: task.sh watch [--every <seconds>]"
+    while :; do watch_pass; [ $# = 3 ] || break; sleep "$3"; done
+    exit 0 ;;
   list)
     # Records outlive a laptop branch the owner removed after merging, and those tasks still sit on their box.
     { git for-each-ref --format='%(refname:short)' 'refs/heads/box/*' | sed 's|^box/||'
@@ -43,7 +137,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,20p' "$0"; exit 1 ;;
+  *) sed -n '2,27p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
