@@ -152,7 +152,8 @@ bench() {
   done
   if [ $moved = 1 ] || ! pins_check >/dev/null; then
     echo "      bench setup requirements: frappe moved, or a package breaks an app's pins (several minutes)"
-    inside "cd frappe-bench && bench setup requirements" > "$ROOT/logs-bootstrap-requirements.log" 2>&1 \
+    # Named apps only: with none, bench installs every folder in apps/, an app the lock dropped included.
+    inside "cd frappe-bench && bench setup requirements $(lock '" ".join(d["apps_txt"])')" > "$ROOT/logs-bootstrap-requirements.log" 2>&1 \
       || { tail -20 "$ROOT/logs-bootstrap-requirements.log"; die "bench setup requirements failed"; }
     pins_check --fix-git >/dev/null || true   # pylock or bump decides; pip leaves a PyPI release where a git pin is asked
     ok "requirements installed"
