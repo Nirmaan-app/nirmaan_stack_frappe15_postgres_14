@@ -20,5 +20,5 @@ the bill. A reader will be surprised that the figure typed is not the figure tax
 ## Consequences
 
 - `gross_amount` on a rent tax record is the base rent, not the bill: any reader wanting the bill adds the
-  Expense's `gst_amount` (`requested_amount_sql`, `withheld_tds_of`).
+  Expense's `gst_amount` (`withheld_expense_bill_sql`, `withheld_tds_of`).
 - Office Rent expenses approved before this carry no GST and are not backfilled.

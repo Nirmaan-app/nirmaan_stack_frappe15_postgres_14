@@ -23,9 +23,14 @@ withholds nothing; an expense created at any other status (the bank import's Pai
 withholds nothing. `withholds_now` is that rule; `controllers/expense_tds` asks it on insert and on
 every save.
 
-WHAT: `withhold_expense_tds` writes the record FIRST (gross = the amount as approved, 10%, the tax,
-194-I, borne by the landlord, the landlord's name and PAN, the day), THEN sets the Expense's amount to
-the net. ONCE: the record's `non_project_expense` is UNIQUE, so a re-save, a retry or a second call
+THE AMOUNT IS THE BILL (spec #1613, ADR-0043): the landlord's bill incl. 18% GST. `tds_split` derives the
+base rent (bill / 1.18, to the paisa), the GST (bill - base), the tax (10% of the base, never of the GST) and
+what the landlord gets (bill - tax); base + GST is the bill exactly. Its frontend twin reads the same table
+of cases (`office_rent_split_cases.json`) and rounds the same way (`SPLIT_ROUNDING`).
+
+WHAT: `withhold_expense_tds` writes the record FIRST (gross = the BASE RENT, 10%, the tax, 194-I, borne by
+the landlord, the landlord's name and PAN, the day), THEN sets the Expense's amount to what the landlord
+gets and its `gst_amount` to the GST. ONCE: the record's `non_project_expense` is UNIQUE, so a re-save, a retry or a second call
 finds it and changes nothing.
 
 ⚠️ NEVER WITHOUT THE LANDLORD (owner, 2026-10-21). A tax that cannot be filed against a name and a
@@ -39,17 +44,17 @@ no request meets this refusal. None of those can be edited into shape (its reque
 refusal says to reject it and raise it again. The approve dialog says so before the click
 (`api/approvals/expense_detail`'s `deductee_missing`).
 
-⚠️ THE APPROVAL TIERS READ THE GROSS. The amount is cut only AFTER the approval that withholds, so
-`expense_decision` decides every step on the full rent: Rs 55,000 still waits at CEO Pending.
+⚠️ THE APPROVAL TIERS READ THE BILL. The amount is cut only AFTER the approval that withholds, so
+`expense_decision` decides every step on the bill: Rs 55,000 still waits at CEO Pending.
 
 ⚠️ NOTHING BACKFILLS. Office Rent expenses approved before this shipped have no record and never get
 one: only a transition into Approved, or an insert at Approved, withholds.
 
 AFTER IT (#1526): THE AMOUNT IS LOCKED, AND THE RECORD GOES ONLY WITH ITS EXPENSE.
-`guard_withheld_amount` refuses every save that changes the amount of an Expense with a record, for
+`guard_withheld_amount` refuses every save that changes the amount or the GST of an Expense with a record, for
 every person and every system writer, with ONE exemption: Bulk Import's single-line correction
-(`BANK_AMOUNT_CORRECTION`, within the settle window), which leaves the record as it is: the gross is
-never restated as net / 0.9. `delete_with_expense` deletes the record with its Expense while the tax is
+(`BANK_AMOUNT_CORRECTION`, within the settle window), which moves the amount only and leaves the record
+and the GST as they are: nothing is restated from the corrected amount. `delete_with_expense` deletes the record with its Expense while the tax is
 on no challan, and refuses the delete once it is, naming the challan.
 
 THE TYPE FOLLOWS THE APPROVAL (owner, 2026-10-21): `guard_tds_type_change` refuses changing an
@@ -297,24 +302,25 @@ def withheld_tds_by_expense(expenses) -> dict[tuple[str, str], dict]:
 
 
 def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan: str | None = None) -> str | None:
-    """Withhold the tax of one approved Non-Project Expense: write its record, then net its amount.
+    """Withhold the tax of one approved Non-Project Expense: write its record, then set its amount to what
+    the landlord gets and its GST (spec #1613).
 
     Returns the record's name (the existing one when it was withheld before), or None when there is
     nothing to withhold: a type with no rule, a zero or a refund. Never commits.
 
     ⚠️ THE RECORD IS WRITTEN FIRST, THEN THE AMOUNT CUT, as `payment_tds.write_deduction` does. The
-    record's `gross_amount` is the only surviving copy of the full rent, so a failed insert must leave
-    the amount whole.
+    record's `gross_amount` (the base rent) and the Expense's GST are the surviving copy of the bill on
+    the Expense side, so a failed insert must leave the amount whole.
 
     ⚠️ `db_set`, NOT `doc.amount = ...`: this runs from the Expense's own `after_insert` / `on_update`,
     after the row is written, so an assignment would be lost. `db_set` writes the column and the
     in-memory doc and fires no save hook, so it cannot withhold a second time; the save's Version row
-    still records gross -> net. `update_modified=False`: the save that approved it has just stamped it.
+    still records bill -> landlord gets. `update_modified=False`: the save that approved it has just stamped it.
 
     ⚠️ IT RAISES, unlike the Work Order route (`record_deduction_if_eligible`, which logs and swallows).
     Every caller is one approval inside its own savepoint or request (`decide_expenses` per row, the
     request intake), so a failure refuses that approval and nothing else, and an Office Rent expense is
-    never Approved at the full rent with no record of its tax. Swallowing a database error would also
+    never Approved at the full bill with no record of its tax. Swallowing a database error would also
     leave the Postgres transaction aborted under the approval.
     """
     rule = tds_rule_for(doc.get("type"))
@@ -348,7 +354,7 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
     # ⚠️ NO HOOKS, ON PURPOSE (CODING_STANDARDS § Raw SQL rule 1). What else reads this `amount`, and why
     # none of it needs a recompute here:
     #   * Bulk Import's candidates (`outflow_import/candidates`) and Mark as Done / the bank file read the
-    #     live amount when they run, so they see the net from now on; nothing caches it.
+    #     live amount when they run, so they see bill - TDS from now on; nothing caches it.
     #   * The linked total and its derived status (`controllers/expense_bank_links.validate`) are inert:
     #     the import settles only Approved / Reconciliation Pending rows (`ledgers.SETTLEABLE_STATUSES`),
     #     so an Expense being approved from Requested / CEO Pending, or born Approved, has no live slip.
@@ -360,7 +366,8 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
     #     cheque takes Secured PO/WO lines only, and an Old-type cheque (the only kind that pays Expenses)
     #     may change only its photo. A line copied from the gross before this approval stays as the cheque
     #     was written; nothing totals it against the Expense.
-    #   * Non-project totals sum the column when they are read, so they read the net.
+    #   * Non-project totals sum the column when they are read, so they read what the landlord gets
+    #     (incl. GST); the GST is a column no total reads.
     # The approving save already ran its hooks and stamped `modified`, hence `update_modified=False`.
     # The GST is set here and nowhere else; `guard_withheld_amount` locks it with the amount.
     doc.db_set({"amount": split.landlord_gets, "gst_amount": split.gst}, update_modified=False)
@@ -387,11 +394,12 @@ def guard_withheld_amount(doc) -> None:
     ⚠️ THE RECORD'S GROSS IS THE ONLY COPY OF THE FULL RENT. An amount edit would leave the record
     describing a payment that no longer exists, and restating it (net / 0.9, as
     `payment_tds.restate_deduction_on_amount_change` does for a Work Order) would invent tax: the
-    tax was withheld on the rent as approved, and may already be paid under a challan.
+    tax was withheld on the rent as approved, and may already be paid under a challan. The GST is locked
+    with it (spec #1613): base + GST is the bill the split was made from.
 
     THE ONE EXEMPTION: a save flagged `BANK_AMOUNT_CORRECTION`, within the settle window
-    (`amounts_match`). The bank's few rupees are rounding, not a new rent, so the record stays as it
-    was. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`, so it never meets
+    (`amounts_match`), that moves the amount only. The bank's few rupees are rounding, not a new rent,
+    so the record and the GST stay as they were. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`, so it never meets
     this.
     """
     if doc.is_new():
