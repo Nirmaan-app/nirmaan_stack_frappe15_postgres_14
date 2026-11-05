@@ -34,6 +34,14 @@ from pathlib import Path
 PROTECTED = {"master", "main", "develop"}
 REPORT_SECTIONS = ("Status", "What changed", "Evidence", "Data", "Open questions")
 MAX_BLOCKS = 3  # consecutive Stop-hook blocks before a stuck agent is let go (the report then says what is missing)
+# Skills a task that changed code must have loaded, by the last part of the skill's name (`mattpocock-skills:tdd`
+# and `tdd` both count). In 13 box tasks before this rule the prompt said "write the failing tests first" in words,
+# and no agent loaded `tdd`; one loaded `code-review`, because its brief named it.
+REQUIRED_SKILLS = {
+    "tdd": "Call the Skill tool with mattpocock-skills:tdd and build the change through it",
+    "code-review": "Call the Skill tool with mattpocock-skills:code-review against the task's base {base} and fix its "
+                   "in-scope findings",
+}
 
 
 def git(wt: Path, *args: str, ok: bool = False) -> str:
@@ -102,6 +110,42 @@ def stamp(wt: Path, kind: str, verdict: str, extra: dict) -> None:
 
 def changed_files(wt: Path, base: str) -> list[str]:
     return [f for f in git(wt, "diff", "--name-only", base, "HEAD").splitlines() if f]
+
+
+def session_logs(wt: Path) -> list[Path]:
+    """Claude Code's session logs for sessions run in `wt`, subagents' included. Claude Code names a project's log
+    folder after its working directory with every character other than a letter or digit replaced by `-`."""
+    home = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    folders = {home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(p)) for p in (wt, wt.resolve())}
+    return sorted(f for d in folders if d.is_dir() for f in d.rglob("*.jsonl"))
+
+
+def skills_loaded(wt: Path, since: str) -> set[str]:
+    """The last part of the name of every skill loaded in `wt` since `since` (dod.json's local started_at): by the
+    Skill tool, or by the person typing its slash command."""
+    start = datetime.datetime.fromisoformat(since).astimezone()
+    found: set[str] = set()
+    for log in session_logs(wt):
+        if log.stat().st_mtime < start.timestamp():  # untouched since the task started: nothing in it can count
+            continue
+        for line in log.read_text(errors="replace").splitlines():
+            try:
+                entry = json.loads(line)
+                at = datetime.datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if at < start:
+                continue
+            content = (entry.get("message") or {}).get("content")
+            items = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
+            for item in items if isinstance(items, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text" and isinstance(item.get("text"), str):
+                    found.update(re.findall(r"<command-name>/?([\w:.-]+)</command-name>", item["text"]))
+                elif item.get("type") == "tool_use" and item.get("name") == "Skill" and isinstance(item.get("input"), dict):
+                    found.add(str(item["input"].get("skill") or ""))
+    return {name.rsplit(":", 1)[-1] for name in found}
 
 
 def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]:
@@ -174,6 +218,11 @@ def check(wt: Path) -> list[str] | None:
         b = p.get("affected_base")
         return bool(b) and subprocess.run(["git", "-C", str(wt), "merge-base", "--is-ancestor", b, base]).returncode == 0
 
+    if backend or frontend:
+        loaded = skills_loaded(wt, task.get("started_at") or "1970-01-01T00:00:00")
+        for skill, how in REQUIRED_SKILLS.items():
+            if skill not in loaded:
+                missing.append(f"skill {skill}: not loaded in this task's sessions. {how.format(base=base[:9])}")
     if backend:
         proof("test", f"backend tests ({len(backend)} file(s) under nirmaan_stack/ changed)",
               f"scripts/devenv/devenv.sh test --affected {base[:9]}", covers_base)

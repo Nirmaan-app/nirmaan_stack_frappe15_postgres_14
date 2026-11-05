@@ -6,8 +6,12 @@
 #   box.<name>.ssh       required  SSH target, <user>@<host>
 #   box.<name>.checkout  required  the repo's main checkout on the box, relative to the box user's home
 #   box.<name>.orca      optional  env:<paired Orca server name>. A box without it takes tasks only with --no-agent
-#   box.<name>.agents    optional  how many agents the box takes at once (read and checked; nothing acts on it yet)
-#   devbox.default       optional  the box for task.sh start without --box (with a single box, that box)
+#   box.<name>.agents    optional  how many agents the box takes at once (task.sh start counts it with devbox.order;
+#                                  1 when unset)
+#   devbox.order         optional  boxes in order of preference, space-separated: task.sh start without --box takes
+#                                  the first with a free agent (task.sh pick shows which and why)
+#   devbox.default       optional  the box for task.sh start without --box when devbox.order is unset (with a single
+#                                  box, that box)
 # <name>: lowercase letters, digits and dashes. Other keys under box.<name>. are ignored here.
 #
 # Setup, once, on the laptop. Fill in your own values:
