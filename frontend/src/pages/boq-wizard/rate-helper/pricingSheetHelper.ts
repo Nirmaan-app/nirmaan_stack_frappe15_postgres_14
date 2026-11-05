@@ -2572,7 +2572,13 @@ export interface ItemBlockView {
 
 /** VRF-3b (U1 / U2 / U3 / U8): one field of an extra line. */
 export interface ExtraFieldView {
-  id: "size" | "thickness" | "spec" | "length" | "count";
+  /** K1b: "family" (the line's item -- Change item), "size", "cladding", "thickness", "conductor", "armour", "cores", "sqmm",
+   *  "spec" (read-only), "length", "count" */
+  id: string;
+  /** VRF-3b K1b (owner 16:07, ANSWER 2): the line's ITEM, changed through "Change item" as on every item-list line */
+  changeItem?: true;
+  /** what a read-only value is in ("mm"); absent = shown as is */
+  suffix?: string;
   label: string;
   /** the value that PRICES (a typed rough size shows the closest stocked size -- "show the one used", 13:53) */
   value: string;
@@ -4153,22 +4159,17 @@ function withExtras(
   const icfg = configOf(x.insulation.category);
   const ispec = icfg ? itemListPricingSpec(icfg) : null;
   const numsOf = (vals: unknown[]) => [...new Set(vals.map(Number).filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b);
-  const copperSizes = pspec ? numsOf(items.filter((it) => kindIn(pspec, it.kind) && it.attributes?.[familyAttr(pspec)] === x.copper.family).map((it) => it.attributes?.[x.copper.size_attr])) : [];
-  const insSkus = ispec ? items.filter((it) => kindIn(ispec, it.kind) && it.attributes?.[familyAttr(ispec)] === x.insulation.family
-    && Object.entries(x.insulation.attrs).every(([k, v]) => !(k in (it.attributes ?? {})) || k === "cladding" || String(it.attributes?.[k]) === v)) : [];
-  const insSizes = numsOf(insSkus.map((it) => it.attributes?.[x.insulation.size_attr]));
-  const insThicknesses = numsOf(insSkus.map((it) => it.attributes?.[x.insulation.thickness_attr]));
-  const cableSpecs = (() => {
-    const seen = new Map<string, { cores: number; sqmm: number }>();
-    for (const it of items) {
-      if (String(it.kind) !== "cable") continue;
-      const a = it.attributes ?? {};
-      if (Object.entries(x.cable.attrs).some(([k, v]) => k in a && String(a[k]) !== v)) continue;
-      const cores = Number(a[x.cable.cores_attr]); const sq = Number(a[x.cable.size_attr]);
-      if (Number.isFinite(cores) && Number.isFinite(sq)) seen.set(cableSpecText(cores, sq), { cores, sqmm: sq });
-    }
-    return [...seen.entries()].sort((p, q) => p[1].cores - q[1].cores || p[1].sqmm - q[1].sqmm).map(([k]) => k);
-  })();
+  // VRF-3b K1b (owner ANSWER 2: "every value stocked in its own catalogue"): each line's choices, read off the live catalogue
+  const pipeFamilies = pspec ? Object.keys(pspec.families).filter((f) => items.some((it) => kindIn(pspec, it.kind) && it.attributes?.[familyAttr(pspec)] === f
+    && Number.isFinite(Number(it.attributes?.[x.copper.size_attr])))) : [];
+  const pipeSizesOf = (fam: string) => (pspec ? numsOf(items.filter((it) => kindIn(pspec, it.kind) && it.attributes?.[familyAttr(pspec)] === fam).map((it) => it.attributes?.[x.copper.size_attr])) : []);
+  const insPipeSkus = ispec ? items.filter((it) => kindIn(ispec, it.kind) && Number.isFinite(Number(it.attributes?.[x.insulation.size_attr])) && it.attributes?.[x.insulation.size_attr] !== null) : [];
+  const insFamilies = ispec ? Object.keys(ispec.families).filter((f) => insPipeSkus.some((it) => it.attributes?.[familyAttr(ispec)] === f)) : [];
+  const insOf = (fam: string, where: Record<string, string | number> = {}) => insPipeSkus.filter((it) => it.attributes?.[familyAttr(ispec!)] === fam
+    && Object.entries(where).every(([k, v]) => String(it.attributes?.[k]) === String(v)));
+  const strsOf = (vals: unknown[]) => [...new Set(vals.filter((v) => v !== null && v !== undefined && String(v).trim() !== "").map(String))];
+  const cableSkus = items.filter((it) => String(it.kind) === "cable");
+  const cableOf = (where: Record<string, string | number>) => cableSkus.filter((it) => Object.entries(where).every(([k, v]) => String(it.attributes?.[k]) === String(v)));
 
   // ONE per-metre rate per target + size, each from its own category's path (cached: a split row asks twice)
   const cache = new Map<string, { supply: number; install: number } | { reason: string }>();
@@ -4188,15 +4189,6 @@ function withExtras(
         ? { supply: v.totals.supply_rate, install: v.totals.install_rate }
         : { reason: v?.reason ?? v?.items?.[0]?.reason ?? L.not_priced };
     }
-    cache.set(key, out);
-    return out;
-  };
-  const cableRateOf = (cores: number, sqmm: number) => {
-    const key = `cable|${cores}|${sqmm}`;
-    if (cache.has(key)) return cache.get(key)!;
-    const out = cableRate
-      ? cableRate(x.cable.category, { ...x.cable.attrs, [x.cable.cores_attr]: String(cores), [x.cable.size_attr]: String(sqmm) })
-      : { reason: L.not_loaded.replace("{rules}", x.cable.label) };
     cache.set(key, out);
     return out;
   };
@@ -4290,13 +4282,18 @@ function withExtras(
       if (id === "copper_supply" || id === "copper_return") {
         const side = id === "copper_supply" ? "supply" : "return";
         const def = pipeRates && typeof pipeRates[`${side}_mm`] === "number" && pipeRates[`${side}_mm`] > 0 ? fmtMm(pipeRates[`${side}_mm`]) : undefined;
+        // K1b: the line's item -- Copper by default; any pipe Piping stocks through "Change item"
+        const fp = pick(id, "family", x.copper.family);
+        const fam = fp.raw;
+        const sizes = pipeSizesOf(fam);
         const p = pick(id, "size", def);
         const typedMm = readTypedSizeMm(p.raw);
-        const used = closestSize(typedMm, copperSizes);
+        const used = closestSize(typedMm, sizes);
         const value = used !== null ? fmtMm(used) : "";
-        const options = copperSizes.map(fmtMm);
+        const options = sizes.map(fmtMm);
         let why: string | undefined;
-        if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
+        if (!pipeFamilies.includes(fam)) why = L.choice_not_stocked.replace("{value}", fam).replace("{what}", L.rules_piping);
+        else if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
         else if (used === null) why = L.size_needed_unread.replace("{typed}", p.raw);
         const note = p.typed !== undefined && used !== null && p.typed.trim() !== value ? L.typed_note.replace("{typed}", p.typed.trim()).replace("{used}", value) : undefined;
         const otherMode = p.typed !== undefined && !options.includes(p.typed.trim());
@@ -4304,39 +4301,55 @@ function withExtras(
         const cntF = countField(id);
         copperUsed.set(side, { size: used, length: lenF.value });
         const fields: ExtraFieldView[] = [
+          { id: "family", label: L.label_family, value: fam, typedValue: "", options: pipeFamilies, changeItem: true,
+            ...(fp.tag ? { tag: fp.tag, tagText: tagText(fp.tag) } : {}), userEdited: fp.typed !== undefined },
           { id: "size", label: L.label_pipe_size, value, typedValue: p.typed ?? "", options, allowOther: true, otherMode, required: true,
             ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why ? { blank: true } : {}), ...(note ? { note } : {}) },
           lenF, cntF,
         ];
-        const rate = used !== null ? itemListRate(pcfg, pspec, x.copper.family, { [x.copper.size_attr]: value }, L.rules_piping) : null;
-        mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, `${value} mm`));
+        const rate = used !== null && !why ? itemListRate(pcfg, pspec, fam, { [x.copper.size_attr]: value }, L.rules_piping) : null;
+        // the working names the pipe only where it is not the default (Copper)
+        mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, fam === x.copper.family ? `${value} mm` : `${value} mm (${fam})`));
         continue;
       }
       if (id === "ins_supply" || id === "ins_return") {
         const side = id === "ins_supply" ? "supply" : "return";
         const cu = copperUsed.get(side);
-        const insSize = closestSize(cu?.size ?? null, insSizes);
+        // K1b: the line's item (Nitrile Rubber by default; any pipe insulation Insulation stocks), its cladding and thickness --
+        // each the choices the catalogue stocks on the copper line's size
+        const fp = pick(id, "family", x.insulation.family);
+        const fam = fp.raw;
+        const insSize = closestSize(cu?.size ?? null, numsOf(insOf(fam).map((it) => it.attributes?.[x.insulation.size_attr])));
+        const cp = pick(id, "cladding", x.insulation.attrs.cladding);
+        const cladOptions = insSize !== null ? strsOf(insOf(fam, { [x.insulation.size_attr]: insSize }).map((it) => it.attributes?.cladding)) : [];
+        const insThicknesses = insSize !== null ? numsOf(insOf(fam, { [x.insulation.size_attr]: insSize, ...(cladOptions.includes(cp.raw) ? { cladding: cp.raw } : {}) }).map((it) => it.attributes?.[x.insulation.thickness_attr])) : [];
         const def = pipeRates && typeof pipeRates.insulation_mm === "number" && pipeRates.insulation_mm > 0 ? fmtMm(pipeRates.insulation_mm) : undefined;
         const p = pick(id, "thickness", def);
         const th = readTypedSizeMm(p.raw);
         const thUsed = closestSize(th, insThicknesses);
         const thValue = thUsed !== null ? fmtMm(thUsed) : "";
         let why: string | undefined;
-        if (insSize === null) why = L.size_needed_copper;
+        if (!insFamilies.includes(fam)) why = L.choice_not_stocked.replace("{value}", fam).replace("{what}", L.rules_insulation);
+        else if (insSize === null) why = L.size_needed_copper;
+        else if (!cladOptions.includes(cp.raw)) why = L.choice_not_stocked.replace("{value}", cp.raw || "-").replace("{what}", `${fam} on ${fmtMm(insSize)} mm`);
         else if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
         else if (thUsed === null) why = L.size_needed_unread.replace("{typed}", p.raw);
         const lenF = lengthField(id, undefined, { text: cu?.length ?? "" });
         const cntF = countField(id);
         const sizeText = insSize !== null ? fmtMm(insSize) : "";
         const fields: ExtraFieldView[] = [
+          { id: "family", label: L.label_family, value: fam, typedValue: "", options: insFamilies, changeItem: true,
+            ...(fp.tag ? { tag: fp.tag, tagText: tagText(fp.tag) } : {}), userEdited: fp.typed !== undefined },
+          { id: "cladding", label: L.label_cladding, value: cladOptions.includes(cp.raw) ? cp.raw : "", typedValue: "", options: cladOptions, required: true,
+            ...(cp.tag ? { tag: cp.tag, tagText: tagText(cp.tag) } : {}), userEdited: cp.typed !== undefined, ...(insSize !== null && !cladOptions.includes(cp.raw) ? { blank: true } : {}) },
           { id: "thickness", label: L.label_thickness, value: thValue, typedValue: p.typed ?? "", options: insThicknesses.map(fmtMm), required: true,
-            ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why && insSize !== null ? { blank: true } : {}) },
-          { id: "size", label: L.label_pipe_size, value: sizeText, typedValue: "", readOnly: true, userEdited: false,
+            ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why && insSize !== null && cladOptions.includes(cp.raw) ? { blank: true } : {}) },
+          { id: "size", label: L.label_pipe_size, value: sizeText, typedValue: "", readOnly: true, userEdited: false, suffix: "mm",
             ...(insSize !== null ? { note: L.follows_size.replace("{x}", sizeText), tag: "follows" as const, tagText: tagText("follows") } : {}) },
           lenF, cntF,
         ];
-        const rate = insSize !== null && thUsed !== null
-          ? itemListRate(icfg, ispec, x.insulation.family, { ...x.insulation.attrs, [x.insulation.thickness_attr]: thValue, [x.insulation.size_attr]: sizeText }, L.rules_insulation)
+        const rate = !why && insSize !== null && thUsed !== null
+          ? itemListRate(icfg, ispec, fam, { ...x.insulation.attrs, cladding: cp.raw, [x.insulation.thickness_attr]: thValue, [x.insulation.size_attr]: sizeText }, L.rules_insulation)
           : null;
         mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, `${thValue} mm on ${sizeText} mm`));
         continue;
@@ -4344,22 +4357,54 @@ function withExtras(
       // power / communication cable
       const rates = id === "power" ? (powerBand ? pricingInputRates(items, powerBand.input) : null) : pricingInputRates(items, x.comm_input);
       const def = rates && typeof rates.cores === "number" && typeof rates.sqmm === "number" && rates.cores > 0 && rates.sqmm > 0 ? cableSpecText(rates.cores, rates.sqmm) : undefined;
-      const p = pick(id, "spec", def);
-      const parsed = parseCableSpec(p.raw);
-      const value = parsed ? cableSpecText(parsed.cores, parsed.sqmm) : p.raw;
+      // the spec as a whole (a typed "4C x 16", the BoQ's, else the Pricing Inputs default) seeds the cores and the size
+      const sp = pick(id, "spec", def);
+      const parsed = parseCableSpec(sp.raw);
+      const seeded = (field: string, seed: string | undefined) => {
+        const typed = set[id]?.[field];
+        if (typed !== undefined) return { raw: typed, tag: "picked" as const, typed };
+        const boq = said(id, field);
+        if (boq !== undefined) return { raw: boq, tag: "boq" as const, typed: undefined };
+        return { raw: seed ?? "", tag: seed !== undefined ? sp.tag : undefined, typed: undefined };
+      };
+      // K1b (owner ANSWER 2): conductor, armour, cores and size -- every value Electrical's wiring_cabling stocks (read only)
+      const mp = seeded("conductor", x.cable.attrs.material);
+      const ap = seeded("armour", x.cable.attrs.insulation);
+      const cp = seeded("cores", parsed ? String(parsed.cores) : undefined);
+      const zp = seeded("sqmm", parsed ? String(parsed.sqmm) : undefined);
+      // Electrical's own attribute ids for the conductor and the armour (its wiring_cabling definitions: material / insulation)
+      const M = "material";
+      const conductorOptions = strsOf(cableSkus.map((it) => it.attributes?.[M])).sort();
+      const armourOptions = strsOf(cableOf({ [M]: mp.raw }).map((it) => it.attributes?.insulation)).sort();
+      const coresOptions = numsOf(cableOf({ [M]: mp.raw, insulation: ap.raw }).map((it) => it.attributes?.[x.cable.cores_attr])).map(fmtMm);
+      const sqmmOptions = numsOf(cableOf({ [M]: mp.raw, insulation: ap.raw, [x.cable.cores_attr]: Number(cp.raw) }).map((it) => it.attributes?.[x.cable.size_attr])).map(fmtMm);
+      const cores = Number(cp.raw); const sqmm = Number(zp.raw);
+      const value = cp.raw !== "" && zp.raw !== "" && Number.isFinite(cores) && Number.isFinite(sqmm) ? cableSpecText(cores, sqmm) : "";
+      const stocked = value !== "" && cableOf({ [M]: mp.raw, insulation: ap.raw, [x.cable.cores_attr]: cores, [x.cable.size_attr]: sqmm }).length > 0;
       let why: string | undefined;
-      if (p.raw.trim() === "") why = id === "power" && bandValue !== null && !powerBand ? L.no_default.replace("{size}", sizeWords) : (bandValue === null && id === "power" ? L.size_needed_no_size : L.spec_needed);
-      else if (!parsed || !cableSpecs.includes(value)) why = L.not_stocked.replace("{spec}", p.raw.trim());
+      if (sp.raw.trim() === "" && cp.raw === "" && zp.raw === "") why = id === "power" && bandValue !== null && !powerBand ? L.no_default.replace("{size}", sizeWords) : (bandValue === null && id === "power" ? L.size_needed_no_size : L.spec_needed);
+      else if (!stocked) why = L.not_stocked.replace("{spec}", `${value || sp.raw.trim()} ${mp.raw.toLowerCase()} ${ap.raw.toLowerCase()}`.trim());
       const lenF = lengthField(id, lengthDefault(x.cable_length_input));
       const cntF = countField(id);
+      const tagOf = (q: { tag?: ExtraFieldView["tag"]; typed?: string }) => ({ ...(q.tag ? { tag: q.tag, tagText: tagText(q.tag) } : {}), userEdited: q.typed !== undefined });
       const fields: ExtraFieldView[] = [
-        { id: "spec", label: L.label_spec, value: cableSpecs.includes(value) ? value : "", typedValue: p.typed ?? "", options: cableSpecs, required: true,
-          ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why ? { blank: true } : {}),
-          note: L.cable_note },
+        { id: "conductor", label: L.label_conductor, value: conductorOptions.includes(mp.raw) ? mp.raw : "", typedValue: "", options: conductorOptions, required: true, ...tagOf(mp), ...(!conductorOptions.includes(mp.raw) ? { blank: true } : {}) },
+        { id: "armour", label: L.label_armour, value: armourOptions.includes(ap.raw) ? ap.raw : "", typedValue: "", options: armourOptions, required: true, ...tagOf(ap), ...(!armourOptions.includes(ap.raw) ? { blank: true } : {}) },
+        { id: "cores", label: L.label_cores, value: coresOptions.includes(cp.raw === "" ? "" : fmtMm(cores)) ? fmtMm(cores) : "", typedValue: "", options: coresOptions, required: true, ...tagOf(cp), ...(why ? { blank: true } : {}) },
+        { id: "sqmm", label: L.label_sqmm, value: sqmmOptions.includes(zp.raw === "" ? "" : fmtMm(sqmm)) ? fmtMm(sqmm) : "", typedValue: "", options: sqmmOptions, required: true, ...tagOf(zp), ...(why ? { blank: true } : {}) },
+        { id: "spec", label: L.label_spec, value: stocked ? value : "", typedValue: "", readOnly: true, userEdited: false, note: L.cable_note },
         lenF, cntF,
       ];
-      const rate = !why && parsed ? cableRateOf(parsed.cores, parsed.sqmm) : null;
-      mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, value));
+      const rate = !why && stocked && cableRate
+        ? (cache.get(`cable|${mp.raw}|${ap.raw}|${cores}|${sqmm}`) ?? (() => {
+            const r = cableRate(x.cable.category, { ...x.cable.attrs, [M]: mp.raw, insulation: ap.raw, [x.cable.cores_attr]: String(cores), [x.cable.size_attr]: String(sqmm) });
+            cache.set(`cable|${mp.raw}|${ap.raw}|${cores}|${sqmm}`, r);
+            return r;
+          })())
+        : (!why && stocked ? { reason: L.not_loaded.replace("{rules}", x.cable.label) } : null);
+      // the working names the conductor and the armour only where they are not the default (copper, unarmoured)
+      const isDefaultKind = mp.raw === x.cable.attrs.material && ap.raw === x.cable.attrs.insulation;
+      mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, isDefaultKind ? value : `${value} ${mp.raw.toLowerCase()} ${ap.raw.toLowerCase()}`));
     }
     lineViews.push(...mine);
     const removedList = want.filter((id) => removed.has(id)).map((id) => ({ id, label: titleOf(id) }));

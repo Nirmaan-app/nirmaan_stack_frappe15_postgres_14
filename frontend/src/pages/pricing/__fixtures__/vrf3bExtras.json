@@ -148,10 +148,10 @@
    "size_needed_copper": "Size needed. Its copper line has no size yet. Pick a size, or fill the table.",
    "no_default": "No default for this size ({size}) - pick a cable spec.",
    "spec_needed": "Cable spec needed. Pick a spec, or fill the table.",
-   "not_stocked": "{spec} unarmoured copper cable is not stocked - pick a spec.",
+   "not_stocked": "{spec} cable is not stocked - pick a spec.",
    "length_needed": "Length needed - type the length per Nos, or fill the table.",
    "count_needed": "How many in one Nos of this row is needed.",
-   "cable_note": "Copper, unarmoured (owner 2026-11-05). Priced by Electrical's cable rules, per metre.",
+   "cable_note": "Default: copper, unarmoured, the size from the Pricing Inputs (owner 2026-11-05); any cable Electrical stocks can be picked. Priced by Electrical's cable rules, per metre.",
    "not_loaded": "{rules}'s rules are not loaded here - price this line by hand.",
    "not_priced": "not priced",
    "rules_piping": "Piping",
@@ -159,7 +159,14 @@
    "working_rate": "{title} {size}: per metre by {rules}'s rules, supply {s} + install {i}",
    "working_nos": "Per Nos: {len} m x {s} = {S} supply; {len} m x {i} = {I} install (rounded up)",
    "working_count": "x {n} in one Nos of this row = {S} supply + {I} install",
-   "removed_note": "The helper will not add removed extras back on its own. The row prices without them."
+   "removed_note": "The helper will not add removed extras back on its own. The row prices without them.",
+   "label_family": "Item",
+   "label_cladding": "Cladding",
+   "label_conductor": "Conductor",
+   "label_armour": "Armour",
+   "label_cores": "Cores",
+   "label_sqmm": "Size (sqmm)",
+   "choice_not_stocked": "{value} is not stocked for {what} - pick another."
   }
  },
  "inputs": [

@@ -1230,6 +1230,7 @@ function ExtraTag({ f }: { f: ExtraFieldView }) {
  * lines the pricer removed ("You removed: ... [Put it back]"). */
 function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; index: number; onEdit: (op: ItemEditOp) => void; rateUnit: string }) {
   const [openOther, setOpenOther] = useState<Set<string>>(new Set());
+  const [picking, setPicking] = useState<string | null>(null);
   const ex = block.extras!;
   const closeOther = (key: string) => setOpenOther((s) => { const n = new Set(s); n.delete(key); return n; });
   const field = (l: ExtraLineView, f: ExtraFieldView) => {
@@ -1257,7 +1258,20 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
             )}
           </span>
           {f.readOnly ? (
-            <span className="text-xs" data-testid={`extra-readonly-${f.id}`}>{f.value ? `${f.value} mm` : "-"}</span>
+            <span className="text-xs" data-testid={`extra-readonly-${f.id}`}>{f.value ? `${f.value}${f.suffix ? ` ${f.suffix}` : ""}` : "-"}</span>
+          ) : f.changeItem ? (
+            // K1b (owner ANSWER 2): the line's item, changed through "Change item" as on every item-list line
+            <span className="flex items-center gap-1">
+              <span className="text-xs font-semibold" data-testid="extra-item">{f.value || "-"}</span>
+              <button
+                type="button"
+                onClick={() => setPicking((p) => (p === key ? null : key))}
+                className="h-6 rounded border bg-background px-1.5 text-[11px] hover:bg-muted"
+                data-testid="extra-change-item"
+              >
+                Change item
+              </button>
+            </span>
           ) : f.options ? (
             <span className="flex items-center gap-1">
               <select
@@ -1294,6 +1308,14 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
             />
           )}
         </div>
+        {f.changeItem && picking === key && (
+          <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="extra-item-picker">
+            {(f.options ?? []).map((o) => (
+              <button key={o} type="button" onClick={() => { setPicking(null); set(o); }} className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted">{o}</button>
+            ))}
+            <button type="button" onClick={() => setPicking(null)} className="border-t px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-muted">Cancel</button>
+          </div>
+        )}
         {f.note && (
           <div className={NOTE_BOX_CLASS}>
             <Info className={NOTE_ICON_CLASS} aria-hidden />

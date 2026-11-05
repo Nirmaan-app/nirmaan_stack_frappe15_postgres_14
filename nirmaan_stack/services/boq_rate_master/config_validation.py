@@ -1134,10 +1134,13 @@ _EXTRAS_LINES = {"includes_title", "heading_tail", "from_copper", "from_insulati
                  "tag_default", "tag_picked", "tag_boq", "tag_follows", "tag_assumed", "follows_size", "typed_note",
                  "size_needed_no_size", "size_needed_no_default", "size_needed_unread", "size_needed_copper", "no_default",
                  "spec_needed", "not_stocked", "length_needed", "count_needed", "cable_note", "not_loaded", "not_priced",
-                 "rules_piping", "rules_insulation", "working_rate", "working_nos", "working_count", "removed_note"}
+                 "rules_piping", "rules_insulation", "working_rate", "working_nos", "working_count", "removed_note",
+                 # VRF-3b K1b (owner ANSWER 2): the catalogue-wide choice boxes
+                 "label_family", "label_cladding", "label_conductor", "label_armour", "label_cores", "label_sqmm", "choice_not_stocked"}
 _EXTRAS_PLACEHOLDERS = {"follows_size": ["{x}"], "typed_note": ["{typed}", "{used}"], "size_needed_no_default": ["{size}"],
                         "size_needed_unread": ["{typed}"], "no_default": ["{size}"], "not_stocked": ["{spec}"],
                         "not_loaded": ["{rules}"], "working_rate": ["{s}", "{i}"], "working_nos": ["{len}", "{S}", "{I}"],
+                        "choice_not_stocked": ["{value}", "{what}"],
                         "working_count": ["{n}", "{S}", "{I}"]}
 
 

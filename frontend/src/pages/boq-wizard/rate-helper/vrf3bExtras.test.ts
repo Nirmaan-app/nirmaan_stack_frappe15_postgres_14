@@ -186,7 +186,8 @@ describe("VRF-3b SIZES (AC1 / AC3) -- the closest stocked size; a typed size (mm
     const v = run([{ ...ODU10, extras: { set: { copper_supply: { size: "big" }, power: { spec: "3C x 400" } } } }]);
     expect(byId(v, "copper_supply").reason).toBe("Size needed. \"big\" is not a size. Pick a size, or fill the table.");
     expect(byId(v, "ins_supply").reason).toBe("Size needed. Its copper line has no size yet. Pick a size, or fill the table.");
-    expect(byId(v, "power").reason).toBe("3C x 400 unarmoured copper cable is not stocked - pick a spec.");
+    // K1b (owner ANSWER 2): the sentence names the conductor and the armour picked (BEFORE: "3C x 400 unarmoured copper cable ...")
+    expect(byId(v, "power").reason).toBe("3C x 400 copper unarmoured cable is not stocked - pick a spec.");
     expect(v.rowPriced).toBe(false);
     expect(v.lineCount).toEqual({ lines: 7, bad: 3 });
   });
@@ -372,5 +373,77 @@ describe("VRF-3b Derivation tab (13e) -- the extras' rules, written from the con
     const band = itemListRuleOrder(withExtras(), ITEMS as never).find((l) => l.title === NEW[1])!.detail!;
     expect(band).toContain("pipes: indoor up to 4 TR, above 4 TR; outdoor up to 12 HP, above 12 up to 20 HP, above 20 HP");
     expect(band).toContain("Power cable: indoor up to 4 TR, above 4 up to 8 TR (above that, no default - pick a spec); outdoor up to 8 HP, above 8 up to 14 HP, above 14 HP");
+  });
+});
+
+
+describe("VRF-3b K1b (owner ANSWER 2, 15:31 + 16:07 'ok with b') -- every extra line's choices are its own catalogue's", () => {
+  it("copper: the item is Copper by default and Change item lists every pipe Piping stocks; the size lists every size of that pipe", () => {
+    const v = run([ODU10], "copper");
+    const cs = byId(v, "copper_supply");
+    expect(fieldOf(cs, "family")).toMatchObject({ value: "Copper", changeItem: true, options: ["Copper", "MS", "PVC", "CPVC"], tagText: "default (Pricing Inputs)" });
+    expect(fieldOf(cs, "size").options).toEqual(["6.4", "9.5", "12.7", "15.9", "19.1", "22.2", "25.4", "28.6", "31.7", "34.9", "38.1", "41.3", "47.6"]);
+    // a non-default copper size: picked by you, priced by Piping's rules
+    const p = run([{ ...ODU10, extras: { set: { copper_supply: { size: "28.6" } } } }], "copper");
+    expect(fig(byId(p, "copper_supply"))).toEqual([73140, 6600]);
+    expect(fieldOf(byId(p, "copper_supply"), "size").tagText).toBe("picked by you");
+    // Change item -> MS: the sizes are MS's, the rate MS's own (Piping's rules)
+    const ms = run([{ ...ODU10, extras: { set: { copper_supply: { family: "MS", size: "25" } } } }], "copper");
+    const m = byId(ms, "copper_supply");
+    expect(fieldOf(m, "family")).toMatchObject({ value: "MS", tagText: "picked by you", userEdited: true });
+    expect(fieldOf(m, "size").options).not.toEqual(fieldOf(cs, "size").options);
+    expect(m.state).toBe("priced");
+    expect(m.working[0]).toContain("25 mm (MS): per metre by Piping's rules");
+    // MS's own figure, not Copper's at the nearest size
+    const cu25 = byId(run([{ ...ODU10, extras: { set: { copper_supply: { size: "25.4" } } } }], "copper"), "copper_supply");
+    expect(m.figures.supply_rate).not.toBe(cu25.figures.supply_rate);
+  });
+  it("insulation: the item (Nitrile Rubber by default; Tubular Puf), the cladding and the thickness Insulation stocks on the copper size", () => {
+    const v = run([ODU10], "copper,insulation");
+    const ins = byId(v, "ins_supply");
+    expect(fieldOf(ins, "family")).toMatchObject({ value: "Nitrile Rubber Insulation", options: ["Nitrile Rubber Insulation", "Tubular Puf Insulation"], changeItem: true });
+    expect(fieldOf(ins, "cladding").value).toBe("No");
+    expect(fieldOf(ins, "cladding").options).toEqual(expect.arrayContaining(["No", "24G Aluminium", "26G Aluminium", "Glass Cloth with paint"]));
+    expect(fieldOf(ins, "thickness").options).toEqual(["13", "19", "25"]);
+    // an insulation with cladding: picked by you, re-priced by Insulation's rules, more than the bare one
+    const c = run([{ ...ODU10, extras: { set: { ins_supply: { cladding: "24G Aluminium" } } } }], "copper,insulation");
+    const ci = byId(c, "ins_supply");
+    expect(ci.state).toBe("priced");
+    expect(fieldOf(ci, "cladding").tagText).toBe("picked by you");
+    expect(ci.figures.supply_rate!).toBeGreaterThan(7950);
+    // undo puts the default back
+    const u = applyItemEdit({ items: [{ ...ODU10, extras: { set: { ins_supply: { cladding: "24G Aluminium" } } } } as never] }, { op: "extra_undo", index: 0, line: "ins_supply", field: "cladding" });
+    expect(fig(byId(run(u.items as never, "copper,insulation"), "ins_supply"))).toEqual([7950, 420]);
+    // NEGATIVE: a cladding the catalogue does not stock on that size holds the line by name
+    const bad = run([{ ...ODU10, extras: { set: { ins_supply: { cladding: "Aluminium Foil" } } } }], "copper,insulation");
+    expect(byId(bad, "ins_supply").reason).toBe("Aluminium Foil is not stocked for Nitrile Rubber Insulation on 22.23 mm - pick another.");
+  });
+  it("cable: conductor, armour, cores and size list every value Electrical stocks (read only); an armoured or aluminium cable prices by Electrical's rules", () => {
+    const v = run([ODU10], "power");
+    const p = byId(v, "power");
+    expect(fieldOf(p, "conductor")).toMatchObject({ value: "COPPER", options: ["ALUMINIUM", "COPPER"], tagText: "default (Pricing Inputs)" });
+    expect(fieldOf(p, "armour")).toMatchObject({ value: "UNARMOURED", options: ["ARMOURED", "UNARMOURED"] });
+    expect(fieldOf(p, "cores").value).toBe("4");
+    expect(fieldOf(p, "sqmm").value).toBe("10");
+    expect(fieldOf(p, "spec")).toMatchObject({ value: "4C x 10", readOnly: true });
+    const arm = run([{ ...ODU10, extras: { set: { power: { armour: "ARMOURED" } } } }], "power");
+    const a = byId(arm, "power");
+    expect(a.state).toBe("priced");
+    expect(fieldOf(a, "armour").tagText).toBe("picked by you");
+    // Electrical's own armoured discount / markup: 740 per metre -> 22,200 per Nos (not the unarmoured 28,500)
+    expect(a.figures.supply_rate).toBe(22200);
+    expect(a.working[0]).toContain("4C x 10 copper armoured");
+    const al = run([{ ...ODU10, extras: { set: { power: { conductor: "ALUMINIUM", armour: "ARMOURED", cores: "4", sqmm: "16" } } } }], "power");
+    expect(byId(al, "power").state).toBe("priced");
+    expect(byId(al, "power").working[0]).toContain("per metre by Electrical's rules");
+    // NEGATIVE: a combination Electrical does not stock holds the line by name
+    const no = run([{ ...ODU10, extras: { set: { power: { conductor: "ALUMINIUM", cores: "6", sqmm: "1.5" } } } }], "power");
+    expect(byId(no, "power").reason).toBe("6C x 1.5 aluminium unarmoured cable is not stocked - pick a spec.");
+  });
+  it("the panel draws Change item on an extra line and the read-only spec with its own unit", () => {
+    const RHP_SRC = readFileSync(new URL("./RateHelperPanel.tsx", import.meta.url), "utf8");
+    expect(RHP_SRC).toContain('data-testid="extra-change-item"');
+    expect(RHP_SRC).toContain('data-testid="extra-item-picker"');
+    expect(RHP_SRC).toContain("{f.value ? `${f.value}${f.suffix ? ` ${f.suffix}` : \"\"}` : \"-\"}");
   });
 });
