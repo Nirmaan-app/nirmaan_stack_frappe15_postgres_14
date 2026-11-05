@@ -20,6 +20,7 @@ import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { SelfFetchingFacetFilter } from "./SelfFetchingFacetFilter";
 import { getColumnFacet, FacetOverrides } from "./facetConfig";
+import { tableMaxHeight } from "./tableHeightModel";
 import { DataTableDateFilter } from "./data-table-date-filter";
 import { TableBodySkeleton } from "@/components/ui/skeleton";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -135,6 +136,39 @@ export function DataTable<T>({
 
   /* ───────── virtualizer ───────── */
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const paginationRef = React.useRef<HTMLDivElement>(null);
+
+  /* ───────── box height: fit the screen below the table (tableHeightModel.ts) ───────── */
+  // Measured against the app shell's <main>, the page's scroll area. Outside it the box keeps
+  // whatever height its parent gives it.
+  const [boxMaxHeight, setBoxMaxHeight] = React.useState<number>();
+  React.useEffect(() => {
+    const box = parentRef.current;
+    const scroller = box?.closest("main");
+    if (!box || !scroller) return;
+    const measure = () => {
+      const pagination = paginationRef.current;
+      if (!box.offsetParent || !pagination) return; // hidden, e.g. an inactive tab
+      const boxRect = box.getBoundingClientRect();
+      const scrollerStyle = getComputedStyle(scroller);
+      const next = tableMaxHeight({
+        viewportHeight: scroller.clientHeight,
+        boxTop: boxRect.top - scroller.getBoundingClientRect().top + scroller.scrollTop,
+        reserveBelow: pagination.getBoundingClientRect().bottom - boxRect.bottom + parseFloat(scrollerStyle.paddingBottom),
+        topGap: parseFloat(scrollerStyle.paddingTop),
+      });
+      setBoxMaxHeight(prev => (prev === next ? prev : next));
+    };
+    measure();
+    // Re-measure when the window resizes or anything on the page changes height (a summary card
+    // loading above the table moves it down). The result never depends on the box's own height,
+    // so its own resizes settle on the same value.
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    observer.observe(box);
+    Array.from(scroller.children).forEach(child => observer.observe(child));
+    return () => observer.disconnect();
+  }, []);
 
   const rows = table.getRowModel().rows;
   const rowVirtualizer = useVirtualizer({
@@ -251,6 +285,7 @@ export function DataTable<T>({
 
       {/* ───── Table container ───── */}
       <div ref={parentRef}
+        style={boxMaxHeight ? { maxHeight: boxMaxHeight } : undefined}
         className={`rounded-md border overflow-x-auto flex-1 overflow-y-auto relative`}>
         {/* Setting position relative for proper stacking context */}
 
@@ -455,7 +490,7 @@ export function DataTable<T>({
       </div>
 
       {/* pagination */}
-      <div className="flex-shrink-0 border-t pt-2 mt-2">
+      <div ref={paginationRef} className="flex-shrink-0 border-t pt-2 mt-2">
         <DataTablePagination table={table} totalCount={totalCount} isLoading={isLoading} />
       </div>
     </div>
