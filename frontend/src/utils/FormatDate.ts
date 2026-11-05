@@ -1,15 +1,15 @@
+// Built once: `toLocaleString(…)` builds a new formatter on every call, three per date, in every table cell.
+// `undefined` is the browser's language, as 'default' was.
+const DAY_FORMAT = new Intl.DateTimeFormat(undefined, { day: '2-digit' });
+const MONTH_FORMAT = new Intl.DateTimeFormat(undefined, { month: 'short' });
+const YEAR_FORMAT = new Intl.DateTimeFormat(undefined, { year: 'numeric' });
+
+/** "05-Nov-2026" in the browser's language. */
 export const formatDate = (dateString: Date | string) => {
-    // if (!dateString) return "";
-    // return new Intl.DateTimeFormat('en-GB', {
-    //     day: '2-digit',
-    //     month: 'short',
-    //     year: 'numeric',
-    // }).format(new Date(dateString));
-    let date = new Date(dateString);
-    const day = date.toLocaleString('default', { day: '2-digit' });
-    const month = date.toLocaleString('default', { month: 'short' });
-    const year = date.toLocaleString('default', { year: 'numeric' });
-    return day + '-' + month + '-' + year;
+    const date = new Date(dateString);
+    // `toLocaleString` printed "Invalid Date" for each part; `format` throws instead, so keep the old text.
+    if (isNaN(date.getTime())) return 'Invalid Date-Invalid Date-Invalid Date';
+    return DAY_FORMAT.format(date) + '-' + MONTH_FORMAT.format(date) + '-' + YEAR_FORMAT.format(date);
 };
 
 export const convertDate = (dateString: string) => {
