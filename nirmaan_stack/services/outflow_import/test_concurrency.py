@@ -58,7 +58,7 @@ class TestNothingElseIsRecognised(unittest.TestCase):
         self.assertFalse(is_concurrent_writer_refusal(ValueError("bad")))
 
 
-THE_INDEX = "ofm_match_settled_target_unique"
+ASKED_INDEX = "made_up_unique_index"
 
 
 def _unique_violation_by(constraint_name: str) -> pg_errors.UniqueViolation:
@@ -73,36 +73,36 @@ def _unique_violation_by(constraint_name: str) -> pg_errors.UniqueViolation:
 
 class TestAUniqueRefusalIsRecognisedByItsIndexName(unittest.TestCase):
     def test_a_unique_violation_by_the_named_index_is_recognised(self):
-        self.assertTrue(is_unique_refusal_by_index(_unique_violation_by(THE_INDEX), THE_INDEX))
+        self.assertTrue(is_unique_refusal_by_index(_unique_violation_by(ASKED_INDEX), ASKED_INDEX))
 
     def test_the_violation_wrapped_the_way_frappe_wraps_it_is_recognised(self):
         """Frappe re-raises a unique violation as `UniqueValidationError(doctype, name, exc)`, chained from it."""
-        violation = _unique_violation_by(THE_INDEX)
+        violation = _unique_violation_by(ASKED_INDEX)
         try:
             try:
                 raise violation
             except pg_errors.UniqueViolation as exc:
                 raise frappe.UniqueValidationError("Outflow Row Match", "ofm-0001", exc) from exc
         except frappe.UniqueValidationError as wrapped:
-            self.assertTrue(is_unique_refusal_by_index(wrapped, THE_INDEX))
+            self.assertTrue(is_unique_refusal_by_index(wrapped, ASKED_INDEX))
 
     def test_the_violation_carried_only_in_the_wrappers_args_is_recognised(self):
-        wrapped = frappe.UniqueValidationError("Outflow Row Match", "ofm-0001", _unique_violation_by(THE_INDEX))
-        self.assertTrue(is_unique_refusal_by_index(wrapped, THE_INDEX))
+        wrapped = frappe.UniqueValidationError("Outflow Row Match", "ofm-0001", _unique_violation_by(ASKED_INDEX))
+        self.assertTrue(is_unique_refusal_by_index(wrapped, ASKED_INDEX))
 
     def test_a_unique_violation_by_another_index_is_NOT_recognised(self):
         """⚠️ THE NAME IS THE TEST, NEVER THE CLASS: another unique key must not be relabelled as this one."""
-        self.assertFalse(is_unique_refusal_by_index(_unique_violation_by("some_other_unique_index"), THE_INDEX))
+        self.assertFalse(is_unique_refusal_by_index(_unique_violation_by("some_other_unique_index"), ASKED_INDEX))
 
     def test_a_unique_violation_with_no_index_name_is_NOT_recognised(self):
-        self.assertFalse(is_unique_refusal_by_index(pg_errors.UniqueViolation("duplicate key"), THE_INDEX))
+        self.assertFalse(is_unique_refusal_by_index(pg_errors.UniqueViolation("duplicate key"), ASKED_INDEX))
 
     def test_a_deadlock_is_NOT_recognised(self):
-        self.assertFalse(is_unique_refusal_by_index(pg_errors.DeadlockDetected("deadlock"), THE_INDEX))
-        self.assertFalse(is_unique_refusal_by_index(frappe.QueryDeadlockError("deadlock"), THE_INDEX))
+        self.assertFalse(is_unique_refusal_by_index(pg_errors.DeadlockDetected("deadlock"), ASKED_INDEX))
+        self.assertFalse(is_unique_refusal_by_index(frappe.QueryDeadlockError("deadlock"), ASKED_INDEX))
 
     def test_an_application_error_is_NOT_recognised(self):
-        self.assertFalse(is_unique_refusal_by_index(frappe.ValidationError(THE_INDEX), THE_INDEX))
+        self.assertFalse(is_unique_refusal_by_index(frappe.ValidationError(ASKED_INDEX), ASKED_INDEX))
 
 
 if __name__ == "__main__":

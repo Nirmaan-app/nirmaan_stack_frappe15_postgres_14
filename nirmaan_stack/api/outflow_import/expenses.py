@@ -77,8 +77,9 @@ from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
 from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
-# `allocation_note` moved here from a private `expenses.py` helper at review -- it is pure
-# arithmetic-plus-wording over legs, which is this module's job, not `api/`'s.
+# `allocation` also holds `allocation_note` (moved there from a private `expenses.py` helper at
+# review; `row_settlement` reads it) -- it is pure arithmetic-plus-wording over legs, which is that
+# module's job, not `api/`'s.
 from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_SETTLED,
     allocated_of,
