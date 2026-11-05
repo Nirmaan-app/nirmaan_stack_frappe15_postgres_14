@@ -90,8 +90,10 @@ class ExpenseTdsRule:
     """The tax one expense type withholds, and which request answers name who it is withheld from."""
 
     expense_type: str
-    #: Percent of the amount as approved.
+    #: Percent of the BASE RENT withheld (never of the GST on it).
     rate: float
+    #: Percent GST the bill carries on the base rent (spec #1613): the amount typed is the bill incl. it.
+    gst_rate: float
     #: `Payment TDS Deduction.tds_section`.
     section: str
     #: The request form's answer keys (`Expense Request.source_data`) holding the deductee.
@@ -108,6 +110,7 @@ class ExpenseTdsRule:
 OFFICE_RENT_TDS = ExpenseTdsRule(
     expense_type="Office Rent",
     rate=10.0,
+    gst_rate=18.0,
     section=TDS_SECTION_RENT,
     deductee_name_key="landlord_name",
     deductee_pan_key="landlord_pan",
@@ -122,18 +125,51 @@ def tds_rule_for(expense_type: str | None) -> ExpenseTdsRule | None:
     return next((rule for rule in EXPENSE_TDS_RULES if rule.expense_type == wanted), None)
 
 
-def tds_split(expense_type: str | None, amount) -> tuple[float, float, float] | None:
-    """`(gross, tds, net)` an Expense of this type and amount withholds, to the paisa as the Work Order
-    rule (`payment_tds.record_deduction`) rounds; None for a type with no rule, a zero or a refund.
-    No query, but `flt(x, 2)` reads the site's rounding method, so it needs a site."""
+#: The rounding of every figure of the split. Pinned, not the site's setting, so the split needs no site and
+#: its frontend twin (`expenseTds.round2`, which reads this name in its parity test) rounds the same way:
+#: a TDS of a base ending in 5 paise falls on a half paisa (Rs 10,010 -> 848.305), and half-to-even and
+#: half-up differ there. It is what the site is set to today.
+SPLIT_ROUNDING = "Banker's Rounding"
+
+
+def _round2(value) -> float:
+    return flt(value, 2, rounding_method=SPLIT_ROUNDING)
+
+
+@dataclass(frozen=True)
+class RentSplit:
+    """An Office Rent bill split (spec #1613): `base + gst == bill`, `landlord_gets == bill - tds`."""
+
+    #: The amount typed: the landlord's bill, incl. GST.
+    bill: float
+    #: The base rent, bill / 1.18: the tax record's gross.
+    base: float
+    #: bill - base: kept on the Expense (`gst_amount`).
+    gst: float
+    #: 10% of the base rent.
+    tds: float
+    #: bill - tds: the Expense's amount once approved.
+    landlord_gets: float
+
+
+def tds_split(expense_type: str | None, amount) -> RentSplit | None:
+    """The split an Expense of this type and bill withholds, to the paisa; None for a type with no rule,
+    a zero or a refund. Pure: no query and no site.
+
+    base = round2(bill / 1.18), gst = round2(bill - base), tds = round2(base x 10%), landlord gets =
+    round2(bill - tds). Base + GST is the bill exactly: a bill in whole paise never divides by 1.18 onto
+    a half paisa, and the subtraction is exact."""
     rule = tds_rule_for(expense_type)
     if rule is None:
         return None
-    gross = flt(amount, 2)
-    tds = flt(gross * rule.rate / 100.0, 2)
-    if gross <= 0 or tds <= 0 or tds >= gross:
+    bill = _round2(amount)
+    if bill <= 0:
         return None
-    return gross, tds, flt(gross - tds, 2)
+    base = _round2(bill / (1 + rule.gst_rate / 100.0))
+    tds = _round2(base * rule.rate / 100.0)
+    if tds <= 0 or tds >= base:
+        return None
+    return RentSplit(bill=bill, base=base, gst=_round2(bill - base), tds=tds, landlord_gets=_round2(bill - tds))
 
 
 def withholds_now(doctype: str | None, expense_type: str | None, previous_status: str | None,
