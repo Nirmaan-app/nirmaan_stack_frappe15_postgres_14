@@ -12,8 +12,8 @@ reads the split on the Expenses list, the request page and the Non-Project Expen
 - `rent-preview` the New Expense form's line under the Amount: `Bill ₹1,18,000 = Rent ₹1,00,000 + GST 18% ₹18,000
   − TDS 10% ₹10,000 → Landlord gets ₹1,08,000`.
 - `rent-approve` the Approve Payments row and the approve dialog's breakdown (Bill, Rent, GST 18%, TDS 10%,
-  Landlord gets) and caption "10% TDS (194-I) on the rent will be withheld on approval"; ₹55,000 or more needs
-  Admin, above ₹50,000 then the CEO.
+  Landlord gets) and caption "10% TDS (194-I) on the rent will be withheld on approval"; a bill from ₹15,000 needs
+  Admin, and above ₹50,000 then the CEO.
 - `rent-split` after the approval that lands on Approved: Expense amount ₹1,08,000, `gst_amount` ₹18,000; one
   `Payment TDS Deduction`: gross ₹1,00,000, 10%, ₹10,000, 194-I, the landlord's name and PAN.
 - `rent-register` the TDS register (Reports > Payment) row: Gross Amount ₹1,00,000 (switch it on in the View
