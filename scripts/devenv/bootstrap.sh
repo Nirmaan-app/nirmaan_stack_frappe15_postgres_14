@@ -161,6 +161,8 @@ bench() {
     inside "cd frappe-bench && bench setup requirements $(lock '" ".join(d["apps_txt"])')" > "$ROOT/logs-bootstrap-requirements.log" 2>&1 \
       || { tail -20 "$ROOT/logs-bootstrap-requirements.log"; die "bench setup requirements failed"; }
     pins_check --fix-git >/dev/null || true   # pylock or bump decides; pip leaves a PyPI release where a git pin is asked
+    # bench rewrote sites/apps.txt in directory order, which on Linux is not the locked order.
+    lock '"\n".join(d["apps_txt"])' > "$BENCH/sites/apps.txt"
     ok "requirements installed"
   fi
 }
