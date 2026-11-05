@@ -538,7 +538,8 @@ function Toolbar(props: {
             id={searchInputId}
             className="h-9 w-full sm:w-[250px] lg:w-[300px]"
             placeholder={ph} value={props.searchTerm}
-            onChange={e => props.onSearchTermChange(e.target.value)} />
+            onChange={e => props.onSearchTermChange(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") props.table.options.meta?.flushSearch?.(); }} />
         </div>
       ) : (
         <div /> // Render an empty div to maintain flexbox justify-between layout

@@ -16,6 +16,7 @@ import {
     Row,
     getFilteredRowModel,
     TableMeta,
+    RowData,
     getPaginationRowModel,
 } from '@tanstack/react-table';
 import { useFrappeDocTypeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
@@ -27,8 +28,18 @@ import { fuzzyFilter } from '@/components/data-table/data-table-models';
 import { toast } from '@/components/ui/use-toast';
 import { isCsrfError } from '@/utils/csrfUtils';
 
+declare module '@tanstack/react-table' {
+    interface TableMeta<TData extends RowData> {
+        /** Search now with the text typed so far, skipping the wait (Enter in the search box). Set by `useServerDataTable`. */
+        flushSearch?: () => void;
+        /** Pages keep passing their own fields (`dateRange` in ProjectReports). */
+        [key: string]: unknown;
+    }
+}
+
 // --- Configuration ---
-const DEBOUNCE_DELAY = 500;
+// The wait after the last keystroke before searching; Enter searches at once (`flushSearch`).
+const DEBOUNCE_DELAY = 300;
 
 
 // --- Base SWR Key Prefix for this hook's data ---
@@ -394,7 +405,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // Use custom endpoint if provided, otherwise default to generic enhanced list
     // Use custom endpoint if provided, otherwise default to generic enhanced list
     const apiEndpoint = customApiEndpoint || 'nirmaan_stack.api.data-table.get_list_with_count_enhanced';
-    const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint); // Get Frappe call method from context
+    const { call: triggerFetch, loading: isCallingApi, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint); // Get Frappe call method from context
     const { call: triggerExportFetch } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint);
 
     // --- SWR Mutate for Cache Invalidation ---
@@ -626,7 +637,12 @@ export function useServerDataTable<TData extends { name: string }>({
     // Use useRef to prevent fetching on initial mount if desired, or manage initial fetch state.
     // const isInitialMount = useRef(true);
 
-    const fetchData = useCallback(async (isRefetch = false) => {
+    // Each fetch takes the next number; only the newest one may show its reply. A filter, search or page
+    // change made while an earlier request is still running starts its own request, and whichever reply
+    // arrives last, the table ends on the newest request's rows (Speed Plan bug B2).
+    const latestRequestRef = useRef(0);
+
+    const fetchData = useCallback(async () => {
         // --- If clientData is provided, we don't fetch from backend ---
         if (isClientSideMode) {
             // console.log("[useServerDataTable] Client-side mode: Using provided clientData.");
@@ -638,9 +654,7 @@ export function useServerDataTable<TData extends { name: string }>({
         }
         // --- End clientData handling ---
 
-        // Don't fetch if already loading, unless it's a manual refetch trigger
-        if (isLoading && !isRefetch) return;
-
+        const requestId = ++latestRequestRef.current;
         setIsLoading(true); // Set loading true when fetch starts
         setIsAggregatesLoading(true); // Start aggregates loading
         setError(null); // Clear previous error
@@ -720,6 +734,7 @@ export function useServerDataTable<TData extends { name: string }>({
 
         try {
             const response = await triggerFetch(payload);
+            if (requestId !== latestRequestRef.current) return; // a newer request has started: its rows win
             if (response.message) {
                 setData(response.message.data);
                 setTotalCount(response.message.total_count);
@@ -734,6 +749,7 @@ export function useServerDataTable<TData extends { name: string }>({
                 setGroupByResult(null); // NEW
             }
         } catch (err: any) {
+            if (requestId !== latestRequestRef.current) return;
             console.error("Error fetching data via custom backend adapter:", err);
 
             // Check if this is a CSRF error and show user-friendly message
@@ -752,8 +768,10 @@ export function useServerDataTable<TData extends { name: string }>({
             setAggregates(null); // Reset on error
             setGroupByResult(null); // NEW
         } finally {
-            setIsLoading(false); // Set loading false when fetch completes
-            setIsAggregatesLoading(false); // Stop aggregates loading
+            if (requestId === latestRequestRef.current) { // an older reply leaves the newer request loading
+                setIsLoading(false);
+                setIsAggregatesLoading(false);
+            }
         }
     }, [
         isClientSideMode,
@@ -815,16 +833,16 @@ export function useServerDataTable<TData extends { name: string }>({
         if (isClientSideMode) {
             return;
         }
-        console.log("calling fetchData...");
         fetchData();
     }, [fetchData, isClientSideMode]); // Dependency is the memoized fetchData function
 
     // --- Real-time Event Listener using useFrappeEventListener ---
     const handleRealtimeEvent = useCallback((message: any) => {
-        console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
+        // Development builds only: these show whether live updates reach an open table (Speed Plan bug B1).
+        if (import.meta.env.DEV) console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
         // Check if the event is relevant to the current doctype
         if (!isClientSideMode && message?.doctype === doctype) {
-            console.log(`[useServerDataTable ${doctype}] Relevant event received. Invalidating cache and refetching.`);
+            if (import.meta.env.DEV) console.log(`[useServerDataTable ${doctype}] Relevant event received. Invalidating cache and refetching.`);
 
             // --- SWR Cache Invalidation ---
             // Invalidate based on a prefix to catch all variations of filters/pagination for this list
@@ -842,7 +860,7 @@ export function useServerDataTable<TData extends { name: string }>({
             // mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: true });
 
             // Since we manage data with useState now, we might need to directly trigger fetchData
-            fetchData(true); // Call fetchData directly to update our local state
+            fetchData(); // Call fetchData directly to update our local state
             toast({ title: "Data Updated", description: "Data updated successfully.", variant: "success" });
         }
     }, [doctype, apiEndpoint, mutate, fetchData, isClientSideMode]); // Add fetchData to deps
@@ -861,10 +879,16 @@ export function useServerDataTable<TData extends { name: string }>({
         [reviseRowSelection],
     );
 
+    // The page's own meta, plus Enter-to-search for the shared search box.
+    const tableMeta = useMemo<TableMeta<TData>>(
+        () => ({ ...meta, flushSearch: () => debouncedSetApiSearchTerm.flush() }),
+        [meta, debouncedSetApiSearchTerm]
+    );
+
     // --- TanStack Table Instance ---
     const table = useReactTable<TData>({
         data,
-        meta,
+        meta: tableMeta,
         columns: userDefinedDisplayColumns,
         // Manual server-side operations
         manualPagination: !isClientSideMode,
@@ -926,7 +950,7 @@ export function useServerDataTable<TData extends { name: string }>({
     const refetch = useCallback(() => {
         if (!isClientSideMode) {
             // console.log(`[useServerDataTable ${doctype}] Manual refetch triggered (server-side mode).`);
-            fetchData(true);
+            fetchData();
         } else {
             // console.log(`[useServerDataTable ${doctype}] Manual refetch triggered (client-side mode) - no server action.`);
             // In client mode, a "refetch" might mean re-evaluating the clientData source,
@@ -1001,7 +1025,9 @@ export function useServerDataTable<TData extends { name: string }>({
         data,
         totalCount,
         isLoading: isLoading || isCallingApi,
-        error: (error || apiError) as Error | null,
+        // Only the newest request's failure (set in `fetchData`). The SDK call's own `error` is one state shared by
+        // every call, so a superseded request failing late would show its error over the newer request's rows.
+        error,
         // Expose states and setters
         pagination,
         setPagination,
