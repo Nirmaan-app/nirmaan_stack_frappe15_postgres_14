@@ -46,6 +46,7 @@ import { calculatorCtx } from "./PricingCalculator";
 import {
   ITEM_LIST_OVERRIDE_KEY,
   ROW_QTY_OVERRIDE_KEY,
+  EXTRAS_INCLUDES_KEY,
   ROW_UNIT_OVERRIDE_KEY,
   makePricingSheetHelper,
   type ItemListSuggestion,
@@ -101,6 +102,13 @@ export interface ParityCase {
   /** VRF-3a (QR-1 (a)): the BoQ row's QUANTITY, as the PANEL's row context carries it (a refnet on a Set row reads it);
    * fed to the calculator as its "BoQ quantity of this row". OPTIONAL -- every existing case omits it, byte-identical. */
   qty?: number | null;
+  /** VRF-3b (the extras feed, VRF-R3 §R6): the extras the row's price includes ("copper,insulation,power,comm") -- the model's
+   *  flags on the PANEL (the row's `includes` cell, VRF-4's path), the tick boxes in the CALCULATOR. OPTIONAL -- absent on
+   *  every existing case, byte-identical. */
+  includes?: string;
+  /** VRF-3b: the pricer's edits on the PANEL (an `ItemListEditState`: a removed extra, a typed size) -- fed to the calculator
+   *  as the same edits. OPTIONAL -- absent on every existing case, byte-identical. */
+  panelEdits?: Record<string, unknown>;
 }
 
 type Cells = ExtractionRow["attributes"];
@@ -116,7 +124,7 @@ export function extractionRowFor(c: ParityCase): ExtractionRow {
   const row = {
     excelRow: PANEL_ROW,
     description: c.desc,
-    attributes: toCells(c.attrs),
+    attributes: toCells({ ...c.attrs, ...(typeof c.includes === "string" ? { includes: c.includes } : {}) }),
   } as ExtractionRow & { items?: Array<{ attributes: Cells }> };
   if (c.items) row.items = c.items.map((a) => ({ attributes: toCells(a) }));
   return row;
@@ -311,13 +319,33 @@ export function feedFromPanel(
         for (const f of b.setCount.fields) if (f.value !== "") attrs[f.id] = f.value;
         if (!b.setCount.typed) return { base: null, family: b.family, attrs, ...(other.length ? { other } : {}) };
       }
+      // VRF-3b: the unit's extras as the pricer would set them in the calculator -- every value the panel shows that the
+      // pricer did not leave on its default (a BoQ value, a pick) typed into its box, and the removed lines removed
+      const extrasFeed = b.extras ? (() => {
+        const set: Record<string, Record<string, string>> = {};
+        for (const l of b.extras!.lines) for (const f of l.fields) {
+          if (f.readOnly || (f.tag !== "boq" && f.tag !== "picked")) continue;
+          (set[l.id] ??= {})[f.id] = f.otherMode ? f.typedValue : f.value;
+        }
+        // what the BoQ itself stated for an extra (`extra_<line>_<field>`, VRF-4's path) is typed as the BoQ wrote it -- an unreadable
+        // or unstocked value included, so the calculator meets the same text and holds the line the same way
+        for (const [k, v] of Object.entries(c.items?.[i] ?? {})) {
+          const m = /^extra_([a-z]+_[a-z]+|power|comm)_([a-z]+)$/.exec(k);
+          if (!m || v === null || v === undefined || v === "") continue;
+          (set[m[1]] ??= {})[m[2]] = String(v);
+        }
+        const removed = b.extras!.removed.map((r) => r.id);
+        return Object.keys(set).length || removed.length ? { extras: { ...(Object.keys(set).length ? { set } : {}), ...(removed.length ? { removed } : {}) } } : {};
+      })() : {};
       if (b.familyControl?.otherMode) {
         other.push(famId);
-        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other };
+        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed };
       }
-      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}) };
+      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...extrasFeed };
     });
     overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits });
+    // VRF-3b: the include switches -- the panel's model flags, ticked in the calculator
+    if (typeof c.includes === "string") overrides[EXTRAS_INCLUDES_KEY] = c.includes;
     // VRF-3a (QR-1 (a), U9): the row's quantity, typed into the calculator's own field where a counted item needs it
     if (view.items.some((b) => b.setCount)) overrides[ROW_QTY_OVERRIDE_KEY] = typeof c.qty === "number" ? String(c.qty) : "";
     const { unit, unitFeed } = unitForCalculator(config, view);
@@ -378,6 +406,8 @@ export interface ItemBlockFacts {
   reason: string;
   figures: string;
   qty: string;
+  /** VRF-3b: the unit's extra lines (id, state, reason, figures, each field's value) -- present only on a block with extras */
+  extras?: string;
 }
 
 function itemFacts(s: HelperResult): { view: ItemListView; blocks: ItemBlockFacts[]; totals: string; unit: string; unitClass: string | null; rowPriced: boolean; reason: string } | null {
@@ -397,6 +427,8 @@ function itemFacts(s: HelperResult): { view: ItemListView; blocks: ItemBlockFact
       reason: b.reason ?? "",
       figures: figuresText(b.figures),
       qty: b.qty,
+      ...(b.extras ? { extras: JSON.stringify({ lines: b.extras.lines.map((l) => [l.id, l.state, l.reason ?? "", figuresText(l.figures), l.fields.map((f) => `${f.id}=${f.value}`).join(" ")]),
+                                                 removed: b.extras.removed.map((r) => r.id) }) } : {}),
     })),
   };
 }
@@ -467,7 +499,8 @@ export function runParity(
   mode: FeedMode = "full",
 ): ParityRun {
   const ph = panelHelper(configsByCategory, items, c);
-  const panel = ph.compute(panelCtx(c));
+  // VRF-3b: the pricer's panel edits, when the case carries them (absent on every existing case: the call is unchanged)
+  const panel = c.panelEdits ? ph.compute(panelCtx(c), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(c.panelEdits) }) : ph.compute(panelCtx(c));
   const config = configsByCategory.get(c.cat) ?? null;
   const feed = feedFromPanel(panel, config, c, mode);
   const ch = calculatorHelper(configsByCategory, items);

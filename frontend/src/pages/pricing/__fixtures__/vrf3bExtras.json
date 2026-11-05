@@ -417,7 +417,7 @@
     "name": "VRF extras - power cable, indoor up to 4 TR - cores (cores)",
     "remarks": "The cores of the power cable, indoor up to 4 TR (owner 13:51: indoor upto 4tr: 3C 1.5 sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -433,7 +433,7 @@
     "name": "VRF extras - power cable, indoor up to 4 TR - size (sqmm)",
     "remarks": "The size of the power cable, indoor up to 4 TR (owner 13:51: indoor upto 4tr: 3C 1.5 sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -449,7 +449,7 @@
     "name": "VRF extras - power cable, indoor above 4 up to 8 TR - cores (cores)",
     "remarks": "The cores of the power cable, indoor above 4 up to 8 TR (owner 13:51: 4 to 8: 3C 2.5; above 8 TR no default). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -465,7 +465,7 @@
     "name": "VRF extras - power cable, indoor above 4 up to 8 TR - size (sqmm)",
     "remarks": "The size of the power cable, indoor above 4 up to 8 TR (owner 13:51: 4 to 8: 3C 2.5; above 8 TR no default). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -481,7 +481,7 @@
     "name": "VRF extras - power cable, outdoor up to 8 HP - cores (cores)",
     "remarks": "The cores of the power cable, outdoor up to 8 HP (owner 13:51: outdoor upto 8 hp: 4c 6sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -497,7 +497,7 @@
     "name": "VRF extras - power cable, outdoor up to 8 HP - size (sqmm)",
     "remarks": "The size of the power cable, outdoor up to 8 HP (owner 13:51: outdoor upto 8 hp: 4c 6sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -513,7 +513,7 @@
     "name": "VRF extras - power cable, outdoor above 8 up to 14 HP - cores (cores)",
     "remarks": "The cores of the power cable, outdoor above 8 up to 14 HP (owner 13:51: 10 to 14 hp: 4c 10). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -529,7 +529,7 @@
     "name": "VRF extras - power cable, outdoor above 8 up to 14 HP - size (sqmm)",
     "remarks": "The size of the power cable, outdoor above 8 up to 14 HP (owner 13:51: 10 to 14 hp: 4c 10). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -545,7 +545,7 @@
     "name": "VRF extras - power cable, outdoor above 14 HP - cores (cores)",
     "remarks": "The cores of the power cable, outdoor above 14 HP (owner 13:51: 16hp and above: 4c 16sqmm copper cable). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -561,7 +561,7 @@
     "name": "VRF extras - power cable, outdoor above 14 HP - size (sqmm)",
     "remarks": "The size of the power cable, outdoor above 14 HP (owner 13:51: 16hp and above: 4c 16sqmm copper cable). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -577,7 +577,7 @@
     "name": "VRF extras - communication cable, every unit - cores (cores)",
     "remarks": "The cores of the communication cable, every unit (owner 13:52: 2c1.5sqmm copper cable for evrything, unarmoured). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {
@@ -593,7 +593,7 @@
     "name": "VRF extras - communication cable, every unit - size (sqmm)",
     "remarks": "The size of the communication cable, every unit (owner 13:52: 2c1.5sqmm copper cable for evrything, unarmoured). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
     "shared_by": "vrf",
-    "material": "Copper",
+    "material": "COPPER",
     "armour": "Unarmoured"
    },
    "rates": {

@@ -530,7 +530,8 @@ def validate_delegated_sections(configs, items=None, label="config"):
         else:
             # an import: the kinds it carries are REPLACED by its own items; every other kind stands
             pool = [it for it in items if isinstance(it, dict)] + _active_section_items(disc, kinds_of(others) - kinds_of(mine))
-        problems = delegated_section_problems(mine + others, pool) + extras_problems(mine + others, pool)
+        problems = delegated_section_problems(mine + others, pool) + extras_problems(
+            mine + others, pool, only={str(c.get("category_id") or "").strip() for c in mine})
         if problems:
             frappe.throw(f"{label}: {problems[0]} Nothing was written.", title="Invalid config")
 
@@ -1244,7 +1245,7 @@ def extras_input_ids(cfg):
     return [i for i in out if isinstance(i, str) and i]
 
 
-def extras_problems(configs, items):
+def extras_problems(configs, items, only=None):
     """VRF-3b -- the CROSS-CATEGORY half of `extras`, PURE (the `delegated_section_problems` shape): `configs` every config
     the check may resolve against, `items` every item it may count. The copper and insulation targets must be item-list
     configs of THIS discipline with pricing rules, never the owner, each offering and stocking its named family; every
@@ -1261,6 +1262,10 @@ def extras_problems(configs, items):
     for c in configs or []:
         ex = (((c.get("list_spec") if isinstance(c, dict) else None) or {}).get("pricing") or {}).get("extras")
         if not isinstance(ex, dict):
+            continue
+        # `only`: the categories being WRITTEN -- another live config's extras are not re-checked against a payload that replaces
+        # its inputs (the used-by guard refuses deleting / renaming an input in use; found by test_piping_v34 23's corpus check)
+        if only is not None and str(c.get("category_id") or "").strip() not in only:
             continue
         disc, own = str(c.get("discipline") or "").strip(), str(c.get("category_id") or "").strip()
         where = f"'{own}' extras"

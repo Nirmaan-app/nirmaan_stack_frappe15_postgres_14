@@ -546,10 +546,12 @@ describe("VRF-3b K2 PRICING INPUTS (AC8) -- reach, used-by, snap, tables, worked
       { band: "Outdoor above 12 up to 20 HP", supply: 28.6, ret: 19.1, insulation: 19 },
       { band: "Outdoor above 20 HP", supply: 34.9, ret: 22.2, insulation: 19 },
     ]);
+    // K3: 'COPPER' -- the loader canonicalises an item's `material` to upper case on ingest (Electrical's rule), so the asset
+    // and this fixture carry it so (BEFORE: "Copper")
     expect(t.cables.map((c) => [c.band, c.cores, c.sqmm, c.material, c.armour])).toEqual([
-      ["Power - Indoor up to 4 TR", 3, 1.5, "Copper", "Unarmoured"], ["Power - Indoor above 4 up to 8 TR", 3, 2.5, "Copper", "Unarmoured"],
-      ["Power - Outdoor up to 8 HP", 4, 6, "Copper", "Unarmoured"], ["Power - Outdoor above 8 up to 14 HP", 4, 10, "Copper", "Unarmoured"],
-      ["Power - Outdoor above 14 HP", 4, 16, "Copper", "Unarmoured"], ["Communication - every unit", 2, 1.5, "Copper", "Unarmoured"],
+      ["Power - Indoor up to 4 TR", 3, 1.5, "COPPER", "Unarmoured"], ["Power - Indoor above 4 up to 8 TR", 3, 2.5, "COPPER", "Unarmoured"],
+      ["Power - Outdoor up to 8 HP", 4, 6, "COPPER", "Unarmoured"], ["Power - Outdoor above 8 up to 14 HP", 4, 10, "COPPER", "Unarmoured"],
+      ["Power - Outdoor above 14 HP", 4, 16, "COPPER", "Unarmoured"], ["Communication - every unit", 2, 1.5, "COPPER", "Unarmoured"],
     ]);
     expect(t.lengths.map((l) => l.value)).toEqual([30, 30]);
     // NEGATIVE: a config without extras makes no table

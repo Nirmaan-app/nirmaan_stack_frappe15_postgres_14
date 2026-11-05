@@ -2558,3 +2558,106 @@ describe("HVAC VRF (VRF-3a, v58) -- the outdoor split, the stated split, Set / r
     expect(tally).toEqual({ "Set: priced": 16, "Set: refused for a fact": 44, "Lot: lot line": 29, "per HP: lot line": 1, "(unit ok; whole-price words): refused for a fact": 14 });
   }, 240000);
 });
+
+
+describe("HVAC VRF (VRF-3b, v59) -- the extras from Piping / Insulation / Electrical; panel = calculator on every case", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A59 = rd("rate_master_hvac_all_v59.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS59 = [...asItems(A59), ...asItems(E72)];
+  // VRF-4's state on BOTH paths (calculator_only projected out, as the VRF-2b / 3a blocks do); Electrical's configs ride along
+  const CFG59 = new Map<string, RateCategoryConfig>([...A59.category_configs, ...E72.category_configs].map((c) => {
+    if (c.category_id !== "hvac_vrf") return [c.category_id, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [c.category_id, rest as RateCategoryConfig];
+  }));
+  const ALL = "copper,insulation,power,comm";
+  const xc = (unit: string, item: Record<string, string>, includes = ALL, more: Partial<ParityCase> = {}): ParityCase =>
+    ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], includes, ...more });
+  const xrun = (c: ParityCase) => runParity(CFG59, ITEMS59, c, "full");
+  const xview = (r: ReturnType<typeof xrun>) => (r.panel as ItemListSuggestion).itemList!;
+  const xtot = (r: ReturnType<typeof xrun>) => [xview(r).totals?.supply_rate, xview(r).totals?.install_rate];
+  const od = (cap: string, brand = "Blue Star") => ({ item: "Outdoor Unit", brand, capacity: cap });
+  const ind = (fam: string, cap: string) => ({ item: fam, brand: "Blue Star", capacity: cap });
+  const CASES: Array<[string, ParityCase]> = [
+    // C1 / C2 / C3 of the cert
+    ["C1 10 HP all four", xc("Nos", od("10"))],
+    ["C2 Hi-Wall 1.5 TR all four", xc("Nos", ind("Hi-Wall", "1.5"))],
+    ["C3 54 HP split, per module", xc("Nos", od("54"))],
+    // every band edge
+    ...["4", "8", "10", "12", "14", "16", "20", "22", "28"].map((h) => [`outdoor ${h} HP`, xc("Nos", od(h))] as [string, ParityCase]),
+    ...[["Ductable", "4"], ["Ductable", "4.1"], ["Ductable", "8"], ["Packaged Unit", "10"], ["Cassette", "4"], ["Single Skin Treated Fresh Air", "3.8"]]
+      .map(([f, c]) => [`indoor ${f} ${c} TR`, xc("Nos", ind(f, c))] as [string, ParityCase]),
+    ["outdoor 8 TR (converted to 10 HP)", xc("Nos", od("8 TR"))],
+    // each brand
+    ["Daikin outdoor 10 HP", xc("Nos", od("10", "Daikin"))],
+    ["Daikin outdoor 16 HP", xc("Nos", od("16", "Daikin"))],
+    // removal + put back (the pricer's edits on the panel, fed as the same edits)
+    ["removed copper supply", xc("Nos", od("10"), ALL, { panelEdits: { items: [{ base: 0, family: null, attrs: {}, extras: { removed: ["copper_supply"] } }] } })],
+    ["removed power + comm", xc("Nos", od("10"), ALL, { panelEdits: { items: [{ base: 0, family: null, attrs: {}, extras: { removed: ["power", "comm"] } }] } })],
+    ["put back (nothing removed)", xc("Nos", od("10"), ALL, { panelEdits: { items: [{ base: 0, family: null, attrs: {} }] } })],
+    // typed sizes / values from the BoQ (VRF-4's path, a fixture now)
+    ["typed 1.125 inch on the supply copper", xc("Nos", { ...od("10"), extra_copper_supply_size: "1.125 inch" })],
+    ["typed 15 mm on the return copper", xc("Nos", { ...od("10"), extra_copper_return_size: "15 mm" })],
+    ["BoQ length 25 m", xc("Nos", { ...od("10"), extra_copper_supply_length: "25" })],
+    ["BoQ count 2 on the power cable", xc("Nos", { ...od("10"), extra_power_count: "2" })],
+    // blank defaults / not stocked
+    ["unreadable size", xc("Nos", { ...od("10"), extra_copper_supply_size: "big" })],
+    ["unstocked spec", xc("Nos", { ...od("10"), extra_power_spec: "3C x 400" })],
+    // each cable spec
+    ...["3C x 1.5", "3C x 2.5", "4C x 6", "4C x 10", "4C x 16", "2C x 1.5"].map((sp) => [`power spec ${sp}`, xc("Nos", { ...od("10"), extra_power_spec: sp }, "power")] as [string, ParityCase]),
+    // the switches
+    ["copper + power", xc("Nos", od("10"), "copper,power")],
+    ["insulation without copper", xc("Nos", od("10"), "insulation,comm")],
+    ["nothing ticked", xc("Nos", od("10"), "")],
+    // Lot (the calculator now states it) and Set (a per-Set row carries the extras too)
+    ["Lot", xc("Lot", od("10"))],
+    ["Set", xc("Set", od("10"))],
+    // K1b (owner ANSWER 2): one case each -- a non-default copper size, an insulation with cladding, an armoured cable,
+    // a pipe changed to MS (Change item), an aluminium cable
+    ["non-default copper size 28.6", xc("Nos", { ...od("10"), extra_copper_supply_size: "28.6" }, "copper")],
+    ["insulation with 24G Aluminium cladding", xc("Nos", { ...od("10"), extra_ins_supply_cladding: "24G Aluminium" }, "copper,insulation")],
+    ["armoured power cable", xc("Nos", { ...od("10"), extra_power_armour: "ARMOURED" }, "power")],
+    ["copper line changed to MS 25", xc("Nos", { ...od("10"), extra_copper_supply_family: "MS", extra_copper_supply_size: "25" }, "copper")],
+    ["aluminium armoured 4C x 16 power cable", xc("Nos", { ...od("10"), extra_power_conductor: "ALUMINIUM", extra_power_armour: "ARMOURED", extra_power_cores: "4", extra_power_sqmm: "16" }, "power")],
+  ];
+
+  it("every case: 0 divergences (figures, lines, reasons, removed lines, the row) -- the count asserted", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: xrun(c).divergences }));
+    expect(out.filter((o) => o.div.length)).toEqual([]);
+    expect(CASES).toHaveLength(46);
+  }, 240000);
+
+  it("C1 / C2 / C3: the cert's figures on both paths", () => {
+    const c1 = xrun(CASES[0][1]);
+    expect(xtot(c1)).toEqual([441210, 25960]);
+    expect(xview(c1).lineCount).toEqual({ lines: 7, bad: 0 });
+    expect(xtot(xrun(CASES[1][1]))).toEqual([80040, 17280]);
+    const c3 = xview(xrun(CASES[2][1]));
+    expect(c3.items.map((b) => b.extras?.lines.length)).toEqual([6, 6]);
+    expect(c3.lineCount).toEqual({ lines: 14, bad: 0 });
+  });
+
+  it("removal, typed sizes, blanks, Lot: what each case shows (panel = calculator above)", () => {
+    const get = (n: string) => xview(xrun(CASES.find(([k]) => k === n)![1]));
+    expect(get("removed copper supply").items[0].extras?.lines.map((l) => l.id)).toEqual(["copper_return", "ins_return", "power", "comm"]);
+    expect(get("typed 1.125 inch on the supply copper").items[0].extras?.lines[0].fields.find((f) => f.id === "size")?.value).toBe("28.6");
+    expect(get("typed 15 mm on the return copper").items[0].extras?.lines[1].fields.find((f) => f.id === "size")?.value).toBe("15.9");
+    expect(get("unreadable size").rowPriced).toBe(false);
+    expect(get("unstocked spec").rowPriced).toBe(false);
+    expect(get("indoor Packaged Unit 10 TR").items[0].extras?.lines.find((l) => l.id === "power")?.reason).toBe("No default for this size (10 TR) - pick a cable spec.");
+    expect(get("Lot").unitBar?.tone).toBe("red");
+    expect(get("Lot").items[0].extras).toBeUndefined();
+    expect(get("Set").items[0].extras?.lines).toHaveLength(6);
+    expect(get("nothing ticked").items[0].extras).toBeUndefined();
+  });
+
+  it("NEGATIVE: Insulation, Piping and ADP rows are untouched by v59 (their configs are v58's byte for byte; the extras are VRF's only)", () => {
+    for (const id of ["hvac_insulation", "hvac_piping", "hvac_adp"]) {
+      const cfg = CFG59.get(id) as unknown as { list_spec?: { pricing?: { extras?: unknown } } };
+      expect(cfg.list_spec?.pricing?.extras).toBeUndefined();
+    }
+  });
+});

@@ -26,7 +26,7 @@ import { isSuggestion } from "./rateHelperTypes";
 import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
 import {
-  ITEM_LIST_OVERRIDE_KEY, ROW_QTY_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, assembleItems, decodeItemEdits, makePricingSheetHelper,
+  ITEM_LIST_OVERRIDE_KEY, ROW_QTY_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, EXTRAS_INCLUDES_KEY, applyItemEdit, assembleItems, decodeItemEdits, makePricingSheetHelper,
   type ItemEditOp, type ItemListSuggestion,
 } from "./pricingSheetHelper";
 import { applyFamilyMerge, familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
@@ -1783,5 +1783,83 @@ describe("VRF-3a (v58) -- R-39: every VRF Derivation-tab rule fires from the pan
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
     if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
     if (c.path === "panel") expect(vrun(c, live).kind).toBe("none");
+  });
+});
+
+
+describe("VRF-3b (v59) -- R-39: every VRF Derivation-tab rule v59 adds fires from the calculator's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A59 = rd("rate_master_hvac_all_v59.json");
+  const A58 = rd("rate_master_hvac_all_v58.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items59 = [...asItems(A59), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A59.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const XT = {
+    carry: "A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
+    band: "An extra's size comes from the Pricing Inputs table by the unit's size, after conversion",
+    rate: "Each extra is priced per metre by its own sheet's rules, then per Nos of the row",
+    blank: "An extra with no size, spec or length holds the row",
+    removed: "A removed extra stays removed",
+  };
+  type XCase = { id: string; rule: string; kind: "pos" | "neg"; family: string; cap: string; inc: string; extras?: Record<string, unknown>; drop?: string;
+    re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean; figures?: [number, number] };
+  const XCASES: XCase[] = [
+    { id: "E1a", rule: XT.carry, kind: "pos", family: "Outdoor Unit", cap: "10", inc: "copper,insulation,power,comm", re: ["line:copper_supply", "line:copper_return", "line:ins_supply", "line:ins_return", "line:power", "line:comm", "Item 7 · extra the BoQ includes · from Electrical"], priced: true, figures: [441210, 25960] },
+    { id: "E1b-neg", rule: XT.carry, kind: "neg", family: "Remote Controller", cap: "", inc: "copper,insulation,power,comm", re: [], not: ["line:"] },
+    { id: "E1c-neg", rule: XT.carry, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "", re: [], not: ["line:"], priced: true, figures: [301560, 10000] },
+    { id: "E2a", rule: XT.band, kind: "pos", family: "Outdoor Unit", cap: "14", inc: "copper,power", re: ["Copper pipe - supply line 28.6 mm", "Power cable 4C x 10"], priced: true },
+    { id: "E2b", rule: XT.band, kind: "pos", family: "Outdoor Unit", cap: "8 TR", inc: "copper", re: ["Copper pipe - supply line 22.2 mm"], priced: true },
+    { id: "E2c-neg", rule: XT.band, kind: "neg", family: "Outdoor Unit", cap: "12", inc: "copper", re: ["Copper pipe - supply line 22.2 mm"], not: ["28.6 mm"], priced: true },
+    { id: "E3a", rule: XT.rate, kind: "pos", family: "Hi-Wall", cap: "1.5", inc: "copper", re: ["per metre by Piping's rules, supply 936 + install 220", "Per Nos: 30 m x 936 = 28080 supply; 30 m x 220 = 6600 install (rounded up)"], priced: true },
+    { id: "E3b-neg", rule: XT.rate, kind: "neg", family: "Hi-Wall", cap: "1.5", inc: "comm", re: ["per metre by Electrical's rules, supply 80 + install 24"], not: ["Piping's rules"], priced: true },
+    { id: "E4a", rule: XT.blank, kind: "pos", family: "Packaged Unit", cap: "10", inc: "power", re: ["No default for this size (10 TR) - pick a cable spec."], priced: false },
+    { id: "E4b", rule: XT.blank, kind: "pos", family: "Outdoor Unit", cap: "10", inc: "power", extras: { set: { power: { spec: "3C x 400" } } }, re: ["3C x 400 copper unarmoured cable is not stocked - pick a spec."], priced: false },
+    { id: "E4c-neg", rule: XT.blank, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "power", re: [], not: ["pick a spec", "Size needed"], priced: true },
+    { id: "E5a", rule: XT.removed, kind: "pos", family: "Outdoor Unit", cap: "10", inc: "copper,insulation", extras: { removed: ["copper_supply"] }, re: ["removed:copper_supply", "removednote:The helper will not add removed extras back on its own. The row prices without them."], not: ["line:copper_supply", "line:ins_supply"], priced: true },
+    { id: "E5b-neg", rule: XT.removed, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "copper,insulation", re: ["line:copper_supply", "line:ins_supply"], not: ["removed:"], priced: true },
+  ];
+  function xrun(c: XCase) {
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items59, extractionByRow: new Map(), calculatorSurface: true });
+    const ctx = { excelRow: 0, description: "", nodeType: "", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] } as RateHelperRowContext;
+    const attrs: Record<string, string> = { brand: "Blue Star", ...(c.cap ? { capacity: c.cap } : {}), ...(c.family === "Remote Controller" ? { remote_type: "Wired" } : {}) };
+    const r = h.compute(ctx, {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: c.family, attrs, other: c.cap ? ["capacity"] : [], ...(c.extras ? { extras: c.extras } : {}) }] }),
+      [ROW_UNIT_OVERRIDE_KEY]: "Nos", [EXTRAS_INCLUDES_KEY]: c.inc,
+    });
+    const s = r as ItemListSuggestion;
+    const v = s.itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    for (const b of v.items) {
+      for (const l of b.extras?.lines ?? []) { out.push(`line:${l.id}`, l.heading, ...l.working); if (l.reason) out.push(l.reason); }
+      for (const x of b.extras?.removed ?? []) out.push(`removed:${x.id}`);
+      if (b.extras?.removedNote) out.push(`removednote:${b.extras.removedNote}`);
+    }
+    return { priced: v.rowPriced, text: out.join("\n"), s };
+  }
+  const xmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+
+  it("THE VRF GUARD: v59's VRF rules = v58's 20 (the v58 block covers them, the same code) + the 5 extras lines this block names; each has a positive AND a negative case", () => {
+    const t59 = titles(A59);
+    expect(t59).toHaveLength(25);
+    expect(t59.slice(0, 20)).toEqual(titles(A58));
+    expect(t59.slice(20)).toEqual(Object.values(XT));
+    for (const t of Object.values(XT)) {
+      const mine = XCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(XCASES).toHaveLength(13);
+  });
+
+  it.each(XCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text, s } = xrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: xmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: xmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+    if (c.figures) expect([s.values.supply_rate, s.values.install_rate]).toEqual(c.figures);
   });
 });

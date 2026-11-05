@@ -256,16 +256,17 @@ class TestVrf2aAssetV56(FrappeTestCase):
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 58)
+        self.assertEqual(max(ns), 59)   # VRF-3b: v59 (BEFORE: 58, VRF-3a)
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 57)))`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 58)))`
-        self.assertEqual(sorted(ns), list(range(1, 59)))
+        # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
+        self.assertEqual(sorted(ns), list(range(1, 60)))
         self.assertTrue(os.path.exists(_asset_path(V55)))
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v59.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v60.json")))   # VRF-3b (BEFORE: v59)
 
     # ---- 09 LIVE ---------------------------------------------------------------------------------------------------
     def test_09_live_the_loaded_vrf_config_is_v56s_and_not_eligible(self):
@@ -279,7 +280,9 @@ class TestVrf2aAssetV56(FrappeTestCase):
         # (the switch keeps the loaded VRF config out of Suggest) stands, below.
         # INVERTED again at VRF-3a (HVAC v58 loaded) by mechanical authority: BEFORE the live list_spec was compared with v57's
         # (`v57cfg = ... rate_master_hvac_all_v57.json`); it is v58's now (test_vrf_v58 07 pins it whole)
-        with open(_asset_path("rate_master_hvac_all_v58.json"), "r", encoding="utf-8") as fh:
+        # INVERTED again at VRF-3b (HVAC v59 loaded) by mechanical authority: BEFORE the live list_spec was compared with v58's
+        # (`rate_master_hvac_all_v58.json`); it is v59's now (test_vrf_v59 07 pins the config whole)
+        with open(_asset_path("rate_master_hvac_all_v59.json"), "r", encoding="utf-8") as fh:
             v57cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
         self.assertEqual(_norm(cfg.get("list_spec")), _norm(v57cfg["list_spec"]))
         self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
@@ -287,5 +290,6 @@ class TestVrf2aAssetV56(FrappeTestCase):
         self.assertFalse(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))
         for uid in RETIRED:
             self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"item_uid": uid, "active": 1}), 0, uid)
-        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 537)
+        # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `... {"discipline": "HVAC", "active": 1}), 537)` -- + the 29 extras inputs
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 566)
         self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1, "kind": VRF_KIND}), 150)

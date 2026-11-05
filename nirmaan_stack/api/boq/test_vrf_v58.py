@@ -154,17 +154,25 @@ class TestVrf3aAssetV58(FrappeTestCase):
     def test_06_v58_is_the_newest_and_v57_stays(self):
         d = os.path.dirname(_asset_path(V58))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 58)
-        self.assertEqual(sorted(ns), list(range(1, 59)))
+        self.assertEqual(max(ns), 59)   # VRF-3b: v59 (BEFORE: 58, VRF-3a)
+        # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
+        self.assertEqual(sorted(ns), list(range(1, 60)))
         self.assertTrue(os.path.exists(_asset_path(V57)))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v59.json")))
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v60.json")))   # VRF-3b (BEFORE: v59)
 
     def test_07_live_the_loaded_vrf_config_is_v58s(self):
         rows = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "HVAC", "active": 1}, fields=["category_id", "config"])
         live = {r["category_id"]: (json.loads(r["config"]) if isinstance(r["config"], str) else r["config"]) for r in rows}
         cfg = live[CATEGORY]
         self.assertIs(cfg.get("calculator_only"), True)
-        self.assertEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
+        # INVERTED at VRF-3b (HVAC v59 loaded; a test failing solely because the live catalogue moved to the current asset) by
+        # mechanical authority: BEFORE `self.assertEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))` (live == v58).
+        # The live list_spec is v59's -- v58's plus `extras` (test_vrf_v59 07 pins it whole); every claim below stands.
+        with open(_asset_path("rate_master_hvac_all_v59.json"), "r", encoding="utf-8") as fh:
+            v59cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
+        self.assertEqual(_norm(cfg.get("list_spec")), _norm(v59cfg["list_spec"]))
+        self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
         cfgs = {("HVAC", cid): dict(c, discipline="HVAC") for cid, c in live.items()}
         self.assertFalse(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))
-        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 537)
+        # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `... {"discipline": "HVAC", "active": 1}), 537)` -- + the 29 extras inputs
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 566)

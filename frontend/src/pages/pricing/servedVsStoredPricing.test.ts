@@ -116,8 +116,13 @@ function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
   // INVERTED at VRF-2a (HVAC v56; R-RETIRE retires the Blue Star ductables VFM-216A / VFM-264A) by mechanical authority: BEFORE
   // `n("hvac_vrf_item") !== 152` and "VRF-1's 152 + 4 + 2 items". The set aside is still exactly VRF's own (the served fixture
   // predates VRF-1), so it still throws unless every one is present -- 150 + 4 + 2 now.
-  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") !== 2) {
-    throw new Error("VRF's 150 + 4 + 2 items (v56) are not all in the stored asset");
+  // INVERTED at VRF-3b (HVAC v59; the standing authority: a test failing solely because it reads the current HVAC asset) by
+  // mechanical authority: BEFORE `n("hvac_pricing_input") !== 2`. v59 adds 29 `shared_by: vrf` inputs (VRF's extras, one per table
+  // cell, ids `vrf_extra_*`), which the served fixture predates too -- set aside with the rest; it still throws unless every one of
+  // the 2 + 29 is present
+  const extras = items.filter((it) => isVrf1(it) && it.kind === "hvac_pricing_input" && String(it.attributes?.item ?? "").startsWith("vrf_extra_")).length;
+  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") - extras !== 2 || extras !== 29) {
+    throw new Error("VRF's 150 + 4 + 2 items (v56) and the 29 extras inputs (v59) are not all in the stored asset");
   }
   return items.filter((it) => !isVrf1(it));
 }
