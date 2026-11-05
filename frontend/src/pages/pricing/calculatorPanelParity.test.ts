@@ -2661,3 +2661,137 @@ describe("HVAC VRF (VRF-3b, v59) -- the extras from Piping / Insulation / Electr
     }
   });
 });
+
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-3b K3b (owner ANSWER 3, 2026-11-05 19:01 / 19:03 "yes") -- THE EXHAUSTIVE EXTRAS SWEEP. Test-only: every case priced the
+// panel's way and the calculator's way through the parity harness; any difference is red with the case NAMED; counts asserted.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** K3b: the sweep's counts, MEASURED (VRF3B_SWEEP_PRINT=1 prints them) and pinned. */
+const SWEEP_COUNTS = { a: 136, a_priced: 135, a_lines: 816, c: 186, c_priced: 186, d: 584, d_priced: 522, e_priced: 35 };
+
+describe("VRF-3b K3b (v59) -- the exhaustive extras sweep; panel = calculator on every case, the count asserted", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const S59 = rd("rate_master_hvac_all_v59.json");
+  const SE72 = rd("rate_master_electrical_all_v72.json");
+  const asIt = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS = [...asIt(S59), ...asIt(SE72)];
+  const CFG = new Map<string, RateCategoryConfig>([...S59.category_configs, ...SE72.category_configs].map((c) => {
+    if (c.category_id !== "hvac_vrf") return [c.category_id, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [c.category_id, rest as RateCategoryConfig];
+  }));
+  const VRFC = CFG.get("hvac_vrf") as unknown as { list_spec: { attribute_definitions: Array<{ id: string }>; pricing: { extras: { roles: Record<string, string> } } } };
+  const ROLES = VRFC.list_spec.pricing.extras.roles;
+  const DEFS = new Set(VRFC.list_spec.attribute_definitions.map((d) => d.id));
+  const ALL = "copper,insulation,power,comm";
+  const sweep = (cases: Array<[string, ParityCase]>) => {
+    const bad: string[] = [];
+    let priced = 0; let lines = 0;
+    for (const [name, c] of cases) {
+      const r = runParity(CFG, ITEMS, c, "full");
+      if (r.divergences.length) bad.push(`${name}: ${JSON.stringify(r.divergences).slice(0, 300)}`);
+      const v = (r.panel as ItemListSuggestion).itemList;
+      if (v?.rowPriced) priced++;
+      lines += (v?.items ?? []).reduce((n, b) => n + (b.extras?.lines.length ?? 0), 0);
+    }
+    if (process.env.VRF3B_SWEEP_PRINT) console.log("VRF3B_SWEEP " + JSON.stringify({ n: cases.length, priced, lines }));
+    return { bad, priced, lines };
+  };
+  const unit = (fam: string, cap: string, more: Record<string, string> = {}) => ({ item: fam, brand: "Blue Star", capacity: cap, ...more });
+  const xc = (item: Record<string, string>, includes = ALL, unitWord = "Nos", more: Partial<ParityCase> = {}): ParityCase =>
+    ({ cat: "hvac_vrf", unit: unitWord, desc: "", attrs: {}, items: [item], includes, ...more });
+
+  it("(a) every active VRF indoor / outdoor unit SKU (both brands, every variant) with all four extras at their defaults", () => {
+    const skus = ITEMS.filter((it) => it.kind === "hvac_vrf_item" && ROLES[String(it.attributes?.item ?? "")]);
+    const cases = skus.map((it): [string, ParityCase] => {
+      const a = it.attributes as Record<string, unknown>;
+      const item: Record<string, string> = {};
+      for (const [k, v] of Object.entries(a)) if (DEFS.has(k) && v !== null && v !== undefined && v !== "") item[k] = String(v);
+      if (a.capacity !== undefined && a.capacity_unit) item.capacity = `${String(a.capacity)} ${String(a.capacity_unit)}`;
+      return [`${String(it.item_uid)} ${item.item} ${item.brand} ${item.capacity}`, xc(item)];
+    });
+    const r = sweep(cases);
+    expect(r.bad).toEqual([]);
+    expect(cases).toHaveLength(SWEEP_COUNTS.a);
+    expect(r.priced).toBe(SWEEP_COUNTS.a_priced);
+    expect(r.lines).toBe(SWEEP_COUNTS.a_lines);
+  }, 600000);
+
+  it("(b) every Piping Refrigerant / Copper size as a copper line, on one indoor and one outdoor unit", () => {
+    const sizes = [...new Set(ITEMS.filter((it) => it.kind === "hvac_piping_item" && it.attributes?.pipe_type === "Copper").map((it) => Number(it.attributes?.size_mm)))].sort((x, y) => x - y);
+    const cases: Array<[string, ParityCase]> = [];
+    for (const s of sizes) for (const u of [unit("Hi-Wall", "1.5"), unit("Outdoor Unit", "10")]) {
+      cases.push([`copper ${s} on ${u.item}`, xc({ ...u, extra_copper_supply_size: String(s), extra_copper_return_size: String(s) }, "copper,insulation")]);
+    }
+    const r = sweep(cases);
+    expect(r.bad).toEqual([]);
+    expect(cases).toHaveLength(26);
+    expect(r.priced).toBe(26);
+  }, 600000);
+
+  it("(c) every pipe-insulation choice Insulation stocks (type / cladding / thickness) on every pipe size it fits", () => {
+    const ins = ITEMS.filter((it) => it.kind === "hvac_insulation_item" && Number.isFinite(Number(it.attributes?.pipe_size_mm)) && it.attributes?.pipe_size_mm !== null);
+    const insSizes = [...new Set(ins.map((it) => Number(it.attributes?.pipe_size_mm)))].sort((x, y) => x - y);
+    const closest = (v: number, xs: number[]) => xs.reduce((b, s) => (Math.abs(s - v) < Math.abs(b - v) - 1e-9 || (Math.abs(Math.abs(s - v) - Math.abs(b - v)) <= 1e-9 && s > b) ? s : b), xs[0]);
+    // a pipe Piping stocks whose closest insulation size is this one: Copper first, else any pipe (the line's Change item)
+    const pipes = ITEMS.filter((it) => it.kind === "hvac_piping_item").map((it) => ({ fam: String(it.attributes?.pipe_type), size: Number(it.attributes?.size_mm) }))
+      .sort((p, q) => (p.fam === "Copper" ? 0 : 1) - (q.fam === "Copper" ? 0 : 1));
+    const cases: Array<[string, ParityCase]> = [];
+    const unreachable: number[] = [];
+    for (const it of ins) {
+      const a = it.attributes as Record<string, unknown>;
+      const size = Number(a.pipe_size_mm);
+      const pipe = pipes.find((p) => closest(p.size, insSizes) === size);
+      if (!pipe) { if (!unreachable.includes(size)) unreachable.push(size); continue; }
+      cases.push([`${String(it.item_uid)} ${String(a.item)} / ${String(a.cladding)} / ${String(a.thickness_mm)} mm on ${size} (pipe ${pipe.fam} ${pipe.size})`,
+        xc({ ...unit("Outdoor Unit", "10"), extra_copper_supply_family: pipe.fam, extra_copper_supply_size: String(pipe.size),
+             extra_ins_supply_family: String(a.item), extra_ins_supply_cladding: String(a.cladding), extra_ins_supply_thickness: String(a.thickness_mm) }, "copper,insulation")]);
+    }
+    const r = sweep(cases);
+    expect(r.bad).toEqual([]);
+    // GAP (named in the coverage map): no Piping pipe's closest Insulation size is 53.98 mm (Copper tops at 47.6 -> 41.28), so the
+    // 18 Insulation SKUs on 53.98 cannot be reached from an extra line -- pinned so a catalogue change that reaches them is seen
+    expect(unreachable).toEqual([53.98]);
+    expect(cases).toHaveLength(ins.length - ins.filter((it) => Number(it.attributes?.pipe_size_mm) === 53.98).length);
+    expect(cases).toHaveLength(SWEEP_COUNTS.c);
+    expect(r.priced).toBe(SWEEP_COUNTS.c_priced);
+  }, 600000);
+
+  it("(d) every per-Mtr wiring_cabling cable (conductor / armour / cores / size) as the power cable and as the communication cable", () => {
+    const cables = ITEMS.filter((it) => it.kind === "cable" && String(it.unit ?? "").toLowerCase() === "mtr");
+    const cases: Array<[string, ParityCase]> = [];
+    for (const it of cables) {
+      const a = it.attributes as Record<string, unknown>;
+      for (const line of ["power", "comm"]) {
+        cases.push([`${String(it.item_uid)} ${String(a.material)} ${String(a.insulation)} ${String(a.core)}C x ${String(a.thickness_sqmm)} as ${line}`,
+          xc({ ...unit("Outdoor Unit", "10"), [`extra_${line}_conductor`]: String(a.material), [`extra_${line}_armour`]: String(a.insulation),
+               [`extra_${line}_cores`]: String(a.core), [`extra_${line}_sqmm`]: String(a.thickness_sqmm) }, line)]);
+      }
+    }
+    const r = sweep(cases);
+    expect(r.bad).toEqual([]);
+    expect(cases).toHaveLength(cables.length * 2);
+    expect(cases).toHaveLength(SWEEP_COUNTS.d);
+    expect(r.priced).toBe(SWEEP_COUNTS.d_priced);
+  }, 600000);
+
+  it("(e) every band edge both sides, every split total into modules (per-module extras), removal of each extra kind", () => {
+    const cases: Array<[string, ParityCase]> = [];
+    for (const h of ["8", "8.5", "12", "13", "14", "15", "20", "21", "22"]) cases.push([`outdoor ${h} HP`, xc(unit("Outdoor Unit", h))]);
+    for (const [f, t] of [["Ductable", "4"], ["Ductable", "4.1"], ["Ductable", "5"], ["Ductable", "8"], ["Packaged Unit", "8"], ["Packaged Unit", "10"], ["Cassette", "3.9"], ["Cassette", "4"], ["Cassette", "4.5"]]) {
+      cases.push([`indoor ${f} ${t} TR`, xc(unit(f, t))]);
+    }
+    for (const total of [30, 34, 40, 44, 50, 54, 56, 60, 66, 80, 100, 112]) cases.push([`split ${total} HP`, xc(unit("Outdoor Unit", String(total)))]);
+    for (const line of ["copper_supply", "copper_return", "ins_supply", "ins_return", "power", "comm"]) {
+      cases.push([`removed ${line}`, xc(unit("Outdoor Unit", "10"), ALL, "Nos", { panelEdits: { items: [{ base: 0, family: null, attrs: {}, extras: { removed: [line] } }] } })]);
+    }
+    const r = sweep(cases);
+    expect(r.bad).toEqual([]);
+    expect(cases).toHaveLength(36);
+    expect(r.priced).toBe(SWEEP_COUNTS.e_priced);
+  }, 600000);
+
+});
