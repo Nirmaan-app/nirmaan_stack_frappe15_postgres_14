@@ -335,6 +335,12 @@ LINK_REFUSED_ALREADY_LINKED = (
     "Txn Id {transfer_id} is already linked to {records} by line {line}, in batch {batch}, so it cannot be linked "
     "to it a second time: one transfer settles a record once. Skip this line, or Unreconcile that one first."
 )
+# A many-line Link whose ticked lines include two of one Txn Id, neither yet linked (#1611): an index refused the second
+# line's match row inside the same request, so no committed line holds it. `{records}` is "<ledger> <name>".
+LINK_REFUSED_TXN_ID_TICKED_TWICE = (
+    "Txn Id {transfer_id} is on more than one of the lines you ticked, so it cannot be linked to {records} more than "
+    "once: one transfer settles a record once. Untick all but one of those lines."
+)
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 # ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
 # is ever staged is one whose bank status CHANGED -- and the reason names both statuses. The prefix up
