@@ -13,6 +13,8 @@
 #   devbox.default       optional  the box for task.sh start without --box when devbox.order is unset (with a single
 #                                  box, that box)
 # <name>: lowercase letters, digits and dashes. Other keys under box.<name>. are ignored here.
+# [layer "<box>"] is box.sh's record of what enroll FOUND before it changed anything, kept so release can put it back:
+# "absent" there means absent before enroll, not now. A box's live state: task.sh pick (answers over SSH, free agents).
 #
 # Setup, once, on the laptop. Fill in your own values:
 #   install -d -m 700 ~/.config/devbox; R=~/.config/devbox/boxes.conf

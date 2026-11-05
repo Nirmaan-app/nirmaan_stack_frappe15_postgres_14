@@ -195,6 +195,25 @@ line '^ALERT c1 on contabo: unseen -> crashed$' "a task recorded again starts fr
 OUT="$(/bin/bash "$L/scripts/devenv/task.sh" watch --every 1 2>&1 & p=$!; sleep 2.5; kill $p; wait $p 2>/dev/null)" || true
 [ "$(echo "$OUT" | grep -c '^== ')" -ge 2 ] || fail "--every repeats the pass"; pass "--every repeats the pass"
 
+# ---- a DONE report counts only once the env's Definition of Done passes (#1611's "DONE (draft, ...)")
+dod_stub() {   # dod_stub <box home root> <task> <exit code of dod.py check>
+  local d; d="$(wt "$1" "$2")/scripts/devenv"; mkdir -p "$d"
+  printf 'import sys\nsys.exit(%s)\n' "$3" > "$d/dod.py"
+}
+dod_stub "$CROOT" f1 1
+watch
+line '^f1 +contabo +working *$' "alive with a DONE report but a failing Definition of Done is still working"
+line '^ALERT f1 on contabo: finished -> working$' "a task found unfinished alerts"
+dod_stub "$CROOT" f1 0
+watch
+line '^f1 +contabo +finished +Done: task.sh watch reports each agent\.$' "alive with DONE and a passing Definition of Done is finished"
+grep -v '^4102 ' "$CH/.stub/procs" > "$T/p" && mv "$T/p" "$CH/.stub/procs"
+dod_stub "$CROOT" f1 1
+watch
+line '^f1 +contabo +crashed *$' "an agent gone with DONE but a failing Definition of Done crashed"
+rm -rf "$(wt "$CROOT" f1)"
+echo "4102 claude $(wt "$CROOT" f1)" >> "$CH/.stub/procs"
+
 # ---- pick: the box a start without --box gets
 pick() { run /bin/bash "$L/scripts/devenv/task.sh" pick "$@"; }
 # contabo: f1 alive and finished, w1 and c1 dead. air: m1 working, b1 finished, x1 crashed.

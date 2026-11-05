@@ -31,7 +31,9 @@ each section marked "omit when". Each rule in "Rules" was broken once by a box a
 
 ## Review
 Call the Skill tool with `mattpocock-skills:code-review` against the task's base, and fix its findings that are
-inside the task. `dod.py check` stays red until `tdd` and `code-review` were both loaded.
+inside the task. `dod.py check` stays red until `tdd` and `code-review` were both loaded. This task closes its own
+review: every in-scope finding is fixed here, and the rest are listed in the report's Open questions. (Spec #1585's
+review findings became a chain of follow-up tickets, #1601 -> #1606 -> #1611.)
 
 ## Known failing tests
 `CODING_STANDARDS.md` § Writing tests, "Known failing tests", lists the modules that fail on `master` for a reason
