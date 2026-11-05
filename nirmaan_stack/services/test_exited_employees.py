@@ -7,6 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.integrations.controllers.test_nirmaan_users import make_user, remove_user
+from nirmaan_stack.services.exited_employees import logins_still_on, switch_off_logins_still_on
 
 PM_PROFILE = "Nirmaan Project Manager Profile"
 LEAVER = "exit-leaver@example.com"
@@ -75,3 +76,44 @@ class TestExitSwitchesLoginOff(FrappeTestCase):
 		self.assertEqual(nirmaan_roles(LEAVER), [])
 		self.assertEqual(api_secret_count(LEAVER), 0)
 		self.assertEqual(session_count(LEAVER), 0)
+
+
+STILL_ON = "exit-still-on@example.com"
+CURRENT = "exit-current@example.com"
+
+
+class TestSwitchOffLoginsStillOn(FrappeTestCase):
+	"""The one-time cleanup: people who left before exits switched logins off."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		for email in (STILL_ON, CURRENT):
+			make_user(email, PM_PROFILE)
+			give_api_key(email)
+		# Left the old way: the record is gone, the login is still on.
+		frappe.db.delete("Nirmaan Users", {"name": STILL_ON})
+		frappe.db.commit()
+
+	def tearDown(self):
+		for email in (STILL_ON, CURRENT):
+			remove_user(email)
+
+	def test_it_switches_off_only_people_with_no_record_and_a_second_run_changes_nothing(self):
+		scope = [STILL_ON, CURRENT]
+		self.assertEqual([row.name for row in logins_still_on(scope)], [STILL_ON])
+
+		self.assertEqual(switch_off_logins_still_on(scope), [STILL_ON])
+		frappe.db.commit()
+
+		self.assertEqual(frappe.db.get_value("User", STILL_ON, "enabled"), 0)
+		self.assertEqual(nirmaan_roles(STILL_ON), [])
+		self.assertFalse(frappe.db.get_value("User", STILL_ON, "api_key"))
+		self.assertEqual(frappe.db.get_value("User", CURRENT, "enabled"), 1)
+		self.assertTrue(nirmaan_roles(CURRENT))
+		self.assertTrue(frappe.db.get_value("User", CURRENT, "api_key"))
+
+		self.assertEqual(logins_still_on(scope), [])
+		self.assertEqual(switch_off_logins_still_on(scope), [])
+
+	def test_frappes_own_users_are_never_listed(self):
+		self.assertEqual(logins_still_on(["Administrator", "Guest"]), [])
