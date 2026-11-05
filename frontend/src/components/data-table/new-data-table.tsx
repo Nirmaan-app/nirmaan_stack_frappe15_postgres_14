@@ -418,7 +418,13 @@ export function DataTable<T>({
                   const expanded = renderExpandedRow && row.getIsExpanded() ? renderExpandedRow(row) : null;
                   return (
                     <React.Fragment key={row.id}>
-                    <TableRow data-state={row.getIsSelected() ? "selected" : undefined} className={customRowClassName}>
+                    <TableRow
+                      data-state={row.getIsSelected() ? "selected" : undefined}
+                      className={customRowClassName}
+                      // The virtualizer measures each drawn row's real height (rows are 41, 57 or 63 px, not the
+                      // 45 px guess), so rows taller or shorter than the guess no longer shift the content.
+                      data-index={enableVirtualization ? vRow.index : undefined}
+                      ref={enableVirtualization ? rowVirtualizer.measureElement : undefined}>
                       {shouldRenderIndicatorColumn && (
                         <TableCell
                           className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}
