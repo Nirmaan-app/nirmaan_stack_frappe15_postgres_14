@@ -18,7 +18,7 @@ import { Pencil, Trash2 } from "lucide-react";
 
 import { useUserData } from "@/hooks/useUserData";
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,7 +42,6 @@ export function useInvoiceRowAdminActions(docType: InvoiceDocType, refresh: () =
   const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
 
   const { setSelectedInvoice, toggleEditInvoiceDialog } = useDialogStore();
-  const { toast } = useToast();
 
   // ----- EDIT: fetch the full Vendor Invoice by name, then open InvoiceDialog -----
   const [editInvoiceName, setEditInvoiceName] = useState<string | null>(null);
@@ -107,7 +106,7 @@ export function useInvoiceRowAdminActions(docType: InvoiceDocType, refresh: () =
     } finally {
       setDeleteTarget(null);
     }
-  }, [deleteTarget, deleteApi, docType, refresh, toast]);
+  }, [deleteTarget, deleteApi, docType, refresh]);
 
   return {
     isAdmin,

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
@@ -23,9 +23,26 @@ interface PORemarksPopoverProps {
     poId: string;
 }
 
-export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
-    const { toast } = useToast();
+const PO_REMARK_ROLES = [
+    "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
+    ...MATERIAL_PROCUREMENT_PROFILES,
+    "Nirmaan Project Lead Profile",
+    "Nirmaan Project Manager Profile",
+];
+
+/**
+ * Shows the add-remark form only to a role that may add one. It sits inside the popover's content, which mounts
+ * only while the popover is open, so the role is read for the open popover alone, never once per table row.
+ */
+const CanAddPORemark: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { role } = useUserData();
+    return PO_REMARK_ROLES.includes(role) ? <>{children}</> : null;
+};
+
+export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
 
     const [isOpen, setIsOpen] = useState(false);
     const [newRemark, setNewRemark] = useState("");
@@ -33,20 +50,6 @@ export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
     // Fetch remarks when popover is open
     const { remarks, counts, isLoading, mutate } = usePORemarks(isOpen ? poId : undefined);
     const { addRemark, isLoading: isAdding } = useAddPORemark();
-
-    // Check if user can add remarks
-    const canAddRemarks = useMemo(() => {
-        const allowedRoles = [
-            "Nirmaan Admin Profile",
-            "Nirmaan PMO Executive Profile",
-            "Nirmaan Accountant Profile",
-            "Nirmaan Accountant Lead Profile",
-            ...MATERIAL_PROCUREMENT_PROFILES,
-            "Nirmaan Project Lead Profile",
-            "Nirmaan Project Manager Profile",
-        ];
-        return allowedRoles.includes(role || "");
-    }, [role]);
 
     const handleAddRemark = async () => {
         if (!newRemark.trim()) return;
@@ -150,7 +153,7 @@ export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
 
                 <div className="p-3 space-y-3 max-h-[350px] overflow-y-auto">
                     {/* Add Remark Form */}
-                    {canAddRemarks && (
+                    <CanAddPORemark>
                         <div className="flex gap-2">
                             <Textarea
                                 placeholder="Add remark... (Ctrl+Enter)"
@@ -173,7 +176,7 @@ export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
                                 )}
                             </Button>
                         </div>
-                    )}
+                    </CanAddPORemark>
 
                     {/* Loading State */}
                     {isLoading && (

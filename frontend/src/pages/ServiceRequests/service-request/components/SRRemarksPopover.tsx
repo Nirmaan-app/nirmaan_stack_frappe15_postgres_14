@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { MessageCircle, Send, Loader2, Plus } from "lucide-react";
 import {
     Popover,
@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import {
     useSRRecentRemarks,
@@ -22,28 +22,32 @@ interface SRRemarksPopoverProps {
     srId: string;
 }
 
-export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
-    const { toast } = useToast();
+const SR_REMARK_ROLES = [
+    "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
+    ...SERVICE_PROCUREMENT_PROFILES,
+    "Nirmaan Project Lead Profile",
+    "Nirmaan Project Manager Profile",
+];
+
+/**
+ * Shows the Add button only to a role that may add a remark. It sits inside the popover's content, which mounts
+ * only while the popover is open, so the role is read for the open popover alone, never once per table row.
+ */
+const CanAddSRRemark: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { role } = useUserData();
+    return SR_REMARK_ROLES.includes(role) ? <>{children}</> : null;
+};
+
+export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [showAddForm, setShowAddForm] = useState(false);
     const [newRemark, setNewRemark] = useState("");
 
     const { remarks, total, isLoading, mutate } = useSRRecentRemarks(srId, isOpen);
     const { addRemark, isLoading: isAdding } = useAddSRRemark();
-
-    const canAddRemarks = useMemo(() => {
-        const allowedRoles = [
-            "Nirmaan Admin Profile",
-            "Nirmaan PMO Executive Profile",
-            "Nirmaan Accountant Profile",
-            "Nirmaan Accountant Lead Profile",
-            ...SERVICE_PROCUREMENT_PROFILES,
-            "Nirmaan Project Lead Profile",
-            "Nirmaan Project Manager Profile",
-        ];
-        return allowedRoles.includes(role || "");
-    }, [role]);
 
     const handleAddRemark = async () => {
         if (!newRemark.trim()) return;
@@ -106,16 +110,18 @@ export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
                 <div className="p-3 border-b bg-gray-50">
                     <div className="flex items-center justify-between">
                         <h4 className="font-medium text-sm">Remarks</h4>
-                        {canAddRemarks && !showAddForm && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => setShowAddForm(true)}
-                            >
-                                <Plus className="w-3 h-3 mr-1" />
-                                Add
-                            </Button>
+                        {!showAddForm && (
+                            <CanAddSRRemark>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => setShowAddForm(true)}
+                                >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    Add
+                                </Button>
+                            </CanAddSRRemark>
                         )}
                     </div>
                 </div>

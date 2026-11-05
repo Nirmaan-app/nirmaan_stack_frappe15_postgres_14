@@ -59,7 +59,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 
 import PaymentSummaryCards from "./PaymentSummaryCards"
 import { useRefreshApprovalCounts } from "./hooks/useRefreshApprovalCounts"
-import { canViewPaymentSummary } from "@/constants/roles"
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles"
 import { useToast } from "@/components/ui/use-toast"
 import { getFrappeError } from "@/utils/frappeErrors"
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
@@ -373,6 +373,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         onUploadInvoice: canUploadInvoices && (tab === PP_TABS.PAYMENTS_DONE || tab === PP_TABS.PAYMENT_BY_ME)
             ? setInvoiceRow : undefined,
         canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
+        canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)

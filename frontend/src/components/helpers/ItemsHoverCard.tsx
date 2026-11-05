@@ -38,7 +38,6 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
   isPR = false, // Keep these if they affect column rendering/data access
   isSB = false,
 }) => {
-  const { role } = useUserData();
   const [isOpen, setIsOpen] = useState(false);
 
   // Fetch the parent document when the card is open
@@ -182,68 +181,87 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
             !error &&
             itemsToDisplay &&
             itemsToDisplay.length > 0 && (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-gray-100">
-                    <TableRow>
-                      <TableHead className="min-w-[180px]">
-                        {isSR ? "Category" : "Item"}
-                      </TableHead>
-                      {isSR && (
-                        <TableHead className="min-w-[120px]">
-                          Description
-                        </TableHead>
-                      )}
-                      <TableHead className="w-[70px]">Unit</TableHead>
-                      <TableHead className="w-[60px]">Qty</TableHead>
-                      {role !== "Nirmaan Project Manager Profile" && (
-                        <TableHead className="w-[80px]">Rate</TableHead>
-                      )}
-                      {/* Add Make column back if needed, data should be in fetched child items */}
-                      {!isSR && (isPR || isSB) && (
-                        <TableHead className="min-w-[100px]">Make</TableHead>
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {itemsToDisplay?.map((item: any) => (
-                      <TableRow key={item?.name || item?.id}>
-                        {" "}
-                        {/* Child table rows have a 'name' */}
-                        <TableCell className="font-medium text-sm">
-                          {isSR ? item.category : item.item_name}
-                        </TableCell>
-                        {isSR && (
-                          <TableCell className="text-sm max-w-[120px] break-words">
-                            {item.description}
-                          </TableCell>
-                        )}
-                        <TableCell className="text-sm">
-                          {isSR ? item.uom : item.unit}
-                        </TableCell>
-                        <TableCell className="text-sm text-center">
-                          {item.quantity}
-                        </TableCell>
-                        {role !== "Nirmaan Project Manager Profile" && (
-                          <TableCell className="text-sm">
-                            {formatToIndianRupee(
-                              isSR ? item?.rate : item?.quote
-                            )}
-                          </TableCell>
-                        )}
-                        {!isSR && (isPR || isSB) && (
-                          <TableCell className="text-sm">
-                            {item?.make || "--"}
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <ItemsTable items={itemsToDisplay} isSR={isSR} isPR={isPR} isSB={isSB} />
             )}
         </div>
       </PopoverContent>
     </Popover>
+  );
+};
+
+interface ItemsTableProps {
+  items: any[];
+  isSR: boolean;
+  isPR: boolean;
+  isSB: boolean;
+}
+
+/**
+ * The card's items table. It sits inside the popover's content, which mounts only while the card is open, so the
+ * role (a Project Manager sees no Rate) is read for the open card alone, never once per table row.
+ */
+const ItemsTable: React.FC<ItemsTableProps> = ({ items, isSR, isPR, isSB }) => {
+  const { role } = useUserData();
+  const showRate = role !== "Nirmaan Project Manager Profile";
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader className="bg-gray-100">
+          <TableRow>
+            <TableHead className="min-w-[180px]">
+              {isSR ? "Category" : "Item"}
+            </TableHead>
+            {isSR && (
+              <TableHead className="min-w-[120px]">
+                Description
+              </TableHead>
+            )}
+            <TableHead className="w-[70px]">Unit</TableHead>
+            <TableHead className="w-[60px]">Qty</TableHead>
+            {showRate && (
+              <TableHead className="w-[80px]">Rate</TableHead>
+            )}
+            {/* Add Make column back if needed, data should be in fetched child items */}
+            {!isSR && (isPR || isSB) && (
+              <TableHead className="min-w-[100px]">Make</TableHead>
+            )}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item: any) => (
+            <TableRow key={item?.name || item?.id}>
+              {" "}
+              {/* Child table rows have a 'name' */}
+              <TableCell className="font-medium text-sm">
+                {isSR ? item.category : item.item_name}
+              </TableCell>
+              {isSR && (
+                <TableCell className="text-sm max-w-[120px] break-words">
+                  {item.description}
+                </TableCell>
+              )}
+              <TableCell className="text-sm">
+                {isSR ? item.uom : item.unit}
+              </TableCell>
+              <TableCell className="text-sm text-center">
+                {item.quantity}
+              </TableCell>
+              {showRate && (
+                <TableCell className="text-sm">
+                  {formatToIndianRupee(
+                    isSR ? item?.rate : item?.quote
+                  )}
+                </TableCell>
+              )}
+              {!isSR && (isPR || isSB) && (
+                <TableCell className="text-sm">
+                  {item?.make || "--"}
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 };

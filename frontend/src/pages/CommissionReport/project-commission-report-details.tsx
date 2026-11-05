@@ -487,8 +487,9 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             trackerId || '',
             refetchTracker,
             trackerDoc?.start_date || '',
+            isAdmin,
         ),
-        [masterTaskMap, trackerId, refetchTracker, trackerDoc?.start_date]
+        [masterTaskMap, trackerId, refetchTracker, trackerDoc?.start_date, isAdmin]
     );
 
     // Tasks awaiting approval — drives the Pending Approval tab.

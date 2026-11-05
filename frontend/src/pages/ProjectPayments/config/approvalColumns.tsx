@@ -116,6 +116,9 @@ export interface ApprovalColumnCtx {
    */
   onUploadInvoice?: (row: ApprovalQueueRow) => void;
   canUploadInvoice?: (row: ApprovalQueueRow) => boolean;
+  /** May the viewer open a cheque chip's Cheque (`CHEQUE_ACCESS_PROFILES`)? Worked out once by the page, so a row
+   *  reads no user data; left out, each chip reads the role itself. */
+  canOpenCheque?: boolean;
 }
 
 const daysSince = (iso?: string | null): number | null => {
@@ -457,7 +460,7 @@ const REGISTRY: Record<
         // is a button, and a button inside the trigger's button is invalid markup.
         const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && showsChequeChip(r) ? (
           <span className="mt-0.5 block">
-            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
+            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} canOpen={ctx.canOpenCheque} />
           </span>
         ) : null;
         if (r.bank_line_count <= 0 && !chip) return documentCard;
@@ -785,7 +788,7 @@ const REGISTRY: Record<
     meta: { exportHeaderName: "Reconciled On", exportValue: (r: ApprovalQueueRow) => r.reconciled_on || "" },
   }),
 
-  utr_ref: () => ({
+  utr_ref: (ctx) => ({
     id: "utr_ref",
     accessorKey: "utr_ref",
     header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" />,
@@ -802,7 +805,7 @@ const REGISTRY: Record<
       }
       return (
         <span className="block min-w-0">
-          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
+          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} canOpen={ctx.canOpenCheque} />
           {r.utr_ref && (
             <TruncatedText text={r.utr_ref} className="mt-0.5 block max-w-[9rem] font-mono text-[10px] text-muted-foreground" />
           )}

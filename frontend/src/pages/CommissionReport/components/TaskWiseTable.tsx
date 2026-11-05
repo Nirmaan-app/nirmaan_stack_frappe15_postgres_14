@@ -43,13 +43,17 @@ interface TaskWiseTableProps {
     refetchList: () => void;
     user_id: string;
     isDesignExecutive: boolean;
+    /** Admin Profile or the Administrator user, worked out once by the page. */
+    isAdmin: boolean;
     statusFilter?: string;
 }
 
 const getTaskWiseColumns = (
     handleEditClick: (task: FlattenedTask) => void,
     masterMap: Map<string, MasterTaskInfo>,
-    refresh: () => void
+    refresh: () => void,
+    /** Admin Profile or the Administrator user, worked out once by the page (the Actions column's admin actions). */
+    isAdmin: boolean
 ): ColumnDef<FlattenedTask>[] => {
     return [
         {
@@ -135,6 +139,7 @@ const getTaskWiseColumns = (
                         refresh={refresh}
                         onConfigure={(t) => handleEditClick(t as FlattenedTask)}
                         startDate={row.original.start_date}
+                        isAdmin={isAdmin}
                     />
                 );
             },
@@ -148,6 +153,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
     refetchList,
     user_id,
     isDesignExecutive,
+    isAdmin,
     statusFilter,
 }) => {
     const { usersList, categoryData, statusOptions, FacetProjectsOptions } = useCommissionMasters();
@@ -209,8 +215,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         apiEndpoint: "nirmaan_stack.api.commission_report.get_task_wise_list.get_task_wise_list",
         customParams: { user_id, is_design_executive: isDesignExecutive },
         columns: useMemo(
-            () => getTaskWiseColumns(setEditingTask, masterMap, refresh),
-            [masterMap, refresh]
+            () => getTaskWiseColumns(setEditingTask, masterMap, refresh, isAdmin),
+            [masterMap, refresh, isAdmin]
         ),
         fetchFields: [
             "name as prjname",

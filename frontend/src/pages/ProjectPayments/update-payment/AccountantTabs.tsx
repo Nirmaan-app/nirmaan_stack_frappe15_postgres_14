@@ -63,7 +63,7 @@ import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 import PaymentSummaryCards from "../PaymentSummaryCards"
 import { useUserData } from "@/hooks/useUserData"
-import { canViewPaymentSummary } from "@/constants/roles"
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles"
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
 import { countLabel, selectionTotal, summarizeSelection } from "../bulkSelectionSummary"
@@ -303,6 +303,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onToggleHold: canWork ? setHoldRow : undefined,
         canHold: (row) => canHoldQueueRow(row, role),
+        canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
         ),

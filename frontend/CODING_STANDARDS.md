@@ -251,6 +251,25 @@ Matrix of roles, sidebar entries, per-page actions and the PMO exceptions: `.cla
   tables link a PO through `OrderDetailLink` (`poRoute.orderDetailPath`), not a hardcoded `/project-payments/…`.
 - **A read-only approval tab** stays visible to every role with sidebar access; a non-approver sees an info banner,
   no action buttons and no row navigation (TDS "Pending Approval", Payments "Approve Payments").
+- **A table row never reads the current user.** The page calls `useUserData()` once and hands each row the answer.
+  Every call parses the cookie string three times and subscribes to the user record, so a hook in a row costs that
+  once per row on every redraw (2,000 calls on a 1,000-row PO list before this rule). By what the row needs:
+  - shows or hides something by role: the page works out a boolean (`canOpen` on `ChequeChip`, `isAdmin` on
+    `ReportActionCell`);
+  - compares the row with the viewer: the page passes `currentUserId` (`UserRowActions`);
+  - a rule on row and role: a pure `canX(row, role)` with the role from the page (`canHoldQueueRow` in
+    `ApprovalColumnCtx`);
+  - needs the role only inside a popover or dialog: read it in a component inside the content, which mounts only
+    while open (`ItemsTable` in `ItemsHoverCard`, `CanAddPORemark`);
+  - shows another person's name: the page calls `useUsersList()` once and hands the columns its `nameOf`.
+
+  Pass it the way the table already builds columns: a page `useMemo`, a column factory argument
+  (`getCreditsColumns(..., canOpenCheque)`) or a field on the column context (`ApprovalColumnCtx.canOpenCheque`).
+  **Put the flag in the columns' `useMemo` dependencies**: the role is `"Loading"` on the first render, and columns
+  memoised without it keep that answer, so the gated controls never appear. **Write a granting flag as
+  `ALLOWED.includes(role)`**, never `role !== "X"`, so `"Loading"` grants nothing. The same holds for any data hook
+  (`useFrappeGetDoc`, `useFrappeGetDocList`, `useToast`): in a row it is one subscription or request per row; the
+  page fetches once or the list API sends the value with each row.
 
 ---
 

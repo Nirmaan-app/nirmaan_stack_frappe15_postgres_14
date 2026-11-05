@@ -169,6 +169,8 @@ export const getTaskTableColumns = (
     refresh?: () => void,
     /** Tracker start_date — base for recomputing a deadline on re-activation. */
     startDate: string = '',
+    /** Admin Profile or the Administrator user, worked out once by the page (the Report column's admin actions). */
+    isAdmin: boolean = false,
 ): ColumnDef<CommissionReportTask>[] => {
     return [
         {
@@ -290,6 +292,7 @@ export const getTaskTableColumns = (
                         refresh={refresh}
                         onConfigure={handleEditClick}
                         startDate={startDate}
+                        isAdmin={isAdmin}
                     />
                 );
             },
