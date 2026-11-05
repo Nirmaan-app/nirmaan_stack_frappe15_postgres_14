@@ -501,7 +501,11 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         if (cartItems.length === 0) return;
         setIsSubmitting(true);
         try {
-            const rows: TdsSubmitRow[] = await Promise.all(cartItems.map(async (item) => {
+            // One upload at a time: two uploads of the same file name at once are written to the same
+            // local path, and the storage app's cleanup of the first then fails the second
+            // (`frappe_gcp_attachment` deletes the local copy after moving it to the bucket).
+            const rows: TdsSubmitRow[] = [];
+            for (const item of cartItems) {
                 let uploadedUrl = item.uploadedUrl;
                 if (item.is_new_request && !uploadedUrl && item.attachmentFile) {
                     const uploaded = await uploadTdsFile(item.attachmentFile, { isPrivate: true });
@@ -514,7 +518,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         setCartItems(prev => prev.map(c => (c === item ? { ...c, uploadedUrl: url } : c)));
                     }
                 }
-                return {
+                rows.push({
                     tds_item_id: item.tds_item_id || "",
                     make: item.make,
                     is_new_request: !!item.is_new_request,
@@ -526,8 +530,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                     category: item.category || "",
                     tds_attachment: uploadedUrl,
                     previous_doc_name: item.previousDocName,
-                };
-            }));
+                });
+            }
 
             await submitTdsRequest(projectId, rows);
 

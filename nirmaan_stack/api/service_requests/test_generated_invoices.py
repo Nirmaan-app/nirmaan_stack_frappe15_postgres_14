@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, getdate, set_request, today
+from frappe.utils import add_days, flt, getdate, set_request, today
 
 from nirmaan_stack.api.delivery_notes.update_invoice_data import delete_invoice_entry
 from nirmaan_stack.api.invoices.approve_vendor_invoice import approve_vendor_invoice
@@ -268,6 +268,13 @@ class TestAmountLimit(GeneratedInvoiceTestCase):
         for amount in (0, -5, None):
             with self.assertRaises(frappe.ValidationError, msg=amount):
                 self._generate(wo, amount)
+
+    def test_a_future_invoice_date_is_refused_and_today_is_not(self):
+        wo = self._wo(paid=60_000)
+        with self.assertRaisesRegex(frappe.ValidationError, "future"):
+            self._generate(wo, 1_000, invoice_date=add_days(today(), 1))
+        self.assertEqual(self._stored(self._generate(wo, 1_000, invoice_date=today())["name"]).invoice_date,
+                         getdate(today()))
 
 
 class TestFinal(GeneratedInvoiceTestCase):

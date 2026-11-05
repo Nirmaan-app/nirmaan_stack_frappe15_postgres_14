@@ -45,6 +45,11 @@ _SEPARATORS = re.compile(r"[\s\-]+")
 _SPACES = re.compile(r"\s+")
 _ACCOUNT_CHARS = re.compile(r"^[A-Z0-9]+$")
 _IFSC = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+_LETTER = re.compile(r"[A-Za-z]")
+#: A holder name naming a bank: the word BANK, or a bank's short name that is nobody's own name. Whole words
+#: only ("Bankim Traders" is a holder). AXIS, CANARA, UNION, FEDERAL, INDIAN are left out: they name companies
+#: too, and "Canara Bank" is caught by BANK (owner, 2026-11-04).
+_BANK_WORD = re.compile(r"\b(BANK|SBI|HDFC|ICICI|PNB|IDFC|IDBI|UCO|KOTAK|INDUSIND)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -71,10 +76,23 @@ def parse_details(account_name, account_number, ifsc) -> PayeeDetails:
     )
 
 
+def holder_name_problem(account_name: str) -> str | None:
+    """Why `account_name` (cleaned) can't be a Payee's holder name, or None: it is blank, has no letter (an
+    account number pasted in the wrong box), or names a bank rather than who owns the account."""
+    if not account_name:
+        return "Enter the account holder name."
+    if not _LETTER.search(account_name):
+        return "Account holder name can't be only numbers. Enter the name on the bank account."
+    if _BANK_WORD.search(account_name):
+        return "Account holder name can't be a bank name. Enter the person or company who owns the account."
+    return None
+
+
 def details_problem(details: PayeeDetails) -> str | None:
     """Why these details can't be a Payee, or None. Every field is required."""
-    if not details.account_name:
-        return "Enter the account holder name."
+    holder = holder_name_problem(details.account_name)
+    if holder:
+        return holder
     if not details.account_number or details.normalized_account == "0":
         return "Enter the account number."
     if not _ACCOUNT_CHARS.match(details.account_number):

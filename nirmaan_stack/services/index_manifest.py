@@ -107,6 +107,8 @@ INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('Delivery Notes', ('project',), 'Delivery_Notes_project_idx', False),
     ('Delivery Notes', ('vendor',), 'Delivery_Notes_vendor_idx', False),
     ('Expense Request', ('vendor',), 'Expense_Request_vendor_idx', False),
+    ('GST Payment Request', ('status',), 'GST_Payment_Request_status_idx', False),
+    ('GST Payment Request', ('work_order',), 'GST_Payment_Request_work_order_idx', False),
     ('HOD Library Content', ('hod_system',), 'HOD_Library_Content_hod_system_idx', False),
     ('Internal Transfer Memo', ('source_project',), 'Internal_Transfer_Memo_source_project_idx', False),
     ('Internal Transfer Memo', ('status',), 'Internal_Transfer_Memo_status_idx', False),

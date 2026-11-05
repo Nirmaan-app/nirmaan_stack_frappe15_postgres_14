@@ -107,6 +107,10 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
   - `revert_to_approved.revert_payment_to_approved(name)` - Reconciliation Pending → Approved (Admin / Accountant / Accountant Lead; refused while a bank line is matched)
+  - `gst_payment_requests` - Work Order GST requests (ADR-0030 Amendment A): `get_gst_payment_requests(work_order, status)`,
+    `request_gst_payment(work_order, amount)`, and for Accountant / Accountant Lead / Admin only
+    `approve_gst_payment_request(name)`, `reject_gst_payment_request(name, comment)`, `delete_gst_payment_request(name)`
+    (Pending or Rejected only)
   - `payment_summary.get_payment_summary(document_type, document_name, exclude_payment)` - where a PO / WO's money stands (value, paid, waiting at each step, left after), matching the request cap
 - `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions)
   - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)

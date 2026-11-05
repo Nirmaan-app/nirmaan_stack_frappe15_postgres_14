@@ -14,6 +14,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { GstPaymentTag } from "./GstPaymentTag";
 import {
   barSegments,
+  gstWaitingForAccountant,
   leftAfter,
   orderNoun,
   PaymentSummary,
@@ -64,7 +65,8 @@ export const PaymentSummaryBlock = ({ summary, isLoading, thisAmount }: PaymentS
 
   const noun = orderNoun(summary.document_type);
   const lines = visibleLines(summary.lines);
-  const after = leftAfter(summary.left, thisAmount);
+  const gstWaiting = gstWaitingForAccountant(summary);
+  const after = leftAfter(summary.left - gstWaiting, thisAmount);
   const waiting = waitingPayments(summary.payments);
   const seg = barSegments(summary.lines, summary.value, thisAmount);
 
@@ -99,6 +101,12 @@ export const PaymentSummaryBlock = ({ summary, isLoading, thisAmount }: PaymentS
               <span className="tabular-nums">{formatToIndianRupee(line.amount)}</span>
             </div>
           ))}
+          {gstWaiting > 0 && (
+            <div className="flex items-baseline justify-between px-3 py-1.5">
+              <span className="text-muted-foreground">GST waiting for Accountant</span>
+              <span className="tabular-nums">{formatToIndianRupee(gstWaiting)}</span>
+            </div>
+          )}
           <div className="flex items-baseline justify-between bg-muted/40 px-3 py-1.5">
             <span className="font-semibold">This payment</span>
             <span className="font-semibold tabular-nums">{formatToIndianRupee(thisAmount)}</span>

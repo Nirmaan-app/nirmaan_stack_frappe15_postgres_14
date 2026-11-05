@@ -78,6 +78,8 @@ const overseesSpend: Rule = (v) => canApprove(v) || isAccountant(v) || isViewOnl
 const STRIP: readonly { tab: PPTabValue; shownTo: Rule }[] = [
     { tab: PP_TABS.APPROVE_PAYMENTS, shownTo: canApprove },
     { tab: PP_TABS.CEO_PENDING, shownTo: isCEO },
+    // GST payments waiting for an Accountant: the deciders, who are the settlers (`gst_payment_requests.can_decide`).
+    { tab: PP_TABS.GST_REQUESTS, shownTo: canSettle },
     { tab: PP_TABS.NEW_PAYMENTS, shownTo: canSettle },
     // Viewable by view-only profiles too, without the Mark Reconciled action.
     { tab: PP_TABS.RECONCILIATION_PENDING, shownTo: (v) => canSettle(v) || isViewOnly(v) },
