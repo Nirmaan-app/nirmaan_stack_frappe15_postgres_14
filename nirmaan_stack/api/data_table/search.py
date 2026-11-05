@@ -145,7 +145,10 @@ def get_list_with_count_enhanced_impl(
         # --- Caching Key ---
         cache_key_params = {
             "v_api": "5.2", # Bumped: ranking + OR-union semantics changed in this PR; invalidates pre-deploy cache entries.
-            "doctype": doctype, 
+            "doctype": doctype,
+            # Rows are permission-scoped (User Permissions), so two users sending the same request may get
+            # different rows: without the user, one is handed the other's cached page.
+            "user": frappe.session.user,
             "fields": json.dumps(sorted(parsed_select_fields_str_list)),
             "virtual_fields": asked_virtual_fields,
             "filters": json.dumps(processed_base_filters),
