@@ -23,7 +23,8 @@ import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 import { computePricingInputReach, extrasSnapSizes, extrasTablesOf, extrasUses, reachedSkuCount } from "../../pricing/rate-master/pricingInputReach";
 import { pricingInputUsedBy } from "../../pricing/rate-master/rateMasterSpec";
-import { computeExampleImpacts } from "../../pricing/rate-master/pricingInputExamples";
+import { computeExampleImpacts, exampleCrossTargets } from "../../pricing/rate-master/pricingInputExamples";
+import { mergeItemsByName } from "./rateHelperPlumbing";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
@@ -571,6 +572,42 @@ describe("VRF-3b K2 PRICING INPUTS (AC8) -- reach, used-by, snap, tables, worked
     expect(ex.map((e) => e.example.id)).toEqual(["VRF-5", "VRF-6"]);
     // an example that names other inputs is not on this input's panel
     expect(computeExampleImpacts("vrf_extra_power_outdoor_upto_8hp_sqmm", {}, r2.vrf_extra_power_outdoor_upto_8hp_sqmm, cfgsAll as never, allItems).map((e) => e.example.id)).toEqual(["VRF-10"]);
+  });
+  it("CERT FIX (C11): the page's example map -- HVAC alone cannot price a cable example; HVAC + exampleCrossTargets' fetch can", () => {
+    const cfgs = { ...HV, hvac_vrf: { ...HV.hvac_vrf, impact_examples: FIX.examples } } as Record<string, RateCategoryConfig>;
+    const r2 = computePricingInputReach(cfgs, HV_ITEMS);
+    // what the page fetches: exactly Electrical wiring_cabling (the cable's target); nothing for Electrical's own page
+    const targets = exampleCrossTargets(cfgs as never, "HVAC");
+    expect(targets).toEqual([{ discipline: "Electrical", categoryId: "wiring_cabling" }]);
+    expect(exampleCrossTargets(cfgs as never, "Electrical")).toEqual([]);
+    expect(exampleCrossTargets({ a: { list_spec: { pricing: {} } }, b: null } as never, "HVAC")).toEqual([]);
+    // ⚠️ NEGATIVE (the run-1 screen): the page's OWN discipline only -> the cable line refuses, the example does not price
+    const hvOnly = computeExampleImpacts("vrf_extra_copper_length_m", { factor: 25 }, r2.vrf_extra_copper_length_m, cfgs as never, HV_ITEMS);
+    expect(hvOnly.find((e) => e.example.id === "VRF-5")!.before.ok).toBe(false);
+    // the fix: the page's merge -- every target's config by category id, the target disciplines' items behind the own set
+    const e72Cfg = Object.fromEntries(e72.category_configs.map((c) => [c.category_id, { ...c, discipline: "Electrical" }]));
+    const exampleConfigs = { ...cfgs, ...Object.fromEntries(targets.map((t) => [t.categoryId, e72Cfg[t.categoryId]])) };
+    const exampleItems = mergeItemsByName(HV_ITEMS, ITEMS.filter((it) => targets.some((t) => t.discipline === it.discipline)));
+    const ex5 = computeExampleImpacts("vrf_extra_copper_length_m", { factor: 25 }, r2.vrf_extra_copper_length_m, exampleConfigs as never, exampleItems)
+      .find((e) => e.example.id === "VRF-5")!;
+    expect(ex5.before).toMatchObject({ ok: true, values: { supply_rate: 441210, install_rate: 25960 } });
+    expect(ex5.moved).toBe(true);
+    // the reach (badges) is built from the page's own configs: the cross target never joins it
+    expect(computePricingInputReach(exampleConfigs as never, HV_ITEMS).vrf_extra_copper_length_m?.readByCategories)
+      .toEqual(r2.vrf_extra_copper_length_m?.readByCategories);
+  });
+  it("CERT FIX (C11) source: the page fetches the cross targets into an EXAMPLE-ONLY map and hands it to the panel's examples", () => {
+    const PAGE = readFileSync(new URL("../../pricing/rate-master/RateMasterPage.tsx", import.meta.url), "utf8");
+    const PANEL = readFileSync(new URL("../../pricing/rate-master/PricingInputImpactPanel.tsx", import.meta.url), "utf8");
+    expect(PAGE).toContain("exampleCrossTargets(allConfigs as never, disciplineId)");
+    expect(PAGE).toContain("onLoaded={onCrossConfigLoaded}");
+    expect(PAGE).toContain("<RateItemsFetcher key={`example-items-${d}`} discipline={d} onLoaded={onCrossItemsLoaded} />");
+    expect(PAGE).toContain("exampleConfigs={exampleConfigs as never}");
+    expect(PAGE).toContain("exampleItems={exampleItems}");
+    // ⚠️ NEGATIVE: the reach walk and the panel's own props keep the page's discipline only
+    expect(PAGE).toContain("computePricingInputReach(allConfigs as never, items)");
+    expect(PAGE).toContain("allItems={items}");
+    expect(PANEL).toContain("(exampleConfigs ?? allConfigs) as never, exampleItems ?? allItems)");
   });
   it("the panel and the grid source: the snap note, Save / Cancel unchanged ('nothing is saved until you press Save'), the tables mounted", () => {
     const PANEL = readFileSync(new URL("../../pricing/rate-master/PricingInputImpactPanel.tsx", import.meta.url), "utf8");

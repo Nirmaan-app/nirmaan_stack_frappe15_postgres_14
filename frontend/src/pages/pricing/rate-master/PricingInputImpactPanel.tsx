@@ -150,6 +150,10 @@ interface Props {
   /** every category config + the whole catalogue, so the panel prices through the PRODUCT'S pipeline */
   allConfigs: Record<string, { pipelines?: Record<string, unknown> } | undefined>;
   allItems: RateMasterItem[];
+  /** VRF-3b CERT FIX (C11): the worked examples' configs and items -- `allConfigs` / `allItems` plus the extras'
+   *  cross-discipline targets (`exampleCrossTargets`). Used for the examples ONLY; absent = `allConfigs` / `allItems`. */
+  exampleConfigs?: Record<string, { pipelines?: Record<string, unknown> } | undefined>;
+  exampleItems?: RateMasterItem[];
   /** category id -> its human name, so no id reaches the screen (owner N-7) */
   categoryLabel: (id: string) => string;
   onClose: () => void;
@@ -159,7 +163,7 @@ interface Props {
 }
 
 export function PricingInputImpactPanel({
-  input, reach, itemsByUid, allInputs, allReach, allConfigs, allItems,
+  input, reach, itemsByUid, allInputs, allReach, allConfigs, allItems, exampleConfigs, exampleItems,
   categoryLabel, onClose, onSave, canEdit,
 }: Props) {
   const stored = (input.rates ?? {}) as Record<string, number>;
@@ -236,9 +240,9 @@ export function PricingInputImpactPanel({
    */
   const examples = useMemo<ExampleImpact[]>(
     () => (impact.shape === "assembly_only"
-      ? computeExampleImpacts(String(attrs.item ?? ""), editPatch, reach, allConfigs as never, allItems)
+      ? computeExampleImpacts(String(attrs.item ?? ""), editPatch, reach, (exampleConfigs ?? allConfigs) as never, exampleItems ?? allItems)
       : []),
-    [impact.shape, attrs.item, editPatch, reach, allConfigs, allItems],
+    [impact.shape, attrs.item, editPatch, reach, allConfigs, allItems, exampleConfigs, exampleItems],
   );
   /** ELR-3a (owner Q4): a typed value outside the input's range, refused here in the server's own words, before Save */
   const rangeRefusal = useMemo(() => {

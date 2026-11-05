@@ -76,6 +76,30 @@ export function impactExamplesOf(cfg: ConfigLike | null | undefined): ImpactExam
   });
 }
 
+/**
+ * VRF-3b CERT FIX (C11, 2026-11-05) -- PURE. The CROSS-DISCIPLINE (discipline, category) targets the configs' extras read
+ * (VRF's cable: Electrical wiring_cabling, read only). The Rate Master page holds ONE discipline's configs and items, so a
+ * worked example ticking a cable could not price there ("Does not price today"); the page fetches these targets into an
+ * EXAMPLE-ONLY map so the reach walk, the badges and the used-by counts are unchanged. Sorted, deduplicated; [] when none.
+ */
+export function exampleCrossTargets(
+  configs: Record<string, unknown> | null | undefined,
+  discipline: string,
+): Array<{ discipline: string; categoryId: string }> {
+  const out = new Map<string, { discipline: string; categoryId: string }>();
+  for (const cfg of Object.values(configs ?? {})) {
+    const extras = (cfg as { list_spec?: { pricing?: { extras?: Record<string, unknown> } } } | undefined)?.list_spec?.pricing?.extras;
+    if (!extras || typeof extras !== "object") continue;
+    for (const target of Object.values(extras)) {
+      const t = target as { discipline?: unknown; category?: unknown } | null;
+      if (!t || typeof t !== "object" || typeof t.discipline !== "string" || typeof t.category !== "string") continue;
+      if (!t.discipline.trim() || !t.category.trim() || t.discipline === discipline) continue;
+      out.set(`${t.discipline}\u0000${t.category}`, { discipline: t.discipline, categoryId: t.category });
+    }
+  }
+  return [...out.values()].sort((x, y) => x.discipline.localeCompare(y.discipline) || x.categoryId.localeCompare(y.categoryId));
+}
+
 /** The examples an input's panel shows: those of every category whose rules read it, in category order. VRF-2b (U6 A):
  * an example naming `inputs` shows only on those inputs' panels (absent = every input the category reads, as before). */
 export function examplesForInput(

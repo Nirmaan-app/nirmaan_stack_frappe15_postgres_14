@@ -26,8 +26,10 @@ import { computePricingInputReach, extrasSnapSizes } from "./pricingInputReach";
 import { confirmedCandidateSkus } from "./pricingInputExact";
 import { pricingInputUsedBy } from "./rateMasterSpec";
 import { isPricingInputConfig } from "./rateMasterSpec";
-import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, useConfigsByCategory }
+import { RATE_MASTER_CONFIG_TARGETS, RateConfigFetcher, RateItemsFetcher, mergeItemsByName, useConfigsByCategory }
   from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
+import { exampleCrossTargets } from "./pricingInputExamples";
+import type { RateMasterItem } from "./rateMasterTypes";
 import { RateMasterDerivation, calculatorPageLabel } from "./RateMasterDerivation";
 import { CALCULATOR_WORKBOOKS } from "../PricingCalculator";
 import { isNirmaanAdmin } from "@/constants/roles";
@@ -121,6 +123,34 @@ export function RateMasterPage() {
     for (const [cid, cfg] of configsByCategory) (out as Record<string, unknown>)[cid] = cfg;
     return out;
   }, [configsByCategory]);
+  // VRF-3b CERT FIX (C11, 2026-11-05): the worked examples price through the product's compute, and VRF's extras read a
+  // CROSS-DISCIPLINE target (the cable: Electrical wiring_cabling). Those configs and items are fetched into an
+  // EXAMPLE-ONLY map: `allConfigs` / `items` (the reach walk, the badges, the used-by counts) never see them.
+  const crossTargets = useMemo(() => exampleCrossTargets(allConfigs as never, disciplineId), [allConfigs, disciplineId]);
+  const crossDisciplines = useMemo(() => Array.from(new Set(crossTargets.map((t) => t.discipline))).sort(), [crossTargets]);
+  const { configsByCategory: crossConfigsByCategory, onConfigLoaded: onCrossConfigLoaded } = useConfigsByCategory();
+  const [crossItems, setCrossItems] = useState<Map<string, RateMasterItem[]>>(() => new Map());
+  const onCrossItemsLoaded = useCallback((disc: string, list: RateMasterItem[]) => {
+    setCrossItems((prev) => {
+      if (prev.get(disc) === list) return prev;
+      const next = new Map(prev);
+      next.set(disc, list);
+      return next;
+    });
+  }, []);
+  const exampleConfigs = useMemo(() => {
+    if (!crossTargets.length) return allConfigs;
+    const out: Record<string, unknown> = { ...allConfigs };
+    for (const t of crossTargets) {
+      const cfg = crossConfigsByCategory.get(t.categoryId);
+      if (cfg && !(t.categoryId in out)) out[t.categoryId] = cfg;
+    }
+    return out as typeof allConfigs;
+  }, [allConfigs, crossTargets, crossConfigsByCategory]);
+  const exampleItems = useMemo(
+    () => (crossDisciplines.length ? mergeItemsByName(items, ...crossDisciplines.map((d) => crossItems.get(d) ?? [])) : items),
+    [items, crossDisciplines, crossItems],
+  );
   const baseReach = useMemo(
     () => computePricingInputReach(allConfigs as never, items),
     [allConfigs, items],
@@ -467,6 +497,20 @@ export function RateMasterPage() {
                   />
                 ))
               : null}
+            {/* VRF-3b CERT FIX (C11): the extras' cross-discipline targets, for the worked examples only */}
+            {isPricingInputConfig(config)
+              ? crossTargets.map((t) => (
+                  <RateConfigFetcher
+                    key={`example-cfg-${t.discipline}-${t.categoryId}`}
+                    discipline={t.discipline}
+                    categoryId={t.categoryId}
+                    onLoaded={onCrossConfigLoaded}
+                  />
+                ))
+              : null}
+            {isPricingInputConfig(config)
+              ? crossDisciplines.map((d) => <RateItemsFetcher key={`example-items-${d}`} discipline={d} onLoaded={onCrossItemsLoaded} />)
+              : null}
             {/* ⚠️ A FLEX ROW, so the panel occupies REAL layout width and the table narrows instead of
                 being covered (owner: "BESIDE the table, not covering it"). Same shape as the pricing
                 editor's push panel -- never an overlay. */}
@@ -508,6 +552,8 @@ export function RateMasterPage() {
                   allReach={inputReach}
                   allConfigs={allConfigs as never}
                   allItems={items}
+                  exampleConfigs={exampleConfigs as never}
+                  exampleItems={exampleItems}
                   categoryLabel={categoryDisplayName}
                   canEdit={isAdmin && !writesBlocked}
                   onClose={() => setImpactInputUid(null)}
