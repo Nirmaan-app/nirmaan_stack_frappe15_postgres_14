@@ -10,6 +10,7 @@ The fixture's earliest link expiry is 2026-11-06 09:00 UTC (see `test_parser._ST
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from nirmaan_stack.services.outflow_import.bill_links import (
@@ -38,13 +39,29 @@ def _link(signed="20261031T111200Z", lifetime="604800"):
     )
 
 
+#: 2026-11-07 09:30 UTC, 15:00 IST, as a V2 `Expires` (Unix seconds).
+V2_EXPIRES = datetime(2026, 11, 7, 9, 30, tzinfo=timezone.utc)
+
+
+def _v2_link(expires="1794043800"):
+    """A link as the provider signs it (Google Cloud Storage V2): `Expires` is the Unix second it dies."""
+    return (
+        "https://storage.googleapis.com/prod-payments-private/transaction-attachments/T/1.jpeg"
+        f"?GoogleAccessId=signer%40made-up.iam.gserviceaccount.com&Expires={expires}&Signature=ab%2Fcd%3D"
+    )
+
+
 class TestLinkExpiry(unittest.TestCase):
     def test_a_link_expires_its_lifetime_after_it_was_signed(self):
         self.assertEqual(link_expires_at(_link()), datetime(2026, 11, 7, 11, 12, tzinfo=timezone.utc))
 
+    def test_a_v2_link_expires_at_its_expires_instant(self):
+        self.assertEqual(link_expires_at(_v2_link()), V2_EXPIRES)
+
     def test_a_link_without_a_signing_date_and_lifetime_has_no_expiry_to_read(self):
         self.assertIsNone(link_expires_at("https://storage.googleapis.com/b/o.jpeg"))
         self.assertIsNone(link_expires_at(_link(lifetime="soon")))
+        self.assertIsNone(link_expires_at(_v2_link(expires="soon")))
 
     def test_the_file_expires_with_its_earliest_link(self):
         self.assertEqual(earliest_link_expiry(_statement_rows()), EARLIEST)
@@ -64,6 +81,13 @@ class TestExpiredLinkReason(unittest.TestCase):
 
     def test_a_link_that_does_not_say_when_it_dies_is_tried(self):
         self.assertIsNone(expired_link_reason("https://storage.googleapis.com/b/o.jpeg", now=self.EXPIRES))
+
+    def test_a_v2_link_past_its_expires_names_the_date(self):
+        self.assertIsNone(expired_link_reason(_v2_link(), now=V2_EXPIRES - timedelta(seconds=1)))
+        self.assertEqual(
+            expired_link_reason(_v2_link(), now=V2_EXPIRES + timedelta(days=3), tz=IST),
+            "its link expired on 07-Nov-2026 15:00",
+        )
 
 
 class TestExpiredLinksRefusal(unittest.TestCase):
@@ -92,15 +116,23 @@ class TestExpiredLinksRefusal(unittest.TestCase):
     def test_a_file_whose_links_carry_no_readable_expiry_is_refused(self):
         """Spec #1585 code review S4: nothing can be said about when such a link dies, so the import cannot promise
         to fetch its bill; a statement as the provider exports it signs every link."""
-        from types import SimpleNamespace
-
         unsigned = "https://storage.googleapis.com/prod-payments-private/transaction-attachments/T/2.jpeg"
-        for links in ((unsigned,), (_link(), unsigned), (_link(lifetime="soon"),)):
+        for links in ((unsigned,), (_link(), unsigned), (_link(lifetime="soon"),), (_v2_link(expires="soon"),)):
             with self.subTest(links=links):
                 rows = [SimpleNamespace(bill_links=links)]
                 self.assertEqual(
                     expired_links_refusal(rows, now=EARLIEST - timedelta(days=5)), LINKS_UNREADABLE_MESSAGE
                 )
+
+    def test_a_file_of_live_v2_links_is_accepted(self):
+        """The provider signs its links V2 (`Expires`); the real statement's are all of that shape."""
+        rows = [SimpleNamespace(bill_links=(_v2_link(),)), SimpleNamespace(bill_links=(_v2_link(), _link()))]
+        self.assertIsNone(expired_links_refusal(rows, now=V2_EXPIRES - timedelta(days=5)))
+
+    def test_a_file_whose_v2_links_expire_in_under_an_hour_is_refused_naming_the_date(self):
+        rows = [SimpleNamespace(bill_links=(_v2_link(),))]
+        refusal = expired_links_refusal(rows, now=V2_EXPIRES - timedelta(minutes=59), tz=IST)
+        self.assertEqual(refusal, "Links expired on 07-Nov-2026 15:00. Export the statement again.")
 
     def test_a_file_with_no_links_has_nothing_to_expire(self):
         rows = [row for row in _statement_rows() if not row.bill_links]
