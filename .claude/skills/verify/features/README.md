@@ -48,3 +48,6 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
 - [Bulk Import Transactions](./bulk-import-transactions.md): bank, card and cashbook statement lines and their
   matches.
 - [Projects](./projects.md): the project list and a project's page.
+- [Office Rent](./office-rent.md): a bill incl. 18% GST raised by HR, approved by Admin and the CEO, split
+  into rent, GST, TDS and what the landlord gets, paid by an Accountant. Walked end to end by
+  `BIN/walk_office_rent.py`.
