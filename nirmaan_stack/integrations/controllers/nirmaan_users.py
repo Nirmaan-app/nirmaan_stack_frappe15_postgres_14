@@ -2,6 +2,7 @@ import frappe
 
 from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
 from nirmaan_stack.services.exited_employees import switch_off_login
+from nirmaan_stack.services.nirmaan_users import forget_nirmaan_users
 from nirmaan_stack.services.payees.own_accounts import check_own_account, delete_own_account
 
 
@@ -29,9 +30,16 @@ def check_role_profile_copy(doc):
         )
 
 
+def after_insert(doc, method):
+    """A new Nirmaan user: the login gate's cached set must take them in."""
+    forget_nirmaan_users()
+
+
 def after_delete(doc, method):
     """The person's own bank account goes with them (owner, 2026-10-28), unless a Vendor is also paid into it.
-    Here, not in `on_trash`: the person's row must be gone first, or Frappe refuses to delete the Payee it links."""
+    Here, not in `on_trash`: the person's row must be gone first, or Frappe refuses to delete the Payee it links.
+    The login gate's cached set of Nirmaan users drops them at once."""
+    forget_nirmaan_users()
     delete_own_account(doc.get("payee"))
 
 
@@ -92,9 +100,10 @@ def on_trash(doc, method):
 
 def after_rename(doc, method, old_name, new_name, merge):
     """
-    Update email field after document rename.
+    Update email field after document rename, and drop the login gate's cached set of Nirmaan users.
     Called when Nirmaan Users document is renamed (email change).
     """
+    forget_nirmaan_users()
     try:
         # Update the email field to match the new name (primary key)
         frappe.db.set_value("Nirmaan Users", new_name, "email", new_name, update_modified=False)
