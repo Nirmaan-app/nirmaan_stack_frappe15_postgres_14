@@ -280,7 +280,11 @@ only one is `addClassCleanup(_rollback_db)`, which runs *after* `tearDownClass`.
 unguarded block raises on its first delete and strands every record after it — **silently, while the run still
 reports OK**. Correct shape: **roll back first**, then delete each scope inside its own `try`/`except`, commit per
 scope, and report any failure rather than swallow it; a test that provokes a unique/PK violation on purpose also
-wraps it in a `frappe.db.savepoint`. One purge helper per suite family, imported rather than copied — two copies
+wraps it in a `frappe.db.savepoint`. **Exception:** when the code under test itself calls `frappe.db.rollback()`
+on the path a test provokes (the outflow-import Link refusals do, to read a holder committed after the request
+began), a savepoint cannot survive it. The test commits its fixtures before the call, asserts the refusal, and
+cleans up after each test with the suite's purge helper. Any other test that provokes a unique violation still
+uses a savepoint. One purge helper per suite family, imported rather than copied — two copies
 either side of a shared database can disagree about whether a scope was cleaned. Reference implementation:
 `_purge_test_disciplines` in `api/boq/test_rate_master.py`, imported by `test_spec_reader.py`.
 

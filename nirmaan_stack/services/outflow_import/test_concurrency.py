@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""Tests for the concurrent-writer classifier (issue #1246, ADR-0020 Amendment B4).
+"""Tests for the concurrent-writer classifier (issue #1246, ADR-0020 Amendment B4), and for the unique-index
+classifier `is_unique_refusal_by_index` (#1588, #1606, #1611).
 
 THE PROPERTY UNDER TEST IS THE NEGATIVE ONE. Recognising the one refusal is easy; what matters is
 that NOTHING ELSE is recognised, because whatever this says yes to gets reported to a reviewer as a
@@ -15,7 +16,10 @@ import psycopg2.errors as pg_errors
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
+from nirmaan_stack.services.outflow_import.concurrency import (
+    is_concurrent_writer_refusal,
+    is_unique_refusal_by_index,
+)
 
 
 class TestTheOneRefusalIsRecognised(unittest.TestCase):
@@ -52,6 +56,53 @@ class TestNothingElseIsRecognised(unittest.TestCase):
     def test_an_application_error_is_NOT_recognised(self):
         self.assertFalse(is_concurrent_writer_refusal(frappe.ValidationError("More than is left")))
         self.assertFalse(is_concurrent_writer_refusal(ValueError("bad")))
+
+
+ASKED_INDEX = "made_up_unique_index"
+
+
+def _unique_violation_by(constraint_name: str) -> pg_errors.UniqueViolation:
+    """A `UniqueViolation` as Postgres reports it: the refusing index's name is on `diag.constraint_name`, which
+    psycopg2 fills in only for an error read off the wire, so the test gives it here."""
+
+    class _OffTheWire(pg_errors.UniqueViolation):
+        diag = type("Diag", (), {"constraint_name": constraint_name})()
+
+    return _OffTheWire("duplicate key value violates unique constraint")
+
+
+class TestAUniqueRefusalIsRecognisedByItsIndexName(unittest.TestCase):
+    def test_a_unique_violation_by_the_named_index_is_recognised(self):
+        self.assertTrue(is_unique_refusal_by_index(_unique_violation_by(ASKED_INDEX), ASKED_INDEX))
+
+    def test_the_violation_wrapped_the_way_frappe_wraps_it_is_recognised(self):
+        """Frappe re-raises a unique violation as `UniqueValidationError(doctype, name, exc)`, chained from it."""
+        violation = _unique_violation_by(ASKED_INDEX)
+        try:
+            try:
+                raise violation
+            except pg_errors.UniqueViolation as exc:
+                raise frappe.UniqueValidationError("Outflow Row Match", "ofm-0001", exc) from exc
+        except frappe.UniqueValidationError as wrapped:
+            self.assertTrue(is_unique_refusal_by_index(wrapped, ASKED_INDEX))
+
+    def test_the_violation_carried_only_in_the_wrappers_args_is_recognised(self):
+        wrapped = frappe.UniqueValidationError("Outflow Row Match", "ofm-0001", _unique_violation_by(ASKED_INDEX))
+        self.assertTrue(is_unique_refusal_by_index(wrapped, ASKED_INDEX))
+
+    def test_a_unique_violation_by_another_index_is_NOT_recognised(self):
+        """⚠️ THE NAME IS THE TEST, NEVER THE CLASS: another unique key must not be relabelled as this one."""
+        self.assertFalse(is_unique_refusal_by_index(_unique_violation_by("some_other_unique_index"), ASKED_INDEX))
+
+    def test_a_unique_violation_with_no_index_name_is_NOT_recognised(self):
+        self.assertFalse(is_unique_refusal_by_index(pg_errors.UniqueViolation("duplicate key"), ASKED_INDEX))
+
+    def test_a_deadlock_is_NOT_recognised(self):
+        self.assertFalse(is_unique_refusal_by_index(pg_errors.DeadlockDetected("deadlock"), ASKED_INDEX))
+        self.assertFalse(is_unique_refusal_by_index(frappe.QueryDeadlockError("deadlock"), ASKED_INDEX))
+
+    def test_an_application_error_is_NOT_recognised(self):
+        self.assertFalse(is_unique_refusal_by_index(frappe.ValidationError(ASKED_INDEX), ASKED_INDEX))
 
 
 if __name__ == "__main__":

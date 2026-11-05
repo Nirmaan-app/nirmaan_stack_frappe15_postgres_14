@@ -26,19 +26,21 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.outflow_import.expenses import (
-    AlreadyImportedError,
-    AlreadyLinkedError,
-    create_expense,
-    settle_row,
-)
 from nirmaan_stack.api.outflow_import.cashbook_link_fixture import (
     delete_planted_expense,
     open_line_by_hand,
     plant_pending_expense,
     settled_expenses_for,
 )
+from nirmaan_stack.api.outflow_import.expenses import (
+    AlreadyImportedError,
+    AlreadyLinkedError,
+    TxnIdTickedTwiceError,
+    create_expense,
+    settle_row,
+)
 from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
+from nirmaan_stack.api.outflow_import.link_refusal_fixture import assert_refused_in_words
 from nirmaan_stack.api.outflow_import.test_cashbook_one_expense_per_txn import TwoBatchesOneTxnIdCase
 from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
 from nirmaan_stack.patches.v3_0 import outflow_match_one_expense_per_cashbook_txn as patch_module
@@ -55,7 +57,6 @@ from nirmaan_stack.services.outflow_import.status import (
 
 ROW_DOCTYPE = "Outflow Import Row"
 MATCH_DOCTYPE = "Outflow Row Match"
-RAW_DATABASE_WORDS = ("UniqueViolation", "duplicate key", "IntegrityError", IMPORT_CREATED_EXPENSE_INDEX)
 
 
 class LinkOneTxnIdCase(TwoBatchesOneTxnIdCase):
@@ -73,12 +74,8 @@ class LinkOneTxnIdCase(TwoBatchesOneTxnIdCase):
         line = self._twin(self.b, self.txn)
         return line, self._plant(open_line_by_hand(line.name))
 
-    def _link(self, line, expense):
-        return link_rows_to_expense(json.dumps([line.name]), NON_PROJECT_EXPENSE_DOCTYPE, expense)
-
-    def _assert_no_raw_database_words(self, message: str):
-        for word in RAW_DATABASE_WORDS:
-            self.assertNotIn(word, message)
+    def _link(self, *lines, expense):
+        return link_rows_to_expense(json.dumps([line.name for line in lines]), NON_PROJECT_EXPENSE_DOCTYPE, expense)
 
 
 class TestLinkFirstThenTheJob(LinkOneTxnIdCase):
@@ -86,7 +83,7 @@ class TestLinkFirstThenTheJob(LinkOneTxnIdCase):
 
     def test_the_job_creates_no_second_expense_and_its_line_is_already_imported_naming_the_link(self):
         line, expense = self._open_b_and_plant()
-        self._link(line, expense)
+        self._link(line, expense=expense)
         self.assertEqual(self._twin(self.b, self.txn).row_status, ROW_SETTLED)
 
         self._run_job(self.a)
@@ -102,7 +99,7 @@ class TestLinkFirstThenTheJob(LinkOneTxnIdCase):
 
     def test_the_job_still_creates_every_other_txn_id(self):
         line, expense = self._open_b_and_plant()
-        self._link(line, expense)
+        self._link(line, expense=expense)
         self._run_job(self.a)
         for txn in self.txn_ids[1:]:
             with self.subTest(txn=txn):
@@ -111,7 +108,7 @@ class TestLinkFirstThenTheJob(LinkOneTxnIdCase):
 
     def test_a_hand_create_of_the_linked_txn_id_is_refused_naming_the_linked_expense(self):
         line, expense = self._open_b_and_plant()
-        self._link(line, expense)
+        self._link(line, expense=expense)
         other = self._twin(self.a, self.txn)
         open_line_by_hand(other.name, extra_rupees=2)
 
@@ -136,13 +133,7 @@ class TestTheJobFirstThenALink(LinkOneTxnIdCase):
         (self.holder,) = settled_expenses_for(self.txn)
 
     def _assert_refused_and_nothing_linked(self, attempt, line, expense):
-        with self.assertRaises(AlreadyImportedError) as refused:
-            attempt()
-        frappe.db.commit()
-        message = str(refused.exception)
-        self.assertIn(self.holder, message)
-        self.assertIn(self.txn, message)
-        self._assert_no_raw_database_words(message)
+        assert_refused_in_words(self, attempt, AlreadyImportedError, [self.holder, self.txn])
         self.assertEqual(settled_expenses_for(self.txn), [self.holder])
         self.assertEqual(self._twin(self.b, self.txn).row_status, ROW_MISMATCHED)
         self.assertEqual(
@@ -152,7 +143,7 @@ class TestTheJobFirstThenALink(LinkOneTxnIdCase):
 
     def test_a_link_of_many_lines_is_refused_naming_the_expense_that_holds_the_txn_id(self):
         line, expense = self._open_b_and_plant()
-        self._assert_refused_and_nothing_linked(lambda: self._link(line, expense), line, expense)
+        self._assert_refused_and_nothing_linked(lambda: self._link(line, expense=expense), line, expense)
 
     def test_a_one_line_link_from_decide_is_refused_the_same_way(self):
         line, expense = self._open_b_and_plant()
@@ -167,7 +158,7 @@ class TestTheJobFirstThenALink(LinkOneTxnIdCase):
             if line.transfer_id not in self.txn_ids and line.row_status != ROW_SETTLED
         )
         expense = self._plant(open_line_by_hand(free.name))
-        self._link(free, expense)
+        self._link(free, expense=expense)
         self.assertEqual(self._twin(self.b, free.transfer_id).row_status, ROW_SETTLED)
 
 
@@ -183,35 +174,43 @@ class TestALinkToTheSameExpense(LinkOneTxnIdCase):
         a_amount = open_line_by_hand(self.a_line.name)
         b_amount = open_line_by_hand(self.b_line.name)
         self.expense = self._plant(a_amount + b_amount)
-        self._link(self.a_line, self.expense)
+        self._link(self.a_line, expense=self.expense)
 
     def _assert_refused_in_words(self, attempt):
-        with self.assertRaises(AlreadyLinkedError) as refused:
-            attempt()
-        frappe.db.commit()
-
-        message = str(refused.exception)
-        self._assert_no_raw_database_words(message)
-        self.assertNotIn("ofm_match_settled_target_unique", message)
-        self.assertIn(self.txn, message)
-        self.assertIn(self.expense, message)
-        self.assertIn(self.a_line.name, message)
-        self.assertIn(self.a, message)
+        assert_refused_in_words(self, attempt, AlreadyLinkedError, [self.txn, self.expense, self.a_line.name, self.a])
         self.assertEqual(settled_expenses_for(self.txn), [self.expense])
         self.assertEqual(self._twin(self.b, self.txn).row_status, ROW_MISMATCHED)
         self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": self.b_line.name}))
 
     def test_a_link_of_many_lines_is_refused_naming_the_expense_and_the_line_that_hold_it(self):
-        self._assert_refused_in_words(lambda: self._link(self.b_line, self.expense))
+        self._assert_refused_in_words(lambda: self._link(self.b_line, expense=self.expense))
 
     def test_a_one_line_link_from_decide_is_refused_the_same_way(self):
         self._assert_refused_in_words(lambda: settle_row(self.b_line.name, NON_PROJECT_EXPENSE_DOCTYPE, self.expense))
 
 
+class TestBothLinesOfTheTxnIdTickedInOneLink(LinkOneTxnIdCase):
+    """#1611: A's and B's line of one Txn Id, neither linked, ticked together in one many-line Link. Either index may
+    refuse the second line's match row inside the request; no committed line holds the Txn Id, and the person is
+    told the Txn Id the ticked lines share."""
+
+    def test_the_link_is_refused_naming_the_txn_id_the_ticked_lines_share(self):
+        a_line, b_line = self._twin(self.a, self.txn), self._twin(self.b, self.txn)
+        expense = self._plant(open_line_by_hand(a_line.name) + open_line_by_hand(b_line.name, extra_rupees=2))
+
+        assert_refused_in_words(
+            self, lambda: self._link(a_line, b_line, expense=expense), TxnIdTickedTwiceError, [self.txn, expense]
+        )
+        self.assertEqual(settled_expenses_for(self.txn), [])
+        for line in (a_line, b_line):
+            self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line.name, "row_status"), ROW_MISMATCHED)
+            self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": line.name}))
+
+
 class TestUnreconcileOfTheLinkedLineFreesTheTxnId(LinkOneTxnIdCase):
     def test_after_unreconcile_the_job_creates_the_txn_id(self):
         line, expense = self._open_b_and_plant()
-        self._link(line, expense)
+        self._link(line, expense=expense)
         unreconcile_row(row=line.name, legs="all", reason="linked to the wrong expense")
         frappe.db.commit()
         self.assertEqual(settled_expenses_for(self.txn), [])
@@ -224,20 +223,20 @@ class TestUnreconcileOfTheLinkedLineFreesTheTxnId(LinkOneTxnIdCase):
 
     def test_after_unreconcile_a_link_to_another_expense_succeeds(self):
         line, expense = self._open_b_and_plant()
-        self._link(line, expense)
+        self._link(line, expense=expense)
         unreconcile_row(row=line.name, legs="all", reason="linked to the wrong expense")
         frappe.db.commit()
 
         other = self._twin(self.a, self.txn)
         second = self._plant(open_line_by_hand(other.name, extra_rupees=2))
-        self._link(other, second)
+        self._link(other, expense=second)
         self.assertEqual(settled_expenses_for(self.txn), [second])
 
 
 class TestAMatchRowCarriesItsLinesSource(LinkOneTxnIdCase):
     def test_a_link_and_a_create_both_write_the_cashbook_source(self):
         line, expense = self._open_b_and_plant()
-        self._link(line, expense)
+        self._link(line, expense=expense)
         self._run_job(self.a)
         sources = frappe.get_all(
             MATCH_DOCTYPE, filters={"import_batch": ["in", [self.a, self.b]]}, pluck="source"

@@ -19,8 +19,9 @@ test's own and is deleted after it.
 
 import json
 
-import frappe
 from psycopg2.errors import UniqueViolation
+
+import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
     AlreadyLinkedError,
@@ -28,34 +29,21 @@ from nirmaan_stack.api.outflow_import.expenses import (
     settle_row,
 )
 from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
+from nirmaan_stack.api.outflow_import.link_refusal_fixture import assert_refused_in_words, give_the_txn_id_of
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.test_link_rows_to_expense import LinkFixture
-from nirmaan_stack.services.outflow_import.import_created_expense import IMPORT_CREATED_EXPENSE_INDEX
 from nirmaan_stack.services.outflow_import.settle import NON_PROJECT_EXPENSE
-from nirmaan_stack.services.outflow_import.settled_target_index import (
-    SETTLED_TARGET_INDEX,
-    is_settled_target_refusal,
-)
+from nirmaan_stack.services.outflow_import.settled_target_index import is_settled_target_refusal
 from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, ROW_SETTLED
-
-RAW_DATABASE_WORDS = (
-    "UniqueViolation",
-    "duplicate key",
-    "IntegrityError",
-    SETTLED_TARGET_INDEX,
-    IMPORT_CREATED_EXPENSE_INDEX,
-)
 
 
 class TestALinkToTheExpenseThatHoldsTheTransfer(LinkFixture):
     def setUp(self):
         super().setUp()
         self.first, self.second = self._lines(2)
-        self.txn = frappe.db.get_value(ROW_DOCTYPE, self.first["name"], "transfer_id")
-        # TEST DATA ONLY, HOOKS SKIPPED ON PURPOSE: the second line stands in for the same transfer staged again
-        # from an overlapping statement, at a figure that disagrees.
-        frappe.db.set_value(ROW_DOCTYPE, self.second["name"], "transfer_id", self.txn, update_modified=False)
-        frappe.db.commit()
+        # The second line stands in for the same transfer staged again from an overlapping statement, at a figure
+        # that disagrees.
+        self.txn = give_the_txn_id_of(self.first["name"], to=self.second["name"])
         self.expense = self._expense(amount=self._total([self.first, self.second]))
         link_rows_to_expense(
             rows=json.dumps([self.first["name"]]), target_doctype=NON_PROJECT_EXPENSE, target_name=self.expense
@@ -63,16 +51,9 @@ class TestALinkToTheExpenseThatHoldsTheTransfer(LinkFixture):
         self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, self.first["name"], "row_status"), ROW_SETTLED)
 
     def _assert_refused_in_words_and_nothing_linked(self, attempt):
-        with self.assertRaises(AlreadyLinkedError) as refused:
-            attempt()
-        frappe.db.commit()
-        message = str(refused.exception)
-        for word in RAW_DATABASE_WORDS:
-            self.assertNotIn(word, message)
-        self.assertIn(self.txn, message)
-        self.assertIn(self.expense, message)
-        self.assertIn(self.first["name"], message)
-        self.assertIn(self.batch.name, message)
+        assert_refused_in_words(
+            self, attempt, AlreadyLinkedError, [self.txn, self.expense, self.first["name"], self.batch.name]
+        )
         self.assertIn(frappe.db.get_value(ROW_DOCTYPE, self.second["name"], "row_status"), OPEN_ROW_STATUSES)
         self.assertEqual([slip["import_row"] for slip in self._slips(self.expense)], [self.first["name"]])
         self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": self.second["name"]}))
@@ -128,4 +109,13 @@ class TestOnlyThatIndexIsRelabelled(LinkFixture):
         self.assertIsNone(refuse_link_of_a_held_txn_id(["TXN-1606-OTHER"], NON_PROJECT_EXPENSE, "NPE-1606-OTHER", exc))
         self.assertIsNone(
             refuse_link_of_a_held_txn_id(["TXN-1606-OTHER"], NON_PROJECT_EXPENSE, "NPE-1606-OTHER", ValueError("bad"))
+        )
+
+    def test_another_error_is_left_to_its_caller_even_when_two_ticked_lines_share_a_txn_id(self):
+        """#1611: the ticked-twice sentence is told only for a refusal by one of the two match indexes."""
+        exc = self._another_unique_violation()
+        twice = ["TXN-1611-TWICE", "TXN-1611-TWICE"]
+        self.assertIsNone(refuse_link_of_a_held_txn_id(twice, NON_PROJECT_EXPENSE, "NPE-1611-TWICE", exc))
+        self.assertIsNone(
+            refuse_link_of_a_held_txn_id(twice, NON_PROJECT_EXPENSE, "NPE-1611-TWICE", ValueError("bad"))
         )
