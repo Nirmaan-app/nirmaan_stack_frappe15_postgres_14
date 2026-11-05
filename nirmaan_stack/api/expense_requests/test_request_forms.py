@@ -195,14 +195,15 @@ class TestTheOfficeRentForm(unittest.TestCase):
 		self.assertEqual(types, {"rent_month": "month", "office_location": "text",
 		                         "landlord_name": "text", "landlord_pan": "pan"})
 
-	def test_its_version_moved_with_the_month(self):
-		self.assertEqual(self.fmt["templateVersion"], 2)
+	def test_its_version_moved_with_the_gst_sentence(self):
+		"""2: the month (#1524); 3: the amount is the bill incl. 18% GST (spec #1613)."""
+		self.assertEqual(self.fmt["templateVersion"], 3)
 
-	def test_its_description_states_the_rent_the_landlord_and_the_tax(self):
+	def test_its_description_says_the_amount_includes_gst_and_the_tds_is_on_the_rent(self):
 		self.assertEqual(
 			self.fmt["description_template"],
 			"Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} "
-			"(PAN {landlord_pan}). (10% TDS will be deducted)")
+			"(PAN {landlord_pan}). (Amount incl. 18% GST; 10% TDS on the rent will be deducted)")
 
 	def test_who_gets_paid_is_required(self):
 		self.assertEqual(self.row["payee_rule"], REQUIRED)
