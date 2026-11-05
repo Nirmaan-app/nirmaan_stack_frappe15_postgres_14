@@ -433,6 +433,23 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
   [ADR-0025 Amendment B](docs/adr/0025-tds-phase2-group-driven-consumption.md).)
   *Avoid*: client approval, final approval, Approved (alone, for the client's answer).
 
+- **Resolve (a rejected Project TDS row)** — fixing a row the Admin *Rejected* by switching it to another
+  Make of the same TDS Item. It stays the same request, with the same request id, and goes back to waiting
+  for approval as an ordinary *Pending* pick that carries the new Make's datasheet. If the row was a New
+  Make, the datasheet it uploaded is discarded. Only the Make changes. The new Make must have a Repository
+  Entry for this TDS Item, and must not already be on the project at any status, *Rejected* included. A
+  **Project Custom** row is resolved by editing it like a request on the approval page: its name, Work
+  Package, Category, Make (from the make list), BOQ line, description and datasheet may all change, but it
+  stays a Project Custom item. At least one of them must change. A new datasheet is never required: once
+  anything changes, the user is asked to check the current one still matches. A rename to a name already on
+  the project joins that item; the name + Make must not already be on the project at any status. A legacy
+  row can't be resolved. The Admin's rejection reason is kept, but it is shown
+  only while the row is *Rejected*. Admin and PMO Executive may resolve, and the server checks this. A
+  *Rejected* row is deleted from the same Resolve dialog, not from the table. It differs from re-sending
+  the same item + Make on a new request, which replaces the rejected row with a new row under a new
+  request id. (Owner, 2026-11-03; Project Custom full edit 2026-11-03.)
+  *Avoid*: resubmit, reopen, edit (for this).
+
 - **Request Type** — what a waiting Project TDS row asks the approver for: **From Repository** (an
   existing Repository Entry), **New Make** (a Make the TDS Item has no entry for yet; approval adds it to
   the catalogue), or **Project Custom** (a *Project Custom Item*; approval touches nothing outside the
@@ -478,8 +495,8 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
 - **PMO Executive** — project-level manager. Uses **Request New** to request a new Make or a Project Custom Item, manages
   Project TDS setup, and may set an item's TDS group from the Items side. Sets a row's Client Status, but
   cannot clear it. Deletes Project TDS rows **at any status**, like an Admin (owner ruling, changed from
-  Pending/Rejected-only), unless the row has a Client Status. Cannot approve, and cannot author groups or
-  entries.
+  Pending/Rejected-only), unless the row has a Client Status. Resolves a *Rejected* row, as an Admin can.
+  Cannot approve, and cannot author groups or entries.
 - **Project user** (leads, managers, others) — can only pick existing catalogue entries for their
   projects. No edit, no delete, no Request New.
 

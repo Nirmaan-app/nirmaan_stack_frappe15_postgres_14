@@ -55,6 +55,7 @@ import {
 import { useSetClientStatus } from '../../data/tds/useTdsMutations';
 import { getFrappeError } from "@/utils/frappeErrors";
 import { TdsClientRejectDialog } from './TdsClientRejectDialog';
+import { TdsResolveDialog } from './TdsResolveDialog';
 
 interface TdsHistoryTableProps {
     projectId: string;
@@ -137,6 +138,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     const [namesToReject, setNamesToReject] = useState<string[]>([]);
     const [itemToDelete, setItemToDelete] = useState<string | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    // The Rejected row the Resolve dialog is open on, by name; the row itself is read from the live page.
+    const [resolveName, setResolveName] = useState<string | null>(null);
 
     // Full names by user id, for the Marked By column.
     const userMap = useNirmaanUserNames();
@@ -272,7 +275,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                 const hasReason = !!reason && reason.trim() !== "";
 
                 return (
-                    <div className="flex flex-col items-center gap-1.5 min-w-[100px]">
+                    <div className="flex items-center justify-center gap-1.5 min-w-[100px]">
                         <Badge variant="secondary" className={`border whitespace-nowrap ${colorClass}`}>
                             {HISTORY_STATUS_LABEL[status]}
                         </Badge>
@@ -390,7 +393,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                 header: "Actions",
                 // The column only exists when `canManageTDS`, which grants every row
                 // except one the client has answered: that row is locked until an
-                // Admin clears its Client Status.
+                // Admin clears its Client Status. A Rejected row is resolved, or
+                // deleted, from the Resolve dialog.
                 cell: ({ row }: { row: Row<ProjectTDSItem> }) => isDeleteLocked(row.original) ? (
                     <TooltipProvider>
                         <Tooltip>
@@ -408,6 +412,16 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
+                ) : historyStatusOf(row.original.tds_status) === "Rejected" ? (
+                    <Button
+                        data-testid="tds-row-resolve"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs border-red-200 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => setResolveName(row.original.name)}
+                    >
+                        Resolve
+                    </Button>
                 ) : (
                     <Button
                         aria-label="Delete"
@@ -509,6 +523,11 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     const rowsToReject = useMemo(
         () => pageRows.filter(row => namesToReject.includes(row.name)),
         [pageRows, namesToReject]
+    );
+
+    const rowToResolve = useMemo(
+        () => pageRows.find(row => row.name === resolveName) ?? null,
+        [pageRows, resolveName]
     );
 
     const markClientStatus = async (names: string[], action: ClientStatusAction, reason?: string) => {
@@ -636,6 +655,16 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                 isSubmitting={isMarking}
                 onCancel={() => setNamesToReject([])}
                 onConfirm={reason => markClientStatus(namesToReject, CLIENT_STATUS_ACTION.markRejected, reason)}
+            />
+
+            <TdsResolveDialog
+                projectId={projectId}
+                row={rowToResolve}
+                onClose={() => setResolveName(null)}
+                onChanged={() => {
+                    refetchTable();
+                    onDataChange?.();
+                }}
             />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

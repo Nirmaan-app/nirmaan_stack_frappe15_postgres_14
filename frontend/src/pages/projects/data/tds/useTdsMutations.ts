@@ -309,3 +309,63 @@ export const useSetClientStatus = () => {
 
     return { setClientStatus, loading };
 };
+
+/**
+ * Resolve a Rejected row and send it back for approval as Pending: another Repository make of its
+ * TDS Item, or for a Project Custom row its edited `custom` fields, make and optional
+ * `tdsAttachment`, the file_url of the caller's unattached upload (`api/tds/edit_request.resolve_rejected_tds`, which re-checks the
+ * role, that the row is still Rejected and that the item + make is free on the project).
+ * Invalidates history and existing project items caches.
+ */
+export const useResolveRejectedTds = () => {
+    const { call, loading } = useFrappePostCall<{
+        message: { name: string; tds_item_id: string; tds_status: string };
+    }>("nirmaan_stack.api.tds.edit_request.resolve_rejected_tds");
+    const { mutate } = useSWRConfig();
+    const { currentUser } = useFrappeAuth();
+
+    const resolve = async (
+        projectId: string,
+        name: string,
+        make: string,
+        tdsAttachment?: string,
+        custom?: Record<string, string>
+    ) => {
+        try {
+            const result = await call({
+                doc_name: name,
+                make,
+                tds_attachment: tdsAttachment ?? "",
+                ...(custom && { custom: JSON.stringify(custom) }),
+            });
+            try {
+                await Promise.all([
+                    mutate(tdsKeys.historyItems(projectId)),
+                    mutate(tdsKeys.existingProjectItems(projectId)),
+                ]);
+            } catch (invalidateError) {
+                captureApiError({
+                    hook: "useResolveRejectedTds",
+                    api: "SWR Invalidation",
+                    feature: "tds",
+                    error: invalidateError,
+                    user: currentUser ?? undefined,
+                });
+            }
+            return result.message;
+        } catch (error) {
+            captureApiError({
+                hook: "useResolveRejectedTds",
+                api: "resolve_rejected_tds",
+                feature: "tds",
+                doctype: "Project TDS Item List",
+                entity_id: name,
+                error,
+                user: currentUser ?? undefined,
+            });
+            throw error;
+        }
+    };
+
+    return { resolve, loading };
+};
