@@ -9,6 +9,7 @@ A test helper, not a test module: imported by `test_cashbook_link_holds_txn_id`,
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.review import ROW_DOCTYPE
 from nirmaan_stack.services.outflow_import.import_created_expense import IMPORT_CREATED_EXPENSE_INDEX
 from nirmaan_stack.services.outflow_import.settled_target_index import SETTLED_TARGET_INDEX
 
@@ -41,3 +42,14 @@ def assert_refused_in_words(case, attempt, exc_class, names) -> str:
     for name in names:
         case.assertIn(name, message)
     return message
+
+
+def give_the_txn_id_of(line: str, to: str) -> str:
+    """Give line `to` the Txn Id of line `line` and return it.
+
+    TEST DATA ONLY, HOOKS SKIPPED ON PURPOSE: `to` stands in for the same transfer staged again from an overlapping
+    statement. Nothing is derived from a line's Txn Id at write time, so there is nothing to recompute."""
+    txn = frappe.db.get_value(ROW_DOCTYPE, line, "transfer_id")
+    frappe.db.set_value(ROW_DOCTYPE, to, "transfer_id", txn, update_modified=False)
+    frappe.db.commit()
+    return txn

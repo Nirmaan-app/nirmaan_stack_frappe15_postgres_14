@@ -75,4 +75,3 @@ def is_import_created_expense_refusal(exc: BaseException) -> bool:
     no other database error (another unique key, a deadlock, a lost race) is ever relabelled "Already
     imported"."""
     return is_unique_refusal_by_index(exc, IMPORT_CREATED_EXPENSE_INDEX)
-

@@ -10,7 +10,7 @@
 * A many-line Link (`link_rows_to_expense`) of two new lines that share one Txn Id: the index refuses the second
   row inside the same request, so no committed line holds the Txn Id.
 
-The second line is given the first line's Txn Id by hand (test data only), as `test_link_to_its_own_expense` does.
+The second line is given the first line's Txn Id by hand (test data only, `link_refusal_fixture.give_the_txn_id_of`).
 Every batch, line, match row, payment and expense is this test's own and is deleted by its fixture's teardown.
 """
 
@@ -24,7 +24,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     settle_row,
 )
 from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
-from nirmaan_stack.api.outflow_import.link_refusal_fixture import assert_refused_in_words
+from nirmaan_stack.api.outflow_import.link_refusal_fixture import assert_refused_in_words, give_the_txn_id_of
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.test_link_rows_to_expense import LinkFixture
 from nirmaan_stack.api.outflow_import.test_settle_payment import PaymentSettlementFixture
@@ -34,14 +34,6 @@ from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, ROW_
 from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_RECONCILIATION_PENDING
 
 
-def _give_the_txn_id_of(line: str, to: str) -> str:
-    """TEST DATA ONLY, HOOKS SKIPPED ON PURPOSE: `to` stands in for the same transfer staged again."""
-    txn = frappe.db.get_value(ROW_DOCTYPE, line, "transfer_id")
-    frappe.db.set_value(ROW_DOCTYPE, to, "transfer_id", txn, update_modified=False)
-    frappe.db.commit()
-    return txn
-
-
 class TestAPaymentLinkOfATxnIdThatAlreadySettledIt(PaymentSettlementFixture):
     """Item 1: line A settled a Payment; line B carries A's Txn Id and is Linked to the same Payment."""
 
@@ -49,7 +41,7 @@ class TestAPaymentLinkOfATxnIdThatAlreadySettledIt(PaymentSettlementFixture):
         super().setUp()
         self.first = self._staged_row(amount="100")
         self.second = self._staged_row(amount="100")
-        self.txn = _give_the_txn_id_of(self.first, to=self.second)
+        self.txn = give_the_txn_id_of(self.first, to=self.second)
         self.payment = self._approved_payment("100")
         settle_row(self.first, PAYMENT_DOCTYPE, self.payment)
         self.assertEqual(frappe.db.get_value(PAYMENT_DOCTYPE, self.payment, "status"), STATUS_PAID)
@@ -95,7 +87,7 @@ class TestTwoNewLinesWithOneTxnIdInOneLink(LinkFixture):
 
     def test_the_link_is_refused_naming_the_txn_id_the_ticked_lines_share(self):
         first, second = self._lines(2)
-        txn = _give_the_txn_id_of(first["name"], to=second["name"])
+        txn = give_the_txn_id_of(first["name"], to=second["name"])
         expense = self._expense(amount=self._total([first, second]))
 
         assert_refused_in_words(

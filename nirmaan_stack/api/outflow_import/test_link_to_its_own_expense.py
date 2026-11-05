@@ -29,7 +29,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     settle_row,
 )
 from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
-from nirmaan_stack.api.outflow_import.link_refusal_fixture import assert_refused_in_words
+from nirmaan_stack.api.outflow_import.link_refusal_fixture import assert_refused_in_words, give_the_txn_id_of
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.test_link_rows_to_expense import LinkFixture
 from nirmaan_stack.services.outflow_import.settle import NON_PROJECT_EXPENSE
@@ -41,11 +41,9 @@ class TestALinkToTheExpenseThatHoldsTheTransfer(LinkFixture):
     def setUp(self):
         super().setUp()
         self.first, self.second = self._lines(2)
-        self.txn = frappe.db.get_value(ROW_DOCTYPE, self.first["name"], "transfer_id")
-        # TEST DATA ONLY, HOOKS SKIPPED ON PURPOSE: the second line stands in for the same transfer staged again
-        # from an overlapping statement, at a figure that disagrees.
-        frappe.db.set_value(ROW_DOCTYPE, self.second["name"], "transfer_id", self.txn, update_modified=False)
-        frappe.db.commit()
+        # The second line stands in for the same transfer staged again from an overlapping statement, at a figure
+        # that disagrees.
+        self.txn = give_the_txn_id_of(self.first["name"], to=self.second["name"])
         self.expense = self._expense(amount=self._total([self.first, self.second]))
         link_rows_to_expense(
             rows=json.dumps([self.first["name"]]), target_doctype=NON_PROJECT_EXPENSE, target_name=self.expense
