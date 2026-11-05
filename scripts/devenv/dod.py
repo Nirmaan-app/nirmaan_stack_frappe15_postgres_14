@@ -112,6 +112,9 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     problems = []
     if "TODO" in text:
         problems.append(f"fill every TODO in {path}")
+    # A placeholder written while a run is still going (#1607's report said done with "RESULT_PENDING" in Evidence).
+    if re.search(r"\b[A-Z]+_PENDING\b", text):
+        problems.append(f"replace every *_PENDING placeholder in {path} with the real result")
     if head_short not in text:
         problems.append(f"the report must name the commit it describes: {head_short} (git rev-parse --short HEAD)")
     for section in REPORT_SECTIONS:

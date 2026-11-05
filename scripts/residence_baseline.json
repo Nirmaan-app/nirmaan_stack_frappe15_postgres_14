@@ -53,5 +53,10 @@
     "count": 22,
     "description": "Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): the record depends on whatever was modified last.",
     "rule": "T1"
+  },
+  "t2_tests_freeze_time": {
+    "count": 0,
+    "description": "Lines in test_*.py calling freeze_time( (FrappeTestCase.freeze_time needs freezegun, which the dev bench does not install).",
+    "rule": "T2"
   }
 }

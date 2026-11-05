@@ -185,6 +185,8 @@ box_show "$FROM_WHERE"
 case "$CMD" in
   start)
     [ -z "$BRIEF" ] || [ -s "$BRIEF" ] || die "no brief at $BRIEF"
+    # A placeholder left from BRIEF_TEMPLATE.md would hand the agent a wrong base, ticket or env.
+    [ -z "$BRIEF" ] || ! grep -n '<<FILL' "$BRIEF" >&2 || die "the brief still holds a <<FILL: …>> from the template (lines above): fill it first"
     [ "$AGENT" = 0 ] || agent_ready
     box_reach
 

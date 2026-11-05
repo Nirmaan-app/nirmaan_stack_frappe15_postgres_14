@@ -133,6 +133,29 @@ sys.exit(0 if ok else "guard failed: wrong code, DB or bench path. Not running."
 PY
 }
 
+# Before a test run: the two states of an env's DB that turn a whole run red whatever the code does.
+# 1. The DB was last migrated on another Frappe than the code (the bench moved on): new Frappe tables are missing,
+#    so most modules fail at import. Refused, naming the fix.
+# 2. Rows an older test run left behind (names "TEST-…"): a test that counts or matches rows sees them and fails.
+#    Only said, with the tables: a leftover is harmless to most tests, and `reset` is the user's call on dev/master/lab.
+db_state() {
+  local code_v db_v q left
+  code_v="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$B/apps/frappe/frappe/__init__.py" | head -1)"
+  db_v="$(psql -d "$DB" -Atc "SELECT app_version FROM \"tabInstalled Application\" WHERE app_name = 'frappe'" 2>/dev/null || true)"
+  [ -z "$db_v" ] || [ "$db_v" = "$code_v" ] \
+    || die "this env's DB was last migrated on Frappe $db_v, but the code is Frappe $code_v, so the run would fail on missing tables. Run: devenv.sh run $TASK migrate"
+  q="$(psql -d "$DB" -Atc "SELECT string_agg(format('SELECT %L AS t, count(*) AS n FROM %I WHERE name LIKE %L', table_name, table_name, 'TEST-%'), ' UNION ALL ')
+       FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'name' AND table_name LIKE 'tab%'
+       AND data_type IN ('character varying', 'text')")"
+  left="$(psql -d "$DB" -Atc "SELECT string_agg(t || ' ' || n, ', ' ORDER BY n DESC) FROM ($q) x WHERE n > 0" 2>/dev/null || true)"
+  if [ -n "$left" ]; then
+    echo "  data  : Frappe $code_v; rows an older test run left behind (TEST-…): $left"
+    echo "          a test that counts or matches rows may fail on them; devenv.sh reset $TASK gives a clean DB"
+  else
+    echo "  data  : Frappe $code_v; no TEST-… rows left behind"
+  fi
+}
+
 migrate() {    # frappe migrate, after clearing locks a killed or failed run left behind (else DocumentLockedError)
   pgrep -f -- "--site $SITE migrate" >/dev/null && die "a migrate is already running on $SITE"
   rm -f "$B/sites/$SITE/locks/"*.lock
@@ -379,7 +402,7 @@ PY
     test)
       # Frappe's run-tests exits 0 on failures unless $CI is set (frappe/commands/utils.py), and $CI changes
       # other behaviour, so read unittest's own verdict line instead.
-      check_task "$1"; shift; guard
+      check_task "$1"; shift; guard; db_state
       # run-tests keeps only the LAST --module, so run each module on its own and judge each run.
       MODS=(); REST=(); SKIPS=
       while [ $# -gt 0 ]; do

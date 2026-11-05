@@ -260,7 +260,9 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
   commit message.
 - **Repeatable:** a test's result never depends on a random value, on the order tests run, or on records another
   test left. A random suffix that only keeps a name unique (`frappe.generate_hash`) is fine. Logic that reads
-  today's date runs under `self.freeze_time(...)` (a `FrappeTestCase` method).
+  today's date runs with Frappe's clock stopped by patching `now_datetime`, as `api/payees/test_paid_to.py`
+  (`_site_clock_at`) does. Not `self.freeze_time(...)`: it needs freezegun, which the dev bench does not install
+  (#1607); `scripts/residence_check.py` rule T2 refuses it.
 - **Data patches:** run a patch on a copy of the dev DB, never only on an empty test DB: an empty table migrates
   cleanly even when the patch is wrong. Run it twice; a patch must be safe to re-run.
 - **Frontend tests** (vitest, node-only, run with `yarn typecheck` by the Frontend CI job; Cypress): `frontend/CODING_STANDARDS.md` § Writing a test.
