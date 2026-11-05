@@ -104,8 +104,12 @@ Use `nirmaan_stack.api.users.reset_password` for graceful email error handling:
 result = frappe.call("nirmaan_stack.api.users.reset_password", {
     "user": "john@example.com"
 })
-# Returns: { success, message, email_sent, error? }
+# Returns: { success, message, email_sent, email_error? }
 ```
+
+User admins only (`services/role_profiles.USER_ADMIN_PROFILES`), as is `create_user`. Frappe makes and stores the
+key (`User._reset_password`, hashed), so the link works; the link goes only to the user's inbox, never back to the
+caller. Refused for Administrator and a switched-off login.
 
 ---
 

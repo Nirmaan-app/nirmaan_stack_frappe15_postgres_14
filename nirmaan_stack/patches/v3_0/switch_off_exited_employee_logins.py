@@ -9,7 +9,7 @@ from nirmaan_stack.services.exited_employees import switch_off_logins_still_on
 
 
 def execute():
-	changed = switch_off_logins_still_on()
-	print(f"switch_off_exited_employee_logins: switched off {len(changed)} login(s)")
-	for name in changed:
-		print(f"    {name}")
+    changed = switch_off_logins_still_on()
+    print(f"switch_off_exited_employee_logins: switched off {len(changed)} login(s)")
+    for name in changed:
+        print(f"    {name}")

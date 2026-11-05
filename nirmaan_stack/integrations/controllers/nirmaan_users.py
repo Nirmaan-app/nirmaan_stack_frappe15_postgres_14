@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 
 from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
 from nirmaan_stack.services.exited_employees import switch_off_login
@@ -15,7 +16,8 @@ def validate(doc, method):
 
 def check_role_profile_copy(doc):
     """`role_profile` is a copy of the Frappe User's `role_profile_name`, and changes only through the
-    User's sync (`on_user_update` / `create_user_profile`), for everyone, Admin included (owner, 2026-11-05).
+    User's sync (`on_user_update` / `create_user_profile`), for everyone, Admin included (owner, 2026-11-05):
+    a change is refused unless it matches the login's profile, which only a User admin can change.
 
     Many roles may write their own Nirmaan Users record, and about 100 gates read this copy
     (`services/role_profiles`), so a copy that differs from the User is refused. A User admin gives a
@@ -26,7 +28,7 @@ def check_role_profile_copy(doc):
     on_user = frappe.db.get_value("User", doc.name, "role_profile_name")
     if (doc.role_profile or None) != (on_user or None):
         frappe.throw(
-            "A role profile is changed on the user's login (Users page), not here.", frappe.PermissionError
+            _("A role profile is changed on the user's login (Users page), not here."), frappe.PermissionError
         )
 
 

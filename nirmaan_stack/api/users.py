@@ -9,7 +9,7 @@ from nirmaan_stack.services.departments import assert_active_department, is_depa
 from nirmaan_stack.services.role_profiles import assert_user_admin
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_user(
     first_name: str,
     last_name: str = None,
@@ -95,6 +95,10 @@ def create_user(
             "user_type": "System User",
         })
         user_doc.insert(ignore_permissions=True)
+        if not frappe.db.exists("Nirmaan Users", email):
+            # The User's after_insert sync logs and swallows its own failure; a login with no Nirmaan Users
+            # record is refused at every request (integrations/login_gate.py), so don't report a success.
+            frappe.throw(_("The user's Nirmaan Users record could not be created. See the Error Log."))
         if department:
             # The User after_insert hook has just created the person's Nirmaan Users record.
             profile = frappe.get_doc("Nirmaan Users", email)
@@ -149,13 +153,14 @@ def create_user(
         }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reset_password(user: str):
     """
     Send a password reset email to a user. User admins only.
 
-    The key is made and stored by Frappe (`User._reset_password`), which keeps only its hash, so the
-    link works in Frappe's update-password flow. The link is never returned to the caller: it goes
+    The key is made and stored by Frappe (`User._reset_password`, the step Frappe's own reset runs), which
+    keeps only its hash, so the link works in Frappe's update-password flow. Refused for Administrator and a
+    switched-off login. The link is never returned to the caller: it goes
     only to the user's own inbox. If the email fails, the reset is reported as not sent.
 
     Args:
@@ -175,6 +180,11 @@ def reset_password(user: str):
         frappe.throw(_("User {0} does not exist").format(user))
 
     user_doc = frappe.get_doc("User", user)
+    # As Frappe's own `frappe.core.doctype.user.user.reset_password`: never for Administrator or a switched-off
+    # login (an exited employee's).
+    if user_doc.name == "Administrator" or not user_doc.enabled:
+        frappe.throw(_("A password can't be reset for {0}: the login is switched off.").format(user))
+    user_doc.validate_reset_password()
     try:
         user_doc._reset_password(send_email=True)
     except Exception as email_error:
