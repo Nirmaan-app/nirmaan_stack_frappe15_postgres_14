@@ -66,7 +66,7 @@ export interface ApprovalColumnCtx {
    */
   projectLabels: Map<string, string>;
   vendorLabels: Map<string, string>;
-  /** owner email -> full name. The old "Requested By" column resolved these. */
+  /** owner email -> full name. A fallback only: queue rows carry `raised_by_name`. */
   userLabels?: Map<string, string>;
   /** PO/SR figures behind the Amount hover — payments only, absent on expenses. */
   getDocumentTotal?: (docName: string, docType: string) => number;
@@ -751,13 +751,13 @@ const REGISTRY: Record<
     size: 140,
     cell: ({ row }) => {
       const who = row.original.raised_by;
-      // Falls back to the email when the user has no Nirmaan Users row — an email
-      // is still an answer; a blank would not be.
-      return <span className="block max-w-[125px] truncate" title={who}>{ctx.userLabels?.get(who) || who}</span>;
+      // The name comes with the row (`raised_by_name`); it is the email when the user has no Nirmaan Users
+      // row — an email is still an answer; a blank would not be.
+      return <span className="block max-w-[125px] truncate" title={who}>{row.original.raised_by_name || ctx.userLabels?.get(who) || who}</span>;
     },
     meta: {
       exportHeaderName: "Raised By",
-      exportValue: (r: ApprovalQueueRow) => ctx.userLabels?.get(r.raised_by) || r.raised_by,
+      exportValue: (r: ApprovalQueueRow) => r.raised_by_name || ctx.userLabels?.get(r.raised_by) || r.raised_by,
     },
   }),
 

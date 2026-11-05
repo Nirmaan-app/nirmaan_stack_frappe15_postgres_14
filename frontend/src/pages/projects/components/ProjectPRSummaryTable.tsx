@@ -32,7 +32,6 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import getThreeMonthsLowestFiltered from "@/utils/getThreeMonthsLowest";
 import {
   useProjectPRStatusSummary,
@@ -141,8 +140,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     isLoading: wpLoading,
     error: wpError,
   } = packagesResponse;
-
-  const { data: userList, isLoading: userListLoading } = useUsersList();
 
   // --- Memoized Helper Functions from original component ---
   // const getItemStatus = useMemo(() => memoize(
@@ -288,12 +285,9 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           <DataTableColumnHeader column={column} title="Created By" />
         ),
         cell: ({ row }) => {
-          const ownerUser = userList?.find(
-            (user) => user.name === row.original.owner
-          );
           return (
             <div className="font-medium truncate">
-              {ownerUser?.full_name || row.original.owner}
+              {row.original.owner_name || row.original.owner}
             </div>
           );
         },
@@ -303,8 +297,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           facet: { field: "owner", title: "Created By" } satisfies FacetDeclaration,
           exportHeaderName: "Created By",
           exportValue: (row: ProcurementRequest) => {
-            const ownerUser = userList?.find((user) => user.name === row.owner);
-            return ownerUser?.full_name || row.owner;
+            return row.owner_name || row.owner;
           },
         },
       },
@@ -411,7 +404,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
       },
     ],
     [
-      userList,
       prStatuses,
       getPREstimatedTotal,
       quote_data,
@@ -499,7 +491,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   const isLoading =
     poDataLoading ||
     quoteDataLoading ||
-    userListLoading ||
     statusCountsLoading ||
     wpLoading ||
     projectsLoading;

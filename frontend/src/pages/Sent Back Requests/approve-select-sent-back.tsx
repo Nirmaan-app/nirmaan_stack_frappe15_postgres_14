@@ -33,7 +33,6 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import {
@@ -69,11 +68,6 @@ export const ApproveSelectSentBack: React.FC = () => {
     projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>,
     projectQueryKey
   );
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userError,
-  } = useUsersList(); // For owner display
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- Memoized Calculations & Options ---
@@ -279,12 +273,9 @@ export const ApproveSelectSentBack: React.FC = () => {
           <DataTableColumnHeader column={column} title="Created By" />
         ),
         cell: ({ row }) => {
-          const ownerUser = userList?.find(
-            (entry) => row.original?.owner === entry.name
-          );
           return (
             <div className="font-medium truncate">
-              {ownerUser?.full_name || row.original?.owner || "--"}
+              {row.original?.owner_name || row.original?.owner || "--"}
             </div>
           );
         },
@@ -292,10 +283,7 @@ export const ApproveSelectSentBack: React.FC = () => {
         meta: {
           exportHeaderName: "Created By",
           exportValue: (row: SentBackCategory) => {
-            const ownerUser = userList?.find(
-              (entry) => row.owner === entry.name
-            );
-            return ownerUser?.full_name || row.owner || "--";
+            return row.owner_name || row.owner || "--";
           },
         },
       },
@@ -319,7 +307,7 @@ export const ApproveSelectSentBack: React.FC = () => {
         },
       },
     ],
-    [notifications, projectOptions, userList, handleNewSBSeen, getTotal]
+    [notifications, projectOptions, handleNewSBSeen, getTotal]
   ); // Updated dependencies
 
   // --- Use the Server Data Table Hook ---
@@ -365,8 +353,8 @@ export const ApproveSelectSentBack: React.FC = () => {
   );
 
   // --- Combined Loading State & Error Handling ---
-  const isLoading = projectsLoading || userListLoading;
-  const error = projectsError || userError || listError;
+  const isLoading = projectsLoading;
+  const error = projectsError || listError;
 
   if (error) {
     return <AlertDestructive error={error} />;
