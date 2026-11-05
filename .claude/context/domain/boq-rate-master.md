@@ -2575,6 +2575,57 @@ the `calculatorSurface: true` it implies). Every key below is optional and gener
   are added last (stated split, D-3, never split again, Set = 1 piece, the refnet count, Lot). VRF's guard: 20 titles.
 - **Not here:** extras from other sheets and the blank-quantity hold (VRF-3b); the model questions, W+S, go-live (VRF-4).
 
+**VRF-3b: THE EXTRAS A UNIT'S PRICE INCLUDES (COPPER / INSULATION / CABLE FROM THE OTHER SHEETS), THEIR PRICING INPUTS, LOT IN THE CALCULATOR, PER-FIELD UNDO (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15; ANSWER 1 VRF3B-4 = (a) 15:35; ANSWER 2 VRF3B-6 = (b) 16:07; HVAC v59).**
+v59 = v58 with only `hvac_vrf` changed (`list_spec.pricing.extras`, six `impact_examples` with `includes`, `notes`) plus 29 NEW
+single-factor HVAC Pricing Inputs; `calculator_only` STAYS (VRF-4 removes it, the `calculatorSurface: true` it implies, and reads the
+model's include flags). Every key is optional: a config without `extras` is byte-identical (the replay: 0 moves).
+- **`extras` is NOT `list_spec.sections`.** A section prices in the OWNER ROW's unit ("Copper is not stocked per 'Nos'") and resolves
+  same-discipline only. `withExtras` (pricingSheetHelper.ts) runs after `computeItemListOwn` and prices each line PER METRE by its
+  target's OWN path -- Piping / Insulation through `computeItemListOwn` with unit "mts", the cable through the helper's own `compute`
+  on Electrical's `wiring_cabling` (read only; `CableRate`) -- then per Nos = length x the per-metre BoQ rate, ROUNDED UP, x "How many
+  in one Nos of this row" (default 1, amber). The row's quantity plays no part (11:56 "per unit only...qty has no bearing").
+- **Who carries them:** `extras.roles` -- the indoor / outdoor unit families (each split module its own unit); accessories never;
+  only on a row in `row_class` (count: Nos / Set), never a Lot or Kg row. **Which:** `includes` copper / insulation (needs copper,
+  "Insulation needs copper piping") / power / comm -- the calculator's tick boxes (`EXTRAS_INCLUDES_KEY`); a BoQ row reads the
+  row's `includes` cell (VRF-4's model flag; a fixture today). Lines in order: copper supply, copper return, insulation on each
+  copper line, power cable, communication cable.
+- **Bands (after conversion; an edge belongs to the band below; the STATED size, a ladder hop's `requested`, not the rung):**
+  pipes indoor <= 4 TR / > 4; outdoor <= 12 HP / > 12..20 / > 20. Power indoor <= 4 TR / > 4..8 (above 8: "No default for this
+  size (10 TR) - pick a cable spec."); outdoor <= 8 HP / > 8..14 / > 14. Communication: every unit.
+- **Sizes:** a typed size in mm or inch ("1.125 inch", "15 mm") is REPLACED by the closest stocked size (13:53 "show the one used");
+  the insulation sits on the closest Insulation pipe size to its copper line ("22.23 mm (follows the copper line)"); its length
+  follows the copper line's. **K1b (ANSWER 2):** every choice is its own catalogue's -- the copper line's item (Change item: any pipe
+  Piping stocks) and every size of it; the insulation's item / cladding / thickness Insulation stocks on that size (default Nitrile
+  Rubber, No, 19); the cable's conductor / armour / cores / size Electrical stocks (default copper, unarmoured, the input spec).
+- **Tags:** amber "default (Pricing Inputs)"; blue "picked by you"; "from the BoQ" (`extra_<line>_<field>` on the model item --
+  VRF-4's path); "follows the copper line". **Blank (B):** an empty default / an unreadable size / a cladding or cable not stocked /
+  a blank length or count holds THAT line red with what it needs ("Size needed. ... Pick a size, or fill the table."), the per-metre
+  rate kept where known; `rowPriced` false, "n of m items need a person" (`lineCount`), Use this value off.
+- **Removal:** the x on an extra (never the unit) records it in `ItemEdit.extras.removed` -- the HIDDEN TAG; copper takes its
+  insulation; a removed split module takes its extras; "You removed: ... [Put it back]" + "The helper will not add removed extras
+  back on its own. The row prices without them." Nothing re-adds a removed line.
+- **Pricing Inputs (board 14):** ONE single-factor input per table cell (a band's `input` is the id PREFIX: `<id>_supply_mm` /
+  `_return_mm` / `_insulation_mm`; `<id>_cores` / `_sqmm`; `vrf_extra_copper_length_m`, `vrf_extra_cable_length_m`) -- because the
+  Pricing Inputs CSV / grid carry a FIXED value-column list (`csv_exporter.PRICING_INPUT_VALUE_COLUMNS`): no new column anywhere.
+  `config_validation.extras_input_ids` is the ONE list (the used-by walk `csv_exporter.pricing_input_used_by` counts it, so a delete
+  / rename of one in use is refused; the TS twins `extrasUses` / `pricingInputUsedBy`). The badge counts the VRF units an input
+  sizes or CONVERTS (`InputReach.assemblySkus`; vrf_hp_per_tr / vrf_kw_per_tr no longer "0 items" -- ANSWER 1), listed under "Where
+  used" in the assembly-only panel; worked examples VRF-5..10 carry `includes`; a pipe-size cell snaps to the closest Piping size in
+  the panel and the grid; `VrfExtrasTables` shows the two tables above the grid. **The loader upper-cases an item's `material`**
+  (Electrical's normalisation, every item): the cable inputs carry "COPPER".
+- **Per-field undo (14:20 / 14:56):** the attribute fields already had it (`undo_attr`); the quantity box (`undo_qty`), the refnet
+  count fields and every extra field (`extra_undo`) now do -- panel and calculator (one component).
+- **Lot in the calculator (01:15):** `unitChoicesOf` offers `lot_units.units[0]` LAST; the red bar as on the panel; the items are kept.
+- **The worked examples on the Rate Master page (cert fix C11):** the page holds ONE discipline's configs and items, but VRF's
+  cable prices by Electrical `wiring_cabling`; `pricingInputExamples.exampleCrossTargets` names the extras' cross-discipline
+  targets and `RateMasterPage` fetches their configs and items into an EXAMPLE-ONLY map (`exampleConfigs` / `exampleItems`, used
+  by the panel's examples only) -- the reach walk, the badges and the used-by counts keep the page's own discipline. Without it
+  every VRF example read "Does not price today".
+- **Validation:** `_validate_extras` (shape, the words with their placeholders), `extras_problems` (targets are item-list configs of
+  this discipline offering and stocking the family; the 29 inputs exist; the cable's discipline differs -- read only), run by
+  `validate_delegated_sections` with `only` = the categories being written (a corpus check never re-judges the others). Derivation 13e (5 lines).
+- **Not here:** the model reading "included" and go-live (VRF-4); the H2 merge.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds

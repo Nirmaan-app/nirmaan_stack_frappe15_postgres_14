@@ -50655,3 +50655,36 @@ blur / Enter (`CommitInput`), so "60 HP (18+18+24)" is read whole and not split 
 - **Open:** VRF-3b (extras from other sheets, the blank-quantity hold); VRF-4 (BoQ rows live, the model questions, "2#" W+S,
   removing calculator_only and calculatorSurface). The stated-split / D-3 / field-help wordings were written in the slice (owner
   review welcome). test_vrf_v56.py:196 left as is (a v56-file pin).
+
+## Slice VRF-3b - extras from other sheets, Pricing Inputs defaults, Lot in the calculator, per-field undo (HVAC v59) - as built 2026-11-05
+
+Desktop session, delegated by the laptop. Start tip 2dd968b9b. Tier 3 (asset v59) + Tier 2. Six code commits -- K1 d9d83ce4c,
+K1b c202ec69f, K2 1e44a41e6, K3 7de23f53b (asset v59), K3b 93ad41400 (test-only sweep, ANSWER 3), cert fix f87bf702a (C11) --
+plus this docs commit; no model call. dev2 idle throughout (DEV2-B7 done 11-04 14:56).
+
+**Owner rulings carried:** O-5 / O-6 / B / SHEETS (2026-11-03); 2026-11-05 11:30 ("use 30 mts default for both"), 11:56 ("per unit
+only...qty has no bearing"), 12:07 / 13:54 (defaults in Rate master > HVAC > Pricing Inputs, live-linked), 12:19 / 13:51 / 13:52
+(cable specs; copper, unarmoured), 13:46 (pipe sizes, 19 mm insulation, closest catalogue size), 13:53 ("show the one used"), 13:59
+(split: per outdoor unit), 14:03 (defaults indicated), 12:23 (remove extras), 14:20 / 14:56 (per-field undo everywhere), 01:15 (Lot
+in the calculator); boards 12-15. Mid-slice: **QR-1 NOT NEEDED** (all six default cable specs stocked in E72); **ANSWER 1**
+(VRF3B-4 = (a), 15:35): the vrf_* factors show their real reach; **ANSWER 2** (VRF3B-6 = (b), 16:07): catalogue-wide choices on the
+extra lines as a separate commit K1b. Both echoed late (16:16, A11).
+
+### 1. P0 (read-only)
+- (a) E72 wiring_cabling stocks every default spec as unarmoured copper (Polycab, per Mtr); per-metre BoQ rates through the
+  product's compute: 3Cx1.5 120 / 24, 3Cx2.5 180 / 30, 4Cx6 550 / 34, 4Cx10 950 / 40, 4Cx16 1,440 / 40, 2Cx1.5 80 / 24; copper
+  22.2 1,814 / 220 ... ; insulation 19 mm on 22.23 265 / 14 ... (x 30 m = chat-Claude's C1 / C2 figures exactly).
+- (b) per-field undo existed on every item-list ATTRIBUTE field (panel + calculator, one component); missing on the quantity box,
+  the family control and the refnet count fields.
+- (c) Pricing Inputs: items with named NUMBER rates; every write path forces numbers; the CSV / grid carry a FIXED value-column
+  list -> each table cell became its own single-factor input (no doctype, no server, no CSV-column change).
+- (d) a section prices in the OWNER row's unit and resolves same-discipline only -> the extras are a new key `extras`, not
+  `list_spec.sections`. (e) the Row unit list (`unitChoicesOf`) never offered Lot.
+
+### 2. Built
+**Cert:** run 1 found ONE defect (C11: every VRF worked example on a Pricing Inputs panel read "Does not price today" -- the
+Rate Master page lacked Electrical's cable data); fixed (f87bf702a), full de-stale, the WHOLE cert C1-C12 again: all pass.
+(Commit list, the asset, gates, load and proofs: see the report `2026-11-05_VRF-3b_Report.md`; rules: boq-rate-master.md "VRF-3b".)
+
+**VRF-4 MUST remove `calculator_only` and `calculatorSurface: true`, and read the model's `includes` flags and `extra_<line>_<field>`
+values for BoQ rows.**
