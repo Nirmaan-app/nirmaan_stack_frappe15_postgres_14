@@ -70,6 +70,7 @@ class LateBillsCase(FrappeTestCase):
                 {"file": FileStorage(stream=io.BytesIO(as_statement_xlsx(content)), filename="cashbook.xlsx")}
             )
             host = None  # `save_file` asks the request for its host
+            headers: dict = {}  # Frappe 15.126 reads the Host header when host is unset
 
         previous = getattr(frappe.local, "request", None)
         frappe.set_user("Administrator")

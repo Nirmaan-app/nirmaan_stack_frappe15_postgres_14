@@ -148,6 +148,7 @@ class CardImportCase(FrappeTestCase):
         class _Request:
             files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
             host = None  # the stored File's URL is built without a request host
+            headers: dict = {}  # Frappe 15.126 reads the Host header when host is unset
 
         previous_request = getattr(frappe.local, "request", None)
         previous_form = frappe.local.form_dict

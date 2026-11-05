@@ -144,11 +144,16 @@ bench() {
     fi
     ok "$name at ${app_commit:0:9}"
   done
-  for name in $(ls "$BENCH/apps"); do   # an app the lock dropped leaves the env, so its pins stop counting
+  # An app the lock dropped leaves the env and apps/: bench rebuilds sites/apps.txt from every folder in apps/.
+  for name in $(ls "$BENCH/apps"); do
+    [ -d "$BENCH/apps/$name" ] && [ ! -L "$BENCH/apps/$name" ] || continue
     lock "'$name' in d['apps_txt']" | grep -qx True && continue
-    inside "cd frappe-bench && env/bin/pip show -q $name" >/dev/null 2>&1 || continue
-    inside "cd frappe-bench && env/bin/pip uninstall -y -q $name" >/dev/null || die "could not uninstall $name"
-    ok "$name uninstalled from the env: apps.lock.json no longer lists it (apps/$name is kept)"
+    if inside "cd frappe-bench && env/bin/pip show -q $name" >/dev/null 2>&1; then
+      inside "cd frappe-bench && env/bin/pip uninstall -y -q $name" >/dev/null || die "could not uninstall $name"
+    fi
+    [ -e "$ROOT/parked-apps/$name" ] && die "apps/$name cannot be parked: $ROOT/parked-apps/$name exists"
+    mkdir -p "$ROOT/parked-apps" && mv "$BENCH/apps/$name" "$ROOT/parked-apps/$name"
+    ok "$name left the bench: apps.lock.json no longer lists it (folder parked at $ROOT/parked-apps/$name)"
   done
   if [ $moved = 1 ] || ! pins_check >/dev/null; then
     echo "      bench setup requirements: frappe moved, or a package breaks an app's pins (several minutes)"

@@ -65,6 +65,7 @@ def _post_confirm(content: bytes):
 
     class _Request:
         host = None
+        headers: dict = {}  # Frappe 15.126 reads the Host header when host is unset
         files = MultiDict(
             {"file": FileStorage(stream=io.BytesIO(as_statement_xlsx(content)), filename="cashbook.xlsx")}
         )

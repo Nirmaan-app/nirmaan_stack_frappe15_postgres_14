@@ -56,6 +56,7 @@ def _post(endpoint, content: bytes, filename: str):
     class _Request:
         files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
         host = None  # `save_file` asks the request for its host
+        headers: dict = {}  # Frappe 15.126 reads the Host header when host is unset
 
     previous = getattr(frappe.local, "request", None)
     frappe.set_user("Administrator")
