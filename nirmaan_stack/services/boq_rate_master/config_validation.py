@@ -515,7 +515,9 @@ def validate_delegated_sections(configs, items=None, label="config"):
     first problem, BEFORE the caller writes anything. A discipline in which no config declares a section reads
     its active configs once and stops there."""
     configs = [c for c in (configs or []) if isinstance(c, dict)]
-    declares = lambda c: isinstance(c.get("list_spec"), dict) and SECTIONS_KEY in c["list_spec"]
+    # VRF-3b: a config declaring `extras` delegates too (its copper / insulation targets and its Pricing Inputs)
+    declares = lambda c: isinstance(c.get("list_spec"), dict) and (
+        SECTIONS_KEY in c["list_spec"] or "extras" in ((c["list_spec"].get("pricing") or {}) if isinstance(c["list_spec"].get("pricing"), dict) else {}))
     kinds_of = lambda cs: {k for c in cs for k in (c.get("item_kinds") or []) if isinstance(k, str)}
     for disc in sorted({str(c.get("discipline") or "").strip() for c in configs}):
         mine = [c for c in configs if str(c.get("discipline") or "").strip() == disc]
@@ -528,7 +530,7 @@ def validate_delegated_sections(configs, items=None, label="config"):
         else:
             # an import: the kinds it carries are REPLACED by its own items; every other kind stands
             pool = [it for it in items if isinstance(it, dict)] + _active_section_items(disc, kinds_of(others) - kinds_of(mine))
-        problems = delegated_section_problems(mine + others, pool)
+        problems = delegated_section_problems(mine + others, pool) + extras_problems(mine + others, pool)
         if problems:
             frappe.throw(f"{label}: {problems[0]} Nothing was written.", title="Invalid config")
 
@@ -1118,6 +1120,182 @@ _PER_SET_KEYS = {"units", "qty_label", "bar", "counted"}
 _COUNTED_KEYS = {"families", "covers", "counts", "tolerance", "bar", "lines"}
 _COUNTED_LINES = {"formula", "match", "below", "rounded", "misfit", "counts_missing", "qty_missing", "typed"}
 _LOT_KEYS = {"units", "bar", "line"}
+# VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15): `extras` -- the copper, insulation
+# and power / communication cable a unit's price includes, each its OWN line per Nos, priced by its own category's rules
+# (Piping / Insulation in this discipline; Electrical's cable read only) at a size banded on the unit's capacity from the
+# Pricing Inputs. Shape: `_validate_extras`; the targets and the inputs: `extras_problems` (cross-category, PURE).
+_PRICING_KEYS = _PRICING_KEYS | {"extras"}
+_EXTRAS_KEYS = {"roles", "band_unit", "row_class", "includes", "pipe_bands", "power_bands", "comm_input",
+                "copper_length_input", "cable_length_input", "copper", "insulation", "cable", "lines"}
+_EXTRAS_INCLUDE_IDS = ("copper", "insulation", "power", "comm")
+_EXTRAS_LINES = {"includes_title", "heading_tail", "from_copper", "from_insulation", "from_cable",
+                 "title_copper_supply", "title_copper_return", "title_ins_supply", "title_ins_return", "title_power",
+                 "title_comm", "label_pipe_size", "label_thickness", "label_spec", "label_length", "label_count",
+                 "tag_default", "tag_picked", "tag_boq", "tag_follows", "tag_assumed", "follows_size", "typed_note",
+                 "size_needed_no_size", "size_needed_no_default", "size_needed_unread", "size_needed_copper", "no_default",
+                 "spec_needed", "not_stocked", "length_needed", "count_needed", "cable_note", "not_loaded", "not_priced",
+                 "rules_piping", "rules_insulation", "working_rate", "working_nos", "working_count", "removed_note"}
+_EXTRAS_PLACEHOLDERS = {"follows_size": ["{x}"], "typed_note": ["{typed}", "{used}"], "size_needed_no_default": ["{size}"],
+                        "size_needed_unread": ["{typed}"], "no_default": ["{size}"], "not_stocked": ["{spec}"],
+                        "not_loaded": ["{rules}"], "working_rate": ["{s}", "{i}"], "working_nos": ["{len}", "{S}", "{I}"],
+                        "working_count": ["{n}", "{S}", "{I}"]}
+
+
+def _validate_extras(ex, pr, fams):
+    """VRF-3b -- `list_spec.pricing.extras`, the SHAPE. The roles name families priced here; the band units are units of
+    the capacity reader; the row class is a unit class; the include ids are the four, insulation needing copper; each band
+    table rises and only its LAST band may be open (max null); every input / target / line is present. The targets and
+    the Pricing Inputs are checked against the catalogue by `extras_problems`."""
+    loc = "list_spec.pricing.extras"
+    if not isinstance(ex, dict) or set(ex) != _EXTRAS_KEYS:
+        missing = sorted(_EXTRAS_KEYS - set(ex or {})) if isinstance(ex, dict) else []
+        extra = sorted(set(ex or {}) - _EXTRAS_KEYS) if isinstance(ex, dict) else []
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_EXTRAS_KEYS))} (missing: {', '.join(missing) or '-'}; unknown: {', '.join(extra) or '-'}).")
+    roles = ex["roles"]
+    if not isinstance(roles, dict) or not roles:
+        _vthrow(f"{loc}.roles must name at least one family.")
+    for f, r in roles.items():
+        if f not in fams:
+            _vthrow(f"{loc}.roles names '{f}', which is not a family this category prices.")
+        if r not in ("indoor", "outdoor"):
+            _vthrow(f"{loc}.roles['{f}'] must be 'indoor' or 'outdoor'.")
+    rd = ((pr.get("numbers") or {}).get("capacity") or {}).get("units") or {}
+    known_units = set((rd.get("words") or {}).keys())
+    bu = ex["band_unit"]
+    if not isinstance(bu, dict) or set(bu) != {"indoor", "outdoor"}:
+        _vthrow(f"{loc}.band_unit needs exactly indoor and outdoor.")
+    for k, u in bu.items():
+        if u not in known_units:
+            _vthrow(f"{loc}.band_unit.{k} '{u}' is not a unit of the capacity reader ({', '.join(sorted(known_units)) or 'none'}).")
+    if ex["row_class"] not in (pr.get("unit_classes") or {}):
+        _vthrow(f"{loc}.row_class '{ex['row_class']}' is not a unit class of this category.")
+    inc = ex["includes"]
+    if not isinstance(inc, list) or [i.get("id") if isinstance(i, dict) else None for i in inc] != list(_EXTRAS_INCLUDE_IDS):
+        _vthrow(f"{loc}.includes must list {', '.join(_EXTRAS_INCLUDE_IDS)}, in that order.")
+    for i in inc:
+        if not _nonempty_str(i.get("label")) or set(i) - {"id", "label", "needs", "needs_line"}:
+            _vthrow(f"{loc}.includes '{i.get('id')}' needs a label (and only needs / needs_line besides).")
+        if "needs" in i and (i["needs"] not in _EXTRAS_INCLUDE_IDS or i["needs"] == i["id"] or not _nonempty_str(i.get("needs_line"))):
+            _vthrow(f"{loc}.includes '{i['id']}'.needs must name another include, with a needs_line.")
+    if next((i.get("needs") for i in inc if i["id"] == "insulation"), None) != "copper":
+        _vthrow(f"{loc}.includes: insulation must need copper (owner: insulation sits on the copper lines).")
+    for tbl in ("pipe_bands", "power_bands"):
+        t = ex[tbl]
+        if not isinstance(t, dict) or set(t) != {"indoor", "outdoor"}:
+            _vthrow(f"{loc}.{tbl} needs exactly indoor and outdoor.")
+        for side, bands in t.items():
+            if not isinstance(bands, list) or not bands:
+                _vthrow(f"{loc}.{tbl}.{side} must be a non-empty list of bands.")
+            last = None
+            for n, b in enumerate(bands):
+                if not isinstance(b, dict) or set(b) != {"max", "input"} or not _nonempty_str(b.get("input")):
+                    _vthrow(f"{loc}.{tbl}.{side}[{n}] needs exactly max and input.")
+                mx = b["max"]
+                if mx is None:
+                    if n != len(bands) - 1:
+                        _vthrow(f"{loc}.{tbl}.{side}[{n}]: only the last band may be open (max null).")
+                    continue
+                if isinstance(mx, bool) or not isinstance(mx, (int, float)) or mx <= 0 or (last is not None and mx <= last):
+                    _vthrow(f"{loc}.{tbl}.{side}[{n}].max must be a number above the band before it.")
+                last = mx
+    for k in ("comm_input", "copper_length_input", "cable_length_input"):
+        if not _nonempty_str(ex[k]):
+            _vthrow(f"{loc}.{k} must name a Pricing Input.")
+    for k, need in (("copper", {"category", "family", "size_attr"}),
+                    ("insulation", {"category", "family", "attrs", "thickness_attr", "size_attr"}),
+                    ("cable", {"category", "discipline", "attrs", "cores_attr", "size_attr", "label"})):
+        t = ex[k]
+        if not isinstance(t, dict) or set(t) != need:
+            _vthrow(f"{loc}.{k} needs exactly {', '.join(sorted(need))}.")
+        for kk in need - {"attrs"}:
+            if not _nonempty_str(t[kk]):
+                _vthrow(f"{loc}.{k}.{kk} must be a non-empty string.")
+        if "attrs" in need and (not isinstance(t["attrs"], dict) or not all(isinstance(v, str) for v in t["attrs"].values())):
+            _vthrow(f"{loc}.{k}.attrs must map attribute ids to string values.")
+    lines = ex["lines"]
+    if not isinstance(lines, dict) or set(lines) != _EXTRAS_LINES or not all(_nonempty_str(v) for v in lines.values()):
+        _vthrow(f"{loc}.lines needs exactly {len(_EXTRAS_LINES)} non-empty sentences ({', '.join(sorted(_EXTRAS_LINES - set(lines or {}))) or 'unknown keys'}).")
+    for k, phs in _EXTRAS_PLACEHOLDERS.items():
+        for ph in phs:
+            if ph not in lines[k]:
+                _vthrow(f"{loc}.lines.{k} must name {ph}.")
+
+
+EXTRAS_PIPE_CELLS = ("supply_mm", "return_mm", "insulation_mm")
+EXTRAS_CABLE_CELLS = ("cores", "sqmm")
+
+
+def extras_input_ids(cfg):
+    """VRF-3b: every Pricing Input id a config's `extras` reads -- one per table cell (`<band input>_<cell>`) plus the two
+    lengths. PURE; [] for a config without `extras`. The used-by walk (`csv_exporter.pricing_input_used_by`) and the
+    cross-category check read this one list."""
+    ex = (((cfg or {}).get("list_spec") or {}).get("pricing") or {}).get("extras") if isinstance(cfg, dict) else None
+    if not isinstance(ex, dict):
+        return []
+    out = []
+    for side in ("indoor", "outdoor"):
+        out += [f"{b.get('input')}_{k}" for b in ((ex.get("pipe_bands") or {}).get(side) or []) if isinstance(b, dict) for k in EXTRAS_PIPE_CELLS]
+        out += [f"{b.get('input')}_{k}" for b in ((ex.get("power_bands") or {}).get(side) or []) if isinstance(b, dict) for k in EXTRAS_CABLE_CELLS]
+    out += [f"{ex.get('comm_input')}_{k}" for k in EXTRAS_CABLE_CELLS]
+    out += [ex.get("copper_length_input"), ex.get("cable_length_input")]
+    return [i for i in out if isinstance(i, str) and i]
+
+
+def extras_problems(configs, items):
+    """VRF-3b -- the CROSS-CATEGORY half of `extras`, PURE (the `delegated_section_problems` shape): `configs` every config
+    the check may resolve against, `items` every item it may count. The copper and insulation targets must be item-list
+    configs of THIS discipline with pricing rules, never the owner, each offering and stocking its named family; every
+    Pricing Input the extras name must be an item of a `*_pricing_input` kind here. The cable target is ANOTHER
+    discipline's, read only: named, never resolved or written here (owner SHEETS: "cable = Electrical")."""
+    from nirmaan_stack.services.boq_rate_master.csv_exporter import is_pricing_input_kind
+    by_cat = {}
+    for c in configs or []:
+        if isinstance(c, dict) and _nonblank(c.get("category_id")):
+            by_cat[(str(c.get("discipline") or "").strip(), c["category_id"].strip())] = c
+    inputs = {str((it.get("attributes") or {}).get("item") or "") for it in items or []
+              if isinstance(it, dict) and is_pricing_input_kind(it.get("kind"))}
+    out = []
+    for c in configs or []:
+        ex = (((c.get("list_spec") if isinstance(c, dict) else None) or {}).get("pricing") or {}).get("extras")
+        if not isinstance(ex, dict):
+            continue
+        disc, own = str(c.get("discipline") or "").strip(), str(c.get("category_id") or "").strip()
+        where = f"'{own}' extras"
+        for k in ("copper", "insulation"):
+            t = ex.get(k) or {}
+            cat = str(t.get("category") or "").strip()
+            tc = by_cat.get((disc, cat))
+            tpr = ((tc or {}).get("list_spec") or {}).get("pricing") if isinstance(tc, dict) else None
+            if cat == own:
+                out.append(f"{where}: {k} names its own category.")
+                continue
+            if not isinstance(tc, dict) or not isinstance(tpr, dict):
+                out.append(f"{where}: {k} names category '{cat}', which is not an item-list category of {disc}.")
+                continue
+            fam_attr = (tc.get("list_spec") or {}).get("family_attribute_id") or "family"
+            fam = t.get("family")
+            if fam not in (tpr.get("families") or {}):
+                out.append(f"{where}: {k} names family '{fam}', which '{cat}' does not price.")
+                continue
+            if not any(isinstance(it, dict) and it.get("kind") in _pricing_kinds(tpr)
+                       and (it.get("attributes") or {}).get(fam_attr) == fam for it in items or []):
+                out.append(f"{where}: {k} names family '{fam}', which has no active SKU in '{cat}'.")
+        if ex.get("insulation", {}).get("category") == ex.get("copper", {}).get("category"):
+            out.append(f"{where}: copper and insulation name the same category.")
+        cable = ex.get("cable") or {}
+        if str(cable.get("discipline") or "").strip() in ("", disc):
+            out.append(f"{where}: the cable is ANOTHER discipline's category, read only - its discipline must be named and differ from {disc}.")
+        # ONE single-factor input per table cell: a band's input id is the PREFIX of its cells
+        named = [f"{b.get('input')}_{k}" for side in ("indoor", "outdoor") for b in ((ex.get("pipe_bands") or {}).get(side) or [])
+                 if isinstance(b, dict) for k in EXTRAS_PIPE_CELLS]
+        named += [f"{b.get('input')}_{k}" for side in ("indoor", "outdoor") for b in ((ex.get("power_bands") or {}).get(side) or [])
+                  if isinstance(b, dict) for k in EXTRAS_CABLE_CELLS]
+        named += [f"{ex.get('comm_input')}_{k}" for k in EXTRAS_CABLE_CELLS]
+        named += [ex.get("copper_length_input"), ex.get("cable_length_input")]
+        for iid in named:
+            if iid not in inputs:
+                out.append(f"{where}: Pricing Input '{iid}' is not an item of this discipline.")
+    return out
 
 
 def _nonempty_str(v):
@@ -2168,6 +2346,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_per_set(pr["per_set"], pr, fams)
     if "lot_units" in pr:
         _validate_lot_units(pr["lot_units"], pr)
+    # VRF-3b: `extras` -- PRESENCE, as every key above
+    if "extras" in pr:
+        _validate_extras(pr["extras"], pr, fams)
     if "unstocked_materials" in pr:
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:

@@ -21,7 +21,11 @@ import {
   needPersonSentence,
   ROW_UNIT_OVERRIDE_KEY,
   ROW_QTY_OVERRIDE_KEY,
+  EXTRAS_INCLUDES_KEY,
   rowTotals,
+  type ExtraFieldView,
+  type ExtraLineView,
+  type ItemBlockView,
   type ItemEditOp,
   type ItemListSuggestion,
   type ItemListView,
@@ -723,6 +727,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         onEdit={(op) => setAttr(helper.id, ITEM_LIST_OVERRIDE_KEY, JSON.stringify(applyItemEdit(itemList.editState, op)))}
                         onUnit={(u) => setAttr(helper.id, ROW_UNIT_OVERRIDE_KEY, u)}
                         onRowQty={(q) => setAttr(helper.id, ROW_QTY_OVERRIDE_KEY, q)}
+                        onIncludes={(v) => setAttr(helper.id, EXTRAS_INCLUDES_KEY, v)}
                       />
                     </div>
                   )}
@@ -1211,11 +1216,159 @@ type ItemPicker = { mode: "change"; index: number } | { mode: "add" } | { mode: 
  * picker, no add button and no row total (the row owns those), and the x is shown only where the section can
  * be removed on its own (`onRemove`: an independent section; an attached one goes with its item's toggle).
  */
+/** VRF-3b (U1 / U2 / U3 / U5 / U8): the tag beside an extra field's label -- amber default, blue picked, from the BoQ. */
+function ExtraTag({ f }: { f: ExtraFieldView }) {
+  if (!f.tag || !f.tagText) return null;
+  const tone = f.tag === "default" ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+    : f.tag === "picked" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+    : f.tag === "boq" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+    : "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200";
+  return <span className={cn("rounded px-1 text-[9px] font-medium leading-none", tone)} data-testid={`extra-tag-${f.tag}`}>{f.tagText}</span>;
+}
+
+/** VRF-3b (boards 12 / 13): the extra lines of ONE unit -- each its own block, priced per Nos of the row -- and the
+ * lines the pricer removed ("You removed: ... [Put it back]"). */
+function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; index: number; onEdit: (op: ItemEditOp) => void; rateUnit: string }) {
+  const [openOther, setOpenOther] = useState<Set<string>>(new Set());
+  const ex = block.extras!;
+  const closeOther = (key: string) => setOpenOther((s) => { const n = new Set(s); n.delete(key); return n; });
+  const field = (l: ExtraLineView, f: ExtraFieldView) => {
+    const key = `${l.id}:${f.id}`;
+    const tone = f.blank ? "border-red-500 dark:border-red-500" : f.tag === "default" ? "bg-amber-50 dark:bg-amber-950/30" : undefined;
+    const other = !!f.allowOther && (f.otherMode || openOther.has(key));
+    const set = (value: string) => onEdit({ op: "extra_set", index, line: l.id, field: f.id, value });
+    return (
+      <div key={f.id} className="space-y-0.5" data-testid={`extra-field-${f.id}`}>
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <span>{f.label}</span>
+            {f.required && <span aria-hidden="true">*</span>}
+            <ExtraTag f={f} />
+            {f.userEdited && (
+              <button
+                type="button"
+                onClick={() => { closeOther(key); onEdit({ op: "extra_undo", index, line: l.id, field: f.id }); }}
+                title="Undo my edit to this field -- restores the original value"
+                aria-label={`Undo my edit to ${f.label}`}
+                data-testid="extra-field-undo"
+              >
+                <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+              </button>
+            )}
+          </span>
+          {f.readOnly ? (
+            <span className="text-xs" data-testid={`extra-readonly-${f.id}`}>{f.value ? `${f.value} mm` : "-"}</span>
+          ) : f.options ? (
+            <span className="flex items-center gap-1">
+              <select
+                className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", tone)}
+                aria-label={`${l.title} -- ${f.label}`}
+                value={other ? OTHER_VALUE : f.value}
+                onChange={(e) => {
+                  if (e.target.value === OTHER_VALUE) { setOpenOther((s) => new Set(s).add(key)); return; }
+                  closeOther(key);
+                  set(e.target.value);
+                }}
+              >
+                <option value="">— select —</option>
+                {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                {f.allowOther && <option value={OTHER_VALUE}>{OTHER_LABEL}</option>}
+              </select>
+              {other && (
+                <CommitInput
+                  key={f.typedValue}
+                  className={cn("h-7 w-24 text-xs", tone)}
+                  value={f.typedValue}
+                  ariaLabel={`${l.title} -- ${f.label} (mm or inch)`}
+                  onCommit={set}
+                />
+              )}
+            </span>
+          ) : (
+            <Input
+              className={cn("h-7 w-28 text-xs", tone)}
+              value={f.value}
+              inputMode="decimal"
+              aria-label={`${l.title} -- ${f.label}`}
+              onChange={(e) => set(e.target.value)}
+            />
+          )}
+        </div>
+        {f.note && (
+          <div className={NOTE_BOX_CLASS}>
+            <Info className={NOTE_ICON_CLASS} aria-hidden />
+            <p className="text-[10px] leading-tight">{f.note}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <>
+      {ex.lines.map((l) => (
+        <div key={l.id} className="relative ml-3 space-y-1.5 rounded-md border border-l-4 border-l-sky-300 bg-muted/20 px-2 py-1.5 dark:border-l-sky-800" data-testid="extra-line" data-line={l.id}>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="extra-line-heading">{l.heading}</div>
+              <div className="text-xs font-semibold">{l.title}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onEdit({ op: "extra_remove", index, line: l.id })}
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Remove this extra"
+              aria-label={`Remove ${l.title}`}
+              data-testid="extra-line-remove"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {l.fields.map((f) => field(l, f))}
+          {l.state === "priced" ? (
+            <div className="space-y-0.5 text-xs text-muted-foreground">
+              {l.working.map((w, wi) => <div key={wi}>{w}</div>)}
+              <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">{BOQ_RATE_LABEL}</div>
+              <FiguresRow figures={l.figures} unit={rateUnit} />
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {l.working.map((w, wi) => <div key={wi} className="text-xs text-muted-foreground">{w}</div>)}
+              <div className="text-xs text-red-700 dark:text-red-400" data-testid="extra-line-refusal">Not priced &mdash; {l.reason}</div>
+            </div>
+          )}
+        </div>
+      ))}
+      {ex.removed.length > 0 && (
+        <div
+          className="ml-3 space-y-1 rounded border border-amber-400 bg-amber-100 px-2 py-1.5 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+          data-testid="extra-removed"
+        >
+          {ex.removed.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-2">
+              <span>You removed: {r.label}</span>
+              <button
+                type="button"
+                onClick={() => onEdit({ op: "extra_restore", index, line: r.id })}
+                className="h-6 rounded border border-amber-500 bg-background px-2 text-[11px] font-medium hover:bg-amber-50 dark:hover:bg-amber-950"
+                data-testid="extra-put-back"
+              >
+                Put it back
+              </button>
+            </div>
+          ))}
+          {ex.removedNote && <p data-testid="extra-removed-note">{ex.removedNote}</p>}
+        </div>
+      )}
+    </>
+  );
+}
+
 function ItemListBlocks({
   view,
   onEdit,
   onUnit,
   onRowQty,
+  onIncludes,
   section,
 }: {
   view: ItemListView;
@@ -1223,14 +1376,17 @@ function ItemListBlocks({
   onUnit: (unit: string) => void;
   /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" */
   onRowQty?: (qty: string) => void;
+  /** VRF-3b (U6): the calculator's "This row's price includes" tick boxes (the ids ticked, comma-separated) */
+  onIncludes?: (value: string) => void;
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
   // ADP-3a (U8): one id prefix per instance -- a nested section is its own instance, so ids never collide
   const fieldUid = useId();
   // SLICE 12e-3a (owner D4 / Q2a / M5): on a row made of sections every LINE counts -- each item and each section
-  const n = view.sections ? view.sections.lines : view.items.length;
-  const bad = view.sections ? view.sections.bad : view.items.filter((b) => b.state !== "priced").length;
+  // VRF-3b (U4): on a row with extras every unit and every extra is a line
+  const n = view.sections ? view.sections.lines : view.lineCount ? view.lineCount.lines : view.items.length;
+  const bad = view.sections ? view.sections.bad : view.lineCount ? view.lineCount.bad : view.items.filter((b) => b.state !== "priced").length;
   const pick = (family: string) => {
     if (!picker) return;
     onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family }
@@ -1354,6 +1510,33 @@ function ItemListBlocks({
           </select>
         </label>
       )}
+      {/* VRF-3b (U6, board 12): the calculator's "This row's price includes" -- the extras each unit then carries */}
+      {!section && view.extrasIncludes && (
+        <div className="rounded-md border px-2 py-1.5 text-xs" data-testid="extras-includes">
+          <div className="mb-1 text-[11px] font-semibold text-muted-foreground">{view.extrasIncludes.title}</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {view.extrasIncludes.options.map((o) => (
+              <label key={o.id} className={cn("inline-flex items-center gap-1", o.disabled && "opacity-60")} title={o.note}>
+                <input
+                  type="checkbox"
+                  checked={o.checked}
+                  disabled={o.disabled}
+                  data-testid={`extras-include-${o.id}`}
+                  onChange={(e) => {
+                    const ids = new Set(view.extrasIncludes!.options.filter((x) => x.checked).map((x) => x.id as string));
+                    if (e.target.checked) ids.add(o.id); else ids.delete(o.id);
+                    onIncludes?.([...ids].join(","));
+                  }}
+                />
+                {o.label}
+              </label>
+            ))}
+          </div>
+          {view.extrasIncludes.options.filter((o) => o.note).map((o) => (
+            <p key={o.id} className="mt-0.5 text-[10px] text-muted-foreground" data-testid="extras-include-note">{o.note}</p>
+          ))}
+        </div>
+      )}
       {/* SLICE 12c-U (owner U2 / U3): the row stated no unit -- or "rate only" -- and was priced in
           the catalogue's unit for its item. The note says so IN WORDS, because the figure alone
           would look as though the BoQ had named that unit. Present only on such a row. */}
@@ -1393,7 +1576,7 @@ function ItemListBlocks({
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : "split by the helper"}</span> : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : "split by the helper"}</span> : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -1813,6 +1996,8 @@ function ItemListBlocks({
         </div>
         {/* SLICE 12e-3a (owner 13:40): this item's own sections, directly under it */}
         {(b.sections ?? []).map(drawSection)}
+        {/* VRF-3b (U1-U5, boards 12 / 13): the extras this unit's price includes, each its own line under the unit */}
+        {b.extras && <ExtraLines block={b} index={i} onEdit={onEdit} rateUnit={view.rateUnit ?? view.unit} />}
         </Fragment>
       ))}
       {/* SLICE 12e-3a (owner 13:42): the sections that belong to no item, after the items */}

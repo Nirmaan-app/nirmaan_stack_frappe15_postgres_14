@@ -112,9 +112,13 @@ describe("VRF-3a SET -- 1 Set = 1 piece (owner 17:00), with the orange bar and '
     expect(tot(run([{ base: null, family: "Outdoor Unit", attrs: { capacity: "20" }, other: ["capacity"] }], "Set"))).toEqual([476040, 20000]);
   });
   it("the calculator's Row unit offers Set after Nos; NEGATIVE: without `per_set` it offers Nos only", () => {
-    expect(unitChoicesOf(SPEC, ["Touch Screen Central Controller"])).toEqual(["Nos", "Set"]);
+    // INVERTED at VRF-3b (owner 2026-11-05 01:15 "Lot in the calculator's Row unit") by mechanical authority: BEFORE
+    // ["Nos", "Set"] / ["Nos"]. A config with `lot_units` now offers its first spelling LAST; Set's place after Nos is unchanged
+    expect(unitChoicesOf(SPEC, ["Touch Screen Central Controller"])).toEqual(["Nos", "Set", "Lot"]);
     const off = itemListPricingSpec(withVrf3aSet(base57(), ["set"]))!;
-    expect(unitChoicesOf(off, ["Touch Screen Central Controller"])).toEqual(["Nos"]);
+    expect(unitChoicesOf(off, ["Touch Screen Central Controller"])).toEqual(["Nos", "Lot"]);
+    const offBoth = itemListPricingSpec(withVrf3aSet(base57(), ["set", "lot"]))!;
+    expect(unitChoicesOf(offBoth, ["Touch Screen Central Controller"])).toEqual(["Nos"]);
   });
   it("NEGATIVE: a Nos row carries no bar, no label change; without the keys a Set row refuses as v57 does", () => {
     const n = run([{ base: null, family: "Touch Screen Central Controller", attrs: {} }], "Nos");
@@ -221,7 +225,10 @@ describe("VRF-3a LOT -- a whole-lot unit refuses with the red bar (owner LOT 'Re
     const helper = makePricingSheetHelper({ configsByCategory: configsOf(CFG), items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
     const v = (helper.compute({ ...calculatorCtx("HVAC", VRF), unit: "Lot" } as any, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "20" } }] }) }) as unknown as ItemListSuggestion).itemList!;
     expect(v.unitBar).toEqual({ tone: "red", title: "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND.", lines: ["Unit \"Lot\" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. What a Lot holds is read at VRF-4. Price this row by hand."] });
-    expect(unitChoicesOf(SPEC, ["Outdoor Unit"])).not.toContain("Lot");
+    // INVERTED at VRF-3b (owner 01:15, U7) by mechanical authority: BEFORE `.not.toContain("Lot")` (the calculator could not
+    // state Lot). It can now; the NEGATIVE half is kept: a config without `lot_units` still offers no Lot
+    expect(unitChoicesOf(SPEC, ["Outdoor Unit"])).toContain("Lot");
+    expect(unitChoicesOf(itemListPricingSpec(withVrf3aSet(base57(), ["lot"]))!, ["Outdoor Unit"])).not.toContain("Lot");
   });
   it("NEGATIVE: without `lot_units` a Lot row refuses with the unit sentence as v57 does", () => {
     const off = itemListPricingSpec(withVrf3aSet(base57(), ["lot"]))!;

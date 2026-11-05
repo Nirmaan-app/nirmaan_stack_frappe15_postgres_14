@@ -13261,7 +13261,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "split",
                             # INVERTED at VRF-3a K2 (owner SET / LOT, 2026-11-04) by mechanical authority: BEFORE the set ended
                             # at "split". Both keys are read only by VRF from v58 on; v7 predates them, ADP declares neither
-                            "per_set", "lot_units"})
+                            "per_set", "lot_units",
+                            # INVERTED at VRF-3b (owner O-5 / O-6 / SHEETS, 2026-11-05) by mechanical authority: BEFORE the
+                            # set ended at "lot_units". `extras` is read only by VRF from v59 on; v7 predates it, ADP
+                            # declares it nowhere
+                            "extras"})
+        self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)
         self.assertNotIn("lot_units", pr)
@@ -20890,3 +20895,78 @@ class TestVrf3aSetLotKeys(FrappeTestCase):
         bad(lambda pr: pr["lot_units"].__setitem__("line", "no unit named"), "lot_units.line must be a sentence naming {unit}")
         bad(lambda pr: pr["lot_units"].pop("bar"), "lot_units needs exactly units, bar and line")
         bad(lambda pr: pr["lot_units"].__setitem__("units", []), "lot_units.units must be a non-empty list")
+
+
+def vrf3b_extras_fixture():
+    """VRF-3b: the extras block and the 13 Pricing Inputs, from the ONE fixture the frontend tests and the v59 mint share."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "frontend", "src", "pages", "pricing",
+                        "__fixtures__", "vrf3bExtras.json")
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+class TestVrf3bExtrasKeys(FrappeTestCase):
+    """VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56) -- the validator accepts `extras` on a correct
+    shape and refuses each wrong one by name; the cross-category check resolves the copper / insulation targets in HVAC,
+    the Pricing Inputs, and names the Electrical cable target read only. The pricer's half is vrf3bExtras.test.ts."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v58.json"), "r", encoding="utf-8") as fh:
+            cls.v58 = json.load(fh)
+        cls.fix = vrf3b_extras_fixture()
+
+    def _vrf(self):
+        cfg = copy.deepcopy(next(c for c in self.v58["category_configs"] if c["category_id"] == "hvac_vrf"))
+        cfg["list_spec"]["pricing"]["extras"] = copy.deepcopy(self.fix["extras"])
+        return cfg
+
+    def _refused(self, mutate, needle):
+        cfg = self._vrf()
+        mutate(cfg["list_spec"]["pricing"]["extras"])
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(cfg)
+        self.assertIn(needle, str(cm.exception))
+
+    def test_v3b_01_POSITIVE_the_extras_fixture_validates_and_v58_still_does(self):
+        config_validation._validate_config(self._vrf())
+        for c in self.v58["category_configs"]:
+            config_validation._validate_config(dict(c, discipline="HVAC"))
+
+    def test_v3b_02_NEGATIVE_extras_shapes_refused_by_name(self):
+        self._refused(lambda x: x["roles"].__setitem__("Chiller", "indoor"), "roles names 'Chiller', which is not a family")
+        self._refused(lambda x: x["roles"].__setitem__("Hi-Wall", "roof"), "must be 'indoor' or 'outdoor'")
+        self._refused(lambda x: x.__setitem__("band_unit", {"indoor": "TR", "outdoor": "BTU"}), "is not a unit of the capacity reader")
+        self._refused(lambda x: x.__setitem__("row_class", "weight2"), "is not a unit class of this category")
+        self._refused(lambda x: x["includes"].reverse(), "must list copper, insulation, power, comm, in that order")
+        self._refused(lambda x: x["includes"][1].pop("needs"), "insulation must need copper")
+        self._refused(lambda x: x["pipe_bands"]["outdoor"].insert(0, {"max": None, "input": "z"}), "only the last band may be open")
+        self._refused(lambda x: x["power_bands"]["outdoor"][1].__setitem__("max", 4), "must be a number above the band before it")
+        self._refused(lambda x: x["copper"].pop("size_attr"), "extras.copper needs exactly")
+        self._refused(lambda x: x["lines"].__setitem__("working_nos", "no placeholders"), "lines.working_nos must name {len}")
+        self._refused(lambda x: x["lines"].pop("removed_note"), "extras.lines needs exactly")
+        self._refused(lambda x: x.__setitem__("bogus", 1), "unknown: bogus")
+
+    def test_v3b_03_cross_category_targets_inputs_and_the_read_only_cable(self):
+        stored = [dict(copy.deepcopy(c), discipline="HVAC") for c in self.v58["category_configs"]]
+        vrf = next(c for c in stored if c["category_id"] == "hvac_vrf")
+        vrf["list_spec"]["pricing"]["extras"] = copy.deepcopy(self.fix["extras"])
+        items = self.v58["items"] + self.fix["inputs"]
+        self.assertEqual(config_validation.extras_problems(stored, items), [])
+        # NEGATIVE: an input missing, a family not priced, the cable named in its own discipline
+        self.assertIn("'hvac_vrf' extras: Pricing Input 'vrf_extra_comm_cable_sqmm' is not an item of this discipline.",
+                      config_validation.extras_problems(stored, [i for i in items if (i.get("attributes") or {}).get("item") != "vrf_extra_comm_cable_sqmm"]))
+        # ONE input per table cell: 29 ids (5 pipe bands x 3, 6 cables x 2, 2 lengths), every one an item of the fixture
+        ids = config_validation.extras_input_ids(vrf)
+        self.assertEqual(len(ids), 29)
+        self.assertEqual(sorted(ids), sorted(i["attributes"]["item"] for i in self.fix["inputs"]))
+        self.assertEqual(config_validation.extras_input_ids(next(c for c in stored if c["category_id"] == "hvac_piping")), [])
+        ex = vrf["list_spec"]["pricing"]["extras"]
+        ex["insulation"]["family"] = "Glass Wool"
+        ex["cable"]["discipline"] = "HVAC"
+        probs = config_validation.extras_problems(stored, items)
+        self.assertIn("'hvac_vrf' extras: insulation names family 'Glass Wool', which 'hvac_insulation' does not price.", probs)
+        self.assertTrue(any("the cable is ANOTHER discipline's category, read only" in p for p in probs))
+        # a config without `extras` is never looked at (Piping's sections keep their own check)
+        self.assertEqual(config_validation.extras_problems([dict(c, discipline="HVAC") for c in self.v58["category_configs"]], self.v58["items"]), [])

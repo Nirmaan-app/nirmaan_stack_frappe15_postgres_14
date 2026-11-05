@@ -102,6 +102,15 @@ import {
   twoWayValues,
   typedFieldNote,
   unitClassOf,
+  cableSpecText,
+  closestSize,
+  extraBandOf,
+  parseCableSpec,
+  pricingInputRates,
+  readTypedSizeMm,
+  type ExtraIncludeId,
+  type ExtraLineId,
+  type ExtrasSpec,
   type CountedPieces,
   type ExtractedListItem,
   type ItemFieldDef,
@@ -1473,7 +1482,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // every row from -- the object that category's own rows and its calculator tab are priced with
       const configOf = (id: string): RateCategoryConfig | null =>
         configsByCategory ? (configsByCategory.get(id) ?? null) : (config && config.category_id === id ? config : null);
-      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf);
+      // VRF-3b: an extra cable line is priced by ELECTRICAL's own rules -- this same compute, on that category, read only
+      const cableRate: CableRate = (cableCategory, attrs) => {
+        const r = compute({ excelRow: EXTRA_CABLE_ROW, description: "", nodeType: "", category: cableCategory, discipline: "Electrical",
+                            rateKinds: ctx.rateKinds, unit: "Mtr" } as RowContextWithUnit, attrs);
+        if (r.kind === "suggestion" && typeof r.values.supply_rate === "number" && typeof r.values.install_rate === "number") {
+          return { supply: r.values.supply_rate, install: r.values.install_rate };
+        }
+        return { reason: r.kind === "none" ? r.reason : (r.basis || "no cable rate row matches") };
+      };
+      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -2138,6 +2156,21 @@ export const ROW_UNIT_OVERRIDE_KEY = "__row_unit__";
  * row's own quantity (`ctx.quantity`); the calculator has no row, so the pricer types it. Read only by a counted item
  * (refnets) on a per-Set row. */
 export const ROW_QTY_OVERRIDE_KEY = "__row_qty__";
+/** VRF-3b (U6, owner 2026-11-05): the calculator's "This row's price includes" tick boxes -- the include ids ticked,
+ * comma-separated ("copper,insulation,power,comm"). A BoQ row gets the same flags from the model at VRF-4. */
+export const EXTRAS_INCLUDES_KEY = "__includes__";
+/** VRF-3b: the row number an extra cable line is computed on -- never a sheet row, so no extraction is ever read for it */
+const EXTRA_CABLE_ROW = -987654321;
+
+/** VRF-3b: the pricer's edits to the extras of ONE unit -- kept ON the unit's entry, so removing the unit (or a split
+ * module) takes its extras with it. */
+export interface ExtrasEdit {
+  /** the pricer's values, per extra line, per field ("size", "thickness", "spec", "length", "count") */
+  set?: Record<string, Record<string, string>>;
+  /** VRF-3b (owner 12:23 "the user should be able to remove the xtras"; as SHAPE Q3): the HIDDEN TAG -- the lines the
+   * pricer removed. Nothing adds a removed line back on its own; "Put it back" takes it off this list. */
+  removed?: string[];
+}
 
 /** One item as the panel edits it. `base` = the index of the MODEL's item it started from (null for an item
  * the pricer added or changed -- such an item starts BLANK, S1); `family` = a family the pricer picked (null =
@@ -2170,6 +2203,9 @@ export interface ItemEdit {
    * marker. While any entry of a row carries one, the split never fires on that row again (its own lines, a re-compute,
    * after any edit / remove / add, the calculator's re-run of the seam). Written only by `splitEdits`. */
   helper?: HelperMark;
+  /** VRF-3b: the pricer's edits to this unit's extra lines (values typed / picked, lines removed). Absent on every entry
+   * of a config that declares no `extras`, and on a unit nobody has touched. */
+  extras?: ExtrasEdit;
   /**
    * SLICE 12e-3a (owner 13:40): the edits of the sections ATTACHED to this item, by section id -- a pipe's own
    * insulation. Kept ON the item so removing or changing the item takes its section with it. Absent on every
@@ -2247,7 +2283,22 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number, sec
       ...(Object.keys(secs).length ? { sections: secs } : {}),
       // VRF-3a (Q3): the helper's hidden tag survives every encode / decode -- it is what stops a re-split
       ...(nested ? helperMarkOf(e.helper, count) : {}),
+      // VRF-3b: the extras' edits and the removed-extras tag survive too (strings only)
+      ...(nested ? extrasEditOf(e.extras) : {}),
     };
+  };
+  const extrasEditOf = (x: unknown): { extras: ExtrasEdit } | Record<string, never> => {
+    if (!x || typeof x !== "object") return {};
+    const src = x as ExtrasEdit;
+    const set: Record<string, Record<string, string>> = {};
+    for (const [line, fields] of Object.entries(src.set && typeof src.set === "object" ? src.set : {})) {
+      if (!fields || typeof fields !== "object") continue;
+      const f = Object.fromEntries(Object.entries(fields).filter(([, v]) => typeof v === "string")) as Record<string, string>;
+      if (Object.keys(f).length) set[line] = f;
+    }
+    const removed = Array.isArray(src.removed) ? src.removed.filter((r) => typeof r === "string") : [];
+    if (!Object.keys(set).length && !removed.length) return {};
+    return { extras: { ...(Object.keys(set).length ? { set } : {}), ...(removed.length ? { removed } : {}) } };
   };
   const helperMarkOf = (h: unknown, count: number): { helper: HelperMark } | Record<string, never> => {
     if (!h || typeof h !== "object") return {};
@@ -2512,6 +2563,53 @@ export interface ItemBlockView {
   /** SLICE 12e-3a (owner 13:40): the sections ATTACHED to this item, drawn directly under it. Absent on every
    * block of a config that declares no section, and on a block whose toggle is closed. */
   sections?: SectionBlockView[];
+  /** VRF-3b (U1 / U5): this unit's place among ALL the row's lines ("Item N"), present only on a row with extras */
+  lineNo?: number;
+  /** VRF-3b (U1-U5, boards 12 / 13): the extra lines this unit's price includes, drawn under it; the lines the pricer
+   * removed ("You removed: ... [Put it back]"). Present only on an indoor / outdoor unit of a row with extras. */
+  extras?: { lines: ExtraLineView[]; removed: Array<{ id: ExtraLineId; label: string }>; removedNote?: string };
+}
+
+/** VRF-3b (U1 / U2 / U3 / U8): one field of an extra line. */
+export interface ExtraFieldView {
+  id: "size" | "thickness" | "spec" | "length" | "count";
+  label: string;
+  /** the value that PRICES (a typed rough size shows the closest stocked size -- "show the one used", 13:53) */
+  value: string;
+  /** what the pricer typed in the "Other..." box */
+  typedValue: string;
+  options?: string[];
+  allowOther?: boolean;
+  otherMode?: boolean;
+  required?: boolean;
+  /** U2: where the value came from -- the Pricing Inputs default (amber), picked by you (blue), from the BoQ, or the
+   * copper line it follows */
+  tag?: "default" | "picked" | "boq" | "follows";
+  tagText?: string;
+  /** U8: the pricer changed this field (the undo arrow) */
+  userEdited: boolean;
+  blank?: boolean;
+  note?: string;
+  readOnly?: true;
+}
+
+/** VRF-3b (U1 / U4, boards 12 / 13): one extra line -- priced by its own category's rules, per Nos of the row. */
+export interface ExtraLineView {
+  id: ExtraLineId;
+  /** the unit block it belongs to */
+  unitIndex: number;
+  lineNo: number;
+  /** "Item N · extra the BoQ includes · from Piping" */
+  heading: string;
+  /** "Copper pipe - supply line" */
+  title: string;
+  fields: ExtraFieldView[];
+  state: "priced" | "blank";
+  reason?: string;
+  working: string[];
+  /** the per-metre rate, kept where known even when the line cannot price (B: "unit rate kept where known") */
+  perMetre?: { supply: number; install: number };
+  figures: Partial<Record<RateKind, number>>;
 }
 
 /** The whole item-list view a suggestion carries for the panel. */
@@ -2564,6 +2662,11 @@ export interface ItemListView {
   /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" -- shown only on a per-Set row with a counted
    * item. Never on a BoQ row (the row's own quantity is read). */
   rowQtyField?: { label: string; value: string };
+  /** VRF-3b (U6): the calculator's "This row's price includes" tick boxes ("Insulation needs copper piping"). Present
+   * only in the calculator, on a config that declares `extras`. */
+  extrasIncludes?: { title: string; options: Array<{ id: ExtraIncludeId; label: string; checked: boolean; disabled?: boolean; note?: string }> };
+  /** VRF-3b (U4): on a row with extras every LINE counts for "n of m items need a person" -- each unit, each extra */
+  lineCount?: { lines: number; bad: number };
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -2641,6 +2744,10 @@ export function unitChoicesOf(spec: ItemListPricingSpec, families: readonly (str
     const at = first !== undefined ? out.indexOf(first) : -1;
     if (at >= 0) out.splice(at + 1, 0, ps);
   }
+  // VRF-3b (owner 01:15 "Lot in the calculator's Row unit", calculator = panel; U7): a config declaring whole-lot spellings
+  // offers its first one LAST, so the calculator can state a Lot row and see the panel's red bar. ABSENT => byte-identical.
+  const lot = spec.lot_units?.units?.[0];
+  if (lot && !seen.has(lot.trim().toLowerCase())) out.push(lot);
   return out;
 }
 
@@ -3968,6 +4075,331 @@ function computeItemListOwn(
 // only things this pass adds are the toggle, the mirror and the row's totals.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15) -- THE EXTRAS A UNIT'S PRICE
+// INCLUDES. Copper (supply + return), insulation on each copper line, power cable and communication cable, as OWN LINES
+// under each indoor / outdoor unit (each split module its own unit), PER NOS of the row (11:56 "per unit only...qty has no
+// bearing"). Each line is priced by ITS OWN category's rules -- Piping and Insulation through `computeItemListOwn` (the
+// path their own rows and calculator tabs take), the cable through Electrical's own compute, read only -- at a size
+// banded on the unit's capacity, from the Pricing Inputs defaults (12:07 live-linked). Per Nos = length x the per-metre
+// BoQ rate, rounded up, x "How many in one Nos". A config without `extras` never reaches this.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** VRF-3b: Electrical's own per-metre cable rate for one spec (the helper's compute on that category), or why not. */
+export type CableRate = (category: string, attrs: Record<string, string>) => { supply: number; install: number } | { reason: string };
+
+const EXTRA_LINE_ORDER: ExtraLineId[] = ["copper_supply", "copper_return", "ins_supply", "ins_return", "power", "comm"];
+
+/** PURE. The include ids ticked, from the calculator's override (or, on a BoQ row, the model's flags -- VRF-4). */
+export function extrasIncludesOf(raw: string | undefined | null): Set<ExtraIncludeId> {
+  const ok = new Set<string>(["copper", "insulation", "power", "comm"]);
+  return new Set(String(raw ?? "").split(",").map((s) => s.trim()).filter((s) => ok.has(s)) as ExtraIncludeId[]);
+}
+
+function fmtMm(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3)));
+}
+
+function withExtras(
+  spec: ItemListPricingSpec,
+  items: RateMasterItem[],
+  ctx: RowContextWithUnit,
+  ext: ExtractionRowWithItems | undefined,
+  overrides: Record<string, string> | undefined,
+  configOf: ConfigOf,
+  cableRate: CableRate | undefined,
+  own: ItemListSuggestion,
+  probe: OwnPassProbe,
+): ItemListSuggestion {
+  const x: ExtrasSpec = spec.extras!;
+  const view = own.itemList!;
+  const L = x.lines;
+  const calculator = view.unitPickable || ctx.noRow === true;
+  // the flags: the calculator's tick boxes; a BoQ row's from the model (VRF-4; the row's `includes` cell is the fixture)
+  const modelFlags = ext?.attributes?.includes?.value;
+  const on = extrasIncludesOf(calculator ? overrides?.[EXTRAS_INCLUDES_KEY] : (typeof modelFlags === "string" ? modelFlags : undefined));
+  const incSpec = new Map(x.includes.map((i) => [i.id, i]));
+  const active = (id: ExtraIncludeId) => on.has(id) && (!incSpec.get(id)?.needs || on.has(incSpec.get(id)!.needs!));
+  const includesView: ItemListView["extrasIncludes"] = calculator
+    ? { title: L.includes_title, options: x.includes.map((i) => {
+        const blocked = !!i.needs && !on.has(i.needs);
+        return { id: i.id, label: i.label, checked: on.has(i.id) && !blocked, ...(blocked ? { disabled: true, note: i.needs_line } : {}) };
+      }) }
+    : undefined;
+  const rowClassOk = !isLotUnit(spec, view.unit) && view.unitClass === x.row_class;
+  if (![...on].some((id) => active(id)) || !rowClassOk || view.items.length === 0) {
+    return includesView ? { ...own, itemList: { ...view, extrasIncludes: includesView } } : own;
+  }
+
+  const edits = probe.edits ?? view.editState;
+  const layers = probe.layers ?? new Map<number, ItemPriceResult[]>();
+  const modelItems = ext?.items ?? [];
+  const reader = spec.numbers.capacity;
+  const convert = reader?.units;
+  const factorOf = (id: string) => pricingInputFactor(items, id);
+  /** a capacity in `from` -> `to`, through the reader's base unit and its Pricing Input factors */
+  const convertUnit = (v: number, from: string | null, to: string): number | null => {
+    if (!from || from === to) return v;
+    if (!convert) return null;
+    const toBase = (val: number, u: string) => (u === convert.base ? val : (convert.convert?.[u] ? (factorOf(convert.convert[u].input) ? val / factorOf(convert.convert[u].input)! : null) : null));
+    const fromBase = (val: number, u: string) => (u === convert.base ? val : (convert.convert?.[u] ? (factorOf(convert.convert[u].input) ? val * factorOf(convert.convert[u].input)! : null) : null));
+    const b = toBase(v, from);
+    return b === null ? null : fromBase(b, to);
+  };
+
+  // the targets' stocked sizes -- what a typed or rough size snaps to (13:46 "closest"; 13:53 "show the one used")
+  const pcfg = configOf(x.copper.category);
+  const pspec = pcfg ? itemListPricingSpec(pcfg) : null;
+  const icfg = configOf(x.insulation.category);
+  const ispec = icfg ? itemListPricingSpec(icfg) : null;
+  const numsOf = (vals: unknown[]) => [...new Set(vals.map(Number).filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b);
+  const copperSizes = pspec ? numsOf(items.filter((it) => kindIn(pspec, it.kind) && it.attributes?.[familyAttr(pspec)] === x.copper.family).map((it) => it.attributes?.[x.copper.size_attr])) : [];
+  const insSkus = ispec ? items.filter((it) => kindIn(ispec, it.kind) && it.attributes?.[familyAttr(ispec)] === x.insulation.family
+    && Object.entries(x.insulation.attrs).every(([k, v]) => !(k in (it.attributes ?? {})) || k === "cladding" || String(it.attributes?.[k]) === v)) : [];
+  const insSizes = numsOf(insSkus.map((it) => it.attributes?.[x.insulation.size_attr]));
+  const insThicknesses = numsOf(insSkus.map((it) => it.attributes?.[x.insulation.thickness_attr]));
+  const cableSpecs = (() => {
+    const seen = new Map<string, { cores: number; sqmm: number }>();
+    for (const it of items) {
+      if (String(it.kind) !== "cable") continue;
+      const a = it.attributes ?? {};
+      if (Object.entries(x.cable.attrs).some(([k, v]) => k in a && String(a[k]) !== v)) continue;
+      const cores = Number(a[x.cable.cores_attr]); const sq = Number(a[x.cable.size_attr]);
+      if (Number.isFinite(cores) && Number.isFinite(sq)) seen.set(cableSpecText(cores, sq), { cores, sqmm: sq });
+    }
+    return [...seen.entries()].sort((p, q) => p[1].cores - q[1].cores || p[1].sqmm - q[1].sqmm).map(([k]) => k);
+  })();
+
+  // ONE per-metre rate per target + size, each from its own category's path (cached: a split row asks twice)
+  const cache = new Map<string, { supply: number; install: number } | { reason: string }>();
+  const lineCtx = (category: string): RowContextWithUnit => ({
+    excelRow: ctx.excelRow, description: "", nodeType: ctx.nodeType, category, discipline: ctx.discipline, rateKinds: ctx.rateKinds, unit: "mts", noRow: true,
+  } as RowContextWithUnit);
+  const itemListRate = (cfg: RateCategoryConfig | null, dspec: ItemListPricingSpec | null, family: string, attrs: Record<string, string>, label: string) => {
+    const key = `${cfg?.category_id}|${family}|${JSON.stringify(attrs)}`;
+    if (cache.has(key)) return cache.get(key)!;
+    let out: { supply: number; install: number } | { reason: string };
+    if (!cfg || !dspec) out = { reason: L.not_loaded.replace("{rules}", label) };
+    else {
+      const r = computeItemListOwn(cfg, dspec, items, lineCtx(cfg.category_id), undefined, false,
+                                   { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family, attrs }] }) }) as ItemListSuggestion;
+      const v = r.itemList;
+      out = v?.rowPriced && typeof v.totals?.supply_rate === "number" && typeof v.totals?.install_rate === "number"
+        ? { supply: v.totals.supply_rate, install: v.totals.install_rate }
+        : { reason: v?.reason ?? v?.items?.[0]?.reason ?? L.not_priced };
+    }
+    cache.set(key, out);
+    return out;
+  };
+  const cableRateOf = (cores: number, sqmm: number) => {
+    const key = `cable|${cores}|${sqmm}`;
+    if (cache.has(key)) return cache.get(key)!;
+    const out = cableRate
+      ? cableRate(x.cable.category, { ...x.cable.attrs, [x.cable.cores_attr]: String(cores), [x.cable.size_attr]: String(sqmm) })
+      : { reason: L.not_loaded.replace("{rules}", x.cable.label) };
+    cache.set(key, out);
+    return out;
+  };
+
+  const titleOf = (id: ExtraLineId) => L[`title_${id}`] ?? id;
+  const fromOf = (id: ExtraLineId) => (id.startsWith("copper") ? L.from_copper : id.startsWith("ins") ? L.from_insulation : L.from_cable);
+  const tagText = (t: ExtraFieldView["tag"]) => (t === "default" ? L.tag_default : t === "picked" ? L.tag_picked : t === "boq" ? L.tag_boq : t === "follows" ? L.tag_follows : undefined);
+  const num = (s: string | undefined) => (s === undefined || s.trim() === "" ? null : Number(s.trim()));
+
+  let lineNo = 0;
+  const lineViews: ExtraLineView[] = [];
+  const blocks = view.items.map((b, i): ItemBlockView => {
+    lineNo++;
+    const unitNo = lineNo;
+    const role = b.family ? x.roles[b.family] : undefined;
+    if (!role) return { ...b, lineNo: unitNo };
+    const e = edits.items[i];
+    const ex = e?.extras ?? {};
+    const removed = new Set(ex.removed ?? []);
+    const set = ex.set ?? {};
+    const modelItem = e && e.base !== null && e.family === null ? modelItems[e.base] : undefined;
+    const said = (line: string, field: string): string | undefined => {
+      const v = modelItem?.attributes?.[`extra_${line}_${field}`]?.value;
+      return v === null || v === undefined || String(v).trim() === "" ? undefined : String(v);
+    };
+    const pick = (line: string, field: string, def: string | undefined) => {
+      const typed = set[line]?.[field];
+      if (typed !== undefined) return { raw: typed, tag: "picked" as const, typed };
+      const boq = said(line, field);
+      if (boq !== undefined) return { raw: boq, tag: "boq" as const, typed: undefined };
+      return { raw: def ?? "", tag: def !== undefined ? ("default" as const) : undefined, typed: undefined };
+    };
+    // the unit's size, after conversion, in its role's band unit
+    const res = layers.get(i)?.[0];
+    // the size the row STATED (after conversion) -- a ladder hop's requested value, else the value read (= the rung)
+    const hop = res?.ladderHops?.find((h) => h.attr === "capacity");
+    const read = hop ? hop.requested : (res?.readValues?.capacity ?? res?.selection?.capacity);
+    const famUnit = familyUnitOf(spec, items, b.family, reader);
+    const bandValue = typeof read === "number" || (typeof read === "string" && read.trim() !== "" && Number.isFinite(Number(read)))
+      ? convertUnit(Number(read), famUnit, x.band_unit[role]) : null;
+    const sizeWords = bandValue !== null ? `${fmtMm(Math.round(bandValue * 100) / 100)} ${x.band_unit[role]}` : "";
+    const pipeBand = extraBandOf(x.pipe_bands[role], bandValue);
+    const pipeRates = pipeBand ? pricingInputRates(items, pipeBand.input) : null;
+    const powerBand = extraBandOf(x.power_bands[role], bandValue);
+    const lengthDefault = (id: string) => { const f = pricingInputFactor(items, id); return f !== null ? fmtMm(f) : undefined; };
+
+    const want: ExtraLineId[] = EXTRA_LINE_ORDER.filter((id) =>
+      (id.startsWith("copper") && active("copper")) || (id.startsWith("ins") && active("insulation")) || (id === "power" && active("power")) || (id === "comm" && active("comm")));
+    const gone = (id: ExtraLineId) => removed.has(id) || (id === "ins_supply" && removed.has("copper_supply")) || (id === "ins_return" && removed.has("copper_return"));
+    const mine: ExtraLineView[] = [];
+    const copperUsed = new Map<string, { size: number | null; length: string }>();
+
+    const finish = (id: ExtraLineId, fields: ExtraFieldView[], rate: { supply: number; install: number } | { reason: string } | null, why: string | undefined, lengthText: string, countText: string, sizeText: string): ExtraLineView => {
+      lineNo++;
+      const heading = `Item ${lineNo} · ${L.heading_tail} · ${fromOf(id)}`;
+      const per = rate && "supply" in rate ? rate : undefined;
+      const len = num(lengthText); const cnt = num(countText);
+      let reason = why;
+      if (!reason && rate && "reason" in rate) reason = rate.reason;
+      if (!reason && (len === null || !Number.isFinite(len) || len <= 0)) reason = L.length_needed;
+      if (!reason && (cnt === null || !Number.isFinite(cnt) || cnt <= 0)) reason = L.count_needed;
+      const working: string[] = [];
+      if (per) working.push(L.working_rate.replace("{title}", titleOf(id)).replace("{size}", sizeText).replace("{rules}", fromOf(id).replace(/^from /, ""))
+        .replace("{s}", String(per.supply)).replace("{i}", String(per.install)));
+      let figures: Partial<Record<RateKind, number>> = {};
+      if (!reason && per && len !== null && cnt !== null) {
+        const s = Math.ceil(len * per.supply - 1e-9) * cnt;
+        const ins = Math.ceil(len * per.install - 1e-9) * cnt;
+        working.push(L.working_nos.split("{len}").join(fmtMm(len)).replace("{s}", String(per.supply)).replace("{S}", String(Math.ceil(len * per.supply - 1e-9)))
+          .replace("{i}", String(per.install)).replace("{I}", String(Math.ceil(len * per.install - 1e-9))));
+        if (cnt !== 1) working.push(L.working_count.replace("{n}", fmtMm(cnt)).replace("{S}", String(s)).replace("{I}", String(ins)));
+        figures = { supply_rate: s, install_rate: ins, combined_rate: s + ins };
+      }
+      const lv: ExtraLineView = { id, unitIndex: i, lineNo, heading, title: titleOf(id), fields, state: reason ? "blank" : "priced", ...(reason ? { reason } : {}), working, ...(per ? { perMetre: per } : {}), figures };
+      return lv;
+    };
+    const lengthField = (line: ExtraLineId, def: string | undefined, follows?: { text: string }): ExtraFieldView => {
+      const p = pick(line, "length", follows ? follows.text : def);
+      const tag = p.tag === "default" && follows ? "follows" : p.tag;
+      return { id: "length", label: L.label_length, value: p.raw, typedValue: p.typed ?? "", ...(tag ? { tag, tagText: tagText(tag) } : {}), userEdited: p.typed !== undefined, ...(p.raw.trim() === "" ? { blank: true } : {}) };
+    };
+    const countField = (line: ExtraLineId): ExtraFieldView => {
+      const p = pick(line, "count", "1");
+      // the assumed 1 is a default like every other assumed quantity (amber), not a Pricing Input
+      const tt = p.tag === "default" ? L.tag_assumed : tagText(p.tag);
+      return { id: "count", label: L.label_count, value: p.raw, typedValue: p.typed ?? "", ...(p.tag ? { tag: p.tag, tagText: tt } : {}), userEdited: p.typed !== undefined, ...(p.raw.trim() === "" ? { blank: true } : {}) };
+    };
+
+    for (const id of want) {
+      if (gone(id)) continue;
+      if (id === "copper_supply" || id === "copper_return") {
+        const side = id === "copper_supply" ? "supply" : "return";
+        const def = pipeRates && typeof pipeRates[`${side}_mm`] === "number" && pipeRates[`${side}_mm`] > 0 ? fmtMm(pipeRates[`${side}_mm`]) : undefined;
+        const p = pick(id, "size", def);
+        const typedMm = readTypedSizeMm(p.raw);
+        const used = closestSize(typedMm, copperSizes);
+        const value = used !== null ? fmtMm(used) : "";
+        const options = copperSizes.map(fmtMm);
+        let why: string | undefined;
+        if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
+        else if (used === null) why = L.size_needed_unread.replace("{typed}", p.raw);
+        const note = p.typed !== undefined && used !== null && p.typed.trim() !== value ? L.typed_note.replace("{typed}", p.typed.trim()).replace("{used}", value) : undefined;
+        const otherMode = p.typed !== undefined && !options.includes(p.typed.trim());
+        const lenF = lengthField(id, lengthDefault(x.copper_length_input));
+        const cntF = countField(id);
+        copperUsed.set(side, { size: used, length: lenF.value });
+        const fields: ExtraFieldView[] = [
+          { id: "size", label: L.label_pipe_size, value, typedValue: p.typed ?? "", options, allowOther: true, otherMode, required: true,
+            ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why ? { blank: true } : {}), ...(note ? { note } : {}) },
+          lenF, cntF,
+        ];
+        const rate = used !== null ? itemListRate(pcfg, pspec, x.copper.family, { [x.copper.size_attr]: value }, L.rules_piping) : null;
+        mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, `${value} mm`));
+        continue;
+      }
+      if (id === "ins_supply" || id === "ins_return") {
+        const side = id === "ins_supply" ? "supply" : "return";
+        const cu = copperUsed.get(side);
+        const insSize = closestSize(cu?.size ?? null, insSizes);
+        const def = pipeRates && typeof pipeRates.insulation_mm === "number" && pipeRates.insulation_mm > 0 ? fmtMm(pipeRates.insulation_mm) : undefined;
+        const p = pick(id, "thickness", def);
+        const th = readTypedSizeMm(p.raw);
+        const thUsed = closestSize(th, insThicknesses);
+        const thValue = thUsed !== null ? fmtMm(thUsed) : "";
+        let why: string | undefined;
+        if (insSize === null) why = L.size_needed_copper;
+        else if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
+        else if (thUsed === null) why = L.size_needed_unread.replace("{typed}", p.raw);
+        const lenF = lengthField(id, undefined, { text: cu?.length ?? "" });
+        const cntF = countField(id);
+        const sizeText = insSize !== null ? fmtMm(insSize) : "";
+        const fields: ExtraFieldView[] = [
+          { id: "thickness", label: L.label_thickness, value: thValue, typedValue: p.typed ?? "", options: insThicknesses.map(fmtMm), required: true,
+            ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why && insSize !== null ? { blank: true } : {}) },
+          { id: "size", label: L.label_pipe_size, value: sizeText, typedValue: "", readOnly: true, userEdited: false,
+            ...(insSize !== null ? { note: L.follows_size.replace("{x}", sizeText), tag: "follows" as const, tagText: tagText("follows") } : {}) },
+          lenF, cntF,
+        ];
+        const rate = insSize !== null && thUsed !== null
+          ? itemListRate(icfg, ispec, x.insulation.family, { ...x.insulation.attrs, [x.insulation.thickness_attr]: thValue, [x.insulation.size_attr]: sizeText }, L.rules_insulation)
+          : null;
+        mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, `${thValue} mm on ${sizeText} mm`));
+        continue;
+      }
+      // power / communication cable
+      const rates = id === "power" ? (powerBand ? pricingInputRates(items, powerBand.input) : null) : pricingInputRates(items, x.comm_input);
+      const def = rates && typeof rates.cores === "number" && typeof rates.sqmm === "number" && rates.cores > 0 && rates.sqmm > 0 ? cableSpecText(rates.cores, rates.sqmm) : undefined;
+      const p = pick(id, "spec", def);
+      const parsed = parseCableSpec(p.raw);
+      const value = parsed ? cableSpecText(parsed.cores, parsed.sqmm) : p.raw;
+      let why: string | undefined;
+      if (p.raw.trim() === "") why = id === "power" && bandValue !== null && !powerBand ? L.no_default.replace("{size}", sizeWords) : (bandValue === null && id === "power" ? L.size_needed_no_size : L.spec_needed);
+      else if (!parsed || !cableSpecs.includes(value)) why = L.not_stocked.replace("{spec}", p.raw.trim());
+      const lenF = lengthField(id, lengthDefault(x.cable_length_input));
+      const cntF = countField(id);
+      const fields: ExtraFieldView[] = [
+        { id: "spec", label: L.label_spec, value: cableSpecs.includes(value) ? value : "", typedValue: p.typed ?? "", options: cableSpecs, required: true,
+          ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why ? { blank: true } : {}),
+          note: L.cable_note },
+        lenF, cntF,
+      ];
+      const rate = !why && parsed ? cableRateOf(parsed.cores, parsed.sqmm) : null;
+      mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, value));
+    }
+    lineViews.push(...mine);
+    const removedList = want.filter((id) => removed.has(id)).map((id) => ({ id, label: titleOf(id) }));
+    return { ...b, lineNo: unitNo, extras: { lines: mine, removed: removedList, ...(removedList.length ? { removedNote: L.removed_note } : {}) } };
+  });
+
+  // ── the row: every unit and every extra is a LINE; all or nothing (O-6 "n of m items need a person") ──
+  const lines = blocks.length + lineViews.length;
+  const badExtras = lineViews.filter((l) => l.state !== "priced").length;
+  const bad = blocks.filter((b) => b.state !== "priced").length + badExtras;
+  const rowPriced = view.rowPriced && badExtras === 0;
+  const values: Record<string, number> = {};
+  if (rowPriced) {
+    const sum = (k: "supply_rate" | "install_rate") => (view.totals?.[k] ?? 0) + lineViews.reduce((a, l) => a + (l.figures[k] ?? 0), 0);
+    if (typeof view.totals?.supply_rate === "number") values.supply_rate = sum("supply_rate");
+    if (typeof view.totals?.install_rate === "number") values.install_rate = sum("install_rate");
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  const reason = rowPriced ? undefined : (view.rowPriced ? lineViews.find((l) => l.state !== "priced")?.reason : view.reason);
+  const { reason: _r, totals: _t, ...rest } = view;
+  const nextView: ItemListView = {
+    ...rest,
+    rowPriced,
+    ...(reason ? { reason } : {}),
+    items: blocks,
+    ...(includesView ? { extrasIncludes: includesView } : {}),
+    lineCount: { lines, bad },
+    ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
+  };
+  const basis = rowPriced ? `${own.basis.replace(/ · \d+ items?$/, "")} · ${lines} item${lines === 1 ? "" : "s"}` : own.basis;
+  const derivation = rowPriced ? [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`] : (reason ? [plainPricerText(reason, items)] : own.workings?.derivation ?? []);
+  return {
+    ...own,
+    values,
+    basis,
+    workings: { ...(own.workings ?? { attributes: [], matchedRows: [] }), derivation, finalValues: { ...values } },
+    itemList: nextView,
+  } as ItemListSuggestion;
+}
+
 /** PURE. The size an item's number was READ as, for a section to mirror (owner D3b: "for pricing we consider
  * 1 NB = 1 mm and should be matched with the catalog as per that only"): the read that landed -- the stated
  * number (5/8" -> 15.875, MS 100 -> 100), or the second inch conversion where that is the one the item priced
@@ -3995,8 +4427,16 @@ function computeItemList(
   inRun: boolean,
   overrides: Record<string, string> | undefined,
   configOf: ConfigOf,
+  /** VRF-3b: Electrical's own per-metre cable rate (the helper's compute on that category) -- read by `extras` only */
+  cableRate?: CableRate,
 ): HelperResult {
   const declared = delegatedSections(spec);
+  // VRF-3b: a config declaring `extras` (VRF) prices its own items exactly as before, then its units' extra lines
+  if (declared.length === 0 && spec.extras) {
+    const probe: OwnPassProbe = {};
+    const own = computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides, probe) as ItemListSuggestion;
+    return own.itemList ? withExtras(spec, items, ctx, ext, overrides, configOf, cableRate, own, probe) : own;
+  }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);
 
@@ -4377,7 +4817,15 @@ export type ItemEditOp =
   /** SLICE 12e-3a (owner 13:42): "+ Add insulation" -- an INDEPENDENT section of this family, blank (S1). */
   | { op: "add_section"; section: string; family: string }
   /** SLICE 12e-3a: the x of an independent section. An attached one has none: its item's toggle removes it. */
-  | { op: "remove_section"; section: string; index: number };
+  | { op: "remove_section"; section: string; index: number }
+  /** VRF-3b (U1 / U3): the pricer's value in one field of one extra line of unit `index` */
+  | { op: "extra_set"; index: number; line: string; field: string; value: string }
+  /** VRF-3b (U8): the undo arrow beside a changed extra field -- back to its default / BoQ value */
+  | { op: "extra_undo"; index: number; line: string; field: string }
+  /** VRF-3b (U5): the x of an extra line (copper takes its insulation) -- recorded in the hidden tag */
+  | { op: "extra_remove"; index: number; line: string }
+  /** VRF-3b (U5): "Put it back" */
+  | { op: "extra_restore"; index: number; line: string };
 
 /** PURE. Apply one panel operation. A changed or added item starts BLANK (S1): family only, no attrs, qty 1. */
 export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemListEditState {
@@ -4477,6 +4925,22 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (op.index < 0 || op.index >= list.length) return state;
       list.splice(op.index, 1);
       return done(items, { ...state.sections, [op.section]: list });
+    }
+    case "extra_set":
+    case "extra_undo":
+    case "extra_remove":
+    case "extra_restore": {
+      if (!at(op.index)) return state;
+      const cur = at(op.index).extras ?? {};
+      const set: Record<string, Record<string, string>> = Object.fromEntries(Object.entries(cur.set ?? {}).map(([k, v]) => [k, { ...v }]));
+      const removed = new Set(cur.removed ?? []);
+      if (op.op === "extra_set") (set[op.line] ??= {})[op.field] = op.value;
+      if (op.op === "extra_undo" && set[op.line]) { delete set[op.line][op.field]; if (!Object.keys(set[op.line]).length) delete set[op.line]; }
+      if (op.op === "extra_remove") removed.add(op.line);
+      if (op.op === "extra_restore") removed.delete(op.line);
+      const next: ExtrasEdit = { ...(Object.keys(set).length ? { set } : {}), ...(removed.size ? { removed: [...removed] } : {}) };
+      if (Object.keys(next).length) at(op.index).extras = next; else delete at(op.index).extras;
+      return done(items);
     }
   }
 }

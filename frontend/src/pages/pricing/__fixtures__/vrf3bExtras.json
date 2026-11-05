@@ -1,0 +1,722 @@
+{
+ "_note": "VRF-3b (owner 2026-11-05 11:30-14:56, boards 12-15): hvac_vrf list_spec.pricing.extras and the 29 HVAC Pricing Inputs the extras read -- ONE single-factor input per table cell (a band's input id is the PREFIX: <id>_supply_mm / _return_mm / _insulation_mm; a cable's <id>_cores / _sqmm), so the grid, the panel and the CSV carry them with no new column. The v59 mint (scripts/_instruments/mint_hvac_v59_vrf3b.py) writes exactly these; test_vrf_v59 proves the asset equals this file (item_uid aside).",
+ "extras": {
+  "roles": {
+   "Outdoor Unit": "outdoor",
+   "Hi-Wall": "indoor",
+   "Cassette": "indoor",
+   "Floor-cum-Ceiling Mounted": "indoor",
+   "Verticool": "indoor",
+   "Concealed Split": "indoor",
+   "Ductable": "indoor",
+   "Packaged Unit": "indoor",
+   "Single Skin Treated Fresh Air": "indoor"
+  },
+  "band_unit": {
+   "indoor": "TR",
+   "outdoor": "HP"
+  },
+  "row_class": "count",
+  "includes": [
+   {
+    "id": "copper",
+    "label": "Copper piping"
+   },
+   {
+    "id": "insulation",
+    "label": "Insulation",
+    "needs": "copper",
+    "needs_line": "Insulation needs copper piping"
+   },
+   {
+    "id": "power",
+    "label": "Power cable"
+   },
+   {
+    "id": "comm",
+    "label": "Communication cable"
+   }
+  ],
+  "pipe_bands": {
+   "indoor": [
+    {
+     "max": 4,
+     "input": "vrf_extra_pipe_indoor_upto_4tr"
+    },
+    {
+     "max": null,
+     "input": "vrf_extra_pipe_indoor_above_4tr"
+    }
+   ],
+   "outdoor": [
+    {
+     "max": 12,
+     "input": "vrf_extra_pipe_outdoor_upto_12hp"
+    },
+    {
+     "max": 20,
+     "input": "vrf_extra_pipe_outdoor_12_to_20hp"
+    },
+    {
+     "max": null,
+     "input": "vrf_extra_pipe_outdoor_above_20hp"
+    }
+   ]
+  },
+  "power_bands": {
+   "indoor": [
+    {
+     "max": 4,
+     "input": "vrf_extra_power_indoor_upto_4tr"
+    },
+    {
+     "max": 8,
+     "input": "vrf_extra_power_indoor_4_to_8tr"
+    }
+   ],
+   "outdoor": [
+    {
+     "max": 8,
+     "input": "vrf_extra_power_outdoor_upto_8hp"
+    },
+    {
+     "max": 14,
+     "input": "vrf_extra_power_outdoor_8_to_14hp"
+    },
+    {
+     "max": null,
+     "input": "vrf_extra_power_outdoor_above_14hp"
+    }
+   ]
+  },
+  "comm_input": "vrf_extra_comm_cable",
+  "copper_length_input": "vrf_extra_copper_length_m",
+  "cable_length_input": "vrf_extra_cable_length_m",
+  "copper": {
+   "category": "hvac_piping",
+   "family": "Copper",
+   "size_attr": "size_mm"
+  },
+  "insulation": {
+   "category": "hvac_insulation",
+   "family": "Nitrile Rubber Insulation",
+   "attrs": {
+    "cladding": "No"
+   },
+   "thickness_attr": "thickness_mm",
+   "size_attr": "pipe_size_mm"
+  },
+  "cable": {
+   "category": "wiring_cabling",
+   "discipline": "Electrical",
+   "attrs": {
+    "material": "COPPER",
+    "insulation": "UNARMOURED",
+    "runs": "1"
+   },
+   "cores_attr": "core",
+   "size_attr": "thickness_sqmm",
+   "label": "Electrical"
+  },
+  "lines": {
+   "includes_title": "This row's price includes",
+   "heading_tail": "extra the BoQ includes",
+   "from_copper": "from Piping",
+   "from_insulation": "from Insulation",
+   "from_cable": "from Electrical",
+   "title_copper_supply": "Copper pipe - supply line",
+   "title_copper_return": "Copper pipe - return line",
+   "title_ins_supply": "Insulation on the supply line",
+   "title_ins_return": "Insulation on the return line",
+   "title_power": "Power cable",
+   "title_comm": "Communication cable",
+   "label_pipe_size": "Pipe size (mm)",
+   "label_thickness": "Thickness (mm)",
+   "label_spec": "Cable spec",
+   "label_length": "Length per Nos (m)",
+   "label_count": "How many in one Nos of this row",
+   "tag_default": "default (Pricing Inputs)",
+   "tag_picked": "picked by you",
+   "tag_boq": "from the BoQ",
+   "tag_follows": "follows the copper line",
+   "tag_assumed": "default",
+   "follows_size": "{x} mm (follows the copper line)",
+   "typed_note": "You typed {typed} -> {used} mm, the closest Piping size (only it is used).",
+   "size_needed_no_size": "Size needed. The unit's size is not known, so no default applies. Pick a size, or fill the table.",
+   "size_needed_no_default": "Size needed. The Pricing Inputs table has no size for {size}. Pick a size, or fill the table.",
+   "size_needed_unread": "Size needed. \"{typed}\" is not a size. Pick a size, or fill the table.",
+   "size_needed_copper": "Size needed. Its copper line has no size yet. Pick a size, or fill the table.",
+   "no_default": "No default for this size ({size}) - pick a cable spec.",
+   "spec_needed": "Cable spec needed. Pick a spec, or fill the table.",
+   "not_stocked": "{spec} unarmoured copper cable is not stocked - pick a spec.",
+   "length_needed": "Length needed - type the length per Nos, or fill the table.",
+   "count_needed": "How many in one Nos of this row is needed.",
+   "cable_note": "Copper, unarmoured (owner 2026-11-05). Priced by Electrical's cable rules, per metre.",
+   "not_loaded": "{rules}'s rules are not loaded here - price this line by hand.",
+   "not_priced": "not priced",
+   "rules_piping": "Piping",
+   "rules_insulation": "Insulation",
+   "working_rate": "{title} {size}: per metre by {rules}'s rules, supply {s} + install {i}",
+   "working_nos": "Per Nos: {len} m x {s} = {S} supply; {len} m x {i} = {I} install (rounded up)",
+   "working_count": "x {n} in one Nos of this row = {S} supply + {I} install",
+   "removed_note": "The helper will not add removed extras back on its own. The row prices without them."
+  }
+ },
+ "inputs": [
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "m per pipe per Nos",
+   "attributes": {
+    "item": "vrf_extra_copper_length_m",
+    "name": "VRF extras - copper length per pipe per Nos",
+    "remarks": "The length of EACH copper line (supply and return) one Nos of a VRF unit row includes; the insulation on a copper line takes the same length (owner 11:30 \"use 30 mts default for both\"; 11:56 \"per unit only...qty has no bearing\"; \"insulation same as copper pipe- 30 mts each for supply and return\"). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 30.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "m per Nos",
+   "attributes": {
+    "item": "vrf_extra_cable_length_m",
+    "name": "VRF extras - cable length per Nos",
+    "remarks": "The length of the power cable and of the communication cable one Nos of a VRF unit row includes (owner 11:30 \"use 30 mts default for both\"). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 30.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_indoor_upto_4tr_supply_mm",
+    "name": "VRF extras - indoor up to 4 TR - copper supply size (mm)",
+    "remarks": "The copper supply size for a unit indoor up to 4 TR (owner 13:46: indoor upto 4tr 12 / 6.5 mm -> the closest Piping sizes 12.7 / 6.4). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 12.7
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_indoor_upto_4tr_return_mm",
+    "name": "VRF extras - indoor up to 4 TR - copper return size (mm)",
+    "remarks": "The copper return size for a unit indoor up to 4 TR (owner 13:46: indoor upto 4tr 12 / 6.5 mm -> the closest Piping sizes 12.7 / 6.4). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 6.4
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_indoor_upto_4tr_insulation_mm",
+    "name": "VRF extras - indoor up to 4 TR - insulation thickness (mm)",
+    "remarks": "The insulation thickness on each copper line of a unit indoor up to 4 TR (owner 13:46: insulation 19 mm). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 19.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_indoor_above_4tr_supply_mm",
+    "name": "VRF extras - indoor above 4 TR - copper supply size (mm)",
+    "remarks": "The copper supply size for a unit indoor above 4 TR (owner 13:46: above 4tr 15.8 / 9.6 -> 15.9 / 9.5). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 15.9
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_indoor_above_4tr_return_mm",
+    "name": "VRF extras - indoor above 4 TR - copper return size (mm)",
+    "remarks": "The copper return size for a unit indoor above 4 TR (owner 13:46: above 4tr 15.8 / 9.6 -> 15.9 / 9.5). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 9.5
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_indoor_above_4tr_insulation_mm",
+    "name": "VRF extras - indoor above 4 TR - insulation thickness (mm)",
+    "remarks": "The insulation thickness on each copper line of a unit indoor above 4 TR (owner 13:46: insulation 19 mm). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 19.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_upto_12hp_supply_mm",
+    "name": "VRF extras - outdoor up to 12 HP - copper supply size (mm)",
+    "remarks": "The copper supply size for a unit outdoor up to 12 HP (owner 13:46: outdoor upto 12 HP 22 / 15 -> 22.2 / 15.9). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 22.2
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_upto_12hp_return_mm",
+    "name": "VRF extras - outdoor up to 12 HP - copper return size (mm)",
+    "remarks": "The copper return size for a unit outdoor up to 12 HP (owner 13:46: outdoor upto 12 HP 22 / 15 -> 22.2 / 15.9). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 15.9
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_upto_12hp_insulation_mm",
+    "name": "VRF extras - outdoor up to 12 HP - insulation thickness (mm)",
+    "remarks": "The insulation thickness on each copper line of a unit outdoor up to 12 HP (owner 13:46: insulation 19 mm). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 19.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_12_to_20hp_supply_mm",
+    "name": "VRF extras - outdoor above 12 up to 20 HP - copper supply size (mm)",
+    "remarks": "The copper supply size for a unit outdoor above 12 up to 20 HP (owner 13:46: 14 to 20 HP 1.125 inch / 19.xx -> 28.6 / 19.1). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 28.6
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_12_to_20hp_return_mm",
+    "name": "VRF extras - outdoor above 12 up to 20 HP - copper return size (mm)",
+    "remarks": "The copper return size for a unit outdoor above 12 up to 20 HP (owner 13:46: 14 to 20 HP 1.125 inch / 19.xx -> 28.6 / 19.1). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 19.1
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_12_to_20hp_insulation_mm",
+    "name": "VRF extras - outdoor above 12 up to 20 HP - insulation thickness (mm)",
+    "remarks": "The insulation thickness on each copper line of a unit outdoor above 12 up to 20 HP (owner 13:46: insulation 19 mm). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 19.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_above_20hp_supply_mm",
+    "name": "VRF extras - outdoor above 20 HP - copper supply size (mm)",
+    "remarks": "The copper supply size for a unit outdoor above 20 HP (owner 13:46: above 20 HP 1.375 inch / 22.xx -> 34.9 / 22.2). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 34.9
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_above_20hp_return_mm",
+    "name": "VRF extras - outdoor above 20 HP - copper return size (mm)",
+    "remarks": "The copper return size for a unit outdoor above 20 HP (owner 13:46: above 20 HP 1.375 inch / 22.xx -> 34.9 / 22.2). A typed rough size becomes the closest Piping size. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 22.2
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "mm",
+   "attributes": {
+    "item": "vrf_extra_pipe_outdoor_above_20hp_insulation_mm",
+    "name": "VRF extras - outdoor above 20 HP - insulation thickness (mm)",
+    "remarks": "The insulation thickness on each copper line of a unit outdoor above 20 HP (owner 13:46: insulation 19 mm). Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf"
+   },
+   "rates": {
+    "factor": 19.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "cores",
+   "attributes": {
+    "item": "vrf_extra_power_indoor_upto_4tr_cores",
+    "name": "VRF extras - power cable, indoor up to 4 TR - cores (cores)",
+    "remarks": "The cores of the power cable, indoor up to 4 TR (owner 13:51: indoor upto 4tr: 3C 1.5 sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 3.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "sqmm",
+   "attributes": {
+    "item": "vrf_extra_power_indoor_upto_4tr_sqmm",
+    "name": "VRF extras - power cable, indoor up to 4 TR - size (sqmm)",
+    "remarks": "The size of the power cable, indoor up to 4 TR (owner 13:51: indoor upto 4tr: 3C 1.5 sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 1.5
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "cores",
+   "attributes": {
+    "item": "vrf_extra_power_indoor_4_to_8tr_cores",
+    "name": "VRF extras - power cable, indoor above 4 up to 8 TR - cores (cores)",
+    "remarks": "The cores of the power cable, indoor above 4 up to 8 TR (owner 13:51: 4 to 8: 3C 2.5; above 8 TR no default). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 3.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "sqmm",
+   "attributes": {
+    "item": "vrf_extra_power_indoor_4_to_8tr_sqmm",
+    "name": "VRF extras - power cable, indoor above 4 up to 8 TR - size (sqmm)",
+    "remarks": "The size of the power cable, indoor above 4 up to 8 TR (owner 13:51: 4 to 8: 3C 2.5; above 8 TR no default). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 2.5
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "cores",
+   "attributes": {
+    "item": "vrf_extra_power_outdoor_upto_8hp_cores",
+    "name": "VRF extras - power cable, outdoor up to 8 HP - cores (cores)",
+    "remarks": "The cores of the power cable, outdoor up to 8 HP (owner 13:51: outdoor upto 8 hp: 4c 6sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 4.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "sqmm",
+   "attributes": {
+    "item": "vrf_extra_power_outdoor_upto_8hp_sqmm",
+    "name": "VRF extras - power cable, outdoor up to 8 HP - size (sqmm)",
+    "remarks": "The size of the power cable, outdoor up to 8 HP (owner 13:51: outdoor upto 8 hp: 4c 6sqmm). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 6.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "cores",
+   "attributes": {
+    "item": "vrf_extra_power_outdoor_8_to_14hp_cores",
+    "name": "VRF extras - power cable, outdoor above 8 up to 14 HP - cores (cores)",
+    "remarks": "The cores of the power cable, outdoor above 8 up to 14 HP (owner 13:51: 10 to 14 hp: 4c 10). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 4.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "sqmm",
+   "attributes": {
+    "item": "vrf_extra_power_outdoor_8_to_14hp_sqmm",
+    "name": "VRF extras - power cable, outdoor above 8 up to 14 HP - size (sqmm)",
+    "remarks": "The size of the power cable, outdoor above 8 up to 14 HP (owner 13:51: 10 to 14 hp: 4c 10). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 10.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "cores",
+   "attributes": {
+    "item": "vrf_extra_power_outdoor_above_14hp_cores",
+    "name": "VRF extras - power cable, outdoor above 14 HP - cores (cores)",
+    "remarks": "The cores of the power cable, outdoor above 14 HP (owner 13:51: 16hp and above: 4c 16sqmm copper cable). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 4.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "sqmm",
+   "attributes": {
+    "item": "vrf_extra_power_outdoor_above_14hp_sqmm",
+    "name": "VRF extras - power cable, outdoor above 14 HP - size (sqmm)",
+    "remarks": "The size of the power cable, outdoor above 14 HP (owner 13:51: 16hp and above: 4c 16sqmm copper cable). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 16.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "cores",
+   "attributes": {
+    "item": "vrf_extra_comm_cable_cores",
+    "name": "VRF extras - communication cable, every unit - cores (cores)",
+    "remarks": "The cores of the communication cable, every unit (owner 13:52: 2c1.5sqmm copper cable for evrything, unarmoured). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 2.0
+   }
+  },
+  {
+   "kind": "hvac_pricing_input",
+   "brand": null,
+   "unit": "sqmm",
+   "attributes": {
+    "item": "vrf_extra_comm_cable_sqmm",
+    "name": "VRF extras - communication cable, every unit - size (sqmm)",
+    "remarks": "The size of the communication cable, every unit (owner 13:52: 2c1.5sqmm copper cable for evrything, unarmoured). Copper, unarmoured. Read by VRF's extras (owner 2026-11-05; Rate master > HVAC > Pricing Inputs, live-linked).",
+    "shared_by": "vrf",
+    "material": "Copper",
+    "armour": "Unarmoured"
+   },
+   "rates": {
+    "factor": 1.5
+   }
+  }
+ ],
+ "examples": [
+  {
+   "id": "VRF-5",
+   "name": "Outdoor Unit, Blue Star, 10 HP, with copper, insulation, power and communication cable",
+   "unit": "Nos",
+   "includes": "copper,insulation,power,comm",
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "10"
+    }
+   ],
+   "inputs": [
+    "vrf_extra_copper_length_m",
+    "vrf_extra_cable_length_m",
+    "vrf_extra_pipe_outdoor_upto_12hp_supply_mm",
+    "vrf_extra_pipe_outdoor_upto_12hp_return_mm",
+    "vrf_extra_pipe_outdoor_upto_12hp_insulation_mm",
+    "vrf_extra_power_outdoor_8_to_14hp_cores",
+    "vrf_extra_power_outdoor_8_to_14hp_sqmm",
+    "vrf_extra_comm_cable_cores",
+    "vrf_extra_comm_cable_sqmm"
+   ]
+  },
+  {
+   "id": "VRF-6",
+   "name": "Hi-Wall, Blue Star, 1.5 TR, with copper, insulation, power and communication cable",
+   "unit": "Nos",
+   "includes": "copper,insulation,power,comm",
+   "items": [
+    {
+     "item": "Hi-Wall",
+     "brand": "Blue Star",
+     "capacity": "1.5"
+    }
+   ],
+   "inputs": [
+    "vrf_extra_copper_length_m",
+    "vrf_extra_cable_length_m",
+    "vrf_extra_pipe_indoor_upto_4tr_supply_mm",
+    "vrf_extra_pipe_indoor_upto_4tr_return_mm",
+    "vrf_extra_pipe_indoor_upto_4tr_insulation_mm",
+    "vrf_extra_power_indoor_upto_4tr_cores",
+    "vrf_extra_power_indoor_upto_4tr_sqmm",
+    "vrf_extra_comm_cable_cores",
+    "vrf_extra_comm_cable_sqmm"
+   ]
+  },
+  {
+   "id": "VRF-7",
+   "name": "Ductable, Blue Star, 6 TR, with copper, insulation and power cable",
+   "unit": "Nos",
+   "includes": "copper,insulation,power",
+   "items": [
+    {
+     "item": "Ductable",
+     "brand": "Blue Star",
+     "capacity": "6"
+    }
+   ],
+   "inputs": [
+    "vrf_extra_pipe_indoor_above_4tr_supply_mm",
+    "vrf_extra_pipe_indoor_above_4tr_return_mm",
+    "vrf_extra_pipe_indoor_above_4tr_insulation_mm",
+    "vrf_extra_power_indoor_4_to_8tr_cores",
+    "vrf_extra_power_indoor_4_to_8tr_sqmm"
+   ]
+  },
+  {
+   "id": "VRF-8",
+   "name": "Outdoor Unit, Blue Star, 16 HP, with copper, insulation and power cable",
+   "unit": "Nos",
+   "includes": "copper,insulation,power",
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "16"
+    }
+   ],
+   "inputs": [
+    "vrf_extra_pipe_outdoor_12_to_20hp_supply_mm",
+    "vrf_extra_pipe_outdoor_12_to_20hp_return_mm",
+    "vrf_extra_pipe_outdoor_12_to_20hp_insulation_mm",
+    "vrf_extra_power_outdoor_above_14hp_cores",
+    "vrf_extra_power_outdoor_above_14hp_sqmm"
+   ]
+  },
+  {
+   "id": "VRF-9",
+   "name": "Outdoor Unit, Blue Star, 24 HP, with copper and insulation",
+   "unit": "Nos",
+   "includes": "copper,insulation",
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "24"
+    }
+   ],
+   "inputs": [
+    "vrf_extra_pipe_outdoor_above_20hp_supply_mm",
+    "vrf_extra_pipe_outdoor_above_20hp_return_mm",
+    "vrf_extra_pipe_outdoor_above_20hp_insulation_mm"
+   ]
+  },
+  {
+   "id": "VRF-10",
+   "name": "Outdoor Unit, Blue Star, 6 HP, with power cable",
+   "unit": "Nos",
+   "includes": "power",
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "6"
+    }
+   ],
+   "inputs": [
+    "vrf_extra_power_outdoor_upto_8hp_cores",
+    "vrf_extra_power_outdoor_upto_8hp_sqmm"
+   ]
+  }
+ ]
+}

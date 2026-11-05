@@ -1230,6 +1230,25 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("A row priced per Lot is not priced",
         `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand; what a Lot holds is read at VRF-4`);
   }
+  // ── 13e. VRF-3b (owner O-5 / O-6 / B / SHEETS; 2026-11-05 11:30-14:56, boards 12-15): the extras a unit's price includes
+  // -- ADDED LAST (a config without `extras` adds nothing)
+  if (pr.extras && typeof pr.extras === "object" && pr.extras.roles) {
+    const ex = pr.extras;
+    const roleFams = (r: string) => list(Object.entries(ex.roles as Record<string, string>).filter(([, v]) => v === r).map(([f]) => famWord(f)));
+    const bandText = (bands: Array<{ max: number | null }>, unitWord: string) => bands
+      .map((b, n) => (b.max === null ? `above ${String(bands[n - 1]?.max ?? 0)} ${unitWord}` : n === 0 ? `up to ${String(b.max)} ${unitWord}` : `above ${String(bands[n - 1]?.max)} up to ${String(b.max)} ${unitWord}`))
+      .join(", ");
+    add("A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
+        `on ${roleFams("outdoor")} (outdoor) and ${roleFams("indoor")} (indoor) -- each split module its own unit; accessories never; ticked in the calculator ('This row's price includes'), read from the BoQ at VRF-4; insulation needs copper piping`);
+    add("An extra's size comes from the Pricing Inputs table by the unit's size, after conversion",
+        `pipes: indoor ${bandText(ex.pipe_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))}; outdoor ${bandText(ex.pipe_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Power cable: indoor ${bandText(ex.power_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))} (above that, no default - pick a spec); outdoor ${bandText(ex.power_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Communication cable: every unit. A size typed in mm or inch is replaced by the closest stocked size (only it is shown); the insulation sits on the closest Insulation size to its copper line`);
+    add("Each extra is priced per metre by its own sheet's rules, then per Nos of the row",
+        "copper by Piping's rules, insulation by Insulation's rules, cable by Electrical's (read only); per Nos = the length x the per-metre BoQ rate, rounded up, x 'How many in one Nos' (1 by default); the row's quantity plays no part");
+    add("An extra with no size, spec or length holds the row",
+        "that line is red with what it needs (pick a size, or fill the table); the row shows 'n of m items need a person' and is not priced; a spec not stocked as unarmoured copper is red the same way");
+    add("A removed extra stays removed",
+        "the x on an extra removes it (a copper line takes its insulation) and the helper never adds it back on its own; 'Put it back' restores it; the row prices without it");
+  }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};

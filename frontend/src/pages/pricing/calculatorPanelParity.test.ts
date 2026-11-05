@@ -2511,8 +2511,18 @@ describe("HVAC VRF (VRF-3a, v58) -- the outdoor split, the stated split, Set / r
       expect({ u, panel: figs(r.panel) }).toEqual({ u, panel: `Unit "${u}" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. What a Lot holds is read at VRF-4. Price this row by hand.` });
       expect(view(r.panel).unitBar).toMatchObject({ tone: "red", title: "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND." });
       expect(hasPrice(r.panel)).toBe(false);
-      expect(view(r.calculator).unitChoices).not.toContain(u);
-      expect(classifyDivergence(r, c)).toBe("C_unit_not_offered");
+      // INVERTED at VRF-3b (owner 2026-11-05 01:15 "Lot in the calculator's Row unit", calculator = panel) by mechanical
+      // authority: BEFORE every spelling was not offered and diverged as cause C. The calculator now offers "Lot" (one
+      // spelling per unit, as every class), so a row spelled exactly "Lot" is stated there and agrees -- the red bar on both;
+      // every other spelling (LOT, lot, LS, Job, per HP, complete system) is still not offered (cause C, by name), the negative half kept
+      if (u === "Lot") {
+        expect(view(r.calculator).unitChoices).toContain("Lot");
+        expect({ u, div: r.divergences }).toEqual({ u, div: [] });
+        expect(view(r.calculator).unitBar).toMatchObject({ tone: "red", title: "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND." });
+      } else {
+        expect(view(r.calculator).unitChoices).not.toContain(u);
+        expect(classifyDivergence(r, c)).toBe("C_unit_not_offered");
+      }
     }
   });
 
@@ -2540,7 +2550,11 @@ describe("HVAC VRF (VRF-3a, v58) -- the outdoor split, the stated split, Set / r
     if (process.env.VRF3A_PRINT) console.log("VRF3A_TALLY " + JSON.stringify(tally));
     // the family alone is fed (VRF-R3's tag; no capacity / no refnet counts), so a Set row prices where the family needs
     // nothing more and otherwise refuses for that fact -- never for its unit; every Lot / per HP row gets the Lot line
-    expect(diverged).toBe(32);   // 29 Lot + 1 per HP + 2 MS angle frames per Set
+    // INVERTED at VRF-3b (owner 01:15, Lot in the calculator) by mechanical authority: BEFORE `toBe(32)` (29 Lot + 1 per HP +
+    // 2 MS angle frames per Set). The 27 rows spelled exactly "Lot" are now stated in the calculator and agree; what diverges
+    // is still only the calculator not offering the row's unit (cause C, by name -- `bad` above), never a figure
+    if (process.env.VRF3B_PRINT) console.log("VRF3B_DIVERGED " + diverged);
+    expect(diverged).toBe(5);
     expect(tally).toEqual({ "Set: priced": 16, "Set: refused for a fact": 44, "Lot: lot line": 29, "per HP: lot line": 1, "(unit ok; whole-price words): refused for a fact": 14 });
   }, 240000);
 });

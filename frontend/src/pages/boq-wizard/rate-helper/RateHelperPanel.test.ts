@@ -148,8 +148,10 @@ describe("slice 11 / the unit label is opt-in per call site, which is what keeps
   it("⚠️ NEGATIVE: the NON-item-list surface passes NO unit, so Electrical's figures are unchanged", () => {
     expect(src).toContain("<FiguresRow figures={g.figures} />");
     // exactly three mounts in the file, and exactly one of them is unit-less
+    // INVERTED at VRF-3b (owner 2026-11-05, U1 board 12) by mechanical authority: BEFORE `toBe(3)`. The fourth mount is an extra
+    // line's figures, which carries the row's rate unit; exactly one mount is still unit-less (the claim below)
     const mounts = src.match(/<FiguresRow /g) ?? [];
-    expect(mounts.length).toBe(3);
+    expect(mounts.length).toBe(4);
     const unitless = src.match(/<FiguresRow (?![^>]*unit=)[^>]*\/>/g) ?? [];
     expect(unitless.length).toBe(1);
     expect(unitless[0]).toContain("g.figures");
@@ -315,7 +317,9 @@ describe("SLICE 12c-S -- Other... mode and the note box", () => {
     // call site of the ONE declaration; every box still shares it, which is the claim this pin makes.
     // ELR-4a: INVERTED 3 -> 4 -- point wiring's "how the blank count is worked out" note (owner R-PW-BLANK) is the fourth
     // call site of the same ONE declaration.
-    expect(src.match(/className=\{NOTE_BOX_CLASS\}/g)?.length).toBe(4);
+    // VRF-3b: INVERTED 4 -> 5 by mechanical authority -- an extra line's field note (U1 / U3, board 12: "You typed 1.125 inch
+    // -> 28.6 mm") is the fifth call site of the same ONE declaration
+    expect(src.match(/className=\{NOTE_BOX_CLASS\}/g)?.length).toBe(5);
     expect(src).toContain("bg-blue-50");
     expect(src).toContain("<Info className=");
     // the ruled default keeps amber -- the one tone this panel reserves for "we filled this in"

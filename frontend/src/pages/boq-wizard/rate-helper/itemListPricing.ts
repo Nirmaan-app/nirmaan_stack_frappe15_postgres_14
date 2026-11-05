@@ -649,6 +649,13 @@ export interface ItemListPricingSpec {
   /** VRF-3a K2 (owner LOT "Refuse + review list", O-7): unit spellings that name a whole-lot price (Lot, LS, Job, per HP,
    * "complete system") -- the row refuses with `line` ({unit} as written) and the panel shows the red `bar`. */
   lot_units?: { units: string[]; bar: string; line: string };
+  /**
+   * VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15) -- THE EXTRAS A UNIT'S PRICE
+   * INCLUDES, priced from the OTHER sheets: copper (Piping), insulation (Insulation) and power / communication cable
+   * (Electrical), each by its own rules, as own lines under each indoor / outdoor unit, per Nos. Read by the panel helper
+   * (`withExtras`); `priceItemList` never reads it. ABSENT => byte-identical.
+   */
+  extras?: ExtrasSpec;
   compose?: ComposeSpec & {
     /** WHICH ladder composes. A value here is a ladder attribute id; no other axis composes. */
     attr: string;
@@ -736,6 +743,100 @@ export function isLotUnit(spec: ItemListPricingSpec, unit: string | null | undef
   if (!spec.lot_units || unit === null || unit === undefined || unit.trim() === "") return false;
   const u = normUnit(unit);
   return spec.lot_units.units.some((x) => normUnit(x) === u);
+}
+
+// ── VRF-3b: the extras a unit's price includes (owner 2026-11-05; boards 12-15) ───────────────────────────────────────
+
+/** One band of a unit's size: up to and including `max` (null = everything above the band before it) reads `input`. */
+export interface ExtraBand { max: number | null; input: string }
+/** The include switches, in the calculator's order. `needs`: the include this one cannot stand without. */
+export type ExtraIncludeId = "copper" | "insulation" | "power" | "comm";
+export type ExtraLineId = "copper_supply" | "copper_return" | "ins_supply" | "ins_return" | "power" | "comm";
+export interface ExtrasSpec {
+  /** the unit families that carry extras, and which band table each reads (indoor / outdoor) */
+  roles: Record<string, "indoor" | "outdoor">;
+  /** the unit a role's bands are in, after conversion (indoor TR, outdoor HP) */
+  band_unit: { indoor: string; outdoor: string };
+  /** the unit class a row must be priced in for its units to carry extras (per Nos / per Set; never a Lot or a Kg row) */
+  row_class: string;
+  includes: Array<{ id: ExtraIncludeId; label: string; needs?: ExtraIncludeId; needs_line?: string }>;
+  pipe_bands: { indoor: ExtraBand[]; outdoor: ExtraBand[] };
+  power_bands: { indoor: ExtraBand[]; outdoor: ExtraBand[] };
+  comm_input: string;
+  copper_length_input: string;
+  cable_length_input: string;
+  /** the target of each line, priced by ITS category's own rules (Piping, Insulation; Electrical read-only) */
+  copper: { category: string; family: string; size_attr: string };
+  insulation: { category: string; family: string; attrs: Record<string, string>; thickness_attr: string; size_attr: string };
+  cable: { category: string; discipline: string; attrs: Record<string, string>; cores_attr: string; size_attr: string; label: string };
+  /** the board's words: the line headings, the tags, the notes */
+  lines: Record<string, string>;
+}
+
+/** VRF-3b. PURE. A Pricing Inputs TABLE ROW: every single-factor input whose id is `<prefix>_<key>`, as { key: factor }
+ * (`vrf_extra_pipe_outdoor_upto_12hp_supply_mm` -> supply_mm). One input per table cell, so the Pricing Inputs grid, its
+ * panel and its CSV carry each with the `factor` column they already have. A cell with no input, or no finite factor, is
+ * absent (its line asks for a size). Null when the row has no cell at all. */
+export function pricingInputRates(items: readonly RateMasterItem[], prefix: string): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  for (const it of items) {
+    if (!/_pricing_input$/.test(String(it?.kind ?? ""))) continue;
+    const id = String(it?.attributes?.item ?? "");
+    if (!id.startsWith(`${prefix}_`)) continue;
+    const v = (it.rates as Record<string, unknown> | undefined)?.factor;
+    const n = Number(v);
+    if (v !== null && v !== undefined && v !== "" && Number.isFinite(n)) out[id.slice(prefix.length + 1)] = n;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** VRF-3b (owner 13:46 "upto 4tr" ... "above 20 HP"). PURE. The band a size falls in: the first whose `max` it does not
+ * exceed (a band edge belongs to the band below: 4 TR is "upto 4tr"). Null when no band takes it (indoor above 8 TR on
+ * the cable table: "no default for this size") or the size is not known. */
+export function extraBandOf(bands: readonly ExtraBand[], value: number | null): ExtraBand | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  for (const b of bands) if (b.max === null || value <= b.max + 1e-9) return b;
+  return null;
+}
+
+/** VRF-3b (owner 13:46 "matched to the exact mm size in catalog which is closest"; 13:53 "show the one used"). PURE. The
+ * stocked size closest to a value; a tie takes the larger. Null for an empty list or an unreadable value. */
+export function closestSize(value: number | null, sizes: readonly number[]): number | null {
+  if (value === null || !Number.isFinite(value) || sizes.length === 0) return null;
+  let best: number | null = null;
+  for (const s of sizes) {
+    if (best === null || Math.abs(s - value) < Math.abs(best - value) - 1e-9 || (Math.abs(Math.abs(s - value) - Math.abs(best - value)) <= 1e-9 && s > best)) best = s;
+  }
+  return best;
+}
+
+/** VRF-3b (U3 "Other..." takes mm or inch). PURE. A typed size in mm: "15", "15 mm", "1.125 inch", "1 1/8\"", "7/8 in".
+ * Null when no one size can be read. */
+export function readTypedSizeMm(text: string): number | null {
+  const t = text.trim().toLowerCase().replace(/,/g, ".");
+  if (t === "") return null;
+  const inch = /(?:"|''|\binch(?:es)?\b|\bin\b)\s*$/.test(t);
+  const body = t.replace(/(?:"|''|\binch(?:es)?\b|\bin\b|\bmm\b|\bdia\b)/g, " ").trim();
+  let n: number | null = null;
+  const mixed = /^(\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(body);
+  const frac = /^(\d+)\s*\/\s*(\d+)$/.exec(body);
+  if (mixed) n = Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]);
+  else if (frac) n = Number(frac[1]) / Number(frac[2]);
+  else if (/^\d+(?:\.\d+)?$/.test(body)) n = Number(body);
+  if (n === null || !Number.isFinite(n) || n <= 0) return null;
+  return inch ? n * 25.4 : n;
+}
+
+/** VRF-3b. PURE. A cable spec as the line writes it: "4C x 10" -> cores 4, size 10 sqmm; null when it is not one. */
+export function parseCableSpec(text: string): { cores: number; sqmm: number } | null {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*c\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:sq\.?\s*mm|sqmm)?\s*$/i.exec(text);
+  return m ? { cores: Number(m[1]), sqmm: Number(m[2]) } : null;
+}
+
+/** VRF-3b. PURE. The spelling of a cable spec: 4, 10 -> "4C x 10". */
+export function cableSpecText(cores: number, sqmm: number): string {
+  const f = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3))));
+  return `${f(cores)}C x ${f(sqmm)}`;
 }
 
 export interface CountedPieces {
