@@ -394,17 +394,19 @@ def _sql_names(doctypes) -> str:
 def vendor_borne_sql(alias: str) -> str:
 	"""SQL: the deduction row `alias` was withheld from the payee (Vendor), a blank `borne_by` reading as the
 	column default, Vendor. The one spelling of that test for every query (`counted_deductions_sql`,
-	`withheld_expense_gross_sql`)."""
+	`withheld_expense_bill_sql`)."""
 	return f"COALESCE(NULLIF({alias}.borne_by, ''), '{BORNE_BY_VENDOR}') <> '{BORNE_BY_COMPANY}'"
 
 
-def withheld_expense_gross_sql() -> str:
+def withheld_expense_bill_sql() -> str:
 	"""A derived table: one row per Non-Project Expense whose tax was withheld from its payee (Office Rent,
-	spec #1522), with `non_project_expense` and the rent before withholding, `gross_amount`. The expense is
-	stored at the net, so its full bill (the approval queue's "Req. Amount") is this gross."""
+	spec #1522), with `non_project_expense` and its full bill, `bill_amount`: the base rent the record keeps
+	as its gross plus the GST the Expense keeps (spec #1613; 0 on a rent split before GST existed). The
+	expense is stored at what the landlord gets, so this is the approval queue's "Req. Amount"."""
 	return f"""
-		SELECT d.non_project_expense, d.gross_amount
+		SELECT d.non_project_expense, d.gross_amount + COALESCE(e.gst_amount, 0) AS bill_amount
 		FROM "tab{TDS_DOCTYPE}" d
+		JOIN "tabNon Project Expenses" e ON e.name = d.non_project_expense
 		WHERE d.non_project_expense IS NOT NULL AND {vendor_borne_sql("d")}
 	"""
 
