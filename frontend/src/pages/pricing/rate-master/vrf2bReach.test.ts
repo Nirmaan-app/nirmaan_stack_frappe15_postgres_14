@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { readJsonFixture } from "../calculatorPanelParity.harness";
 import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
-import { computePricingInputReach, unitsConvertUses } from "./pricingInputReach";
+import { computePricingInputReach, reachedSkuCount, unitsConvertUses } from "./pricingInputReach";
 import { panelShapeOf } from "./pricingInputImpact";
 import { pricingInputUsedBy } from "./rateMasterSpec";
 import { computeExampleImpacts, examplesForInput, impactExamplesOf } from "./pricingInputExamples";
@@ -61,6 +61,16 @@ describe("VRF-2b K2 -- the reach and the used-by of the two VRF inputs", () => {
       expect(reach[id]?.distinctSkus).toEqual([]);
       expect(reach[id]?.candidateSkus ?? []).toEqual([]);
       expect(panelShapeOf(rates(id), reach[id])).toBe("assembly_only");
+      // INVERTED at VRF-3b (owner ANSWER 1, VRF3B-4 = (a), 2026-11-05 15:35 "ok") by mechanical authority: BEFORE the badge read
+      // `distinctSkus.length` = 0 ("0 items"). It now counts the VRF units the input CONVERTS (every SKU of a family whose rule
+      // needs the capacity), listed in the same where-used panel as VRF-3b's inputs. The NEGATIVE half is kept above: no SKU's
+      // own rate moves (`distinctSkus` empty, the assembly-only shape) -- where-used only, no price moves.
+      const reached = reach[id]?.assemblySkus ?? [];
+      expect(reachedSkuCount(reach, id)).toBe(reached.length);
+      expect(reached.length).toBeGreaterThan(0);
+      const fams = new Set(reached.map((u) => String(ITEMS.find((it) => it.item_uid === u)?.attributes?.item ?? "")));
+      expect(fams.has("Refnet/Y-Joint")).toBe(false);
+      expect(fams.has("Outdoor Unit")).toBe(true);
     }
   });
 

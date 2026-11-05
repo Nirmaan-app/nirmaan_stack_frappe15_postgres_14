@@ -21,8 +21,8 @@ import { RateMasterDataViewer } from "./RateMasterDataViewer";
 // SLICE 12b(B): the impact panel and its two pure modules. The panel needs EVERY category's config,
 // because a pricing input's reach is cross-category by nature (a switch/socket row is priced by three
 // of them), so the page mounts the SHARED N-fetch children rather than minting a second fetcher.
-import { PricingInputImpactPanel } from "./PricingInputImpactPanel";
-import { computePricingInputReach } from "./pricingInputReach";
+import { PricingInputImpactPanel, VrfExtrasTables } from "./PricingInputImpactPanel";
+import { computePricingInputReach, extrasSnapSizes } from "./pricingInputReach";
 import { confirmedCandidateSkus } from "./pricingInputExact";
 import { pricingInputUsedBy } from "./rateMasterSpec";
 import { isPricingInputConfig } from "./rateMasterSpec";
@@ -470,6 +470,8 @@ export function RateMasterPage() {
             {/* ⚠️ A FLEX ROW, so the panel occupies REAL layout width and the table narrows instead of
                 being covered (owner: "BESIDE the table, not covering it"). Same shape as the pricing
                 editor's push panel -- never an overlay. */}
+            {/* VRF-3b (U9, board 14): the extras' Pricing Inputs as the two tables they make -- read from the live rows below */}
+            {isPricingInputConfig(config) ? <VrfExtrasTables configs={allConfigs as never} items={items} /> : null}
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <RateMasterDataViewer
@@ -488,6 +490,7 @@ export function RateMasterPage() {
                   onCreateItem={onCreateItem}
                   onDeactivateItem={onDeactivateItem}
                   inputReach={inputReach}
+                  snapSizesFor={(id) => extrasSnapSizes(allConfigs as never, items, id)}
                   derivedUsedBy={derivedUsedBy}
                   categoryNameById={categoryNameById}
                   computedRateKeys={computedRateKeys}

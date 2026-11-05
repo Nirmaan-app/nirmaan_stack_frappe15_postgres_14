@@ -20970,3 +20970,28 @@ class TestVrf3bExtrasKeys(FrappeTestCase):
         self.assertTrue(any("the cable is ANOTHER discipline's category, read only" in p for p in probs))
         # a config without `extras` is never looked at (Piping's sections keep their own check)
         self.assertEqual(config_validation.extras_problems([dict(c, discipline="HVAC") for c in self.v58["category_configs"]], self.v58["items"]), [])
+
+    def test_v3b_04_examples_carry_includes_and_the_used_by_walk_counts_the_extras_inputs(self):
+        """K2: an item-list example of a config with `extras` may state `includes` (refused elsewhere, by name); the Python
+        used-by walk (csv_exporter.pricing_input_used_by) counts each of the 29 inputs once, so `refuse_if_in_use` refuses a
+        delete / rename of one in use; every other input's count is unchanged."""
+        from nirmaan_stack.services.boq_rate_master import csv_exporter, csv_importer
+        cfg = self._vrf()
+        cfg["impact_examples"] = list(cfg.get("impact_examples") or []) + copy.deepcopy(self.fix["examples"])
+        config_validation._validate_config(cfg)
+        bad = copy.deepcopy(cfg)
+        bad["impact_examples"][-1]["includes"] = "copper,gas"
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(bad)
+        self.assertIn("'includes' must list include ids (copper, insulation, power, comm), comma-separated.", str(cm.exception))
+        plain = copy.deepcopy(next(c for c in self.v58["category_configs"] if c["category_id"] == "hvac_vrf"))
+        plain["impact_examples"] = list(plain["impact_examples"]) + [dict(copy.deepcopy(self.fix["examples"][0]))]
+        with self.assertRaises(Exception) as cm2:
+            config_validation._validate_config(plain)
+        self.assertIn("'includes' needs a config with list_spec.pricing.extras.", str(cm2.exception))
+        before = csv_exporter.pricing_input_used_by({c["category_id"]: c for c in self.v58["category_configs"]})
+        after = csv_exporter.pricing_input_used_by({c["category_id"]: (cfg if c["category_id"] == "hvac_vrf" else c) for c in self.v58["category_configs"]})
+        for i in self.fix["inputs"]:
+            self.assertEqual(after[i["attributes"]["item"]], (1, ["hvac_vrf"]))
+            self.assertIsNotNone(csv_importer.refuse_if_in_use(i["attributes"]["item"], after, "deactivate"))
+        self.assertEqual({k: v for k, v in after.items() if not k.startswith("vrf_extra_")}, before)

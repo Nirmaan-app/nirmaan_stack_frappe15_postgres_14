@@ -22,7 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RateMasterItem } from "./rateMasterTypes";
-import type { InputReach } from "./pricingInputReach";
+import { extrasSnapSizes, extrasTablesOf, type InputReach } from "./pricingInputReach";
+import { closestSize, readTypedSizeMm } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import {
   adderConditionText, assemblyOnlySentence, baseMultiplierByColumn, computeImpact, ctxValuesOf, editableFieldsOf,
   isPercentField, pctText, pricingInputRangeRefusal, skuKey, workingLegs,
@@ -274,10 +275,27 @@ export function PricingInputImpactPanel({
   const shown = groups.reduce((n, g) => n + g.rows.length, 0);
   const total = impact.rows.length;
 
+  // VRF-3b (B2): a pipe-size cell of VRF's extras takes mm or inch and becomes the closest stocked Piping size
+  const snapSizes = useMemo(() => extrasSnapSizes(allConfigs as never, allItems, String(attrs.item ?? "")), [allConfigs, allItems, attrs.item]);
   const setField = (key: string, text: string) => {
+    if (snapSizes && key === "factor") {
+      const used = closestSize(readTypedSizeMm(text), snapSizes);
+      const nextEdited = { ...edited };
+      if (used === null) delete nextEdited[key]; else nextEdited[key] = used;
+      setEdited(nextEdited);
+      setDraftState({ owner: nextEdited, drafts: { ...drafts, [key]: text } });
+      return;
+    }
     const next = typeIntoField({ edited, drafts }, key, text, isPercentField(key));
     setEdited(next.edited);
     setDraftState({ owner: next.edited, drafts: next.drafts });
+  };
+  /** VRF-3b: leaving a snapped box shows the size it became (only it is used) */
+  const settleField = (key: string) => {
+    if (!snapSizes || key !== "factor" || !(key in drafts)) return;
+    const nextDrafts = { ...drafts };
+    delete nextDrafts[key];
+    setDraftState({ owner: edited, drafts: nextDrafts });
   };
   const valueOf = (key: string) => (key in edited ? edited[key] : stored[key]);
   const isDirtyField = (key: string) => key in edited && edited[key] !== stored[key];
@@ -350,9 +368,15 @@ export function PricingInputImpactPanel({
                                 isDirtyField(k) && "border-rose-500")}
                   value={fieldBoxText({ edited, drafts }, k, stored, isPercentField(k))}
                   onChange={(e) => setField(k, e.target.value)}
+                  onBlur={() => settleField(k)}
                   disabled={!canEdit || saving}
                   data-testid={`impact-field-${k}`}
                 />
+                {snapSizes && k === "factor" && k in drafts && drafts[k].trim() !== "" && (
+                  <span className="text-[11px] text-blue-700 dark:text-blue-300" data-testid="impact-field-snap">
+                    {k in edited ? `becomes ${edited[k]} mm (the closest Piping size)` : "not a size"}
+                  </span>
+                )}
                 <span className="text-[11px] text-muted-foreground">
                   today {isPercentField(k) ? pctText(stored[k]) : fmt(stored[k] ?? 0)}
                 </span>
@@ -367,9 +391,26 @@ export function PricingInputImpactPanel({
             {impact.shape === "assembly_only" ? (
               // ELR-3a (owner Q7): an input no SKU's rate reads says so, naming the category whose rules it feeds --
               // it replaces the pair shape's "open a SKU" sentence, which pointed at SKUs that do not exist
-              <p data-testid="impact-assembly-only">
-                {assemblyOnlySentence((reach?.readByCategories ?? []).map(categoryLabel), shownExamples.length > 0)}
-              </p>
+              <>
+                <p data-testid="impact-assembly-only">
+                  {assemblyOnlySentence((reach?.readByCategories ?? []).map(categoryLabel), shownExamples.length > 0)}
+                </p>
+                {/* VRF-3b (owner ANSWER 1, VRF3B-4 = (a); B2 "Items View (where-used)"): the items this input SIZES or CONVERTS
+                    -- where-used only, no SKU's own rate moves */}
+                {(reach?.assemblySkus ?? []).length > 0 && (
+                  <details className="mt-1" data-testid="impact-where-used">
+                    <summary className="cursor-pointer">Where used: {reach!.assemblySkus!.length} item{reach!.assemblySkus!.length === 1 ? "" : "s"} ({(reach?.readByCategories ?? []).map(categoryLabel).join(", ")})</summary>
+                    <ul className="ml-3 max-h-40 list-disc overflow-auto">
+                      {reach!.assemblySkus!.map((uid) => {
+                        const it = itemsByUid.get(uid);
+                        const a = (it?.attributes ?? {}) as Record<string, unknown>;
+                        const label = [a.item, it?.brand ?? a.brand, a.capacity !== undefined ? `${String(a.capacity)} ${String(a.capacity_unit ?? "")}`.trim() : "", a.model].filter((x) => x !== undefined && x !== null && String(x) !== "").join(" / ");
+                        return <li key={uid}>{label || uid}</li>;
+                      })}
+                    </ul>
+                  </details>
+                )}
+              </>
             ) : impact.changed ? (
               <>
                 <p>
@@ -744,6 +785,54 @@ function SkuWorking({
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+/**
+ * VRF-3b (U9, board 14; owner 12:07 "defaults in Pricing Inputs, live-linked", 13:54 "the HVAC pricing input category in
+ * Rate master") -- THE EXTRAS' PRICING INPUTS AS THE TWO TABLES THEY MAKE, above the grid, in the screen's own style: the
+ * pipe sizes per band (copper supply / return, insulation thickness), the cable spec per band (copper, unarmoured; cores x
+ * sqmm) and the two lengths. READ-ONLY: each cell is a row of the grid below, edited there (its panel: "was <old>", the
+ * worked examples, Save / Cancel -- nothing is saved until Save). Renders nothing where no config declares `extras`.
+ */
+export function VrfExtrasTables({ configs, items }: { configs: Record<string, unknown>; items: readonly RateMasterItem[] }) {
+  const cfg = Object.values(configs ?? {}).find((c) => {
+    const ls = (c as { list_spec?: { pricing?: { extras?: unknown } } } | null)?.list_spec;
+    return !!ls?.pricing?.extras;
+  });
+  const t = useMemo(() => (cfg ? extrasTablesOf(cfg, items) : null), [cfg, items]);
+  if (!t) return null;
+  const n = (v: number | null) => (v === null ? <span className="text-red-600">-</span> : String(v));
+  const cell = "border px-2 py-1 text-right tabular-nums";
+  const head = "border bg-muted/50 px-2 py-1 text-left font-medium";
+  return (
+    <div className="mb-3 rounded-md border p-2 text-xs" data-testid="vrf-extras-tables">
+      <div className="mb-1 font-semibold">VRF extras - the defaults a unit's extra lines take</div>
+      <p className="mb-2 text-[11px] text-muted-foreground">
+        Used by VRF. Each value is a row in the table below: edit it there (its panel shows what it changes; nothing is saved until you press Save).
+      </p>
+      <div className="flex flex-wrap gap-4">
+        <table className="border-collapse" data-testid="vrf-extras-pipes">
+          <thead><tr><th className={head}>Pipe sizes</th><th className={head}>Copper supply (mm)</th><th className={head}>Copper return (mm)</th><th className={head}>Insulation (mm)</th></tr></thead>
+          <tbody>{t.pipes.map((r) => (
+            <tr key={r.band}><td className="border px-2 py-1">{r.band}</td><td className={cell}>{n(r.supply)}</td><td className={cell}>{n(r.ret)}</td><td className={cell}>{n(r.insulation)}</td></tr>
+          ))}</tbody>
+        </table>
+        <table className="border-collapse" data-testid="vrf-extras-cables">
+          <thead><tr><th className={head}>Cable specs</th><th className={head}>Material</th><th className={head}>Armour</th><th className={head}>Cores x sqmm</th></tr></thead>
+          <tbody>{t.cables.map((r) => (
+            <tr key={r.band}><td className="border px-2 py-1">{r.band}</td><td className="border px-2 py-1">{r.material}</td><td className="border px-2 py-1">{r.armour}</td>
+              <td className={cell}>{r.cores === null || r.sqmm === null ? n(null) : `${r.cores}C x ${r.sqmm}`}</td></tr>
+          ))}</tbody>
+        </table>
+        <table className="border-collapse" data-testid="vrf-extras-lengths">
+          <thead><tr><th className={head}>Lengths</th><th className={head}>m</th></tr></thead>
+          <tbody>{t.lengths.map((r) => (
+            <tr key={r.label}><td className="border px-2 py-1">{r.label}</td><td className={cell}>{n(r.value)}</td></tr>
+          ))}</tbody>
+        </table>
+      </div>
     </div>
   );
 }

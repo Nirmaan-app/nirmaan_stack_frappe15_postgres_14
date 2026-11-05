@@ -21,12 +21,15 @@ import {
 import { calculatorCtx } from "../../pricing/PricingCalculator";
 import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
+import { computePricingInputReach, extrasSnapSizes, extrasTablesOf, extrasUses, reachedSkuCount } from "../../pricing/rate-master/pricingInputReach";
+import { pricingInputUsedBy } from "../../pricing/rate-master/rateMasterSpec";
+import { computeExampleImpacts } from "../../pricing/rate-master/pricingInputExamples";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
 const h58 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v58.json`, import.meta.url));
 const e72 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_electrical_all_v72.json`, import.meta.url));
-const FIX = readJsonFixture<{ extras: ExtrasSpec; inputs: Array<Record<string, any>> }>(new URL("../../pricing/__fixtures__/vrf3bExtras.json", import.meta.url));
+const FIX = readJsonFixture<{ extras: ExtrasSpec; inputs: Array<Record<string, any>>; examples: Array<Record<string, unknown>> }>(new URL("../../pricing/__fixtures__/vrf3bExtras.json", import.meta.url));
 const toItems = (a: Asset) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
 const INPUTS = FIX.inputs.map((it, n) => ({ ...it, item_uid: `rmi-fx${n}`, discipline: "HVAC" } as unknown as RateMasterItem));
 const ITEMS: RateMasterItem[] = [...toItems(h58), ...toItems(e72), ...INPUTS];
@@ -319,12 +322,14 @@ describe("VRF-3b LOT (AC6, owner 01:15) -- Lot in the calculator's Row unit", ()
 });
 
 describe("VRF-3b edit operations and decode (pure)", () => {
-  it("extra_set / extra_undo / extra_remove / extra_restore", () => {
+  it("extra_set / extra_undo / extra_remove / extra_restore / undo_qty", () => {
     let s: ItemListEditState = { items: [{ base: null, family: "Outdoor Unit", attrs: {}, qty: "2" }] };
     s = applyItemEdit(s, { op: "extra_set", index: 0, line: "power", field: "spec", value: "4C x 16" });
     expect(s.items[0].extras).toEqual({ set: { power: { spec: "4C x 16" } } });
     s = applyItemEdit(s, { op: "extra_undo", index: 0, line: "power", field: "spec" });
     expect(s.items[0].extras).toBeUndefined();
+    s = applyItemEdit(s, { op: "undo_qty", index: 0 });
+    expect(s.items[0].qty).toBeUndefined();
     expect(applyItemEdit(s, { op: "extra_remove", index: 9, line: "power" })).toBe(s);
   });
   it("decodeItemEdits keeps extras (strings only) and drops junk", () => {
@@ -445,5 +450,135 @@ describe("VRF-3b K1b (owner ANSWER 2, 15:31 + 16:07 'ok with b') -- every extra 
     expect(RHP_SRC).toContain('data-testid="extra-change-item"');
     expect(RHP_SRC).toContain('data-testid="extra-item-picker"');
     expect(RHP_SRC).toContain("{f.value ? `${f.value}${f.suffix ? ` ${f.suffix}` : \"\"}` : \"-\"}");
+  });
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// K2 -- PER-FIELD UNDO (owner 14:20 / 14:56) and the PRICING INPUTS (owner 12:07 / 13:54; board 14)
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("VRF-3b K2 UNDO (AC7, owner 14:20 'revert actions for each individual attribute'; 14:56 'yes' = every item-list block)", () => {
+  const RHP_SRC = readFileSync(new URL("./RateHelperPanel.tsx", import.meta.url), "utf8");
+  it("undo_qty takes a typed quantity back to the assumed 1 (amber 'default') and re-prices -- on ADP, Insulation, Piping and VRF alike", () => {
+    const s = applyItemEdit({ items: [{ base: null, family: "Outdoor Unit", attrs: { brand: "Blue Star", capacity: "10" }, qty: "2" }] }, { op: "undo_qty", index: 0 });
+    expect(s.items[0].qty).toBeUndefined();
+    const two = run([{ ...ODU10, qty: "2" }], "");
+    const back = run(s.items as never, "");
+    expect(tot(two)).toEqual([603120, 20000]);
+    expect(tot(back)).toEqual([301560, 10000]);
+    expect(back.items[0].qtyDefaulted).toBe(true);
+    // the operation is the category-agnostic one every block dispatches (one component, panel AND calculator)
+    for (const fam of ["Nitrile Rubber Insulation", "Copper", "Supply Air Diffuser"]) {
+      const t = applyItemEdit({ items: [{ base: null, family: fam, attrs: {}, qty: "3" }] }, { op: "undo_qty", index: 0 });
+      expect(t.items[0]).toEqual({ base: null, family: fam, attrs: {} });
+    }
+  });
+  it("the panel draws the quantity undo beside a typed quantity (never on a quantity that follows its pipe), and the refnet counts' undo", () => {
+    expect(RHP_SRC).toContain('{view.editState.items[i]?.qty !== undefined && !b.qtyMirrorTag && (');
+    expect(RHP_SRC).toContain('onClick={() => onEdit({ op: "undo_qty", index: i })}');
+    expect(RHP_SRC).toContain('data-testid="item-qty-undo"');
+    expect(RHP_SRC).toContain('data-testid="item-set-count-undo"');
+    // the attribute fields' own undo is unchanged (it existed on every category before this slice -- P0 (b))
+    expect(RHP_SRC).toContain('onClick={() => onEdit({ op: "undo_attr", index: i, id: f.id })}');
+  });
+  it("a refnet count the pricer typed is marked edited (its undo arrow); one read from the row is not", () => {
+    const helper = makePricingSheetHelper({ configsByCategory: configsOf(withExtras()), items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
+    const v = (helper.compute(calculatorCtx("HVAC", VRF), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Refnet/Y-Joint", attrs: { brand: "Blue Star", set_covers: "Whole system (indoor + outdoor)", set_odu: "3" } }] }),
+      [ROW_UNIT_OVERRIDE_KEY]: "Set",
+    }) as unknown as ItemListSuggestion).itemList!;
+    const f = v.items[0].setCount!.fields;
+    expect(f.find((x) => x.id === "set_odu")?.edited).toBe(true);
+    expect(f.find((x) => x.id === "set_idu")?.edited).toBeUndefined();
+  });
+});
+
+describe("VRF-3b K2 PRICING INPUTS (AC8) -- reach, used-by, snap, tables, worked examples", () => {
+  const HV = Object.fromEntries([...configsOf(withExtras()).entries()].filter(([, c]) => (c as { discipline?: string }).discipline !== "Electrical").map(([k, c]) => [k, { ...c, discipline: "HVAC" }])) as Record<string, RateCategoryConfig>;
+  const HV_ITEMS = ITEMS.filter((it) => it.discipline === "HVAC");
+  const reach = computePricingInputReach(HV, HV_ITEMS);
+  const ids = FIX.inputs.map((i) => String(i.attributes.item));
+  it("every one of the 29 inputs is READ by VRF (Used by 'VRF'), moves no SKU's own rate, and reaches the VRF units it sizes", () => {
+    for (const id of ids) {
+      expect(reach[id]?.readByCategories).toEqual(["hvac_vrf"]);
+      expect(reach[id]?.distinctSkus).toEqual([]);
+      expect(reachedSkuCount(reach, id)).toBeGreaterThan(0);
+    }
+    const n = (id: string) => reachedSkuCount(reach, id);
+    // a band reaches its own units only; the lengths and the communication cable every unit
+    expect(n("vrf_extra_copper_length_m")).toBe(n("vrf_extra_comm_cable_cores"));
+    expect(n("vrf_extra_pipe_indoor_upto_4tr_supply_mm") + n("vrf_extra_pipe_indoor_above_4tr_supply_mm")
+      + n("vrf_extra_pipe_outdoor_upto_12hp_supply_mm") + n("vrf_extra_pipe_outdoor_12_to_20hp_supply_mm") + n("vrf_extra_pipe_outdoor_above_20hp_supply_mm"))
+      .toBe(n("vrf_extra_copper_length_m"));
+    expect(extrasUses(HV.hvac_vrf, HV_ITEMS)).toHaveLength(29);
+  });
+  it("the two convert factors no longer read '0 items': each reaches the VRF units whose capacity it converts (owner)", () => {
+    for (const id of ["vrf_hp_per_tr", "vrf_kw_per_tr"]) {
+      expect(reach[id]?.distinctSkus).toEqual([]);
+      expect(reachedSkuCount(reach, id)).toBeGreaterThan(100);
+    }
+    // NEGATIVE: an input that moves a SKU's own rate still counts its SKUs, untouched
+    expect(reachedSkuCount(reach, "piping_accessories_copper")).toBe(13);
+  });
+  it("the used-by twin: VRF, one use per cell (= csv_exporter.pricing_input_used_by via extras_input_ids); no other input's count moves", () => {
+    const after = pricingInputUsedBy(Object.values(HV) as never);
+    const before = pricingInputUsedBy(Object.values(Object.fromEntries(Object.entries(HV).map(([k, c]) => [k, k === "hvac_vrf" ? withExtras(null) : c]))) as never);
+    for (const id of ids) expect(after[id]).toEqual({ sites: 1, categories: ["hvac_vrf"] });
+    const others = (m: Record<string, unknown>) => Object.fromEntries(Object.entries(m).filter(([k]) => !k.startsWith("vrf_extra_")));
+    expect(others(after)).toEqual(others(before));
+  });
+  it("a pipe-size cell snaps to the closest stocked Piping size ('15 mm' -> 15.9); a thickness or a length cell does not", () => {
+    const snap = extrasSnapSizes(HV, HV_ITEMS, "vrf_extra_pipe_outdoor_upto_12hp_supply_mm")!;
+    expect(snap).toEqual([6.4, 9.5, 12.7, 15.9, 19.1, 22.2, 25.4, 28.6, 31.7, 34.9, 38.1, 41.3, 47.6]);
+    expect(closestSize(readTypedSizeMm("15 mm"), snap)).toBe(15.9);
+    expect(closestSize(readTypedSizeMm("1.125 inch"), snap)).toBe(28.6);
+    expect(extrasSnapSizes(HV, HV_ITEMS, "vrf_extra_pipe_outdoor_upto_12hp_insulation_mm")).toBeNull();
+    expect(extrasSnapSizes(HV, HV_ITEMS, "vrf_extra_copper_length_m")).toBeNull();
+    expect(extrasSnapSizes(HV, HV_ITEMS, "piping_accessories_copper")).toBeNull();
+  });
+  it("the two tables (board 14) read the live cells: 5 pipe bands, 5 power bands + communication, Copper / Unarmoured, the lengths", () => {
+    const t = extrasTablesOf(HV.hvac_vrf, HV_ITEMS)!;
+    expect(t.pipes).toEqual([
+      { band: "Indoor up to 4 TR", supply: 12.7, ret: 6.4, insulation: 19 },
+      { band: "Indoor above 4 TR", supply: 15.9, ret: 9.5, insulation: 19 },
+      { band: "Outdoor up to 12 HP", supply: 22.2, ret: 15.9, insulation: 19 },
+      { band: "Outdoor above 12 up to 20 HP", supply: 28.6, ret: 19.1, insulation: 19 },
+      { band: "Outdoor above 20 HP", supply: 34.9, ret: 22.2, insulation: 19 },
+    ]);
+    expect(t.cables.map((c) => [c.band, c.cores, c.sqmm, c.material, c.armour])).toEqual([
+      ["Power - Indoor up to 4 TR", 3, 1.5, "Copper", "Unarmoured"], ["Power - Indoor above 4 up to 8 TR", 3, 2.5, "Copper", "Unarmoured"],
+      ["Power - Outdoor up to 8 HP", 4, 6, "Copper", "Unarmoured"], ["Power - Outdoor above 8 up to 14 HP", 4, 10, "Copper", "Unarmoured"],
+      ["Power - Outdoor above 14 HP", 4, 16, "Copper", "Unarmoured"], ["Communication - every unit", 2, 1.5, "Copper", "Unarmoured"],
+    ]);
+    expect(t.lengths.map((l) => l.value)).toEqual([30, 30]);
+    // NEGATIVE: a config without extras makes no table
+    expect(extrasTablesOf(withExtras(null), HV_ITEMS)).toBeNull();
+  });
+  it("C11: the copper length 30 -> 25 moves the worked example (now -> becomes) by exactly its four copper / insulation lines", () => {
+    const cfgs = { ...HV, hvac_vrf: { ...HV.hvac_vrf, impact_examples: FIX.examples } } as Record<string, RateCategoryConfig>;
+    const r2 = computePricingInputReach(cfgs, HV_ITEMS);
+    const allItems = [...HV_ITEMS, ...ITEMS.filter((it) => it.discipline === "Electrical")];
+    const cfgsAll = { ...cfgs, ...Object.fromEntries(e72.category_configs.map((c) => [c.category_id, { ...c, discipline: "Electrical" }])) };
+    const ex = computeExampleImpacts("vrf_extra_copper_length_m", { factor: 25 }, r2.vrf_extra_copper_length_m, cfgsAll as never, allItems);
+    const ex5 = ex.find((e) => e.example.id === "VRF-5")!;
+    expect(ex5.before).toMatchObject({ ok: true, values: { supply_rate: 441210, install_rate: 25960 } });
+    // 25 m: copper 45,350 + 32,450, insulation 6,625 + 6,200 (each / 30 x 25, rounded up per line)
+    expect(ex5.after).toMatchObject({ ok: true, values: { supply_rate: 441210 - (54420 + 38940 + 7950 + 7440) + (45350 + 32450 + 6625 + 6200) } });
+    expect(ex5.moved).toBe(true);
+    expect(ex.map((e) => e.example.id)).toEqual(["VRF-5", "VRF-6"]);
+    // an example that names other inputs is not on this input's panel
+    expect(computeExampleImpacts("vrf_extra_power_outdoor_upto_8hp_sqmm", {}, r2.vrf_extra_power_outdoor_upto_8hp_sqmm, cfgsAll as never, allItems).map((e) => e.example.id)).toEqual(["VRF-10"]);
+  });
+  it("the panel and the grid source: the snap note, Save / Cancel unchanged ('nothing is saved until you press Save'), the tables mounted", () => {
+    const PANEL = readFileSync(new URL("../../pricing/rate-master/PricingInputImpactPanel.tsx", import.meta.url), "utf8");
+    const PAGE = readFileSync(new URL("../../pricing/rate-master/RateMasterPage.tsx", import.meta.url), "utf8");
+    const GRID = readFileSync(new URL("../../pricing/rate-master/RateMasterDataViewer.tsx", import.meta.url), "utf8");
+    expect(PANEL).toContain("becomes ${edited[k]} mm (the closest Piping size)");
+    expect(PANEL).toContain("nothing is saved until you press Save");
+    expect(PANEL).toContain('data-testid="vrf-extras-tables"');
+    expect(PAGE).toContain("<VrfExtrasTables configs={allConfigs as never} items={items} />");
+    expect(PAGE).toContain("snapSizesFor={(id) => extrasSnapSizes(allConfigs as never, items, id)}");
+    expect(GRID).toContain('const n = snap && k === "factor" ? closestSize(readTypedSizeMm(raw), snap) : parseFiniteInput(raw);');
   });
 });

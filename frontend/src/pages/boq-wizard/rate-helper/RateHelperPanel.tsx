@@ -1927,7 +1927,21 @@ function ItemListBlocks({
               {b.setCount.fields.map((f) => (
                 <label key={f.id} className="block text-xs">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">{f.label}</span>
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      {f.label}
+                      {/* VRF-3b (U8): a count the pricer typed has its undo arrow */}
+                      {f.edited && (
+                        <button
+                          type="button"
+                          onClick={(ev) => { ev.preventDefault(); onEdit({ op: "undo_attr", index: i, id: f.id }); }}
+                          title="Undo my edit to this field -- restores the original value"
+                          aria-label={`Undo my edit to ${f.label}`}
+                          data-testid="item-set-count-undo"
+                        >
+                          <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        </button>
+                      )}
+                    </span>
                     {f.options ? (
                       <select
                         className={cn("h-7 max-w-[60%] rounded border bg-background px-1 text-xs", f.value === "" && "border-red-500")}
@@ -1985,6 +1999,18 @@ function ItemListBlocks({
                 >
                   default
                 </span>
+              )}
+              {/* VRF-3b (U8, owner 14:20 / 14:56): the quantity the pricer typed has its own undo arrow, like every field */}
+              {view.editState.items[i]?.qty !== undefined && !b.qtyMirrorTag && (
+                <button
+                  type="button"
+                  onClick={() => onEdit({ op: "undo_qty", index: i })}
+                  title="Undo my edit to this field -- restores the original value"
+                  aria-label="Undo my edit to the quantity"
+                  data-testid="item-qty-undo"
+                >
+                  <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                </button>
               )}
             </span>
             {/* VRF-3a K2 (U5): a refnet's withheld pieces box -- blank, ringed red (the box's own classes are unchanged) */}

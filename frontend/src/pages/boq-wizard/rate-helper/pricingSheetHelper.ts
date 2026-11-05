@@ -2522,7 +2522,7 @@ export interface ItemBlockView {
   /** VRF-3a K2 (U5, board 11): a counted item (a refnet) on a per-Set row -- its three typed fields, the expected-count
    * formula, the case's sentence, the pieces the rule gave (null = withheld: the box blank and red) and whether the
    * pricer typed the pieces themselves. */
-  setCount?: { fields: Array<{ id: string; label: string; note?: string; options?: string[]; value: string }>; formula?: string; sentence: string; pieces: number | null; typed: boolean };
+  setCount?: { fields: Array<{ id: string; label: string; note?: string; options?: string[]; value: string; /** VRF-3b (U8): typed by the pricer (its undo arrow) */ edited?: true }>; formula?: string; sentence: string; pieces: number | null; typed: boolean };
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
@@ -3965,9 +3965,11 @@ function computeItemListOwn(
       if (!b) return;
       const e = edits.items[i];
       const said = (id: string) => { const v = forDisplay[i]?.attributes[id]?.value; return v === null || v === undefined ? "" : String(v); };
+      // VRF-3b (U8): a count the pricer typed carries its undo arrow
+      const edited = (id: string) => (e && Object.prototype.hasOwnProperty.call(e.attrs, id) ? { edited: true as const } : {});
       const fields = [
-        { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: said(counted.covers.id) },
-        ...counted.counts.map((c) => ({ id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: said(c.id) })),
+        { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: said(counted.covers.id), ...edited(counted.covers.id) },
+        ...counted.counts.map((c) => ({ id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: said(c.id), ...edited(c.id) })),
       ];
       const sentence = rc.typed ? counted.lines.typed.replace("{p}", String(e?.qty ?? "")) : rc.sentence;
       blocks[i] = {
@@ -4870,7 +4872,9 @@ export type ItemEditOp =
   /** VRF-3b (U5): the x of an extra line (copper takes its insulation) -- recorded in the hidden tag */
   | { op: "extra_remove"; index: number; line: string }
   /** VRF-3b (U5): "Put it back" */
-  | { op: "extra_restore"; index: number; line: string };
+  | { op: "extra_restore"; index: number; line: string }
+  /** VRF-3b (U8, owner 14:20 / 14:56): the undo arrow beside a changed quantity -- the assumed 1 (or the model's) again */
+  | { op: "undo_qty"; index: number };
 
 /** PURE. Apply one panel operation. A changed or added item starts BLANK (S1): family only, no attrs, qty 1. */
 export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemListEditState {
@@ -4971,6 +4975,10 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       list.splice(op.index, 1);
       return done(items, { ...state.sections, [op.section]: list });
     }
+    case "undo_qty":
+      if (!at(op.index)) return state;
+      delete at(op.index).qty;
+      return done(items);
     case "extra_set":
     case "extra_undo":
     case "extra_remove":

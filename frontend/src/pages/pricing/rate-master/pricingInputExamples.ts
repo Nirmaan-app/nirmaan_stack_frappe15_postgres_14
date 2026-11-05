@@ -34,6 +34,8 @@ export interface ImpactExample {
   unit?: string;
   /** VRF-2b (U6 A): the Pricing Input ids whose panel shows this example; absent = every input the category reads */
   inputs?: string[];
+  /** VRF-3b: the extras the item-list row's price includes ("copper,insulation,power,comm"), as the calculator's tick boxes */
+  includes?: string;
   /** why an edit leaves this example unmoved, when the config knows ("a stated length is kept") */
   no_change_reason?: string;
 }
@@ -100,7 +102,8 @@ export function priceExample(
 ): ExampleFigures {
   const ROW = 1;
   const cells = (o: Record<string, string | number>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { value: v }]));
-  const attributes = cells(example.attrs ?? {});
+  // VRF-3b: an item-list example states the extras its row's price includes (the calculator's tick boxes)
+  const attributes = cells({ ...(example.attrs ?? {}), ...(typeof example.includes === "string" ? { includes: example.includes } : {}) });
   // VRF-2b (owner U6 A): an item-list example is a stored row with ITEMS, priced in its own unit
   const listItems = Array.isArray(example.items) && example.items.length ? example.items.map((a) => ({ attributes: cells(a) })) : undefined;
   const helper = makePricingSheetHelper({

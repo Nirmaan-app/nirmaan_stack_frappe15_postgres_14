@@ -2784,6 +2784,8 @@ _IMPACT_EXAMPLE_KEYS = {"id", "name", "source", "attrs", "no_change_reason"}
 # picker `<number>__unit` allowed), `unit` (the row's unit) and `inputs` (the Pricing Input ids whose panel shows it;
 # absent = every input the category reads, the ELR-3a behaviour).
 _IMPACT_EXAMPLE_KEYS = _IMPACT_EXAMPLE_KEYS | {"items", "unit", "inputs"}
+# VRF-3b: an item-list example of a config with `extras` states the extras its row's price includes (the tick boxes)
+_IMPACT_EXAMPLE_KEYS = _IMPACT_EXAMPLE_KEYS | {"includes"}
 
 
 def _validate_impact_examples(cfg):
@@ -2835,9 +2837,17 @@ def _validate_impact_examples(cfg):
                 _vthrow("%s ('%s'): an item-list example needs its row 'unit'." % (where, e["id"]))
             if "attrs" in e:
                 _vthrow("%s ('%s'): an item-list example carries 'items', not 'attrs'." % (where, e["id"]))
+            if "includes" in e:
+                inc = e["includes"]
+                if not ((cfg.get("list_spec") or {}).get("pricing") or {}).get("extras"):
+                    _vthrow("%s ('%s'): 'includes' needs a config with list_spec.pricing.extras." % (where, e["id"]))
+                if not isinstance(inc, str) or not inc.strip() or any(x.strip() not in _EXTRAS_INCLUDE_IDS for x in inc.split(",")):
+                    _vthrow("%s ('%s'): 'includes' must list include ids (%s), comma-separated." % (where, e["id"], ", ".join(_EXTRAS_INCLUDE_IDS)))
             continue
         if "unit" in e:
             _vthrow("%s ('%s'): 'unit' belongs to an item-list example (with 'items')." % (where, e["id"]))
+        if "includes" in e:
+            _vthrow("%s ('%s'): 'includes' belongs to an item-list example (with 'items')." % (where, e["id"]))
         attrs = e.get("attrs")
         if not isinstance(attrs, dict) or not attrs:
             _vthrow("%s needs a non-empty 'attrs' object." % where)
