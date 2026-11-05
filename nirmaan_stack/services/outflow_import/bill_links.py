@@ -5,13 +5,14 @@
 
 PURE MODULE -- no `frappe`, no clock. `now` is always handed in, so a test can set it.
 
-A *bill link* (GLOSSARY) is a signed storage URL. Its query string carries the moment it was signed
-(`X-Goog-Date`, `YYYYMMDDTHHMMSSZ`, UTC) and its lifetime in seconds (`X-Goog-Expires`; 7 days on
-the provider's exports). The upload refuses a statement whose earliest link has expired or expires
-within `LINK_EXPIRY_MARGIN` (decision 2), because the import job must still be able to fetch every
-bill.
+A *bill link* (GLOSSARY) is a signed storage URL whose query string says when it stops working, in one of
+two shapes. The provider signs Google Cloud Storage V2 links: `Expires` is the Unix second (UTC) the link
+dies, 7 days after export. A V4 link is read too: the moment it was signed (`X-Goog-Date`,
+`YYYYMMDDTHHMMSSZ`, UTC) plus its lifetime in seconds (`X-Goog-Expires`). The upload refuses a statement
+whose earliest link has expired or expires within `LINK_EXPIRY_MARGIN` (decision 2), because the import
+job must still be able to fetch every bill.
 
-⚠️ A LINK WHOSE QUERY STRING DOES NOT STATE BOTH IS REFUSED (spec #1585 code review S4), with
+⚠️ A LINK WHOSE QUERY STRING STATES NEITHER IS REFUSED (spec #1585 code review S4), with
 `LINKS_UNREADABLE_MESSAGE`. Nothing can be said about when it dies, so the import cannot promise to fetch
 its bill; the provider signs every link it exports. The parser refuses with the same sentence a statement
 whose "View Attachment" cells carry no hyperlink at all (`parser._LinksUnder`).
@@ -42,21 +43,25 @@ LINKS_EXPIRED_MESSAGE = "Links expired on {date}. Export the statement again."
 #: name) would be true of it; what is true is that its links cannot be read, and a fresh export fixes it.
 LINKS_UNREADABLE_MESSAGE = "This file's bill links can't be read. Export the statement again and upload it as downloaded."
 
-_SIGNED_AT = "X-Goog-Date"
-_LIFETIME = "X-Goog-Expires"
+#: V2 (the provider's exports): the Unix second the link dies.
+_V2_EXPIRES = "Expires"
+#: V4: the signing moment and the lifetime in seconds.
+_V4_SIGNED_AT = "X-Goog-Date"
+_V4_LIFETIME = "X-Goog-Expires"
 
 
 def link_expires_at(url: str) -> datetime | None:
-    """When this link stops working (UTC), or `None` when its query string does not say."""
+    """When this link stops working (UTC), or `None` when its query string does not say (either shape above)."""
     query = parse_qs(urlsplit(url or "").query)
-    signed = (query.get(_SIGNED_AT) or [""])[0]
-    lifetime = (query.get(_LIFETIME) or [""])[0]
+    signed = query.get(_V4_SIGNED_AT, [""])[0]
+    lifetime = query.get(_V4_LIFETIME, [""])[0]
     try:
+        if _V2_EXPIRES in query:
+            return datetime.fromtimestamp(int(query[_V2_EXPIRES][0]), tz=timezone.utc)
         signed_at = datetime.strptime(signed, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        seconds = int(lifetime)
-    except ValueError:
+        return signed_at + timedelta(seconds=int(lifetime))
+    except (ValueError, OverflowError, OSError):
         return None
-    return signed_at + timedelta(seconds=seconds)
 
 
 def earliest_link_expiry(rows: Iterable) -> datetime | None:
