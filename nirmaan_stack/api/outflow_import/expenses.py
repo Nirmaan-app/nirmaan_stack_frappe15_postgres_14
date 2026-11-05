@@ -77,10 +77,8 @@ from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
 from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
-# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
-# written directly by `record_settlement`. See `refresh_row_allocation`. `allocation_note` moved
-# here from a private `expenses.py` helper at review -- it is pure arithmetic-plus-wording over
-# legs, which is this module's job, not `api/`'s.
+# `allocation_note` moved here from a private `expenses.py` helper at review -- it is pure
+# arithmetic-plus-wording over legs, which is this module's job, not `api/`'s.
 from nirmaan_stack.services.outflow_import.allocation import (
     MATCH_SETTLED,
     allocated_of,
@@ -116,6 +114,8 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     VALID_INTENTS,
     partial_eligibility,
 )
+# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
+# written directly by `record_settlement`. See `refresh_row_allocation`.
 from nirmaan_stack.services.outflow_import.row_settlement import (
     link_statement_file_to_target,
     record_settlement,
@@ -223,7 +223,7 @@ class TxnIdTickedTwiceError(frappe.ValidationError):
     """A many-line Link refused because two of the ticked lines carry one Txn Id (#1611).
 
     One of the two match indexes refused the second line's match insert inside the same request, so no committed
-    line holds the Txn Id; the sentence names it and the ticked lines that share it. Nothing was written."""
+    line holds the Txn Id; the sentence names that Txn Id and the record the person picked. Nothing was written."""
 
 
 def already_imported_sentence(transfer_id: str | None) -> str | None:

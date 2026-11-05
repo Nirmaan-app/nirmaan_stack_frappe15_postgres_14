@@ -30,7 +30,7 @@ from nirmaan_stack.api.outflow_import.test_link_rows_to_expense import LinkFixtu
 from nirmaan_stack.api.outflow_import.test_settle_payment import PaymentSettlementFixture
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import NON_PROJECT_EXPENSE, AlreadyPaidError
-from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, ROW_SETTLED
+from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, ROW_MATCHED
 from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_RECONCILIATION_PENDING
 
 
@@ -47,7 +47,7 @@ class TestAPaymentLinkOfATxnIdThatAlreadySettledIt(PaymentSettlementFixture):
         self.assertEqual(frappe.db.get_value(PAYMENT_DOCTYPE, self.payment, "status"), STATUS_PAID)
 
     def _assert_nothing_of_the_second_line_written(self):
-        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, self.second, "row_status"), "Matched")
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, self.second, "row_status"), ROW_MATCHED)
         self.assertFalse(frappe.db.exists(MATCH_DOCTYPE, {"import_row": self.second}))
 
     def test_while_the_payment_is_paid_the_paid_guard_refuses_before_the_index(self):
@@ -103,4 +103,3 @@ class TestTwoNewLinesWithOneTxnIdInOneLink(LinkFixture):
         for line in (first, second):
             self.assertIn(frappe.db.get_value(ROW_DOCTYPE, line["name"], "row_status"), OPEN_ROW_STATUSES)
         self.assertEqual(self._slips(expense), [])
-        self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, first["name"], "row_status"), ROW_SETTLED)
