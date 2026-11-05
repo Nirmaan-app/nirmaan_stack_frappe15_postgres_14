@@ -153,7 +153,7 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
 
 **Status:** Accepted (owner grilling, 2026-11-02). Terms: `GLOSSARY.md` § *Petty-cash wallet (Cashbook)*. Mirrors ADR-0039 decision 8 (card invoices) for the wallet.
 
-**Why.** The wallet provider's newer export, the *Consolidated Company Account Statement*, carries a link to each bill an employee attached. In the sample (2026-04-01 to 2026-10-31), 1,303 of 2,189 spends were linked, with 1,373 files, up to 4 per spend: jpeg 1,331, pdf 35, png 7. It is the old export plus five columns; every Txn Id of an old export reappears in it. The links are signed (Google Cloud Storage V2: the query string's `Expires` is the Unix second the link dies; a V4 link, `X-Goog-Date` plus `X-Goog-Expires`, is read too) and all expire 7 days after export. Measuring it also showed three row kinds the import wrongly skips as "moves money between our own balances":
+**Why.** The wallet provider's newer export, the *Consolidated Company Account Statement*, carries a link to each bill an employee attached. In the sample (2026-04-01 to 2026-10-31), 1,303 of 2,189 spends were linked, with 1,373 files, up to 4 per spend: jpeg 1,331, pdf 35, png 7. It is the old export plus five columns; every Txn Id of an old export reappears in it. The links are signed (Google Cloud Storage V2: the query string's `Expires` is the Unix second the link dies; a V4 link, `X-Goog-Date` plus `X-Goog-Expires`, is read too); every link in the sample expires at 2026-11-07 11:12 UTC. Measuring it also showed three row kinds the import wrongly skips as "moves money between our own balances":
 
 - Collect Payment: 11 rows, a shop-requested payment.
 - Refunds: 4 rows, each naming its spend as `REF-<Txn Id>`.

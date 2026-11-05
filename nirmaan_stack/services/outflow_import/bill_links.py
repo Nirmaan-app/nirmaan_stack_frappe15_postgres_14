@@ -7,10 +7,10 @@ PURE MODULE -- no `frappe`, no clock. `now` is always handed in, so a test can s
 
 A *bill link* (GLOSSARY) is a signed storage URL whose query string says when it stops working, in one of
 two shapes. The provider signs Google Cloud Storage V2 links: `Expires` is the Unix second (UTC) the link
-dies, 7 days after export. A V4 link is read too: the moment it was signed (`X-Goog-Date`,
-`YYYYMMDDTHHMMSSZ`, UTC) plus its lifetime in seconds (`X-Goog-Expires`). The upload refuses a statement
-whose earliest link has expired or expires within `LINK_EXPIRY_MARGIN` (decision 2), because the import
-job must still be able to fetch every bill.
+dies (every link in the measured sample: 2026-11-07 11:12 UTC). A V4 link is read too: the moment it
+was signed (`X-Goog-Date`, `YYYYMMDDTHHMMSSZ`, UTC) plus its lifetime in seconds (`X-Goog-Expires`). The upload
+refuses a statement whose earliest link has expired or expires within `LINK_EXPIRY_MARGIN` (decision 2),
+because the import job must still be able to fetch every bill.
 
 ⚠️ A LINK WHOSE QUERY STRING STATES NEITHER IS REFUSED (spec #1585 code review S4), with
 `LINKS_UNREADABLE_MESSAGE`. Nothing can be said about when it dies, so the import cannot promise to fetch
@@ -53,13 +53,11 @@ _V4_LIFETIME = "X-Goog-Expires"
 def link_expires_at(url: str) -> datetime | None:
     """When this link stops working (UTC), or `None` when its query string does not say (either shape above)."""
     query = parse_qs(urlsplit(url or "").query)
-    signed = query.get(_V4_SIGNED_AT, [""])[0]
-    lifetime = query.get(_V4_LIFETIME, [""])[0]
     try:
         if _V2_EXPIRES in query:
             return datetime.fromtimestamp(int(query[_V2_EXPIRES][0]), tz=timezone.utc)
-        signed_at = datetime.strptime(signed, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        return signed_at + timedelta(seconds=int(lifetime))
+        signed_at = datetime.strptime(query.get(_V4_SIGNED_AT, [""])[0], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return signed_at + timedelta(seconds=int(query.get(_V4_LIFETIME, [""])[0]))
     except (ValueError, OverflowError, OSError):
         return None
 
