@@ -175,6 +175,14 @@ link() {
       && die "$BENCH/apps/nirmaan_stack is a real folder; move it away first"
     ln -sfn "$want" "$BENCH/apps/nirmaan_stack"; ok "apps/nirmaan_stack -> $want"
   fi
+  # bench runs git in every app. A worktree whose .git names a host path is no repository inside the container.
+  local in_git="cd frappe-bench/apps/nirmaan_stack && git rev-parse -q HEAD"
+  if ! inside "$in_git" >/dev/null 2>&1; then
+    git -C "$CHECKOUT" worktree repair --relative-paths >/dev/null 2>&1 || true
+    inside "$in_git" >/dev/null 2>&1 || die "git cannot read this checkout inside the container (its .git names a host \
+path). Run, with git 2.48 or later: git -C $CHECKOUT worktree repair --relative-paths"
+    ok "this worktree's git paths made relative, so git reads it inside the container"
+  fi
   inside "cd frappe-bench && env/bin/python -c 'import nirmaan_stack' 2>/dev/null || env/bin/pip install -q -e apps/nirmaan_stack"
   local where; where="$(inside "cd frappe-bench/sites && ../env/bin/python -c 'import nirmaan_stack;print(nirmaan_stack.__file__)'" | tail -1)"
   case "$where" in */nirmaan_stack_variants/"$NAME"/*|*/apps/nirmaan_stack/*) ok "nirmaan_stack imports from the checkout";;
