@@ -319,17 +319,17 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
         return existing
     # The backstop of `controllers/expense_tds.validate`, which refuses the approval before it saves.
     refuse_without_deductee(deductee_name, deductee_pan)
-    gross, tds, net = split
 
     row = frappe.new_doc(TDS_DOCTYPE)
     row.update(
         {
             "non_project_expense": doc.name,
-            "gross_amount": gross,
+            # The base rent, never the bill: the TDS return reports the rent without its GST (spec #1613).
+            "gross_amount": split.base,
             "tds_percentage": rule.rate,
-            "tds_amount": tds,
+            "tds_amount": split.tds,
             "tds_section": rule.section,
-            # The landlord's money is withheld: the Expense is cut to the net.
+            # The landlord's money is withheld: the Expense is cut to bill - TDS.
             "borne_by": BORNE_BY_VENDOR,
             "deductee_name": str(deductee_name or "").strip() or None,
             "deductee_pan": str(deductee_pan or "").strip().upper() or None,
@@ -355,7 +355,8 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
     #     was written; nothing totals it against the Expense.
     #   * Non-project totals sum the column when they are read, so they read the net.
     # The approving save already ran its hooks and stamped `modified`, hence `update_modified=False`.
-    doc.db_set("amount", net, update_modified=False)
+    # The GST is set here and nowhere else; `guard_withheld_amount` locks it with the amount.
+    doc.db_set({"amount": split.landlord_gets, "gst_amount": split.gst}, update_modified=False)
     return row.name
 
 
@@ -389,16 +390,22 @@ def guard_withheld_amount(doc) -> None:
     if doc.is_new():
         return
     before = doc.get_doc_before_save()
-    if before is None or flt(before.get("amount"), 2) == flt(doc.get("amount"), 2):
+    if before is None:
+        return
+    amount_moved = flt(before.get("amount"), 2) != flt(doc.get("amount"), 2)
+    gst_moved = flt(before.get("gst_amount"), 2) != flt(doc.get("gst_amount"), 2)
+    if not (amount_moved or gst_moved):
         return
     record = existing_expense_deduction(doc.name)
     if not record:
         return
-    if doc.flags.get(BANK_AMOUNT_CORRECTION) and amounts_match(before.get("amount"), doc.get("amount")):
+    if (not gst_moved and doc.flags.get(BANK_AMOUNT_CORRECTION)
+            and amounts_match(before.get("amount"), doc.get("amount"))):
         return
     frappe.throw(
-        _("The tax has been withheld from {0} ({1}), so its amount stays {2}. Its other details can still "
-          "be edited.").format(doc.name, record, rupees(before.get("amount"))),
+        _("The tax has been withheld from {0} ({1}), so its amount stays {2} and its GST {3}. Its other "
+          "details can still be edited.").format(
+            doc.name, record, rupees(before.get("amount")), rupees(before.get("gst_amount"))),
         title=_("Tax withheld"),
     )
 
