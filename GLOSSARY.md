@@ -557,3 +557,10 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Done / Reopen (cycle)** — marking a cycle Done records who completed it and when, as a permanent compliance
   record that is never deleted; Reopen returns it to pending. Once its Reminder is deleted, a Done cycle is
   history and can no longer be reopened. (Owner, 2026-07-30; deleted-reminder rule 2026-10-30.)
+
+## Users and logins
+
+- **User admin** — a person who may create users and give or change role profiles: an Admin, a PMO Executive or
+  an HR Executive (the same people who see the Users page). A User admin may give any role profile, Admin
+  included. Nobody else may, on the screen, in Desk or through the API. *Avoid*: user manager, HR access.
+  (Owner, 2026-11-05.)

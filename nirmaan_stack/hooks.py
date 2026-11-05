@@ -181,6 +181,8 @@ override_doctype_class = {
 
 doc_events = {
 	"User": {
+        # Only User admins create users or give role profiles (services/role_profiles.USER_ADMIN_PROFILES).
+        "validate": "nirmaan_stack.integrations.controllers.user.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
