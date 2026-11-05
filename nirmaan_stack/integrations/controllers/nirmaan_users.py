@@ -8,6 +8,24 @@ def validate(doc, method):
     """The person's own bank account (Reimbursements) changes only through
     `services/payees/own_accounts.add_own_account`, and is never another person's."""
     check_own_account(doc)
+    check_role_profile_copy(doc)
+
+
+def check_role_profile_copy(doc):
+    """`role_profile` is a copy of the Frappe User's `role_profile_name`, and changes only through the
+    User's sync (`on_user_update` / `create_user_profile`), for everyone, Admin included (owner, 2026-11-05).
+
+    Many roles may write their own Nirmaan Users record, and about 100 gates read this copy
+    (`services/role_profiles`), so a copy that differs from the User is refused. A User admin gives a
+    role profile on the User (the Users screen does). The site install writes Administrator's copy.
+    """
+    if frappe.flags.in_install or not doc.has_value_changed("role_profile"):
+        return
+    on_user = frappe.db.get_value("User", doc.name, "role_profile_name")
+    if (doc.role_profile or None) != (on_user or None):
+        frappe.throw(
+            "A role profile is changed on the user's login (Users page), not here.", frappe.PermissionError
+        )
 
 
 def after_delete(doc, method):

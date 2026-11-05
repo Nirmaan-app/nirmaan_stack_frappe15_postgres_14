@@ -31,6 +31,7 @@ from nirmaan_stack.api.expense_requests.review import (
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.approval_tiers import TIER_AUTO_APPROVE_BELOW
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 PM_USER = "exr_test_pm@example.com"
 PM2_USER = "exr_test_pm2@example.com"
@@ -77,7 +78,7 @@ def _make_user(email: str, profile: str, roles: tuple[str, ...]):
 	if stale:
 		user.remove_roles(*stale)
 	user.add_roles(*roles)
-	frappe.db.set_value("Nirmaan Users", email, "role_profile", profile, update_modified=False)
+	set_role_copy_for_test(email, profile)
 
 
 class TestExpenseRequests(FrappeTestCase):
