@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Popover,
   PopoverContent,
@@ -27,10 +27,66 @@ interface ItemsHoverCardProps {
   isSB?: boolean;
 }
 /**
- * This component is used to display order details of a PR or a PO or a SB or a SR in hover card
+ * This component is used to display order details of a PR or a PO or a SB or a SR in hover card.
+ *
+ * Rendered in every row of many tables, so a row holds only the button and its open state; the two document
+ * fetches and the items table live in `ItemsCardBody`, which mounts only while the card is open.
  */
+export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = (props) => (
+  // Keyed on the document: when a row starts showing another document, its card starts closed again.
+  <ItemsHoverCardTrigger key={props.parentDoc?.name} {...props} />
+);
 
-export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
+const ItemsHoverCardTrigger: React.FC<ItemsHoverCardProps> = (props) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const isDeliveryNote = props.parentDoctype === "Delivery Notes";
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+  };
+
+  const handleClick = () => {
+    setIsOpen(!isOpen);
+  };
+
+  return (
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          aria-label="View items"
+          className="p-1 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 cursor-pointer"
+          onClick={handleClick}
+          tabIndex={0}
+          type="button"
+        >
+          <BookOpen className="w-4 h-4 text-blue-500" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[550px] max-h-[60vh] overflow-auto p-0 relative">
+        {/* Close Button */}
+        <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
+          <h4 className="font-semibold text-sm">
+            {isDeliveryNote ? "Delivery Items" : "Order Items"}
+          </h4>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 rounded-full hover:bg-gray-100"
+            onClick={() => setIsOpen(false)}
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <ItemsCardBody {...props} />
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/** The open card's contents: fetches the document (and, for a Delivery Note, its source PO) and lists the items. */
+const ItemsCardBody: React.FC<ItemsHoverCardProps> = ({
   parentDoc,
   parentDoctype,
   childTableName,
@@ -38,9 +94,7 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
   isPR = false, // Keep these if they affect column rendering/data access
   isSB = false,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  // Fetch the parent document when the card is open
+  // Fetch the parent document (this body is mounted only while the card is open)
   const {
     data: parentDocData,
     isLoading,
@@ -49,7 +103,7 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
     parentDoctype,
     parentDoc?.name,
     // SWR key - make it unique per document
-    isOpen ? `${parentDoctype}-${parentDoc?.name}` : null,
+    `${parentDoctype}-${parentDoc?.name}`,
     {
       revalidateOnFocus: false, // Optional: prevent re-fetching on window focus
       revalidateOnReconnect: false,
@@ -58,13 +112,13 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
 
   // Delivery Note items carry no rate of their own — the rate lives on the source
   // Procurement Order's `items` child table (the same table the PO tab's hover card
-  // reads). Fetch that PO (only for a DN, only while open) and index quote by item_id.
+  // reads). Fetch that PO (only for a DN) and index quote by item_id.
   const isDeliveryNote = parentDoctype === "Delivery Notes";
   const sourcePoName = isDeliveryNote ? parentDoc?.procurement_order : undefined;
   const { data: sourcePoData } = useFrappeGetDoc(
     "Procurement Orders",
     sourcePoName,
-    isOpen && isDeliveryNote && sourcePoName ? `DN-source-PO-${sourcePoName}` : null,
+    isDeliveryNote && sourcePoName ? `DN-source-PO-${sourcePoName}` : null,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
@@ -115,77 +169,33 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
       : undefined;
   }
 
-  // Close popover and reset when parentDocId changes
-  useEffect(() => {
-    setIsOpen(false);
-  }, [parentDoc?.name]);
-
-  const handleOpenChange = (open: boolean) => {
-    setIsOpen(open);
-  };
-
-  const handleClick = () => {
-    setIsOpen(!isOpen);
-  };
-
   return (
-    <Popover open={isOpen} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          aria-label="View items"
-          className="p-1 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 cursor-pointer"
-          onClick={handleClick}
-          tabIndex={0}
-          type="button"
-        >
-          <BookOpen className="w-4 h-4 text-blue-500" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[550px] max-h-[60vh] overflow-auto p-0 relative">
-        {/* Close Button */}
-        <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
-          <h4 className="font-semibold text-sm">
-            {isDeliveryNote ? "Delivery Items" : "Order Items"}
-          </h4>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 rounded-full hover:bg-gray-100"
-            onClick={() => setIsOpen(false)}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+    <div className="p-2">
+      {isLoading && (
+        <div className="flex items-center justify-center p-4">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2">Loading items...</span>
         </div>
-
-        <div className="p-2">
-          {isLoading && (
-            <div className="flex items-center justify-center p-4">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2">Loading items...</span>
-            </div>
-          )}
-          {error && (
-            <div className="text-red-500 p-4">
-              Error loading items: {error.message || "Unknown error"}
-            </div>
-          )}
-          {!isLoading &&
-            !error &&
-            (!itemsToDisplay || itemsToDisplay.length === 0) && (
-              <div className="text-gray-500 p-4 text-center">
-                No items to display.
-              </div>
-            )}
-          {!isLoading &&
-            !error &&
-            itemsToDisplay &&
-            itemsToDisplay.length > 0 && (
-              <ItemsTable items={itemsToDisplay} isSR={isSR} isPR={isPR} isSB={isSB} />
-            )}
+      )}
+      {error && (
+        <div className="text-red-500 p-4">
+          Error loading items: {error.message || "Unknown error"}
         </div>
-      </PopoverContent>
-    </Popover>
+      )}
+      {!isLoading &&
+        !error &&
+        (!itemsToDisplay || itemsToDisplay.length === 0) && (
+          <div className="text-gray-500 p-4 text-center">
+            No items to display.
+          </div>
+        )}
+      {!isLoading &&
+        !error &&
+        itemsToDisplay &&
+        itemsToDisplay.length > 0 && (
+          <ItemsTable items={itemsToDisplay} isSR={isSR} isPR={isPR} isSB={isSB} />
+        )}
+    </div>
   );
 };
 

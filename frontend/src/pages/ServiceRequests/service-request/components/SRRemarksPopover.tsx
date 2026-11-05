@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { MessageCircle, Send, Loader2, Plus } from "lucide-react";
 import {
     Popover,
@@ -43,10 +43,77 @@ const CanAddSRRemark: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
     const [isOpen, setIsOpen] = useState(false);
+    // Kept here, not in the content, so the open form and a half-typed remark survive closing, as before.
     const [showAddForm, setShowAddForm] = useState(false);
     const [newRemark, setNewRemark] = useState("");
+    // Reported by the open popover's content; the badge shows it only while open, as before.
+    const [openTotal, setOpenTotal] = useState(0);
+    const total = isOpen ? openTotal : 0;
 
-    const { remarks, total, isLoading, mutate } = useSRRecentRemarks(srId, isOpen);
+    return (
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <MessageCircle className="w-4 h-4" />
+                    {total > 0 && (
+                        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                            {total}
+                        </Badge>
+                    )}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent
+                className="w-80 p-0"
+                align="end"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <SRRemarksContent
+                    srId={srId}
+                    showAddForm={showAddForm}
+                    setShowAddForm={setShowAddForm}
+                    newRemark={newRemark}
+                    setNewRemark={setNewRemark}
+                    onTotal={setOpenTotal}
+                />
+            </PopoverContent>
+        </Popover>
+    );
+};
+
+interface SRRemarksContentProps {
+    srId: string;
+    showAddForm: boolean;
+    setShowAddForm: (show: boolean) => void;
+    newRemark: string;
+    setNewRemark: (text: string) => void;
+    onTotal: (total: number) => void;
+}
+
+/**
+ * The open popover: the latest remarks and the add-remark form. Rendered inside the popover's content, so it
+ * mounts (and fetches) only while the popover is open, never once per table row.
+ */
+const SRRemarksContent: React.FC<SRRemarksContentProps> = ({
+    srId,
+    showAddForm,
+    setShowAddForm,
+    newRemark,
+    setNewRemark,
+    onTotal,
+}) => {
+    // Mounted only while the popover is open, so this fetches only then (as before).
+    const { remarks, total, isLoading, mutate } = useSRRecentRemarks(srId, true);
+
+    // The row's badge shows the count while the popover is open, as it always has.
+    useEffect(() => {
+        onTotal(total);
+    }, [total, onTotal]);
+
     const { addRemark, isLoading: isAdding } = useAddSRRemark();
 
     const handleAddRemark = async () => {
@@ -86,131 +153,110 @@ export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
     };
 
     return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger asChild>
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <MessageCircle className="w-4 h-4" />
-                    {total > 0 && (
-                        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                            {total}
-                        </Badge>
-                    )}
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent
-                className="w-80 p-0"
-                align="end"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="p-3 border-b bg-gray-50">
-                    <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-sm">Remarks</h4>
-                        {!showAddForm && (
-                            <CanAddSRRemark>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    onClick={() => setShowAddForm(true)}
-                                >
-                                    <Plus className="w-3 h-3 mr-1" />
-                                    Add
-                                </Button>
-                            </CanAddSRRemark>
-                        )}
-                    </div>
-                </div>
-
-                {/* Add Remark Form */}
-                {showAddForm && (
-                    <div className="p-3 border-b">
-                        <Textarea
-                            placeholder="Add a remark..."
-                            value={newRemark}
-                            onChange={(e) => setNewRemark(e.target.value)}
-                            className="min-h-[60px] text-sm resize-none mb-2"
-                            disabled={isAdding}
-                        />
-                        <div className="flex justify-end gap-2">
+        <>
+            <div className="p-3 border-b bg-gray-50">
+                <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-sm">Remarks</h4>
+                    {!showAddForm && (
+                        <CanAddSRRemark>
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => {
-                                    setShowAddForm(false);
-                                    setNewRemark("");
-                                }}
-                                disabled={isAdding}
+                                className="h-7 px-2 text-xs"
+                                onClick={() => setShowAddForm(true)}
                             >
-                                Cancel
-                            </Button>
-                            <Button
-                                size="sm"
-                                onClick={handleAddRemark}
-                                disabled={isAdding || !newRemark.trim()}
-                            >
-                                {isAdding ? (
-                                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                ) : (
-                                    <Send className="w-3 h-3 mr-1" />
-                                )}
+                                <Plus className="w-3 h-3 mr-1" />
                                 Add
                             </Button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Remarks List */}
-                <div className="max-h-[250px] overflow-y-auto">
-                    {isLoading ? (
-                        <div className="p-4 text-center text-gray-500 text-sm">
-                            Loading...
-                        </div>
-                    ) : remarks.length === 0 ? (
-                        <div className="p-4 text-center text-gray-500 text-sm">
-                            <MessageCircle className="w-6 h-6 mx-auto mb-1 opacity-50" />
-                            No remarks yet
-                        </div>
-                    ) : (
-                        <div className="p-2 space-y-2">
-                            {remarks.map((remark: SRRemarkData) => (
-                                <div
-                                    key={remark.name}
-                                    className="p-2 rounded bg-gray-50 border border-gray-100"
-                                >
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-xs font-medium text-gray-700 truncate max-w-[100px]">
-                                            {remark.comment_by_name}
-                                        </span>
-                                        <Badge
-                                            variant="secondary"
-                                            className={`text-[10px] px-1.5 py-0 ${getSubjectBadgeClass(remark.subject)}`}
-                                        >
-                                            {remark.subject_label}
-                                        </Badge>
-                                        <span className="text-[10px] text-gray-400 ml-auto">
-                                            {formatRelativeTime(remark.creation)}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-gray-600 line-clamp-2">
-                                        {remark.content}
-                                    </p>
-                                </div>
-                            ))}
-                            {total > 3 && (
-                                <p className="text-xs text-center text-gray-400 pt-1">
-                                    +{total - 3} more remarks
-                                </p>
-                            )}
-                        </div>
+                        </CanAddSRRemark>
                     )}
                 </div>
-            </PopoverContent>
-        </Popover>
+            </div>
+
+            {/* Add Remark Form */}
+            {showAddForm && (
+                <div className="p-3 border-b">
+                    <Textarea
+                        placeholder="Add a remark..."
+                        value={newRemark}
+                        onChange={(e) => setNewRemark(e.target.value)}
+                        className="min-h-[60px] text-sm resize-none mb-2"
+                        disabled={isAdding}
+                    />
+                    <div className="flex justify-end gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                setShowAddForm(false);
+                                setNewRemark("");
+                            }}
+                            disabled={isAdding}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            onClick={handleAddRemark}
+                            disabled={isAdding || !newRemark.trim()}
+                        >
+                            {isAdding ? (
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                                <Send className="w-3 h-3 mr-1" />
+                            )}
+                            Add
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Remarks List */}
+            <div className="max-h-[250px] overflow-y-auto">
+                {isLoading ? (
+                    <div className="p-4 text-center text-gray-500 text-sm">
+                        Loading...
+                    </div>
+                ) : remarks.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500 text-sm">
+                        <MessageCircle className="w-6 h-6 mx-auto mb-1 opacity-50" />
+                        No remarks yet
+                    </div>
+                ) : (
+                    <div className="p-2 space-y-2">
+                        {remarks.map((remark: SRRemarkData) => (
+                            <div
+                                key={remark.name}
+                                className="p-2 rounded bg-gray-50 border border-gray-100"
+                            >
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xs font-medium text-gray-700 truncate max-w-[100px]">
+                                        {remark.comment_by_name}
+                                    </span>
+                                    <Badge
+                                        variant="secondary"
+                                        className={`text-[10px] px-1.5 py-0 ${getSubjectBadgeClass(remark.subject)}`}
+                                    >
+                                        {remark.subject_label}
+                                    </Badge>
+                                    <span className="text-[10px] text-gray-400 ml-auto">
+                                        {formatRelativeTime(remark.creation)}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-gray-600 line-clamp-2">
+                                    {remark.content}
+                                </p>
+                            </div>
+                        ))}
+                        {total > 3 && (
+                            <p className="text-xs text-center text-gray-400 pt-1">
+                                +{total - 3} more remarks
+                            </p>
+                        )}
+                    </div>
+                )}
+            </div>
+        </>
     );
 };
 
