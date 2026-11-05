@@ -1,7 +1,6 @@
 import { AuthResponse, useFrappeAuth, useSWRConfig } from "frappe-react-sdk";
 import { createContext, FC, PropsWithChildren, useEffect, useState } from "react";
 import * as Sentry from "@sentry/react";
-import { useUserData } from "@/hooks/useUserData";
 // import { useNavigate } from 'react-router-dom'
 
 interface UserContextProps {

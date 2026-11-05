@@ -10,6 +10,7 @@ import { SidebarProvider } from "./components/ui/sidebar";
 import { ThemeProvider } from "./components/ui/theme-provider";
 import { messaging } from "./firebase/firebaseConfig";
 import { UserProvider } from "./utils/auth/UserProvider";
+import { UserDataProvider } from "./hooks/useUserData";
 import { SocketInitializer } from "./config/SocketInitializer";
 
 
@@ -68,14 +69,16 @@ const App: FC = () => {
       // enableSocket={false}
     >
       <UserProvider>
-        <SocketInitializer />
-        <SidebarProvider>
-          {/* <QueryClientProvider client={queryClient}> */}
-          <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-            <RouterProvider router={router} />
-          </ThemeProvider>
-          {/* </QueryClientProvider> */}
-        </SidebarProvider>
+        <UserDataProvider>
+          <SocketInitializer />
+          <SidebarProvider>
+            {/* <QueryClientProvider client={queryClient}> */}
+            <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+              <RouterProvider router={router} />
+            </ThemeProvider>
+            {/* </QueryClientProvider> */}
+          </SidebarProvider>
+        </UserDataProvider>
       </UserProvider>
     </FrappeProvider>
   );
