@@ -7,11 +7,16 @@ Pure: `now` is handed in, so the fixture's links (all expired by now in real tim
 The fixture's earliest link expiry is 2026-11-06 09:00 UTC (see `test_parser._STATEMENT`).
 """
 
+import csv
+import io
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
+
+from openpyxl import load_workbook
 
 from nirmaan_stack.services.outflow_import.bill_links import (
     LINKS_UNREADABLE_MESSAGE,
@@ -49,6 +54,47 @@ def _v2_link(expires="1794043800"):
         "https://storage.googleapis.com/prod-payments-private/transaction-attachments/T/1.jpeg"
         f"?GoogleAccessId=signer%40made-up.iam.gserviceaccount.com&Expires={expires}&Signature=ab%2Fcd%3D"
     )
+
+
+#: Every statement fixture that carries bill links: how many, and the instants their `Expires` name.
+FIXTURE_LINKS = {
+    "cashbook_statement.xlsx": (
+        12,
+        {datetime(2026, 11, 7, 11, 12, tzinfo=timezone.utc), datetime(2026, 11, 6, 9, 0, tzinfo=timezone.utc)},
+    ),
+    "cashbook_sample.xlsx": (4, {datetime(2100, 1, 7, tzinfo=timezone.utc)}),
+    "cashbook_sample.csv": (4, {datetime(2100, 1, 7, tzinfo=timezone.utc)}),
+    "cashbook_no_remark.csv": (1, {datetime(2100, 1, 7, tzinfo=timezone.utc)}),
+}
+
+
+def _fixture_links(name: str) -> list[str]:
+    """Every bill link a fixture carries, read off the file itself and not through the parser: a workbook's cell
+    hyperlinks, a CSV's URL cells."""
+    path = FIXTURES / name
+    if path.suffix == ".csv":
+        rows = csv.reader(io.StringIO(path.read_text(encoding="utf-8-sig")))
+        return [cell for row in rows for cell in row if cell.startswith("https://")]
+    book = load_workbook(path)
+    return [cell.hyperlink.target for row in book.active.iter_rows() for cell in row if cell.hyperlink]
+
+
+class TestFixtureLinksAreSignedLikeTheProvider(unittest.TestCase):
+    """The provider signs its bill links V2. A fixture whose links drift to another shape (the V4 ones #1590 shipped
+    with) lets a reader that cannot read the provider's links pass every test here and refuse every real statement."""
+
+    def test_every_fixture_link_is_a_v2_signed_url_with_a_readable_expiry(self):
+        for name, (count, expiries) in FIXTURE_LINKS.items():
+            links = _fixture_links(name)
+            with self.subTest(fixture=name):
+                self.assertEqual(len(links), count)
+                for link in links:
+                    query = urlsplit(link).query
+                    self.assertEqual(set(parse_qs(query)), {"GoogleAccessId", "Expires", "Signature"}, link)
+                    signature = query.split("Signature=", 1)[1]
+                    self.assertNotIn("+", signature, link)
+                    self.assertTrue("%2B" in signature or "%2F" in signature, link)
+                self.assertEqual({link_expires_at(link) for link in links}, expiries)
 
 
 class TestLinkExpiry(unittest.TestCase):
