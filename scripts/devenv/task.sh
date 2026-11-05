@@ -12,6 +12,7 @@
 #   task.sh clean <name>     after you merged: remove the env and the branch on the box (refused while the box has
 #                            commits the laptop lacks)
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
+#   task.sh pick             the box the next start without --box would get, and why (one SSH per box, read only)
 #   task.sh watch [--every <seconds>]
 #                            each recorded task's agent: working, finished (its report's Status is DONE or BLOCKED),
 #                            crashed (no agent in its env and no finished report) or unreachable (the box did not
@@ -20,8 +21,10 @@
 #                            --every repeats until Ctrl-C.
 #
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
-# <box>: a box in the registry (scripts/devenv/boxes.sh); without --box, the registry's default. start records the
-# box in the repo's git config (devbox-task.<name>.box), and every later command goes to that box.
+# <box>: a box in the registry (scripts/devenv/boxes.sh). Without --box, start picks one: with devbox.order in the
+# registry, the first box in that order whose working agents (as watch counts them) are fewer than its
+# box.<name>.agents (1 when unset), passing over a box that does not answer; without devbox.order, devbox.default.
+# start records the box in the repo's git config (devbox-task.<name>.box), and every later command goes to that box.
 # Exit 3: the box did not answer; run the same command again once it is awake (watch reports it as a state instead).
 # The brief and the report live on the box in ~/claude-artifacts/dod/box-<name>/ (the repo is public: a brief may
 # describe what must not be published).
@@ -119,6 +122,34 @@ watch_pass() {
   done
 }
 
+# box_pick: set PICK and PICK_WHY for a start without --box (the rule is in the header, under <box>).
+box_pick() {
+  local order b names out rc busy cap alive line word
+  PICK="" PICK_WHY=""
+  box_registry
+  order="$(git config -f "$DEVBOX_REGISTRY" devbox.order || true)"
+  if [ -z "$order" ]; then PICK="$(box_default)"; PICK_WHY="the default"; return 0; fi
+  for b in $order; do
+    if ! out="$(box_load "$b" 2>&1)"; then echo "  $b: ${out#STOP  }"; continue; fi
+    box_load "$b"
+    names="$(git config --get-regexp '^devbox-task\..*\.box$' | awk -v b="$b" '$2 == b {print $1}' | sed 's/^devbox-task\.//; s/\.box$//' || true)"
+    rc=0; out="$(watch_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
+    if [ "$rc" != 0 ]; then echo "  $b: did not answer over SSH (exit $rc)"; continue; fi
+    busy=0
+    while IFS=$'\t' read -r _ alive line; do
+      [ -n "$alive" ] || continue
+      word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
+      [ "$(task_state "$alive" "$word")" != working ] || busy=$((busy + 1))
+    done <<<"$out"
+    cap="${BOX_AGENTS:-1}"
+    echo "  $b: $busy of $cap agents working"
+    if [ "$busy" -lt "$cap" ]; then
+      PICK="$b"; PICK_WHY="picked by devbox.order ($order): $busy of $cap agents working"; return 0
+    fi
+  done
+  die "no box in devbox.order ($order) has a free agent (lines above). Pass --box <name> to start on one anyway."
+}
+
 CMD="${1:-}"
 case "$CMD" in
   start|status|done|clean) ;;
@@ -126,6 +157,10 @@ case "$CMD" in
     [ $# = 1 ] || { [ $# = 3 ] && [ "$2" = --every ] && [[ "$3" =~ ^[1-9][0-9]*$ ]]; } \
       || die "usage: task.sh watch [--every <seconds>]"
     while :; do watch_pass; [ $# = 3 ] || break; sleep "$3"; done
+    exit 0 ;;
+  pick)
+    [ $# = 1 ] || die "usage: task.sh pick"
+    box_pick; box_load "$PICK"; box_show "$PICK_WHY"
     exit 0 ;;
   list)
     # Records outlive a laptop branch the owner removed after merging, and those tasks still sit on their box.
@@ -137,7 +172,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,27p' "$0"; exit 1 ;;
+  *) sed -n '2,30p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -151,9 +186,10 @@ prompt() {
   cat <<EOF
 You are an agent on a dev box, working on task '$NAME' in this worktree (branch $BRANCH, its own env and DB).
 1. Read the brief: ~/$DIR/BRIEF.md (if it is missing, stop and say so). Then read CLAUDE.md and docs/agents/definition-of-done.md.
-2. Write the failing tests first, then the change. Commit as you go, on $BRANCH only.
+2. Call the Skill tool with mattpocock-skills:tdd before the first test, and build the change through it (red first). Commit as you go, on $BRANCH only.
 3. Prove it as the Definition of Done says: scripts/devenv/devenv.sh test --affected \$(python3 scripts/devenv/dod.py base); scripts/devenv/devenv.sh typecheck when frontend/src changed; walk each changed or named screen with the verify skill.
-4. Fill in the report at ~/$DIR/REPORT.md. Run python3 scripts/devenv/dod.py check until it says done.
+4. Call the Skill tool with mattpocock-skills:code-review against \$(python3 scripts/devenv/dod.py base), and fix its findings that are inside the task. A skill the brief names is called the same way, with the Skill tool, by its exact name.
+5. Fill in the report at ~/$DIR/REPORT.md. Run python3 scripts/devenv/dod.py check until it says done (it checks that tdd and code-review were loaded).
 Never push, never open a PR, never touch GitHub issues. If the task cannot be done, set the report's Status to BLOCKED and say what the owner must decide.
 EOF
 }
@@ -178,7 +214,7 @@ if [ -n "$REC" ]; then
 elif [ "$CMD" != start ]; then
   die "task $NAME has no box record, so its box is unknown. If you know it: git config $RECORD <box>"
 elif [ -n "$FLAG_BOX" ]; then TASK_BOX="$FLAG_BOX"; FROM_WHERE="--box"
-else TASK_BOX="$(box_default)"; FROM_WHERE="the default"; fi
+else box_pick; TASK_BOX="$PICK"; FROM_WHERE="$PICK_WHY"; fi
 box_load "$TASK_BOX"
 box_show "$FROM_WHERE"
 

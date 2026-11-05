@@ -21,11 +21,17 @@ each section marked "omit when". Each rule in "Rules" was broken once by a box a
 - `<<FILL: file>>`: <<FILL: what in it matters, and the commit that made it>>.
 
 ## How
-1. Build it test-first with the `tdd` skill. Show the first test red on the untouched code before any fix.
+1. Call the Skill tool with `mattpocock-skills:tdd` before the first test, and build through it. Show the first test
+   red on the untouched code before any fix. Name every skill this way, with its exact name: a box agent loads a
+   skill only when told to call it, and the box may lack a plugin the laptop has.
 2. <<FILL: a screen changes: walk it with the verify skill as its role. Or: no screen changes.>>
 3. Stay inside the ticket. Anything outside it that you find broken: list it in the report, do not fix it.
 4. <<FILL: STOP conditions: a choice that belongs to the owner. Set the report's Status to BLOCKED and say what it
    would change; do not decide it yourself.>>
+
+## Review
+Call the Skill tool with `mattpocock-skills:code-review` against the task's base, and fix its findings that are
+inside the task. `dod.py check` stays red until `tdd` and `code-review` were both loaded.
 
 ## Known failing tests
 `CODING_STANDARDS.md` § Writing tests, "Known failing tests", lists the modules that fail on `master` for a reason

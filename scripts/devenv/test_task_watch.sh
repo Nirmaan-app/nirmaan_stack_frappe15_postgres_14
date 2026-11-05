@@ -195,4 +195,48 @@ line '^ALERT c1 on contabo: unseen -> crashed$' "a task recorded again starts fr
 OUT="$(/bin/bash "$L/scripts/devenv/task.sh" watch --every 1 2>&1 & p=$!; sleep 2.5; kill $p; wait $p 2>/dev/null)" || true
 [ "$(echo "$OUT" | grep -c '^== ')" -ge 2 ] || fail "--every repeats the pass"; pass "--every repeats the pass"
 
+# ---- pick: the box a start without --box gets
+pick() { run /bin/bash "$L/scripts/devenv/task.sh" pick "$@"; }
+# contabo: f1 alive and finished, w1 and c1 dead. air: m1 working, b1 finished, x1 crashed.
+pick
+rc_is 0 "pick without devbox.order exits 0"
+line '^box +contabo .*\[the default\]$' "without devbox.order the default box is picked"
+same "$(echo "$OUT" | grep -c '^  ')" 0 "without devbox.order no box is asked"
+
+git -C "$L" config devbox-task.m2.box air
+cat >> "$AH/.stub/procs" <<EOF
+5104 claude.exe $(wt "$AROOT" m2)
+EOF
+report "$AH" m2
+git config -f "$R" devbox.order "air contabo"
+git config -f "$R" box.air.agents 3
+fresh_log
+pick
+rc_is 0 "pick with a free agent on the first box exits 0"
+line '^  air: 2 of 3 agents working$' "only working agents count: a finished or crashed one frees its place"
+line '^box +air .*\[picked by devbox.order \(air contabo\): 2 of 3 agents working\]$' "the first box in the order with a free agent is picked, with why"
+no_line '^  contabo:' "a later box is not asked once one is picked"
+same "$(grep -c '^ssh ' "$STUB_LOG")" 1 "one SSH for the one box asked"
+
+git config -f "$R" box.air.agents 2
+pick
+line '^  air: 2 of 2 agents working$' "a full box says so"
+line '^  contabo: 0 of 1 agents working$' "the next box in the order is asked"
+line '^box +contabo .*\[picked by devbox.order \(air contabo\): 0 of 1 agents working\]$' "a full first box passes the task to the next"
+
+touch "$AH/.stub/down"
+pick
+line '^  air: did not answer over SSH \(exit 255\)$' "a box that does not answer is named"
+line '^box +contabo ' "a box that does not answer is passed over"
+rm "$AH/.stub/down"
+
+git config -f "$R" devbox.order "mini air"
+pick
+line '^  mini: no box .mini.' "a box missing from the registry is named and passed over"
+
+git config -f "$R" devbox.order "air"
+pick
+rc_is 1 "pick exits 1 when no box in the order has a free agent"
+line '^STOP  no box in devbox.order \(air\) has a free agent' "the refusal says why and what to do"
+
 echo; echo "all $N checks passed"

@@ -14,7 +14,9 @@ The check applies only to a worktree where the task was started with `dod.py sta
    cd <the worktree it prints>
    python3 scripts/devenv/dod.py start                      # base = HEAD now; prints the report's path
    ```
-2. **Work.** Build the change with the usual rules (`CLAUDE.md`, `CODING_STANDARDS.md`). Commit as you go.
+2. **Work.** Call the Skill tool with `mattpocock-skills:tdd` and build the change through it, with the usual rules
+   (`CLAUDE.md`, `CODING_STANDARDS.md`). Commit as you go. Before the report, call the Skill tool with
+   `mattpocock-skills:code-review` against the task's base and fix its findings inside the task.
 3. **Prove** (each tool stamps its own proof for the exact code it ran on):
    - backend changed (`nirmaan_stack/`): `scripts/devenv/devenv.sh test --affected $(python3 scripts/devenv/dod.py base)`
    - frontend changed (`frontend/src/`): `scripts/devenv/devenv.sh typecheck`
@@ -33,6 +35,7 @@ The check applies only to a worktree where the task was started with `dod.py sta
 | 4 | No new type errors (when `frontend/src/` changed) | the `typecheck` stamp: PASS, same tree as HEAD |
 | 5 | Each changed screen was walked (when non-test `frontend/src/` files changed) | a `verify` stamp from `drive.py`: PASS, same tree as HEAD, screenshots saved |
 | 6 | The report is complete | sections Status, What changed, Evidence, Data and Open questions are filled in, no `TODO` is left, and it names HEAD's commit |
+| 7 | The `tdd` and `code-review` skills were loaded (when `nirmaan_stack/` or `frontend/src/` changed) | a Skill tool call, or the person's slash command, in a Claude Code session log of the task's worktree (subagents' included) since `dod.py start` |
 
 "Same tree as HEAD" means the stamp's code fingerprint (a git tree hash of the worktree as it was tested) equals the
 committed code. A change after a run makes its proof stale: run it again.
@@ -40,7 +43,7 @@ committed code. A change after a run makes its proof stale: run it again.
 ## When the task cannot be done
 
 Set the report's `## Status` to `BLOCKED` and explain why, and what the owner must decide. Commit what you have. Rules
-2 to 5 are then skipped, and the owner reads the report.
+2 to 5 and 7 are then skipped, and the owner reads the report.
 
 ## What the hook does not check
 
