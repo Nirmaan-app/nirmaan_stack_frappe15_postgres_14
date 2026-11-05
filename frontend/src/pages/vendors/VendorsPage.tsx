@@ -21,6 +21,7 @@ import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useVendorHoldVendors } from "@/hooks/useVendorHoldVendors";
 import { VENDOR_LIST_API } from "@/components/payees/vendorPayeeAccount";
 import { formatDate } from "@/utils/FormatDate";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { accountNumberCsvCell } from "@/utils/payees/payeeForm";
 import { VENDOR_HOLD_ROW_CLASSES } from "@/utils/vendorHoldRowStyles";
 
@@ -37,6 +38,7 @@ import { VendorsOverallSummaryCard } from "./components/VendorsOverallSummaryCar
 export default function VendorsPage() {
   // --- Data fetching handled by hooks ---
   const { onHoldVendorIds } = useVendorHoldVendors();
+  const { data: userList } = useUsersList();
 
   const getRowClassName = useCallback((row: Row<VendorListRow>) => {
     if (onHoldVendorIds.has(row.original.name)) return VENDOR_HOLD_ROW_CLASSES;
@@ -261,7 +263,7 @@ export default function VendorsPage() {
       {
         accessorKey: "creation",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Date Created" />
+          <DataTableColumnHeader column={column} title="Created On" />
         ),
         cell: ({ row }) => (
           <div className="font-medium whitespace-nowrap">
@@ -269,7 +271,27 @@ export default function VendorsPage() {
           </div>
         ),
         size: 120,
-        meta: { columnLabel: "Date Created" },
+        meta: { columnLabel: "Created On" },
+      },
+      {
+        accessorKey: "owner",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Created By" />
+        ),
+        cell: ({ row }) => {
+          const ownerUser = userList?.find((entry) => row.original.owner === entry.name);
+          return <div className="font-medium truncate">{ownerUser?.full_name || row.original.owner || "--"}</div>;
+        },
+        size: 160,
+        enableColumnFilter: true,
+        meta: {
+          facet: { field: "owner", title: "Created By" } satisfies FacetDeclaration,
+          exportHeaderName: "Created By",
+          exportValue: (row: VendorListRow) => {
+            const ownerUser = userList?.find((entry) => row.owner === entry.name);
+            return ownerUser?.full_name || row.owner || "--";
+          },
+        },
       },
       // --- Optional columns: hidden by default, opt-in via the "Toggle columns" menu.
       // Whatever is visible here is exactly what the CSV export contains.
@@ -421,7 +443,7 @@ export default function VendorsPage() {
         meta: { exportHeaderName: "Contact Number" },
       },
     ],
-    []
+    [userList]
   );
 
   const {

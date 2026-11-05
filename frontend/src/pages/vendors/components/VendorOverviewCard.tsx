@@ -6,6 +6,8 @@ import { Address } from '@/types/NirmaanStack/Address';   // Adjust path
 import { Category } from '@/types/NirmaanStack/Category'; // Assuming you fetch this for names
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { formatDate } from '@/utils/FormatDate';
+import { useUsersList } from '@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 
 interface VendorOverviewCardProps {
     vendor?: Vendors;
@@ -21,6 +23,12 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
     allCategories,
 }) => {
     const [expandedPackages, setExpandedPackages] = useState<ExpandedPackagesState>({});
+    const { data: usersList } = useUsersList();
+    // The creator's full name; the id itself when they are not a Nirmaan User (e.g. Administrator).
+    const createdBy = useMemo(
+        () => usersList?.find((user) => user.name === vendor?.owner)?.full_name || vendor?.owner,
+        [usersList, vendor?.owner]
+    );
 
     const toggleExpand = useCallback((packageName: string) => {
         setExpandedPackages((prev) => ({ ...prev, [packageName]: !prev[packageName] }));
@@ -58,8 +66,11 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
     return (
         <>
              <Card>
-               <CardHeader>
+               <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-1 space-y-0">
                  <CardTitle className="text-primary">Vendor Details</CardTitle>
+                 <p className="text-sm text-muted-foreground">
+                   <span className="font-medium text-primary">Created by</span> <span className="font-medium text-foreground">: {createdBy}</span> on {formatDate(vendor.creation)}
+                 </p>
                </CardHeader>
                <CardContent className="flex flex-col gap-10 w-full">
                  {/* ONE grid, not two side-by-side stacks. Real grid rows are what

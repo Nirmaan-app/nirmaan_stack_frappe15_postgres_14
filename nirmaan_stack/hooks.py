@@ -439,15 +439,24 @@ doc_events = {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
-        "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        "after_insert": [
+            # A decider's own GST payment gets its request, already decided; first, before the notifications
+            # below commit (`services/gst_payment_requests`).
+            "nirmaan_stack.integrations.controllers.gst_payment_request.record_decider_request",
+            "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        ],
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_payments.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
+            # A GST payment's request follows it, Approved <-> Paid (`services/gst_payment_requests`).
+            "nirmaan_stack.integrations.controllers.gst_payment_request.sync_from_payment",
         ],
         # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
             "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
+            # A GST payment takes its request along, before Frappe's link check would refuse the delete.
+            "nirmaan_stack.integrations.controllers.gst_payment_request.delete_with_payment",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # after_delete, never on_trash: the cashflow check must read the payment gone (#1453).
@@ -593,6 +602,11 @@ doc_events = {
     },
     "Expense Request": {
         "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
+    },
+    # Only its endpoints write it (`services/gst_payment_requests`).
+    "GST Payment Request": {
+        "validate": "nirmaan_stack.integrations.controllers.gst_payment_request.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.gst_payment_request.on_trash",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",

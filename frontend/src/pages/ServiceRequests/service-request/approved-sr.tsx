@@ -66,6 +66,8 @@ import { useChequeChips } from "@/components/cheques/useChequeChips";
 import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
 import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
 import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
+import { GstRequestTableRows, requestsWithoutPayment } from "@/pages/ProjectPayments/gst-requests/GstRequestTableRows";
+import { useGstPaymentRequests } from "@/pages/ProjectPayments/hooks/useGstPaymentRequests";
 import { PayFor, workOrderPaymentCap } from "@/pages/ProjectPayments/components/paymentSummaryView";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
@@ -102,6 +104,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile"
 
     const id = accountsPage ? params.id : params.srId;
+    // This Work Order's GST requests: the ones with no payment yet are rows of Transaction Details.
+    const { rows: gstRequests, mutate: mutateGstRequests } = useGstPaymentRequests(id ? { workOrder: id } : null);
 
     if (!id) return <div>No Service Request ID Provided</div>
 
@@ -931,13 +935,15 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
                                         )
                                     })
-                                ) : (
+                                ) : requestsWithoutPayment(gstRequests).length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={orderData?.gst === "true" ? 4 : 3} className="text-center py-2">
                                             No Payments Found
                                         </TableCell>
                                     </TableRow>
-                                )}
+                                ) : null}
+                                {/* GST waiting for the Accountant (or rejected): no payment yet, so a row of its own. */}
+                                <GstRequestTableRows rows={gstRequests} onDeleted={() => mutateGstRequests()} />
                             </TableBody>
                         </Table>
                     </CardContent>

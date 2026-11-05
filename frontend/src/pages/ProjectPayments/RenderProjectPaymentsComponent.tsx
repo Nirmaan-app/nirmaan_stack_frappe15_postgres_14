@@ -5,12 +5,12 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFrappeDocTypeEventListener, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeDocTypeEventListener, useFrappeGetCall, useFrappeGetDocCount } from "frappe-react-sdk";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
-    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PPTabOption, PPTabValue,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_GST_REQUESTS_TAB_OPTIONS, PPTabOption, PPTabValue,
 } from "./config/ppTabs.constants";
 // Which tabs a viewer sees, where it lands and what it may open: one tested rule.
 // PO Wise has no button (2026-09-15) but stays ROUTED below; so does All Payments for the
@@ -26,6 +26,7 @@ const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"
 const ProjectPaymentsList = React.lazy(() => import("./project-payments-list"));
 const AllPayments = React.lazy(() => import("./AllPayments"));
 const PaymentSummaryCards = React.lazy(() => import("./PaymentSummaryCards"));
+const GstRequestsTab = React.lazy(() => import("./gst-requests/GstRequestsTab"));
 
 export const RenderProjectPaymentsComponent: React.FC = () => {
 
@@ -101,6 +102,14 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // Reconciliation Pending is also VIEWABLE by HR -- without the Mark Reconciled action,
     // which AllPayments drops for anyone who cannot settle.
     const canViewReconciliation = tabSet.tabs.includes(PP_TABS.RECONCILIATION_PENDING);
+    // Who decides GST requests: the same viewers (`gst_payment_requests.can_decide`).
+    const canDecideGst = tabSet.tabs.includes(PP_TABS.GST_REQUESTS);
+    // Its badge: the GST requests waiting, counted only for the viewers who have the tab.
+    const { data: gstWaiting, mutate: mutateGstWaiting } = useFrappeGetDocCount(
+        "GST Payment Request", [["status", "=", "Pending"]], false,
+        canDecideGst ? "gst-requests-pending-count" : null,
+    );
+    useFrappeDocTypeEventListener("GST Payment Request", () => { if (canDecideGst) mutateGstWaiting(); });
 
     const initialTab = useMemo(() => getUrlStringParam("tab", tabSet.defaultTab), [tabSet.defaultTab]);
 
@@ -147,6 +156,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     const tabButtons = useMemo((): Partial<Record<PPTabValue, PPTabOption>> => ({
         [PP_TABS.APPROVE_PAYMENTS]: withUnionCount(PP_ADMIN_TAB_OPTIONS[0], APPROVAL_STATUS.REQUESTED),
+        [PP_TABS.GST_REQUESTS]: { ...PP_GST_REQUESTS_TAB_OPTIONS[0], countValue: gstWaiting },
         [PP_TABS.CEO_PENDING]: withUnionCount(PP_CEO_TAB_OPTIONS[0], APPROVAL_STATUS.CEO_PENDING),
         [PP_TABS.NEW_PAYMENTS]: withUnionCount(PP_NEW_PAYMENTS_TAB_OPTIONS[0], APPROVAL_STATUS.APPROVED),
         // Tab four. Empty until the fulfil path writes the new status.
@@ -165,7 +175,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         // "All Payments" (#1476) -- all three ledgers, every status (`all`), the same rows the tab
         // lists; never the payments-only store count. Hidden until it loads, like "Payment By Me".
         [PP_TABS.ALL_PAYMENTS]: { ...PP_ALL_TAB_OPTIONS[0], countValue: queueCounts?.message?.all },
-    }), [withUnionCount, unionCount, counts, queueCounts]);
+    }), [withUnionCount, unionCount, counts, queueCounts, gstWaiting]);
 
     // Render a single tab button
     const renderTabButton = (option: PPTabOption | { label: string, value: string, countValue: number | string }) => {
@@ -240,6 +250,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                                 </AlertDescription>
                             </Alert>
                         )
+                    ) : tab === PP_TABS.GST_REQUESTS ? (
+                        // Rows only, no Approve / Reject, for anyone who reaches it by a hand-edited URL.
+                        <GstRequestsTab canDecide={canDecideGst} onDecided={() => { mutateQueueCounts(); mutateGstWaiting(); }} />
                     ) : tab === PP_TABS.CEO_PENDING ? (
                         <ApprovePayments mode="ceo" readOnly={!isCEO} refetchRef={listRefetchRef} />
                     ) : ((tab === PP_TABS.NEW_PAYMENTS && !canSettlePayments) || (tab === PP_TABS.RECONCILIATION_PENDING && !canViewReconciliation)) ? (

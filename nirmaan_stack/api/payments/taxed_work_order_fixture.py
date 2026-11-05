@@ -67,6 +67,16 @@ U = "Administrator"
 RECONCILIATION_PENDING = "Reconciliation Pending"
 
 
+def _rewind_gst_request_series() -> None:
+    """Put each GST Payment Request series counter back to the highest request that still exists, so the
+    requests a test made and deleted leave no gap in the real numbering. Only ever lowers a counter."""
+    for series, current in frappe.db.sql("""SELECT name, "current" FROM "tabSeries" WHERE name LIKE 'GPR-%%'"""):
+        names = frappe.get_all("GST Payment Request", filters={"name": ["like", f"{series}%"]}, pluck="name")
+        top = max((int(n[len(series):]) for n in names if n[len(series):].isdigit()), default=0)
+        if top < current:
+            frappe.db.sql('UPDATE "tabSeries" SET "current" = %s WHERE name = %s', (top, series))
+
+
 class TaxedWorkOrderFixture:
     """Plants projects, vendors, Service Requests and taxed payments, and purges all of them."""
 
@@ -246,6 +256,14 @@ class TaxedWorkOrderFixture:
             frappe.db.delete("Deleted Document", {"deleted_doctype": PAYMENT, "deleted_name": ["in", payments]})
             frappe.db.delete(PAYMENT, {"name": ["in", payments]})
         if self.service_requests:
+            # A GST payment raised on one now records its GST Payment Request (`services/gst_payment_requests`).
+            requests = frappe.get_all("GST Payment Request", filters={"work_order": ["in", self.service_requests]},
+                                      pluck="name")
+            if requests:
+                frappe.db.delete("Nirmaan Notifications", {"docname": ["in", requests]})
+                frappe.db.delete("Version", {"ref_doctype": "GST Payment Request", "docname": ["in", requests]})
+                frappe.db.delete("GST Payment Request", {"name": ["in", requests]})
+                _rewind_gst_request_series()
             frappe.db.delete("Version", {"ref_doctype": SR, "docname": ["in", self.service_requests]})
             frappe.db.delete(SR, {"name": ["in", self.service_requests]})
         if self.vendors:

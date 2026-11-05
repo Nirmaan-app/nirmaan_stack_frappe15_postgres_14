@@ -23,6 +23,7 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
     'vendor_name',
     'vendor_nickname',
     'creation',
+    'owner',
     'vendor_type',
     'vendor_email',
     'vendor_city', 
