@@ -1,6 +1,7 @@
 import frappe
 
 from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
+from nirmaan_stack.services.exited_employees import switch_off_login
 from nirmaan_stack.services.payees.own_accounts import check_own_account, delete_own_account
 
 
@@ -60,10 +61,9 @@ def on_update(doc, method):
 
 def on_trash(doc, method):
     """
-    Delete associated User Permissions, Notifications, and User Doctype
-    when a Nirmaan Users record is deleted.
-
-    Handles edge cases where associated records may not exist.
+    The person has left: delete their User Permissions and Notifications, and switch their login off
+    (`services/exited_employees.switch_off_login`). The Frappe User is kept, because many records link
+    to it; deleting it failed on those links, and the failure was swallowed.
     """
     email = doc.name
 
@@ -86,23 +86,8 @@ def on_trash(doc, method):
             "Nirmaan Users Delete"
         )
 
-    # Delete Frappe User - with existence check
-    try:
-        if frappe.db.exists("User", email):
-            user = frappe.get_doc("User", email)
-            user.delete()
-        else:
-            # Log for debugging - User doesn't exist but Nirmaan Users did
-            frappe.log_error(
-                f"Frappe User {email} does not exist but Nirmaan Users did. "
-                "This indicates a sync issue between User and Nirmaan Users doctypes.",
-                "Nirmaan Users Sync Warning"
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to delete Frappe User {email}: {str(e)}",
-            "Nirmaan Users Delete"
-        )
+    if frappe.db.exists("User", email):
+        switch_off_login(email)
 
 
 def after_rename(doc, method, old_name, new_name, merge):
