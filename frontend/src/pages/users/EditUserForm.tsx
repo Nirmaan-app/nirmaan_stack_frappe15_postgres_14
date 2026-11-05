@@ -18,6 +18,7 @@ import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe
 import { useEffect } from "react";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useRefreshUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import ReactSelect from "react-select";
 import { DepartmentSelect } from "@/components/common/DepartmentSelect";
 import { canEditDepartments } from "@/constants/departments";
@@ -93,6 +94,7 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
   })) || [];
 
   const { updateDoc, loading } = useFrappeUpdateDoc();
+  const refreshUsersList = useRefreshUsersList();
   const canEditDepartment = canEditDepartments(role, actual_user_id);
   const { departments, isLoading: departmentsLoading } = useDepartmentOptions(canEditDepartment);
 
@@ -152,6 +154,7 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
         variant: "success",
       });
       await mutate();
+      refreshUsersList(); // the name may have changed
 
       toggleEditSheet();
     } catch (error: any) {
