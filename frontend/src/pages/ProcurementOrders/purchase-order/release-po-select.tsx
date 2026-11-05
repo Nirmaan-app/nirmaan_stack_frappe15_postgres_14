@@ -35,7 +35,6 @@ import { PORemarksPopover } from "./components/PORemarksPopover";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
 import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
@@ -194,8 +193,6 @@ export const ReleasePOSelect: React.FC = () => {
 
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useVendorsList()
 
-    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList()
-
     // const getAmountPaid = useMemo(() => memoize((id: string) => {
     //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
     //     const total = payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
@@ -352,22 +349,17 @@ export const ReleasePOSelect: React.FC = () => {
             accessorKey: "owner",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
             cell: ({ row }) => {
-                const data = row.original
-                const ownerUser = userList?.find((entry) => data?.owner === entry.name)
                 return (
                     <div className="font-medium">
-                        {ownerUser?.full_name || data?.owner || "--"}
+                        {/* The name comes with the row (`owner_name`, list API); the email if it is missing. */}
+                        {row.original?.owner_name || row.original?.owner || "--"}
                     </div>
                 );
             },
             size: 180,
             meta: {
                 exportHeaderName: "Approved By",
-                exportValue: (row) => {
-                    const data = row
-                    const ownerUser = userList?.find((entry) => data?.owner === entry.name)
-                    return ownerUser?.full_name || data?.owner || "--";
-                }
+                exportValue: (row) => row?.owner_name || row?.owner || "--"
             }
         },
         {
@@ -544,7 +536,7 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ],[tab, userList, vendorsList, projects]);
+    ],[tab, vendorsList, projects]);
     // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     // Legacy static facet path — Status is a curated list (PO_STATUS_OPTIONS), not a useFacetValues
@@ -613,10 +605,10 @@ export const ReleasePOSelect: React.FC = () => {
         if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;
 
         if (shouldShowTable) {
-            if (projectsLoading || vendorsListLoading || userListLoading) {
+            if (projectsLoading || vendorsListLoading) {
                 return <TableSkeleton />;
             }
-            if (!projects || !vendorsList || !userList) {
+            if (!projects || !vendorsList) {
                 return <div className="text-red-600 text-center p-4">Error loading supporting data for table view.</div>;
             }
 
@@ -641,7 +633,7 @@ export const ReleasePOSelect: React.FC = () => {
     };
     // --- End Render View Logic ---
 
-    const combinedErrorOverall = projectsError || vendorsError || userError;
+    const combinedErrorOverall = projectsError || vendorsError;
 
     if (combinedErrorOverall) { // Show prominent error if main list fails
         return <AlertDestructive error={combinedErrorOverall} />

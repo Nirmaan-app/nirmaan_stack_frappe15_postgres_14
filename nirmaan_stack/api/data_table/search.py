@@ -59,6 +59,34 @@ def _hydrate_rows_by_names(doctype, fields, ordered_names):
     return rows
 
 
+def _add_owner_names(rows, fields):
+    """Set `owner_name` on each row that has an owner: the owner's Nirmaan Users full name, or the owner id when
+    there is no such record or name (an offboarded person, Administrator) -- the same name a table showed from
+    the Users list. One query for the owners on this page only, never the whole list. Runs on the final rows,
+    so every path (list, search, item search, export) gets it. Only when the request asks for `owner`."""
+    if "owner" not in fields or not rows:
+        return
+    owners = list({r.get("owner") for r in rows if r.get("owner")})
+    if not owners:
+        return
+    # Names are display only: a failed lookup must never fail the list (the page then shows the owner id). On
+    # Postgres a failed query aborts the transaction, so roll back to the savepoint before anything else runs.
+    frappe.db.savepoint("owner_names")
+    try:
+        full_names = {
+            u.name: u.full_name
+            for u in frappe.get_all("Nirmaan Users", filters={"name": ["in", owners]}, fields=["name", "full_name"])
+        }
+    except Exception:
+        frappe.db.rollback(save_point="owner_names")
+        frappe.log_error(title="Data table: owner names lookup failed", message=traceback.format_exc())
+        return
+    for r in rows:
+        owner = r.get("owner")
+        if owner:
+            r["owner_name"] = full_names.get(owner) or owner
+
+
 def get_list_with_count_enhanced_impl(
     doctype, 
     fields, 
@@ -537,8 +565,11 @@ def get_list_with_count_enhanced_impl(
                     pluck=True,
                 )
                 data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
-        
+
         fill_virtual_fields(doctype, data, asked_virtual_fields)
+
+        _add_owner_names(data, parsed_select_fields_str_list)
+
         final_result = {
             "data": data,
             "total_count": total_records,
