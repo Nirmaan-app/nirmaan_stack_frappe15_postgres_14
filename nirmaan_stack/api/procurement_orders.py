@@ -19,29 +19,33 @@ def generate_po_summary(project_id: str):
         fields=["name", "vendor", "vendor_name", "creation", "procurement_request" ,"custom"]
     )
 
-    print(f"DEBUGGPS1: item_data:{po_records}")
-
-
     po_items = []
     custom_items = []
 
+    # Every PO's items in one query, not one full document load per PO (372 POs took ~3 s).
+    items_by_po = {}
+    if po_records:
+        for item in frappe.get_all(
+            "Purchase Order Item",
+            filters={
+                "parenttype": "Procurement Orders",
+                "parentfield": "items",
+                "parent": ("in", [po.name for po in po_records]),
+            },
+            fields=[
+                "parent", "item_id", "quote", "quantity", "received_quantity", "category", "tax", "unit",
+                "item_name", "procurement_package", "tax_amount", "total_amount", "make", "is_dispatched",
+                "billing_status",
+            ],
+            order_by="idx asc",
+            limit_page_length=0,
+        ):
+            items_by_po.setdefault(item.parent, []).append(item)
+
     for po in po_records:
-        # Parse the order_list JSON field to process individual items
-        order_list = frappe.get_doc("Procurement Orders", po.name).items
         is_custom = po.get('custom') == "true"
-        
-        # Fetch the associated Procurement Request to get the work_package (only if not custom)
-        work_package = None
 
-        # if po.get("procurement_request") and not is_custom:
-        #     pr_doc = frappe.get_value("Procurement Requests", po["procurement_request"], "work_package")
-        #     work_package = pr_doc
-       
-        # Process each item in the order_list
-
-        print(f"DEBUGGPS0: item_data:{order_list}")
-
-        for item in order_list:
+        for item in items_by_po.get(po.name, []):
             item_data = {
                 "po_number": po["name"],
                 "vendor_id": po["vendor"],
@@ -62,7 +66,6 @@ def generate_po_summary(project_id: str):
                 "is_dispatched": item.get("is_dispatched", 0),
                 "billing_status": item.get("billing_status"),
             }
-            print(f"DEBUGGPS7: item_data:{item}")
             # Append to the correct list
             if is_custom:
                 custom_items.append(item_data)
