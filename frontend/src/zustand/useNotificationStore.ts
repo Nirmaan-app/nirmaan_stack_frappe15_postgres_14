@@ -148,7 +148,6 @@
 
 // src/zustand/useNotificationStore.ts
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import { FrappeDB } from "frappe-js-sdk/lib/db"; // Import FrappeDB
 
 export interface NotificationType {
@@ -177,11 +176,23 @@ const updateNotificationInDB = async (db: FrappeDB, name: string) => {
     });
 };
 
+/** How many of the newest notifications the store holds; the badge and the "new" dots count within these. */
+export const NOTIFICATION_STORE_LIMIT = 500;
+
+const unreadIn = (notifications: NotificationType[]) => notifications.filter((n) => n.seen === "false").length;
+
+/**
+ * The signed-in person's newest 500 notifications, read and unread (`NewSidebar` loads them with only the 4 fields
+ * the "new" dots read), and the badge: the unread among them. The bell dropdown and the Notifications page load
+ * their own full lists. Kept in memory only.
+ */
 export interface NotificationStateType {
     notifications: NotificationType[];
     notificationsCount: number;
     clear_notifications: () => void;
     add_all_notific_directly: (notifications: NotificationType[]) => void;
+    /** A live change to one notification (`list_update`): add it, or replace the copy held. */
+    upsert_notification: (notification: NotificationType) => void;
     add_new_notification: (notification: NotificationType) => void;
     // Use the correct type for db here
     mark_seen_notification: (db: FrappeDB, notification: NotificationType) => Promise<void>; // Make it async void or Promise<void>
@@ -189,7 +200,6 @@ export interface NotificationStateType {
 }
 
 export const useNotificationStore = create<NotificationStateType>()(
-    persist(
         (set, get) => ({
             notifications: [],
             notificationsCount: 0,
@@ -205,15 +215,27 @@ export const useNotificationStore = create<NotificationStateType>()(
                         notifications: [notification, ...state.notifications],
                         notificationsCount: state.notificationsCount + (notification.seen === "false" ? 1 : 0),
                     }));
-                } else {
-                     // Optional: Handle update if notification exists but content changed?
-                     console.log(`Notification ${notification.name} already exists, skipping add.`);
                 }
             },
             add_all_notific_directly: (notifications: NotificationType[]) => {
                 set({
                     notifications: [...notifications],
-                    notificationsCount: notifications.filter(i => i.seen === "false").length,
+                    notificationsCount: unreadIn(notifications),
+                });
+            },
+
+            // Leaves what a full reload would: the newest 500, and the badge counted within them.
+            upsert_notification: (notification: NotificationType) => {
+                set((state) => {
+                    const held = state.notifications.find((item) => item.name === notification.name);
+                    if (held && held.seen === notification.seen && state.notifications.length <= NOTIFICATION_STORE_LIMIT) {
+                        return {}; // nothing a screen shows changed
+                    }
+                    const notifications = (held
+                        ? state.notifications.map((item) => (item.name === notification.name ? { ...item, ...notification } : item))
+                        : [notification, ...state.notifications]
+                    ).slice(0, NOTIFICATION_STORE_LIMIT);
+                    return { notifications, notificationsCount: unreadIn(notifications) };
                 });
             },
 
@@ -245,7 +267,6 @@ export const useNotificationStore = create<NotificationStateType>()(
 
                     // Then update the DB
                     await updateNotificationInDB(db, notification.name);
-                    console.log(`Notification ${notification.name} marked as seen in DB.`);
 
                 } catch (error) {
                     console.error("Error marking notification as seen: ", error);
@@ -276,10 +297,5 @@ export const useNotificationStore = create<NotificationStateType>()(
                     };
                 });
             }
-        }),
-        {
-            name: 'notifications',
-            storage: createJSONStorage(() => sessionStorage), // Session storage is temporary
-        }
-    )
+        })
 );
