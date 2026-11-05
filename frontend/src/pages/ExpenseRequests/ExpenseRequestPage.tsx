@@ -57,7 +57,7 @@ export const ExpenseRequestPage: React.FC = () => {
 
     const invoice = req.invoice ?? {};
     const hasInvoice = !!invoice.invoice_attachment;
-    // Office Rent: Rent / TDS / Net (#1527), forecast until approved, then the stored record.
+    // Office Rent: Bill / Rent / GST / TDS / Landlord gets (#1527), forecast until approved, then the stored record.
     const tds = shownExpenseTds({
         type: req.type,
         amount: req.standing.amount,
@@ -87,7 +87,7 @@ export const ExpenseRequestPage: React.FC = () => {
                         </span>
                         <ExpenseTdsBreakdown shown={tds} variant="block" className="mt-1 [&_dl]:ml-auto" />
                         {/* What was asked for, when the Expense's amount differs: Accounts corrected it, or
-                            an Office Rent's tax was withheld (story 27: the full rent stays shown). */}
+                            an Office Rent's tax was withheld (story 27: the bill stays shown, #1613). */}
                         {raisedFor !== null && (
                             <div className="text-xs text-muted-foreground">
                                 Raised for {formatToRoundedIndianRupee(raisedFor)}
