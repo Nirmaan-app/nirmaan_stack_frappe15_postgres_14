@@ -97,6 +97,7 @@ import frappe
 from frappe.utils import cint, flt, nowdate
 
 from nirmaan_stack.services import settlement
+from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DOCTYPE
 
 TDS_DOCTYPE = "Payment TDS Deduction"
 #: Set by every server path that records a deduction (`write_deduction`, `expense_tds`): tax is recorded only
@@ -406,7 +407,7 @@ def withheld_expense_bill_sql() -> str:
 	return f"""
 		SELECT d.non_project_expense, d.gross_amount + COALESCE(e.gst_amount, 0) AS bill_amount
 		FROM "tab{TDS_DOCTYPE}" d
-		JOIN "tabNon Project Expenses" e ON e.name = d.non_project_expense
+		JOIN "tab{NON_PROJECT_EXPENSE_DOCTYPE}" e ON e.name = d.non_project_expense
 		WHERE d.non_project_expense IS NOT NULL AND {vendor_borne_sql("d")}
 	"""
 
