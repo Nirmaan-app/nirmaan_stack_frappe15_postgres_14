@@ -34,7 +34,12 @@ Settings`, read through `ai_settings.get_boq_match_settings` / `require_match_se
 doctype default: an empty field refuses with a plain message. The same holds for their prices; the calls-at-once, the
 reply caps (both 32000: the judge model reasons before its short reply, DEV2-S8 J10h median 2,583 output tokens -
 owner answer 1 to DEV2-B3 Q1) and the size guard (`match_max_request_tokens`, 100000: a request whose chars / 2
-estimate passes it is not sent, reason `too_large`, the run goes on) are settings with doctype defaults. A model string
+estimate passes it is not sent, reason `too_large`, the run goes on) are settings with doctype defaults. A LIMIT
+STORED AS 0 OR EMPTY READS ITS DOCTYPE DEFAULT (DEV2-B8, owner 2026-11-06 12:42; production's go-live Single had the
+8 Int fields saved as "0": a Single that already holds a row loads a missing Int as blank and a form save writes 0):
+`ai_settings.MATCH_ZERO_IS_DEFAULT` = the 7 Int limits other than `match_retry_wait_s` (whose 0 means "retry without
+waiting") - a READ-TIME fallback in `get_boq_match_settings`, never a patch, logged in one line naming the filled
+fields; the two switches, the models and the prices are never defaulted (a blank model still refuses). A model string
 in `services/boq_rate_match/` is a defect. (The older `model` field, its `claude-sonnet-4-6` fallback and
 `_DEFAULT_MODEL` serve Suggest / classification and are deliberately left alone, G8.)
 **THERE IS NO COST CAP IN THE PRODUCT (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our
@@ -113,16 +118,22 @@ closed) and an exact payload-key pin reads the live setting (test_rate_master te
 test_07 and `_run_worker_with` pinned in DEV2-B5; test_rate_master's resume driver at :4954 still reads the live switch -
 its trigger only reads, finds no run and writes nothing - open).
 
-**A USER'S MATCH RUN NEVER WAITS FOR A POOL REBUILD (DEV2-B6; DEV2-B5: 440 s of a 481.8 s pass was an inline rebuild
-after the pricing stamp moved).** `match_run.job_pool`: a cached pool file is always USED - a STALE one too (its pricing
-stamp is no longer current, or it is older than 24 h): the run notes `pool stale: <why>` with `stamp_used` /
-`stamp_current` in `usage.pool` (no new field) and ONE background rebuild is queued (`rate_match.queue_pool_rebuild`:
-`pool.rebuild_pool` on `long`, timeout 3600, under the 06:00 job's own id `boq_match_pool_daily_rebuild` with
-deduplicate, so a second stale run or the 06:00 job never queues a twin; it never raises). Only with NO usable file
-(missing, unreadable, another format) is the pool built inline (`pool.ensure_pool` under its one lock); a lock wait that
-times out is the run's `pool not ready: ...` failure. `pool.ensure_pool`, `pool.rebuild_pool` and the 06:00 job are
-unchanged (h2_bench still uses ensure_pool for its own bench pool). A stale pool's rows carry the old pricing stamp's
-rule values until the rebuild lands; targets are always read live.
+**THE POOL IS BUILT ONLY BY THE 06:00 JOB (OR BY HAND, AFTER HOURS); A USER'S MATCH RUN NEVER BUILDS IT AND NEVER
+QUEUES A REBUILD (DEV2-B8, owner 2026-11-06 12:41 "can we also do this at 6Am everyday rather than run time" / 12:42;
+REPLACES DEV2-B6's "one background rebuild": production runs ONE worker for every queue and a build there takes ~20
+minutes - 1,213.4 s on 2026-11-06 - so a daytime rebuild held every background job).** `match_run.job_pool`: a cached
+pool file is USED as it is - a STALE one too (its pricing stamp is no longer current, or it is older than 24 h): the
+run notes `pool stale: <why>` with `stamp_used` / `stamp_current` in `usage.pool`; `rebuild_queued` is always false.
+With NO usable file (missing, unreadable, another format) the run builds nothing and asks nothing (no card call, no
+judge call, no client): every row in scope stores `status "no verdict"` with `no_verdict = "pool not ready: ..."`
+(the page's plain words: "Earlier BoQs are being prepared. Try again in a few minutes."), carried rows stay, and the
+run ends COMPLETE (active=1, the prior active run retired), never halted; `usage.pool.not_ready` holds the reason.
+The run never touches the pool's file lock, so a 06:00 build in progress cannot make it wait. DEV2-B6's
+`rate_match.queue_pool_rebuild` is REMOVED (it had no other caller); the 06:00 job (`daily_pool_rebuild` ->
+`pool.rebuild_pool` on `long`, id `boq_match_pool_daily_rebuild`) and the manual `bench --site <site> execute
+nirmaan_stack.services.boq_rate_match.pool.rebuild_pool` are unchanged; `pool.ensure_pool` stays for h2_bench's own
+bench pool. A stale pool's rows carry the old pricing stamp's rule values until the 06:00 build; targets are always
+read live. Tests: `test_match_run_pool` (B6's "one queued" pins inverted), `test_rate_match.TestQueuePoolRebuild`.
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
@@ -141,6 +152,18 @@ the per-batch part raised once 48 -> 53 so that EVERY size band - 1-20 / 21-100 
 selected-row run stores no pass size (scope_rows is cleared), so size it from the capture log or leave it out. The
 progress modal follows the Suggest phase with "Matching with previously priced BoQs - x of y rows", elapsed and time
 left, ending "done" / "failed: <reason>". Switch OFF: neither appears (the modal proved DOM-equal to the pre-B4 one).
+THE CONFIRM BOX'S MATCHING PART COUNTS THE ROWS THAT NEED A NEW SPEC CARD (DEV2-B8, owner 2026-11-06 12:42; production's
+watched run BOQ-26-00344: 81 rows, 38 new cards, 142 s against a shown 2 minutes). Matching = 49 s + 0.40 s a row +
+2.0 s a row with no valid card (`PACES.estimate_match_*`; a p90 per term, DEV2-B4's method, on the 16 stored dev2 match
+runs + that production run: covered 16 / 17 = 94.1 %, the watched run 157.4 s -> 3 min), rounded up to whole minutes.
+The page asks `rate_match.count_rows_without_card(boq, sheet_name, excel_rows)` (READ ONLY: `cards.plan_sheet` with
+the settings' card model - the same planner the run's card step uses) in the confirm box's open handler for the rows
+the press will read (`RateSuggestProgressModal.suggestReadRows`); until it answers, or if it fails, every row counts
+as needing a card (the safe side). `matchWaitEstimate(rows, paces, rowsWithoutCard)` and
+`rate_match.match_estimate_minutes` are pinned equal (the same cases in vitest and `test_match_estimate`, whose
+17-run fixture proves the coverage); the sentence is unchanged, only its numbers. A card step is waves of parallel
+calls, so a sheet where EVERY row needs a card is over-estimated (361 rows: 16 min against ~3) - cards at commit and
+the one-time fill-in keep that rare. The RUNNING modal's time left still uses B4's 65 s + 0.45 s a row (unchanged).
 
 **THE "PREVIOUSLY PRICED" CARD SHOWS MATCHES, NEVER A VALUE TO USE (owner R-H2AI 2026-11-02 15:21, mockup 15:23; COLOURS
 16:13; G4 (a) / G13 / G14 (a); DEV2-B5).** The page builds the helper as a closure over `get_match_results` (only while
@@ -203,7 +226,12 @@ ONE-TIME CARD FILL-IN (below; checklist v4 section 7: `fill_spec_cards.py --dry`
 Checks first (read-only): worker Node 18.x, a worker on `long`, System
 Settings time_zone Asia/Kolkata, the scheduler on, ~6 GB free for a pool build, the Anthropic key present, no rate-master
 asset in the diff (Deployment Mode does not apply). ROLLBACK: untick `match_enabled` (instant; Suggest unaffected); a
-code revert only if needed; the new doctypes are inert; nothing to undo in the rate master.
+code revert only if needed; the new doctypes are inert; nothing to undo in the rate master. LIVE ON PRODUCTION since
+2026-11-06 (release 2.11.55, develop -> main; Abhishek's go-live answers to checklist v4). Checklist v5
+(`H2_GoLive_Checklist_2026-11-06_v5.md`, the DEV2-B8 slice folder) records what production met - the image holds no
+git (read the image version label), Node 22.23.4 (byte-equal), ONE worker for every queue, all 16 settings typed,
+a pool build ~20 minutes - and its section 8 is the B8 fix release: code only, no migrate, no setting; the check after
+deploy is that a stale-pool daytime run queues no rebuild.
 
 **THE ONE-TIME CARD FILL-IN CARDS EVERY EARLIER PRICED ROW THAT HAS NO VALID CARD, NEWEST BoQs FIRST, WITH CARD CALLS
 ONLY (owner 2026-11-04 12:40-12:45: "build the spec cards of existing BoQs at once without triggering its suggest
