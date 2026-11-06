@@ -29,6 +29,17 @@ PROMPT_DIR = Path(__file__).resolve().parent.parent / ".github" / "pr-review"
 WORKFLOW_NAME = "Claude review"
 BOT_LOGIN = "github-actions[bot]"
 MAX_NEW_FINDINGS = 7
+# An open finding measured 2.5k to 3.1k characters in the dry runs (its list line plus its copy in the hidden
+# state), so 10 open take about 31k of GitHub's 65,536-character comment limit. The rest holds about 50 fixed
+# findings, which keep only their title.
+MAX_OPEN_FINDINGS = 10
+MAX_COMMENT_CHARS = 65536
+
+SECRET_ENV_VARS = ("ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")
+SECRET_PATTERNS = {
+    "an Anthropic key": re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"),
+    "a GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"),
+}
 
 COMMENT_MARKER = "<!-- claude-review -->"
 STATE_PREFIX = "<!-- claude-review-state "
@@ -167,10 +178,12 @@ def _with_status(f: Finding, status: str) -> Finding:
 
 
 def merge(state: ReviewState, previous: list[dict], numbered: list[Finding], keep: dict[str, bool]) -> ReviewState:
-    """The next state: the last run's findings with their new status, plus at most 7 new findings step 2 kept."""
+    """The next state: the last run's findings with their new status, plus the new findings step 2 kept, at most 7
+    and only while fewer than 10 are open. A finding left out is found again on a later run."""
     status = {p["id"]: p["status"] for p in previous}
     carried = [_with_status(f, status.get(f["id"], "open")) if f["status"] == "open" else f for f in state["findings"]]
-    kept = [f for f in numbered if keep.get(f["id"], False)][:MAX_NEW_FINDINGS]
+    room = MAX_OPEN_FINDINGS - sum(1 for f in carried if f["status"] == "open")
+    kept = [f for f in numbered if keep.get(f["id"], False)][:max(0, min(MAX_NEW_FINDINGS, room))]
     return {"version": 1, "run": state["run"] + 1, "findings": carried + kept}
 
 
@@ -360,8 +373,26 @@ def compact_schema(name: str) -> str:
     return text
 
 
+def refuse_secrets(text: str, env: dict[str, str]) -> None:
+    """Refuse text for GitHub that holds this job's credentials or anything shaped like a token."""
+    # Claude's text comes from a run that read untrusted PR content; an injected instruction could make it copy a
+    # credential into what this script posts publicly. The message names what matched, never the value.
+    found = [name for name in SECRET_ENV_VARS if len(env.get(name) or "") >= 8 and env[name] in text]
+    found += [label for label, pattern in SECRET_PATTERNS.items() if pattern.search(text)]
+    if found:
+        raise ValueError(f"refusing to post to GitHub: the text holds {', '.join(found)}")
+
+
+def check_comment_size(body: str) -> None:
+    """Refuse a comment GitHub would reject for its length."""
+    if len(body) >= MAX_COMMENT_CHARS:
+        raise ValueError(f"the review comment is {len(body)} characters; GitHub takes fewer than {MAX_COMMENT_CHARS}")
+
+
 def gh(args: list[str], payload: dict | None = None) -> str:
-    """Run gh; a failure ends the step with gh's own message."""
+    """Run gh; a failure ends the step with gh's own message. Every write to GitHub sends a payload through here."""
+    if payload is not None:
+        refuse_secrets(json.dumps(payload, ensure_ascii=False), dict(os.environ))
     result = subprocess.run(["gh", *args], input=json.dumps(payload) if payload is not None else None,
                             capture_output=True, text=True)
     if result.returncode != 0:
@@ -387,12 +418,13 @@ def fetch_review_comment(repo: str, number: int) -> dict | None:
     """The bot's review comment on the PR, if it has one."""
     pages = json.loads(gh(["api", "--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments"]))
     mine = [c for page in pages for c in page
-            if c["user"]["login"] == BOT_LOGIN and c["body"].startswith(COMMENT_MARKER)]
+            if (c.get("user") or {}).get("login") == BOT_LOGIN and (c.get("body") or "").startswith(COMMENT_MARKER)]
     return mine[-1] if mine else None
 
 
 def save_comment(repo: str, number: int, existing: dict | None, body: str) -> None:
     """Edit the review comment, or create it on the first run."""
+    check_comment_size(body)
     if existing:
         gh(["api", "--method", "PATCH", f"repos/{repo}/issues/comments/{existing['id']}", "--input", "-"], {"body": body})
     else:
@@ -455,6 +487,8 @@ def cmd_publish(dry_run: bool) -> None:
     new_state = merge(state, review["previous"], number_findings(review["findings"], state), keep)
     comment_body = render_comment(pr["author"]["login"], new_state, checks_from_pr(pr), run_url)
     pr_body = rewrite_body(review["description"], pr.get("body"))
+    refuse_secrets(comment_body + pr_body, dict(os.environ))
+    check_comment_size(comment_body)
     if dry_run:
         _write_dry_run(comment_body, pr_body)
         return
@@ -464,8 +498,10 @@ def cmd_publish(dry_run: bool) -> None:
 
 def cmd_fail(dry_run: bool) -> None:
     repo, number, run_url = _env()
+    pr = fetch_pr(repo, number)
     comment = fetch_review_comment(repo, number)
-    body = render_comment("", parse_state(comment and comment["body"]), [], run_url, failed=True)
+    body = render_comment(pr["author"]["login"], parse_state(comment and comment["body"]), checks_from_pr(pr), run_url,
+                          failed=True)
     if dry_run:
         _write_dry_run(body, None)
         return
@@ -489,7 +525,10 @@ def main() -> None:
     parser.add_argument("command", choices=COMMANDS)
     parser.add_argument("--dry-run", action="store_true", help="write nothing to GitHub")
     args = parser.parse_args()
-    COMMANDS[args.command](args.dry_run)
+    try:
+        COMMANDS[args.command](args.dry_run)
+    except ValueError as error:
+        sys.exit(f"{args.command}: {error}")
 
 
 if __name__ == "__main__":

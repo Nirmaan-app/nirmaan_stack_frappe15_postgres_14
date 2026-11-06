@@ -11,6 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pr_review import (  # noqa: E402
+    MAX_COMMENT_CHARS,
+    check_comment_size,
     checks_from_pr,
     compact_schema,
     empty_state,
@@ -19,6 +21,7 @@ from pr_review import (  # noqa: E402
     number_findings,
     parse_review_output,
     parse_state,
+    refuse_secrets,
     render_brief,
     render_comment,
     rewrite_body,
@@ -106,6 +109,31 @@ class Merging(unittest.TestCase):
         added = [f["tier"] for f in merged["findings"] if f["id"] != "F0"]
         self.assertEqual(added, ["must", "must", "should", "should", "should", "pre", "pre"])
 
+    def test_new_findings_join_only_while_fewer_than_ten_are_open(self):
+        state = state_with(*[shown(f"F{i}", "pre") for i in range(1, 9)], shown("F9", status="fixed"))
+        numbered = number_findings([raw_finding("pre"), raw_finding("must"), raw_finding("should")], state)
+        merged = merge(state, [], numbered, keep_all(numbered))
+        open_findings = [f for f in merged["findings"] if f["status"] == "open"]
+        self.assertEqual(len(open_findings), 10)
+        self.assertEqual([f["tier"] for f in open_findings[8:]], ["must", "should"])
+
+    def test_no_new_finding_joins_when_ten_are_already_open(self):
+        state = state_with(*[shown(f"F{i}") for i in range(1, 12)])
+        numbered = number_findings([raw_finding("must")], state)
+        merged = merge(state, [], numbered, keep_all(numbered))
+        self.assertEqual([f["id"] for f in merged["findings"]], [f"F{i}" for i in range(1, 12)])
+
+    def test_ten_open_findings_and_thirty_fixed_ones_fit_githubs_limit(self):
+        # As long as the longest finding the dry runs produced, about 1,600 characters per rendering.
+        long = {**raw_finding(), "title": "t" * 150, "why": "w" * 650, "fix": "f" * 550, "could_be_wrong_if": "c" * 200}
+        state = empty_state()
+        for _ in range(3):
+            numbered = number_findings([long] * 7, state)
+            state = merge(state, [], numbered, keep_all(numbered))
+        self.assertEqual(sum(f["status"] == "open" for f in state["findings"]), 10)
+        state["findings"] += [{**shown(f"F{i}", status="fixed"), "title": "t" * 200} for i in range(100, 130)]
+        check_comment_size(render_comment("asha", state, OK_CHECKS, RUN_URL))
+
 
 class Comment(unittest.TestCase):
     def test_the_headline_tags_the_author_and_counts_blocking_items(self):
@@ -152,6 +180,31 @@ class Comment(unittest.TestCase):
         self.assertIn("F1", body)
         self.assertNotIn("Review run", body)
         self.assertEqual(parse_state(body), state)
+
+
+class Limits(unittest.TestCase):
+    def test_a_comment_at_githubs_limit_is_refused(self):
+        check_comment_size("x" * (MAX_COMMENT_CHARS - 1))
+        with self.assertRaisesRegex(ValueError, "65536 characters"):
+            check_comment_size("x" * MAX_COMMENT_CHARS)
+
+    def test_text_holding_this_jobs_credentials_is_refused_without_echoing_them(self):
+        env = {"ANTHROPIC_API_KEY": "plain-key-value-123", "GH_TOKEN": "tok-abcdef-987", "GITHUB_TOKEN": ""}
+        with self.assertRaises(ValueError) as refused:
+            refuse_secrets("## Summary\n\nplain-key-value-123 and tok-abcdef-987", env)
+        message = str(refused.exception)
+        self.assertIn("ANTHROPIC_API_KEY", message)
+        self.assertIn("GH_TOKEN", message)
+        self.assertNotIn("plain-key-value-123", message)
+
+    def test_token_shaped_strings_are_refused(self):
+        for leak in ("sk-ant-api03-" + "a" * 40, "ghs_" + "A1" * 18, "ghp_" + "b" * 36, "github_pat_" + "c_" * 20):
+            with self.assertRaises(ValueError, msg=leak[:8]):
+                refuse_secrets(f"see {leak} here", {})
+
+    def test_ordinary_review_text_passes(self):
+        refuse_secrets("Reads `GH_TOKEN` from the env; the `ghs_` prefix marks an installation token. sk-ant- keys "
+                       "are Anthropic's.", {"GITHUB_TOKEN": "", "GH_TOKEN": "short"})
 
 
 class Body(unittest.TestCase):
