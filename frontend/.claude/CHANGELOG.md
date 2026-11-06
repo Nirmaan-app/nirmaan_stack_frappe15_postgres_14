@@ -4,6 +4,19 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-06 — Generate Invoice: an amount between what is paid and the Work Order
+
+Backend and rule: `../../.claude/CHANGELOG.md` (same date), ADR-0040 Amendment C.
+
+- `ServiceRequests/hooks/useGeneratedInvoices.ts`: `left` → `min_amount` (paid, not invoiced yet) and
+  `max_amount` (what is left of the WO amount).
+- `service-request/components/GeneratedInvoices.tsx`: Generate refuses an amount above `max_amount` ("at most")
+  or below `min_amount` ("at least … paid (incl. TDS) but not invoiced yet"); the help line shows the range, or
+  "Bill up to ₹Y … Everything paid is already invoiced" when the least is ₹0. Put Paid fills `min_amount`.
+- A browser still holding the old bundle reads no `left` and refuses every amount until reloaded.
+
+---
+
 ## 2026-11-06 — Payment Source column; GST Requests reject and status-pill fixes
 
 Branch `fixes/06-11`. Backend: `../../.claude/CHANGELOG.md` (same date).

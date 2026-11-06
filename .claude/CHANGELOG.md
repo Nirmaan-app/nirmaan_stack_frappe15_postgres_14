@@ -4,6 +4,33 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-06: Generated invoice amount — at least what is paid, at most the Work Order
+
+**Summary** (branch `fixes/06-11`, uncommitted): a WO Generated Invoice now bills **at least** the Amount Paid
+(incl. TDS) not yet invoiced and **at most** what is left of the Work Order's amount, so an invoice may run
+ahead of payment and a Work Order not fully paid may take its FINAL (owner, ADR-0040 Amendment C, GLOSSARY
+*Generated invoice*). Before, the most was the paid amount and there was no least. No schema change, no patch.
+
+| File | Change |
+|---|---|
+| `services/wo_generated_invoices.py` | `billable_left` → `billable_range(total, paid, billed)` = (least, most); `is_final` docstring |
+| `api/service_requests/generated_invoices.py` | state returns `min_amount`, `max_amount` (no `left`); `generate_invoice` refuses "at most ₹Y" / "at least ₹X" |
+| `services/test_wo_generated_invoices.py` | `TestBillableRange` (incl. the owner's WO ₹10,000 example) |
+| `api/service_requests/test_generated_invoices.py` | `_pay` helper; fixtures that set `paid` only to pass the old cap start unpaid; `TestAmountLimit` / `TestFinal` rewritten for the range; FINAL before fully paid allowed |
+| `doctype/service_requests/test_finalized_work_order.py` | paid 10,000 for a 10,000 invoice |
+| `GLOSSARY.md`, ADR-0040 Amdt C, `domain/service-requests.md` | rule text |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+### Verification
+
+- `services.test_wo_generated_invoices` 22/22; `api.service_requests.test_generated_invoices` 68/68;
+  `test_finalized_work_order` 15/15 (that module sends real push notifications to real users while it runs).
+- vitest `utils/generatedInvoices.test.ts` 15/15; tsc on the changed files: no errors in them.
+- NOT browser-walked.
+
+---
+
 ## 2026-11-06: Payment Source column; GST request reject fixes; WO Desk print
 
 **Summary** (branch `fixes/06-11`, on `upstream/develop` `f41b4abbc`, unpushed): the Payments queue shows which
