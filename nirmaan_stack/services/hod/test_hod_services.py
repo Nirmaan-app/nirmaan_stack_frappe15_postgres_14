@@ -256,8 +256,10 @@ class TestHeaderLogos(unittest.TestCase):
 		# nothing picked -> Nirmaan alone, exactly as the header
 		self.assertEqual([c["role"] for c in header_logos.stakeholder_cards(self.SETTING, "")], ["mep_contractor"])
 		self.assertEqual([c["role"] for c in header_logos.stakeholder_cards(None, None)], ["mep_contractor"])
-		# a picked role that lost its name or logo drops out, as on the header
-		self.assertEqual([c["role"] for c in header_logos.stakeholder_cards(self.SETTING, "manager\nclient")], ["client"])
+		# a picked role that lost its name or logo drops out, as on the header -- and Nirmaan is there unpicked
+		self.assertEqual(
+			[c["role"] for c in header_logos.stakeholder_cards(self.SETTING, "manager\nclient")], ["client", "mep_contractor"]
+		)
 
 	def test_nirmaan_is_always_selectable_and_never_waits_on_an_upload(self):
 		"""Owner 2026-09-25: the MEP row uses Nirmaan's own logo -- the SAME url the TDS report falls
@@ -286,11 +288,28 @@ class TestHeaderLogos(unittest.TestCase):
 		# even with no TDS Setting at all
 		self.assertEqual([x["role"] for x in header_logos.header_logos({}, "")], ["mep_contractor"])
 
+	def test_nirmaan_prints_whatever_is_picked(self):
+		"""Owner 2026-10-16: Nirmaan's box is ticked and locked -- a pick without it (saved before the lock,
+		or sent by hand) still prints Nirmaan, first, so the seal always has its column."""
+		self.assertEqual(
+			[x["role"] for x in header_logos.header_logos(self.SETTING, "gc_contractor")],
+			["mep_contractor", "gc_contractor"],
+		)
+		self.assertEqual(
+			[x["role"] for x in header_logos.header_logos(self.SETTING, "client\narchitect")],
+			["mep_contractor", "client", "architect"],
+		)
+		# ticking it too changes nothing
+		self.assertEqual(
+			header_logos.header_logos(self.SETTING, "mep_contractor\ngc_contractor"),
+			header_logos.header_logos(self.SETTING, "gc_contractor"),
+		)
+
 	def test_a_pick_is_narrowed_to_what_is_still_selectable(self):
 		# the PM was ticked, then its name went away: it stops printing rather than leaving a gap.
 		self.assertEqual(
 			[x["role"] for x in header_logos.header_logos(self.SETTING, "manager\nclient")],
-			["client"],
+			["mep_contractor", "client"],
 		)
 
 	def test_print_order_is_fixed_not_pick_order(self):
@@ -300,8 +319,8 @@ class TestHeaderLogos(unittest.TestCase):
 		)
 
 	def test_what_prints_carries_its_label_name_and_logo(self):
-		first = header_logos.header_logos(self.SETTING, "gc_contractor")[0]
-		self.assertEqual(first, {
+		gc = next(x for x in header_logos.header_logos(self.SETTING, "gc_contractor") if x["role"] == "gc_contractor")
+		self.assertEqual(gc, {
 			"role": "gc_contractor", "label": "GC Contractor",
 			"name": "ANJ Group", "logo": "/files/anj.png",
 		})

@@ -20,12 +20,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import {
-  AtticForm,
-  EscalationForm,
-  InventoryForm,
-  KeyListForm,
-} from "./forms/TableForms";
+import { InventoryForm } from "./forms/InventoryForm";
+import { AtticForm, EscalationForm, KeyListForm } from "./forms/TableForms";
 import {
   CompletionForm,
   LibraryForm,
@@ -42,6 +38,8 @@ import {
   compactMaintenanceChecks,
   compactRows,
   compactTextMap,
+  inventoryMatrixOf,
+  inventoryProblem,
 } from "./hodRules";
 import type { HodDocumentMeta, HodRow } from "./types";
 
@@ -77,6 +75,9 @@ function finalize(
   if (key === "key_list") out.rows = compactRows(asObjectList(out.rows));
   if (key === "attic_stock_list") out.rows = asObjectList(out.rows);
   if (key === "inventory_list") {
+    // The dialog fills it location by location (`entries`); what is stored and printed is the matrix.
+    Object.assign(out, inventoryMatrixOf(out));
+    delete out.entries;
     out.locations = asObjectList<{ name?: string; qty?: unknown[] }>(
       out.locations,
     ).filter(
@@ -184,6 +185,16 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
   const editable = !readOnly && !isFromApp;
 
   const save = async () => {
+    const problem =
+      meta.key === "inventory_list" ? inventoryProblem(draft) : "";
+    if (problem) {
+      toast({
+        title: "Cannot mark as done",
+        description: problem,
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       await onSave(
