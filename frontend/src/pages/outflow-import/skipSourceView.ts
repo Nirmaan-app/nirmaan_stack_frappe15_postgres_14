@@ -12,6 +12,7 @@ import {
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_BY_HAND,
+    SKIP_KIND_CASHBOOK_REFUND_PAIR,
     SKIP_KIND_INFLOW_RECORDED,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
@@ -32,6 +33,11 @@ export interface SkipFactGroup {
 export interface SkipSourceSummary {
     /** One short line under the kind in the cell: the document reference. `""` when there is none. */
     reference: string;
+    /**
+     * The reference line wraps instead of being cut off (#1602): a "Paired with <Txn Id>" is longer than the
+     * column, and the id must be readable without a hover. Every other kind's line truncates as before.
+     */
+    referenceWraps: boolean;
     /** The hover card's body, in order. The reason sentence is always the last group. */
     groups: SkipFactGroup[];
 }
@@ -133,6 +139,11 @@ export const skipSourceSummary = (row: OutflowImportRow): SkipSourceSummary => {
             title: "",
             facts: facts(["By", row.decided_by], ["On", day(row.decided_at)]),
         });
+    } else if (kind === SKIP_KIND_CASHBOOK_REFUND_PAIR) {
+        // #1602: the other line of the pair, kept on the line at staging. A line paired before then has
+        // none, and shows the tag and the hover as it always did; the sentence is never parsed for it.
+        const partner = (row.cashbook_refund_partner ?? "").trim();
+        reference = partner ? `Paired with ${partner}` : "";
     } else if (kind === SKIP_KIND_NO_AMOUNT) {
         groups.push({ title: "", facts: facts(["Amount", "Nothing was debited"]) });
     }
@@ -144,5 +155,9 @@ export const skipSourceSummary = (row: OutflowImportRow): SkipSourceSummary => {
         groups.push({ title: "", facts: facts([kind === SKIP_KIND_BY_HAND ? "Reason" : "Why", reason]) });
     }
 
-    return { reference, groups: groups.filter((g) => g.title || g.facts.length) };
+    return {
+        reference,
+        referenceWraps: kind === SKIP_KIND_CASHBOOK_REFUND_PAIR,
+        groups: groups.filter((g) => g.title || g.facts.length),
+    };
 };

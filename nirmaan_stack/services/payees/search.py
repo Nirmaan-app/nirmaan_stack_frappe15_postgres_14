@@ -24,9 +24,9 @@ _LIKE_SPECIALS = re.compile(r"([\\%_])")
 MIN_SEARCH_LENGTH = 2
 
 _SEARCH_SQL = """
-    SELECT p.name, p.account_name, p.account_number, p.ifsc, p.bank_name, p.bank_branch
+    SELECT p.name, p.account_name, p.account_number, p.ifsc, p.bank_name, p.bank_branch, p.payee_type
     FROM "tabPayee" p
-    WHERE {match}
+    WHERE ({match}){types}
     ORDER BY p.account_name ASC, p.name ASC
     LIMIT %(limit)s
 """
@@ -36,10 +36,11 @@ def _like(text: str) -> str:
     return "%" + _LIKE_SPECIALS.sub(r"\\\1", text) + "%"
 
 
-def find_payees(text: str | None, limit: int = 8) -> list[dict]:
+def find_payees(text: str | None, limit: int = 8, exclude_type: str | None = None) -> list[dict]:
     """Payees whose holder name contains `text`, or whose account number contains it (in identity
-    form), by holder name: `[{name, account_name, account_number, ifsc, bank_name, bank_branch}]`.
-    Text shorter than `MIN_SEARCH_LENGTH` finds nothing."""
+    form), by holder name: `[{name, account_name, account_number, ifsc, bank_name, bank_branch, payee_type}]`.
+    Text shorter than `MIN_SEARCH_LENGTH` finds nothing. `exclude_type` leaves out Payees of that
+    `payee_type` (a Payee with no type is kept)."""
     text = " ".join(str(text or "").split())
     if len(text) < MIN_SEARCH_LENGTH:
         return []
@@ -49,4 +50,8 @@ def find_payees(text: str | None, limit: int = 8) -> list[dict]:
     if account and account != "0" and re.fullmatch(r"[0-9A-Za-z]+", account):
         params["account"] = _like(account.upper())
         match.append("p.normalized_account LIKE %(account)s")
-    return frappe.db.sql(_SEARCH_SQL.format(match=" OR ".join(match)), params, as_dict=True)
+    types = ""
+    if exclude_type:
+        params["exclude_type"] = exclude_type
+        types = " AND COALESCE(p.payee_type, '') <> %(exclude_type)s"
+    return frappe.db.sql(_SEARCH_SQL.format(match=" OR ".join(match), types=types), params, as_dict=True)

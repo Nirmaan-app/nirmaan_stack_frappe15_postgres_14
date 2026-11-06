@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canBulkDownloadVendor } from "@/constants/roles";
-import { BULK_DOC_TYPES, MENU_GROUPS, allowedBulkTypes, compareMtcs, invoiceSubTypesFor, menuGroups, scopeFacet } from "./bulkDownloadTypes";
+import { canBulkDownloadAllProjects, canBulkDownloadVendor } from "@/constants/roles";
+import {
+    ALL_SCOPE_MAX_ITEMS, ALL_SCOPE_PAGE_SIZE, BULK_DOC_TYPES, MENU_GROUPS, allowedBulkTypes, bulkTableLimits, compareMtcs,
+    invoiceSubTypesFor, isOverSelectionLimit, menuGroups, scopeFacet, scopeFacets, scopeNoun,
+} from "./bulkDownloadTypes";
 
 const ADMIN = "Nirmaan Admin Profile";
 const PM = "Nirmaan Project Manager Profile";
@@ -25,8 +28,8 @@ describe("allowedBulkTypes — project scope (the project tab)", () => {
         }
     });
 
-    it("keeps the existing PMO rule: client invoices go, vendor invoices and vouchers stay", () => {
-        expect(allowedBulkTypes(project, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher"]);
+    it("gives PMO every type, client invoices included (PMO views all client money, owner 2026-10-27)", () => {
+        expect(allowedBulkTypes(project, PMO)).toEqual(allowedBulkTypes(project, ADMIN));
     });
 
     it("ignores a vendor type in project scope", () => {
@@ -205,5 +208,113 @@ describe("menuGroups — the Quick Download menu's sections", () => {
             { label: "Orders", types: ["WO"] },
             { label: "Finance", types: ["Invoice", "WOPaymentVoucher"] },
         ]);
+    });
+});
+
+describe("the all scope (Reports > Bulk Download: every project, no picker)", () => {
+    const all = { kind: "all" as const };
+
+    it("offers every type to Admin and Accountant: no vendor-type rule, Client Invoices kept", () => {
+        expect(allowedBulkTypes(all, ADMIN)).toEqual([...BULK_DOC_TYPES]);
+        expect(allowedBulkTypes(all, ACCOUNTANT)).toEqual([...BULK_DOC_TYPES]);
+    });
+
+    it("applies the same role rules as the project tab, plus Porter Invoices (PM: no finance types at all)", () => {
+        expect(allowedBulkTypes(all, PM)).toEqual(["PO", "WO", "DC", "MIR", "DN", "MTC"]);
+        expect(allowedBulkTypes(all, PMO)).toEqual([...BULK_DOC_TYPES]);
+        for (const role of [ADMIN, PMO, ACCOUNTANT]) {
+            expect(allowedBulkTypes(all, role), role).toEqual([...allowedBulkTypes(project, role), "PorterInvoice"]);
+        }
+        expect(allowedBulkTypes(all, PM)).toEqual(allowedBulkTypes(project, PM));
+    });
+
+    it("ignores a vendor type (there is no single vendor)", () => {
+        expect(allowedBulkTypes({ kind: "all", vendorType: "Service" }, ADMIN)).toEqual([...BULK_DOC_TYPES]);
+    });
+
+    it("offers all three invoice choices", () => {
+        expect(invoiceSubTypesFor(all)).toEqual(["All Invoices", "PO Invoices", "WO Invoices"]);
+    });
+
+    it("filters on Project AND Vendor; the project and vendor tabs keep their single facet", () => {
+        expect(scopeFacets("all")).toEqual({ columns: { project: "Project", vendor: "Vendor" }, title: "Project or Vendor" });
+        expect(scopeFacets("project")).toEqual({ columns: { vendor: "Vendor" }, title: "Vendor" });
+        expect(scopeFacets("vendor")).toEqual({ columns: { project: "Project" }, title: "Project" });
+    });
+
+    it("names the scope in empty messages", () => {
+        expect(scopeNoun("project")).toBe("this project");
+        expect(scopeNoun("vendor")).toBe("this vendor");
+        expect(scopeNoun("all")).toBe("your projects");
+    });
+
+    it("pages and caps only the all scope; the project and vendor tabs keep no page size and no limit", () => {
+        expect(bulkTableLimits("all")).toEqual({ pageSize: ALL_SCOPE_PAGE_SIZE, maxSelect: ALL_SCOPE_MAX_ITEMS });
+        expect(bulkTableLimits("project")).toEqual({});
+        expect(bulkTableLimits("vendor")).toEqual({});
+        expect(ALL_SCOPE_MAX_ITEMS).toBe(500); // = bulk_download.ALL_SCOPE_MAX_ITEMS on the server
+    });
+
+    it("blocks a selection only ABOVE the limit (exactly 500 downloads)", () => {
+        const limits = bulkTableLimits("all");
+        expect(isOverSelectionLimit(0, limits)).toBe(false);
+        expect(isOverSelectionLimit(500, limits)).toBe(false);
+        expect(isOverSelectionLimit(501, limits)).toBe(true);
+        expect(isOverSelectionLimit(100000, {})).toBe(false);
+    });
+});
+
+describe("canBulkDownloadAllProjects — who sees Reports > Bulk Download (owner: Admin and Accountant only)", () => {
+    it("lets in Admin, Accountant and Accountant Lead (Lead mirrors Accountant)", () => {
+        for (const role of ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"]) {
+            expect(canBulkDownloadAllProjects(role, "someone@nirmaan.app"), role).toBe(true);
+        }
+    });
+
+    it("keeps out every other profile, the ones that see other Reports tabs included", () => {
+        for (const role of [
+            "Nirmaan PMO Executive Profile",
+            "Nirmaan Procurement Executive Profile",
+            "Nirmaan Procurement Lead Profile",
+            "Nirmaan Material Procurement Executive Profile",
+            "Nirmaan Service Procurement Executive Profile",
+            "Nirmaan Project Lead Profile",
+            "Nirmaan Project Manager Profile",
+            "Nirmaan Estimates Executive Profile",
+            "Nirmaan HR Executive Profile",
+            "Nirmaan HR Lead Profile",
+            "Nirmaan Design Executive Profile",
+            "Nirmaan Billing Executive Profile",
+            "Nirmaan Sales Executive Profile",
+        ]) {
+            expect(canBulkDownloadAllProjects(role, "someone@nirmaan.app"), role).toBe(false);
+        }
+    });
+
+    it("refuses the role's Loading / Error placeholders and an empty role, and lets in Administrator", () => {
+        for (const role of ["Loading", "Error", "", null, undefined]) {
+            expect(canBulkDownloadAllProjects(role, "someone@nirmaan.app")).toBe(false);
+        }
+        expect(canBulkDownloadAllProjects("", "Administrator")).toBe(true);
+    });
+});
+
+describe("Porter Invoices — Report Bulk Download only", () => {
+    it("is offered only in the all scope, never on a project or any vendor", () => {
+        expect(allowedBulkTypes({ kind: "all" }, ADMIN)).toContain("PorterInvoice");
+        expect(allowedBulkTypes({ kind: "all" }, ACCOUNTANT)).toContain("PorterInvoice");
+        expect(allowedBulkTypes(project, ADMIN)).not.toContain("PorterInvoice");
+        for (const type of ["Material", "Service", "Material & Service", undefined]) {
+            expect(allowedBulkTypes(vendor(type), ADMIN), String(type)).not.toContain("PorterInvoice");
+        }
+    });
+
+    it("is a Finance card, last", () => {
+        expect(MENU_GROUPS.find((g) => g.label === "Finance")!.types.at(-1)).toBe("PorterInvoice");
+        expect(BULK_DOC_TYPES.at(-1)).toBe("PorterInvoice");
+    });
+
+    it("is never offered to a Project Manager", () => {
+        expect(allowedBulkTypes({ kind: "all" }, PM)).not.toContain("PorterInvoice");
     });
 });

@@ -113,14 +113,26 @@ describe("ELR-3a AC1 -- the moved rules price E1-E7 exactly as v68's literals do
   it.each(FIX.rows.map((r) => [r.id, r] as const))("%s: identical to HEAD on v68 -- figures, every section line, the circuit-length note", (_id, r) => {
     const got = computeRow(MOVED, withInputs(ITEMS), r);
     expect(got.values).toEqual(r.expect.values);
-    expect(got.sections).toEqual(r.expect.sections);          // owner Q2 a: the nine inputs add NO working line
+    // INVERTED at ELR-4c (owner R-ELR2 (c) "one line per input used", P6 "Q1 b") by mechanical authority. BEFORE:
+    // toEqual(r.expect.sections) -- owner Q2 a, "the nine inputs add NO working line". NOW: every other line is byte-equal
+    // and in order, and the only lines added are the "(Pricing Input)" lines of the inputs the row used.
+    const withoutUsed = got.sections.map((s: any) => ({ ...s, rows: s.rows.filter((l: string) => !l.endsWith(" (Pricing Input)")) }));
+    expect(withoutUsed).toEqual(r.expect.sections);
     expect(got.note).toEqual(r.expect.circuit_length_note);   // owner Q1 a: "15 + (2 - 1) x 5", never "base ... per_extra"
   });
   it("E2 in words: 2,463 / 497.8 and 'Worked out: 15 + (2 - 1) x 5 = 20 m'", () => {
     const got = computeRow(MOVED, withInputs(ITEMS), FIX.rows[1]);
     expect(got.values).toEqual({ supply_rate: 2463, install_rate: 497.8, combined_rate: 2960.8 });
     expect(got.note).toEqual([{ kind: "landed", how: "Worked out: 15 + (2 - 1) x 5 = 20 m" }]);
-    expect(got.sections.flatMap((s: any) => s.rows).some((l: string) => /circuit length|stretch|Conduit fill|pi_/.test(l))).toBe(false);
+    // INVERTED at ELR-4c (owner R-ELR2 (c), P6 "Q1 b") by mechanical authority. BEFORE: no line matched
+    // /circuit length|stretch|Conduit fill|pi_/. NOW: E2 (2 points, formula) shows the two lengths and its fill, each named
+    // by the input's own name with "(Pricing Input)"; still no internal id and no stretch (circuit wiring not included).
+    const rows = got.sections.flatMap((s: any) => s.rows);
+    expect(rows.some((l: string) => /pi_/.test(l))).toBe(false);
+    expect(rows.filter((l: string) => /circuit length|stretch|Conduit fill/.test(l)).every((l: string) => l.endsWith(" (Pricing Input)"))).toBe(true);
+    expect(rows).toContain("Point wiring - circuit length of the first point = 15 m (Pricing Input)");
+    expect(rows).toContain("Point wiring - circuit length per further point = 5 m (Pricing Input)");
+    expect(rows.some((l: string) => /stretch/.test(l))).toBe(false);
   });
 });
 

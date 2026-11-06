@@ -59,3 +59,42 @@ def expense_reviewer(doc) -> str | None:
     if not request_id:
         return None
     return frappe.db.get_value("Expense Request", request_id, "reviewed_by") or None
+
+
+#: Set by `reimbursements.convert.create_expense` on the one insert allowed to carry `reimbursement`. Read here (to
+#: route by the claim's approver) and by `reimbursements.expense_link.guard_link`. A server-side doc flag: no client
+#: can set it. One constant for both, so they can't drift apart (code review, 2026-10-23).
+REIMBURSEMENT_APPROVAL_FLAG = "from_reimbursement_approval"
+
+#: Set by `reimbursements.convert.create_expense`, beside `REIMBURSEMENT_APPROVAL_FLAG`, when the claim's approval
+#: leaves its expense waiting for L1: HR approved it above the monthly reimbursement limit (ADR-0040 Amendment B,
+#: `reimbursements.rules.approval_needs_l1`). Read by `routing_skips_auto`.
+REIMBURSEMENT_NEEDS_L1_FLAG = "reimbursement_needs_l1"
+
+
+def routing_raiser(doc) -> str | None:
+    """Whose level decides a NEW expense row's approval path (`expense_decision.apply_starting_status`).
+
+    `expense_raiser` for every row, except one created from an approved Reimbursement (ADR-0040): there it is
+    the person who APPROVED the claim, so a step they already hold is not asked again (HR's claims fall in the
+    auto band; an Admin's approval clears L1; the CEO's clears both). `expense_raiser` itself still answers
+    "who raised it" with the claimant, who is the row's owner.
+    """
+    claim = doc.get("reimbursement")
+    # Only on the insert the approval step itself makes (`convert.APPROVAL_FLAG`, a server-side flag): a
+    # `reimbursement` typed into any other insert must never lend it the claim approver's level (code review,
+    # 2026-10-23). `expense_link.guard_link` refuses such an insert anyway; this keeps routing safe on its own.
+    if claim and doc.flags.get(REIMBURSEMENT_APPROVAL_FLAG):
+        approver = frappe.db.get_value("Reimbursement", claim, "approved_by")
+        if approver:
+            return approver
+    return expense_raiser(doc)
+
+
+def routing_skips_auto(doc) -> bool:
+    """Whether a NEW expense row skips the auto-approve band (`expense_decision.apply_starting_status`).
+
+    True only on the insert an HR approval above the monthly reimbursement limit makes (ADR-0040 Amendment B):
+    that expense waits for L1 even under Rs 15,000. Both flags are server-side, so no client can set them.
+    """
+    return bool(doc.flags.get(REIMBURSEMENT_APPROVAL_FLAG) and doc.flags.get(REIMBURSEMENT_NEEDS_L1_FLAG))

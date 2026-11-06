@@ -47,6 +47,8 @@ import { isProcurementProfile } from "@/constants/roles";
 import { PorterBadge } from "@/components/common/PorterExpense";
 import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
+import { invoiceRefExportText, noInvoiceNote } from "@/utils/expenses/noInvoiceView";
+import { NoInvoiceNote } from "@/components/common/NoInvoiceNote";
 
 export interface GetProjectExpenseColumnsOptions {
   statusTab: string;
@@ -333,19 +335,24 @@ export const getProjectExpenseColumns = ({
     cell: ({ row }) => {
       const ref = row.original.invoice_ref;
       const attachment = invoiceAttachmentUrl("Project Expenses", row.original);
-      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab).
-      if (invoiceRefClickable && attachment && ref) {
+      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab). An invoice with
+      // no ref (a Cashbook spend's copied bill, #1591) still gets the link, worded "View invoice".
+      if (invoiceRefClickable && attachment) {
         return (
           <a
             href={SITEURL + attachment}
             target="_blank"
             rel="noreferrer"
-            title={`Open invoice ${ref}`}
+            title={ref ? `Open invoice ${ref}` : "Open invoice"}
             className="block truncate font-medium text-blue-600 underline hover:text-blue-800"
           >
-            {ref}
+            {ref || "View invoice"}
           </a>
         );
+      }
+      // An expense marked No invoice: who, when and why, instead of the ref (story 32).
+      if (!ref && noInvoiceNote(row.original, getUserName)) {
+        return <NoInvoiceNote expense={row.original} userName={getUserName} />;
       }
       return (
         <div className="font-medium truncate" title={ref}>
@@ -354,7 +361,7 @@ export const getProjectExpenseColumns = ({
       );
     },
     meta: {
-      exportValue: (row: ProjectExpenses) => row.invoice_ref || "--",
+      exportValue: (row: ProjectExpenses) => invoiceRefExportText(row, getUserName),
     },
   };
 

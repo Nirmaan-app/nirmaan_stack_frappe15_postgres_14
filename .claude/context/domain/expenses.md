@@ -24,7 +24,10 @@ Both share one approval lifecycle and are entered/managed together in a single u
 - **The amount rule is NOT owned here.** It lives in `services/approval_tiers.py` (pure,
   mirrored by `frontend/src/utils/approvalTiers.ts` and pinned to it by a parity test that
   reads the Python source). Both expense ledgers pass `TIER_L2_ABOVE_EXPENSES` explicitly:
-  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`.
+  - `< ₹15,000` → created directly at `Approved` (skips `Requested`), `auto_approved = 1`. **One exception**
+    (ADR-0040 Amendment B, owner 2026-10-28): a reimbursement's expense that HR approved at or above the ₹2,000
+    monthly reimbursement limit is born `Requested` and waits for L1 (`starting_status(skip_auto=True)`, asked
+    for only by `approval_raiser.routing_skips_auto`).
   - `₹15,000 – ₹50,000` → **L1 only**; the Admin / Accountant Lead tick FINISHES it.
   - `> ₹50,000` → **L1 then L2**; L1's tick writes `CEO Pending`, the CEO approves.
   - **A refund (amount ≤ 0) is never auto-approved**, then banded by its size like any
@@ -118,15 +121,21 @@ Both share one approval lifecycle and are entered/managed together in a single u
   when the row is new or its type changed, so an old row whose type was re-flagged stays editable.
   Paths that refuse before building anything (`settle._assert_type_scope`, `execute_adjustment`)
   ask the same `expense_type_problem`.
-- **An Office Rent expense withholds 10% TDS (194-I) when it is approved** (spec #1522, #1525). Approved
-  from an earlier step (`decide`'s `l1_approve` / `ceo_approve` landing on Approved) or born Approved,
-  it gets one `Payment TDS Deduction` (the full rent, the tax, the landlord from its request's answers)
-  and its `amount` becomes the net, once (`services/expense_tds`, hooks `controllers/expense_tds`). The
-  status machine is unchanged and the tiers read the gross, because the cut comes after the approval;
-  the Expense Request keeps the gross. No other type withholds, and nothing backfills. Full rule:
-  `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense.
-  **Once withheld, its amount is locked** for every role and every system save, except Bulk Import's
-  single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
+- **An Office Rent expense's amount is the landlord's bill incl. 18% GST, and it withholds 10% TDS (194-I)
+  on the base rent when it is approved** (spec #1522, #1525, #1613, ADR-0043). Base = bill ÷ 1.18 (to the
+  paisa), GST = bill − base, TDS = 10% of the base, landlord gets = bill − TDS (`expense_tds.tds_split`).
+  Approved from an earlier step (`decide`'s `l1_approve` / `ceo_approve` landing on Approved) or born
+  Approved, it gets one `Payment TDS Deduction` (gross = the base rent, the tax, the landlord from its
+  request's answers), its `amount` becomes what the landlord gets and its read-only `gst_amount` the GST,
+  once (`services/expense_tds`, hooks `controllers/expense_tds`). The status machine is unchanged and the
+  tiers read the bill, because the cut comes after the approval; the Expense Request keeps the bill.
+  Rows the imports create (born Paid) carry no tax and no GST; rents approved before #1613 keep GST 0. No other type withholds, and nothing backfills. Full rule:
+  `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense. Its record's
+  **Payment Paid On** copies the Expense's `payment_date` while it is Paid (`payment-tds.md` § Payment
+  Paid On).
+  **Once withheld, its amount and GST are locked** for every role and every system save, except Bulk
+  Import's single-line correction of the amount within ₹5, which leaves the tax record and the GST as they
+  were; deleting it deletes its tax
   record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /
   `delete_with_expense`; `payment-tds.md` § a withheld Office Rent expense).
   **No approval withholds without the landlord** (owner, 2026-10-21): an approval that would withhold is
@@ -151,6 +160,21 @@ Both share one approval lifecycle and are entered/managed together in a single u
   is owned by `services/outflow_import/expense_links.py` (`load_expense_links`, `derive_expense_status`,
   `remaining_balance`), which is also the ONE place that answers "is this expense fully linked". Full
   as-built: `.claude/context/domain/outflow-import.md`.
+- **An expense rejected in Payments rejects its Expense Request** (code review, 2026-10-23):
+  `expense_request_status.on_expense_rejected`, on both ledgers' `on_update`, turns an Approved request Rejected
+  with the queue's reason in `review_comment` (`expense_actions.FALLBACK_REJECTION_REASON` when none reached the
+  save). An expense put back out of Rejected puts its request back to Approved, so a later Paid still reaches it.
+  Before this, only Paid and delete reached the request. Every single-row expense reject in Approve Payments goes through the
+  expense engine with a required reason, so the reason reaches the request and lands as a comment on the expense.
+- **A Non-Project Expense with `reimbursement` set pays a Reimbursement claim** (ADR-0040). It is created on
+  the claim's approval at Requested and routed by `validate` like any expense, with the claim's APPROVER as the
+  raiser (`approval_raiser.routing_raiser`, only on that flagged insert); when HR approved it at or above the monthly
+  reimbursement limit it also skips the auto band and waits for L1 (`approval_raiser.routing_skips_auto`, ADR-0040
+  Amendment B). The link is set ONLY by that approval
+  step, never changes, and a claim has one expense (`expense_link.guard_link`). Its status moves the claim
+  (Paid / Rejected / un-Paid), once **Rejected it can't move to any other status**, and **deleting it (any status) deletes the claim too**, as a request's expense does
+  (`integrations/controllers/reimbursement_expense.py`). Everything else on it may be edited. Detail:
+  `.claude/context/domain/reimbursements.md`.
 
 ---
 
@@ -573,8 +597,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
 |---|---|
 | `Expense Request` | NEW — 10 columns: `type` · `type_allows_project` · `projects` · `amount` · `comment` · `source_data` · `status` · `reviewed_by` · `reviewed_on` · `review_comment`. `status` is `Pending Approval` / `Approved` / `Rejected` / **`Paid`** |
 | `Expense Request Template Snapshot` | NEW — freezes the format a request was filled against |
-| `Expense Category` | NEW — `category_name` · `description` (`reviewer_role` REMOVED 2026-09-16) |
-| `Expense Type` | `+source_format` (Long Text, JSON) · `+expense_category` (Link) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
+| `Expense Category` | REMOVED 2026-10-27 (owner; patch `v3_0.drop_expense_category`). Was `category_name` · `description`; `reviewer_role` went 2026-09-16 |
+| `Expense Type` | `+source_format` (Long Text, JSON) · `expense_category` (Link; REMOVED 2026-10-27) · `+source_format_enabled` (Check, "Enable Source", 2026-09-16) · `+allowed_roles` (Table → `Expense Type Role`, 2026-09-16) · `+confirmed_as_request` (Check, "Confirmed as Expense Request", 2026-10-20) |
 | `Expense Type Role` | NEW child table (2026-09-16) — `role_profile` (Link → Role Profile) |
 | `Project Expenses` / `Non Project Expenses` | `+request_id` (Link → Expense Request, read-only, indexed). Otherwise unchanged — approval writes a row through the existing schema |
 
@@ -621,29 +645,35 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   and the Expense Packages read ignore it, and a type's roles changed by any path (Expense Packages,
   Desk, REST; or a type deleted) prune it from the stored list (`integrations/controllers/expense_type`
   `on_update` / `after_delete` -> `access.prune_records_without_review`), so giving it a type again
-  does not tick it. A fixture sync deletes and re-inserts each type, so `after_delete` stands down
+  does not tick it. A data import reloads a type by removing and re-inserting it, so `after_delete` stands down
   while Frappe imports (`frappe.flags.in_import`), the re-insert has no previous version for
-  `on_update` to compare, and the controller's `after_migrate` prunes once against the synced types: a reload never drops a profile whose only type it reloads. Seeded once
+  `on_update` to compare, and the controller's `after_migrate` prunes once against the types the migrate ends with: a reload never drops a profile whose only type it reloads. Seeded once
   by `v3_0.seed_records_without_review` (Accountant, Accountant Lead, HR Executive, HR Lead).
   Edited only through the admin-gated `api/expense_requests/expense_settings`.
-- **⚠️ `Expense Type` IS A FIXTURE, so `fixtures/expense_type.json` is AUTHORITATIVE.** Every
-  `bench migrate` re-imports each row and RESETS any field the file does not carry. When
-  `source_format` and `expense_category` were added and the fixture was not regenerated, ONE
-  migrate silently destroyed all 40 request forms and every category assignment — no error,
-  discovered only because tests went red. **After authoring a format or re-categorising a type
-  in the app, run `bench --site <site> export-fixtures --app nirmaan_stack` and commit**, or
-  the next migrate reverts it. `Expense Category` is a fixture too, because it is a Link target
-  and would otherwise dangle. Guarded by
-  `api/expense_requests/test_fixture_completeness.py`, which fails naming the missing field —
-  and which was verified by reproducing the bug, not merely by passing.
-- **Every expense request is reviewed by `Nirmaan Admin Profile`.** `Expense Category.reviewer_role`
-  ("Reviewed By") was REMOVED on request 2026-09-16 — every category had it blank, so no live
-  routing changed; categories now only group types. Read through
+- **`Expense Type` is NOT a fixture; each site's database is the only truth** (owner, 2026-11-02).
+  Admin edits types in the app (Expense Packages), and the edit lasts through migrate. Until then
+  `fixtures/expense_type.json` was re-imported on every migrate: it undid every edit made in the app
+  and kept bringing back a misspelled `Reimbursments` beside `Reimbursements`. Frappe imports EVERY
+  `.json` in `fixtures/` on migrate, whatever `hooks.py` lists, so never put an Expense Type file
+  there. A NEW site (CI, a fresh install) gets its types once from `services/expense_types_seed.json`
+  (`services/expense_type_seed.seed_expense_types`, the `after_sync` hook: inserts only the types the
+  site lacks, never changes one). The seed is a starting point, not a mirror of production. Patch
+  `v3_0.merge_misspelled_expense_types` merged `Reimbursments` into `Reimbursements` and
+  `Software Chagres` into `Software Charges`. Guarded by
+  `api/expense_requests/test_fixture_completeness.py`.
+- **Every expense request is reviewed by `Nirmaan Admin Profile`.** Read through
   `services/expense_request_routing.py` (which REPLACED the temporary
   `services/expense_request_catalog.py`, deleted 2026-08-18) — it caches per request, because
-  `get_permission_query_conditions` runs on every list read. **Categories are created in Frappe
-  Desk.** Since 2026-09-16 the category is **not shown anywhere in the app** (request picker or
-  Expense Packages): a new type is saved as `Uncategorized`, an edit keeps the current one.
+  `get_permission_query_conditions` runs on every list read.
+- **There are no expense categories** (owner, 2026-10-27). `Expense Category` was added 2026-08-18
+  to route each request to a per-category reviewer; no category ever had one, `reviewer_role` was
+  removed 2026-09-16, and the doctype, `Expense Type.expense_category`, its fixture and its
+  `hooks.py` entry were removed 2026-10-27 (patch `v3_0.drop_expense_category` drops the DocType,
+  its table and the column). `get_request_catalog` returns one flat `types` list by name;
+  request rows carry no `request_category`; a type saves with no category. Until a site migrates,
+  its `Expense Category` DocType, table and column are still there but nothing reads them. Pinned by
+  `test_expense_requests.test_an_expense_type_has_no_category` and
+  `test_fixture_completeness.test_the_expense_category_is_gone_from_the_fixtures`.
 - **"Enable Source" switch (`Expense Type.source_format_enabled`, 2026-09-16).** ON → the
   request dialog shows the type's `source_format`; OFF → the STANDARD fields a direct expense
   needs: Description (required), Vendor (required once a project is chosen; "Others" allowed —
@@ -690,10 +720,16 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `person_name` and the rent period, which the duplicate staff-stay check reads.
 - **Office Rent's form (spec #1522, #1524) and the `pan` and `month` field kinds.** Office Rent asks Rent
   Month (a `month` field: month and year only, owner 2026-10-21), Office Location, Landlord Name and
-  Landlord PAN, all required (`templateId` `office-rent`, `templateVersion` 2), and its sentence is
-  `Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (10%
-  TDS will be deducted)`, e.g. "Office rent for Oct 2026 – …"; pinned by
-  `test_request_forms.TestTheOfficeRentForm`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
+  Landlord PAN, all required (`templateId` `office-rent`), and its sentence is
+  `Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (Amount
+  incl. 18% GST; 10% TDS on the rent will be deducted)` (`templateVersion` 3, spec #1613; version 2 said
+  "(10% TDS will be deducted)"), e.g. "Office rent for Oct 2026 – …"; a new site's form,
+  `services/expense_types_seed.json`, pinned by
+  `test_request_forms.TestTheOfficeRentForm`. An existing site gets version 3 from the one-time patch
+  `v3_0.office_rent_form_says_gst`, only where its live form is still, as JSON, the version-2 one the seed
+  shipped: a form an Admin edited, one already at version 3, and a site without Office Rent are left alone,
+  and requests already raised keep their frozen form (owner 2026-11-06). Pinned by
+  `test_office_rent_form_gst_patch`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
   exemption to "no form names who gets paid" (`TAX_DEDUCTEE_FIELDS`); who gets paid is the landlord's
   account, through the Payee picker: Office Rent is *Required* (owner 2026-10-21, reversing the spec's
   "payee out of scope"), enforced like every *Required* type, on screen only (`payees.md`). A `month`
@@ -708,8 +744,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `services/vendor_tds.is_valid_pan` / `clean_pan`), which stores the answer uppercased and refuses one
   not shaped like ABCPK1234D. ⚠️ Office Rent's landlord name and PAN are the ONE pair of form answers
   the server REQUIRES (`create.guard_deductee_answers`, on create and edit, read under the tax rule's
-  keys; spec #1522 review): every other required answer is still the dialog's. The New Expense form shows the
-  10% split under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
+  keys; spec #1522 review): every other required answer is still the dialog's. The New Expense form shows
+  "Bill ₹… = Rent ₹… + GST 18% ₹… − TDS 10% ₹… → Landlord gets ₹…" under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
   `payment-tds.md` § One tax record, two sources).
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin
@@ -721,7 +757,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   Accommodation Deposit, Rent/PG for Staff, Rent/PG for Labour. Accountant + Accountant Lead: Audit
   Fee, GST Payment, TDS Payment, Other Project Expenses, Professional Charges. HR Executive + HR
   Lead: Electricity Expenses,
-  Fixed Assets, Internet & Mobile Charges, Software Chagres. **Every other type is
+  Fixed Assets, Internet & Mobile Charges, Software Charges. **Every other type is
   Admin only.** "Salary – TDS" and "Misc. Expenses" had no matching type and are unassigned.
   To make that mapping usable, `create` on Expense Request was granted to Nirmaan Accountant,
   Accountant Lead, HR Executive and HR Lead (they held read + write only). The test suite grants
@@ -730,18 +766,15 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   2026-10-20) is a LABEL ONLY.** It gates nothing: raising, intake, the catalog and routing never
   read it. Only Admin may change it, refused for anyone else by `ExpenseType.validate` on every path
   (Desk, REST, `masters.update_expense_type`), also on a new type created with it ticked. Shown in
-  Expense Packages' Confirmed column and ticked in its Edit dialog (Admin only). ⚠️ Like
-  `allowed_roles`, the fixture wins on migrate: it ships 0 on every row, so a mark set in the app
-  survives the next migrate only once `fixtures/expense_type.json` is re-exported and committed.
-  Pinned by `api/expense_requests/test_confirmed_marker` and `test_fixture_completeness`.
+  Expense Packages' Confirmed column and ticked in its Edit dialog (Admin only). A mark set in the
+  app lasts through migrate (`Expense Type` is not a fixture since 2026-11-02).
+  Pinned by `api/expense_requests/test_confirmed_marker`.
 - **Expense Packages filters (2026-10-20).** The table's Scope, Payee, Role Access (role profiles,
   plus "Admin only (empty list)") and Confirmed filters sit in their column headers and narrow the
   loaded rows with AND, together with the search; Clear filters resets both. The rule is
   `frontend/src/utils/expenses/expensePackagesFilter.ts`.
-- **Remove an Expense Type: delete it on the site AND drop it from `fixtures/expense_type.json`.**
-  The fixture ships every type, so a type deleted only on the site comes back on the next
-  `bench migrate`. Fixture sync only inserts and updates; it never deletes, so dropping a type from
-  the fixture does not remove it from a site that has it. Removed both ways (2026-10-19): Rent
+- **Remove an Expense Type on the site; it stays gone** (no fixture since 2026-11-02). Drop it from
+  `services/expense_types_seed.json` too, or a NEW site still starts with it. Removed (2026-10-19): Rent
   Expenses, Professional Tax, Loan Received, Interest Received, Fixed Deposit Proceeds, EPFO
   Payment, Advertising & Marketing, Advance Returned. Manpower Rent too, after its expenses were
   moved to Staff Accommodation Rent (now Rent/PG for Staff).
@@ -778,9 +811,7 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   raiser on Records without review before submit; a quiet note to any other raiser
   (`duplicates.check_duplicate_stay`). `create` / `update` return the matches as `duplicates`; an
   edit re-checks only when the stay itself changed. The 2026-08-20 "never refuse" ruling stands.
-  **⚠️ Update `fixtures/expense_type.json` too** — it is keyed by name and re-imported on every
-  migrate, so an app rename alone comes back after the next deploy as a SECOND type under the old
-  name.
+  An app rename lasts through migrate (no fixture since 2026-11-02).
 - **⚠️ THERE IS NO ROW SCOPING ON READS (owner ruling, 2026-08-18).** The
   `permission_query_conditions` hook was REMOVED, so a list read returns everything the
   caller's ROLE may read — and **eight roles hold read DocPerm** (System Manager, PM, HR
@@ -896,9 +927,8 @@ save an invalid template**.
   is the source; it retired the 2026-08-18 rule that a request asks for no payee bank details).
   Built by #1429, reworked by #1436 (spec #1420):
   - `Expense Type.payee_rule` (*Who gets paid*): *Required*, *Optional* or *Not asked* (the
-    default). Set in Expense Packages' Edit dialog (`masters.update_expense_type`). ⚠️ It is a
-    fixture field like the rest of the type, so a value set in the app is reset by the next migrate
-    unless the fixture is re-exported.
+    default). Set in Expense Packages' Edit dialog (`masters.update_expense_type`); it lasts through
+    migrate (no fixture since 2026-11-02).
   - **The pay-to account** (#1436): `Expense Request`, `Project Expenses` and `Non Project Expenses`
     each hold `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`,
     `pay_to_bank_branch`, a COPY of a Payee's account taken when the record is raised; nothing links
@@ -908,7 +938,8 @@ save an invalid template**.
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
     `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
-    a Payee that does not exist. (The Direct Expense create of #1471 was removed by #1506.)
+    a Payee that does not exist, and a person's own account (payee type Users: `pay_to.is_own_account`,
+    message `OWN_ACCOUNT_REFUSAL`; owner 2026-10-27). (The Direct Expense create of #1471 was removed by #1506.)
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
@@ -916,7 +947,7 @@ save an invalid template**.
   - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
     (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
     blank. Rules: `payees.md`.
-  - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
+  - **No server refusal** beyond those two (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
     account that disagree, a change after payment, a change outside Accounts are all accepted. They
     are screen rules: the request dialog blocks sending a *Required* type with no account
     (`utils/payees/expensePayee.whoGetsPaidProblem`) and shows a vendor's account read-only.
@@ -924,7 +955,9 @@ save an invalid template**.
     Non-Project Expense AS IT IS (`pay_to.copy_pay_to`): the vendor's Payee is not read again. The
     reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
   - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
-    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
+    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints. It never
+    offers a person's own account (owner 2026-10-27): the search leaves Users Payees out, and one typed
+    in Add new payee comes back refused, with no Pick button (`payees.md` § Payee Type).
   - Record Payment's "Pay ₹X to" box reads the expense's own copy; its Change account
     (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
     vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with

@@ -31,6 +31,7 @@ import {
   mapAttributeOutcomes,
   moduleFitOutcome,
   NONE_SENTINEL,
+  noneRefusalOf,
   runPipeline,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
@@ -58,7 +59,8 @@ import type {
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
-import { attributeWorkingLine } from "./attributeWorkingLines";
+import { applyConductorFloor, conductorFloorGroups, CONDUCTOR_FLOOR_NOTE } from "./conductorFloor";
+import { USED_INPUT_MARK, attributeWorkingLine, moneyValue, usedAssemblyInputs } from "./attributeWorkingLines";
 // SLICE 6 (owner S1-S5, 2026-09-24): the item-list mode prices a LIST of items per row through the pure module;
 // the helper only assembles the list (the model's items overlaid with the panel's session edits) and shapes the
 // result for the panel. Every default, ladder and conversion stays in the module + config.
@@ -463,8 +465,10 @@ export function selfFitBinds(config: RateCategoryConfig): Set<string> {
   const out = new Set<string>();
   for (const pl of Object.values(config.pipelines ?? {})) {
     for (const raw of pl.steps ?? []) {
-      const st = raw as { step?: string; params?: { bind?: unknown; fit_from?: { attr?: unknown } } };
-      if (st.step === "catalog_fit" && typeof st.params?.bind === "string" && st.params.fit_from?.attr === st.params.bind) out.add(st.params.bind);
+      // ELR-4d (owner R-W6): a `hop_only` fit (the wiring conduit) moves a stated size that is not stocked and does nothing
+      // else -- its bind has its own filler, so a blank one is not a needed input
+      const st = raw as { step?: string; params?: { bind?: unknown; fit_from?: { attr?: unknown }; hop_only?: unknown } };
+      if (st.step === "catalog_fit" && typeof st.params?.bind === "string" && st.params.fit_from?.attr === st.params.bind && st.params.hop_only !== true) out.add(st.params.bind);
     }
   }
   return out;
@@ -476,7 +480,8 @@ export function selfFitBinds(config: RateCategoryConfig): Set<string> {
  * ones the pipeline's own steps name by `kind`; with none named, every stated fact is listed as before.
  */
 export function varyingAttrLine(attrs: WorkingsAttribute[], items: RateMasterItem[], pl: Pipeline): string {
-  const kinds = new Set((pl.steps ?? []).map((s) => (s as { params?: { kind?: unknown } }).params?.kind).filter((k): k is string => typeof k === "string"));
+  // ELR-4d (owner R-W6): a `hop_only` fit's kind is not a row this pipeline matches on, so it adds no fact to the sentence
+  const kinds = new Set((pl.steps ?? []).filter((s) => (s as { params?: { hop_only?: unknown } }).params?.hop_only !== true).map((s) => (s as { params?: { kind?: unknown } }).params?.kind).filter((k): k is string => typeof k === "string"));
   const rows = kinds.size ? items.filter((it) => kinds.has(it.kind)) : [];
   // a value every row shares WITH the answer is not the reason; one every row shares that the answer contradicts is
   const varies = (id: string, value: string): boolean => {
@@ -1368,6 +1373,17 @@ export function attributeUnitNote(
     : `${lead} -> priced as one ${categoryLabel(config)} item`;
 }
 
+/** ELR-4c (owner "Q4 a", 2026-10-30): an attribute-path field as the helper hands it to the panel. `eitherWords` is set on a
+ *  NEEDED field that a field hidden from the panel can also fill (a tray thickness the BoQ gives as a gauge); the BoQ panel
+ *  shows it beside the "*", the calculator -- where there is no other way to give it -- keeps the plain "*". */
+export type ShownAttribute = WorkingsAttribute & { eitherWords?: string };
+
+/** "Thickness (mm)" -> "this, or a thickness the BoQ gives another way" -- the field's own label, its unit dropped; the
+ *  hidden field is never named (owner R-SWG). */
+export function eitherWordsFor(label: string): string {
+  return `this, or a ${label.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase()} the BoQ gives another way`;
+}
+
 export function makePricingSheetHelper(deps: Deps): RateHelper {
   const { config, configsByCategory, items, extractionByRow } = deps;
 
@@ -1505,12 +1521,22 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     /** The stored cell for a def, or the never-asked synthesized one (or the ELR-3b plate-quantity default). */
     const cellOf = (d: AttributeDefinition): ExtractedAttr | undefined =>
       plateQtyDefault.get(d.id) ?? ext?.attributes[d.id] ?? neverAsked.get(d.id);
+    // ELR-4d (owner R-3C-CALC): the conductor floor over the effective values, on the panel and the calculator alike. A raised
+    // value wins over a typed one (a value stating three or more is never raised); nothing is written to the row.
+    const floorRaised = applyConductorFloor((id) => {
+      const dd = defs.find((x) => x.id === id);
+      if (!dd) return null;
+      const ov = overrides?.[id];
+      return coerceForMatch(dd, (ov !== undefined ? ov : cellOf(dd)?.value ?? null) as string | number | null);
+    }, conductorFloorGroups(category));
 
     // EA-4a-r: which defs are DISABLED because an allow_none controller is set to "None" (positive
     // absence) -- e.g. plate_item="None" disables plate_qty AND back_box. A controller can disable a def
     // that appears BEFORE it in the list (wire2_thickness_sqmm controls wire2_core), so resolve in a
     // pre-pass. A disabled target is greyed + cleared and is NOT treated as an unknown (never blocks).
     const valueOfDef = (d: AttributeDefinition): string | number | null => {
+      const up = floorRaised.get(d.id);
+      if (up !== undefined) return up;
       const ov = overrides?.[d.id];
       const raw = ov !== undefined ? ov : cellOf(d)?.value ?? null;
       return coerceForMatch(d, raw as string | number | null);
@@ -1523,7 +1549,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     }
 
     // Build the workings attributes (pre-filled from extraction, overridable) + the selected map.
-    const workingsAttrs: WorkingsAttribute[] = [];
+    const workingsAttrs: ShownAttribute[] = [];
     const blanksNote = blanksWorkedOutNote(category);
     const selected: Record<string, string | number> = {};
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
@@ -1572,16 +1598,26 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       }
     }
     const unfillableDerived = new Set<string>();
+    // ELR-4c (TS-15, owner "Q5 a"): an unfillable target whose source is a field ON SCREEN, blank and its own to fill -- the
+    // source carries the "*", so the target does not ("Circuit wiring stretch" while "Circuit wiring included" is blank).
+    // Display only: the gate below still reads `unfillableDerived`, so no refusal changes.
+    const blankShownSource = new Set<string>();
+    // ELR-4c (owner R-SWG / "Q4 a"): a target a HIDDEN field can also fill (tray thickness from the BoQ's gauge) -- its "*"
+    // says "this, or ... another way", never naming the hidden field
+    const hiddenSourced = new Set<string>();
     for (const [resultAttr, src] of mapAttributeSources(category)) {
+      const fromDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
+      if (fromDef?.panel === false) hiddenSourced.add(resultAttr);
       if (src.hasDefault) continue; // the curve-else-C shape: always fillable, never narrowed
       // A SECOND FILLER: `derive_attribute` can compute this target whatever the map's source says.
       if (deriveTargets.has(resultAttr)) continue;
-      const srcDef = src.fromAttr ? defs.find((d) => d.id === src.fromAttr) : undefined;
+      const srcDef = fromDef;
       // A source we cannot resolve is NOT evidence of absence -- leave the exemption alone rather
       // than narrow on a guess. Only a source we can read AND find empty narrows it.
       if (!srcDef) continue;
       const v = valueOfDef(srcDef);
       if (v === null || v === NONE_SENTINEL) unfillableDerived.add(resultAttr);
+      if (v === null && srcDef.panel !== false && !derived.has(srcDef.id)) blankShownSource.add(resultAttr);
     }
     for (const id of selfFit) {
       const sd = defs.find((d) => d.id === id);
@@ -1609,7 +1645,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const wasNeverAsked = neverAsked.has(d.id);
       const overridden = overrides?.[d.id];
       const disabled = disabledByNone.has(d.id);
-      const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
+      const raised = disabled ? undefined : floorRaised.get(d.id);
+      const rawValue = disabled ? null : raised !== undefined ? raised : overridden !== undefined ? overridden : cell?.value ?? null;
       const coerced = coerceForMatch(d, rawValue as string | number | null);
       // A disabled target is POSITIVELY absent (its controller is None) -- clear it, do NOT flag missing.
       // A DERIVED attribute (a module_fit ladder bind, or a superseded `<name>_qty`) is likewise not
@@ -1624,7 +1661,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       if (coerced === null) {
         // SLICE 3b: `fillableDerived`, not `derived` -- see the pre-pass above. Identical to
         // `derived` for every config without a `map_attribute`.
-        if (!disabled && !fillableDerived.has(d.id) && d.panel !== false) { missing = true; missingLabels.push(d.label); }
+        // ELR-4d (owner R-TS15, "1 ... ok"): the gate is unchanged; the sentence names the blank source on screen, not its target
+        if (!disabled && !fillableDerived.has(d.id) && d.panel !== false) { missing = true; if (!blankShownSource.has(d.id)) missingLabels.push(d.label); }
       }
       else selected[d.id] = coerced;
       // A defaulted attribute is one the model filled from the config default (no positive text
@@ -1634,7 +1672,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // condition drives both surfaces -- the prose trace line below AND the per-attribute flag the
       // panel tints -- so the two can never disagree about which values came from a default.
       const isDefaulted =
-        !disabled && overridden === undefined && coerced !== null && cell?.defaulted === true;
+        !disabled && raised === undefined && overridden === undefined && coerced !== null && cell?.defaulted === true;
       if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
         // The badge cannot tell a never-asked default from a model-claimed one; this trace line can.
@@ -1656,6 +1694,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // filtering the walk instead would leave `absent_when` unfired and the ladder unrun -- every
       // socket row silently mispriced. The facts keep working; they just stop being asked about.
       if (d.panel === false) continue;
+      const needed = !disabled && !absentNow.has(d.id) && (!derived.has(d.id) || selfFit.has(d.id) || (unfillableDerived.has(d.id) && !blankShownSource.has(d.id)));
       workingsAttrs.push({
         id: d.id,
         label: d.label,
@@ -1667,15 +1706,20 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         value: coerced === null ? "" : String(coerced),
         // A never-asked default has no model confidence to show -- omit it rather than render 0.
         // ELR-3b (owner R-V1c): nor has the plate-quantity default
-        confidence: disabled || ((wasNeverAsked || plateQtyDefault.has(d.id)) && overridden === undefined) ? undefined : cell?.confidence,
+        // ELR-4d: nor has a value the conductor floor raised
+        confidence: disabled || raised !== undefined || ((wasNeverAsked || plateQtyDefault.has(d.id)) && overridden === undefined) ? undefined : cell?.confidence,
         corroborated: disabled ? undefined : cell?.corroborated,
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
         // ADP-3a (owner H1, U1): NEEDED TO PRICE -- the gate's own condition (a blank one withholds the price), plus a
         // self-fit bind (needed whenever it is blank). The marker can never disagree with the gate.
-        ...(!disabled && !absentNow.has(d.id) && (!derived.has(d.id) || selfFit.has(d.id) || unfillableDerived.has(d.id)) ? { required: true } : {}),
+        // ELR-4c (TS-15): BEFORE `unfillableDerived.has(d.id)` alone -- a target whose blank source is on screen is not starred
+        ...(needed ? { required: true } : {}),
+        ...(needed && hiddenSourced.has(d.id) ? { eitherWords: eitherWordsFor(d.label) } : {}),
         defaulted: isDefaulted || undefined,
         ...(ratingUp ? { notes: [ratingUp] } : {}),
+        // ELR-4d (owner R-3C-CALC): the raised field shows "(computed)" with the note
+        ...(raised !== undefined ? { derivedValue: String(raised), substituted: true, notes: [{ kind: "landed" as const, how: CONDUCTOR_FLOOR_NOTE }] } : {}),
         // ELR-1 (owner R-NOTES-RULE, AC2): the definition's own note, as the item-list path shows its typed note
         ...(typeof d.note === "string" && d.note.trim() !== "" ? { typedNote: d.note } : {}),
         // ELR-4a (owner R-PW-BLANK): how the blank count is worked out, drawn before this field (`blanksWorkedOutNote`)
@@ -1751,6 +1795,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // DERIVED DISPLAY: keep every result so the derived attributes can be filled from what the
     // pipelines actually computed (a category may split supply/install across pipelines).
     const pipelineResults: PipelineResult[] = [];
+    // ELR-4d (owner R-DB-MANUAL): a pipeline's declared whole-row refusal, said once
+    let wholeRowRefusal: string | undefined;
     surfaced.forEach(([pid, pl], idx) => {
       const res = runPipeline(pid, pl as Pipeline, items, selected);
       pipelineResults.push(res);
@@ -1763,7 +1809,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           finals[o] = res.finals[o];
           // Calculator slice 1: the pricer's word ("Supply = 320"), not the output id ("supply = 320",
           // "supply_per_mtr = 1490"); an output that fills no kind keeps its own name.
-          derivation.push(`${outputWord(o)} = ${res.finals[o]}`);
+          derivation.push(`${outputWord(o)} = ${moneyValue(res.finals[o])}`);   // ELR-4c (R-FLOAT): money to 2 decimals
           // EA-4a: a category may split supply + install across SEPARATE pipelines (point_wiring's
           // pw_boq_supply / pw_boq_install, cabletray). Take each rate-kind from the FIRST pipeline
           // that produces it -- a single combined pipeline (conduit) still fills both from its one pass.
@@ -1776,11 +1822,20 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         // ELR-3a (owner Q2 a): a Pricing Input read ONLY by an assembly step (a length, a conduit fill) moves no SKU's
         // own rate and adds no line -- the bill reads exactly as it did while those numbers were literals
         const assemblyOnly = assemblyOnlyCtxKeys(pl as Pipeline);
+        // ELR-4c (owner R-ELR2 (c), "one line per input used"; P6 "Q1 b"): such an input DOES get a line on a row whose
+        // pipeline used it -- "<name> = <value> <unit> (Pricing Input)" -- and none on a row that did not
+        const usedInputs = usedAssemblyInputs(pl as Pipeline, res.steps, selected);
         for (const st of res.steps) {
-          if (st.step === "rate_ref" && st.produced && assemblyOnly.has(st.produced.key)) continue;
+          if (st.step === "rate_ref" && st.produced && assemblyOnly.has(st.produced.key)) {
+            if (usedInputs.has(st.produced.key)) matchedRows.push(`${attributeWorkingLine(st, pl as Pipeline, category, items, (a) => selected[a])} ${USED_INPUT_MARK}`);
+            continue;
+          }
           if (st.produced && st.refItem) matchedRows.push(attributeWorkingLine(st, pl as Pipeline, category, items, (a) => selected[a]));
         }
         flatMatched.push(`Matched ${label} for ${attrLine}.`);
+      } else if (noneRefusalOf(res)) {
+        if (!wholeRowRefusal) derivation.push(noneRefusalOf(res)!);
+        wholeRowRefusal ??= noneRefusalOf(res);
       } else if (res.status === "no_match") {
         // ADP-3a (B6 #4): only the facts this pipeline's catalogue rows vary on
         const facts = varyingAttrLine(workingsAttrs, items, pl as Pipeline);
@@ -1805,7 +1860,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // line is added to its one group so its in-group display is unchanged.
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      const combinedLine = `Combined = supply + install = ${values.combined_rate}`;
+      const combinedLine = `Combined = supply + install = ${moneyValue(values.combined_rate)}`;
       flatDerivation.push(combinedLine);
       if (sections.length === 1) sections[0].derivation.push(combinedLine);
     }
@@ -1837,7 +1892,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // Calculator slice 1: the category's LABEL ("Switches and Sockets"), not its id ("switches_sockets").
       basis: Object.keys(values).length
         ? `Rate master: ${categoryLabel(category)} @ ${attrLine}`
-        : "no match for these attributes",
+        : wholeRowRefusal ?? "no match for these attributes",
       workings: {
         attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults, fillableDerived, items, selected),
         matchedRows: flatMatched,
@@ -1884,11 +1939,11 @@ function computeWiring(
     for (const o of result.outputs) {
       const kind = kindForOutput(o);
       if (kind) values[kind] = result.finals[o];
-      derivation.push(`${outputWord(o)} = ${result.finals[o]}`);
+      derivation.push(`${outputWord(o)} = ${moneyValue(result.finals[o])}`);
     }
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
       values.combined_rate = values.supply_rate + values.install_rate;
-      derivation.push(`Combined = supply + install = ${values.combined_rate}`);
+      derivation.push(`Combined = supply + install = ${moneyValue(values.combined_rate)}`);
     }
     matchedRows.push(`Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`);
   } else if (result.status === "no_match") {
@@ -1953,7 +2008,7 @@ function computeWiring(
     if (sr.status === "ok") {
       for (const o of sr.outputs) {
         secondaryGroup.finals[o] = sr.finals[o];
-        secondaryGroup.derivation.push(`${outputWord(o)} = ${sr.finals[o]}`);
+        secondaryGroup.derivation.push(`${outputWord(o)} = ${moneyValue(sr.finals[o])}`);
       }
     } else {
       secondaryGroup.derivation.push(

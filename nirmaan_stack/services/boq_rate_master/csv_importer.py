@@ -528,7 +528,9 @@ def validate_pricing_input_value(value, label, value_range=None):
 
     ELR-3a (owner R-R1 Q4): `value_range` is the range an ASSEMBLY-STEP input must stay in
     (`config_validation.pricing_input_ranges`, by the arm that reads it): a length more than 0, a conduit fill more
-    than 0 and at most 1. None (every other input) keeps the rule above -- zero allowed -- byte-identical."""
+    than 0 and at most 1. None (every other input) keeps the rule above -- zero allowed -- byte-identical.
+    ELR-4c (owner R-ELR2 (h), "check the range first"; P6 "Q2 a"): the range is checked BEFORE "cannot be negative", so a
+    negative fill or length gets the range sentence; both write paths (the upload and the Rate Master save) call this."""
     if value in (None, ""):
         return None
     try:
@@ -537,13 +539,13 @@ def validate_pricing_input_value(value, label, value_range=None):
         return "%s: '%s' is not a number." % (label, value)
     if f != f or f in (float("inf"), float("-inf")):
         return "%s: '%s' is not a finite number." % (label, value)
-    if f < 0:
-        return ("%s: a pricing input cannot be negative (%s). A discount, a markup, a wastage, a "
-                "ratio and a share are all positive." % (label, value))
     if value_range == config_validation.RANGE_LENGTH and f <= 0:
         return "%s: a length must be more than 0 (got %s)." % (label, _plain_number(f))
     if value_range == config_validation.RANGE_FILL and not (0 < f <= 1):
         return "%s: a conduit fill must be more than 0 and at most 1 (got %s)." % (label, _plain_number(f))
+    if f < 0:
+        return ("%s: a pricing input cannot be negative (%s). A discount, a markup, a wastage, a "
+                "ratio and a share are all positive." % (label, value))
     return None
 
 

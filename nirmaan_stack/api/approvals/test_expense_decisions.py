@@ -259,8 +259,7 @@ class TestExpenseDecisions(FrappeTestCase):
 		"""A new value for every field a Paid expense may still change (owner, 2026-10-20)."""
 		expense_type = frappe.new_doc("Expense Type")
 		expense_type.update({"expense_name": f"xdec type {frappe.generate_hash(length=6)}",
-		                     "project": int(doctype == PE), "non_project": int(doctype == NPE),
-		                     "expense_category": "Uncategorized"})
+		                     "project": int(doctype == PE), "non_project": int(doctype == NPE)})
 		expense_type.insert(ignore_permissions=True)
 		details = {
 			"description": "xdec corrected after paid",

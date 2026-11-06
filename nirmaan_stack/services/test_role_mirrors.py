@@ -76,6 +76,7 @@ class TheScreensShowWhatTheServerAllows(unittest.TestCase):
             ("WO_INVOICE_EDIT_PROFILES", ROLES_TS, role_profiles.WO_INVOICE_EDIT_PROFILES),
             ("PAYMENT_L1_PROFILES", ROLES_TS, role_profiles.PAYMENT_L1_PROFILES),
             ("ACCOUNTANT_PROFILES", ROLES_TS, role_profiles.ACCOUNTANT_PROFILES),
+            ("REPORTS_BULK_DOWNLOAD_PROFILES", ROLES_TS, role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES),
             ("SR_ADMIN_ROLES", FRONTEND / "pages/ServiceRequests/config/srTabs.constants.ts",
              role_profiles.WO_DECIDE_PROFILES),
         )
@@ -92,3 +93,11 @@ class TheScreensShowWhatTheServerAllows(unittest.TestCase):
         text = _source(FRONTEND / "pages/ProjectPayments/paymentsDialogRows.ts")
         m = re.search(r"export const AMOUNT_PAID_DRIFT_THRESHOLD = ([\d.]+);", text)
         self.assertEqual(float(m.group(1)), amount_paid_drift.THRESHOLD)
+
+    def test_reports_bulk_download_caps_a_selection_at_the_servers_limit(self):
+        """The browser disables Download above `ALL_SCOPE_MAX_ITEMS`; the server refuses above its own. They agree."""
+        from nirmaan_stack.api.pdf_helper import bulk_download
+
+        text = _source(FRONTEND / "utils/bulkDownload/bulkDownloadTypes.ts")
+        m = re.search(r"export const ALL_SCOPE_MAX_ITEMS = (\d+);", text)
+        self.assertEqual(int(m.group(1)), bulk_download.ALL_SCOPE_MAX_ITEMS)

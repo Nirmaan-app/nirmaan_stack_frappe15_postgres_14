@@ -27,6 +27,8 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "no_invoice_reason",
     "no_invoice_by",
     "no_invoice_at",
+    // The delete dialog warns that the Reimbursement claim goes too (ADR-0040).
+    "reimbursement",
 ];
 
 export const NPE_SEARCHABLE_FIELDS: SearchFieldOption[] = [

@@ -79,7 +79,7 @@ describe("utrOrChequeText (the UTR / Ref export)", () => {
 
 describe("chequeChipTone", () => {
     it("gives each cheque status its own colour, Approval Pending included", () => {
-        const tones = ["Approval Pending", "Issued", "Cleared", "Cancelled"].map(chequeChipTone);
+        const tones = ["Approval Pending", "Issued", "Cleared", "Cancelled"].map((s) => chequeChipTone(s));
         expect(new Set(tones).size).toBe(4);
         expect(chequeChipTone("Approval Pending")).toContain("indigo");
     });
@@ -87,5 +87,11 @@ describe("chequeChipTone", () => {
     it("leaves a payment with no Cheque plain", () => {
         expect(chequeChipTone(null)).toBe(chequeChipTone("unknown"));
         expect(chequeChipTone(null)).not.toContain("indigo");
+    });});
+
+describe("chequeChipText for a Credit Payment Cheque (the CSV export)", () => {
+    it("reads Credit Cheque", () => {
+        expect(chequeChipText("9012345", "Approval Pending", true)).toBe("Credit Cheque 9012345 · Approval Pending");
+        expect(chequeChipText("9012345", null, true)).toBe("Credit Cheque 9012345");
     });
 });

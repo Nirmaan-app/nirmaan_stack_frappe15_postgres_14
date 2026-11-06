@@ -4277,8 +4277,11 @@ describe("Calculator slice 1 / TWO -- the copy value is the BARE number", () => 
     expect(src).not.toMatch(/toLocaleString|Intl\.NumberFormat|₹/);
     // the three figures render from DISPLAY_RATE_KINDS inside the SECTION block, each with the control
     expect(src).toContain("DISPLAY_RATE_KINDS.map(");
-    expect(src).toContain("<CopyFigureButton value={v}");
-    expect(src).toMatch(/typeof v === "number" \? v : "—"/); // an absent kind is the em dash, never 0
+    // INVERTED at ELR-4c (owner R-FLOAT / P6 "Q3 a": money to 2 decimals, the copy carries the shown value) by mechanical
+    // authority. BEFORE: toContain("<CopyFigureButton value={v}") and toMatch(/typeof v === "number" \? v : "—"/).
+    expect(src).toContain("<CopyFigureButton value={moneyValue(v)}");
+    expect(src).not.toContain("<CopyFigureButton value={v}");
+    expect(src).toMatch(/typeof v === "number" \? moneyValue\(v\) : "—"/); // an absent kind is the em dash, never 0
     // the header block is UNCHANGED: it still renders the single `computed` figure / the stacked headlines
     expect(src).toContain("const computed = result.values[kind!]");
     expect(src).toContain("h.values[kind!]");

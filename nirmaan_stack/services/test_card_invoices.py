@@ -7,6 +7,7 @@ import unittest
 
 from nirmaan_stack.services.card_invoices import (
     CardExpenseFacts,
+    CashbookExpenseFacts,
     attach_problem,
     card_line_details,
     no_invoice_problem,
@@ -88,6 +89,33 @@ class TestAttachingTheInvoice(unittest.TestCase):
                          "NPE-1 already has its invoice.")
         self.assertEqual(attach_problem(OPEN._replace(no_invoice_by="a@b.c"), "/f.pdf", None, today="2026-10-25"),
                          "NPE-1 is already marked No invoice by a@b.c.")
+
+
+
+class TestTheCashbookQueueSharesTheRules(unittest.TestCase):
+    """#1592: a wallet spend the Cashbook Statement import made waits under the card queue's refusals."""
+
+    WAITING = CashbookExpenseFacts(name="PE-1", has_cashbook_marker=True, invoice_attachment=None, no_invoice_by=None)
+
+    def test_a_marked_wallet_spend_with_no_invoice_may_be_attached_or_marked(self):
+        self.assertIsNone(attach_problem(self.WAITING, "/f.pdf", None, today="2026-10-25"))
+        self.assertIsNone(no_invoice_problem(self.WAITING, "Tea stall, no bill"))
+
+    def test_an_expense_without_the_marker_is_refused_naming_the_queue(self):
+        facts = self.WAITING._replace(has_cashbook_marker=False)
+        sentence = "PE-1 is not a wallet spend from a Cashbook Statement import."
+        self.assertEqual(attach_problem(facts, "/f.pdf", None, today="2026-10-25"), sentence)
+        self.assertEqual(no_invoice_problem(facts, "x"), sentence)
+
+    def test_the_card_refusals_apply_unchanged(self):
+        self.assertEqual(attach_problem(self.WAITING, " ", None, today="2026-10-25"), "Attach the invoice file.")
+        self.assertEqual(attach_problem(self.WAITING, "/f.pdf", "2026-10-26", today="2026-10-25"),
+                         "Invoice date cannot be in the future.")
+        self.assertEqual(no_invoice_problem(self.WAITING, "  "), "Type the reason this spend has no invoice.")
+        self.assertEqual(attach_problem(self.WAITING._replace(invoice_attachment="/x.pdf"), "/f.pdf", None, today="2026-10-25"),
+                         "PE-1 already has its invoice.")
+        self.assertEqual(no_invoice_problem(self.WAITING._replace(no_invoice_by="a@b.c"), "x"),
+                         "PE-1 is already marked No invoice by a@b.c.")
 
 
 if __name__ == "__main__":

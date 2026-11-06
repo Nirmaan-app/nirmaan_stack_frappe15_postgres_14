@@ -67,6 +67,16 @@ U = "Administrator"
 RECONCILIATION_PENDING = "Reconciliation Pending"
 
 
+def _rewind_gst_request_series() -> None:
+    """Put each GST Payment Request series counter back to the highest request that still exists, so the
+    requests a test made and deleted leave no gap in the real numbering. Only ever lowers a counter."""
+    for series, current in frappe.db.sql("""SELECT name, "current" FROM "tabSeries" WHERE name LIKE 'GPR-%%'"""):
+        names = frappe.get_all("GST Payment Request", filters={"name": ["like", f"{series}%"]}, pluck="name")
+        top = max((int(n[len(series):]) for n in names if n[len(series):].isdigit()), default=0)
+        if top < current:
+            frappe.db.sql('UPDATE "tabSeries" SET "current" = %s WHERE name = %s', (top, series))
+
+
 class TaxedWorkOrderFixture:
     """Plants projects, vendors, Service Requests and taxed payments, and purges all of them."""
 
@@ -116,7 +126,7 @@ class TaxedWorkOrderFixture:
         *,
         gst: bool = False,
         gst_invoiced: float = 0,
-        amount_invoiced: float = 0,
+        amount_invoiced: float | None = None,
         categories: list[str] | None = None,
     ) -> str:
         """`total_amount` is generous on purpose: `ProjectPayments.before_insert` refuses a payment
@@ -124,9 +134,15 @@ class TaxedWorkOrderFixture:
 
         `gst` / `gst_invoiced` plant a GST-on Work Order and its GST Invoiced cache as given (the
         cache is an input to the payment limit here, not the thing under test); `amount_invoiced`
-        plants its Total Amount Invoiced the same way, for the invoice check. `categories` fills
+        plants its Total Amount Invoiced the same way, for the invoice check. It defaults to `total`,
+        invoiced in full, because nobody skips the invoice check (owner, 2026-10-30): a second payment
+        on a Work Order with nothing invoiced is refused at its approval too, so every test that puts
+        two payments on one Work Order would otherwise fail before it reached the tax code it is about.
+        A test OF the invoice check plants the shortfall it needs. `categories` fills
         `service_category_list` (`["Miscellaneous Services"]` makes it company-borne,
         `payment_tds.is_company_borne`); none leaves it an ordinary Work Order."""
+        if amount_invoiced is None:
+            amount_invoiced = total
         name = self._name("SR")
         frappe.db.sql(
             """INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
@@ -240,6 +256,14 @@ class TaxedWorkOrderFixture:
             frappe.db.delete("Deleted Document", {"deleted_doctype": PAYMENT, "deleted_name": ["in", payments]})
             frappe.db.delete(PAYMENT, {"name": ["in", payments]})
         if self.service_requests:
+            # A GST payment raised on one now records its GST Payment Request (`services/gst_payment_requests`).
+            requests = frappe.get_all("GST Payment Request", filters={"work_order": ["in", self.service_requests]},
+                                      pluck="name")
+            if requests:
+                frappe.db.delete("Nirmaan Notifications", {"docname": ["in", requests]})
+                frappe.db.delete("Version", {"ref_doctype": "GST Payment Request", "docname": ["in", requests]})
+                frappe.db.delete("GST Payment Request", {"name": ["in", requests]})
+                _rewind_gst_request_series()
             frappe.db.delete("Version", {"ref_doctype": SR, "docname": ["in", self.service_requests]})
             frappe.db.delete(SR, {"name": ["in", self.service_requests]})
         if self.vendors:

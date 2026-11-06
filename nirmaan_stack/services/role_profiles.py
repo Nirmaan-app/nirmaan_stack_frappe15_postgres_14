@@ -157,6 +157,20 @@ MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LE
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
+# User admins (owner, 2026-11-05; GLOSSARY.md): create users, give or change any role profile (Admin included)
+# and reset passwords -- the people who see the Users page. Nobody else, on the screen, in Desk or through the API.
+# ENFORCEMENT boundary: `api/users.create_user` / `reset_password` and the User `validate` hook
+# (`integrations/controllers/user.py`). Mirrored client-side by `UsersRoute` in
+# `frontend/src/utils/auth/ProtectedRoute.tsx` -- keep the two in sync.
+USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE)
+
+# Upload / replace a Paid expense's invoice from the Payments queue's Payment Done tab (owner, 2026-10-31): the
+# queue's settle roles plus HR. The invoice file, number and date only; no other field of a Paid expense opens
+# up. ENFORCEMENT boundary of `api/expenses/paid_invoice.set_paid_expense_invoice`, which saves elevated.
+# Mirrored client-side by `PAID_INVOICE_PROFILES` in
+# `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` -- keep the two lists in sync.
+PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
 # `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
@@ -177,12 +191,32 @@ ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
 ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
 
+# Mark an asset Lost/Damaged and bring it back Found/Repaired (owner, 2026-10-31): Admin and HR only -- not PMO,
+# not procurement, not the holder. `api/assets/lost_damaged.py` enforces it; mirrored client-side by
+# `canMarkLostDamaged` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
 # Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
 # Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the
 # Asset Audit tab's Fulfilled list -- everyone who sees the Assets lists (`canViewAssets`), on top of
 # ASSET_HISTORY_PROFILES. Mirrored in `frontend/src/pages/Assets/utils/permissions.ts` -- keep in sync.
 ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
 ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
+
+# Reimbursements (owner, 2026-10-21/22). Everyone raises and sees their own claims. HR decides a claim of
+# any amount raised outside HR; Admin decides every claim (`services/reimbursements/rules.py`; the monthly
+# limit, 2026-10-28, decides only whether HR's approval also needs L1). These
+# profiles see every claim, and work the Approved and Rejected tabs (tick + Export). Enforced by
+# `integrations/controllers/reimbursement.py` and `services/reimbursements/access.py`; mirrored client-side
+# by `REIMBURSEMENT_*` in `frontend/src/constants/roles.ts` -- keep the lists in sync.
+REIMBURSEMENT_HR_PROFILES = (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+REIMBURSEMENT_VIEW_ALL_PROFILES = (
+    ADMIN_PROFILE,
+    HR_EXECUTIVE_PROFILE,
+    HR_LEAD_PROFILE,
+    ACCOUNTANT_PROFILE,
+    ACCOUNTANT_LEAD_PROFILE,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -231,6 +265,15 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
 def is_nirmaan_admin(user: str) -> bool:
     """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+def assert_user_admin(user: str) -> None:
+    """Refuse `user` unless they are a User admin (`USER_ADMIN_PROFILES`, or Administrator)."""
+    if not has_role_profile(user, USER_ADMIN_PROFILES):
+        frappe.throw(
+            _("Only Admin, PMO and HR may create users, change role profiles or reset passwords."),
+            frappe.PermissionError,
+        )
 
 
 def assert_match_gst_to_vendor_access(user: str) -> None:
@@ -442,6 +485,22 @@ def assert_cheque_form_access(user: str) -> None:
         raise frappe.PermissionError(_("You are not allowed to look up cheques."))
 
 
+# Reports > Bulk Download: every project's documents, Project and Vendor as table filters (owner,
+# 2026-10-28: "only Admin, Accountant"; Accountant Lead mirrors Accountant). The tab is hidden from
+# everyone else AND the all-scope endpoints refuse them (`api/pdf_helper/bulk_download._scope`,
+# `mtc_api.get_mtcs(all_projects=1)`), so a typed URL or a crafted call fetches nothing. The project and
+# vendor Bulk Download tabs keep their own rules. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REPORTS_BULK_DOWNLOAD_PROFILES` -- keep the two in sync.
+REPORTS_BULK_DOWNLOAD_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+
+def assert_reports_bulk_download_access(user: str) -> None:
+    """Refuse a user outside `REPORTS_BULK_DOWNLOAD_PROFILES` (Administrator passes). Every all-scope
+    Bulk Download call starts with it, the background job included."""
+    if not has_role_profile(user, REPORTS_BULK_DOWNLOAD_PROFILES):
+        raise frappe.PermissionError(_("You are not allowed to download documents across all projects."))
+
+
 # Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
 # list them, add one, and (#1423) edit a holder name. Procurement adds Payees only
 # through the vendor screens, and anyone raising an Expense Request only through the request; those
@@ -479,3 +538,6 @@ def assert_vendor_payee_access(user: str) -> None:
     else (`payees.guard`)."""
     if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
         frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)
+
+# Project Ledger (owner, 2026-10-28), enforced by `api/projects/project_ledger`; client twin in `roles.ts`.
+PROJECT_LEDGER_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)

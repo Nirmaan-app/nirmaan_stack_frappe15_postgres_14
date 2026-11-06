@@ -12,6 +12,7 @@
   "column_break_bank",
   "bank_name",
   "bank_branch",
+  "payee_type",
   "normalized_account"
  ],
  "fields": [
@@ -63,12 +64,24 @@
    "hidden": 1,
    "label": "Normalized Account",
    "read_only": 1
+  },
+  {
+   "default": "Others",
+   "description": "Where the Payee was created, set once: Users (a person's own account, from Raise Reimbursement), Vendors (a vendor's bank details) or Others (anywhere else). Options pinned to services/payees/rules.PAYEE_TYPES by test.",
+   "fieldname": "payee_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Payee Type",
+   "options": "Users\nVendors\nOthers",
+   "read_only": 1,
+   "set_only_once": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-15 10:57:44.633699",
+ "modified": "2026-10-23 19:05:26.939113",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Payee",

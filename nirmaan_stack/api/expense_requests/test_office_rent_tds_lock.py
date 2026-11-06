@@ -44,10 +44,10 @@ class TestAWithheldOfficeRentIsLocked(OfficeRentCase):
 
     # -- helpers --------------------------------------------------------------------------------
     def _withheld(self) -> tuple[str, str, str]:
-        """Rs 1,00,000 of rent, approved by Admin then the CEO: (request, expense, its tax record)."""
-        request, name = self._raise(100000)
+        """A Rs 1,18,000 bill, approved by Admin then the CEO: (request, expense, its tax record)."""
+        request, name = self._raise(118000)
         self._approve_by_admin_then_ceo(name)
-        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 90000})
+        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 108000, "gst_amount": 18000})
         [record] = self._records(name)
         return request, name, record.name
 
@@ -71,17 +71,19 @@ class TestAWithheldOfficeRentIsLocked(OfficeRentCase):
                                       challan_data=frappe.as_json(data))["created_challan"]
 
     # -- the amount is locked -------------------------------------------------------------------
-    def test_every_role_is_refused_an_amount_change_and_the_amount_stays_the_net(self):
+    def test_every_role_is_refused_an_amount_or_gst_change_and_both_stay_as_split(self):
         _request, name, record = self._withheld()
         for status in ("Approved", "Reconciliation Pending"):
             if status == "Reconciliation Pending":
                 self._decide(ACCOUNTANT, name, "mark_done")
             for user in (ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, "Administrator"):
-                with self.subTest(status=status, user=user):
-                    with self.assertRaises(frappe.ValidationError) as refused:
-                        self._set_as(user, name, "amount", 100000)
-                    self.assertIn("tax has been withheld", str(refused.exception))
-                    self.assertEqual(self._expense(name), {"status": status, "amount": 90000})
+                for field, value in (("amount", 118000), ("gst_amount", 0)):
+                    with self.subTest(status=status, user=user, field=field):
+                        with self.assertRaises(frappe.ValidationError) as refused:
+                            self._set_as(user, name, field, value)
+                        self.assertIn("tax has been withheld", str(refused.exception))
+                        self.assertEqual(self._expense(name),
+                                         {"status": status, "amount": 108000, "gst_amount": 18000})
         self.assertEqual(frappe.db.get_value(TDS, record, ["gross_amount", "tds_amount"]), (100000, 10000))
 
     def test_a_system_save_cannot_change_it_either(self):
@@ -91,7 +93,14 @@ class TestAWithheldOfficeRentIsLocked(OfficeRentCase):
         with self.assertRaises(frappe.ValidationError) as refused:
             doc.save(ignore_permissions=True)
         self.assertIn("tax has been withheld", str(refused.exception))
-        self.assertEqual(self._expense(name)["amount"], 90000)
+        self.assertEqual(self._expense(name)["amount"], 108000)
+
+        doc = frappe.get_doc(NPE, name)
+        doc.gst_amount = 0
+        with self.assertRaises(frappe.ValidationError) as refused:
+            doc.save(ignore_permissions=True)
+        self.assertIn("tax has been withheld", str(refused.exception))
+        self.assertEqual(self._expense(name)["gst_amount"], 18000)
 
     def test_a_comment_or_description_edit_still_saves(self):
         _request, name, _record = self._withheld()
@@ -100,23 +109,23 @@ class TestAWithheldOfficeRentIsLocked(OfficeRentCase):
         self._set_as(ACCOUNTANT, name, "description", "xrtds rent for October")
 
         self.assertEqual(frappe.db.get_value(NPE, name, ["comment", "description", "amount"]),
-                         ("xrtds paid on the 5th", "xrtds rent for October", 90000))
+                         ("xrtds paid on the 5th", "xrtds rent for October", 108000))
 
     def test_an_office_rent_with_no_tax_record_keeps_an_editable_amount(self):
         # Rs 1,00,000 waits at Requested: nothing is withheld yet.
         _request, name = self._raise(100000)
         self._set_as(ACCOUNTANT, name, "amount", 99000)
-        self.assertEqual(self._expense(name), {"status": "Requested", "amount": 99000})
+        self.assertEqual(self._expense(name), {"status": "Requested", "amount": 99000, "gst_amount": 0})
 
     # -- the one exemption: a bank line's few rupees ----------------------------------------------
-    def test_a_bank_line_a_little_short_corrects_the_amount_and_leaves_the_tax_as_withheld(self):
+    def test_a_bank_line_a_little_short_corrects_the_amount_and_leaves_the_tax_and_gst_as_split(self):
         _request, name, record = self._withheld()
         self._decide(ACCOUNTANT, name, "mark_done")
-        line = self._bank_line(89998)
+        line = self._bank_line(107998)
 
         link_rows_to_expense(rows=json.dumps([line]), target_doctype=NPE, target_name=name)
 
-        self.assertEqual(self._expense(name), {"status": "Paid", "amount": 89998})
+        self.assertEqual(self._expense(name), {"status": "Paid", "amount": 107998, "gst_amount": 18000})
         self.assertEqual(frappe.db.get_value(TDS, record, ["gross_amount", "tds_amount", "status"]),
                          (100000, 10000, "Pending"))
 

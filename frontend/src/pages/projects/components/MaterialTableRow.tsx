@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { TableRow, TableCell } from "@/components/ui/table";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Info, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 import { MaterialUsageDisplayItem, POStatus, MaterialSortKey } from './ProjectMaterialUsageTab';
@@ -45,10 +45,6 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
     ? { deliveryStatusVariant: "default" as const, deliveryStatusText: "Not Ordered" as const }
     : determineDeliveryStatus(item.deliveredQuantity, item.orderedQuantity);
 
-  // Checks if the ordered quantity is higher or lower than the estimate, for tooltip display.
-  const overOrdered = item.orderedQuantity > (item.estimatedQuantity ?? Infinity);
-  const underOrdered = item.orderedQuantity < (item.estimatedQuantity ?? 0) && item.orderedQuantity > 0;
-
   // Determines the overall payment status based on all associated purchase orders.
   const overallPOPaymentStatus = determineOverallItemPOStatus(item.poNumbers);
 
@@ -84,29 +80,10 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
         {item.unit || "N/A"}
       </TableCell>
       
-      {/* Column: Estimated Quantity (Always Visible) */}
-      <TableCell className="text-right font-mono py-2 px-3">
-        {item.estimatedQuantity !== undefined ? item.estimatedQuantity.toFixed(2) : "N/A"}
-      </TableCell>
-
       {/* Column: Ordered Quantity (Conditionally Hidden) */}
       {!hiddenColumns.has('orderedQuantity') && (
-        <TableCell className={`text-right font-mono py-2 px-3 ${overOrdered ? 'text-orange-600 font-semibold' : underOrdered ? 'text-blue-600' : ''}`}>
+        <TableCell className="text-right font-mono py-2 px-3">
           {item.orderedQuantity.toFixed(2)}
-          
-          {/* Tooltip to show if quantity is over or under the estimate */}
-          {(overOrdered || underOrdered) && (
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className={`h-3 w-3 ml-1 inline ${overOrdered ? 'text-orange-500' : 'text-blue-500'}`} />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{overOrdered ? 'Over ordered' : 'Under ordered'} vs estimate ({item.estimatedQuantity?.toFixed(2)})</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
         </TableCell>
       )}
 

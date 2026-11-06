@@ -66,11 +66,9 @@ class _SameStatement:
 
 @contextmanager
 def _storage_deletes():
-    """Record the storage apps' `File.on_trash` deletes instead of making them."""
-    with patch("frappe_gcp_attachment.controller.delete_from_cloud") as gcs, patch(
-        "frappe_s3_attachment.controller.delete_from_cloud"
-    ) as s3:
-        yield gcs, s3
+    """Record the storage app's `File.on_trash` deletes instead of making them."""
+    with patch("frappe_gcp_attachment.controller.delete_from_cloud") as gcs:
+        yield gcs
 
 
 # --- re-uploads --------------------------------------------------------------------------------------
@@ -182,7 +180,7 @@ class DiscardCase(_SameStatement, PorterValidationCase):
     def _discard(self, batch: str | None = None, user: str = "Administrator"):
         frappe.set_user(user)
         try:
-            with _storage_deletes() as (gcs, _s3), _no_bucket_upload():
+            with _storage_deletes() as gcs, _no_bucket_upload():
                 result = porter_discard.discard_porter_import(batch or self.batch)
         finally:
             frappe.set_user("Administrator")

@@ -20,17 +20,25 @@ const lines = (cfg: unknown) => attributeRuleOrder(cfg, elec.items);
 const text = (cfg: unknown) => lines(cfg).map((l) => `${l.title} -- ${l.detail ?? ""}`).join("\n");
 
 describe("ELR-1 AC6: wiring & cabling's rules list", () => {
-  it("POSITIVE: thirteen lines, in run order, each a rule of the config", () => {
-    expect(lines(wiring()).map((l) => l.title)).toEqual([
+  // ELR-4b (owner P6, 2026-10-29: WC-a..WC-f) INVERTED: WAS thirteen lines; NOW fifteen -- "Insulation" and "Runs and
+  // cores" inserted after line 2, and the conduit line says it is priced at its catalogue rate at the STATED size
+  // (R-W6); the WAS title is asserted gone below. Every other title is unchanged (attributeRuleOrder.elr4b.test.ts pins
+  // every line's full text against the WAS list).
+  it("POSITIVE: fifteen lines (WAS thirteen), in run order, each a rule of the config", () => {
+    const titles = lines(wiring()).map((l) => l.title);
+    expect(titles).not.toContain("The conduit is priced as its own category prices it: list price x (1 - discount) x (1 + supply markup), from 'Conduit discount & supply markup', not rounded");
+    expect(titles).toEqual([
       "Every row shows both blocks, Cable and Termination",
       "The cable and the termination are each matched in the catalogue",
+      "Insulation: the BoQ's answer",
+      "Runs and cores: as the BoQ states them",
       "Conduit included: the BoQ's answer",
       "Conduit type: the BoQ's answer, never assumed",
-      "Conduit size (mm): the size the BoQ states",
+      "Conduit size (mm)", // ELR-5 (owner R-W7, "Q4 a"); WAS "Conduit size (mm): the size the BoQ states"
       "Cable supply per metre = list price x (1 - discount) x (1 + supply markup), rounded up to the next 10",
       "Parallel runs multiply the rounded supply",
       "Cable install per metre = install base x (1 + 'Cable installation markup'), rounded up to the rupee",
-      "The conduit is priced as its own category prices it: list price x (1 - discount) x (1 + supply markup), from 'Conduit discount & supply markup', not rounded",
+      "The conduit is priced at its catalogue rate: list price x (1 - discount) x (1 + supply markup), from 'Conduit discount & supply markup', not rounded",
       "The conduit install = its supply x 'Conduit installation share', rounded up to the next 10",
       "Supply = the cable supply + the conduit supply, rounded up to the rupee",
       "Termination supply per set = the lug + the gland, each list price x (1 - discount) x (1 + supply markup), rounded up to the next 10, x runs",
@@ -41,9 +49,10 @@ describe("ELR-1 AC6: wiring & cabling's rules list", () => {
   it("every line ends with its reason: a ruling quoted with its date, or 'reason not recorded'", () => {
     const ls = lines(wiring());
     for (const l of ls) expect(l.detail, l.title).toMatch(/(^|-- )why: (.*\(owner[^)]*\d{4}-\d{2}-\d{2}\)|.*reason not recorded)/);
-    expect(ls.filter((l) => l.reason === "reason not recorded").map((l) => l.n)).toEqual([6]);
-    expect(ls[11].reason).toContain("the gland sizes and the rounding -- reason not recorded");
-    expect(ls[2].reason).toContain("default to not include it");
+    // ELR-4b INVERTED: WAS line 6 / ls[11] / ls[2]; NOW the same three lines sit two places later (WC-b / WC-c inserted)
+    expect(ls.filter((l) => l.reason === "reason not recorded").map((l) => l.n)).toEqual([8]);
+    expect(ls[13].reason).toContain("the gland sizes and the rounding -- reason not recorded");
+    expect(ls[4].reason).toContain("default to not include it");
   });
 
   it("the numbers are the config's own: 25 mm, one install unit per 3 runs, the 35 sqmm gland split, the Pricing Inputs by name", () => {
@@ -85,9 +94,10 @@ describe("ELR-1 AC6: wiring & cabling's rules list", () => {
     // ELR-4a (owner R-APPROVE, 2026-10-29) INVERTED: WAS every one of these eleven -> []; NOW point wiring, switches &
     // sockets and pop-up boxes list their own rules (pinned line by line in attributeRuleOrder.elr4a.test.ts) and the
     // other eight still get none
-    const elr4a = ["point_wiring", "popup_boxes", "switches_sockets"];
+    // ELR-4b (owner R-APPROVE + the P6 answer, 2026-10-29) INVERTED again: WAS the other eight -> []; NOW every
+    // Electrical category but the Pricing Inputs lists its rules (the eight pinned in attributeRuleOrder.elr4b.test.ts)
     for (const id of others) {
-      if (elr4a.includes(id)) expect(lines(cfgOf(elec, id)).length, id).toBeGreaterThan(0);
+      if (id !== "electrical_pricing_inputs") expect(lines(cfgOf(elec, id)).length, id).toBeGreaterThan(0);
       else expect(lines(cfgOf(elec, id)), id).toEqual([]);
     }
     for (const c of hvac.category_configs as Cfg[]) expect(attributeRuleOrder(c, hvac.items), c.category_id).toEqual([]);

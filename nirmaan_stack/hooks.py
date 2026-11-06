@@ -83,6 +83,8 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 
 #before_install = "nirmaan_stack.install.before_install"
 #after_install = "nirmaan_stack.install.after_install"
+# A new site starts with the seed Expense Types; runs once, after install's fixture sync (Role Profiles).
+after_sync = ["nirmaan_stack.services.expense_type_seed.seed_expense_types"]
 
 # Migration
 # ------------
@@ -91,8 +93,8 @@ pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 # named one back in the same migrate. It never drops anything.
 after_migrate = [
     "nirmaan_stack.services.index_manifest.ensure_indexes",
-    # Records without review drops a profile that raises no type, judged on the types the fixture
-    # sync ends with (the sync deletes and re-inserts each type, so its own hooks stand down).
+    # Records without review drops a profile that raises no type, judged on the types the migrate
+    # ends with (a patch may merge or remove types).
     "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
 ]
 
@@ -148,6 +150,9 @@ has_permission = {
     "Nirmaan Comments": "nirmaan_stack.integrations.controllers.nirmaan_comments.has_permission",
     # A Work Order's amendment snapshots need read on that Work Order (review round 4, X4).
     "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.has_permission",
+    # Reimbursements (2026-10-22): your own claims, or every claim for Admin / HR / Accounts; writes only
+    # through api/reimbursements.
+    "Reimbursement": "nirmaan_stack.integrations.controllers.reimbursement.has_permission",
 }
 
 permission_query_conditions = {
@@ -158,6 +163,7 @@ permission_query_conditions = {
     # A Work Order's item rows need read on that Work Order (story 4, walk W1).
     "Work Order Items": "nirmaan_stack.integrations.controllers.work_order_items.get_permission_query_conditions",
     "Nirmaan Versions": "nirmaan_stack.integrations.controllers.nirmaan_versions.get_permission_query_conditions",
+    "Reimbursement": "nirmaan_stack.integrations.controllers.reimbursement.get_permission_query_conditions",
 }
 
 # DocType Class
@@ -175,17 +181,26 @@ override_doctype_class = {
 
 doc_events = {
 	"User": {
+        # Only User admins create users or give role profiles (services/role_profiles.USER_ADMIN_PROFILES).
+        "validate": "nirmaan_stack.integrations.controllers.user.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
     "Nirmaan Users": {
+        # The person's own bank account (Nirmaan Users.payee, Reimbursements) changes only through
+        # services/payees/own_accounts.add_own_account.
+        "validate": "nirmaan_stack.integrations.controllers.nirmaan_users.validate",
         # A department set for the first time fills the department of the assets the person holds.
         "on_update": "nirmaan_stack.integrations.controllers.nirmaan_users.on_update",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
+        # The person's own bank account (Payee) goes with them, unless a Vendor is also paid into it.
+        "after_delete": "nirmaan_stack.integrations.controllers.nirmaan_users.after_delete",
+        # Drops the cached set of Nirmaan users the login gate reads (services/nirmaan_users.py).
+        "after_insert": "nirmaan_stack.integrations.controllers.nirmaan_users.after_insert",
         "after_rename": "nirmaan_stack.integrations.controllers.nirmaan_users.after_rename",
     },
     "User Permission": {
@@ -210,6 +225,10 @@ doc_events = {
         # Re-date the current future Pending log when a schedule's due date changes, so an
         # edit doesn't leave a stale occurrence + a duplicate new one. UPDATE only, never deletes.
         "on_update": "nirmaan_stack.integrations.controllers.reminder_schedule.on_update",
+    },
+    "Reminder Schedule Log": {
+        # Done / reopen moves the schedule's stored Next Due Date to the next open cycle.
+        "on_update": "nirmaan_stack.integrations.controllers.reminder_schedule_log.on_update",
     },
     "Asset Management": {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
@@ -355,7 +374,7 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.work_order_items.refuse_saving_an_item_row_alone",
         "on_trash": "nirmaan_stack.integrations.controllers.work_order_items.refuse_deleting_an_item_row_alone",
     },
-    # A generated invoice is made only by Generate and never deleted (#1546).
+    # A generated invoice is made only by Generate and deleted only in the app (#1546).
     "WO Generated Invoice": {
         "before_insert": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_insert_outside_generate",
         "on_trash": "nirmaan_stack.integrations.controllers.wo_generated_invoice.refuse_delete",
@@ -385,9 +404,6 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.service_requests.on_update",
         ]
     },
-    "Project Estimates" : {
-        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-    },
     # `invoice_amount` on the parent PO / SR is maintained HERE, on the doctype,
     # not by hand-placed calls in the invoice endpoints — three of the nine ways an
     # invoice changes run no application code (the backfill patch, the legacy
@@ -399,12 +415,12 @@ doc_events = {
         # TWICE per saved invoice. on_update alone covers insert.
         # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A).
         "validate": "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
-        # A generated invoice's Vendor Invoice moves its record, and is never deleted (#1547).
+        # A generated invoice's Vendor Invoice moves its record (#1547), and its delete deletes the record too.
         "on_update": [
             "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
             "nirmaan_stack.integrations.controllers.vendor_invoices.follow_generated_invoice",
         ],
-        "on_trash": "nirmaan_stack.integrations.controllers.vendor_invoices.refuse_deleting_generated_invoice",
+        "on_trash": "nirmaan_stack.integrations.controllers.vendor_invoices.delete_generated_invoice_with_it",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
@@ -427,15 +443,24 @@ doc_events = {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
-        "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        "after_insert": [
+            # A decider's own GST payment gets its request, already decided; first, before the notifications
+            # below commit (`services/gst_payment_requests`).
+            "nirmaan_stack.integrations.controllers.gst_payment_request.record_decider_request",
+            "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        ],
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_payments.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
+            # A GST payment's request follows it, Approved <-> Paid (`services/gst_payment_requests`).
+            "nirmaan_stack.integrations.controllers.gst_payment_request.sync_from_payment",
         ],
         # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
             "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
+            # A GST payment takes its request along, before Frappe's link check would refuse the delete.
+            "nirmaan_stack.integrations.controllers.gst_payment_request.delete_with_payment",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # after_delete, never on_trash: the cashflow check must read the payment gone (#1453).
@@ -462,6 +487,8 @@ doc_events = {
             # An approval that would withhold Office Rent's tax is refused without the landlord,
             # before the row is written. After the doctype's `validate`, which sets a new row's status.
             "nirmaan_stack.integrations.controllers.expense_tds.validate",
+            # A reimbursement's Rejected expense is final (ADR-0040): no other status after it.
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.validate",
         ],
         # Office Rent withholds 10% TDS when approved (#1525): a row born Approved here, an
         # approval from an earlier step in `on_update`.
@@ -475,8 +502,12 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_request_notify.on_expense_update",
             # A card spend's type edited: remembered for its merchant (#1569). Exits unless both hold.
             "nirmaan_stack.integrations.controllers.card_merchant_memory.on_expense_update",
+            # A reimbursement's expense (ADR-0040): Paid / Rejected / an undone match moves its claim.
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.on_update",
         ],
         "on_trash": [
+            # A claimant can't delete their own reimbursement's expense unless Rejected -- FIRST (ADR-0040).
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.on_trash",
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
             # Its Office Rent tax record goes with it, or the delete is refused while that tax is on a
             # challan (#1526). Before Frappe's link check, which would refuse it outright.
@@ -489,6 +520,8 @@ doc_events = {
         # the row must be GONE before the request it links to can be deleted.
         "after_delete": [
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # ...and a reimbursement's expense deletes its claim and receipts (ADR-0040).
+            "nirmaan_stack.integrations.controllers.reimbursement_expense.after_delete",
             # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
             "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
@@ -573,6 +606,11 @@ doc_events = {
     },
     "Expense Request": {
         "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
+    },
+    # Only its endpoints write it (`services/gst_payment_requests`).
+    "GST Payment Request": {
+        "validate": "nirmaan_stack.integrations.controllers.gst_payment_request.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.gst_payment_request.on_trash",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
@@ -771,9 +809,9 @@ scheduler_events = {
 # Authentication and authorization
 # --------------------------------
 
-# auth_hooks = [
-# 	"nirmaan_stack.auth.validate"
-# ]
+# Only Nirmaan users (a Nirmaan Users record) log in or make a request; Administrator and Guest always pass.
+on_session_creation = ["nirmaan_stack.integrations.login_gate.refuse_login"]
+auth_hooks = ["nirmaan_stack.integrations.login_gate.refuse_request"]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
@@ -793,10 +831,6 @@ fixtures = [
     "Workflow Action Master",
     "Portal Menu Item",
     "Print Format",
-    "Expense Type",
-    # Categories are Link targets of Expense Type, so they must ship with it or the link
-    # dangles on any site seeded from fixtures.
-    "Expense Category",
     "Nirmaan Item Units",
     "Commission Report Category",
     "Commission Report Tasks",

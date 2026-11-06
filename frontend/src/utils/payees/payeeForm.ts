@@ -27,6 +27,9 @@ const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const IFSC_SHAPE_PROBLEM =
     "An IFSC is 11 characters: four letters, a zero, then six letters or digits (e.g. SBIN0005943).";
 const ACCOUNT_CHARS = /^[A-Z0-9]+$/;
+const LETTER = /[A-Za-z]/;
+/** A holder name naming a bank. Twin of `rules._BANK_WORD`: whole words, the word BANK or a short name. */
+const BANK_WORD = /\b(BANK|SBI|HDFC|ICICI|PNB|IDFC|IDBI|UCO|KOTAK|INDUSIND)\b/i;
 
 /** The account number as the server stores it: no spaces or dashes, upper-cased. */
 export const cleanAccountNumber = (value: string): string => value.replace(/[\s-]+/g, "").toUpperCase();
@@ -89,10 +92,23 @@ export const accountsMatch = (form: PayeeFormValues): boolean => {
 };
 
 /**
+ * Why the holder name can't be saved, or null: blank, no letter (an account number in the wrong box), or a
+ * bank's name. Twin of `rules.holder_name_problem`.
+ */
+export const holderNameProblem = (name: string): string | null => {
+    const clean = squashHolderName(name);
+    if (!clean) return "Enter the account holder name.";
+    if (!LETTER.test(clean)) return "Account holder name can't be only numbers. Enter the name on the bank account.";
+    if (BANK_WORD.test(clean)) return "Account holder name can't be a bank name. Enter the person or company who owns the account.";
+    return null;
+};
+
+/**
  * Why the form can't be submitted yet, or null. `bankFound` is whether the IFSC lookup found a bank.
  */
 export const payeeFormProblem = (form: PayeeFormValues, { bankFound }: { bankFound: boolean }): string | null => {
-    if (!form.account_name.trim()) return "Enter the account holder name.";
+    const holder = holderNameProblem(form.account_name);
+    if (holder) return holder;
     const number = cleanAccountNumber(form.account_number);
     if (!number || normalizeAccount(number) === "0") return "Enter the account number.";
     if (!ACCOUNT_CHARS.test(number)) return "An account number holds only letters and digits.";
@@ -123,16 +139,28 @@ export const newPayeeProblem = ({
     formProblem,
     duplicate,
     lookingUp,
+    ownAccountRefused = false,
 }: {
     formProblem: string | null;
     duplicate: boolean;
     lookingUp: boolean;
+    /** The duplicate is a person's own account and this screen can't use one (`refusesOwnAccount`). */
+    ownAccountRefused?: boolean;
 }): string | null => {
     if (lookingUp) return "Wait for the IFSC lookup.";
     if (formProblem) return formProblem;
-    if (duplicate) return "This account is already a payee. Use that payee instead of adding a new one.";
+    if (duplicate) return ownAccountRefused ? OWN_ACCOUNT_REFUSAL : "This account is already a payee. Use that payee instead of adding a new one.";
     return null;
 };
+
+/** Why an Expense Request can't use a person's own account (owner, 2026-10-27). Twin of
+ *  `services/payees/pay_to.OWN_ACCOUNT_REFUSAL`, which the server refuses with. */
+export const OWN_ACCOUNT_REFUSAL =
+    "This is a user's own account (Users), so it can't be used in an expense request. Enter a different account.";
+
+/** A duplicate the request screen must refuse rather than offer: a Users Payee, someone's own account. */
+export const refusesOwnAccount = (refuse: boolean | undefined, dup: Pick<PayeeSummary, "payee_type"> | null): boolean =>
+    !!refuse && dup?.payee_type === "Users";
 
 /** "HDFC Bank, Rohtak": a Payee's bank and branch as every screen shows them; empty when neither is known. */
 export const bankLine = (p: { bank_name?: string | null; bank_branch?: string | null }): string =>

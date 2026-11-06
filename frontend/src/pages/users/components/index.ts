@@ -5,5 +5,7 @@ export { UserProfileActions } from "./UserProfileActions";
 export { UserOverviewTab } from "./UserOverviewTab";
 export { UserProjectsTab } from "./UserProjectsTab";
 export { UserAssetsTab } from "./UserAssetsTab";
+export { UserPayeesTab } from "./UserPayeesTab";
+export { UserReimbursementsTab } from "./UserReimbursementsTab";
 export { ProjectCard, ProjectCardCompact } from "./ProjectCard";
 export { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";

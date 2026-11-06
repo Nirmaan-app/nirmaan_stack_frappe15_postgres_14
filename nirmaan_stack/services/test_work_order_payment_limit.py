@@ -218,11 +218,6 @@ class TestInvoiceCheck(unittest.TestCase):
 		self.assertIsNone(self._refusal(payments, amount_invoiced=35400, amount=70000))
 		self.assertEqual(self._refusal(payments, amount_invoiced=35400, amount=70500)["part"], "base")
 
-	def test_a_raiser_who_skips_the_check_still_meets_the_limit(self):
-		limit = work_order_limit(118000, "true", 0, [_base("B1", 30000)], amount_invoiced=0)["limit"]
-		self.assertIsNone(request_refusal(limit, 70000, gst_payment=False, check_invoices=False))
-		self.assertEqual(request_refusal(limit, 70500, gst_payment=False, check_invoices=False)["part"], "base")
-
 	def test_a_gst_payment_on_a_gst_off_work_order_is_named_before_the_invoice_check(self):
 		limit = work_order_limit(100000, "false", 0, [_base("B1", 30000)], amount_invoiced=0)["limit"]
 		self.assertEqual(request_refusal(limit, 5, gst_payment=True)["part"], "no_gst")
@@ -230,6 +225,32 @@ class TestInvoiceCheck(unittest.TestCase):
 	def test_a_negative_payment_is_refused(self):
 		self.assertEqual(self._refusal([], amount_invoiced=0, amount=-500), {"part": "negative", "left": 0})
 
-	def test_a_negative_payment_is_refused_even_for_a_raiser_who_skips_the_check(self):
-		limit = work_order_limit(118000, "true", 0, [], amount_invoiced=0)["limit"]
-		self.assertEqual(request_refusal(limit, -500, gst_payment=False, check_invoices=False)["part"], "negative")
+
+class TestPendingGstRequests(unittest.TestCase):
+	"""A Pending GST Payment Request holds its amount (`services/gst_payment_requests`): base 1,00,000, GST
+	18,000 all released, a 40,000 base payment approved and invoiced."""
+
+	def _out(self, pending_gst):
+		return work_order_limit(118000, "true", 18000, [_base("B1", 40000)], amount_invoiced=40000 + pending_gst,
+			pending_gst=pending_gst)
+
+	def test_none_waiting_leaves_the_limit_as_it_was(self):
+		self.assertEqual(_limit(self._out(0)), (60000, 18000, 78000))
+		self.assertEqual(self._out(0)["limit"]["gst_requested"], 0)
+
+	def test_a_waiting_request_holds_gst_left_and_total_left_but_not_base_left(self):
+		out = self._out(10000)
+		self.assertEqual(_limit(out), (60000, 8000, 68000))
+		self.assertEqual(out["limit"]["gst_requested"], 10000)
+		self.assertEqual(out["left"], 78000)  # the summary's own figure is the payments' alone
+
+	def test_the_same_gst_cannot_be_asked_for_twice(self):
+		limit = self._out(10000)["limit"]
+		self.assertEqual(request_refusal(limit, 18000, gst_payment=True), {"part": "gst", "left": 8000})
+		self.assertIsNone(request_refusal(limit, 8000, gst_payment=True))
+
+	def test_a_waiting_request_counts_as_raised_in_the_invoice_check(self):
+		limit = work_order_limit(118000, "true", 18000, [_base("B1", 40000)], amount_invoiced=40000,
+			pending_gst=10000)["limit"]
+		self.assertEqual(limit["invoice_check"]["raised"], 50000)
+		self.assertEqual(request_refusal(limit, 100, gst_payment=False)["part"], "invoice")

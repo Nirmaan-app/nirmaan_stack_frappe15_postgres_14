@@ -8,6 +8,7 @@ import {
   MARK_PAID_PROFILES,
   mayEditExpenseField,
   NO_EDIT_ACCESS,
+  splitByLedger,
   splitMarkPaid,
 } from "./expenseDecision";
 
@@ -115,5 +116,34 @@ describe("mayEditExpenseField — the server's edit answer, read per field (stor
     expect(mayEditExpenseField(lead, "Rejected", "description")).toBe(false);
     expect(mayEditExpenseField(NO_EDIT_ACCESS, "Approved", "description")).toBe(false);
     expect(mayEditExpenseField(lead, undefined, "description")).toBe(false);
+  });
+});
+
+describe("splitByLedger: the Project Payments bulk bars send each ticked row to its own engine", () => {
+  // Queue rows as `get_approval_queue` returns them (the fields the split and the calls read).
+  const reimbursement = { name: "NPE-R1", doctype: "Non Project Expenses", source: "Non-Project", source_type: "Reimbursement" };
+  const nonProject = { name: "NPE-O1", doctype: "Non Project Expenses", source: "Non-Project", source_type: "Non-Project" };
+  const projectExpense = { name: "PE-1", doctype: "Project Expenses", source: "Project Expense", source_type: "Project Expense" };
+  const poPayment = { name: "PP-1", doctype: "Project Payments", source: "Vendor Payment", source_type: "PO Payment" };
+  const srPayment = { name: "PP-2", doctype: "Project Payments", source: "Vendor Payment", source_type: "SR Payment" };
+
+  it("puts a reimbursement's expense with the other expenses, in the order ticked, and every payment apart", () => {
+    const { expenses, payments } = splitByLedger([poPayment, reimbursement, projectExpense, srPayment, nonProject]);
+    expect(expenses.map((r) => r.name)).toEqual(["NPE-R1", "PE-1", "NPE-O1"]);
+    expect(payments.map((r) => r.name)).toEqual(["PP-1", "PP-2"]);
+  });
+
+  it("keys on the ledger, not the Type label: a reimbursement label on a payment row stays a payment", () => {
+    const relabelled = { ...poPayment, source_type: "Reimbursement" };
+    expect(splitByLedger([relabelled])).toEqual({ expenses: [], payments: [relabelled] });
+  });
+
+  it("sends a row with no doctype to the payments engine, which reports it, never to decide_expenses", () => {
+    const unknown = { name: "X-1", doctype: undefined };
+    expect(splitByLedger([unknown, reimbursement])).toEqual({ expenses: [reimbursement], payments: [unknown] });
+  });
+
+  it("splits nothing into nothing", () => {
+    expect(splitByLedger([])).toEqual({ expenses: [], payments: [] });
   });
 });

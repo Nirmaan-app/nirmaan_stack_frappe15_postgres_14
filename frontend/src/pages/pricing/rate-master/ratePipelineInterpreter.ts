@@ -867,6 +867,13 @@ function readableCondition(when: Record<string, string | number>, params: Record
 
 /** Run one pipeline for the selected attributes. Never throws on data shape -- it
  * returns a status ("ok" | "no_match" | "unsupported") + traces. */
+/** ELR-4d: the sentence of a `sum_components` `none_refusal` that refused this run, else undefined (the one reader). */
+export function noneRefusalOf(res: PipelineResult): string | undefined {
+  if (res.status !== "no_match") return undefined;
+  const last = res.steps[res.steps.length - 1];
+  return last?.step === "sum_components" ? last.matchedCondition : undefined;
+}
+
 export function runPipeline(
   pipelineId: string,
   pipeline: Pipeline,
@@ -890,6 +897,9 @@ export function runPipeline(
   const steps: StepTrace[] = [];
   let matchedItem: RateMasterItem | undefined;
   const components: Record<string, number> = {};
+  // ELR-4d (owner R-DB-MANUAL): the components a `none_skips` zeroed, for `sum_components`' `none_refusal`;
+  // ELR-5 (owner "Q1 a, Q2 c"): and the ones their own `if_attr` switched off (Back box = No)
+  const noneSkipped = new Set<string>();
   // SLICE 2: STRING-valued bindings produced by module_fit (a ladder's fitted LABEL, e.g. "12M").
   // `ctx` is numbers-only, and a plate/box size is a catalog label, so it needs its own scope. A
   // component_ref's "@<name>" resolves here BEFORE falling back to the selection -- so a bind whose
@@ -1337,6 +1347,11 @@ export function runPipeline(
       }
       const isStated = (v: string | number | undefined) =>
         v !== undefined && v !== null && v !== "";
+      // ELR-4d (owner R-W6, "the same way as ... the conduit category"): a `hop_only` fit acts ONLY on a stated number the
+      // catalogue does not stock at the row's `where`: the next size up (with the same `fit_up` note), or above the largest
+      // the row does not price. Every other case -- stocked, None, blank, nothing named -- leaves no trace and binds nothing,
+      // so the step after it reads exactly what it read before. Read through `unknown`: not on the CatalogFitStep type.
+      const hopOnly = (p as unknown as { hop_only?: unknown }).hop_only === true;
 
       // SLICE 2d -- the attribute ids behind this step's `where` "@" references, collected ONCE and in
       // config order. Computed here, before any early return, so the stated and absent paths publish
@@ -1415,12 +1430,14 @@ export function runPipeline(
         }
       }
       if (whereMiss !== null) {
+        if (hopOnly) continue;
         return bail(`'${whereMiss}' not provided -- no ${p.bind} computed`);
       }
 
       // (d) the value being fitted.
       const rawFit = selected[p.fit_from.attr];
       const want = typeof rawFit === "number" ? rawFit : Number(rawFit);
+      if (hopOnly && (!isStated(rawFit) || !Number.isFinite(want))) continue;
       if (!isStated(rawFit) || !Number.isFinite(want)) {
         // SLICE 2b (owner ruling A-ii): a category may OPT IN to treating an unreadable fact as
         // POSITIVE ABSENCE rather than a refusal. Refusing discards the rest of the row -- the socket
@@ -1451,9 +1468,11 @@ export function runPipeline(
         kind: p.kind, where: resolvedWhere, label_attr: p.label_attr, size_from: p.size_from,
       });
       if (!rungs.length) {
+        if (hopOnly) continue;
         return bail(`no '${p.kind}' rows match -- no ${p.bind} computed`);
       }
       const fit = fitModuleLadder(rungs, want, p.direction);
+      if (hopOnly && fit?.exact) continue;
       if (!fit) {
         // A MISS IS NOT AUTOMATICALLY FATAL. `on_miss: "none"` binds the sentinel so the rest of the
         // row still prices -- a missing MCB leaves the socket un-paired, it does not make the socket
@@ -1472,7 +1491,8 @@ export function runPipeline(
         continue;
       }
 
-      fitLabels[p.bind] = fit.label;
+      // ELR-4d: a hop-only bind is read by a component_ref's strict match on the NUMBER, so it goes through `fit_into` alone
+      if (!hopOnly) fitLabels[p.bind] = fit.label;
       // SLICE 3a -- THE NUMERIC HALF. `fitLabels` is string-typed by contract (a rung's LABEL), and
       // `match_master_row` compares `selected` values with `===` against the stored attribute. A
       // category whose ladder attribute IS its match key (cable tray's `width_mm`, stored as a
@@ -2286,6 +2306,7 @@ export function runPipeline(
           )
         ) {
           components[s.name] = 0;
+          noneSkipped.add(s.name);
           steps.push({
             step: stepType,
             label: s.explain || `component: ${s.name}`,
@@ -2381,6 +2402,9 @@ export function runPipeline(
         }
         const value = rate * qty;
         components[s.name] = value;
+        // ELR-5: a part its own Yes/No switched off is absent, for `none_refusal` only: nothing else reads this set, and a
+        // part named at quantity 0 (`from_attr` / `from_fit`) stays a part
+        if (s.none_skips && qty === 0 && typeof s.qty === "object" && "if_attr" in s.qty) noneSkipped.add(s.name);
         steps.push({
           step: stepType,
           label: s.explain || `component: ${s.name}`,
@@ -2590,6 +2614,16 @@ export function runPipeline(
       });
     } else if (stepType === "sum_components") {
       const s = raw as import("./rateMasterTypes").SumComponentsStep;
+      // ELR-4d (owner R-DB-MANUAL 2026-07-31: "a WHOLE-row no-match returns all slots null (fully manual)"): a pipeline that
+      // declares `none_refusal` refuses, in those words, when EVERY component is positively absent (ELR-5: a None, or its
+      // own Yes/No switched off) -- never Rs 0. A part named
+      // at quantity 0 is not absent. Read through `unknown`: not on the SumComponentsStep type.
+      const noneRefusal = (s as unknown as { none_refusal?: unknown }).none_refusal;
+      const componentNames = Object.keys(components);
+      if (typeof noneRefusal === "string" && noneRefusal !== "" && componentNames.length > 0 && componentNames.every((n) => noneSkipped.has(n))) {
+        steps.push({ step: stepType, label: s.explain || "sum components", matchedCondition: noneRefusal, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
       const value = Object.values(components).reduce((a, b) => a + b, 0);
       ctx[s.result] = value;
       steps.push({

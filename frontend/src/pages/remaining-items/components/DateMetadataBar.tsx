@@ -4,7 +4,8 @@ import { formatDate } from "@/utils/FormatDate";
 
 interface DateMetadataBarProps {
   hasProject: boolean;
-  lastReport: { submitted_by_full_name: string; report_date: string } | null;
+  /** `isEmpty`: the last report has no rows, i.e. it recorded "nothing to count". */
+  lastReport: { submitted_by_full_name: string; report_date: string; isEmpty?: boolean } | null;
   todayReportExists: boolean;
 }
 
@@ -27,7 +28,7 @@ export default function DateMetadataBar({
           <Badge variant="blue" className="gap-1.5 py-1">
             <Clock className="h-3.5 w-3.5" />
             {lastReport
-              ? `Last Updated: ${formatDate(lastReport.report_date)} by ${lastReport.submitted_by_full_name}`
+              ? `Last Updated: ${formatDate(lastReport.report_date)} by ${lastReport.submitted_by_full_name}${lastReport.isEmpty ? " · No items to count" : ""}`
               : "No previous reports"}
           </Badge>
 

@@ -177,21 +177,32 @@ figure — the company pays the tax on top:
   approval route shares: single approve, a split's approved half, auto-approve at insert, bulk approve
   post-commit) asks `is_company_borne` and passes `write_deduction(borne_by=...)`, which stores it and
   cuts the payment only for `Vendor`. `write_deduction` defaults to `Vendor`, so the historical
-  backfills are unchanged. Nothing rewrites `borne_by` after that, except the Admin action below.
-- **_TDS paid by company_ (#1537) is the one way `borne_by` moves, Vendor → Company only.**
-  `api/payments/tds_paid_by_company.mark_tds_paid_by_company` (Admin, `is_nirmaan_admin`) →
-  `payment_tds.mark_tds_paid_by_company`: a Work Order payment's deduction, before *Paid* or after *Paid*
-  while its tax is not in a challan (`refuse_if_deposited`). It changes no figure (payment amount,
-  `gross_amount`, `tds_amount` stay), so the tax leaves Amount Paid and stays in `total_tds` and project
-  outflow: ₹10,000 paid with ₹204 "withheld" → Amount Paid 10,204, Due −204 → 10,000 and 0. It saves the
-  deduction through the doc layer, so `controllers/payment_tds_deduction.on_update` recounts through
-  `write_amount_paid` and re-checks CEO Hold, and its Version (`ignore_version=False`, written even in a
-  test run) records who and when. Any other change of `borne_by` (Desk, REST) is refused
-  (`refuse_hand_written_borne_by`; the action sets `flags.tds_paid_by_company`).
+  backfills are unchanged. Nothing rewrites `borne_by` after that, except *Company Bears TDS* below.
+- **_Company Bears TDS_ and _Mark as Deposit_ undo a TDS cut before the money goes out (owner 2026-10-27).**
+  They replace the #1537 action *TDS paid by company*, which moved only `borne_by` and so left Amount Due =
+  the tax on a cut payment. `api/payments/tds_cut_undo` (Admin, `is_nirmaan_admin`) → `services/tds_cut_undo`.
+  Both put a cut Work Order payment back to its full request (`amount` = the deduction's `gross_amount`,
+  ₹9,800 → ₹10,000): *Company Bears TDS* keeps the deduction with `borne_by` Company (the only way
+  `borne_by` moves, Vendor → Company, its Version recording who and when); *Mark as Deposit* clears
+  `payment_tds` and deletes the deduction through `frappe.delete_doc` (a Deleted Document records it).
+  **Only on an `Approved` payment** (its status read inside the payment's row lock): from `Reconciliation
+  Pending` on the money has left the bank, so raising the record would claim money never sent. Also refused
+  on a payment on a cheque (written for the net), with tax in a challan, already `Company`, or with `amount`
+  already at the gross (`refuse_unless_cut_undoable`). *Mark as Deposit* also shows on a TDS the company
+  already bears (after *Company Bears TDS*, or a Misc / Transport Work Order's): it deletes the deduction and
+  leaves the amount, so it is allowed up to `Reconciliation Pending`, cheque or not. Neither action on a
+  `Paid` payment (owner 2026-10-27), and neither once the TDS is paid: a deduction in a challan is refused
+  with "this TDS is already paid" (`refuse_if_tds_paid`). The payment is written by `db_set`, so its `validate`
+  (`refuse_raise_after_cut`) and the restate don't run; an `Approved` payment counts in no Work Order figure,
+  so nothing is recounted. Any other change of `borne_by` (Desk, REST) is refused
+  (`refuse_hand_written_borne_by`; the action sets `payment_tds.COMPANY_BEARS_TDS_FLAG`). Payments the old
+  action marked keep their figures; `requested_amount_sql` still reads their gross. The WO page's buttons
+  (`TdsCutUndoActions`, rule `tdsCutUndo.canUndoTdsCut`) each carry an ⓘ hover explaining the action.
 - **A payment whose tax was cut (`Vendor`) can't be raised (#1537)**, `payment_tds.refuse_raise_after_cut`
   from the payment's `validate`, on the saves the restate runs on (not `NO_RESTATE_FLAGS` /
   `from_adjustment`). A raised net was grossed up again (9,800 → 10,000 read as 10,204 gross, 204
-  withheld), which is how the negative-Due Work Orders arose. The message names *TDS paid by company*.
+  withheld), which is how the negative-Due Work Orders arose. The message names *Company Bears TDS* and
+  *Mark as Deposit*.
   Lowering still restates; a `Company` payment (never cut) may be raised and is taxed on the new gross.
 - **Every reader reads the field, never the categories or the amounts:**
   - **Amount Paid includes the vendor's tax (ADR-0034 Amendment A, #1509).** A WO's stored
@@ -247,9 +258,10 @@ figure — the company pays the tax on top:
     through the one accessor `useWorkOrderTds` (SWR key `WorkOrderTds-<id>`, shared with the WO page);
     the TDS column shows a loading state until it answers. `Company` tax adds nothing to any of them.
   - **Company tax is labelled wherever a tax column lists it** (#1543): the WO payment table's TDS cell
-    (`tdsPreview.tdsColumnNote`) and the Payment Voucher Uploads report say "TDS paid by company". The
-    TDS register's Net Paid is what the vendor got: gross − tax for `Vendor`, the whole gross for
-    `Company` (`deductionNetPaid`).
+    (`tdsPreview.tdsColumnNote`) and the Payment Voucher Uploads report say "Company Bears TDS" (`tdsPreview.COMPANY_BEARS_TDS_LABEL`, renamed
+    with the action, owner 2026-10-27), as does the WO page's Amount Paid hover. The
+    TDS register's Paid Amount is what the payee got: gross − tax for `Vendor`, the whole gross for
+    `Company` (`deductionNetPaid`); on an Office Rent row the gross is first the bill (rent + GST, below).
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
   its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
   read that checks read on the parent order (`get_work_order_tds`, `get_order_payment_tds`,
@@ -290,7 +302,7 @@ figure — the company pays the tax on top:
 - **"Req. Amount" is the full bill whatever the status (owner ruling X4-A).** The WO page table:
   Req. Amount / TDS / To be paid (`tdsPreview.paymentTableFigures`: a recorded `Vendor` deduction is
   added back onto the cut amount). The approval queue (All Payments, accountant tabs, CSV): the row's
-  `requested_amount` (a union column in `api/approvals/get_approval_queue`, rule `payment_tds.requested_amount_sql`: a payment its tax cut (stored + tax = gross) reads the deduction's gross whoever bears the tax now, so a cut payment marked *TDS paid by company* still bills its gross; otherwise the stored amount plus the counted
+  `requested_amount` (a union column in `api/approvals/get_approval_queue`, rule `payment_tds.requested_amount_sql`: a payment its tax cut (stored + tax = gross) reads the deduction's gross whoever bears the tax now, so a cut payment marked by the retired *TDS paid by company* still bills its gross; otherwise the stored amount plus the counted
   `Vendor` tax; a withheld Office Rent expense's is its tax record's `gross_amount`, the rent before withholding) with a "To be paid" line under it when they differ. The column's
   sort and filter (id `amount`) read `requested_amount` too (`_COLUMN_FOR`, story 60), as does the "Req. Amt"
   selection pill (`bulkSelectionSummary.requestedTotal`). `amount` stays the stored figure: every action, the
@@ -355,8 +367,11 @@ letter decides it (owner, 2026-10-16):
   Order as a taxed payment, one of them Company-borne, leaves every Work Order and project figure as it
   was) and `services/test_tds_record_shape`.
 - **The frontend's copy of the rent rule is ONE module, `frontend/src/utils/expenses/expenseTds.ts`**
-  (#1524): `OFFICE_RENT_TDS` (Office Rent, 10%, 194-I) and `expenseTdsSplit(type, amount)` → gross /
-  rate / tds / net, rounded like `flt(x, 2)`; zero tax for every other type and for a zero or a refund.
+  (#1524, #1613): `OFFICE_RENT_TDS` (Office Rent, 10%, GST 18%, 194-I) and `expenseTdsSplit(type, amount)`
+  → bill / base / GST / TDS / landlord gets, rounded by `round2`, the twin of the server's `SPLIT_ROUNDING`
+  (Frappe's "Banker's Rounding": a TDS on a half paisa goes to the even paisa); no split for every other
+  type and for a zero or a refund. Both copies' tests read ONE table of cases,
+  `services/office_rent_split_cases.json`.
   A forecast only, never sent. The New Expense preview reads it (`tdsPreviewLine`), and the approval
   screens and the Expense page read it through `shownExpenseTds` (#1527, below). ⚠️ The server's own constant,
   `services/expense_tds.OFFICE_RENT_TDS` (#1525), is its twin, pinned by the parity block in
@@ -364,8 +379,8 @@ letter decides it (owner, 2026-10-16):
 
 ### Load-bearing invariants: withholding from an Office Rent expense (#1525)
 
-- **WHICH: one constant, `services/expense_tds.OFFICE_RENT_TDS`** — type `Office Rent`, rate 10, section
-  `194-I`, and the request answer keys naming the deductee (`landlord_name`, `landlord_pan`, Office
+- **WHICH: one constant, `services/expense_tds.OFFICE_RENT_TDS`** — type `Office Rent`, rate 10, GST rate
+  18 (spec #1613), section `194-I`, and the request answer keys naming the deductee (`landlord_name`, `landlord_pan`, Office
   Rent's form; pinned to the fixture by `services/test_expense_tds_rule`). `tds_rule_for` answers None
   for every other type, so no other expense withholds anything. No Expense Type field (owner ruling).
 - **WHEN: the Work Order rule, reused, never restated** — `expense_tds.withholds_now(doctype, type,
@@ -378,13 +393,18 @@ letter decides it (owner, 2026-10-16):
   and withholds nothing; Bulk Import's Unreconcile lands at Reconciliation Pending anyway. A row born at
   any other status withholds nothing: the bank-import, cashbook and Porter creates insert at Paid, so an
   import-made Office Rent records no tax (ADR-0021).
-- **WHAT: `expense_tds.withhold_expense_tds` writes the record FIRST, then nets the amount** — record:
-  `non_project_expense`, `gross_amount` = the amount as approved, `tds_percentage` 10, `tds_amount` =
-  `flt(gross × 10 / 100, 2)`, `tds_section` 194-I, `borne_by` Vendor (the landlord's money), the
-  landlord's name and PAN (read from the originating Expense Request's `source_data`),
-  `payment_approved_on` today, status Pending. Then `doc.db_set("amount", net, update_modified=False)`:
-  no save hook re-fires, so nothing withholds twice, and the approving save's Version row records gross
-  → net. The call site names every other reader of `amount` and why none needs a recompute (Raw SQL
+- **THE AMOUNT IS THE BILL INCL. 18% GST (spec #1613, ADR-0043).** `expense_tds.tds_split(type, bill)`
+  (pure, no site): base = round2(bill ÷ 1.18), GST = round2(bill − base), TDS = round2(base × 10%), landlord
+  gets = round2(bill − TDS), each round2 `flt(x, 2, "Banker's Rounding")` (`SPLIT_ROUNDING`, pinned so the
+  frontend twin rounds the same; ₹10,010 → TDS 848.305 → ₹848.30). Base + GST is the bill exactly. TDS is
+  never taken on the GST. No branch by form version: no request was raised under the old meaning.
+- **WHAT: `expense_tds.withhold_expense_tds` writes the record FIRST, then cuts the amount** — record:
+  `non_project_expense`, `gross_amount` = the BASE RENT, `tds_percentage` 10, `tds_amount` = the split's
+  TDS, `tds_section` 194-I, `borne_by` Vendor (the landlord's money), the landlord's name and PAN (read
+  from the originating Expense Request's `source_data`), `payment_approved_on` today, status Pending. Then
+  `doc.db_set({"amount": landlord_gets, "gst_amount": gst}, update_modified=False)`: no save hook
+  re-fires, so nothing withholds twice, and the approving save's Version row records bill → landlord
+  gets. `Non Project Expenses.gst_amount` (read-only Currency) is written here and nowhere else. The call site names every other reader of `amount` and why none needs a recompute (Raw SQL
   rule 1); no new Cheque can carry an expense line, so no cheque line follows it.
 - **NEVER WITHOUT THE LANDLORD (owner, 2026-10-21).** The request endpoints require the landlord's
   name and a valid PAN on create, on edit AND at a Reviewer's approval, at any amount
@@ -401,7 +421,7 @@ letter decides it (owner, 2026-10-16):
   meets it, and none can be edited into shape (its request is decided), so its message names the way
   out: "… Reject it and raise it again with the landlord's name and PAN." The approve dialog says so
   before the click: `api/approvals/expense_detail` serves `deductee_missing` (the same reading, at
-  Requested and CEO Pending), the Rent / TDS / Net caption becomes "Landlord's name and PAN are missing —
+  Requested and CEO Pending), the breakdown's caption becomes "Landlord's name and PAN are missing —
   this can't be approved" and Confirm is disabled (`expenseApprovalDetail.approvalBlocked`; the bulk
   dialog does not check, the server refuses that row). An L1 step that only forwards to CEO Pending
   withholds nothing and is not refused by the server. A zero or a refund needs no landlord. Both refusals
@@ -410,16 +430,28 @@ letter decides it (owner, 2026-10-16):
   a re-save, a retry or a second call changes nothing and never re-nets.
 - ⚠️ **IT RAISES, unlike the Work Order route** (`record_deduction_if_eligible` logs and swallows). Each
   caller is one approval in its own savepoint (`decide_expenses` per row) or request (the intake), so a
-  failure refuses that one approval: an Office Rent expense is never Approved at the full rent with no
+  failure refuses that one approval: an Office Rent expense is never Approved at the full bill with no
   tax record, and no swallowed DB error leaves the Postgres transaction aborted.
-- **The approval tiers read the gross.** The amount is cut only after the approval that withholds, so
-  `decide` bands every step on the full rent (₹55,000 waits at CEO Pending).
-- **After it:** the Expense's `amount` is the net, so Mark as Done, the bank file (`payees/paid_to`) and
-  Bulk Import (`expense_links`, `candidates`) see what the landlord is paid with no change of their own;
-  the Expense Request keeps its own gross `amount` (its mirror carries the status only). Non-project
-  totals sum the net.
-- **No backfill.** Office Rent expenses approved before #1525 have no record and never get one; no
-  patch writes any.
+- **The approval tiers read the bill.** The amount is cut only after the approval that withholds, so
+  `decide` bands every step on the bill incl. GST (₹55,000 waits at CEO Pending).
+- **After it:** the Expense's `amount` is bill − TDS (what the landlord gets, incl. GST), so Mark as Done,
+  the bank file (`payees/paid_to`) and Bulk Import (`expense_links`, `candidates`) see what the landlord
+  is paid with no change of their own; the Expense Request keeps the bill as its `amount` (its mirror
+  carries the status only). Non-project totals sum the column; no total reads `gst_amount`.
+- ⚠️ **A RENT ROW'S `gross_amount` IS THE BASE RENT, NOT THE BILL** (from #1613). A reader wanting the
+  bill adds the Expense's `gst_amount`: `payment_tds.withheld_expense_bill_sql` (the approval queue's Req.
+  Amount) and `expense_tds.withheld_tds_of` (the screens) do, and on the frontend the one rule is
+  `utils/expenses/expenseTds.withheldBill` (the expense screens and the register). A rent withheld before
+  #1613 has GST 0, so its bill reads as its gross, as before.
+- **The register's Paid Amount on a rent row is what left the bank: rent + GST − tax** (₹1,08,000 on a
+  ₹1,18,000 bill; owner 2026-11-06). The list query joins the Expense's GST
+  (`non_project_expense.gst_amount as expense_gst_amount`), which every register reader (`PAYMENT_TDS_ACCESS`:
+  Admin, Accountant, Accountant Lead) already may read, so no permission widens; `deductionNetPaid` adds it
+  through `withheldBill`. Work Order and PO rows read gross − tax as before. Gross Amount stays the base rent
+  (the TDS return's figure). Pinned by `PaymentTDSDeductions/deductionNetPaid.test.ts` and the verify walk
+  `walk_office_rent.py` step 06.
+- **No backfill.** Office Rent expenses approved before #1525 have no record and never get one, and those
+  approved before #1613 never get a GST; no patch writes any.
 - **Paying it:** `api/tds_challan/pay_tds` pays rent rows as it pays Work Order rows, under the same
   challans, and the challan's `reconciled_amount` is the sum of its rows of both kinds. Its Paid-payment
   check (#1535) reads only rows with a `project_payment`, so a rent row is payable from approval on, as
@@ -435,9 +467,9 @@ letter decides it (owner, 2026-10-16):
 
 ### Load-bearing invariants: a withheld Office Rent expense (#1526)
 
-- **ITS AMOUNT IS LOCKED, NEVER RESTATED.** `expense_tds.guard_withheld_amount`, run by the
+- **ITS AMOUNT AND ITS GST ARE LOCKED, NEVER RESTATED.** `expense_tds.guard_withheld_amount`, run by the
   `before_validate` hook `controllers/expense_tds.before_validate`, refuses any save that changes the
-  amount of an Expense with a tax record ("The tax has been withheld from …"): every person (Accountant,
+  amount or the `gst_amount` (#1613) of an Expense with a tax record ("The tax has been withheld from …"): every person (Accountant,
   Accountant Lead, Admin, `Administrator`) and every system writer, `ignore_permissions` included, in the
   app and in Desk. `before_validate`, because a `doc_events` `validate` runs AFTER the doctype's own
   `validate`, where `expense_decision.guard_hand_save` would refuse first without saying why. Other fields
@@ -445,8 +477,9 @@ letter decides it (owner, 2026-10-16):
   carries a deduction), an Office Rent amount is never re-derived as gross = net ÷ 0.9.
 - **THE ONE EXEMPTION: Bulk Import's single-line correction.** `settle.link_lines_to_expense`, on a 1:1
   fill, sets `doc.flags[expense_tds.BANK_AMOUNT_CORRECTION]` beside the `rewrite_amount` write; the guard
-  passes it only within the settle window (`amounts_match`, ₹5). The record stays as withheld (a ₹89,998
-  line on a ₹90,000 Expense: amount ₹89,998, record still gross ₹1,00,000, tax ₹10,000). The flag is set
+  passes it only within the settle window (`amounts_match`, ₹5), and only for the amount: a save that
+  also moves the GST is refused. The record and the GST stay as split (a ₹1,07,998 line on a ₹1,08,000
+  Expense: amount ₹1,07,998, GST still ₹18,000, record still gross ₹1,00,000, tax ₹10,000). The flag is set
   nowhere else. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`.
 - **DELETE: the record goes with its Expense while its tax is on no challan; on a challan the delete is
   refused, naming the challan.** `expense_tds.delete_with_expense`, from `controllers/expense_tds.on_trash`
@@ -471,28 +504,33 @@ letter decides it (owner, 2026-10-16):
 
 ### Load-bearing invariants: what the expense screens show (#1527)
 
-- **Rent / TDS / Net, under an Office Rent expense's amount**, to whoever sees the expense: the payments
+- **Bill / Rent / GST 18% / TDS 10% / Landlord gets, under an Office Rent expense's amount** (#1613; Rent /
+  TDS / Net before it), to whoever sees the expense: the payments
   queue's Amount cell on every tab (Approve Payments, CEO Pending, Payment need to paid, the Paid and
   All tabs), the expense Approve / Reject dialog, the request page (`/expense/requests/<name>`), the
   Expenses list and the Non-Project Expenses page. ONE rule decides what each shows,
   `frontend/src/utils/expenses/expenseTds.shownExpenseTds({type, amount, status, withheld})`, drawn by
   `components/common/ExpenseTdsBreakdown`; any other expense draws nothing.
-  - **A stored record wins:** its `gross_amount`, rate and `tds_amount`, and Net = gross − tax. Never
-    the Expense's amount, so Bulk Import's few-rupee correction leaves the three figures as withheld.
+  - **A stored record wins:** its `gross_amount` (the rent), rate and `tds_amount` and the Expense's
+    `gst_amount`; Bill = rent + GST and Landlord gets = rent + GST − tax. Never the Expense's amount, so
+    Bulk Import's few-rupee correction leaves the figures as split. A rent withheld before #1613 (GST 0)
+    draws no GST line, and its bill is its rent.
   - **No record, before approval** (`BEFORE_APPROVAL_STATUSES`: an Expense at Requested or CEO Pending,
-    or a request Pending Approval with no Expense): a forecast from the amount, which is still the full
-    rent. ⚠️ Never at any later status: the amount is the net by then, and a forecast would take the tax
+    or a request Pending Approval with no Expense): a forecast from the amount, which is still the bill.
+    ⚠️ Never at any later status: the amount is what the landlord gets by then, and a forecast would take the tax
     off twice. An Office Rent approved before #1525 (no record) shows nothing.
   - **The section printed is the record's own `tds_section`** (`ShownExpenseTds.section`); a forecast
     prints the rule's (`OFFICE_RENT_TDS.section`).
   - **The request page keeps "Raised for ₹<the request's amount>"** under the Expense's amount whenever
-    they differ, a withheld rent included (story 27): the Expense carries the net, the request the full
-    rent asked for (`expenseTds.raisedForAmount`).
+    they differ, a withheld rent included (story 27): the Expense carries what the landlord gets, the
+    request the bill asked for (`expenseTds.raisedForAmount`).
+  - **The payments queue's Amount cell reads the bill** (`requested_amount` = the record's gross + the
+    Expense's GST, `withheld_expense_bill_sql`) with "To be paid ₹<amount>" under it.
 - ⚠️ **THE FIGURES REACH THE SCREENS THROUGH THE EXPENSE APIs, NEVER THE DOCTYPE.** `Payment TDS
   Deduction` is read by the Accountant roles and System Manager only (an HR approver cannot read it),
   and its permissions stay so. ONE reader, `services/expense_tds.withheld_tds_of(names)` (one query,
-  read past the record's permission), serves `withheld_tds` = `{gross_amount, tds_percentage,
-  tds_amount, tds_section}` or None; the endpoints that hold rows of either ledger ask it through
+  read past the record's permission), serves `withheld_tds` = `{gross_amount, gst_amount, tds_percentage,
+  tds_amount, tds_section}` (`gst_amount` the Expense's, #1613) or None; the endpoints that hold rows of either ledger ask it through
   `withheld_tds_by_expense((doctype, name) pairs)`, keyed `(doctype, name)`, so none of them branches on
   the ledger: `get_approval_queue`, `expense_detail.get_expense_approval_detail`,
   `standing.get_request_standing` and
@@ -507,7 +545,7 @@ letter decides it (owner, 2026-10-16):
   nobody meets #1526's server refusal from the app.
 - Pinned by `api/expense_requests/test_office_rent_tds_shown` (an HR Lead, who cannot read the record,
   through each endpoint: before approval, after it, after a bank line's correction, another type) and
-  the `shownExpenseTds` block of `expenseTds.test.ts`.
+  the `shownExpenseTds` block of `expenseTds.test.ts`, and drawn by `ExpenseTdsBreakdown.dom.test.tsx`.
 
 ---
 
@@ -526,6 +564,7 @@ letter decides it (owner, 2026-10-16):
 | `tds_amount` | `gross × rate / 100`. What `Service Requests.total_tds` sums (Paid payments only). |
 | `borne_by` | `Vendor` (withheld, payment netted) / `Company` (paid on top, payment kept whole). Read-only, set once at creation (#1451); THE source for every reader — see § Company-borne. |
 | `payment_approved_on` | The day the payment was **approved** — the day this row was written, which is the approval that withheld the tax. Not "the day it last entered Approved": a later `Paid → Approved` save writes nothing (see the rule above) and moves nothing here. Renamed from `deducted_on` (2026-09-12). |
+| `payment_date` | **Payment Paid On** (register column *Paid On*, owner 2026-10-29). A COPY of the source's `payment_date` — the Project Payment's, or the Office Rent expense's — while that source is **Paid**; empty at Approved and Reconciliation Pending; cleared when it leaves Paid. Read-only; display / filter / export only, nothing computes from it. See § Payment Paid On. |
 | `deducted_on` | ⚠️ **RETIRED, READ-ONLY, FROZEN.** The pre-rename copy, kept until the owner drops the column by hand. Nothing writes it, so rows created after the rename leave it empty — never read it as the live date. |
 | `status` | `Pending` → `Paid`. Written by the Pay TDS action, never by hand. |
 | `tds_challan` | Link → TDS Challan Attachment. |
@@ -546,6 +585,34 @@ challan no, tender date and the attachment, and `tds_payment_expense` (#1544, se
 authority: `project_payment` above is the real link. The service writes it when the deduction is
 recorded and repairs it on the next save if blank. ⚠️ The self-heal only fills a BLANK one; it does
 not correct a wrong value.
+
+---
+
+## Payment Paid On — a copy of the source's date while Paid (owner 2026-10-29)
+
+### Load-bearing invariants
+
+- **Paid only.** Filled when the payment / Office Rent expense is `Paid`, never at `Reconciliation
+  Pending` even when the source already carries a date there (Mark as Done is not bank proof). Leaving
+  Paid (Unreconcile, any save out of Paid) clears it, whatever date the source keeps.
+- **It follows the source, even once the tax is in a challan.** A corrected `payment_date` on a Paid
+  source moves the copy (owner Q3). The challan lock guards tax figures, not this date.
+- **Two writers, one per source, both from the source's `on_update`:** `payment_tds.sync_payment_date`
+  (called from `controllers/project_payments.on_update`, ABOVE its status-unchanged return, because a
+  date fixed on a Paid payment changes no status) and `expense_tds.sync_expense_payment_date` (from
+  `controllers/expense_tds.on_update`, only for a type with a tax rule — that type is locked once
+  approved, `guard_tds_type_change`). Both fire only when status or `payment_date` changed.
+- **`frappe.db.set_value(..., update_modified=False)`, no hooks, on purpose.** Copying a date is not a tax
+  edit: the deduction's challan lock would wrongly refuse a deposited row, and no recount reads it.
+- **`write_deduction` fills it at insert** when the payment is already Paid (#1509's path); every other
+  insert is at approval, so it starts empty.
+- **A split payment's record shows the ORIGINAL payment's date** — the tax stays on the original; the
+  leftover has no record.
+- Filled for rows already Paid on 2026-10-29 by the patch `backfill_payment_tds_payment_date` (§ Patches).
+- Pinned by `services/test_tds_payment_paid_on.py` (Work Order via `TaxedWorkOrderFixture`, Office Rent
+  via `OfficeRentCase`, and the patch) and, for the register's column, fetch list and CSV, by
+  `frontend/src/pages/PaymentTDSDeductions/config/paymentTdsDateColumns.test.ts`. What a person sees:
+  `docs/browser-walk-tds-payment-paid-on.md`.
 
 ---
 
@@ -643,8 +710,16 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
   pay from?", this answers "what have we deposited?". Its Expense column links or unlinks the
   challan's TDS Payment expense (§ a challan and its TDS Payment expense); the picker leaves out
   expenses already on another challan (`challanExpense.linkableExpenses`).
-- Project / Payment / Gross / Net columns are **hidden by default**, not deleted (⚠️ hiding `project`
-  also removes its facet dropdown).
+- Project / Payment / Gross columns are **hidden by default**, not deleted (⚠️ hiding `project`
+  also removes its facet dropdown). No Section column (owner 2026-10-27; `tds_section` is still stored).
+- **Payment Status is the vendor payment's status, not the tax's**, so the **Pending tab drops it**
+  (a "Paid" there read as TDS paid). Its statuses are still fetched: Pay TDS's selection gate reads them.
+- **Vendor ID / GST / PAN** come from the vendor's *current* record, joined by the list query
+  (`vendor.vendor_gst as vendor_gst`), so Export All carries them; a landlord row shows its snapshotted PAN.
+- **WO/PO excl. GST / incl. GST**: the order's total sits in **one** column, picked by its GST (WO: the
+  `gst` flag; PO: `tax_amount > 0`), split in `services/tds_register_orders` and served for the whole
+  register by `api/payments/tds_register_orders.get_tds_register_order_values` (`document_name` is a
+  Dynamic Link the list query cannot join). **Paid Amount** (was Net Paid) sits right after TDS Amount.
 
 ---
 
@@ -659,7 +734,9 @@ Reports hub → **Payment TDS Deduction** tab (report type "TDS Deduction"), gat
 | `recount_work_order_amount_paid_with_tds` | Recounts every Work Order the mismatch judge finds wrong through `write_amount_paid` (ADR-0034 Amendment A, #1513). Run by hand, `preview` first: it lists the Work Orders the tax explains (Amount Paid short by exactly the TDS withheld from the vendor) apart from those wrong for another reason (#1545), and each project the WO tax in project outflow newly puts over its cashflow limit, for the owner. Re-checks no CEO Hold; idempotent. |
 | `net_po_payments_with_tds` | Cuts each PO payment with a tax record still stored gross (legacy `tds` box filled) to gross − tax and clears the box (ADR-0034 Amendment B, #1534). Skips and lists bank-matched payments and tax ≤ ₹5. Recounts each touched PO (refund sync step, vendor credit under "PO TDS Netting"), re-checks CEO Hold, and aborts writing nothing unless each touched PO's Amount Paid / Amount Due, vendor credit and project outflow are unchanged. Run by hand only, `preview` first on current data: it is not in `patches.txt`, so no migrate runs it; idempotent. |
 
-The first three are idempotent and fill only what is still empty.
+| `backfill_payment_tds_payment_date` | `[post_model_sync]`. Copies `payment_date` from each Paid Project Payment and each Paid Non-Project Expense onto its record's empty `payment_date` (§ Payment Paid On). Raw `UPDATE`, no hooks, `modified` untouched; idempotent, never overwrites. On localhost (2026-10-29) it filled 869 payment rows (783 WO + 86 PO), 0 rent rows (the one rent row is Approved). |
+
+The first three, and `backfill_payment_tds_payment_date`, are idempotent and fill only what is still empty.
 
 ---
 

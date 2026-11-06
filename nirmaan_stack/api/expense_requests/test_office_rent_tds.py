@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""An Office Rent expense withholds 10% TDS (section 194-I) when it is approved (spec #1522, #1525).
+"""An Office Rent expense withholds 10% TDS (section 194-I) on its base rent when it is approved (spec #1522,
+#1525), and its amount is the landlord's bill incl. 18% GST (spec #1613).
 
 ⚠️ "TDS" HERE IS TAX DEDUCTED AT SOURCE, not a Technical Data Sheet.
 
@@ -30,6 +31,7 @@ from nirmaan_stack.api.approvals.expense_actions import decide_expenses
 from nirmaan_stack.api.expense_requests.create import create_expense_request
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.test_records_without_review import _write_list
+from nirmaan_stack.api.outflow_import.expenses import create_expense
 from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
 from nirmaan_stack.api.outflow_import.review import ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.test_expenses import _fresh_parse
@@ -112,7 +114,7 @@ class OfficeRentCase(FrappeTestCase):
         self.assertEqual(self._decide(CEO_AUTHORIZED_USER, name, "ceo_approve")["statuses"], {name: "Approved"})
 
     def _expense(self, name):
-        return frappe.db.get_value(NPE, name, ["status", "amount"], as_dict=True)
+        return frappe.db.get_value(NPE, name, ["status", "amount", "gst_amount"], as_dict=True)
 
     def _records(self, name):
         return frappe.get_all(TDS, filters={"non_project_expense": name}, fields=RECORD_FIELDS)
@@ -131,13 +133,14 @@ class OfficeRentCase(FrappeTestCase):
 
 class TestOfficeRentTds(OfficeRentCase):
     # -- withholding at approval ----------------------------------------------------------------
-    def test_full_rent_approved_by_admin_then_the_ceo_is_paid_net_with_one_record(self):
-        request, name = self._raise(100000)
-        self.assertEqual(self._expense(name), {"status": "Requested", "amount": 100000})
+    def test_a_bill_approved_by_admin_then_the_ceo_pays_the_landlord_bill_less_tds_with_one_record(self):
+        request, name = self._raise(118000)
+        self.assertEqual(self._expense(name), {"status": "Requested", "amount": 118000, "gst_amount": 0})
 
         self._approve_by_admin_then_ceo(name)
 
-        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 90000})
+        # Bill 1,18,000 = rent 1,00,000 + GST 18,000; TDS is 10% of the rent; the landlord gets 1,08,000.
+        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 108000, "gst_amount": 18000})
         [record] = self._records(name)
         self.assertEqual(
             {k: record[k] for k in RECORD_FIELDS if k != "name"},
@@ -145,28 +148,28 @@ class TestOfficeRentTds(OfficeRentCase):
              "tds_percentage": 10, "tds_amount": 10000, "tds_section": "194-I", "borne_by": "Vendor",
              "deductee_name": "Asha Rao", "deductee_pan": "ABCPK1234D", "status": "Pending",
              "payment_approved_on": frappe.utils.getdate(nowdate()), "tds_challan": None})
-        # The request keeps the full rent it asked for; its Expense carries the net.
-        self.assertEqual(frappe.db.get_value("Expense Request", request, "amount"), 100000)
+        # The request keeps the bill it asked for; its Expense carries what the landlord gets.
+        self.assertEqual(frappe.db.get_value("Expense Request", request, "amount"), 118000)
 
-    def test_the_tiers_read_the_full_rent_so_55000_waits_for_the_ceo(self):
+    def test_the_tiers_read_the_bill_so_55000_waits_for_the_ceo(self):
         _request, name = self._raise(55000)
 
         self.assertEqual(self._decide(ADMIN, name, "l1_approve")["statuses"], {name: "CEO Pending"})
 
-        self.assertEqual(self._expense(name), {"status": "CEO Pending", "amount": 55000})
+        self.assertEqual(self._expense(name), {"status": "CEO Pending", "amount": 55000, "gst_amount": 0})
         self.assertEqual(self._records(name), [], "nothing is withheld before the approval")
 
-    def test_rent_under_15000_is_born_approved_and_withheld_at_once(self):
-        _request, name = self._raise(12000)
+    def test_a_bill_under_15000_is_born_approved_and_split_at_once(self):
+        _request, name = self._raise(14999)
 
-        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 10800})
+        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 13727.9, "gst_amount": 2287.98})
         [record] = self._records(name)
-        self.assertEqual((record.gross_amount, record.tds_amount, record.tds_section), (12000, 1200, "194-I"))
+        self.assertEqual((record.gross_amount, record.tds_amount, record.tds_section), (12711.02, 1271.1, "194-I"))
         self.assertEqual((record.deductee_name, record.deductee_pan), ("Asha Rao", "ABCPK1234D"))
 
     # -- once only ------------------------------------------------------------------------------
     def test_a_resave_or_a_retry_writes_no_second_record_and_does_not_re_net(self):
-        _request, name = self._raise(100000)
+        _request, name = self._raise(118000)
         self._approve_by_admin_then_ceo(name)
         [record] = self._records(name)
 
@@ -177,21 +180,22 @@ class TestOfficeRentTds(OfficeRentCase):
         self.assertEqual(retry["succeeded"], [])
         self.assertEqual(withhold_expense_tds(frappe.get_doc(NPE, name)), record.name)
 
-        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 90000})
+        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 108000, "gst_amount": 18000})
         self.assertEqual([r.name for r in self._records(name)], [record.name])
         self.assertEqual(frappe.db.get_value(TDS, record.name, ["gross_amount", "tds_amount"]), (100000, 10000))
 
-    def test_a_bank_line_for_the_net_settles_it_and_unreconciling_withholds_nothing_new(self):
-        _request, name = self._raise(100000)
+    def test_a_bank_line_for_what_the_landlord_gets_settles_it_and_unreconciling_splits_nothing_new(self):
+        _request, name = self._raise(118000)
         self._approve_by_admin_then_ceo(name)
         self.assertEqual(self._decide(ACCOUNTANT, name, "mark_done")["statuses"], {name: "Reconciliation Pending"})
-        line = self._bank_line(90000)
+        line = self._bank_line(108000)
 
         link_rows_to_expense(rows=json.dumps([line]), target_doctype=NPE, target_name=name)
-        self.assertEqual(self._expense(name), {"status": "Paid", "amount": 90000})
+        self.assertEqual(self._expense(name), {"status": "Paid", "amount": 108000, "gst_amount": 18000})
 
         unreconcile_row(row=line, legs="all", reason="test: wrong line")
-        self.assertEqual(self._expense(name), {"status": "Reconciliation Pending", "amount": 90000})
+        self.assertEqual(self._expense(name),
+                         {"status": "Reconciliation Pending", "amount": 108000, "gst_amount": 18000})
         [record] = self._records(name)
         self.assertEqual((record.gross_amount, record.tds_amount), (100000, 10000))
 
@@ -207,7 +211,7 @@ class TestOfficeRentTds(OfficeRentCase):
                 self.assertEqual(doc.status, born)
                 if born == "CEO Pending":
                     self._decide(CEO_AUTHORIZED_USER, doc.name, "ceo_approve")
-                self.assertEqual(self._expense(doc.name), {"status": "Approved", "amount": amount})
+                self.assertEqual(self._expense(doc.name), {"status": "Approved", "amount": amount, "gst_amount": 0})
                 self.assertEqual(self._records(doc.name), [])
 
     def test_an_office_rent_approved_before_this_shipped_keeps_no_record(self):
@@ -224,5 +228,14 @@ class TestOfficeRentTds(OfficeRentCase):
         doc.save(ignore_permissions=True)
         self._decide(ACCOUNTANT, name, "mark_done")
 
-        self.assertEqual(self._expense(name), {"status": "Reconciliation Pending", "amount": 100000})
+        self.assertEqual(self._expense(name), {"status": "Reconciliation Pending", "amount": 100000, "gst_amount": 0})
+        self.assertEqual(self._records(name), [])
+
+    def test_an_office_rent_an_import_creates_paid_records_no_tds_and_no_gst(self):
+        line = self._bank_line(118000)
+
+        created = create_expense(line, NPE, OFFICE_RENT, description="xrtds rent from the bank")
+        name = created["settled"]["name"]
+
+        self.assertEqual(self._expense(name), {"status": "Paid", "amount": 118000, "gst_amount": 0})
         self.assertEqual(self._records(name), [])

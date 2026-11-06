@@ -122,25 +122,6 @@ def generate_versions(doc, method):
         data["changed"].append(["item_list", doc.item_list, []])
         data["changed"].append(["sb_details", serialize_dates(sb_details), []])
         
-    # Ensure Project Estimates also serializes dates if needed
-    elif doc.doctype == "Project Estimates":
-        previous_state = ""
-        original_data = {
-            "project": doc.project,
-            "work_package": doc.work_package,
-            "category": doc.category,
-            "item": doc.item,
-            "item_name": doc.item_name,
-            "uom": doc.uom,
-            "quantity_estimate": doc.quantity_estimate,
-            "rate_estimate": doc.rate_estimate,
-            "item_tax": doc.item_tax,
-            "owner": doc.owner,
-            "creation": doc.creation,    # Let serialize_dates handle this
-            "modified": doc.modified,  # Let serialize_dates handle this
-        }
-        data["changed"].append(["project_estimate", serialize_dates(original_data), []])
-
     # Ensure Nirmaan Users also serializes dates if needed (e.g., if you add last_login, etc.)
     elif doc.doctype == "Nirmaan Users":
         previous_state = ""

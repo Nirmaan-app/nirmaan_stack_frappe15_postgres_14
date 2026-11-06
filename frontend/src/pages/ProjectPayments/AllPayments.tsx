@@ -12,6 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useHasLoadedOnce } from '@/hooks/useHasLoadedOnce';
 import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
@@ -50,7 +51,7 @@ import { PP_ACCOUNTANT_ROLES, PP_TABS } from "./config/ppTabs.constants";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { QueueRowEditDialog } from "./components/QueueRowEditDialog";
 import { useUpdatePaymentRequest } from "./hooks/useUpdatePaymentRequests";
-import { canEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canWorkQueueRows } from "./config/queueRowActions";
+import { canEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canUploadPaidInvoices, canWorkQueueRows } from "./config/queueRowActions";
 import { useUserData } from "@/hooks/useUserData";
 import { useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -63,6 +64,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { getFrappeError } from "@/utils/frappeErrors"
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
 import { GstPaymentTag } from "./components/GstPaymentTag"
+import { ReimbursementTag } from "./components/ReimbursementTag"
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -318,7 +320,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         isExpenseRow && payRow ? undefined : null
     );
 
-    // ── "Upload Invoice" on a Paid expense, either ledger (Payment Done / Reconciliation Done) ──
+    // ── "Upload Invoice" on a Paid expense, either ledger (Payment Done / Reconciliation Done, Payment Raised By Me) ──
     // The Non Project Expenses page's invoice dialog, which serves both ledgers. Like the pay dialogs it wants the stored
     // document (the queue row carries only the file, not the invoice date / ref).
     const [invoiceRow, setInvoiceRow] = useState<ApprovalQueueRow | null>(null);
@@ -326,6 +328,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         invoiceRow?.doctype as string,
         invoiceRow?.name as string,
         invoiceRow ? undefined : null
+    );
+    // Admin, Accounts and HR (owner, 2026-10-31). It saves through `api/expenses/paid_invoice`, which writes
+    // the invoice fields only, so HR -- who may not edit an expense -- can add one too.
+    const canUploadInvoices = canUploadPaidInvoices(role);
+    const { call: savePaidInvoice } = useFrappePostCall(
+        "nirmaan_stack.api.expenses.paid_invoice.set_paid_expense_invoice"
     );
 
     const openPayDialog = useCallback((row: ApprovalQueueRow) => {
@@ -361,8 +369,10 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         canRevert: (row) => canRevertQueueRow(row, role),
         onMarkReconciled: openPayDialog,
         onDelete: tab === PP_TABS.PAYMENT_BY_ME ? setDeleteRow : undefined,
-        onUploadInvoice: canWork && tab === PP_TABS.PAYMENTS_DONE ? setInvoiceRow : undefined,
-        canUploadInvoice: (row) => canUploadInvoiceRow(row, role, editableStatuses),
+        // Payment Done and Payment Raised By Me (owner, 2026-10-31).
+        onUploadInvoice: canUploadInvoices && (tab === PP_TABS.PAYMENTS_DONE || tab === PP_TABS.PAYMENT_BY_ME)
+            ? setInvoiceRow : undefined,
+        canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -372,17 +382,18 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         ),
     }), [
         tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
-        getPoAmountDelivered, canWork, role, notifications, editableStatuses,
+        getPoAmountDelivered, canWork, canUploadInvoices, role, notifications, editableStatuses,
         handleSeenNotification, openPayDialog,
     ]);
 
     const columns = useMemo(() => {
         const ids = TAB_COLUMNS[tab as ApprovalTab];
         // On the settled and mixed-status tabs the Actions column holds ONLY the expense Edit
-        // pencil (plus, on the Paid tab, Upload Invoice -- the same three roles, `canUploadInvoiceRow`),
+        // pencil (plus, on the Paid tab, Upload Invoice -- Admin, Accounts and HR, `canUploadInvoiceRow`),
         // so for anyone who cannot edit it would be an empty column with a header. Drop it
-        // outright rather than render it blank — keyed on the SAME `canWork` that wires `onEdit`,
-        // so the header and the pencil can never disagree.
+        // outright rather than render it blank — keyed on the SAME `canWork` that wires `onEdit`
+        // (and on the Paid tab `canUploadInvoices`, which wires the invoice button), so the header
+        // and the buttons can never disagree. HR sees the invoice button there and no pencil.
         // Reconciliation Pending likewise: its Actions column is Mark Reconciled / Revert / Edit,
         // all for the settle roles (Admin / Accountants). HR can open the tab, view-only (owner, 17
         // Sep 2026) -- same rule as RenderProjectPaymentsComponent's `canSettlePayments`.
@@ -390,7 +401,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         const pencilOnlyTab = tab === PP_TABS.PAYMENTS_DONE
             || tab === PP_TABS.PAYMENTS_PENDING
             || tab === PP_TABS.ALL_PAYMENTS;
-        const hideActions = (pencilOnlyTab && !canWork)
+        const hideActions = (pencilOnlyTab && !canWork && !(tab === PP_TABS.PAYMENTS_DONE && canUploadInvoices))
             || (tab === PP_TABS.RECONCILIATION_PENDING && !canSettle);
         const visibleIds = hideActions
             ? ids.filter((id) => id !== "actions")
@@ -400,7 +411,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         // the caller for everyone (`CURRENT_USER_TOKEN`), so every row is the viewer's own
         // and a column repeating their name on each one says nothing.
         return buildApprovalColumns(visibleIds, columnCtx);
-    }, [tab, isAdmin, role, canWork, columnCtx]);
+    }, [tab, isAdmin, role, canWork, canUploadInvoices, columnCtx]);
 
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
@@ -522,6 +533,10 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || listIsLoading;
+    // Skeleton on the first load only: `listIsLoading` is true on every refetch, and swapping
+    // the DataTable out then unmounts the search box mid-typing. The table shows its own row
+    // skeleton while it refetches.
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedErrorOverall = projectsError || vendorsError || poError || srError || userError || listError;
 
     if (combinedErrorOverall) {
@@ -532,7 +547,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     return (
         <div className="flex-1 space-y-4">
 
-            {isLoadingOverall ? (
+            {!hasLoadedOnce && isLoadingOverall ? (
                 <TableSkeleton />
             ) : (
                 // --- (Indicator) Render DataTable directly, removing the wrapper ---
@@ -606,6 +621,9 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     expense={invoiceExpenseDoc}
                     doctype={invoiceRow.doctype as "Project Expenses" | "Non Project Expenses"}
                     requireAttachment
+                    save={async (values) => {
+                        await savePaidInvoice({ doctype: invoiceRow.doctype, expense: invoiceRow.name, ...values });
+                    }}
                     onSuccess={() => { mutateInvoiceExpenseDoc(); setInvoiceRow(null); refetch(); }}
                 />
             )}
@@ -624,10 +642,16 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                 <p>It will be permanently deleted. This can't be undone.</p>
                                 {deleteIsPayment ? (
                                     <p>Its payment term on {deleteRow?.document_name} can be requested again.</p>
-                                ) : (
+                                ) : deleteRow?.source_type !== "Reimbursement" && (
                                     // The server does this, not the page: the expense doctypes'
                                     // `after_delete` deletes the request (expense_request_status.py).
+                                    // A reimbursement's expense never comes from a request: its own line says what goes.
                                     <p>If it came from an Expense Request, that request is deleted too.</p>
+                                )}
+                                {deleteRow?.source_type === "Reimbursement" && (
+                                    <p className="font-medium text-destructive">
+                                        It pays a reimbursement claim, so that claim and its receipts are deleted too.
+                                    </p>
                                 )}
                                 {deleteRow && (
                                     <div className="rounded border bg-muted/40 p-2">
@@ -636,7 +660,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(deleteRow.amount)}
-                                            <GstPaymentTag payment={deleteRow} /> · {deleteRow.status}
+                                            <GstPaymentTag payment={deleteRow} /><ReimbursementTag row={deleteRow} /> · {deleteRow.status}
                                             {deleteRow.vendor ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}` : ""}
                                         </div>
                                         {deleteRow.raised_by !== user_id && (

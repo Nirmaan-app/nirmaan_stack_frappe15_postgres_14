@@ -8,10 +8,16 @@
 Run:  DEVENV unit nirmaan_stack.services.test_wo_generated_invoices
 """
 
+import json
+import os
 import unittest
 from datetime import date
 
 from nirmaan_stack.services import wo_generated_invoices as gi
+
+#: The FINAL rule's cases, shared with the frontend's preview (`frontend/src/utils/generatedInvoices.test.ts`).
+FINAL_CASES = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "src", "utils",
+                           "generatedInvoiceFinalCases.json")
 
 
 class TestNextRaNumber(unittest.TestCase):
@@ -41,10 +47,14 @@ class TestInvoiceNumber(unittest.TestCase):
             "INV-26-27-00107-01080-RA-3",
         )
 
-    def test_a_final_bill_ends_in_final_and_its_year_turns_in_april(self):
+    def test_a_final_bill_is_the_bare_number_and_its_year_turns_in_april(self):
         self.assertEqual(
             gi.invoice_number(date(2027, 3, 31), "PROJ-00107", "SR-00107-001080", gi.FINAL, 5),
-            "INV-26-27-00107-01080-FINAL",
+            "INV-26-27-00107-01080",
+        )
+        self.assertEqual(
+            gi.invoice_number(date(2027, 3, 31), "PROJ-00107", "SR-00107-001080", gi.FINAL, 6, final_number=2),
+            "INV-26-27-00107-01080-2",
         )
         self.assertEqual(
             gi.invoice_number(date(2027, 4, 1), "PROJ-00107", "SR-00107-001080", gi.RA, 6),
@@ -59,6 +69,32 @@ class TestBillableLeft(unittest.TestCase):
 
     def test_never_goes_below_nothing(self):
         self.assertEqual(gi.billable_left(100_000, 20_000, 25_000), 0)
+
+
+class TestIsFinal(unittest.TestCase):
+    def test_an_invoice_that_brings_the_billed_to_the_work_order_amount_is_the_final(self):
+        self.assertTrue(gi.is_final(100_000, 40_000, 60_000))
+        self.assertTrue(gi.is_final(100_000, 0, 100_000))
+
+    def test_one_that_stops_short_is_an_ra(self):
+        self.assertFalse(gi.is_final(100_000, 40_000, 20_000))
+        self.assertFalse(gi.is_final(100_000, 0, 60_000))
+
+    def test_up_to_ten_rupees_short_is_still_the_final(self):
+        self.assertTrue(gi.is_final(100_000, 50_000, 49_990))
+        self.assertFalse(gi.is_final(100_000, 50_000, 49_989.99))
+
+    def test_what_is_already_billed_counts(self):
+        self.assertFalse(gi.is_final(250_000, 0, 50_000))
+        self.assertTrue(gi.is_final(250_000, 200_000, 50_000))
+
+    def test_the_screens_preview_gives_the_same_answer(self):
+        """Parity with the Generate dialog's `isFinalAmount`: both read the same cases."""
+        with open(FINAL_CASES) as f:
+            cases = json.load(f)["cases"]
+        self.assertTrue(cases)
+        for case in cases:
+            self.assertEqual(gi.is_final(case["wo_amount"], case["billed"], case["amount"]), case["final"], case["name"])
 
 
 class TestChangeProblem(unittest.TestCase):

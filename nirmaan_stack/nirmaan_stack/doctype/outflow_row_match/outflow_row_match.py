@@ -40,6 +40,17 @@ the reversal stamp IS the audit.
 import frappe
 from frappe.model.document import Document
 
+# The index's name and rows live with their readers (`services/outflow_import/import_created_expense`). The patch
+# `v3_0.outflow_match_one_created_expense_per_transfer` imports `transfers_with_two_import_created_expenses` from
+# HERE, and patches are append-only, so it stays importable from this module.
+from nirmaan_stack.services.outflow_import.import_created_expense import (  # noqa: F401
+    IMPORT_CREATED_EXPENSE_INDEX,
+    IMPORT_CREATED_EXPENSE_PREDICATE,
+    transfers_with_two_import_created_expenses,
+)
+# #1606: a hand Link recognises this index's refusal by this name.
+from nirmaan_stack.services.outflow_import.settled_target_index import SETTLED_TARGET_INDEX
+
 _SETTLED = "Settled"
 _REVERSED = "Reversed"
 
@@ -97,7 +108,7 @@ class OutflowRowMatch(Document):
 
 
 def on_doctype_update():
-    """Three read indexes, one target lookup index, and the PARTIAL unique constraint.
+    """Three read indexes, one target lookup index, and the two PARTIAL unique indexes.
 
     EXPLICIT NAMES throughout. PostgreSQL index names are unique per SCHEMA, not per table, and
     Frappe generates them with no table prefix; `CREATE INDEX IF NOT EXISTS` matches by NAME ONLY,
@@ -121,6 +132,7 @@ def on_doctype_update():
         "Outflow Row Match", ["target_doctype", "target_name"], "ofm_match_target_idx"
     )
     ensure_settled_target_unique()
+    ensure_one_import_created_expense_per_transfer()
 
 
 def ensure_settled_target_unique():
@@ -132,7 +144,38 @@ def ensure_settled_target_unique():
     stays the single source of truth for the index shape.
     """
     frappe.db.sql(
-        """CREATE UNIQUE INDEX IF NOT EXISTS ofm_match_settled_target_unique
+        f"""CREATE UNIQUE INDEX IF NOT EXISTS {SETTLED_TARGET_INDEX}
            ON "tabOutflow Row Match" (transfer_id, target_doctype, target_name)
            WHERE match_kind = 'Settled'"""
+    )
+
+
+def ensure_one_import_created_expense_per_transfer():
+    """ONE EXPENSE PER WALLET TXN ID, enforced by the database (spec #1585 C, #1588).
+
+    At most one Settled match row per `transfer_id` that CREATED an Expense. Every Cashbook create inserts
+    that row in the same transaction as the Expense -- the job (`cashbook._write_one`) and a hand Create
+    (`expenses.create_expense` -> `row_settlement.record_settlement`) -- so a second create of the same Txn
+    Id fails at the match insert and rolls back, Expense included, however it got there: two overlapping
+    confirms, two jobs, a job and a Resume, a job and a person. No lock and no re-check: a Txn Id advisory
+    lock with a re-check reads a snapshot older than the lock at REPEATABLE READ and misses the other
+    Expense (measured; `scripts/formal/cashbook_one_expense/`).
+
+    * EXPENSES ONLY. A Vendor Refund create writes one created row per part, all on one transfer id.
+    * CREATED, OR A CASHBOOK LINE'S LINK (#1601). Elsewhere a Link to an existing record (`created_by_import`
+      0) is not a create, and one bank transfer may legitimately pay several existing records. A wallet Txn
+      Id is one spend, so a person's Link of a Cashbook line (`source` 'Cashbook') holds it as a create does:
+      the job's later create of the same Txn Id, or a Link of its twin line to another Expense, is refused.
+    * SETTLED ONLY. Unreconcile stamps the row Reversed, which frees the key: a reopened line can be
+      created, or Linked, again.
+
+    ⚠️ `IF NOT EXISTS` MATCHES BY NAME, so on a database built before #1601 this is a no-op that leaves the
+    narrower index in place. `patches/v3_0/outflow_match_one_expense_per_cashbook_txn.py` drops and rebuilds it.
+    Called from `on_doctype_update` and from both patches, each of which first refuses a database that already
+    breaks the rule (`import_created_expense.transfers_with_two_import_created_expenses`).
+    """
+    frappe.db.sql(
+        f"""CREATE UNIQUE INDEX IF NOT EXISTS {IMPORT_CREATED_EXPENSE_INDEX}
+           ON "tabOutflow Row Match" (transfer_id)
+           WHERE {IMPORT_CREATED_EXPENSE_PREDICATE}"""
     )

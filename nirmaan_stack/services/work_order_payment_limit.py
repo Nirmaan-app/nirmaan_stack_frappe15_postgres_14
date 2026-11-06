@@ -9,8 +9,12 @@ its payments and hands them here; the payment-request endpoint and the payment s
 the result, and the Request Payment dialog shows it without re-deriving anything.
 
     Base left  = max(0, base value - base payments)
-    GST left   = max(0, min(GST Invoiced, Work Order GST) - GST payments)
-    Total left = total incl. GST - all payments          (may go negative on an over-paid order)
+    GST left   = max(0, min(GST Invoiced, Work Order GST) - GST payments - Pending GST requests)
+    Total left = total incl. GST - all payments - Pending GST requests   (may go negative on an over-paid order)
+
+A Pending GST Payment Request (`services/gst_payment_requests`) holds its amount until the Accountant
+decides it, so the same GST cannot be asked for twice; it counts as raised in the invoice check too. The
+summary's own `left` is the payments' alone: only the limit counts the requests.
 
 A request is allowed iff its amount is within the chosen part's left AND within total left, each
 with the ₹10 tolerance the request cap has always had, and the Work Order passes the INVOICE CHECK
@@ -28,8 +32,9 @@ THE INVOICE CHECK (owner, 2026-10-17, #1488; GLOSSARY.md, *Invoice check*):
 
 Raised is every payment that is not Rejected, base and GST alike, gross of TDS. The check looks at
 the Work Order BEFORE the new payment, so a first payment always passes and the payment itself may
-be any size the limit allows. An L1 approver or the CEO skips it: the caller says so, since who is
-raising is not a figure. A negative amount is refused for everyone (refunds are Vendor Refunds).
+be any size the limit allows. Only the `Administrator` system account skips it (owner, 2026-10-29;
+Admin-profile users and the CEO no longer do): the caller says so, since who is raising is not a figure.
+A negative amount is refused for everyone (refunds are Vendor Refunds).
 
 ⚠️ THE `min(..., Work Order GST)` IS THE TDS GUARD, NOT A TIDY-UP. The invoice cap checks only an
 invoice's total, so an invoice with over-stated GST would otherwise let base value go out as a GST
@@ -57,12 +62,14 @@ def work_order_limit(
 	tds_by_payment=None,
 	exclude_payment=None,
 	amount_invoiced=0,
+	pending_gst=0,
 ) -> dict:
 	"""The payment summary of a Work Order, measured against its total incl. GST, plus `limit`.
 
 	`payments`: dicts with `name`, `amount`, `status`, `is_gst_payment`. `tds_by_payment`: the tax
 	withheld from each, as in `summarise`. `exclude_payment` is the payment being approved, as there.
-	`amount_invoiced` is the Work Order's Total Amount Invoiced, for the invoice check.
+	`amount_invoiced` is the Work Order's Total Amount Invoiced, for the invoice check. `pending_gst` is
+	what the Work Order's Pending GST requests hold.
 	"""
 	total = round(flt(total_amount), 2)
 	summary = summarise(total, payments, tds_by_payment, exclude_payment)
@@ -78,12 +85,14 @@ def work_order_limit(
 		else:
 			base_paid += p["gross_amount"]
 
+	pending_gst = round(flt(pending_gst), 2)
+	raised += pending_gst
 	wo_gst = work_order_gst(total, gst_flag)
 	base_value = round(total - wo_gst, 2)
 	released = gst_released(gst_invoiced, wo_gst)
 	base_left = round(max(0.0, base_value - base_paid), 2)
-	gst_left = round(max(0.0, released - gst_paid), 2)
-	total_left = summary["left"]
+	gst_left = round(max(0.0, released - gst_paid - pending_gst), 2)
+	total_left = round(summary["left"] - pending_gst, 2)
 
 	summary["limit"] = {
 		"gst_on": gst_is_on(gst_flag),
@@ -93,6 +102,7 @@ def work_order_limit(
 		"gst_released": released,
 		"base_paid": round(base_paid, 2),
 		"gst_paid": round(gst_paid, 2),
+		"gst_requested": pending_gst,
 		"base_left": base_left,
 		"gst_left": gst_left,
 		"total_left": total_left,
@@ -119,13 +129,12 @@ def part_cap(part_left, total_left) -> dict:
 	return {"cap": round(max(0.0, flt(part_left)), 2), "binds": "part"}
 
 
-def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool = True) -> dict | None:
+def request_refusal(limit: dict, amount, gst_payment: bool) -> dict | None:
 	"""Why a request of `amount` breaks the limit, or None when it is allowed.
 
 	Returns `{"part": "negative" | "no_gst" | "base" | "gst" | "total", "left": <the figure it broke>}`,
-	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check.
-	`check_invoices` is False for a raiser who skips that check (an L1 approver or the CEO). A negative
-	amount is refused for everyone: money coming back is a Vendor Refund (#1488).
+	or `{"part": "invoice", "raised", "invoiced"}` when the Work Order fails the invoice check, which
+	nobody skips. A negative amount is refused for everyone: money coming back is a Vendor Refund (#1488).
 	"""
 	amount = flt(amount)
 	if amount < 0:
@@ -133,7 +142,7 @@ def request_refusal(limit: dict, amount, gst_payment: bool, check_invoices: bool
 	if gst_payment and not limit["gst_on"]:
 		return {"part": "no_gst", "left": 0}
 	check = limit["invoice_check"]
-	if check_invoices and not check["passes"]:
+	if not check["passes"]:
 		return {"part": "invoice", "raised": check["raised"], "invoiced": check["invoiced"]}
 	part, part_left = ("gst", limit["gst_left"]) if gst_payment else ("base", limit["base_left"])
 	if amount > part_left + TOLERANCE:

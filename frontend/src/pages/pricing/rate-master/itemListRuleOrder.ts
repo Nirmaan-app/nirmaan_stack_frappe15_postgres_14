@@ -121,7 +121,35 @@ const E = {
   bareBox: "\"extraction should provide the higher count\" (owner, 2026-09-08); ranges: accepted as built, the higher-count rule not applied today (owner, 2026-09-08); the mm-only rows at 3M: \"this is ok\" (owner, 2026-09-07)",
   moduleWidths: "\"The owner's rule is 2 x (sockets) + 1 x (switches)\" (owner, c. 2026-08-06; per-item widths 2026-08-21)",
   includesModules: "\"if the user edits it to no, they should get the bare box price. if they set it to yes they should get price of box oplus components as [per the selction\" (owner, 2026-09-10)",
-  boxAdded: "\"the switch-socket module set now lives INSIDE this category (owner R1) and its price is ADDED to the box price\" (owner, 2026-08-21)",
+  // ELR-4b (owner P6 Q1, 2026-10-29 "Q1 yes"): the raw id "(owner R1)" dropped from the quote, the rest word for word
+  boxAdded: "\"the switch-socket module set now lives INSIDE this category and its price is ADDED to the box price\" (owner, 2026-08-21)",
+} as const;
+/** ELR-4b: wiring's three new reasons (the P6 corrections WC-b / WC-c / WC-d), word for word as approved (2026-10-29). */
+const W2 = {
+  insulation: "\"a FLEXIBLE cable is unarmoured, and when NEITHER armoured nor unarmoured is stated (row or ancestors) the insulation DEFAULTS to UNARMOURED (not null)\" (owner, 2026-07-28)",
+  runsCores: "\"If a run count is not stated anywhere in the context supplied for the row, record 1. If a core count is not stated, record 1.\" (owner, 2026-08-05)",
+  gi: "\"GI and MS are PRICE-INTERCHANGEABLE FOR CONDUITS ONLY\" (owner, 2026-07-29)",
+} as const;
+/** ELR-4b (owner R-APPROVE; the P6 answer 2026-10-29 "all approved ... DB4 keep verbatim; MI2 repeat MI1's quote in
+ *  full"): the other eight Electrical categories' reasons, word for word as approved, typos in the quotes included. */
+const B = {
+  partial: "\"PARTIAL PRICING = price every slot the catalog can satisfy ... a WHOLE-row no-match returns all slots null (fully manual)\" (owner, 2026-07-31)",
+  board: "\"If the exact way-count is not in the catalog, select the NEXT HIGHER way-count, never a lower one.\" (owner, c. 2026-08-02)",
+  breakers: "\"CURVE = BoQ-stated else UPS-context->D else C (undetermined->C)\"; \"AMP = exact else NEXT-HIGHER catalog rating (never lower), a range takes the HIGHEST first\" (owner, 2026-07-31)",
+  pole: "\"for any ploe + Neutral, should be matched withnext higher pole: SPN with DP, TPN with 4p ... we need to first match with SPN in catalog, if that is not there then we match with DP\" (owner, 2026-09-05)",
+  rccb: "\"Among the items that match, select the one with the HIGHEST mA rating.\" (owner, 2026-08-05); \"An ELCB is a combined device and is priced as TWO components: an MCB plus an RCCB.\" (owner, c. 2026-08-02)",
+  phase: "\"Multiply the stated per-phase quantity by the number of phases the DB carries: three for a TPN or VTPN DB, one for an SPN DB.\" (owner, 2026-08-05)",
+  mcbPole: "\"TPN, TP+N, TP+NL, TP+2N, TP+2NL, 4P and Four Pole all mean FOUR POLE\" (owner, 2026-08-22); a single pole plus neutral means two pole (owner, 2026-09-05); the pin-count fallback: reason not recorded",
+  mcbRating: "\"this is the correct outcome\" (owner, 2026-09-06; refusing rather than pricing the socket alone); the unread amperage: reason not recorded",
+  earthItem: "\"handle by hand for now. earthing would need its own detailed fix later. currently it is not correct\" (owner, 2026-10-29); the match: reason not recorded",
+  busbar: "\"the D26 adder means ADD A BUS BAR\"; \"no positive bus-bar mention -> Without\" (owner, 2026-07-29 / 2026-07-30)",
+  conduitSize: "\"we need to fix by implementing a match with next higher ladder in the catalog and giving the correct note as we did for cabletray width\" / \"my lean is towards seprating the arithmentic to the code side\" (owner, 2026-09-10)",
+  trayMaterial: "\"These substitutions reflect what is actually supplied; the stated material in the document does not price.\" (owner, c. 2026-08-02)",
+  trayDefaults: "\"silence -> Solid / cover No / cutting No / refilling No; installation Ceiling for cable tray, Floor when the text says RACEWAY\" (owner, 2026-07-30)",
+  jbFace: "\"The depth ... does not affect the price and must be ignored. ... leave the value blank - never assume one.\" (owner, 2026-08-15)",
+  lmsItem: "\"ONE catalogue item per BoQ row\" (owner, 2026-09-04)",
+  lmsSupply: "\"ok the rate is BCS and it should be marked up by ['Lighting management system supply markup'] for BoQ\" (owner, 2026-09-04)",
+  misc: "\"the Misc block is SELF-CONTAINED -- its hardcoded rates ARE the BoQ rates\" (owner, 2026-07-29)",
 } as const;
 const each = (parts: Array<[string, string]>): string => parts.map(([what, why]) => `${what} -- ${why}`).join("; ");
 export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -158,8 +186,10 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
   wiring_cabling: {
     both_blocks: W.bothBlocks,
     match: W.match,
+    insulation: W2.insulation,
+    runs_cores: W2.runsCores,
     conduit_included: W.included,
-    conduit_type: W.type,
+    conduit_type: `${W.type}; ${W2.gi}`,
     conduit_size: W.size,
     cable_supply: NOT_RECORDED,
     runs: W.runs,
@@ -204,6 +234,59 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
     plate: E.moduleWidths,
     modules_price: NOT_RECORDED,
     totals: E.boxAdded,
+  },
+  // ELR-4b (owner R-APPROVE; the P6 answer 2026-10-29): the other eight categories, through `assemblyRuleOrder` like the
+  // three above. The KEY ORDER IS THE LINE ORDER (the AI's read first, then the BoQ pipeline steps).
+  db_switchgear: {
+    db_parts: B.partial,
+    db_board: B.board,
+    db_breakers: B.breakers,
+    db_pole: B.pole,
+    db_rccb: B.rccb,
+    db_phase: B.phase,
+    db_quantities: NOT_RECORDED,
+    db_supply: NOT_RECORDED,
+    db_install: NOT_RECORDED,
+  },
+  industrial_sockets: {
+    is_mcb: NOT_RECORDED,
+    is_pole: B.mcbPole,
+    is_curve: NOT_RECORDED,
+    is_rating: B.mcbRating,
+    is_interlocked: NOT_RECORDED,
+    is_enclosure: NOT_RECORDED,
+    is_supply: NOT_RECORDED,
+    is_install: NOT_RECORDED,
+  },
+  earthing: {
+    ea_item: B.earthItem,
+    ea_busbar: B.busbar,
+    ea_totals: NOT_RECORDED,
+  },
+  conduit_piping: {
+    cp_type: W2.gi,
+    cp_size: B.conduitSize,
+    cp_price: NOT_RECORDED,
+  },
+  cabletray_raceway: {
+    ct_material: B.trayMaterial,
+    ct_thickness: NOT_RECORDED,
+    ct_width: NOT_RECORDED,
+    ct_defaults: B.trayDefaults,
+    ct_supply: NOT_RECORDED,
+    ct_install: NOT_RECORDED,
+  },
+  junction_box_raceway: {
+    jb_face: B.jbFace,
+    jb_price: NOT_RECORDED,
+  },
+  lighting_mgmt_system: {
+    lm_item: B.lmsItem,
+    lm_supply: B.lmsSupply,
+  },
+  miscellaneous: {
+    mi_item: B.misc,
+    mi_price: B.misc,
   },
 };
 
@@ -1142,8 +1225,9 @@ export function attributeRuleOrder(config: unknown, items: ReadonlyArray<RuleOrd
   // two BoQ blocks, both shown on every row; the row's own words choose the figure it offers
   if (pipelines.length > 1) {
     const [a, b] = pipelines.map(([id]) => block(id));
+    // ELR-4b (owner P6, WC-a): and the two figures are never added (`groupFigures`: each block's own supply + install)
     add("both_blocks", `Every row shows both blocks, ${a} and ${b}`,
-        `a row whose description names a ${b.toLowerCase()} offers the ${b} figure, any other row the ${a} figure`);
+        `a row whose description names a ${b.toLowerCase()} offers the ${b} figure, any other row the ${a} figure; the two figures are never added together`);
   }
   // the catalogue match, on the attributes its rows are keyed by
   const matched: string[] = [];
@@ -1159,6 +1243,22 @@ export function attributeRuleOrder(config: unknown, items: ReadonlyArray<RuleOrd
     add("match", `The ${words.join(" and the ")} ${matched.length > 1 ? "are each" : "is"} matched in the catalogue`,
         on.length ? `on ${on.length > 1 ? `${on.slice(0, -1).join(", ")} and ${on[on.length - 1]}` : on[0]}, exactly as the catalogue writes them` : "");
   }
+  // ELR-4b (owner P6, WC-b): the base prompt's insulation rule, which applies to a category whose insulation
+  // definition offers ARMOURED / UNARMOURED (boq_rate_attr_extraction_prompt.md) -- the definition is the marker
+  const ins = c.attribute_definitions?.find((d) => d.id === "insulation") as { values?: unknown[] } | undefined;
+  if (["ARMOURED", "UNARMOURED"].every((v) => (ins?.values ?? []).includes(v))) {
+    add("insulation", `${label("insulation")}: the BoQ's answer`,
+        "a flexible cable is unarmoured; where neither armoured nor unarmoured is stated on the row or its headings, unarmoured");
+  }
+  // ELR-4b (owner P6, WC-c): the runs / cores rule the AI is given, with the defaults it names
+  const cfgRules = (c as { rules?: Array<{ id?: string; applies_to?: string }> }).rules ?? [];
+  const xd = (c as { extraction_defaults?: Record<string, unknown> }).extraction_defaults ?? {};
+  if (cfgRules.some((r) => r.applies_to === "runs") && xd.runs !== undefined && xd.core !== undefined) {
+    add("runs_cores", `${label("runs")} and ${label("core").toLowerCase()}s: as the BoQ states them`,
+        `where no run count is stated, ${Number(xd.runs)} run; where no core count is stated, ${Number(xd.core)} core`);
+  }
+  // ELR-4b (owner P6, WC-d): a synonym that turns one conduit material into another (the AI's read and the coercion)
+  const conduitSyn = Object.entries((c as { synonyms?: Record<string, Record<string, string>> }).synonyms?.conduit_type ?? {});
 
   pipelines.forEach(([pid, pl], pIdx) => {
     const steps = pl.steps ?? [];
@@ -1170,10 +1270,12 @@ export function attributeRuleOrder(config: unknown, items: ReadonlyArray<RuleOrd
         const table = p.table && typeof p.table === "object" ? Object.entries(p.table as Record<string, unknown>) : [];
         if (table.length && typeof p.from_attr === "string") {
           const vals = [...new Set(table.map(([, v]) => String(v)))];
-          add("conduit_size", `${field}: the size the BoQ states`,
+          // ELR-5 (owner R-W7, "Q4 a"): the title alone; WAS `${field}: the size the BoQ states`, which WC-f's fit made untrue
+          add("conduit_size", field,
               `where a ${label(p.from_attr).toLowerCase()} is named and no size, ${vals.length === 1 ? `${vals[0]} mm` : table.map(([k, v]) => `${k} ${String(v)} mm`).join(", ")}`);
         } else if (p.default === "None") {
-          add("conduit_type", `${field}: the BoQ's answer, never assumed`, "a row naming none prices no conduit");
+          add("conduit_type", `${field}: the BoQ's answer, never assumed`,
+              `a row naming none prices no conduit${conduitSyn.map(([from, to]) => `; a ${from} conduit is priced as ${to}`).join("")}`);
         } else if (p.default !== undefined) {
           add("conduit_included", `${field}: the BoQ's answer`, `where it cannot be judged, ${String(p.default)}`);
         }
@@ -1182,8 +1284,10 @@ export function attributeRuleOrder(config: unknown, items: ReadonlyArray<RuleOrd
           const [attr, val] = Object.entries(cond.when ?? {})[0] ?? ["", ""];
           return `${pairInput(cond.params?.discount_from_ctx, cond.params?.markup_from_ctx)} when ${label(attr)} is ${String(val)}`;
         });
+        // ELR-4b (owner P6, WC-e): an input carrying a wastage column is read here for its discount and markup only
+        const wastage = st.conditions.some((cond) => /wastage/i.test(input(cond.params?.discount_from_ctx)));
         add("cable_supply", `${name} supply per metre = list price x (1 - discount) x (1 + supply markup)${after(steps, i)}`,
-            `the discount and the markup from ${parts.join("; ")}`);
+            `the discount and the markup from ${parts.join("; ")}${wastage ? "; the wastage in those inputs is not applied to the BoQ rate" : ""}`);
       } else if (st.step === "scale" && p.runs_from_attr && !p.runs_step_divisor && pIdx === 0 && /supply/.test(String(st.target))) {
         add("runs", "Parallel runs multiply the rounded supply", `${label(String(p.runs_from_attr))} x the rounded supply rate`);
       } else if (st.step === "scale" && p.install_markup_from_ctx) {
@@ -1199,8 +1303,12 @@ export function attributeRuleOrder(config: unknown, items: ReadonlyArray<RuleOrd
         const [gate, gv] = Object.entries(st.qty.if_attr)[0] ?? ["", ""];
         const what = String(st.name ?? "component");
         const bound = Object.keys(st.ref ?? {}).filter((k) => k !== "kind").map((k) => label(k).toLowerCase());
-        add("conduit_price", `The ${what} is priced as its own category prices it: ${how}`,
-            `one ${what} per row whatever the runs; only when ${label(gate)} is ${String(gv)}${st.none_skips && bound.length ? ` and a ${bound[0]} is named` : ""}`);
+        // ELR-4b (owner P6, WC-f; R-W6): the line says how the component's size is read, from the pipeline's own catalog_fit
+        // on its bind; ELR-4d added that fit (WAS: "at the size the BoQ states (it is not moved ...) -- a size not stocked ...")
+        const refBinds = Object.values(st.ref ?? {}).filter((v): v is string => typeof v === "string" && v.startsWith("@"));
+        const fitted = steps.some((s) => s.step === "catalog_fit" && refBinds.includes(`@${String((s.params as { bind?: unknown } | undefined)?.bind ?? "")}`));
+        add("conduit_price", `The ${what} is priced at its catalogue rate: ${how}`,
+            `one ${what} per row whatever the runs; only when ${label(gate)} is ${String(gv)}${st.none_skips && bound.length ? ` and a ${bound[0]} is named` : ""}${refBinds.length && !fitted ? `; at the size the BoQ states (it is not moved to the next stocked size, as the Conduit category does) -- a size not stocked for that type does not price` : ""}${fitted ? `; at the stated size, else the next larger size stocked for that type, with a note on the field, as the Conduit category does; above the largest stocked size the row does not price` : ""}`);
       } else if (st.step === "scale" && p.install_ratio_from_ctx) {
         add("conduit_install", `The ${String(st.target ?? "").replace(/_supply$/, "")} install = its supply x ${input(p.install_ratio_from_ctx)}${after(steps, i)}`, "");
       } else if (st.step === "scale" && p.conduit_from_ctx && /supply/.test(String(st.target))) {
@@ -1273,7 +1381,7 @@ function boqPipelines(c: AsmCfg): Array<[string, { steps?: AnyStep[] }]> {
 /** Whether every line a category's reasons name is an assembly line (`ASSEMBLY_TEXT`). */
 function isAssemblyRulings(rulings: Readonly<Record<string, string>>): boolean {
   const keys = Object.keys(rulings);
-  return keys.length > 0 && keys.every((k) => k in ASSEMBLY_TEXT);
+  return keys.length > 0 && keys.every((k) => k in ASSEMBLY_TEXT || k in ELECTRICAL_TEXT);
 }
 
 const andList = (xs: readonly string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs.join(""));
@@ -1373,6 +1481,7 @@ function assemblyFacts(c: AsmCfg, items: ReadonlyArray<RuleOrderItem>) {
       ? {
         terms: (mf.params?.terms ?? []).map((t) => ({ what: label(t.none_when).toLowerCase().replace(/\s+\d+$/, ""), weight: num(t.weight), own: !!t.weight_from })),
         box: !!boxLadder, pick: !!boxLadder?.pick_from, zero: boxLadder?.on_zero_modules !== undefined && !boxLadder?.on_zero_from ? num(boxLadder.on_zero_modules) : null,
+        noneRefusal: noneRefusal(c as ElcCfg), // ELR-5 (owner "Q3 b"): line 5's last sentence, from the config
         blanker: blanks?.item_when_positive ? String(blanks.item_when_positive) : null, blankQty: blanks?.qty_attr ? label(blanks.qty_attr) : null,
       }
       : null,
@@ -1417,7 +1526,7 @@ const ASSEMBLY_TEXT: AsmText = {
   wires: () => ["The wires",
     "Read as the BoQ states them: '3R x 1.5' or '3 x 1.5' is 3 runs of a 1-core 1.5 sqmm wire; a bare size is 1 run; a separately named earth is wire 2; with two sizes and no counts, the larger is wire 1, one run each; more than 1 core only when stated."],
   floor: (f) => ["Three conductors",
-    `On the AI's read, the point wires${f.circuit ? ", and the circuit wires as well," : ""} are raised to three conductors: a single-core wire gets more runs (the bigger one when there are two); when every wire is multi-core, a 1-core wire of the same size is added; a BoQ stating more is never reduced. A value you type on the panel or the calculator is priced as typed.`],
+    `On the AI's read, the point wires${f.circuit ? ", and the circuit wires as well," : ""} are raised to three conductors: a single-core wire gets more runs (the bigger one when there are two); when every wire is multi-core, a 1-core wire of the same size is added; a BoQ stating more is never reduced. A value you type on the panel or the calculator is raised the same way, shown '(computed)' with the note 'Raised to three conductors.'; a typed value stating three or more stands.`],
   points: (f) => ["Points covered", `The number the BoQ states; where none is stated, ${f.n}.`],
   switch: (f) => ["Switch", `As stated, with ${countWord(f.clauses.length)} catalogue rule${f.clauses.length > 1 ? "s" : ""}: ${f.clauses.join("; ")}.`],
   bare_box: (f) => ["Back box size (a bare box)",
@@ -1464,7 +1573,7 @@ const ASSEMBLY_TEXT: AsmText = {
     }
     const bare = at("bare_box");
     return ["Plate, back box and blanks",
-      `Fitted to what the board holds: ${counts}; ${larger}; the back box is the plate's size, or the computed size with no plate${f.pick ? "; a back box size you pick is used if it holds the contents, else raised to fit" : ""}${bare ? `; with nothing on the board, see line ${bare}` : ""}; spare modules get '${f.blanker}'s ("${f.blankQty}" can lower that count, never raise it).`];
+      `Fitted to what the board holds: ${counts}; ${larger}; the back box is the plate's size, or the computed size with no plate${f.pick ? "; a back box size you pick is used if it holds the contents, else raised to fit" : ""}${bare ? `; with nothing on the board, see line ${bare}` : ""}; spare modules get '${f.blanker}'s ("${f.blankQty}" can lower that count, never raise it).${f.noneRefusal ? ` With nothing on the board and no back box, the row does not price; it says: '${f.noneRefusal}'` : ""}`];
   },
   supply: (f) => ["Supply", f.assembly
     ? `Each part at its own discount and supply markup, rounded up to the rupee per metre or per piece, x its quantity, then added up and not rounded again: each wire x its runs, from '${f.wire}'${f.wastage ? " (the wastage is not applied)" : ""}, x the circuit length; the circuit wires x the circuit stretch; the conduit from '${f.conduit}', x its fitted length; switch, socket, blanks, plate and back box from '${f.swsock}'.`
@@ -1485,13 +1594,13 @@ const ASSEMBLY_TEXT: AsmText = {
 function assemblyRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem>, rulings: Readonly<Record<string, string>>): RuleOrderLine[] {
   const c = config as AsmCfg;
   const cat = String(c.category_id ?? "");
-  const facts = assemblyFacts(c, items);
+  const facts = { ...assemblyFacts(c, items), ...electricalFacts(config as ElcCfg, items) };
   const out: RuleOrderLine[] = [];
   const keys: string[] = [];
   const at = (k: string): number | undefined => { const i = keys.indexOf(k); return i < 0 ? undefined : i + 1; };
   for (const key of Object.keys(rulings)) {
     const f = (facts as Record<string, unknown>)[key];
-    const text = ASSEMBLY_TEXT[key as AsmKey] as unknown as ((f: unknown, cat: string, at: (k: string) => number | undefined) => [string, string]) | undefined;
+    const text = (ASSEMBLY_TEXT[key as AsmKey] ?? ELECTRICAL_TEXT[key as ElcKey]) as unknown as ((f: unknown, cat: string, at: (k: string) => number | undefined) => [string, string]) | undefined;
     if (f == null || !text) continue;
     const [title, body] = text(f, cat, at);
     keys.push(key);
@@ -1500,3 +1609,240 @@ function assemblyRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem>,
   }
   return out;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ELR-4b (owner R-DERIV 2026-09-27; R-APPROVE 2026-10-29 "option b"; the P6 answer, 2026-10-29) -- THE RULES LISTS OF
+// THE OTHER EIGHT ELECTRICAL CATEGORIES: DB & switchgear, industrial sockets, earthing, conduit, cable tray, junction
+// box, lighting management and miscellaneous. The ELR-4a contract holds: each line EXISTS ONLY WHILE ITS SOURCE DOES,
+// every Pricing Input, default, count, size and field label in it is READ FROM THAT SOURCE, and the words around them
+// are the owner's approved wording (2026-10-29). Vocabulary lists the owner approved as words (the four-pole family,
+// the breaker words, the parts the catalogue does not carry) stay words; a test ties each to the config that rules it.
+//
+// THE CODE RULES, EACH TIED TO THE MARKER ITS FUNCTION READS:
+//   the pole ladder (DB4)     a composite config's breaker catalogue    -> extraction.breaker_catalog_for /
+//                             (`composite_slots.repeatable.values_from`)    apply_pole_plus_neutral_ladder
+//   the inch trade size (CP2) an `inch_trade_mm` table on a definition  -> extraction.apply_inch_trade_size
+//   GI priced as MS (CP1)     the `synonyms` entry GI -> MS             -> the AI's synonym map + _coerce_value_ex
+// The AI-reading lines are tied to the config rule the AI is given (R2 / R3 / R4 / R8 / R12 / R7 / R13 / R11) or to
+// the composite's resolution rules; the pipeline lines to their step. BCS is not listed.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** The step keys the eight categories' lines read. Params stay `unknown` and are read through `pv`. */
+type ElcStep = {
+  step?: string; name?: string; target?: string; result?: string; ref?: Record<string, unknown>; params?: Record<string, unknown>;
+  conditions?: Array<{ when?: Record<string, unknown>; params?: Record<string, unknown> }>; qty?: unknown;
+  rate_stages?: Array<{ round?: string; mult_from_ctx?: string } | null>; pricing_input?: boolean;
+};
+type ElcCfg = {
+  category_id?: string; matching_mode?: string; identity_attribute_id?: string;
+  pipelines?: Record<string, { output?: string[]; steps?: ElcStep[] }>;
+  attribute_definitions?: Array<{ id: string; label?: string; values?: unknown[]; inch_trade_mm?: Record<string, unknown> }>;
+  extraction_defaults?: Record<string, unknown>; rules?: Array<{ id?: string }>; synonyms?: Record<string, Record<string, unknown>>;
+  composite_slots?: { repeatable?: { count?: unknown; values_from?: unknown }; fixed?: unknown[] };
+  decomposition_rules?: Record<string, unknown>;
+};
+
+const POLE_WORDS: Record<string, string> = { SP: "single pole", DP: "double pole", TP: "three pole", FP: "four pole" };
+
+/** The facts one config gives the eight categories' lines, or null where a line's source is absent. */
+/** ELR-4d (owner R-DB-MANUAL): the sentence a primary pipeline's `sum_components` declares for a row with no part at all. */
+function noneRefusal(c: ElcCfg): string | undefined {
+  for (const [pid, pl] of Object.entries(c.pipelines ?? {})) {
+    if (/bcs/i.test(pid)) continue;
+    for (const st of pl.steps ?? []) {
+      const r = (st as unknown as { step?: string; none_refusal?: unknown });
+      if (r.step === "sum_components" && typeof r.none_refusal === "string") return r.none_refusal;
+    }
+  }
+  return undefined;
+}
+
+function electricalFacts(c: ElcCfg, items: ReadonlyArray<RuleOrderItem>) {
+  const pls = Object.entries(c.pipelines ?? {}).filter(([id]) => !/bcs/i.test(id));
+  const steps = pls.flatMap(([, pl]) => pl.steps ?? []);
+  const defs = c.attribute_definitions ?? [];
+  const def = (id: string) => defs.find((d) => d.id === id);
+  const label = (id: string): string => def(id)?.label ?? id.replace(/_/g, " ");
+  const rule = (id: string): boolean => (c.rules ?? []).some((r) => r?.id === id);
+  const dflt = (id: string): unknown => c.extraction_defaults?.[id];
+  const pv = (s: { params?: Record<string, unknown> } | undefined, k: string): unknown => s?.params?.[k];
+  // ctx name -> the Pricing Inputs it is built from (the ELR-4a reading: a `rate_ref`, or a Pricing-Input `scale`)
+  const reads = new Map<string, string>();
+  const scales = new Map<string, ElcStep>();
+  for (const st of steps) {
+    if (st.step === "rate_ref" && typeof st.result === "string") reads.set(st.result, String(st.ref?.item ?? ""));
+    else if (st.step === "scale" && typeof st.result === "string" && st.pricing_input) scales.set(st.result, st);
+  }
+  const inputs = (ctx: unknown, seen = new Set<string>()): string[] => {
+    const k = String(ctx ?? "");
+    if (seen.has(k)) return [];
+    seen.add(k);
+    const id = reads.get(k);
+    if (id) return [pricingInputLabel(id, items as never)];
+    const sc = scales.get(k);
+    if (!sc) return [];
+    const out = [...inputs(sc.target, seen)];
+    for (const [pk, pval] of Object.entries(sc.params ?? {})) if (/_from_ctx$/.test(pk)) out.push(...inputs(pval, seen));
+    return [...new Set(out)];
+  };
+  const input = (ctx: unknown): string => inputs(ctx).slice(-1)[0] ?? "a Pricing Input";
+  const condCtx = (s: ElcStep | undefined, key: string): unknown => s?.conditions?.map((cd) => cd.params?.[key]).find((v) => v !== undefined);
+  const rounded = (target: string): string => {
+    const r = steps.find((s) => s.step === "roundup" && s.target === target);
+    return r ? roundWords(pv(r, "digits")) : "not rounded";
+  };
+  const scaleTo = (result: string, key: string) => steps.find((s) => s.step === "scale" && s.result === result && pv(s, key) !== undefined);
+  const fitOn = (bind: string) => steps.find((s) => s.step === "catalog_fit" && pv(s, "bind") === bind && pv(s, "direction") === "up");
+  const mapTo = (result: string, pred: (s: ElcStep) => boolean = () => true) => steps.find((s) => s.step === "map_attribute" && pv(s, "result_attr") === result && pred(s));
+  const comp = (name: string) => steps.find((s) => (s.step === "component" || s.step === "component_ref") && s.name === name);
+  const matches = steps.some((s) => s.step === "match_master_row");
+  const outputs = pls.flatMap(([, pl]) => pl.output ?? []);
+  const composite = c.matching_mode === "composite_decomposition";
+  const identity = c.matching_mode === "item_identity";
+  const rep = c.composite_slots?.repeatable;
+  const dr = c.decomposition_rules ?? {};
+  const qtyDefault = Object.entries(c.extraction_defaults ?? {}).find(([k, v]) => /_qty$/.test(k) && typeof v === "number")?.[1];
+  const supplyStageCtx = (name: string): unknown => comp(name)?.rate_stages?.find((r) => r?.mult_from_ctx)?.mult_from_ctx;
+  const enclosureDefault = dflt("enclosure") as { text_overrides?: unknown[] } | undefined;
+  const installDefault = dflt("installation_type") as { text_overrides?: unknown[] } | undefined;
+  const swg = mapTo("thickness_mm", (s) => pv(s, "from_attr") === "thickness_swg" && !!pv(s, "table"));
+  const swgTable = (pv(swg, "table") ?? {}) as Record<string, unknown>;
+  const trayFit = fitOn("width_mm");
+  const mcbFit = steps.find((s) => s.step === "catalog_fit" && pv(s, "bind") === "paired_mcb");
+  const busbar = steps.find((s) => s.step === "component_ref" && !!(s.ref as { attributes?: unknown } | undefined)?.attributes && !!s.conditions?.length);
+  const sizeDef = defs.find((d) => d.inch_trade_mm && typeof d.inch_trade_mm === "object");
+  return {
+    // DB & switchgear -- the AI's read (slot spec, resolution rules, rules), then the build-up pipeline
+    db_parts: composite && rep?.count !== undefined
+      ? { n: countWord(Number(rep.count)), enclosure: Array.isArray(c.composite_slots?.fixed) && c.composite_slots!.fixed!.length > 0, partial: !!(dr.partial_pricing as { enabled?: unknown } | undefined)?.enabled }
+      : null,
+    db_board: rule("R2") ? {} : null,
+    db_breakers: dr.amp && dr.curve ? {} : null,
+    db_pole: composite && rep?.values_from ? {} : null,
+    db_rccb: rule("R3") || rule("R4") ? { r3: rule("R3"), r4: rule("R4") } : null,
+    db_phase: rule("R8") ? {} : null,
+    db_quantities: composite && qtyDefault !== undefined ? { q: num(qtyDefault), noneRefusal: noneRefusal(c) } : null,
+    db_supply: composite && steps.some((s) => s.step === "sum_components" && s.result === "supply") && scaleTo("supply", "m_from_ctx")
+      ? { input: input(pv(scaleTo("supply", "m_from_ctx"), "m_from_ctx")), round: rounded("supply") } : null,
+    db_install: composite && steps.find((s) => s.step === "scale" && s.target === "supply" && s.result === "install" && pv(s, "m_from_ctx"))
+      ? { input: input(pv(steps.find((s) => s.step === "scale" && s.target === "supply" && s.result === "install"), "m_from_ctx")), round: rounded("install") } : null,
+    // industrial sockets -- the paired MCB's facts (R12), its pole / curve maps and its ladder, then the two components
+    is_mcb: rule("R12") && pv(mcbFit, "absent_when") ? { pick: !!pv(mcbFit, "prefer_attr") } : null,
+    is_pole: mapTo("mcb_pole_norm", (s) => !!pv(s, "table")) && mapTo("mcb_pole", (s) => !!pv(s, "table"))
+      ? { pins: Object.entries((pv(mapTo("mcb_pole", (s) => !!pv(s, "table")), "table") ?? {}) as Record<string, unknown>)
+        .map(([pin, pole]) => `${String(/^\s*(\d+)\s*pin/i.exec(pin)?.[1] ?? pin)} pin -> ${POLE_WORDS[String(pole)] ?? String(pole)}`) }
+      : null,
+    is_curve: mapTo("mcb_curve", (s) => pv(s, "default") !== undefined) ? { dflt: String(pv(mapTo("mcb_curve", (s) => pv(s, "default") !== undefined), "default")) } : null,
+    is_rating: fitOn("paired_mcb")
+      ? { refuses: pv(fitOn("paired_mcb"), "on_miss") === "no_compute", silent: pv(fitOn("paired_mcb"), "on_missing_fact") === "none" } : null,
+    is_interlocked: steps.some((s) => s.step === "component_ref" && (s.qty as { if_attr?: unknown; then?: unknown } | undefined)?.if_attr && Number((s.qty as { then?: unknown }).then) === 0) ? {} : null,
+    is_enclosure: Array.isArray(enclosureDefault?.text_overrides) ? {} : null,
+    is_supply: supplyStageCtx("socket") && supplyStageCtx("paired_mcb") ? { socket: input(supplyStageCtx("socket")), mcb: input(supplyStageCtx("paired_mcb")) } : null,
+    is_install: comp("paired_mcb") && scaleTo("install", "m_from_ctx")
+      ? { input: input(pv(scaleTo("install", "m_from_ctx"), "m_from_ctx")), round: rounded("install") } : null,
+    // earthing -- the match, the conditional Bus bar adder, the two markups
+    ea_item: matches && (def("type")?.values ?? []).includes("Bus bar") ? {} : null,
+    ea_busbar: busbar && dflt("with_busbar") !== undefined ? { dflt: String(dflt("with_busbar")) } : null,
+    ea_totals: busbar && scaleTo("supply", "markup_from_ctx") && scaleTo("install", "markup_from_ctx")
+      ? { supply: input(pv(scaleTo("supply", "markup_from_ctx"), "markup_from_ctx")), install: input(pv(scaleTo("install", "markup_from_ctx"), "markup_from_ctx")),
+        unrounded: rounded("supply") === "not rounded" && rounded("install") === "not rounded" } : null,
+    // conduit -- the synonym, the size ladder with its inch table, the price
+    cp_type: matches && Object.keys(c.synonyms?.conduit_type ?? {}).length && fitOn("size_mm")
+      ? { swaps: Object.entries(c.synonyms!.conduit_type).map(([from, to]) => `${from} is priced as ${String(to)}`) } : null,
+    cp_size: fitOn("size_mm")
+      ? { refuses: pv(fitOn("size_mm"), "on_miss") === "no_compute",
+        inch: Object.entries(sizeDef?.inch_trade_mm ?? {}).sort((a, b) => Number(a[1]) - Number(b[1])).map(([k, v]) => `${k}" = ${String(v)}`) } : null,
+    cp_price: scaleTo("supply_per_mtr", "boq_multiplier_from_ctx") && scaleTo("install_per_mtr", "install_ratio_from_ctx")
+      ? { supply: input(pv(scaleTo("supply_per_mtr", "boq_multiplier_from_ctx"), "boq_multiplier_from_ctx")), supplyRound: rounded("supply_per_mtr"),
+        install: input(pv(scaleTo("install_per_mtr", "install_ratio_from_ctx"), "install_ratio_from_ctx")), installRound: rounded("install_per_mtr") } : null,
+    // cable tray -- R7, the SWG map, the width ladder, the defaults, the two sums
+    ct_material: rule("R7") ? {} : null,
+    ct_thickness: swg && rule("R13")
+      ? { gauge: "16" in swgTable ? "16" : Object.keys(swgTable)[0], mm: String(swgTable["16" in swgTable ? "16" : Object.keys(swgTable)[0]]),
+        notFitted: !!trayFit && !!(pv(trayFit, "where") as Record<string, unknown> | undefined)?.thickness_mm } : null,
+    ct_width: trayFit ? { refuses: pv(trayFit, "on_miss") === "no_compute" } : null,
+    ct_defaults: dflt("tray_type") !== undefined && Array.isArray(installDefault?.text_overrides) ? {} : null,
+    ct_supply: comp("base") && comp("cover") && comp("ceiling_accessories") && comp("floor_refilling") && scaleTo("supply_per_rmt", "markup_from_ctx")
+      ? { discount: input(pv(comp("base"), "discount_from_ctx")), accessories: input(condCtx(comp("ceiling_accessories"), "accessories_per_mtr_from_ctx")),
+        refilling: input(condCtx(comp("floor_refilling"), "refill_rate_from_ctx")), markup: input(pv(scaleTo("supply_per_rmt", "markup_from_ctx"), "markup_from_ctx")),
+        round: rounded("supply_per_rmt"), cover: label("cover"), refill: label("floor_refilling") } : null,
+    ct_install: comp("width_install") && comp("floor_cutting")
+      ? { markup: input(pv(comp("width_install"), "install_markup_from_ctx")), cutting: input(condCtx(comp("floor_cutting"), "cutting_rate_from_ctx")),
+        cuttingMarkup: input(condCtx(comp("floor_cutting"), "markup_from_ctx")), round: rounded("install_per_rmt"), cut: label("floor_cutting") } : null,
+    // junction box -- R11 and an exact match (no ladder), the price
+    jb_face: rule("R11") && matches && !steps.some((s) => s.step === "catalog_fit") ? {} : null,
+    jb_price: scaleTo("supply", "discount_from_ctx") && scaleTo("install", "install_ratio_from_ctx")
+      ? { discount: input(pv(scaleTo("supply", "discount_from_ctx"), "discount_from_ctx")), markup: input(pv(scaleTo("supply", "discount_from_ctx"), "markup_from_ctx")),
+        supplyRound: rounded("supply"), share: input(pv(scaleTo("install", "install_ratio_from_ctx"), "install_ratio_from_ctx")), installRound: rounded("install") } : null,
+    // lighting management and miscellaneous -- one catalogue item per row (identity matching), the price
+    lm_item: identity && matches && def("brand") ? { item: label(String(c.identity_attribute_id ?? "")), brand: label("brand") } : null,
+    lm_supply: steps.some((s) => s.step === "scale" && s.target === "rate") && scaleTo("supply", "markup_from_ctx")
+      ? { input: input(pv(scaleTo("supply", "markup_from_ctx"), "markup_from_ctx")), round: rounded("supply"), noInstall: !outputs.some((o) => /^install/.test(o)) } : null,
+    mi_item: identity && matches && !def("brand") ? {} : null,
+    mi_price: identity && steps.some((s) => s.step === "scale" && s.target === "boq_supply") && steps.some((s) => s.step === "scale" && s.target === "boq_install") ? {} : null,
+  };
+}
+type ElcFacts = ReturnType<typeof electricalFacts>;
+type ElcKey = keyof ElcFacts;
+
+/** The owner-approved wording of each line (2026-10-29, the P6 answer), filled from its facts. */
+const ELECTRICAL_TEXT: { [K in ElcKey]: (f: NonNullable<ElcFacts[K]>) => [string, string] } = {
+  db_parts: (f) => ["The DB is split into its parts",
+    `The AI reads the row as the board (shell), up to ${f.n} breaker types with their quantities${f.enclosure ? ", and an enclosure only when one is named" : ""}; a breaker row with no board has no shell${f.partial ? "; parts the catalogue does not carry (ATS, bus bars, meters, IP enclosures, flexi boards) are left out and the rest is priced" : ""}`],
+  db_board: () => ["Board size", "The way-count the BoQ states, else the next larger board in the catalogue -- never a smaller one; a range takes the highest"],
+  db_breakers: () => ["Breakers",
+    "The amperage the BoQ states, else the next higher rating -- never lower; a range such as '10/16 A' takes the highest. Curve as stated, else D for a board serving a UPS, else C"],
+  db_pole: () => ["Four-pole and SP+N breakers",
+    "TPN, TP+N, TP+NL, TP+2N, TP+2NL and 4P mean four pole. When the row's own words call a breaker TPN-family or SPN-family, it is matched at that named pole where the catalogue has one, else at four pole (TPN) or double pole (SPN), at the same amperage or the next one up (a note on the field says when the amperage moved up); with nothing at or above, the breaker is left blank and the row does not price until it is filled"],
+  db_rccb: (f) => ["RCCB / RCBO and ELCB", [
+    ...(f.r3 ? ["An RCCB or RCBO with no leakage current stated anywhere takes the highest mA at the stated device, amperage and pole"] : []),
+    ...(f.r4 ? [`${f.r3 ? "an" : "An"} ELCB is priced as two parts, an MCB plus an RCCB`] : []),
+  ].join("; ")],
+  db_phase: () => ["Outgoings per phase", "A quantity stated per phase is multiplied by 3 on a TPN or VTPN board and by 1 on an SPN board"],
+  db_quantities: (f) => ["Quantities and missing parts",
+    `A part named with no quantity counts ${f.q}; a part the BoQ says is absent (None) is not priced; every part must be answered, a part or None, or the row does not price. ${f.noneRefusal ? `A row where no part is matched at all does not price; it says: '${f.noneRefusal}'` : "A row where no part is matched at all prices at 0 today"}`],
+  db_supply: (f) => ["Supply", `The parts' list prices x their quantities, added, x (1 - discount) x (1 + supply markup) from '${f.input}', ${f.round}`],
+  db_install: (f) => ["Install", `The rounded supply x '${f.input}', ${f.round} -- the share is of the whole board with its breakers, not the shell alone`],
+  is_mcb: (f) => ["Paired MCB",
+    `Added only when the BoQ names a breaker (MCB, MCCB, RCBO, RCCB, ELCB or "circuit breaker"); an amperage alone is not a breaker, so the socket is priced alone${f.pick ? ". A Paired MCB you pick is used as picked" : ""}`],
+  is_pole: (f) => ["MCB pole",
+    `The pole the BoQ states: TPN, TP+N, TP+NL, TP+2N, TP+2NL, 4P and Four Pole mean four pole; SPN, SP+N, SP+NL, SP&N and 1P+N mean double pole; none stated -> from the socket: ${f.pins.join(", ")}`],
+  is_curve: (f) => ["MCB curve", `As stated, else ${f.dflt}`],
+  is_rating: (f) => ["MCB rating", [
+    `The amperage the BoQ states, else the next higher rating at that pole and curve${f.refuses ? "; nothing at or above -> the row does not price" : ""}.`,
+    ...(f.silent ? ["If the amperage was not read, no MCB is added and the socket is priced alone, with no note on screen"] : []),
+  ].join(" ").replace(/\.$/, "")],
+  is_interlocked: () => ["Interlocked socket", "Includes its MCB: no separate MCB is added"],
+  is_enclosure: () => ["Enclosure", "IP67 when the BoQ says IP67 or waterproof, else IP44/54 splash proof; this is on the AI's read, and the calculator does not assume it"],
+  is_supply: (f) => ["Supply", `The socket at '${f.socket}' + the MCB at '${f.mcb}', each rounded up to the rupee, then added`],
+  is_install: (f) => ["Install", `The supply x '${f.input}', ${f.round}`],
+  ea_item: () => ["The earthing item",
+    "Matched on Material and Type exactly. A row read as Type 'Bus bar' with Material CU or GI matches no earthing item and does not price (priced by hand for now); a row read as Material 'BUS BAR' matches the Bus bar item itself"],
+  ea_busbar: (f) => ["With Bus bar", `As stated, else ${f.dflt}. With adds the Bus bar item's own supply rate; Without adds nothing`],
+  ea_totals: (f) => ["Supply and install",
+    `Supply = (the item's supply + the Bus bar) x (1 + '${f.supply}'); install = the item's install x (1 + '${f.install}')${f.unrounded ? "; neither is rounded" : ""}`],
+  cp_type: (f) => ["Conduit type", `As stated; ${f.swaps.join("; ")}`],
+  cp_size: (f) => ["Size",
+    `The stated size, else the next larger size stocked for that type${f.inch.length ? `; an inch size in the row's own description is read as its trade size (${f.inch.join(", ")} mm)` : ""}${f.refuses ? "; above the largest stocked size the row does not price" : ""}`],
+  cp_price: (f) => ["Supply and install",
+    `Supply = list price x (1 - discount) x (1 + supply markup) from '${f.supply}', ${f.supplyRound}; install = the supply x '${f.install}', ${f.installRound}`],
+  ct_material: () => ["Material", "As stated, with two substitutions: a uPVC tray is priced as GI Solid; a plain MS tray as MS powder coated"],
+  ct_thickness: (f) => ["Thickness",
+    `The millimetres the BoQ states; a thickness given only as a sheet gauge is converted to millimetres (${f.gauge} gauge = ${f.mm} mm), using the body's gauge where body and cover differ and the nearest heading's where several give one.${f.notFitted ? " The thickness is not fitted: one the catalogue does not stock for that type and material does not price" : ""}`],
+  ct_width: (f) => ["Width", `The stated width, else the next wider stocked at that type, material and thickness${f.refuses ? "; above the widest the row does not price" : ""}`],
+  ct_defaults: () => ["Where unstated",
+    "Solid, no cover, no floor cutting, no floor refilling, ceiling-mounted; a raceway is floor-mounted. This is on the AI's read; on the calculator you choose the installation"],
+  ct_supply: (f) => ["Supply per metre",
+    `(the tray x (1 - '${f.discount}') + the cover x (1 - '${f.discount}') when ${f.cover} is Yes + '${f.accessories}' when ceiling-mounted + '${f.refilling}' when ${f.refill} is Yes) x (1 + '${f.markup}'), ${f.round}`],
+  ct_install: (f) => ["Install per metre",
+    `The tray's install rate x (1 + '${f.markup}') + '${f.cutting}' x (1 + '${f.cuttingMarkup}') when ${f.cut} is Yes; ${f.round}`],
+  jb_face: () => ["Face size",
+    "The face the BoQ states, the larger if the two differ; the depth does not matter. Matched exactly as stocked, so a face the catalogue does not stock, or a box with no face size, does not price"],
+  jb_price: (f) => ["Supply and install",
+    `Supply = list price x (1 - '${f.discount}') x (1 + '${f.markup}'), ${f.supplyRound}; install = the supply x '${f.share}', ${f.installRound}`],
+  lm_item: (f) => ["One catalogue item per row",
+    `Picked by its ${f.item} and ${f.brand}; both must be filled (a blank ${f.brand} does not price); a row naming several items is not priced here`],
+  lm_supply: (f) => ["Supply", `The catalogue rate x (1 + '${f.input}'), ${f.round}${f.noInstall ? "; there is no install figure" : ""}`],
+  mi_item: () => ["One catalogue item per row, by name", "A row naming several items is not priced here"],
+  mi_price: () => ["Supply and install", "The item's own BoQ supply and install rates, as they stand; no Pricing Input and no rounding"],
+};

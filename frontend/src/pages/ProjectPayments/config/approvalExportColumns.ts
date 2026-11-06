@@ -115,7 +115,7 @@ export const buildApprovalExportColumns = (
   col("utr_ref", "UTR / Ref", (r) => r.utr_ref || ""),
   // The cheque chip's text ("Cheque 004521 · Issued"), on the rows that show the chip: blank on an Online
   // or Rejected payment and every expense.
-  col("cheque", "Cheque", (r) => (showsChequeChip(r) ? chequeChipText(r.cheque_no, r.cheque_status) : "")),
+  col("cheque", "Cheque", (r) => (showsChequeChip(r) ? chequeChipText(r.cheque_no, r.cheque_status, !!r.credit_payment_cheque) : "")),
   // `proof` is a file URL; `has_proof` is the server's own verdict on it. Export the
   // verdict — a reader wants to know WHETHER there is proof, and the URL is useless
   // without a session anyway.

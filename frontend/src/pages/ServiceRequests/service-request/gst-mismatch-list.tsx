@@ -75,7 +75,7 @@ const GstMismatchList: React.FC = () => {
                                     <TableCell className="whitespace-nowrap">
                                         {row.target_gst === "true" ? "Off → should be On" : "On → should be Off"}
                                         {row.gst_payments > 0 && row.target_gst === "false" && (
-                                            <div className="text-xs text-destructive">{row.gst_payments} GST payment(s) block this</div>
+                                            <div className="text-xs text-destructive">{row.gst_payments} GST payment(s) or request(s) block this</div>
                                         )}
                                     </TableCell>
                                     <TableCell className={AMOUNT}>{formatToIndianRupeeOrZero(row.total_amount)}</TableCell>

@@ -20,6 +20,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { WizardSteps } from "@/components/ui/wizard-steps";
 import {
@@ -48,9 +49,13 @@ import {
     CashbookConfirmResult,
     CashbookPreviewResult,
     CashbookStatus,
+    canConfirm,
+    confirmLabel,
     createLabel,
+    lateBillsDoneText,
     progressFraction,
     progressText,
+    showsResume,
 } from "../cashbookPreview";
 import {
     CONFIRM_STEP_NOTE,
@@ -89,6 +94,8 @@ import {
 } from "../porterPrecheck";
 import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
+import { CashbookBillsNotCopied } from "./CashbookBillsNotCopied";
+import { CashbookResumeButton } from "./CashbookResume";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import {
@@ -96,7 +103,9 @@ import {
     CARD_SOURCE,
     CARD_UPLOAD_URL,
     canDiscardCard,
+    cardAsksForPassword,
     cardDiscardConfirmation,
+    pdfLooksLocked,
     type CardImport,
 } from "../creditCardImport";
 import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
@@ -307,6 +316,15 @@ export const ImportStatementDialog = ({
     const [preview, setPreview] = useState<OutflowPreviewResult | null>(null);
     const [staged, setStaged] = useState<OutflowUploadResult | null>(null);
     const [isDragging, setIsDragging] = useState(false);
+    /**
+     * Why Upload shows the PDF password field (ADR-0039 Amendment A): not at all; the picked file looks locked
+     * (`pdfLooksLocked`), when the field may stay empty, since an owner-password-only PDF opens without one; or
+     * the server refused it as locked or the password as wrong, when the field must be filled. The password is
+     * sent with that one upload and never kept; it goes with the file, the source or the dialog.
+     */
+    const [cardLock, setCardLock] = useState<"none" | "looks locked" | "refused">("none");
+    const [cardPassword, setCardPassword] = useState("");
+    const cardPasswordRef = useRef<HTMLInputElement>(null);
 
     /**
      * The header row a person picked in the Check step, 1-based, or null for "let the server find it".
@@ -420,6 +438,18 @@ export const ImportStatementDialog = ({
         [porterRulesData, fetchPorterRules]
     );
 
+    // The same pick counter as Porter's: a file picked, refused or replaced meanwhile drops a late answer.
+    const cardCheckFor = useRef(0);
+    const checkCardLock = useCallback(async (candidate: File) => {
+        const pick = ++cardCheckFor.current;
+        // Unreadable here is not "locked": the upload says what is wrong with the file.
+        const looksLocked = await candidate.arrayBuffer().then(
+            (buffer) => pdfLooksLocked(new Uint8Array(buffer)),
+            () => false
+        );
+        if (cardCheckFor.current === pick && looksLocked) setCardLock("looks locked");
+    }, []);
+
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
     );
@@ -455,6 +485,9 @@ export const ImportStatementDialog = ({
         setPorterConfirmAsked(false);
         porterCheckFor.current += 1;
         setPorterCheck(null);
+        cardCheckFor.current += 1;
+        setCardLock("none");
+        setCardPassword("");
     }, [open]);
 
     // Switching source mid-dialog must drop whatever the other one produced, or the tree from a
@@ -471,6 +504,9 @@ export const ImportStatementDialog = ({
         setCashbookBatch(null);
         setCashbookStatus(null);
         setError(null);
+        cardCheckFor.current += 1;
+        setCardLock("none");
+        setCardPassword("");
         // ⚠️ A ROW NUMBER FROM ANOTHER SOURCE'S SHEET IS NOT A SMALLER TRUTH, IT IS A WRONG ONE.
         // Each source has its own export layout, so 17 means the header on one and a transaction
         // on the next — carrying it across would read the table from the wrong place with no
@@ -487,6 +523,10 @@ export const ImportStatementDialog = ({
         setHeaderRow(null);
         porterCheckFor.current += 1;
         setPorterCheck(null);
+        // Another file may not be locked, or not with the same password.
+        cardCheckFor.current += 1;
+        setCardLock("none");
+        setCardPassword("");
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
@@ -511,7 +551,8 @@ export const ImportStatementDialog = ({
         }
         setFile(candidate);
         if (source === PORTER_SOURCE) void checkPorterChoice(candidate);
-    }, [source, checkPorterChoice]);
+        if (source === CARD_SOURCE) void checkCardLock(candidate);
+    }, [source, checkPorterChoice, checkCardLock]);
 
     /**
      * POST the statement to `url`.
@@ -526,16 +567,18 @@ export const ImportStatementDialog = ({
      * optional extra read from state: a caller that forgets it gets a compile error, instead of a
      * screen showing the table from row 17 while the database receives whatever auto-detect found.
      * Absent (`null`) means "detect it" — the server's own default, and the only meaning `""` could
-     * carry, which is why an empty field is never sent.
+     * carry, which is why an empty field is never sent. `extra` holds any other text field one source's
+     * endpoint reads (the card PDF's password).
      */
     const post = useCallback(
-        async (url: string, headerRowForThisPost: number | null) => {
+        async (url: string, headerRowForThisPost: number | null, extra: Record<string, string> = {}) => {
             const body = new FormData();
             body.append("file", file!, file!.name);
             body.append("source", source);
             if (headerRowForThisPost != null) {
                 body.append("header_row", String(headerRowForThisPost));
             }
+            for (const [key, value] of Object.entries(extra)) body.append(key, value);
 
             // Raw multipart fetch, not the SDK -- the file rides the same POST as the text field.
             // Do NOT set Content-Type: the browser must add the multipart boundary itself.
@@ -735,14 +778,20 @@ export const ImportStatementDialog = ({
 
     /**
      * Upload a Credit Card Statement PDF (#1566). ONE request reads, gates, refuses or stages the whole
-     * statement, as Porter's does: a refused file (locked, another company, totals that disagree) saves nothing.
+     * statement, as Porter's does: a refused file (totals that disagree) saves nothing. The
+     * company is shown on Review, never refused (ADR-0039 Amendment B).
+     *
+     * A password-locked PDF is refused until its password is sent with it (ADR-0039 Amendment A): a picked file
+     * that looks locked, that refusal, or a wrong password shows the PDF password field, and the upload sends
+     * what is typed there.
      */
     const handleCardUpload = useCallback(async () => {
         if (!file || isBusy) return;
         setIsBusy("upload");
         setError(null);
         try {
-            const message = (await post(CARD_UPLOAD_URL, null)) as CardImport | undefined;
+            const extra: Record<string, string> = cardLock !== "none" && cardPassword ? { password: cardPassword } : {};
+            const message = (await post(CARD_UPLOAD_URL, null, extra)) as CardImport | undefined;
             if (!message?.batch) {
                 setError("The server accepted the file but returned no import.");
                 return;
@@ -750,11 +799,18 @@ export const ImportStatementDialog = ({
             await seedCache(cardImportKey(message.batch), { message }, { revalidate: false });
             onCardBatch?.(message.batch);
         } catch (err: unknown) {
-            setError(describeFrappeError(err, "The upload failed."));
+            const reason = describeFrappeError(err, "The upload failed.");
+            setError(reason);
+            if (cardAsksForPassword(reason)) {
+                setCardLock("refused");
+                setCardPassword("");
+                // Already on screen after a wrong password; on first showing, `autoFocus` does it.
+                cardPasswordRef.current?.focus();
+            }
         } finally {
             setIsBusy(null);
         }
-    }, [file, isBusy, post, seedCache, onCardBatch]);
+    }, [file, isBusy, post, seedCache, onCardBatch, cardLock, cardPassword]);
 
     /**
      * Retry one Porter Invoice that doesn't match or couldn't be read (#1444, #1562): the server downloads,
@@ -1131,12 +1187,39 @@ export const ImportStatementDialog = ({
                                     </Button>
                                 </>
                             ) : isCard ? (
-                                <Button onClick={handleCardUpload} disabled={!file || isBusy !== null}>
-                                    {isBusy === "upload" && (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <>
+                                    {cardLock !== "none" && (
+                                        <div className="space-y-1.5">
+                                            <Label htmlFor="card-pdf-password">PDF password</Label>
+                                            <Input
+                                                id="card-pdf-password"
+                                                ref={cardPasswordRef}
+                                                type="password"
+                                                autoComplete="off"
+                                                autoFocus
+                                                value={cardPassword}
+                                                onChange={(e) => setCardPassword(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter" && cardPassword) void handleCardUpload();
+                                                }}
+                                                placeholder="The password this PDF opens with"
+                                            />
+                                            <p className="text-xs text-muted-foreground">
+                                                Used only to open this file. The statement is saved without a
+                                                password, and the password is not kept.
+                                            </p>
+                                        </div>
                                     )}
-                                    {isBusy === "upload" ? "Uploading statement…" : "Upload statement"}
-                                </Button>
+                                    <Button
+                                        onClick={handleCardUpload}
+                                        disabled={!file || isBusy !== null || (cardLock === "refused" && !cardPassword)}
+                                    >
+                                        {isBusy === "upload" && (
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        )}
+                                        {isBusy === "upload" ? "Uploading statement…" : "Upload statement"}
+                                    </Button>
+                                </>
                             ) : (
                                 <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
                                     {isBusy === "preview" && (
@@ -1324,8 +1407,21 @@ export const ImportStatementDialog = ({
                         <CashbookProgress
                             creating={cashbookBatch.creating}
                             repeatsNotSaved={cashbookBatch.repeats_not_saved}
+                            lateBills={cashbookBatch.late_bills ?? 0}
                             status={cashbookStatus}
                             running={isBusy === "match"}
+                            resume={
+                                isBusy !== "match" && showsResume(cashbookStatus) ? (
+                                    // #1589: the job stopped part-way; Resume re-queues it and the poll follows.
+                                    <CashbookResumeButton
+                                        batch={cashbookBatch.batch}
+                                        onResumed={(next) => {
+                                            setCashbookStatus(next);
+                                            setIsBusy("match");
+                                        }}
+                                    />
+                                ) : null
+                            }
                         />
                     )}
                 </div>
@@ -1356,18 +1452,13 @@ export const ImportStatementDialog = ({
                                 </Button>
                                 <Button
                                     onClick={handleCashbookConfirm}
-                                    // A refused file has nothing to create either; said by name so
-                                    // the button never depends on the two facts staying in step.
-                                    disabled={
-                                        working ||
-                                        !cashbookPreview?.creating ||
-                                        Boolean(cashbookPreview?.refused)
-                                    }
+                                    // #1593: a file whose only work is late bills is offered too.
+                                    disabled={working || !cashbookPreview || !canConfirm(cashbookPreview)}
                                 >
                                     {isBusy === "upload" && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     )}
-                                    {createLabel(cashbookPreview?.creating ?? 0)}
+                                    {cashbookPreview ? confirmLabel(cashbookPreview) : createLabel(0)}
                                 </Button>
                             </>
                         )}
@@ -1822,18 +1913,25 @@ function extractServerMessage(payload: string): string | null {
 const CashbookProgress = ({
     creating,
     repeatsNotSaved,
+    lateBills,
     status,
     running,
+    resume,
 }: {
     creating: number;
     repeatsNotSaved: number | undefined;
+    /** #1593: how many existing Expenses the job gives a bill. */
+    lateBills: number;
     status: CashbookStatus | null;
     running: boolean;
+    /** The Resume button, when the job stopped part-way (#1589). */
+    resume?: ReactNode;
 }) => {
     const fraction = progressFraction(status, creating);
-    const failed = (status?.failed ?? 0) > 0;
+    const failed = (status?.failed ?? 0) > 0 || Boolean(status?.stopped);
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
+    const lateText = lateBillsDoneText(lateBills, running);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1858,7 +1956,11 @@ const CashbookProgress = ({
                     style={{ width: `${Math.round(fraction * 100)}%` }}
                 />
             </div>
+            {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
+            {lateText && <p className="text-xs text-muted-foreground">{lateText}</p>}
+            {/* #1591: each spend whose bills were not copied, with the server's reason. */}
+            <CashbookBillsNotCopied status={status} />
             {!running && (
                 <p className="text-xs text-muted-foreground">
                     Corrections are made in Expenses — open a record and change its project or type.

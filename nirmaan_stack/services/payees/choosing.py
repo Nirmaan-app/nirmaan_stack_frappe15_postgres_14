@@ -22,7 +22,7 @@ from frappe import _
 
 from nirmaan_stack.services.payees.links import payee_summaries
 from nirmaan_stack.services.payees.matching import Candidate, LinkedVendor, rank_payees
-from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, already_linked_problem
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, PAYEE_TYPE_VENDORS, already_linked_problem
 from nirmaan_stack.services.payees.vendor_account import payee_for_vendor
 from nirmaan_stack.services.payees.writer import create_payee
 
@@ -91,7 +91,9 @@ def choose_payee(payee: str | None = None, bank: dict | None = None) -> str:
             frappe.throw(_("Payee {0} does not exist.").format(payee), frappe.DoesNotExistError)
         return payee
     if bank:
-        return create_payee(bank.get("account_name"), bank.get("account_number"), bank.get("ifsc")).name
+        return create_payee(
+            bank.get("account_name"), bank.get("account_number"), bank.get("ifsc"), PAYEE_TYPE_VENDORS
+        ).name
     frappe.throw(_("Pick a payee on record or enter new bank details."))
 
 

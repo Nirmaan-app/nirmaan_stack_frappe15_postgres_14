@@ -40,10 +40,10 @@ from dataclasses import dataclass
 import frappe
 from frappe import _
 from frappe.model import no_value_fields
-from frappe.utils import flt, nowdate
+from frappe.utils import flt, getdate, nowdate
 
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.services.approval_raiser import expense_raiser, expense_reviewer, raiser_level
+from nirmaan_stack.services.approval_raiser import expense_reviewer, raiser_level, routing_raiser, routing_skips_auto
 from nirmaan_stack.services.approval_tiers import (
     RAISER_L1,
     TIER_L2_ABOVE_EXPENSES,
@@ -88,6 +88,12 @@ FROM_STATUSES = {
     MARK_PAID: (EXPENSE_APPROVED, EXPENSE_RECONCILIATION_PENDING),
 }
 
+#: Where a reject puts its reason for the ledger row's own hooks, which carry it to the Reimbursement
+#: (`reimbursements.expense_link.follow_expense`, ADR-0040) in the same save.
+REJECTION_REASON_FLAG = "rejection_reason"
+#: What those hooks write when a row reaches Rejected with no reason on it (a Desk or REST edit).
+FALLBACK_REJECTION_REASON = "Rejected in Payments."
+
 # What Mark as Paid must end up holding. A value passed in `payment` replaces the stored one.
 PAYMENT_FIELDS = ("payment_date", "payment_ref", "payment_attachment")
 # The invoice details Mark as Paid may save in the same write (the pay dialog's invoice). A field
@@ -128,7 +134,8 @@ class StartingStatus:
     ceo_done: bool
 
 
-def starting_status(amount, raised_by: str | None, reviewed_by: str | None = None) -> StartingStatus:
+def starting_status(amount, raised_by: str | None, reviewed_by: str | None = None, *,
+                    skip_auto: bool = False) -> StartingStatus:
     """Where a new Expense of `amount`, raised by `raised_by`, is born.
 
     Under Rs 15,000 it is auto-approved (both steps stamped, `auto_approved`). Otherwise the
@@ -139,9 +146,15 @@ def starting_status(amount, raised_by: str | None, reviewed_by: str | None = Non
     review IS the L1 step (ADR-0016, 2026-10-19 amendment 3), so the row lands as it would for an
     L1 raiser: Approved up to Rs 50,000, CEO Pending above it. An HR or Accounts review clears
     nothing. A review clears L1 only, even the CEO's: the CEO step is the CEO's own approval.
+
+    `skip_auto` takes the auto band away: an amount under Rs 15,000 is born at Requested and waits for L1. Only a
+    reimbursement HR approved above the monthly limit asks for it (`approval_raiser.routing_skips_auto`, ADR-0040
+    Amendment B). Above the auto band it changes nothing.
     """
     value = flt(amount)
     if is_auto_approved(value):
+        if skip_auto:
+            return StartingStatus(EXPENSE_REQUESTED, auto_approved=False, l1_done=False, ceo_done=False)
         return StartingStatus(EXPENSE_APPROVED, auto_approved=True, l1_done=True, ceo_done=True)
     level = approval_level(raised_by, reviewed_by)
     l1_done, ceo_done = steps_cleared_by_raiser(value, TIER_L2_ABOVE_EXPENSES, level)
@@ -158,14 +171,16 @@ def apply_starting_status(doc) -> None:
 
     Create-time only, and only while the status is still the default `Requested`, so an explicit
     status (an import's Paid row) is kept and a later edit never re-routes a row. The raiser is
-    `approval_raiser.expense_raiser`: the Expense Request's owner, never the reviewer who inserted it.
-    The reviewer is the request's `reviewed_by` (`approval_raiser.expense_reviewer`).
+    `approval_raiser.routing_raiser`: the Expense Request's owner, never the reviewer who inserted it,
+    or for a row created from an approved Reimbursement the person who approved the claim (ADR-0040).
+    The reviewer is the request's `reviewed_by` (`approval_raiser.expense_reviewer`). A reimbursement HR approved
+    above the monthly limit skips the auto band (`approval_raiser.routing_skips_auto`, ADR-0040 Amendment B).
     """
     if not doc.is_new():
         return
     if doc.status and doc.status != EXPENSE_REQUESTED:
         return
-    start = starting_status(doc.amount, expense_raiser(doc), expense_reviewer(doc))
+    start = starting_status(doc.amount, routing_raiser(doc), expense_reviewer(doc), skip_auto=routing_skips_auto(doc))
     doc.status = start.status
     if start.auto_approved:
         doc.auto_approved = 1
@@ -239,7 +254,8 @@ def guard_hand_save(doc) -> None:
       * two person-facing endpoints, each asking its own rule before it saves: Change account
         (`services/payees/expense_payee.change_expense_account` asks `assert_may_edit` for the
         `pay_to_*` fields) and the raiser's Add invoice (`save_raiser_invoice`, story 15's carve-out:
-        the invoice fields only, until Paid).
+        the invoice fields only, until Paid); and the Payment Done tab's Upload / Edit Inv
+        (`save_paid_invoice`, owner 2026-10-31: the invoice fields only, once Paid).
     A new person-facing endpoint that saves an Expense elevated must ask `assert_may_edit` too.
 
     The bank-line re-derive runs after this, so an edit that moves a settled amount still moves the
@@ -294,6 +310,60 @@ def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:
     doc.save(ignore_permissions=True)
 
 
+def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None:
+    """The Payment Done tab's Upload / Edit Inv (owner, 2026-10-31): a carve-out from `edit_access` like
+    `save_raiser_invoice`, for `role_profiles.PAID_INVOICE_PROFILES` (`api/expenses/paid_invoice` checks who).
+    On a Paid Expense it writes `INVOICE_FIELDS` and nothing else, so it saves elevated; all three are
+    required and the date is not after today.
+
+    The file is the one already on the expense, or one `user` just uploaded unattached (an HR user may not
+    write the expense, so cannot upload against it), which is then filed under the expense. Any other File
+    URL is refused, so this cannot put another record's file on an expense. Never commits."""
+    if doctype not in EXPENSE_DOCTYPES:
+        frappe.throw(_("{0} is not an expense ledger.").format(doctype))
+    values = {f: (invoice.get(f) or "").strip() for f in INVOICE_FIELDS}
+    if not values["invoice_attachment"]:
+        frappe.throw(_("Attach the invoice file."), title=_("Invoice file required"))
+    if not values["invoice_ref"]:
+        frappe.throw(_("Enter the invoice number."), title=_("Invoice number required"))
+    if not values["invoice_date"]:
+        frappe.throw(_("Enter the invoice date."), title=_("Invoice date required"))
+    if getdate(values["invoice_date"]) > getdate(nowdate()):
+        frappe.throw(_("The invoice date cannot be after today."))
+
+    doc = frappe.get_doc(doctype, name, for_update=True)
+    if (doc.status or "").strip() != EXPENSE_PAID:
+        frappe.throw(_("{0} is {1}; its invoice is added here only once it is Paid.").format(
+            name, doc.status or "blank"))
+    new_file = None
+    if values["invoice_attachment"] != (doc.invoice_attachment or ""):
+        new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user)
+    doc.update(values)
+    doc.save(ignore_permissions=True)
+    if new_file:
+        # Files the upload under the expense, as an upload made against it would have been. A plain write:
+        # it moves no bytes, and a File's own hooks have nothing to do for a link.
+        frappe.db.set_value("File", new_file, {
+            "attached_to_doctype": doctype,
+            "attached_to_name": name,
+            "attached_to_field": "invoice_attachment",
+        }, update_modified=False)
+
+
+def _uploaded_invoice_file(doc, file_url: str, user: str) -> str | None:
+    """The File to file under `doc` for `file_url`: None when it already is, else `user`'s own unattached
+    upload of it. Refuses any other URL."""
+    if frappe.db.exists("File", {"file_url": file_url, "attached_to_doctype": doc.doctype,
+                                 "attached_to_name": doc.name}):
+        return None
+    mine = frappe.get_all("File", filters={"file_url": file_url, "owner": user,
+                                           "attached_to_name": ["is", "not set"]},
+                          pluck="name", limit=1)
+    if not mine:
+        frappe.throw(_("That invoice file was not uploaded here. Upload it again."), title=_("Invoice file"))
+    return mine[0]
+
+
 # ── A change to an existing row ─────────────────────────────────────────────────────────────
 
 def decide(doctype: str, name: str, action: str, user: str, reason: str | None = None,
@@ -328,6 +398,7 @@ def decide(doctype: str, name: str, action: str, user: str, reason: str | None =
         doc.ceo_approval_date = nowdate()
     elif action == REJECT:
         doc.status = EXPENSE_REJECTED
+        doc.flags[REJECTION_REASON_FLAG] = reason.strip()
     elif action == MARK_DONE:
         doc.status = EXPENSE_RECONCILIATION_PENDING
     else:

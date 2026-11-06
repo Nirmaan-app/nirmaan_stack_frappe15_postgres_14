@@ -41,7 +41,7 @@ from unittest import mock
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, parse_details
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, PAYEE_TYPE_OTHERS, parse_details
 from nirmaan_stack.services.payees.writer import create_payee, existing_payee
 
 TEST_IFSC = "TEST0PYE001"
@@ -80,9 +80,10 @@ class PayeeFixture:
     def holder(name: str = "Payee") -> str:
         return f"{HOLDER_PREFIX} {name} {frappe.generate_hash(length=5)}"
 
-    def payee(self, holder: str | None = None, account_number: str | None = None, ifsc: str = TEST_IFSC) -> str:
+    def payee(self, holder: str | None = None, account_number: str | None = None, ifsc: str = TEST_IFSC,
+              payee_type: str = PAYEE_TYPE_OTHERS) -> str:
         """A fresh Payee made through the Payee module, committed. Returns its name."""
-        doc = create_payee(holder or self.holder(), account_number or self.account_number(), ifsc)
+        doc = create_payee(holder or self.holder(), account_number or self.account_number(), ifsc, payee_type)
         frappe.db.commit()
         return doc.name
 

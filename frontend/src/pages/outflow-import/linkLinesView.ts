@@ -13,6 +13,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { offPageTicks } from "./offPageTicks";
+import { collectPaymentsLinkNote, isOpenCollectPaymentLine } from "./outflowImportStatus";
 import { isCreditRow, isPartLinkedRecord, type SettleableRecord } from "./outflowTableModel";
 
 /** Mirrors `amounts.AMOUNT_TOLERANCE` (pinned by `linkLinesParity.test.ts`): the ₹5 a link may overshoot
@@ -73,6 +74,9 @@ export interface LinkButtonState {
  *
  * ⚠️ A BLANK DIRECTION IS MONEY OUT, through `isCreditRow` -- the test the Amount cell's colour reads
  * and the server's debit guard agrees with.
+ *
+ * ⚠️ AN OPEN COLLECT PAYMENT IS NEVER LINKED (spec #1585 "Open Cashbook lines", code review R5): it is decided by
+ * Create expense or Skip by hand, and `link_lines.link_rows_to_expense` refuses it.
  */
 export const linkButtonState = (
     rows: OutflowImportRow[],
@@ -97,6 +101,8 @@ export const linkButtonState = (
             offPage: null,
         };
     }
+    const collect = rows.filter((r) => selected.has(r.name) && isOpenCollectPaymentLine(r)).length;
+    if (collect) return { enabled: false, count, note: collectPaymentsLinkNote(collect), offPage: null };
     return { enabled: true, count, note: null, offPage: null };
 };
 

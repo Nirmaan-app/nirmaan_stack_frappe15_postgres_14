@@ -124,7 +124,7 @@ export const paymentTableFigures = (
 };
 
 /** The label under a company-borne tax in the Work Order payment table: the name of the #1537 action. */
-export const TDS_PAID_BY_COMPANY_LABEL = "TDS paid by company";
+export const COMPANY_BEARS_TDS_LABEL = "Company Bears TDS";
 
 /**
  * The note under a row's TDS in the Work Order payment table (#1543, owner ruling Q31-A): tax the company
@@ -132,4 +132,4 @@ export const TDS_PAID_BY_COMPANY_LABEL = "TDS paid by company";
  * Tax withheld from the vendor, and a payment without tax, carry none.
  */
 export const tdsColumnNote = (figures: PaymentTableFigures): string | undefined =>
-	figures.tds !== undefined && figures.companyOnTop ? TDS_PAID_BY_COMPANY_LABEL : undefined;
+	figures.tds !== undefined && figures.companyOnTop ? COMPANY_BEARS_TDS_LABEL : undefined;

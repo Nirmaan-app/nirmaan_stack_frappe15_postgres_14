@@ -2376,6 +2376,12 @@
    "writes": [],
    "reads": []
   },
+  "nirmaan_stack.services.boq_rate_master.test_conductor_floor_parity": {
+   "seconds": 13.8,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_adp1": {
    "seconds": 15.2,
    "series": [],

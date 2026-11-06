@@ -37,7 +37,6 @@ import { cn } from "@/lib/utils";
 import { reviewsExpenseRequests } from "@/constants/roles";
 
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import type { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import type {
     ExpenseRequest, GetMyExpenseRequestsResponse,
 } from "@/types/NirmaanStack/ExpenseRequest";
@@ -87,17 +86,6 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
     const getUserName = useCallback(
         memoize((id?: string) => users?.find((u) => u.name === id)?.full_name || id || "--"),
         [users]
-    );
-
-    // The category lives on `Expense Type`, not on the request, and the table reads the
-    // request doctype directly -- so it is resolved here from the master. 40 rows, one fetch.
-    const { data: expenseTypes } = useFrappeGetDocList<ExpenseType>("Expense Type", {
-        fields: ["name", "expense_category"], limit: 0,
-    });
-    const getCategory = useCallback(
-        memoize((t?: string) =>
-            expenseTypes?.find((e) => e.name === t)?.expense_category || "Uncategorised"),
-        [expenseTypes]
     );
 
     // The owner narrowing. It belongs to the "Raised By Me" TAB, not to the page -- see the
@@ -216,13 +204,13 @@ const ExpenseRequestsList: React.FC<{ isReviewer: boolean; userId: string }> = (
 
     const columnsDefinition = useMemo(
         () => getExpenseRequestColumns({
-            statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding,
+            statusTab, getUserName, canReview, canEdit, canDelete, getDetail, getStanding,
             onApprove: (r) => setReview({ action: "approve", request: r }),
             onReject: (r) => setReview({ action: "reject", request: r }),
             onEdit: openEdit,
             onDelete: setDeleting,
         }),
-        [statusTab, getUserName, getCategory, canReview, canEdit, canDelete, getDetail, getStanding, openEdit]
+        [statusTab, getUserName, canReview, canEdit, canDelete, getDetail, getStanding, openEdit]
     );
 
     const {

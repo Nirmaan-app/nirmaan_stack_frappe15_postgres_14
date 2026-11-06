@@ -215,13 +215,75 @@ class TestElr3aRangesAndUsedBy(FrappeTestCase):
         self.assertEqual(v(0, "Stretch (factor)", L), "Stretch (factor): a length must be more than 0 (got 0).")
         self.assertEqual(v(0, "Fill (factor)", F), "Fill (factor): a conduit fill must be more than 0 and at most 1 (got 0).")
         self.assertEqual(v(1.2, "Fill (factor)", F), "Fill (factor): a conduit fill must be more than 0 and at most 1 (got 1.2).")
-        self.assertIn("cannot be negative", v(-5, "Stretch (factor)", L))
+        # INVERTED at ELR-4c (owner R-ELR2 (h) "check the range first"; P6 "Q2 a") by mechanical authority. BEFORE:
+        # assertIn("cannot be negative", v(-5, "Stretch (factor)", L)). NOW the range answers a negative on a ranged input.
+        self.assertEqual(v(-5, "Stretch (factor)", L), "Stretch (factor): a length must be more than 0 (got -5).")
+        self.assertNotIn("cannot be negative", v(-5, "Stretch (factor)", L))
         self.assertIn("is not a number", v("abc", "Fill (factor)", F))
         for ok, rng in ((15, L), (0.001, L), (1, F), (0.55, F), (0.47, F)):
             self.assertIsNone(v(ok, "x", rng), (ok, rng))
         # NEGATIVE: an input no arm reads keeps today's rule -- ZERO allowed (three inputs are 0% by ruling)
         self.assertIsNone(v(0, "discount"))
         self.assertIsNone(v(1.2, "discount"))
+
+    def test_02b_ELR4C_the_range_is_checked_before_cannot_be_negative(self):
+        """ELR-4c (owner R-ELR2 (h): "check the range first (before 'cannot be negative')"; P6 "Q2 a")."""
+        v = csv_importer.validate_pricing_input_value
+        L, F = cv.RANGE_LENGTH, cv.RANGE_FILL
+        self.assertEqual(v(-0.1, "Conduit fill - PVC 25 mm (factor)", F),
+                         "Conduit fill - PVC 25 mm (factor): a conduit fill must be more than 0 and at most 1 (got -0.1).")
+        self.assertEqual(v(-15, "Point wiring - circuit length of the first point (factor)", L),
+                         "Point wiring - circuit length of the first point (factor): a length must be more than 0 (got -15).")
+        # NEGATIVE: an input no arm reads keeps today's words for a negative, and still allows zero
+        self.assertIn("cannot be negative", v(-0.2, "discount"))
+        self.assertIsNone(v(0, "discount"))
+
+    def test_02c_ELR4C_both_write_paths_give_the_range_sentence_for_a_negative(self):
+        """The Rate Master save (update and create) and the upload preview, each with the range supplied by a stub and every
+        write blocked -- no live row is touched (the ELR-3a incident rule)."""
+        live = frappe.db.get_value("BoQ Rate Master Item", self._hvac_input("flexible_duct_length_m"),
+                                   ["discipline", "kind", "brand", "unit", "attributes", "rates", "item_uid"], as_dict=True)
+        copy_doc = frappe.get_doc(dict(live, doctype="BoQ Rate Master Item", name=_FIXTURE_NAME, active=1))
+        real_get_doc = frappe.get_doc
+
+        def get_doc(*args, **kwargs):
+            if args == ("BoQ Rate Master Item", _FIXTURE_NAME):
+                return copy_doc
+            return real_get_doc(*args, **kwargs)
+
+        with _writes_blocked(), mock.patch.object(rate_master.frappe, "get_doc", side_effect=get_doc),                 mock.patch.object(csv_importer, "pricing_input_ranges_for", return_value={"flexible_duct_length_m": cv.RANGE_LENGTH}):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                rate_master.update_rate_master_item(name=_FIXTURE_NAME, rates_patch=json.dumps({"factor": -2}))
+        self.assertNotIsInstance(cm.exception, _WriteReached)
+        self.assertIn("Flexible duct length per piece (factor): a length must be more than 0 (got -2).", str(cm.exception))
+        self.assertNotIn("cannot be negative", str(cm.exception))
+        with _writes_blocked(), mock.patch.object(csv_importer, "pricing_input_ranges_for",
+                                                  return_value={"elr3a_test_fill": cv.RANGE_FILL}):
+            with self.assertRaises(frappe.ValidationError) as cm:
+                rate_master.create_rate_master_item(
+                    discipline="HVAC", kind="hvac_pricing_input", unit="fraction",
+                    attributes=json.dumps({"item": "elr3a_test_fill", "name": "ELR-3a test fill"}),
+                    rates=json.dumps({"factor": -0.1}))
+        self.assertNotIsInstance(cm.exception, _WriteReached)
+        self.assertIn("ELR-3a test fill (factor): a conduit fill must be more than 0 and at most 1 (got -0.1).", str(cm.exception))
+        # the upload preview (writes nothing): the same sentence for a negative typed into the downloaded file
+        cat = self._pi_category("HVAC")
+        text, _h, _n = csv_exporter.build_category_csv("HVAC", cat)
+        rows = list(csv.reader(io.StringIO(text)))
+        fi = next(i for i, h in enumerate(rows[0]) if h.split(" [")[0] == "factor")
+        ri = next(i for i, r in enumerate(rows) if "Flexible duct length per piece" in r)
+        rows[ri][fi] = "-3"
+        buf = io.StringIO()
+        csv.writer(buf, lineterminator="\r\n").writerows(rows)
+        with mock.patch.object(csv_importer, "pricing_input_ranges_for",
+                               return_value={"flexible_duct_length_m": cv.RANGE_LENGTH}):
+            plan = csv_importer.build_plan("HVAC", buf.getvalue().encode("utf-8"), category_id=cat)
+        msgs = [e["message"] for e in plan.get("errors") or []]
+        self.assertIn("Flexible duct length per piece (factor): a length must be more than 0 (got -3).", msgs)
+        # NEGATIVE: with no range the same negative keeps today's words on the save path
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._guard_pricing_input_values("hvac_pricing_input", {"factor": -1}, "HVAC", {"item": "x"})
+        self.assertIn("cannot be negative", str(cm.exception))
 
     def test_03_the_RATE_MASTER_SAVE_refuses_by_name_and_writes_nothing(self):
         """The real endpoints, with the range supplied by a stub -- refused before any write.
@@ -516,18 +578,57 @@ class TestElr3aV69(FrappeTestCase):
 
 
 class TestElr3aLive(FrappeTestCase):
-    """AC3 / AC6 against the LIVE (dev) catalogue with v69 loaded. READ-ONLY: a download, a preview (`build_plan` never
-    writes) and a read of the input."""
+    """AC3 / AC6 against a catalogue with v69 loaded. #1608: v69 is SEEDED through the app's own loader into a scratch
+    discipline (`setUpClass`), so these pass whatever Electrical version the live rows hold; WAS: read the live
+    `Electrical` rows, which pass only after a manual import of v69 or later. The tests themselves are read-only:
+    a download, a preview (`build_plan` never writes) and a read of the input."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import _purge_test_disciplines
+        from nirmaan_stack.services.boq_rate_master import loader
+        cls.disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        cls.addClassCleanup(_purge_test_disciplines, {cls.disc})   # before the load: a half-done load is purged too
+        payload = _asset(_V69)
+        payload["discipline"] = cls.disc
+        loader.load_rate_master(payload=payload)
+
+    def _seeded_input(self, item):
+        for r in frappe.get_all("BoQ Rate Master Item", fields=["name", "attributes"],
+                                filters={"discipline": self.disc, "kind": "electrical_pricing_input", "active": 1}):
+            a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+            if a.get("item") == item:
+                return r["name"]
+        raise AssertionError("%s is not seeded" % item)
 
     def test_01_the_pricing_inputs_download_previews_as_ZERO_changes_nine_rows_included(self):
-        text, _h, n = csv_exporter.build_category_csv("Electrical", "electrical_pricing_inputs")
+        text, _h, n = csv_exporter.build_category_csv(self.disc, "electrical_pricing_inputs")
         for name, _v, _u in _NAMES.values():
             self.assertIn(name, text)
-        plan = csv_importer.build_plan("Electrical", text.encode("utf-8"), category_id="electrical_pricing_inputs")
+        plan = csv_importer.build_plan(self.disc, text.encode("utf-8"), category_id="electrical_pricing_inputs")
         self.assertEqual(plan.get("errors") or [], [])
         counts = plan.get("counts") or {}
         self.assertEqual((counts.get("unchanged"), counts.get("rates_changed"), counts.get("items_added")), (n, 0, 0))
         self.assertEqual(n, 44)
 
     def test_02_the_read_back_reads_the_live_input(self):
-        self.assertEqual(extraction.secondary_length_per_point(), 5.0)
+        """The reader reads an ACTIVE row from the database, whatever discipline holds it. #1608: other rows may carry
+        the same input (the live `Electrical` discipline once v69+ is imported, another suite's scratch), so inside a
+        savepoint the seeded row is made the only active one and given a value no asset ships (6.5); the savepoint is
+        rolled back, so no other row is ever changed outside this test's own transaction."""
+        self.assertEqual(extraction.SECONDARY_LENGTH_INPUT, "pw_circuit_length_further")
+        mine = self._seeded_input(extraction.SECONDARY_LENGTH_INPUT)
+        self.assertEqual(frappe.parse_json(frappe.db.get_value("BoQ Rate Master Item", mine, "rates")), {"factor": 5})
+        frappe.db.savepoint("elr3a_read_back")
+        try:
+            # Raw writes, no hooks: a test-only state inside a savepoint that is always rolled back -- nothing derives from it.
+            frappe.db.sql("""UPDATE "tabBoQ Rate Master Item" SET active = 0
+                             WHERE active = 1 AND kind = 'electrical_pricing_input' AND name != %s""", (mine,))
+            frappe.db.set_value("BoQ Rate Master Item", mine, "rates", json.dumps({"factor": 6.5}), update_modified=False)
+            self.assertEqual(extraction.secondary_length_per_point(), 6.5)
+            frappe.db.set_value("BoQ Rate Master Item", mine, "active", 0, update_modified=False)
+            self.assertIsNone(extraction.secondary_length_per_point())     # no active input -> None, never a guessed 5
+        finally:
+            frappe.db.rollback(save_point="elr3a_read_back")
+        self.assertEqual(frappe.parse_json(frappe.db.get_value("BoQ Rate Master Item", mine, "rates")), {"factor": 5})

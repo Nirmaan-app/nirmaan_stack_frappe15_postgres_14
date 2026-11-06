@@ -20,10 +20,22 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   Rejected, base and GST, gross of vendor-borne TDS) − `amount_invoiced` must be < ₹100, measured BEFORE the new
   payment. It lives in the pure `services/work_order_payment_limit` (`invoice_check`, `request_refusal`) and is
   enforced where the WO limit is: `create_payment_request_for_service` and the Project Payments insert
-  validation (the Accountant's paid entry, Desk, REST), as the session user. An L1 approver or the CEO skips it
-  (`order_payments.skips_invoice_check`, via `approval_raiser.raiser_level`); split leftovers and adjustments
+  validation (the Accountant's paid entry, Desk, REST). Nobody skips it, the CEO and the `Administrator`
+  account included (owner, 2026-10-30). Split leftovers and adjustments
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
-  Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
+  Refunds). `get_payment_summary` returns it as `limit.invoice_check`.
+- **A WO GST payment is born only from an approved GST Payment Request (ADR-0030 Amendment A).** Request
+  Payment's GST choice calls `api/payments/gst_payment_requests.request_gst_payment` (Pending); an Accountant,
+  Accountant Lead or Admin approves (`approve_gst_payment_request`, the amount fixed, the payment inserted through
+  `insert_requested_payment`) or rejects (`reject_gst_payment_request`, reason required). The rules live in
+  `services/gst_payment_requests`: `gst_payment_birth_problem` (Project Payments `validate`) refuses any other
+  GST payment except a split child, a decider's Paid entry or `Administrator`, which `record_decider_request`
+  (`after_insert`) gives an already-decided request. `sync_with_payment` (`on_update`) moves Approved <-> Paid;
+  `delete_with_payment` (`on_trash`) deletes the request with its payment. Pending requests count in
+  `services/work_order_payment_limit` (GST left, total left, invoice check; `pending_gst_amount`), and the WO row
+  is locked and touched on request and approval so a second concurrent one is refused under REPEATABLE READ.
+  Only the endpoints write a request (`DECIDING_FLAG`, checked in its `validate`). GST cannot go off while a
+  request is Pending; deleting a WO deletes its requests.
 - **A WO's remarks are readable only by users who may read that WO** (story 4): the endpoints check it
   (`api/sr_remarks.assert_can_read_work_order`), and the Nirmaan Comments `has_permission` and
   `permission_query_conditions` hooks (`controllers/nirmaan_comments`) scope the doctype itself, because the
@@ -44,14 +56,18 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   everyone, Admin included: no change to number, date or amounts, no Edit dialog (`update_invoice_data` refuses
   it whole, so the signed scan is not swapped), and once Rejected it stays Rejected. PO invoices keep their old
   rules.
-- **A generated invoice is a record, numbered and limited by the server, never edited (#1546, GLOSSARY
+- **A generated invoice is a record, numbered and limited by the server, never edited (#1546, ADR-0040, GLOSSARY
   *Generated invoice*, *RA number*).** Doctype `WO Generated Invoice`, named `WGI-<WO>-<RA number>` (so the pair
   is unique in the primary key). Made only by `api/service_requests/generated_invoices.generate_invoice`
   (the doc's `before_insert` refuses any insert without `flags.made_by_generate`), changed only by the moves in
-  `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), never deleted
-  (`on_trash`). Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
+  `services/wo_generated_invoices.MOVES` (`change_problem`, run by the doc's `validate`), deleted only in the
+  app (`on_trash` `refuse_delete` needs `flags.deleted_in_app`: Admin's `delete_generated_invoice` of a Voided one,
+  or its Vendor Invoice's delete). A delete frees the record's RA number and -n place (ADR-0040 Amdt B): the
+  next RA number is one above the highest still held (Voided included; a gap below it is never filled), and
+  `next_ra_number` reads "RA-n" only from Pending / Approved Vendor Invoices, so a Rejected upload left behind
+  by a deleted record holds nothing. Generate runs under `_billing_lock`, a session-level advisory lock followed by a commit: Frappe
   runs PostgreSQL at REPEATABLE READ, so a row lock alone left a waiting generate reading the old highest RA
-  number (the concurrency test caught it). Generate and void commit. A FINAL generated after a voided one prints FINAL-2, FINAL-3 (`invoice_number`'s `final_number`, counting every FINAL the WO has had), so a voided number is never printed again. The limit counts Pending + Approved Vendor
+  number (the concurrency test caught it). Generate and void commit. The type is never chosen: `generate_invoice` takes only the amount and saves the FINAL when it brings `billed` to the WO amount, to within ₹10 (`wo_generated_invoices.is_final`, the `FULLY_PAID_TOLERANCE`), else an RA; the Generate dialog previews it from `billed` (`isFinalAmount`) and its "Put Paid" button fills in `left`. The FINAL shows no "FINAL" anywhere (ADR-0040 Amdt A): its number is the bare `INV-<FY>-<project>-<WO>`, and one generated after a voided one gets -2, -3 (`invoice_number`'s `final_number`, counting the FINALs the WO still has, Voided included), so a voided number is not printed twice while it is kept; FINALs saved before keep their `-FINAL` numbers. The limit counts Pending + Approved Vendor
   Invoices and generated invoices at *Generated*; a *Signed* one is counted through the Pending invoice its
   upload creates, so #1547 must create that invoice in the same save that moves the record to *Signed*. Only an
   Approved WO with `gst` explicitly off (`work_order_gst.gst_is_explicitly_off`; blank is not off) and a
@@ -67,8 +83,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   notification after the commit; `pr_notifications.get_allowed_accountants` would miss the unrestricted ones. The Vendor Invoices `on_update` hook
   `controllers/vendor_invoices.follow_generated_invoice` moves the record (approved: *Approved*; rejected, even
   after approval: *Voided*, the rejection as its reason; `wo_generated_invoices.vendor_invoice_move`), so the
-  single, bulk and Desk approvals all move it. That Vendor Invoice is never deleted (`on_trash`
-  `refuse_deleting_generated_invoice`; `delete_invoice_entry` answers it first): reject it instead.
+  single, bulk and Desk approvals all move it. Deleting that Vendor Invoice (who may: as for any WO
+  invoice) deletes its generated invoice too, whatever its status (`on_trash` `delete_generated_invoice_with_it`,
+  before Frappe's link check), so the amount is freed and the number stays used.
 - **WO status-move rules live in one place, `services/work_order_lifecycle.change_problem` (#1529).** The
   Service Requests `validate` hook `controllers/service_requests.guard_lifecycle` applies it on every save,
   so the SPA, Desk and REST obey it. A save that moves the status INTO *Approved* or *Rejected* (approve,

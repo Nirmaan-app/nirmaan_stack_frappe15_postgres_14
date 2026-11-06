@@ -66,7 +66,9 @@ const TEMPLATES: Array<{ id: string; re: RegExp }> = [
   ...PI_SUBJECTS.map((s) => ({ id: `PI ${s}`, re: new RegExp(`^${esc(s)} = ${PCT}$`) })),
   ...PI_AMOUNTS.map((s) => ({ id: `PI ${s}`, re: new RegExp(`^${esc(s)} \\(Rs per metre\\) = Rs ${AMT} per metre$`) })),
   ...COMPONENT_LABELS.map((l) => ({ id: `component ${l}`, re: new RegExp(`^${esc(l)}: .+ x \\d+(\\.\\d+)? = ${AMT}$`) })),
-  { id: "formula Bus bar", re: new RegExp(`^Bus bar = ${AMT}$`) },
+  // ELR-4b (owner (g), 2026-10-29) INVERTED: WAS only "Bus bar = <amount>" ("Bus bar = 0" when Without); NOW Without
+  // reads "Bus bar: not included" and With keeps "Bus bar = <amount>" (elr4bBusBar.test.ts pins both ways)
+  { id: "formula Bus bar", re: new RegExp(`^Bus bar( = ${AMT}|: not included)$`) },
   // wiring & cabling / HVAC Cables: the pair sentence computeWiring has always written (plain English, unchanged)
   { id: "wiring matched row", re: /^Matched (cable|termination) rate row for .+\.$/ },
 ];

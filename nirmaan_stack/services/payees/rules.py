@@ -32,10 +32,24 @@ ACCOUNT_FIELDS = (*ENTERED_FIELDS, "bank_name", "bank_branch")
 #: as "settled" (`services/settlement.SETTLED_STATUSES`), so paid means one thing.
 PAID_STATUSES = SETTLED_STATUSES
 
+#: A Payee's type: where it was CREATED (owner, 2026-10-23), set once and never changed (`set_only_once`).
+#: Users -- a person's own bank account, added from Raise Reimbursement (`own_accounts.add_own_account`);
+#: Vendors -- a vendor's bank details (`choosing.choose_payee`, the #1424 vendor patch); Others -- anywhere
+#: else (the Payees page, an expense's Add new payee). In the doctype's option order; pinned by test.
+PAYEE_TYPE_USERS = "Users"
+PAYEE_TYPE_VENDORS = "Vendors"
+PAYEE_TYPE_OTHERS = "Others"
+PAYEE_TYPES = (PAYEE_TYPE_USERS, PAYEE_TYPE_VENDORS, PAYEE_TYPE_OTHERS)
+
 _SEPARATORS = re.compile(r"[\s\-]+")
 _SPACES = re.compile(r"\s+")
 _ACCOUNT_CHARS = re.compile(r"^[A-Z0-9]+$")
 _IFSC = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+_LETTER = re.compile(r"[A-Za-z]")
+#: A holder name naming a bank: the word BANK, or a bank's short name that is nobody's own name. Whole words
+#: only ("Bankim Traders" is a holder). AXIS, CANARA, UNION, FEDERAL, INDIAN are left out: they name companies
+#: too, and "Canara Bank" is caught by BANK (owner, 2026-11-04).
+_BANK_WORD = re.compile(r"\b(BANK|SBI|HDFC|ICICI|PNB|IDFC|IDBI|UCO|KOTAK|INDUSIND)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -62,10 +76,23 @@ def parse_details(account_name, account_number, ifsc) -> PayeeDetails:
     )
 
 
+def holder_name_problem(account_name: str) -> str | None:
+    """Why `account_name` (cleaned) can't be a Payee's holder name, or None: it is blank, has no letter (an
+    account number pasted in the wrong box), or names a bank rather than who owns the account."""
+    if not account_name:
+        return "Enter the account holder name."
+    if not _LETTER.search(account_name):
+        return "Account holder name can't be only numbers. Enter the name on the bank account."
+    if _BANK_WORD.search(account_name):
+        return "Account holder name can't be a bank name. Enter the person or company who owns the account."
+    return None
+
+
 def details_problem(details: PayeeDetails) -> str | None:
     """Why these details can't be a Payee, or None. Every field is required."""
-    if not details.account_name:
-        return "Enter the account holder name."
+    holder = holder_name_problem(details.account_name)
+    if holder:
+        return holder
     if not details.account_number or details.normalized_account == "0":
         return "Enter the account number."
     if not _ACCOUNT_CHARS.match(details.account_number):
@@ -99,3 +126,14 @@ def payee_in_use_problem(payee: str, vendors: list[tuple[str, str | None]]) -> s
 def already_linked_problem(vendor: str, payee: str) -> str:
     """The refusal when Use a different payee picks the Payee vendor `vendor` is already paid into."""
     return f"{vendor} is already paid into {payee}. Pick another payee, or enter new bank details."
+
+
+def payee_type_from_links(is_own_account: bool, vendor_count: int) -> str:
+    """The type a Payee created before `payee_type` existed is given, from what links to it now: a person's own
+    account -> Users, else any vendor -> Vendors, else Others. For the one-time backfill only
+    (`patches/v3_0/backfill_payee_type`); every Payee created since is typed by its creator and never changes."""
+    if is_own_account:
+        return PAYEE_TYPE_USERS
+    if vendor_count > 0:
+        return PAYEE_TYPE_VENDORS
+    return PAYEE_TYPE_OTHERS

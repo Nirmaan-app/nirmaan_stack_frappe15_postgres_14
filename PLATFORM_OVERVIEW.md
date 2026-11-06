@@ -227,7 +227,6 @@ All modules either belong to a project or reference one. Projects are the root o
 
 **Dependencies:**
 - All other modules (Procurement, Payments, Service Requests, Design, Progress) depend on Projects as a foreign key
-- `Project Estimates` provides the BOQ (Bill of Quantities) used by the Material Usage tab for comparison
 
 ---
 
@@ -381,7 +380,6 @@ A separate reconciliation system (`PO Adjustments`) handles double-entry account
 
 | Column | Source |
 |---|---|
-| Estimated Qty | Project Estimates (BOQ) |
 | Ordered Qty | PO items |
 | Delivered Qty | PO received_quantity field |
 | DC Qty | Delivery Challans |
@@ -394,7 +392,7 @@ A separate reconciliation system (`PO Adjustments`) handles double-entry account
 **Orphan detection:** Items that appear in a DC or MIR but have no matching PO line item are flagged — this indicates a data inconsistency.
 
 **Dependencies:**
-- Requires: Projects, Procurement Orders, Project Estimates, PO Delivery Documents, Project Payments, Remaining Items Reports
+- Requires: Projects, Procurement Orders, PO Delivery Documents, Project Payments, Remaining Items Reports
 
 ---
 
@@ -867,7 +865,7 @@ The Reports module reads from virtually every other module:
 | PO Reports | Procurement Orders, Project Invoices, Project Payments, PO Delivery Documents |
 | WO Reports | Service Requests, Project Invoices, Project Payments |
 | DC / MIR Reports | PO Delivery Documents, Critical PO Tasks, Critical PO Task Child Table |
-| Inventory Report | Remaining Items Reports, Project Estimates |
+| Inventory Report | Remaining Items Reports |
 | DN > DC Report | Procurement Orders, PO Delivery Documents |
 
 Reports are **read-only** — no data is created or modified from the Reports module. It is a pure aggregation layer.

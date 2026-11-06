@@ -23,6 +23,7 @@
  */
 import { PRICING_INPUT_COLUMN_LABELS, PRICING_INPUT_NON_PERCENT_COLUMNS } from "@/pages/pricing/rate-master/rateMasterSpec";
 import type { Pipeline, RateCategoryConfig, RateMasterItem, StepTrace } from "@/pages/pricing/rate-master/rateMasterTypes";
+import { evalFormula } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 
 /** The line a working value falls back to when nothing can name it -- never a raw id (owner AC7). */
 export const UNNAMED_INPUT = "(unnamed input)";
@@ -94,7 +95,10 @@ export function componentLabel(step: StepConfig, config: RateCategoryConfig): st
  * `matchedRows` source: a `rate_ref` Pricing Input or a `component_ref` component).
  *   rate_ref                     -> pricingInputLine
  *   component_ref with a qty     -> "<label>: <item> x <qty> = <amount>"
- *   component_ref, formula shape -> "<item> = <amount>" (owner D8: no bound field, no quantity -- "Bus bar = 0")
+ *   component_ref, formula shape -> "<item> = <amount>" (owner D8: no bound field, no quantity -- "Bus bar = 3,000")
+ *     ... whose matched condition gives it a factor of 0 -> "<item>: not included" (ELR-4b, owner (g) 2026-10-29:
+ *     "Bus bar: not included" when Without, in place of "Bus bar = 0"; display only -- the step's own `params` are the
+ *     condition the interpreter matched, so the words follow the price, never a second reading of the answers)
  *   anything it cannot name      -> "(unnamed input) = <value>"
  * `resolveBound` reads an `@`-bound ref value the way the pipeline did (the row's selected answers).
  */
@@ -122,10 +126,96 @@ export function attributeWorkingLine(
   }
   if (st.step === "component_ref") {
     const item = st.refItem ?? "";
-    if (cfg.qty === undefined && typeof st.qty !== "number") return `${item} = ${amountText(value)}`;
+    if (cfg.qty === undefined && typeof st.qty !== "number") return st.params?.factor === 0 ? `${item}: not included` : `${item} = ${amountText(value)}`;
     const label = componentLabel(cfg, config);
     if (!label || typeof st.qty !== "number") return `${UNNAMED_INPUT} = ${amountText(value)}`;
     return `${label}: ${item} x ${qtyText(st.qty)} = ${amountText(value)}`;
   }
   return `${UNNAMED_INPUT} = ${amountText(value)}`;
+}
+
+/**
+ * ELR-4c (owner R-FLOAT, 2026-10-30 "ok"; P6 "Q3 a"): money as the screen shows it -- to 2 decimals, so a computed
+ * 216.04999999999998 reads 216.05 and 59.49999999999999 reads 59.5. The figure on screen, the "Use this value" box, the copy
+ * control and the feedback log's computed value all carry this value (Q3b a); the price itself is never rounded here.
+ * Anything that is not a finite number (a pipeline output that was not produced) passes through untouched, so its line
+ * reads exactly as before.
+ */
+export function moneyValue(v: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? Number(v.toFixed(2)) : v;
+}
+
+/** ELR-4c (owner R-ELR2 (c), 2026-10-29): what a "used input" line ends with. */
+export const USED_INPUT_MARK = "(Pricing Input)";
+
+type ArmStep = StepConfig & { params?: Record<string, unknown>; binds?: unknown };
+
+/**
+ * ELR-4c (owner R-ELR2 (c), "one line per input used"; P6 "Q1 b", 2026-10-30) -- the ctx keys of the ASSEMBLY-ONLY Pricing
+ * Inputs (`assemblyOnlyCtxKeys`) this row's pipeline actually USED, read from the step traces it produced. Display only.
+ *   map_attribute    `table_from_ctx` -- the entry the source value picked, when the table (not a stated value) resolved
+ *                    it; `default_from_ctx` -- when the default resolved it
+ *   derive_attribute `constants_from_ctx` -- each constant that moves the result: the formula evaluated again with that
+ *                    constant at 0 gives a different value (Q1 b: a 1-point row's further length is x 0, so it is not shown)
+ *   circuit_fit      `usable_from_ctx` -- the fill of the size the conduit was fitted to, at the type it was fitted for
+ * A stated value, a skipped map, an absent conduit and a refusal use none, so they add no line.
+ */
+export function usedAssemblyInputs(
+  pipeline: Pipeline | undefined,
+  traces: readonly StepTrace[],
+  selected: Readonly<Record<string, string | number>>,
+): Set<string> {
+  const used = new Set<string>();
+  const steps = ((pipeline as { steps?: unknown[] } | undefined)?.steps ?? []) as ArmStep[];
+  // the values the pipeline resolved so far (a map's or a derive's result), over the row's own answers
+  const now: Record<string, string | number> = { ...selected };
+  let cursor = 0;
+  const configOf = (st: StepTrace): ArmStep | undefined => {
+    for (let i = cursor; i < steps.length; i++) {
+      if (steps[i].step === st.step) { cursor = i + 1; return steps[i]; }
+    }
+    return undefined;
+  };
+  for (const st of traces) {
+    if (st.step !== "map_attribute" && st.step !== "derive_attribute" && st.step !== "circuit_fit") continue;
+    const cfg = configOf(st);
+    const p = cfg?.params ?? {};
+    if (st.step === "map_attribute" && st.mapAttribute) {
+      if (!st.mapAttribute.stated) {
+        const tfc = p.table_from_ctx as Record<string, string> | undefined;
+        const table = p.table as Record<string, unknown> | undefined;
+        const src = typeof p.from_attr === "string" ? now[p.from_attr] : undefined;
+        const hit = (t: Record<string, unknown> | undefined) => !!t && src !== undefined && Object.prototype.hasOwnProperty.call(t, String(src));
+        if (hit(tfc)) used.add(tfc![String(src)]);
+        else if (typeof p.default_from_ctx === "string" && !hit(table)) used.add(p.default_from_ctx);
+      }
+      now[st.mapAttribute.result_attr] = st.mapAttribute.value;
+    } else if (st.step === "derive_attribute" && st.derivedAttr) {
+      const constants = st.derivedAttr.constants;
+      if (!st.derivedAttr.stated && constants && typeof p.formula === "string") {
+        const env: Record<string, number> = { ...constants };
+        for (const t of (p.terms ?? []) as Array<{ ident?: string; attr?: string }>) {
+          if (t.ident && t.attr) env[t.ident] = Number(now[t.attr]);
+        }
+        const keys = (p.constants_from_ctx ?? {}) as Record<string, string>;
+        for (const [k, key] of Object.entries(keys)) {
+          try {
+            if (evalFormula(p.formula, { ...env, [k]: 0 }) !== st.derivedAttr.value) used.add(key);
+          } catch {
+            used.add(key);
+          }
+        }
+      }
+      if (st.derivedAttr.value !== null) now[st.derivedAttr.attr] = st.derivedAttr.value;
+    } else if (st.step === "circuit_fit") {
+      const ufc = p.usable_from_ctx as Record<string, string[]> | undefined;
+      const sizes = (p.sizes ?? []) as number[];
+      const bind = (Array.isArray(cfg?.binds) ? (cfg!.binds as string[])[0] : undefined) ?? "fitted_size";
+      const fitted = st.runningValues?.[bind];
+      const type = typeof p.conduit_type_attr === "string" ? now[p.conduit_type_attr] : undefined;
+      const i = typeof fitted === "number" ? sizes.indexOf(fitted) : -1;
+      if (ufc && type !== undefined && i >= 0 && ufc[String(type)]?.[i]) used.add(ufc[String(type)][i]);
+    }
+  }
+  return used;
 }

@@ -10,6 +10,7 @@
   "asset_description",
   "asset_category",
   "department",
+  "lost_damaged",
   "asset_condition",
   "asset_serial_number",
   "asset_value",
@@ -155,12 +156,20 @@
    "label": "Asset History",
    "options": "Asset History",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Set only by Admin or HR on the asset page (Mark as Lost/Damaged, Mark as Found/Repaired). While ticked the asset can't be assigned and owes no monthly audit.",
+   "fieldname": "lost_damaged",
+   "fieldtype": "Check",
+   "label": "Lost/Damaged",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-12 17:10:42.789102",
+ "modified": "2026-10-31 13:12:31.874408",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Master",

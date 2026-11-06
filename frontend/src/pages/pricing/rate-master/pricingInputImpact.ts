@@ -90,13 +90,14 @@ export function assemblyOnlySentence(categoryNames: readonly string[], hasExampl
  * server's refusal (`csv_importer.validate_pricing_input_value` with the input's name and column), so the page shows the
  * reason before Save and the save endpoint and the file upload refuse the same value in the same words. Null = no
  * refusal (in range, or an input no assembly step reads).
+ * ELR-4c (owner R-ELR2 (h), "check the range first"; P6 "Q2 a"): a NEGATIVE value on a ranged input is refused here in the
+ * range's own words too -- the server now checks the range before "cannot be negative", so the two still agree.
  */
 export function pricingInputRangeRefusal(
   range: "length" | "fill" | undefined, inputName: string, field: string, value: number | undefined,
 ): string | null {
   if (!range || typeof value !== "number" || !Number.isFinite(value)) return null;
   const label = `${inputName} (${field})`;
-  if (value < 0) return null;   // the general negative refusal is the server's, already worded there
   if (range === "length" && !(value > 0)) return `${label}: a length must be more than 0 (got ${value}).`;
   if (range === "fill" && !(value > 0 && value <= 1)) return `${label}: a conduit fill must be more than 0 and at most 1 (got ${value}).`;
   return null;

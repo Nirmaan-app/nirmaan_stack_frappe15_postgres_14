@@ -68,7 +68,14 @@ import {
     descriptionRequired,
     INFLOW_TYPES,
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
-import { ROW_PARTIALLY_ALLOCATED, canSkipByHand, canUndoOutflow } from "../outflowImportStatus";
+import {
+    COLLECT_PAYMENT_SKIP_REFUSAL,
+    ROW_PARTIALLY_ALLOCATED,
+    canSkipByHand,
+    canUndoOutflow,
+    isCollectPaymentLine,
+    isOpen,
+} from "../outflowImportStatus";
 import { NEW_EXPENSE_COMMENT_MAX, newExpenseSeed, statementSpender } from "../newExpenseSeed";
 import { useUserData } from "@/hooks/useUserData";
 import type { UnreconcileResult } from "../unreconcileView";
@@ -97,6 +104,7 @@ import {
     isConfirmable,
     isCreateTarget,
     isCreditRow,
+    isMoneyReceivedLine,
     settlesAPickedRecord,
     ledgerLabel,
     matcherCandidateLine,
@@ -209,8 +217,8 @@ const SHOW_CREATE_NEW_EXPENSE = true;
 // and ADR-0016 R6. Skip is back as the "Nothing to link?" box at the BOTTOM of the body, under a
 // divider -- below every link and create option, so linking stays the obvious first choice -- on any
 // open line, for every module user since ADR-0022 Amendment E (`canSkipByHand`; Cashbook too since
-// #1314, bar a line its own job has not written yet). The server re-checks
-// all of it in `review.skip_row`.
+// #1314, bar a line its own job has not written yet), except an open Collect payment, whose Skip is an Admin's
+// or Accountant Lead's (spec #1585 story 39). The server re-checks all of it in `review.skip_row`.
 
 /**
  * ⚠️ THE KILL SWITCH FOR PARTIAL SETTLEMENT (slice PS), in the same place and the same style as the
@@ -888,7 +896,9 @@ export const DecisionDialog = ({
                         without the record list and the create-expense card reads as a dialog that
                         failed to load. This names the axis -- money in -- and points at the two
                         cards below that DO apply, so the reviewer's next move is on screen. */}
-                    {!canLinkPayment && (
+                    {/* Money in only: an open Collect payment also offers no link list, but it is money out
+                        and carries its own "Pick Create expense, or Skip by hand." (story 36). */}
+                    {isMoneyReceivedLine(row) && (
                         <p className="rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                             This transfer is money received, so it is recorded rather than settled
                             against a payable. Choose one of the options below — a project
@@ -998,8 +1008,14 @@ export const DecisionDialog = ({
 
                     {/* ⚠️ LAST IN THE BODY, UNDER A DIVIDER (#1273). Keyed on the line so a half-typed
                         reason never carries over to the next transfer opened. */}
-                    {canSkipByHand(row) && (
+                    {canSkipByHand(row, canUndoOutflow(role, user_id)) ? (
                         <SkipTransferBox key={row.name} busy={busy} onSkip={onSkip} />
+                    ) : (
+                        // An open Collect payment's second choice is not this viewer's: say whose it is.
+                        isCollectPaymentLine(row) &&
+                        isOpen(row.row_status) && (
+                            <p className="border-t pt-3 text-xs text-muted-foreground">{COLLECT_PAYMENT_SKIP_REFUSAL}</p>
+                        )
                     )}
                 </div>
 

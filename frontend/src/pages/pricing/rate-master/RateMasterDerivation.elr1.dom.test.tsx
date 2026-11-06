@@ -27,10 +27,11 @@ function tab(categoryId: string): HTMLElement {
 }
 
 describe("ELR-1: the Derivation tab", () => {
-  it("wiring_cabling: 'How a row is priced', thirteen lines, no pointer line, no extraction Rules card", () => {
+  // ELR-4b (owner P6 WC-b / WC-c, 2026-10-29) INVERTED: WAS thirteen lines; NOW fifteen
+  it("wiring_cabling: 'How a row is priced', fifteen lines (WAS thirteen), no pointer line, no extraction Rules card", () => {
     const host = tab("wiring_cabling");
     expect(host.querySelector('[data-testid="rate-master-item-list-order"]')).not.toBeNull();
-    expect(host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length).toBe(13);
+    expect(host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length).toBe(15);
     expect(host.querySelector('[data-testid="rate-master-derivation-notice"]')).toBeNull();
     expect(host.querySelector('[data-testid="rate-master-rules-panel"]')).toBeNull();
     // NEGATIVE: the card's raw ids and field names are gone from the tab
@@ -50,17 +51,23 @@ describe("ELR-1: the Derivation tab", () => {
     }
   });
 
-  it("UNCHANGED: every other Electrical category shows the pointer line, and its extraction card exactly where it had one", () => {
+  // ELR-4b (owner R-APPROVE + R-Q4; the P6 answer, 2026-10-29) INVERTED: WAS the other eight Electrical categories kept
+  // the pointer line and their card; NOW they list their rules, with no pointer line and no card (the WAS pointer line is
+  // asserted absent); the Pricing Inputs category keeps its own line (unchanged)
+  it("NOW every Electrical category but the Pricing Inputs lists its rules: no pointer line, no extraction Rules card", () => {
     const line = `This category's rules are not listed yet. To see how a row is priced, open ${PAGE} -> Calculator.`;
-    const listed = ["wiring_cabling", "point_wiring", "switches_sockets", "popup_boxes"];
-    for (const c of asset.category_configs.filter((x) => !listed.includes(x.category_id))) {
+    for (const c of asset.category_configs) {
       const host = tab(c.category_id);
-      expect(host.querySelector('[data-testid="rate-master-item-list-order"]'), c.category_id).toBeNull();
-      const notice = host.querySelector('[data-testid="rate-master-derivation-notice"]')?.textContent;
-      if (c.category_id === "electrical_pricing_inputs") expect(notice, c.category_id).toContain("Pricing Inputs hold shared numbers");
-      else expect(notice, c.category_id).toBe(line);
-      const hasRules = Array.isArray((c as { rules?: unknown[] }).rules) && (c as { rules: unknown[] }).rules.length > 0;
-      expect(!!host.querySelector('[data-testid="rate-master-rules-panel"]'), c.category_id).toBe(hasRules);
+      const notice = host.querySelector('[data-testid="rate-master-derivation-notice"]')?.textContent ?? null;
+      expect(notice, c.category_id).not.toBe(line);
+      if (c.category_id === "electrical_pricing_inputs") {
+        expect(notice, c.category_id).toContain("Pricing Inputs hold shared numbers");
+        expect(host.querySelector('[data-testid="rate-master-item-list-order"]'), c.category_id).toBeNull();
+        continue;
+      }
+      expect(host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length, c.category_id).toBeGreaterThan(0);
+      expect(notice, c.category_id).toBeNull();
+      expect(host.querySelector('[data-testid="rate-master-rules-panel"]'), c.category_id).toBeNull();
     }
   });
 });

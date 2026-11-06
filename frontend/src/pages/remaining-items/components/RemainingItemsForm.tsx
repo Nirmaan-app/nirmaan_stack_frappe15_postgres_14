@@ -107,6 +107,14 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {entries.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="py-6 px-3 text-center text-sm text-muted-foreground">
+                  No items to count. Only items ordered for more than &#8377;5,000 with at least one delivery are listed.
+                  Submit to record that there is nothing to count today.
+                </TableCell>
+              </TableRow>
+            ) : null}
             {categories.map((category) => {
               const categoryEntries = entries
                 .map((entry, idx) => ({ entry, idx }))

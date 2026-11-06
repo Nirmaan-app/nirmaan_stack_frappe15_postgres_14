@@ -313,6 +313,34 @@ BATCH_STATUSES = (BATCH_DRAFT, BATCH_IN_REVIEW, BATCH_PARTIALLY_SETTLED, BATCH_C
 
 SKIP_REASON_NOT_SUCCESSFUL = "Transfer did not succeed at the bank ({status})."
 SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
+# A Cashbook line whose Txn Id another line already created an Expense for (spec #1585 C, #1588): the
+# database's one-Expense-per-Txn-Id index refused the create. `{records}` is "<ledger> <name>". Written by
+# the job as a system skip, and the sentence a refused hand Create shows. Same prefix as the line above, so
+# `skip_kind_backfill` and `skip_origin` read it as "Already imported".
+SKIP_REASON_ALREADY_IMPORTED_AS = "Already imported in batch {batch} as {records}."
+# A hand Link of a Cashbook line whose Txn Id another line already holds Settled to a DIFFERENT Expense (#1601):
+# the same index refused the Link's match row. `{records}` is "<ledger> <name>", `{target}` the Expense the person
+# picked. A refusal sentence on the screen, never a skip, so it does not start "Already imported". It does not say
+# "Nothing was linked.": the Link dialog prints that before every refusal.
+LINK_REFUSED_TXN_ID_HELD = (
+    "Txn Id {transfer_id} is already recorded as {records}, in batch {batch}, so it cannot be linked to "
+    "{target} as well: one wallet spend has one expense. To link it here instead, Unreconcile that line "
+    "first."
+)
+# A hand Link of a line whose Txn Id another line already ties, Settled, to the SAME record the person picked (#1606):
+# `ofm_match_settled_target_unique` (every source) refused the Link's match row. `{records}` is "<ledger> <name>",
+# `{line}` and `{batch}` the line that holds it. A refusal sentence on the screen, never a skip; like
+# `LINK_REFUSED_TXN_ID_HELD` it does not say "Nothing was linked.", which the Link dialog prints before it.
+LINK_REFUSED_ALREADY_LINKED = (
+    "Txn Id {transfer_id} is already linked to {records} by line {line}, in batch {batch}, so it cannot be linked "
+    "to it a second time: one transfer settles a record once. Skip this line, or Unreconcile that one first."
+)
+# A many-line Link whose ticked lines include two of one Txn Id, neither yet linked (#1611): an index refused the second
+# line's match row inside the same request, so no committed line holds it. `{records}` is "<ledger> <name>".
+LINK_REFUSED_TXN_ID_TICKED_TWICE = (
+    "Txn Id {transfer_id} is on more than one of the lines you ticked, so it cannot be linked to {records} more than "
+    "once: one transfer settles a record once. Untick all but one of those lines."
+)
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 # ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
 # is ever staged is one whose bank status CHANGED -- and the reason names both statuses. The prefix up
@@ -402,6 +430,7 @@ STAGED_NOTE_NO_SETTLEMENT_PATH = (
 SYSTEM_SKIP_SENTENCES = (
     SKIP_REASON_NOT_SUCCESSFUL,
     SKIP_REASON_ALREADY_IMPORTED,
+    SKIP_REASON_ALREADY_IMPORTED_AS,
     SKIP_REASON_DUPLICATE_IN_FILE,
     SKIP_REASON_ALREADY_PAID,
     SKIP_REASON_ALREADY_RECEIVED,

@@ -10,20 +10,17 @@
 //   both              -> the field is OPTIONAL and the requester's choice picks the ledger
 //   neither           -> unusable; the request form refuses the type outright
 //
-// ⚠️ The category is deliberately NOT shown here (owner ruling 2026-09-16). It still exists:
-// a new type is saved as "Uncategorized" and an edit keeps the type's current category.
-//
 // "Who gets paid" (ADR-0033, #1429): each type is Required / Optional / Not asked (the default),
 // shown in the Payee column and set in the Add / Edit dialog.
 //
 // "Confirmed as Expense Request" (spec #1494, owner 2026-10-20): a LABEL ONLY, shown in the Confirmed
 // column and ticked in the Edit dialog by Admin alone. It changes nothing about raising, intake or the
-// catalog. The fixture ships it, so a mark made here survives a migrate only once exported.
+// catalog. Expense Type is not a fixture (owner, 2026-11-02), so every edit made here lasts through migrate.
 //
 // The search and the Scope / Payee / Role Access / Confirmed filters (in their column headers, like
 // the app's other tables) narrow the loaded rows together (`utils/expenses/expensePackagesFilter`).
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { TailSpin } from "react-loader-spinner";
@@ -56,10 +53,6 @@ import {
     type PackageFilters, type ScopeLabel,
 } from "@/utils/expenses/expensePackagesFilter";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
-
-// Where none of the named categories fit, a type belongs to "Uncategorized". The category is
-// no longer picked on this screen, so every new type lands here.
-const FALLBACK_CATEGORY = "Uncategorized";
 import { ExpenseFormatDialog } from "./ExpenseFormatDialog";
 import { RECORDS_WITHOUT_REVIEW_KEY, RecordsWithoutReviewSection } from "./RecordsWithoutReviewSection";
 
@@ -103,8 +96,6 @@ interface EditState {
     expense_name: string;
     project: boolean;
     non_project: boolean;
-    /** Not editable here -- carried so an edit keeps the type's current category. */
-    expense_category: string;
     allowed_roles: string[];
     /** Who gets paid on a request of this type. */
     payee_rule: PayeeRule;
@@ -114,7 +105,7 @@ interface EditState {
 
 const BLANK: EditState = {
     open: false, target: null, expense_name: "", project: false, non_project: false,
-    expense_category: FALLBACK_CATEGORY, allowed_roles: [], payee_rule: PAYEE_RULE.NOT_ASKED,
+    allowed_roles: [], payee_rule: PAYEE_RULE.NOT_ASKED,
     confirmed_as_request: false,
 };
 
@@ -122,6 +113,8 @@ export const ExpensePackagesMaster: React.FC = () => {
     const [search, setSearch] = useState("");
     const [filters, setFilters] = useState<PackageFilters>(NO_PACKAGE_FILTERS);
     const [edit, setEdit] = useState<EditState>(BLANK);
+    /** The Edit dialog's scrolling fields: scrolling them closes the Role Access menu. */
+    const editBodyRef = useRef<HTMLDivElement>(null);
     const [formatFor, setFormatFor] = useState<ExpenseType | null>(null);
     const [toggling, setToggling] = useState<string | null>(null);
     // A type switched ON with no format yet: its format dialog is open, and a non-empty save
@@ -139,7 +132,7 @@ export const ExpensePackagesMaster: React.FC = () => {
 
     const { data, isLoading, error, mutate } = useFrappeGetDocList<ExpenseType>("Expense Type", {
         fields: ["name", "expense_name", "project", "non_project", "source_format",
-                 "source_format_enabled", "expense_category", "payee_rule", "confirmed_as_request"],
+                 "source_format_enabled", "payee_rule", "confirmed_as_request"],
         limit: 0,
         orderBy: { field: "expense_name", order: "asc" },
     });
@@ -253,7 +246,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                     name: edit.target.name,
                     project: edit.project ? 1 : 0,
                     non_project: edit.non_project ? 1 : 0,
-                    expense_category: edit.expense_category,
                     allowed_roles: edit.allowed_roles,
                     payee_rule: edit.payee_rule,
                     // Sent only by Admin: the server refuses anyone else changing it.
@@ -265,7 +257,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                     expense_name: name,
                     project: edit.project ? 1 : 0,
                     non_project: edit.non_project ? 1 : 0,
-                    expense_category: FALLBACK_CATEGORY,
                     allowed_roles: edit.allowed_roles,
                     payee_rule: edit.payee_rule,
                 });
@@ -472,7 +463,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                                             onClick={() => setEdit({
                                                 open: true, target: t, expense_name: t.name,
                                                 project: !!t.project, non_project: !!t.non_project,
-                                                expense_category: t.expense_category || FALLBACK_CATEGORY,
                                                 allowed_roles: roles,
                                                 payee_rule: payeeRule,
                                                 confirmed_as_request: !!t.confirmed_as_request,
@@ -510,7 +500,8 @@ export const ExpensePackagesMaster: React.FC = () => {
 
             {/* --- add / edit --- */}
             <Dialog open={edit.open} onOpenChange={(o) => !o && setEdit(BLANK)}>
-                <DialogContent className="max-w-md">
+                {/* The fields scroll between a fixed title and fixed buttons, so a short screen still reaches Save. */}
+                <DialogContent className="flex max-h-[90vh] max-w-md flex-col supports-[height:100dvh]:max-h-[90dvh]">
                     <DialogHeader>
                         <DialogTitle>{edit.target ? `Edit — ${edit.target.name}` : "Add Expense Type"}</DialogTitle>
                         <DialogDescription>
@@ -519,7 +510,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4 py-1">
+                    <div ref={editBodyRef} className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 py-1">
                         <div className="space-y-1.5">
                             <Label>Name</Label>
                             <Input
@@ -579,6 +570,8 @@ export const ExpensePackagesMaster: React.FC = () => {
                                 // portal must turn them back on or options are keyboard-only.
                                 menuPortalTarget={document.body}
                                 menuPosition="fixed"
+                                // A fixed menu would stay put while the fields scroll under it.
+                                closeMenuOnScroll={(e) => e.target === editBodyRef.current}
                                 styles={{
                                     menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: "auto" as const }),
                                 }}
@@ -628,7 +621,7 @@ export const ExpensePackagesMaster: React.FC = () => {
                                     <span className="font-semibold">Confirmed as Expense Request</span>
                                     <span className="block text-[13px] text-muted-foreground">
                                         A label only: it changes nothing about raising or approving
-                                        requests. Export the fixture to keep it past a deployment.
+                                        requests.
                                     </span>
                                 </span>
                             </label>
@@ -668,10 +661,6 @@ export const ExpensePackagesMaster: React.FC = () => {
                             <li>
                                 PO Adjustment Items and Outflow Import Rows store the type as plain
                                 text and keep the old name.
-                            </li>
-                            <li>
-                                Update the expense type fixture in code too, or the next deployment
-                                brings the old name back as a separate type.
                             </li>
                         </ul>
                     </div>

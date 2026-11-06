@@ -21,7 +21,6 @@ Fixtures are raw inserts (`db_insert`, no hooks) on a scratch project, purged pe
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.permissions import add_user_permission
 from frappe.utils import flt
 
 from nirmaan_stack.api.projects.project_aggregates import (
@@ -29,7 +28,6 @@ from nirmaan_stack.api.projects.project_aggregates import (
     get_project_sr_summary_aggregates,
 )
 from nirmaan_stack.api.projects.project_money import get_project_money
-from nirmaan_stack.api.projects.project_spends import get_project_pos_paid
 
 PO = "Procurement Orders"
 WO = "Service Requests"
@@ -105,59 +103,3 @@ class TestProjectPagePaid(FrappeTestCase):
             (money["po_outflow"], money["wo_outflow"], money["expense_outflow"], money["outflow"]),
             (350.0, 249.0, 70.0, 669.0),
         )
-
-    def test_spends_reads_every_po_with_its_items_whatever_its_status(self):
-        """Spends counts every PO's Amount Paid (spec #1451 story 14): the Inactive PO B is in, with the
-        items that key its paid figure by work package, though the PO summary leaves it out."""
-        paid = get_project_pos_paid(self.P)
-        self.assertEqual(
-            sorted((po["name"], flt(po["amount_paid"], 2)) for po in paid["pos"]),
-            sorted([(self.A, 300.0), (self.B, 50.0)]),
-        )
-        self.assertEqual(
-            sorted((item["po_number"], item["work_package"], flt(item["quote"]), flt(item["quantity"]),
-                    flt(item["tax"]), item["isCustom"]) for item in paid["items"]),
-            sorted([
-                (self.A, "Electrical", 100.0, 2.0, 18.0, False),
-                (self.A, "Plumbing", 100.0, 2.0, 18.0, False),
-                (self.B, "HVAC", 100.0, 2.0, 18.0, False),
-            ]),
-        )
-
-    def test_spends_refuses_a_reader_limited_to_another_project(self):
-        """A user who may read POs but whose User Permission names another project gets no Spends rows."""
-        email = f"test-1451-spends-{frappe.generate_hash(length=6)}@example.com"
-        other = _raw("Projects", project_name="TEST-1457-OTHER", status="WIP")
-        user = frappe.get_doc({"doctype": "User", "email": email, "first_name": "Spends", "send_welcome_email": 0,
-                               "roles": [{"role": "Nirmaan Accountant"}]})
-        user.insert(ignore_permissions=True)
-        add_user_permission("Projects", other, email, ignore_permissions=True)
-        try:
-            frappe.set_user(email)
-            self.assertTrue(frappe.has_permission(PO, "read"))
-            with self.assertRaises(frappe.PermissionError):
-                get_project_pos_paid(self.P)
-        finally:
-            frappe.set_user("Administrator")
-            frappe.db.rollback()
-            # The User and its Contact go through `delete_doc`, so their child rows (`Has Role`,
-            # `Contact Email`) go with them; a bare row delete would strand those.
-            scopes = (
-                ("User Permission", lambda: frappe.db.delete("User Permission", {"user": email})),
-                ("User", lambda: frappe.delete_doc("User", email, force=True, ignore_permissions=True)),
-                ("Contact", lambda: [
-                    frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
-                    for contact in frappe.get_all("Contact", {"email_id": email}, pluck="name")
-                ]),
-                ("Projects", lambda: frappe.db.delete("Projects", {"name": other})),
-            )
-            failures = []
-            for doctype, purge in scopes:
-                try:
-                    purge()
-                    frappe.db.commit()
-                except Exception as error:  # noqa: BLE001 - report every scope, strand none silently
-                    frappe.db.rollback()
-                    failures.append(f"{doctype}: {error}")
-            if failures:
-                raise AssertionError(f"test_spends_refuses_a_reader_limited_to_another_project left rows: {failures}")

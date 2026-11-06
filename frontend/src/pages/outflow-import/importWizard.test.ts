@@ -233,8 +233,13 @@ describe("which files each source takes", () => {
         expect(acceptedExtensions("Porter Statement")).toEqual([".csv"]);
     });
 
+    it("takes only the Cashbook Statement as downloaded (.xlsx) for Cashbook, as the server does", () => {
+        // Spec #1585 story 1: its bill links are cell hyperlinks, which a CSV cannot carry.
+        expect(acceptedExtensions("Cashbook")).toEqual([".xlsx"]);
+    });
+
     it("takes a .csv or an .xlsx for every other source", () => {
-        for (const source of ["Cashfree", "Cashbook", BANK, "something new"]) {
+        for (const source of ["Cashfree", BANK, "something new"]) {
             expect(acceptedExtensions(source)).toEqual([".csv", ".xlsx"]);
         }
     });

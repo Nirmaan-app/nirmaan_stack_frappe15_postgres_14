@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
-import { TDS_PAID_BY_COMPANY_LABEL } from "@/pages/ProjectPayments/tdsPreview";
+import { COMPANY_BEARS_TDS_LABEL } from "@/pages/ProjectPayments/tdsPreview";
 import { TDS_BORNE_BY, type TdsBorneBy } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
@@ -183,7 +183,7 @@ export const getWOPaymentVoucherColumns = ({
                     {formatToRoundedIndianRupee(tds.tds_amount)}
                     {/* Tax the company paid on top was not cut from the vendor (#1543). */}
                     {tds.borne_by === TDS_BORNE_BY.COMPANY && (
-                        <span className="block text-[10px] leading-3 text-muted-foreground">{TDS_PAID_BY_COMPANY_LABEL}</span>
+                        <span className="block text-[10px] leading-3 text-muted-foreground">{COMPANY_BEARS_TDS_LABEL}</span>
                     )}
                 </div>
             );

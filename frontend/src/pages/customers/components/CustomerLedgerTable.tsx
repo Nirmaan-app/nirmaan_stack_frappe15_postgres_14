@@ -10,9 +10,11 @@ import { CustomerLedgerRow, CustomerLedgerEntry } from './CustomerLedgerRow';
 
 interface CustomerLedgerTableProps {
   items: CustomerLedgerEntry[];
-  projectOptions: { label: string; value: string }[];
-  projectFilter: Set<string>;
-  onSetProjectFilter: (selected: Set<string>) => void;
+  /** False on the project page's Project Ledger, where every row is the same project. */
+  showProjectColumn?: boolean;
+  projectOptions?: { label: string; value: string }[];
+  projectFilter?: Set<string>;
+  onSetProjectFilter?: (selected: Set<string>) => void;
   dateFilter: DateFilterValue | undefined;
   onSetDateFilter: (filter: DateFilterValue | undefined) => void;
   totals: { invoice: number; inflow: number };
@@ -22,6 +24,8 @@ interface CustomerLedgerTableProps {
   /** True when a search / project / date filter is currently narrowing the rows. */
   hasActiveFilters: boolean;
   onClearFilters: () => void;
+  /** Shown when there are no invoices or inflows at all. */
+  emptyMessage?: string;
 }
 
 /**
@@ -31,7 +35,8 @@ interface CustomerLedgerTableProps {
  */
 export const CustomerLedgerTable: React.FC<CustomerLedgerTableProps> = ({
   items,
-  projectOptions,
+  showProjectColumn = true,
+  projectOptions = [],
   projectFilter,
   onSetProjectFilter,
   dateFilter,
@@ -41,8 +46,9 @@ export const CustomerLedgerTable: React.FC<CustomerLedgerTableProps> = ({
   hasAnyTransactions,
   hasActiveFilters,
   onClearFilters,
+  emptyMessage = "No invoices or inflows recorded for this customer yet.",
 }) => {
-  const colSpan = 7;
+  const colSpan = showProjectColumn ? 7 : 6;
 
   return (
     <div className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto relative">
@@ -54,17 +60,21 @@ export const CustomerLedgerTable: React.FC<CustomerLedgerTableProps> = ({
               Date
             </TableHead>
             <TableHead className="px-2 py-1 min-w-[140px] font-semibold">Transaction</TableHead>
-            <TableHead className="px-2 py-1 min-w-[180px] font-semibold">
-              <div className="flex items-center gap-1">
-                <SimpleFacetedFilter
-                  title="Project"
-                  options={projectOptions}
-                  selectedValues={projectFilter}
-                  onSelectedValuesChange={onSetProjectFilter}
-                />
-                <span>Project</span>
-              </div>
-            </TableHead>
+            {showProjectColumn && (
+              <TableHead className="px-2 py-1 min-w-[180px] font-semibold">
+                <div className="flex items-center gap-1">
+                  {projectFilter && onSetProjectFilter && (
+                    <SimpleFacetedFilter
+                      title="Project"
+                      options={projectOptions}
+                      selectedValues={projectFilter}
+                      onSelectedValuesChange={onSetProjectFilter}
+                    />
+                  )}
+                  <span>Project</span>
+                </div>
+              </TableHead>
+            )}
             <TableHead className="px-2 py-1 min-w-[200px] font-semibold">Details</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Invoice</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Inflow</TableHead>
@@ -91,21 +101,19 @@ export const CustomerLedgerTable: React.FC<CustomerLedgerTableProps> = ({
                 ) : hasAnyTransactions ? (
                   <span className="text-muted-foreground">No transactions to show.</span>
                 ) : (
-                  <span className="text-muted-foreground">
-                    No invoices or inflows recorded for this customer yet.
-                  </span>
+                  <span className="text-muted-foreground">{emptyMessage}</span>
                 )}
               </TableCell>
             </TableRow>
           )}
           {items.map((item, index) => (
-            <CustomerLedgerRow key={`row-${index}`} item={item} />
+            <CustomerLedgerRow key={`row-${index}`} item={item} showProjectColumn={showProjectColumn} />
           ))}
         </TableBody>
 
         <TableFooter className="sticky bottom-0 bg-gray-100">
           <TableRow>
-            <TableCell colSpan={4} className="px-2 py-1 font-semibold text-gray-700 text-right">
+            <TableCell colSpan={colSpan - 3} className="px-2 py-1 font-semibold text-gray-700 text-right">
               Totals &amp; Closing Receivable
             </TableCell>
             <TableCell className="px-2 py-1 text-right font-mono font-semibold">

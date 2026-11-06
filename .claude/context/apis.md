@@ -33,6 +33,9 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `add_customer_po.py` - Customer PO linking
 - `project_aggregates.py` - Financial aggregations
 - `project_wise_invoice_data.py` - Invoice analytics
+- `project_ledger.get_project_ledger_data(project_id)` - Financials → Project Ledger rows (invoices raised vs
+  inflows received, date-ordered); calls the customer ledger's shared `receivable_ledger` with `{"project": ...}`.
+  Refuses a profile outside `role_profiles.PROJECT_LEDGER_PROFILES` and a user who can't read the project
 
 ### PO Delivery Documents (`api/po_delivery_documentss.py`)
 - `create_po_delivery_documents()` - Create DC/MIR record with file upload and item quantities
@@ -63,10 +66,17 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `print_integration.py` - Print format integration utilities
 
 ### Remaining Items / Inventory (`api/remaining_items_report.py`)
-- `create_remaining_items_report()` - Create inventory snapshot with item quantities
-- `get_remaining_items_report()` - Fetch report with eligible items
-- Cooldown enforcement (prevents rapid successive reports)
-- Declaration acceptance required before submission
+- `submit_remaining_items_report(project, report_date, items)`: saves the Update Inventory count. Only today's
+  date is accepted. Creates the report, or replaces the child rows of today's report. `items` may be empty
+  (`[]`, "nothing to count"). An empty submit whose latest Submitted report is also empty moves that report to
+  today instead of adding another. Returns `{status, name, action: "created" | "updated"}`.
+- `get_latest_remaining_quantities(project, include_reservations=False)`: the latest Submitted report's
+  quantities, keyed `{category}_{item_id}`, less ITMs dispatched since it was saved. With
+  `include_reservations`, also less Approved ITMs. `items` is `{}` for an empty report.
+- `get_remaining_reports_for_project(project, limit=5)`: last N Submitted reports with rows (Inventory Report →
+  History).
+- `get_today_report_for_project(project)`: `{exists, name, status, items, ...}` for today's report.
+- The declaration step is screen-only (`DeclarationDialog.tsx`); the server doesn't record it.
 
 ### Design Tracker (`api/design_tracker/`)
 - `get_task_wise_list.py` - Task-centric queries with designer/status/phase filtering
@@ -89,6 +99,7 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `audits.set_category_audit(category, required)` - POST, Admin only. Switches a category's monthly audit; on opens the month's audits at once
 - `history.get_asset_history` - named filters (event / department / person / asset / dates / category type); Admin + HR, audit events also for the Asset Audit tab's viewers
 - `history.get_asset_history_table` / `get_asset_history_facets` - the History tab's server data table (`useServerDataTable` `apiEndpoint`) and its header-filter counts; Admin + HR only
+- `lost_damaged.mark_lost_damaged(asset, reason)` / `mark_found_repaired(asset, reason)` - POST, Admin + HR only. Marking a held asset unassigns it at once; Found/Repaired returns it to Unassigned
 - `mine.get_my_assets` - the caller's own assets, whatever project they are booked against
 - `projects.get_won_projects` - the Assign dialog's project picker
 
@@ -96,12 +107,22 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
   - `revert_to_approved.revert_payment_to_approved(name)` - Reconciliation Pending → Approved (Admin / Accountant / Accountant Lead; refused while a bank line is matched)
+  - `gst_payment_requests` - Work Order GST requests (ADR-0030 Amendment A): `get_gst_payment_requests(work_order, status)`,
+    `request_gst_payment(work_order, amount)`, and for Accountant / Accountant Lead / Admin only
+    `approve_gst_payment_request(name)`, `reject_gst_payment_request(name, comment)`, `delete_gst_payment_request(name)`
+    (Pending or Rejected only)
   - `payment_summary.get_payment_summary(document_type, document_name, exclude_payment)` - where a PO / WO's money stands (value, paid, waiting at each step, left after), matching the request cap
 - `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions)
   - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
 - `customers/` - Customer financials
+  - `customer_ledger.get_customer_ledger_data(customer_id)` - Customer page Ledger tab; its row builder
+    `receivable_ledger(filters)` is shared with the project's Project Ledger, so the two never disagree
+- `milestone/` - DPR (Project Progress Reports) helpers
+  - `dpr_draft_deletion.get_dpr_draft_deletion(report_name)` - read-only: whether a DPR still exists
+    (`report_status`), else who deleted it and when, from Frappe's `Deleted Document` log; feeds the DPR
+    editor's "This draft was deleted" dialog
 - `target_rates/` - Historical rate lookups
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 

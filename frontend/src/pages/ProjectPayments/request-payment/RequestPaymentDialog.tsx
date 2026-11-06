@@ -20,7 +20,7 @@ import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
 import {
-  invoiceCheckBlock, invoiceCheckLine, invoiceCheckNote, NEGATIVE_WORK_ORDER_PAYMENT, PayFor, payForCap,
+  invoiceCheckBlock, invoiceCheckLine, NEGATIVE_WORK_ORDER_PAYMENT, PayFor, payForCap,
 } from "../components/paymentSummaryView";
 import { PayForChoice } from "../components/PayForChoice";
 import { raiserLandingNote, raiserLevelOf, TIER_L2_ABOVE } from "@/utils/approvalTiers";
@@ -32,6 +32,7 @@ import {
 } from "../paymentMode";
 import { requestPreviewLines, toTdsForecast } from "../tdsPreview";
 import { TDS_BORNE_BY } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import { useGstRequestActions } from "../hooks/useGstPaymentRequests";
 
 interface Props {
   totalIncGST : number;
@@ -84,11 +85,13 @@ export default function RequestPaymentDialog(p:Props){
   const limit = summary?.limit;
   const cap = useMemo(()=> (gstWO && limit ? payForCap(limit, payFor) : null), [gstWO, limit, payFor]);
   const gstPayment = gstWO && payFor === "gst";
+  /* Every GST payment is sent to the Accountant first, as a GST Payment Request approved in GST Requests
+     (`services/gst_payment_requests`), an Accountant's or Admin's own too: no payment exists until then. Online only. */
+  const toAccountant = gstPayment;
   /* The invoice check (#1488): after a first payment, a new one waits for approved invoices to catch
      up, unless the viewer is an L1 approver or the CEO. The server's verdict, shown as given. */
   const invoiceCheck = isWO ? limit?.invoice_check : undefined;
   const invoiceBlock = invoiceCheck ? invoiceCheckBlock(invoiceCheck) : null;
-  const invoiceNote = invoiceCheck ? invoiceCheckNote(invoiceCheck) : null;
 
   const payable = gstWO ? (cap?.max ?? 0) : p.totalIncGST;
 
@@ -140,6 +143,7 @@ export default function RequestPaymentDialog(p:Props){
   const previewLines = requestPreviewLines(serverForecast, cutNow);
 
   const { trigger, isMutating } = useRequestPayment();
+  const { requestGst, busy: sendingGst } = useGstRequestActions();
 
   const submit = async ()=>{
     if (isCEOHold) {
@@ -151,12 +155,16 @@ export default function RequestPaymentDialog(p:Props){
       return;
     }
     try{
-      await trigger({
-        doctype:p.docType, docname:p.docName, amount, ...paymentModeArgs(payMode),
-        ...(isWO ? { is_gst_payment: gstPayment ? 1 : 0 } : {}),
-      });
+      if (toAccountant) {
+        await requestGst(p.docName, amount);
+      } else {
+        await trigger({
+          doctype:p.docType, docname:p.docName, amount, ...paymentModeArgs(payMode),
+          ...(isWO ? { is_gst_payment: gstPayment ? 1 : 0 } : {}),
+        });
+      }
       toggle(); setCustom(""); setPerc(""); setPayMode(EMPTY_PAYMENT_MODE); setPayFor("base");
-      toast({title:"Success",description:"Payment request created",variant:"success"});
+      toast({title:"Success",description:toAccountant ? "GST payment request sent to Accountant" : "Payment request created",variant:"success"});
       p.onSuccess?.();
     }catch(e:any){
       let err = e._server_messages
@@ -187,7 +195,6 @@ export default function RequestPaymentDialog(p:Props){
       {gstWO && limit && <PayForChoice limit={limit} value={payFor} onChange={setPayFor}/>}
 
       {invoiceCheck && <p className="text-xs text-center text-muted-foreground">{invoiceCheckLine(invoiceCheck)}</p>}
-      {invoiceNote && <p className="text-xs text-center text-sky-700 dark:text-sky-400">{invoiceNote}</p>}
 
       {isWO && !summary && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}
@@ -242,26 +249,32 @@ export default function RequestPaymentDialog(p:Props){
       {previewLines.map((line) => (
         <p key={line} className="text-center text-xs text-muted-foreground">{line}</p>
       ))}
-      {(() => {
-        const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));
-        return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
-      })()}
+      {toAccountant
+        ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">
+            Goes to the Accountant first. Once approved, the payment follows the usual approval by amount.
+          </p>
+        : (() => {
+            const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));
+            return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
+          })()}
 
       {open && <RequestPayToAccount vendor={p.vendor} />}
 
-      {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
-      <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}
-                         tds={tds} companyBorne={companyBorne} vendor={p.vendor}
-                         chequeOffered={chequeModeOffered(p.docType)} />
+      {/* No cheque figure until the rate has landed: with no rate yet it would show the gross.
+          A GST request carries no mode: it is Online. */}
+      {!toAccountant &&
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}
+                           tds={tds} companyBorne={companyBorne} vendor={p.vendor}
+                           chequeOffered={chequeModeOffered(p.docType)} />}
 
       <div className="mt-3 flex gap-2 justify-center">
-        {isMutating
+        {isMutating || sendingGst
           ? <TailSpin color="red" height={40} width={40}/>
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode, duplicateOf) || !balanceLoaded || (gstWO && !cap)}
-                      onClick={submit}>Confirm</Button>
+                      disabled={amount===0 || !!warn || !(toAccountant || isPaymentModeComplete(payMode, duplicateOf)) || !balanceLoaded || (gstWO && !cap)}
+                      onClick={submit}>{toAccountant ? "Send to Accountant" : "Confirm"}</Button>
             </>}
       </div>
     </AlertDialogContent>

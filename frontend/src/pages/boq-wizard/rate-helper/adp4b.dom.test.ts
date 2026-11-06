@@ -94,22 +94,35 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
       }
     }
     const ePointer = "This category's rules are not listed yet. To see how a row is priced, open Electrical Pricing -> Calculator.";
+    // ELR-4b (owner R-APPROVE + R-Q4; the P6 answer, 2026-10-29) INVERTED: WAS the eight below on the pointer line
+    // (WAS shown per key); NOW each lists its rules, no pointer, no card. The pointer line itself is kept for the
+    // negative half: no Electrical tab shows it any more.
+    expect(Object.values(seen)).not.toContain(ePointer);
     expect(seen).toEqual({
       // INVERTED by ELR-1 (owner R-ELR0 "1 ok", R-DERIV): WAS `${ePointer} + rules 2`; NOW wiring's rules list, 13 lines
-      "Electrical/wiring_cabling": "list 13",
-      "Electrical/earthing": ePointer,
-      "Electrical/conduit_piping": ePointer,
-      "Electrical/junction_box_raceway": `${ePointer} + rules 1`,
-      "Electrical/cabletray_raceway": `${ePointer} + rules 2`,
+      // INVERTED by ELR-4b (WC-b / WC-c inserted): WAS "list 13"; NOW 15
+      "Electrical/wiring_cabling": "list 15",
+      // ELR-4b: WAS ePointer
+      "Electrical/earthing": "list 3",
+      // ELR-4b: WAS ePointer
+      "Electrical/conduit_piping": "list 3",
+      // ELR-4b: WAS `${ePointer} + rules 1`
+      "Electrical/junction_box_raceway": "list 2",
+      // ELR-4b: WAS `${ePointer} + rules 2`
+      "Electrical/cabletray_raceway": "list 6",
       // INVERTED by ELR-4a (owner R-APPROVE + R-Q4, 2026-10-29): WAS `${ePointer} + rules 1`; NOW its rules list (this
       // test reads the older asset it names, whose configs give the counts below)
       "Electrical/popup_boxes": "list 6",
-      "Electrical/industrial_sockets": `${ePointer} + rules 1`,
+      // ELR-4b: WAS `${ePointer} + rules 1`
+      "Electrical/industrial_sockets": "list 8",
       // INVERTED by ELR-4a: WAS `${ePointer} + rules 4`; NOW its rules list
       "Electrical/switches_sockets": "list 7",
-      "Electrical/db_switchgear": `${ePointer} + rules 4`,
-      "Electrical/miscellaneous": ePointer,
-      "Electrical/lighting_mgmt_system": ePointer,
+      // ELR-4b: WAS `${ePointer} + rules 4`
+      "Electrical/db_switchgear": "list 9",
+      // ELR-4b: WAS ePointer
+      "Electrical/miscellaneous": "list 2",
+      // ELR-4b: WAS ePointer
+      "Electrical/lighting_mgmt_system": "list 2",
       // INVERTED by ELR-4a: WAS `${ePointer} + rules 6`; NOW its rules list (12 on this older asset: its circuit length and
       // circuit stretch read literals, not Pricing Inputs (ELR-3a moved them), so those two lines have no source here)
       "Electrical/point_wiring": "list 12",

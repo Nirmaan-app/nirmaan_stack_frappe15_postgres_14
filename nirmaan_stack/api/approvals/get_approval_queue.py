@@ -35,7 +35,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
-from nirmaan_stack.services.payment_tds import counted_deductions_sql, requested_amount_sql, withheld_expense_gross_sql
+from nirmaan_stack.services.payment_tds import counted_deductions_sql, requested_amount_sql, withheld_expense_bill_sql
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.expense_tds import withheld_tds_by_expense
@@ -69,6 +69,18 @@ SOURCE_NON_PROJECT = "Non-Project"
 # export and the bulk engines all branch on it -- so this is an extra column, not a rename.
 TYPE_PO_PAYMENT = "PO Payment"
 TYPE_SR_PAYMENT = "SR Payment"
+# A Non-Project Expense created from an approved Reimbursement (ADR-0040): its `reimbursement` is set. Its
+# `source` stays Non-Project, so every engine that branches on `source` treats it as the expense it is.
+TYPE_REIMBURSEMENT = "Reimbursement"
+
+# The Type filter's narrower options (owner, 2026-10-31): FILTER values only, never a row's `source_type`.
+# Each is "<type>:<detail>": a WO payment of the GST only (ADR-0030), a PO payment by cheque, a PO payment on
+# a Credit Payment Cheque (`Cheques.credit_payment_cheque`; also a cheque one), and an expense of one expense
+# type ("Project Expense:Petty Cash"). Picking the type itself still lists them all.
+TYPE_DETAIL_SEP = ":"
+TYPE_DETAIL_GST = "GST"
+TYPE_DETAIL_CHEQUE = "Cheque"
+TYPE_DETAIL_CREDIT_CHEQUE = "Credit Cheque"
 
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
@@ -203,6 +215,9 @@ def _payments_select():
             -- in `_expense_select` (an expense line changes nothing on the expense).
             COALESCE(p."cheque", '')::text  AS cheque,
             COALESCE(c."status", '')::text  AS cheque_status,
+            -- 1 when that Cheque pays a Credit PO term: the chip's "Credit" tag (owner, 2026-10-31).
+            -- ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
+            COALESCE(c."credit_payment_cheque", 0) AS credit_payment_cheque,
             -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."on_hold", 0)        AS on_hold,
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
@@ -255,19 +270,27 @@ def _expense_select(table, source, project_col):
     payment_by_expr = 'COALESCE(e."payment_by", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
     # Grouped by target, so it can only ever add columns to a row -- never duplicate one.
     linked_join = linked_totals_join(SOURCE_TO_DOCTYPE[source], "e")
-    # A Non-Project Expense whose tax was withheld (Office Rent, spec #1522) is stored at the net; its full
-    # bill is its tax record's gross (`non_project_expense` is unique, so the join adds no row). Tax the
-    # company pays on top leaves the amount whole. A Project Expense carries no tax record.
+    # A Non-Project Expense whose tax was withheld (Office Rent, spec #1522) is stored at what the landlord
+    # gets; its full bill is its tax record's gross plus its GST (spec #1613; `non_project_expense` is
+    # unique, so the join adds no row). Tax the company pays on top leaves the amount whole. A Project
+    # Expense carries no tax record.
     if source == SOURCE_NON_PROJECT:
-        tds_join = f'LEFT JOIN ({withheld_expense_gross_sql()}) t ON t."non_project_expense" = e."name"'
-        requested_expr = f'COALESCE(t."gross_amount", {_EXPENSE_AMOUNT})::numeric'
+        tds_join = f'LEFT JOIN ({withheld_expense_bill_sql()}) t ON t."non_project_expense" = e."name"'
+        requested_expr = f'COALESCE(t."bill_amount", {_EXPENSE_AMOUNT})::numeric'
     else:
         tds_join, requested_expr = "", _EXPENSE_AMOUNT
+    # `Non Project Expenses.reimbursement` arrives with `bench migrate`, which every deploy runs before this
+    # code serves (code review finding 10: no per-load column check that would hide a failed migrate).
+    source_type_expr = (
+        f"CASE WHEN COALESCE(e.\"reimbursement\", '') <> '' THEN '{TYPE_REIMBURSEMENT}' ELSE '{source}' END"
+        if source == SOURCE_NON_PROJECT
+        else f"'{source}'"
+    )
     return f"""
         SELECT
             e."name"                        AS name,
             '{source}'                      AS source,
-            '{source}'                      AS source_type,
+            {source_type_expr}              AS source_type,
             '{SOURCE_TO_DOCTYPE[source]}'   AS doctype,
             e."status"                      AS status,
             {_EXPENSE_AMOUNT}               AS amount,
@@ -315,6 +338,7 @@ def _expense_select(table, source, project_col):
             NULL::date                      AS cheque_date,
             ''::text                        AS cheque,
             ''::text                        AS cheque_status,
+            0                               AS credit_payment_cheque,
             -- Only a PO / WO payment can be held.
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.
@@ -397,6 +421,49 @@ def _date_clause(field, op, value):
     return f"{col} {op} %s", [value]
 
 
+def _type_detail_clause(value):
+    """One narrower Type option ("<type>:<detail>", see TYPE_DETAIL_SEP) -> (sql, params)."""
+    base, _sep, detail = value.partition(TYPE_DETAIL_SEP)
+    if base == TYPE_SR_PAYMENT and detail == TYPE_DETAIL_GST:
+        return 'q."is_gst_payment" = 1', []
+    if base == TYPE_PO_PAYMENT and detail == TYPE_DETAIL_CHEQUE:
+        return f'(q."source_type" = %s AND q."mode_of_payment" = %s)', [TYPE_PO_PAYMENT, TYPE_DETAIL_CHEQUE]
+    if base == TYPE_PO_PAYMENT and detail == TYPE_DETAIL_CREDIT_CHEQUE:
+        return '(q."source_type" = %s AND q."credit_payment_cheque" = 1)', [TYPE_PO_PAYMENT]
+    # An expense type. "Non-Project:<type>" leaves the reimbursements out: Non Project – Reimbursement is
+    # their own option.
+    if base in (SOURCE_PROJECT_EXPENSE, SOURCE_NON_PROJECT) and detail:
+        return '(q."source_type" = %s AND q."expense_type" = %s)', [base, detail]
+    frappe.throw(_("Unsupported Type filter: {0}").format(value))
+
+
+def _type_clause(op, value):
+    """A Type filter -> (sql, params): the picked options OR'd together, the whole negated for "not in".
+
+    Naming Non-Project also names Reimbursement: a reimbursement's expense IS a Non-Project Expense (ADR-0040),
+    shown as that pill with a Reimbursement tag, so picking "Non Project Expense" must not drop it, and
+    leaving Non-Project out leaves it out too. "Reimbursement" alone still narrows to claims. A narrower
+    option ("SR Payment:GST", "Project Expense:Petty Cash") reads its own columns (`_type_detail_clause`)."""
+    # A non-string (a stale saved `null`, a number) names no type: dropped, so it matches nothing, never a 500.
+    values = [v for v in (value if isinstance(value, (list, tuple)) else [value]) if isinstance(v, str)]
+    whole = [v for v in values if TYPE_DETAIL_SEP not in v]
+    if SOURCE_NON_PROJECT in whole and TYPE_REIMBURSEMENT not in whole:
+        whole.append(TYPE_REIMBURSEMENT)
+    parts, params = [], []
+    if whole:
+        parts.append(f'q."source_type" IN ({", ".join(["%s"] * len(whole))})')
+        params.extend(whole)
+    for v in values:
+        if TYPE_DETAIL_SEP in v:
+            sql, vals = _type_detail_clause(v)
+            parts.append(sql)
+            params.extend(vals)
+    if not parts:
+        return ("1=0" if op in ("in", "=") else "1=1"), []
+    sql = "(" + " OR ".join(parts) + ")"
+    return (f"NOT {sql}" if op in ("not in", "!=") else sql), params
+
+
 def _build_where(filters, search_term, search_fields):
     """Returns (sql_fragment, params). Identifiers are allowlisted, values bound."""
     clauses, params = [], []
@@ -410,6 +477,11 @@ def _build_where(filters, search_term, search_fields):
             # for -- the same failure mode as a missing case in the tab switch.
             frappe.throw(_("Unsupported filter field: {0}").format(field))
         field = _COLUMN_FOR.get(field, field)
+        if field == "source_type" and op in ("in", "not in", "=", "!="):
+            frag, vals = _type_clause(op, value)
+            clauses.append(frag)
+            params.extend(vals)
+            continue
         if field == "raised_by" and value == CURRENT_USER_TOKEN:
             # Unconditional since 23 Sep 2026 -- no Admin bypass. This one substitution
             # scopes the LIST, the FACETS and the CSV EXPORT together, because all three
@@ -548,7 +620,7 @@ def get_approval_queue(
     # The tax withheld from an Office Rent expense (#1527): its record's gross, rate, tax and section, so
     # the Amount cell shows Rent / TDS / Net to an approver who cannot read `Payment TDS Deduction`. One
     # query per page, for its Non-Project Expenses only. None before approval: the amount is still the
-    # full rent then, and the screen forecasts from it (`expenseTds.shownExpenseTds`).
+    # bill then, and the screen forecasts from it (`expenseTds.shownExpenseTds`).
     withheld = withheld_tds_by_expense((r.get("doctype"), r["name"]) for r in rows)
     for r in rows:
         r["withheld_tds"] = withheld.get((r.get("doctype"), r["name"]))
@@ -663,6 +735,9 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
     union = " UNION ALL ".join(branches)
     where, params = _build_where(_coerce(filters) or [], search_term, search_fields)
 
+    if field == "source_type":
+        return _type_facet(union, where, params)
+
     rows = frappe.db.sql(
         f'SELECT q."{field}" AS value, COUNT(*) AS cnt FROM ({union}) q {where} '
         f'GROUP BY q."{field}" ORDER BY COUNT(*) DESC',
@@ -678,3 +753,52 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
     ]
     blank = sum(cint(r["cnt"]) for r in rows if not (r["value"] or "").strip())
     return {"field": field, "values": values, "blank_count": blank}
+
+
+def _type_facet(union, where, params):
+    """The Type facet: the types, then their narrower options (TYPE_DETAIL_SEP), counted under the same filters
+    in ONE pass over the union -- each row yields its type, its detail and its credit value, and one GROUP BY
+    counts all three. A detail is "SR Payment:GST", "PO Payment:Cheque" or one "<ledger>:<expense type>" per
+    expense type; a row has at most one (a GST payment is a WO payment, a cheque one a PO payment). A PO payment
+    on a Credit Payment Cheque also counts under "PO Payment:Credit Cheque". Each detail is also in its type's
+    count, as its filter is. Largest first; an option no row matches is not returned, and a blank type goes to
+    `blank_count`."""
+    detail = f"""CASE
+        WHEN q."is_gst_payment" = 1 THEN '{TYPE_SR_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_GST}'
+        WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."mode_of_payment" = '{TYPE_DETAIL_CHEQUE}'
+            THEN '{TYPE_PO_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_CHEQUE}'
+        WHEN q."source_type" IN ('{SOURCE_PROJECT_EXPENSE}', '{SOURCE_NON_PROJECT}') AND q."expense_type" <> ''
+            THEN q."source_type" || '{TYPE_DETAIL_SEP}' || q."expense_type"
+    END"""
+    credit = f"""CASE WHEN q."source_type" = '{TYPE_PO_PAYMENT}' AND q."credit_payment_cheque" = 1
+        THEN '{TYPE_PO_PAYMENT}{TYPE_DETAIL_SEP}{TYPE_DETAIL_CREDIT_CHEQUE}' END"""
+    # kind 0 = the type (kept when blank, for `blank_count`), 1 = a detail or the credit value.
+    rows = frappe.db.sql(
+        f"SELECT d.kind, d.value, COUNT(*) AS cnt FROM (SELECT v.kind, v.value FROM ({union}) q "
+        f'CROSS JOIN LATERAL (VALUES (0, q."source_type"), (1, {detail}), (1, {credit})) v(kind, value) {where}) d '
+        "WHERE d.kind = 0 OR d.value IS NOT NULL GROUP BY d.kind, d.value ORDER BY d.kind, COUNT(*) DESC, d.value",
+        tuple(params),
+        as_dict=True,
+    )
+    types = [r for r in rows if r["kind"] == 0]
+    values = [{"value": r["value"], "count": cint(r["cnt"])} for r in types if (r["value"] or "").strip()]
+    details = [{"value": r["value"], "count": cint(r["cnt"])} for r in rows if r["kind"] == 1]
+    blank = sum(cint(r["cnt"]) for r in types if not (r["value"] or "").strip())
+    return {
+        "field": "source_type",
+        "values": _count_reimbursements_as_non_project(values) + details,
+        "blank_count": blank,
+    }
+
+
+def _count_reimbursements_as_non_project(values):
+    """The Type facet's Non-Project count includes the reimbursement rows, as its filter does
+    (`_type_clause`); the Reimbursement count stays, a part of it."""
+    claims = sum(v["count"] for v in values if v["value"] == TYPE_REIMBURSEMENT)
+    if not claims:
+        return values
+    if not any(v["value"] == SOURCE_NON_PROJECT for v in values):
+        values = values + [{"value": SOURCE_NON_PROJECT, "count": 0}]
+    values = [{**v, "count": v["count"] + claims} if v["value"] == SOURCE_NON_PROJECT else v for v in values]
+    # Largest first, as the SQL orders them; on a tie Non-Project leads the Reimbursement it contains.
+    return sorted(values, key=lambda v: (-v["count"], v["value"] != SOURCE_NON_PROJECT))

@@ -41,7 +41,7 @@
    "reqd": 1
   },
   {
-   "description": "The company line of the address block. The upload refuses a statement not issued to Stratos Infra Technologies.",
+   "description": "The company line of the address block, blank when the statement prints none. Shown on Review for the accountant to check; never a reason to refuse (ADR-0039 Amendment B).",
    "fieldname": "company",
    "fieldtype": "Data",
    "label": "Company",
@@ -134,7 +134,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-25 19:54:03.488104",
+ "modified": "2026-11-04 15:33:24.330228",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Credit Card Statement",

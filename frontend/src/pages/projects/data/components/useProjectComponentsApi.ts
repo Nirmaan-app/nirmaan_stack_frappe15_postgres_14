@@ -1,6 +1,5 @@
 export { useProjectOverviewApi } from "../tab/overview/useProjectOverviewTabApi";
 export { useProjectFinancialsTabData } from "../tab/financials/useProjectFinancialsTabApi";
-export { useProjectSpendsTabData } from "../tab/spends/useProjectSpendsTabApi";
 export { useProjectMakesTabData } from "../tab/makes/useProjectMakesTabApi";
 export {
   useProjectWorkReportApi,

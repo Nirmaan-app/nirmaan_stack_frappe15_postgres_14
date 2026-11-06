@@ -11,7 +11,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **One owner.** Every Payee rule lives in the Payee module, `services/payees/`. Screens and other
   modules call it and re-state none of its rules:
   - `rules.py` (pure): cleaning what was typed (`parse_details`), what makes details complete
-    (`details_problem`), the duplicate refusal's wording, `PAID_STATUSES`.
+    (`details_problem`), the duplicate refusal's wording, `PAID_STATUSES`. A holder name with no letter, or
+    naming a bank (the word BANK or a bank short name, whole words), is refused (`holder_name_problem`, owner,
+    2026-11-04); twin `payeeForm.holderNameProblem` shows it under the field. Payees saved before keep their
+    name until next edited, which then must fix it.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
     calling endpoint checks who may add a Payee from that screen. The one other creator is
     `backfill_payee`, for the #1424 patch only: bank and branch as recorded on the vendor, no lookup.
@@ -43,6 +46,27 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `fill_from_vendor` is the request / Project Expense save rule, `fill_payment_from_vendor` the
     `Project Payments` one; `pay_to_account` serves a copy to a screen.
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
+  - `own_accounts.py` (2026-10-22, ADR-0033 Amendment B): a person's own bank account, the one Payee in their
+    `Nirmaan Users.payee` field (one per person), into which their Reimbursements are paid. `add_own_account` is
+    the only way it is set (new account: `create_payee`; a Users Payee on record with nobody's name: linked; a
+    Vendors or Others Payee, another person's, or a second one: refused -- owner, 2026-10-28, since Payee Type is
+    never retyped and a linked Vendors/Others Payee would escape `pay_to.is_own_account`); `check_own_account` (Nirmaan Users `validate`) refuses every other change. Payee itself has no user field. Detail: `reimbursements.md`.
+  - **Payee Type is where a Payee was created, set once** (owner, 2026-10-23). `Payee.payee_type`, a read-only,
+    `set_only_once` Select: Users / Vendors / Others (`rules.PAYEE_TYPES`, pinned to the doctype by test), default
+    Others. `writer.create_payee(..., payee_type)` stamps it: `own_accounts.add_own_account` passes Users,
+    `choosing.choose_payee` (a vendor's new bank details) and `backfill_payee` pass Vendors, every other creator
+    keeps the default. It records origin, not use: linking a vendor or a person to an existing Payee later never
+    retypes it, and no hook recomputes it. Payees from before the field were typed once from their links by
+    `patches/v3_0/backfill_payee_type` (`rules.payee_type_from_links`: own account → Users, else any vendor →
+    Vendors, else Others); never re-run it. The Payees list returns it, filters on it (`list_payees.FILTERABLE`)
+    and shows it as a Payee type column with a decoupled facet.
+    **The Expense Request's picker never offers a Users Payee** (owner, 2026-10-27):
+    `api/expense_requests/payees.search_payees` passes `find_payees(..., exclude_type=PAYEE_TYPE_USERS)`. Only that
+    search: Accounts' Change account (`api/payees/paid_to.search_payees`) still lists them. Typing a Users Payee's
+    account + IFSC in Add new payee is refused, not offered: `check_request_payee` / `add_request_payee` return the
+    duplicate with `pay_to.OWN_ACCOUNT_REFUSAL` as the message, and the block (`PayeeBankFields refuseOwnAccount`,
+    on through `usePayeeChoice`'s `REQUEST_APIS.refusesOwnAccount`) shows it with no Pick button. The server's
+    boundary is `pay_to.apply_picked_payee` (request create and update), which refuses a Users Payee.
   - `matching.py` (pure): which Payees look like a vendor. *Strong match*: a vendor linked to the
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
   - `choosing.py`: a vendor's Payee. `suggest_for_vendor`, `payee_choices` (its linked vendors, for

@@ -1,4 +1,4 @@
-// Rent / TDS / Net under an Office Rent expense's amount (spec #1522, #1527).
+// Bill / Rent / GST / TDS / Landlord gets under an Office Rent expense's amount (spec #1522, #1527, #1613).
 //
 // ⚠️ "TDS" HERE IS TAX DEDUCTED AT SOURCE (section 194-I, rent), not a Technical Data Sheet.
 //
@@ -11,12 +11,12 @@ import React from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { ShownExpenseTds, tdsSplitCaption, tdsSplitLines } from "@/utils/expenses/expenseTds";
+import { LANDLORD_GETS, ShownExpenseTds, tdsSplitCaption, tdsSplitLines } from "@/utils/expenses/expenseTds";
 
 interface ExpenseTdsBreakdownProps {
     shown: ShownExpenseTds | null;
-    /** "cell": three small lines under a table's amount, the caption on hover. "block": the caption
-     *  and the three lines, for a dialog or a page. */
+    /** "cell": small lines under a table's amount, the caption on hover. "block": the caption
+     *  and the lines, for a dialog or a page. */
     variant?: "cell" | "block";
     /** The approve dialog: the request does not name the landlord with a valid PAN, so the caption is a
      *  warning that it can't be approved (`tdsSplitCaption`, spec #1522 review batch 2). */
@@ -36,7 +36,7 @@ export const ExpenseTdsBreakdown: React.FC<ExpenseTdsBreakdownProps> = ({
         return (
             <div className={cn("text-[10px] leading-tight text-muted-foreground tabular-nums", className)} title={caption}>
                 {lines.map((l) => (
-                    <div key={l.label} className={l.label === "Net" ? "font-medium text-foreground" : undefined}>
+                    <div key={l.label} className={l.label === LANDLORD_GETS ? "font-medium text-foreground" : undefined}>
                         {l.label} {l.value}
                     </div>
                 ))}
@@ -50,7 +50,7 @@ export const ExpenseTdsBreakdown: React.FC<ExpenseTdsBreakdownProps> = ({
                 {lines.map((l) => (
                     <React.Fragment key={l.label}>
                         <dt className="text-muted-foreground">{l.label}</dt>
-                        <dd className={cn("text-right", l.label === "Net" && "font-semibold")}>{l.value}</dd>
+                        <dd className={cn("text-right", l.label === LANDLORD_GETS && "font-semibold")}>{l.value}</dd>
                     </React.Fragment>
                 ))}
             </dl>

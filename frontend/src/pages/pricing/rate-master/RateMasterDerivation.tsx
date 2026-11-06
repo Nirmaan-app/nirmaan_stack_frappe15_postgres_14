@@ -7,7 +7,8 @@
 // carries rules, and otherwise ONE line saying where a row is priced (owner PA1-R).
 
 import { useMemo } from "react";
-import { attributeRuleOrder, extractionRulesCardShown, itemListRuleOrder } from "./itemListRuleOrder";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { attributeRuleOrder, extractionRulesCardShown, itemListRuleOrder, type RuleOrderLine } from "./itemListRuleOrder";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
@@ -68,6 +69,81 @@ export function derivationNoticeLine(config: RateCategoryConfig, calculatorPage:
     : "This category's rules are not listed yet.";
 }
 
+/**
+ * ELR-4b (owner P6 "aliases b", 2026-10-29) -- PURE. The category an ALIAS config prices through (`alias_of`: HVAC
+ * Cables -> Electrical wiring, HVAC Raceway -> Electrical cable tray), or null for any other config. The panel's own
+ * one-hop reader lives in pricingSheetHelper, which imports this file; reading the key here keeps the import one-way.
+ */
+export function aliasTarget(config: RateCategoryConfig | null | undefined): { discipline: string; category_id: string } | null {
+  const a = (config as { alias_of?: { discipline?: unknown; category_id?: unknown } } | null | undefined)?.alias_of;
+  return a && typeof a.discipline === "string" && a.discipline && typeof a.category_id === "string" && a.category_id
+    ? { discipline: a.discipline, category_id: a.category_id } : null;
+}
+
+/** ELR-4b (owner P6 "aliases b") -- PURE. The one line above an alias's list, naming the category it is priced as. */
+export function aliasLeadLine(discipline: string, target: RateCategoryConfig): string {
+  const name = (target as { category_display?: string }).category_display || String(target.category_id ?? "");
+  return `Priced exactly as ${discipline} -> ${name}: the same rules and the same Pricing Inputs.`;
+}
+
+/** ELR-4b -- PURE. The tab's rules list: the item-list order where the category has one, else the attribute path's. */
+function ruleOrderOf(config: RateCategoryConfig, items: RateMasterItem[]): RuleOrderLine[] {
+  const list = itemListRuleOrder(config, items);
+  return list.length ? list : attributeRuleOrder(config, items);
+}
+
+/** The page's own two reads (RateMasterPage ITEMS_METHOD / CONFIG_METHOD), under the page's own SWR keys, so the
+ *  alias tab shares the target discipline's cache rather than fetching it twice. */
+const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
+const CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_category_config";
+
+function RuleOrderCard({ lines }: { lines: RuleOrderLine[] }) {
+  return (
+    <Card data-testid="rate-master-item-list-order">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">How a row is priced</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ol className="space-y-2">
+          {lines.map((r) => (
+            <li key={r.n} className="flex gap-3 text-sm">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                {r.n}
+              </span>
+              <span>
+                {r.title}
+                {r.detail ? <span className="text-muted-foreground"> &mdash; {r.detail}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * ELR-4b (owner P6 "aliases b"): an ALIAS category's tab shows the list of the category it is priced as, word for word,
+ * generated from THAT category's live config and items -- so it can never drift from it -- under one lead line. Its
+ * own reads live here, rendered only for an alias, so no other tab gains a fetch.
+ */
+function AliasDerivation({ alias }: { alias: { discipline: string; category_id: string } }) {
+  const { data: itemsData } = useFrappeGetCall<{ message: { items?: RateMasterItem[] } }>(
+    ITEMS_METHOD, { discipline: alias.discipline }, `rate-master-items-${alias.discipline}`);
+  const { data: configData } = useFrappeGetCall<{ message: { config?: RateCategoryConfig | null } }>(
+    CONFIG_METHOD, { discipline: alias.discipline, category_id: alias.category_id }, `rate-master-config-${alias.discipline}-${alias.category_id}`);
+  const target = configData?.message?.config ?? null;
+  const targetItems = itemsData?.message?.items;
+  const lines = useMemo(() => (target && targetItems ? ruleOrderOf(target, targetItems) : []), [target, targetItems]);
+  if (!target || !lines.length) return null;
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground" data-testid="rate-master-derivation-alias">{aliasLeadLine(alias.discipline, target)}</p>
+      <RuleOrderCard lines={lines} />
+    </div>
+  );
+}
+
 interface Props {
   items: RateMasterItem[];
   config: RateCategoryConfig;
@@ -76,14 +152,16 @@ interface Props {
 }
 
 export function RateMasterDerivation({ items, config, calculatorPage }: Props) {
+  const alias = aliasTarget(config);
+  return alias ? <AliasDerivation alias={alias} /> : <OwnDerivation items={items} config={config} calculatorPage={calculatorPage} />;
+}
+
+function OwnDerivation({ items, config, calculatorPage }: Props) {
   // SLICE 12c / ACCEPTANCE 5: the resolution order, read from `list_spec.pricing`. PURE and unit-tested,
   // so this component stays thin over it (ADR-0010 F4); [] for a category that is not item-list.
   // ELR-1 (owner R-DERIV, "1 ok"): a category priced from row-level attributes lists its rules from its pipelines
   // (`attributeRuleOrder`, wiring & cabling first); every other attribute-path category returns [] there.
-  const ruleOrder = useMemo(() => {
-    const list = itemListRuleOrder(config, items);
-    return list.length ? list : attributeRuleOrder(config, items);
-  }, [config, items]);
+  const ruleOrder = useMemo(() => ruleOrderOf(config, items), [config, items]);
   // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
   // carry one) -- an absent key renders the empty state, never a crash.
   const rules = useMemo(
@@ -111,28 +189,7 @@ export function RateMasterDerivation({ items, config, calculatorPage }: Props) {
           ⚠️ NOT SCOPED TO ONE CATEGORY. The whole section is driven by `list_spec.pricing`, so a config
           without one renders NOTHING here -- scoping it by name would put a category id in code, which the
           standing rule forbids. */}
-      {ruleOrder.length > 0 && (
-        <Card data-testid="rate-master-item-list-order">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">How a row is priced</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ol className="space-y-2">
-              {ruleOrder.map((r) => (
-                <li key={r.n} className="flex gap-3 text-sm">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                    {r.n}
-                  </span>
-                  <span>
-                    {r.title}
-                    {r.detail ? <span className="text-muted-foreground"> &mdash; {r.detail}</span> : null}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </CardContent>
-        </Card>
-      )}
+      {ruleOrder.length > 0 && <RuleOrderCard lines={ruleOrder} />}
 
       {/* EA-4 ext-a: RULES -- owner-authored estimator guidance, read-only. It is the SAME text the
           extraction prompt receives verbatim, so this panel is what the config actually tells the AI,

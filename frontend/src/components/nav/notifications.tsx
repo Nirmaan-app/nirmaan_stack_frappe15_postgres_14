@@ -26,6 +26,7 @@ import {
   expenseRequestNamesIn,
   isExpenseNotification,
 } from "./expenseNotificationDetails";
+import { isReimbursementNotification, reimbursementDetailLines } from "./reimbursementNotificationDetails";
 
 /** The lines under a notification's description.
  *
@@ -48,10 +49,13 @@ const NotificationDetails = ({
   getName,
   className,
 }: NotificationDetailsProps) => {
-  if (isExpenseNotification(notification)) {
+  if (isExpenseNotification(notification) || isReimbursementNotification(notification)) {
+    const lines = isExpenseNotification(notification)
+      ? expenseDetailLines(notification, request, getName)
+      : reimbursementDetailLines(notification, getName);
     return (
       <div className={className}>
-        {expenseDetailLines(notification, request, getName).map((d) => (
+        {lines.map((d) => (
           <p key={d.label}>
             {d.label}: {d.value}
           </p>

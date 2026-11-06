@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder';
-import { formatDateForInput, parseWorkPlan } from '../utils/milestoneHelpers';
+import { formatDateForInput, parseWorkPlan, ZoneProgressInfo } from '../utils/milestoneHelpers';
 
 // --- Types ---
 interface ProjectZoneEntry {
@@ -22,7 +22,7 @@ interface UseMilestoneReportDataReturn {
   dailyReportDetails: any;
   workPlanGroups: [string, any[]][];
   milestoneGroups: [string, any[]][];
-  validationZoneProgress: Map<string, { status: string; name: string }>;
+  validationZoneProgress: Map<string, ZoneProgressInfo>;
 
   // Metrics
   totalWorkHeaders: number;
@@ -119,7 +119,7 @@ export const useMilestoneReportData = ({
   } = useFrappeGetDocList(
     'Project Progress Reports',
     {
-      fields: ['name', 'report_zone', 'report_status'],
+      fields: ['name', 'report_zone', 'report_status', 'draft_owner', 'draft_last_updated'],
       limit: 0,
       filters: [
         ['project', '=', projectId],
@@ -241,12 +241,17 @@ export const useMilestoneReportData = ({
   // Zone validation progress map
   const validationZoneProgress = useMemo(() => {
     if (!projectData?.project_zones || !allReportsForDate) {
-      return new Map<string, { status: string; name: string }>();
+      return new Map<string, ZoneProgressInfo>();
     }
 
-    const reportStatusMap = new Map<string, { status: string; name: string }>();
+    const reportStatusMap = new Map<string, ZoneProgressInfo>();
     allReportsForDate.forEach((report: any) => {
-      reportStatusMap.set(report.report_zone, { status: report.report_status, name: report.name });
+      reportStatusMap.set(report.report_zone, {
+        status: report.report_status,
+        name: report.name,
+        draft_owner: report.draft_owner,
+        draft_last_updated: report.draft_last_updated,
+      });
     });
 
     return reportStatusMap;

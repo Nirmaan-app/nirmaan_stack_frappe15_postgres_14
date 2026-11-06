@@ -18,16 +18,21 @@ record (`vendor_invoice_move`, applied by the Vendor Invoices `on_update` hook
 
 Rules:
 
-* The **RA number** is the system's, per Work Order: 1, 2, 3, ... in order, never typed, never reused
-  (a void burns its number), not restarted by a new financial year. A FINAL takes the next one too,
-  so one sequence covers every record and the record name `WGI-<WO>-<n>` keeps a pair unique. An
-  older Work Order starts after the highest "RA-n" already used on its saved invoice number or its
-  Vendor Invoices (`next_ra_number`).
+* The **RA number** is the system's, per Work Order: one above the highest number still held, never
+  typed, not restarted by a new financial year. A Voided record keeps its number; a deleted one frees
+  it, so it is given again when no later record holds a higher one (a gap below the highest is never
+  filled; owner, 2026-10-30, ADR-0040 Amdt B). A FINAL takes the next one too, so one sequence covers
+  every record and the record name `WGI-<WO>-<n>` keeps a pair unique. An older Work Order starts after
+  the highest "RA-n" already used on its saved invoice number or its Pending / Approved Vendor Invoices
+  (`next_ra_number`).
+* A record is **deleted** only in the app: a Voided one by Admin (`generated_invoices.delete_generated_invoice`),
+  or any one together with the Vendor Invoice its signed upload created. Desk and REST are refused.
 * The **amount** may not pass `billable_left`: the smaller of the Work Order's amount and its Amount
   Paid (incl. TDS), less what is already billed or waiting -- Approved and Pending Vendor Invoices,
   and generated invoices not yet uploaded (status Generated; a Signed one is its Pending invoice).
-* At most one **FINAL** (not Voided): it bills what is left, only once the Work Order is fully paid,
-  and nothing is generated after it.
+* The user enters only the amount; the type follows from it. An invoice that brings what is billed to
+  the Work Order's amount, to within ₹10, is the **FINAL** (`is_final`); any other is an RA. At most
+  one FINAL (not Voided), and nothing is generated after it.
 * A record is **never edited**: only the moves in `MOVES`, each writing only its own fields
   (`change_problem`, run by the doctype's `validate`).
 
@@ -72,7 +77,8 @@ FIXED_FIELDS = ("work_order", "project", "vendor", "ra_number", "invoice_type", 
 MOVE_FIELDS = ("void_reason", "vendor_invoice", "signed_attachment")
 
 #: Rupees of Amount Due still counted as fully paid: the Work Order payment request cap's tolerance
-#: (`services/work_order_payment_limit.TOLERANCE`), so a WO paid to that cap can take its FINAL.
+#: (`services/work_order_payment_limit.TOLERANCE`), so a WO paid to that cap can take its FINAL. Also how
+#: far short of the Work Order's amount the invoices may stop and the last one still be the FINAL.
 FULLY_PAID_TOLERANCE = 10
 
 _RA_IN_TEXT = re.compile(r"\bRA\s*[-–]?\s*(\d+)", re.IGNORECASE)
@@ -80,8 +86,9 @@ _RA_IN_TEXT = re.compile(r"\bRA\s*[-–]?\s*(\d+)", re.IGNORECASE)
 
 def next_ra_number(used_ra_numbers, invoice_numbers) -> int:
     """The RA number the next generated invoice gets: one above the highest of `used_ra_numbers`
-    (every record's, Voided included) and every "RA-n" written in `invoice_numbers` (the Work Order's
-    saved invoice number and its Vendor Invoices' numbers, from before invoices were generated)."""
+    (every record the Work Order still has, Voided included; a deleted one is not there) and every
+    "RA-n" written in `invoice_numbers` (the Work Order's saved invoice number and its Pending / Approved
+    Vendor Invoices' numbers; a Rejected one bills nothing and holds no number)."""
     highest = max((cint(n) for n in used_ra_numbers), default=0)
     for text in invoice_numbers:
         for found in _RA_IN_TEXT.findall(cstr(text)):
@@ -97,15 +104,14 @@ def financial_year_code(invoice_date) -> str:
 
 
 def invoice_number(invoice_date, project, work_order, invoice_type, ra_number, final_number: int = 1) -> str:
-    """INV-<FY>-<project last 5>-<WO last 5>-<RA-n | FINAL>, the format the WO page has printed since
-    #1405; the year is the invoice date's. A FINAL generated after a voided one prints its own number,
-    FINAL-2, FINAL-3 (`final_number`, counting every FINAL the WO has had), so a voided number is never
-    printed again."""
+    """INV-<FY>-<project last 5>-<WO last 5>, then -RA-n for an RA; the year is the invoice date's.
+    The FINAL prints no "FINAL" anywhere (owner, 2026-10-30): it is the bare number, and one generated
+    after a voided one gets -2, -3 (`final_number`, counting the FINALs the WO still has, Voided
+    included; a deleted one frees its place), so a voided number is not printed twice. FINALs saved before keep their "-FINAL" numbers."""
+    number = f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}"
     if invoice_type == FINAL:
-        suffix = FINAL if cint(final_number) <= 1 else f"{FINAL}-{cint(final_number)}"
-    else:
-        suffix = f"RA-{cint(ra_number)}"
-    return f"INV-{financial_year_code(invoice_date)}-{cstr(project)[-5:]}-{cstr(work_order)[-5:]}-{suffix}"
+        return number if cint(final_number) <= 1 else f"{number}-{cint(final_number)}"
+    return f"{number}-RA-{cint(ra_number)}"
 
 
 def billable_left(total_amount, amount_paid, billed) -> float:
@@ -118,6 +124,13 @@ def billable_left(total_amount, amount_paid, billed) -> float:
 def is_fully_paid(total_amount, amount_paid) -> bool:
     """Amount Paid (incl. TDS) has reached the Work Order's amount, to within ₹10."""
     return flt(amount_paid) >= flt(total_amount) - FULLY_PAID_TOLERANCE
+
+
+def is_final(total_amount, billed, amount) -> bool:
+    """An invoice of `amount` is the FINAL: with what is already billed (`billed`, as `billable_left`
+    counts it) it reaches the Work Order's amount, to within ₹10. Since `amount` may not pass
+    `billable_left`, only a fully paid Work Order can take one."""
+    return flt(billed) + flt(amount) >= flt(total_amount) - FULLY_PAID_TOLERANCE
 
 
 def change_problem(before, after) -> str | None:

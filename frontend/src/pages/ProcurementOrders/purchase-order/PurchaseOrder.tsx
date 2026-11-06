@@ -770,7 +770,12 @@ export const PurchaseOrder = () => {
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
-      <RefundOverBalanceWarning poId={poId} />
+      <RefundOverBalanceWarning
+        poId={poId}
+        status={PO.status}
+        totalAmount={PO.total_amount}
+        amountPaid={PO.amount_paid}
+      />
       <WaitingRefundOverdueWarning poId={poId} />
 
       {poId && PO?.vendor && (
@@ -1225,7 +1230,10 @@ export const PurchaseOrder = () => {
 
                   {/* Cheques issued for this PO: Payment and Security Deposit (#1521); renders only for cheque users. */}
                   <PoChequesCard
-                    record={{ doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor }}
+                    record={{
+                      doctype: "Procurement Orders", name: PO?.name, project: PO?.project, vendor: PO?.vendor,
+                      vendor_name: PO?.vendor_name,
+                    }}
                   />
                 </div>
               </AccordionContent>

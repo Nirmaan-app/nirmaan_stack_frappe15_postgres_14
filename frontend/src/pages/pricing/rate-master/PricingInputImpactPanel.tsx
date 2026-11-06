@@ -247,6 +247,9 @@ export function PricingInputImpactPanel({
     }
     return null;
   }, [editPatch, reach, attrs.name, attrs.item]);
+  /** ELR-4c (owner R-ELR2 (h): "skip the examples and show the range sentence once"; P6 "Q2 a"): an out-of-range value
+   *  prices no example, so none is listed -- the range sentence below says why, once */
+  const shownExamples = rangeRefusal ? [] : examples;
 
   /** ⚠️ an adder's figures ARE one install case, so the panel says which (owner item 3) */
   const conditionText = useMemo(() => adderConditionText(impact.adderWhen), [impact.adderWhen]);
@@ -365,7 +368,7 @@ export function PricingInputImpactPanel({
               // ELR-3a (owner Q7): an input no SKU's rate reads says so, naming the category whose rules it feeds --
               // it replaces the pair shape's "open a SKU" sentence, which pointed at SKUs that do not exist
               <p data-testid="impact-assembly-only">
-                {assemblyOnlySentence((reach?.readByCategories ?? []).map(categoryLabel), examples.length > 0)}
+                {assemblyOnlySentence((reach?.readByCategories ?? []).map(categoryLabel), shownExamples.length > 0)}
               </p>
             ) : impact.changed ? (
               <>
@@ -385,7 +388,7 @@ export function PricingInputImpactPanel({
             )}
           </div>
 
-          {examples.length ? <ExampleList examples={examples} changed={impact.changed} /> : null}
+          {shownExamples.length ? <ExampleList examples={shownExamples} changed={impact.changed} /> : null}
 
           {/* ⚠️ NO SHAPE SUPPRESSES THE LIST ANY MORE (owner ruling, 2026-09-29). A flat adder used to
               render one sentence and no rows, on the reading that it scales nothing -- true of the

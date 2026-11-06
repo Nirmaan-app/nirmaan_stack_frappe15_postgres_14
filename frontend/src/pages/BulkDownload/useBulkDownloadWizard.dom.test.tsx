@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
     lists: {} as Record<string, unknown[] | ((args: { filters: unknown[] }) => unknown[])>,
     /** Every list query the wizard made: doctype + its arguments. */
     queries: [] as { doctype: string; args: { filters: unknown[] }; key: unknown }[],
+    /** Every server call the wizard made (method + SWR key; a null key fetches nothing). */
+    calls: [] as { method: string; key: unknown }[],
 }));
 
 vi.mock("@/components/ui/use-toast", () => ({ useToast: () => ({ toast: h.toast }) }));
@@ -41,7 +43,10 @@ vi.mock("frappe-react-sdk", async () => {
             const rows = h.lists[doctype];
             return { data: key ? (typeof rows === "function" ? rows(args) : rows) : undefined, isLoading: false };
         },
-        useFrappeGetCall: () => ({ data: undefined, isLoading: false }),
+        useFrappeGetCall: (method: string, _args: unknown, key: unknown) => {
+            h.calls.push({ method, key });
+            return { data: undefined, isLoading: false };
+        },
     };
 });
 vi.mock("@/pages/projects/data/critical-po/useCriticalPOQueries", () => ({
@@ -97,6 +102,7 @@ beforeEach(() => {
     h.handlers = null;
     h.lists = {};
     h.queries = [];
+    h.calls = [];
     fetchMock = vi.fn().mockResolvedValue(started);
     vi.stubGlobal("fetch", fetchMock);
     anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
@@ -364,3 +370,117 @@ describe("a refused start shows the server's reason", () => {
         expect(quick.showProgress).toBe(false);
     });
 });
+
+describe("the all scope (Reports > Bulk Download: every project, no picker)", () => {
+    const ALL_SCOPE: BulkDownloadScope = { kind: "all", id: "", name: "All projects" };
+    const ALL_TYPES: BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"];
+    function AllWizard() {
+        wiz = useBulkDownloadWizard(ALL_SCOPE, ALL_TYPES);
+        return null;
+    }
+    /** The key of the LAST query the wizard made for a doctype (null = not fetched). */
+    const lastKeys = () => {
+        const keys: Record<string, unknown> = {};
+        for (const q of h.queries) keys[`${q.doctype}:${JSON.stringify(q.args.filters.slice(-1))}`] = q.key;
+        return keys;
+    };
+    const fetched = () => Object.entries(lastKeys()).filter(([, key]) => key).map(([k, key]) => [k.split(":")[0], key]);
+
+    it("opening the tab fetches NO list (company-wide lists load only for the type opened)", () => {
+        mount(AllWizard);
+        expect(fetched()).toEqual([]);
+    });
+
+    it("opening a type fetches only its own list, with no project or vendor filter", () => {
+        mount(AllWizard);
+        act(() => wiz.goToStep2("PO"));
+        expect(fetched()).toEqual([["Procurement Orders", "bulk-po-all"]]);
+        const po = h.queries.filter((q) => q.doctype === "Procurement Orders").at(-1)!;
+        expect(JSON.stringify(po.args.filters)).not.toMatch(/"(project|vendor)"/);
+    });
+
+    it("DN reads the same PO list (one request for both)", () => {
+        mount(AllWizard);
+        act(() => wiz.goToStep2("DN"));
+        expect(fetched()).toEqual([["Procurement Orders", "bulk-po-all"]]);
+    });
+
+    it("client invoices are offered (a project type) and carry the project for the Project filter", () => {
+        mount(AllWizard);
+        act(() => wiz.goToStep2("ClientInvoice"));
+        const pi = h.queries.filter((q) => q.doctype === "Project Invoices").at(-1)!;
+        expect(pi.key).toBe("bulk-pi-all");
+        expect((pi.args as unknown as { fields: string[] }).fields).toEqual(expect.arrayContaining(["project", "project.project_name"]));
+    });
+
+    it("Download posts all_scope=1 and no project or vendor", async () => {
+        mount(AllWizard);
+        await download("PO", ["PO-1", "PO-2"]);
+        const [endpoint, init] = fetchMock.mock.calls[0];
+        expect(endpoint).toContain("download_selected_pos");
+        const body = (init as { body: FormData }).body;
+        expect(body.get("all_scope")).toBe("1");
+        expect(body.get("project")).toBeNull();
+        expect(body.get("vendor")).toBeNull();
+        expect(body.get("names")).toBe(JSON.stringify(["PO-1", "PO-2"]));
+    });
+
+    it("refuses more than 500 before asking the server; exactly 500 goes through", async () => {
+        mount(AllWizard);
+        await download("PO", Array.from({ length: 501 }, (_, i) => `PO-${i}`));
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(h.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Too many items" }));
+        await download("PO", Array.from({ length: 500 }, (_, i) => `PO-${i}`));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("a project scope still loads its lists up front and sends its project (unchanged)", async () => {
+        mount(ProjectWizard);
+        expect(fetched().map(([doctype]) => doctype)).toContain("Procurement Orders");
+        await download("PO", ["PO-1"]);
+        const body = (fetchMock.mock.calls[0][1] as { body: FormData }).body;
+        expect(body.get("project")).toBe("P-1");
+        expect(body.get("all_scope")).toBeNull();
+    });
+});
+
+describe("Porter Invoices (Report Bulk Download only)", () => {
+    const ALL_SCOPE: BulkDownloadScope = { kind: "all", id: "", name: "All projects" };
+    const ALL_TYPES: BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher", "PorterInvoice"];
+    function AllWizard() {
+        wiz = useBulkDownloadWizard(ALL_SCOPE, ALL_TYPES);
+        return null;
+    }
+    const porterKey = () => h.calls.filter((c) => c.method.endsWith("porter_invoices.get_porter_invoices")).at(-1)?.key;
+
+    it("loads the Porter list only when its card is opened", () => {
+        mount(AllWizard);
+        expect(porterKey()).toBeNull();
+        act(() => wiz.goToStep2("PO"));
+        expect(porterKey()).toBeNull();
+        act(() => wiz.goToStep2("PorterInvoice"));
+        expect(porterKey()).toBe("bulk-porter-all");
+    });
+
+    it("never loads it on a project tab, even if asked for the type", () => {
+        function ProjectPorter() {
+            wiz = useBulkDownloadWizard(PROJECT_SCOPE, ["PO", "PorterInvoice"]);
+            return null;
+        }
+        mount(ProjectPorter);
+        act(() => wiz.goToStep2("PorterInvoice"));
+        expect(porterKey()).toBeNull();
+    });
+
+    it("Download posts the invoice numbers (never file links) with all_scope", async () => {
+        mount(AllWizard);
+        await download("PorterInvoice", ["PRT-BLR-0412", "PRT-CHN-0091"]);
+        const [endpoint, init] = fetchMock.mock.calls[0];
+        expect(endpoint).toContain("bulk_download.download_selected_porter_invoices");
+        const body = (init as { body: FormData }).body;
+        expect(body.get("names")).toBe(JSON.stringify(["PRT-BLR-0412", "PRT-CHN-0091"]));
+        expect(body.get("all_scope")).toBe("1");
+        expect(body.get("attachment_names")).toBeNull();
+    });
+});
+

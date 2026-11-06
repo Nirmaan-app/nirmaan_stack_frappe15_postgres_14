@@ -216,9 +216,7 @@ class TestACreatedNonProjectInflow(CreatedUnreconcileFixture):
         def cloud_delete(doc, method):
             raise AssertionError(f"cloud delete reached for File {doc.name} ({doc.file_url})")
 
-        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete), patch(
-            "frappe_s3_attachment.controller.delete_from_cloud", cloud_delete
-        ):
+        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete):
             unreconcile_row(row=row, legs="all", reason="wrong line")
 
         self.assertFalse(frappe.db.exists(NON_PROJECT_INFLOW, name))

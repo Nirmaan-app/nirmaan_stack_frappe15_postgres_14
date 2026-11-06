@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Record a Security Deposit cheque from the PO page's card, or save a Cheque's Edit (spec #1407, #1486;
-spec #1514).
+"""Record a Security Deposit cheque from the PO or Work Order page's card, or save a Cheque's Edit (spec #1407,
+#1486; spec #1514; ADR-0035 Amendment C).
 
 Thin: check who is asking, call the cheques service (`services/cheques/writer.py`), commit, publish.
 The rules are the service's and the `validate` controller's.
@@ -13,8 +13,8 @@ It makes no Payment cheque (spec #1514, ADR-0035 Amendment A): a Payment cheque 
 and is made with it, by the PO's Request Payment in Cheque mode (`api/payments/payment_cheque.put_on_new_cheque`).
 
 A Security Deposit cheque (`cheque_type`, #1486) is made out to a Vendor or a typed name, carries its
-typed `issue_date` and is Issued as it is saved; its lines only name the Vendor's POs it secures (none is
-fine).
+typed `issue_date` and is Issued as it is saved; its lines only name the Vendor's POs and Work Orders it
+secures (none is fine).
 
 With `name` it saves the Edit of that Cheque (#1418). Admin, Accountant and Accountant Lead
 (`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Approval Pending Payment cheques and Issued

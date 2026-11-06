@@ -1,11 +1,11 @@
 import React, { useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useFrappeDeleteDoc } from 'frappe-react-sdk';
+import { useFrappeDeleteDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import { Trash2 } from 'lucide-react';
 
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useUserData } from "@/hooks/useUserData";
-import { canViewTargetProgress } from "@/constants/roles";
+import { canViewTargetProgress, isNirmaanAdmin, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,13 @@ import { DailyReportView } from './components/DailyReportView';
 import OverallMilestonesReport from './components/OverallMilestonesReport';
 import { CopyReportButton } from './components/CopyReportButton';
 import { PDFDownloadButtons } from './components/PDFDownloadButtons';
-import { getZoneStatusIndicator, formatDateForInput, isDateToday } from './utils/milestoneHelpers';
+import {
+  getZoneStatusIndicator,
+  formatDateForInput,
+  formatServerDateTime,
+  isDateToday,
+} from './utils/milestoneHelpers';
+import { clearDprSessionData } from './utils/dprSessionStorage';
 
 // Re-export for backwards compatibility
 export { MilestoneProgress } from './components/MilestoneProgress';
@@ -60,6 +66,8 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
   const [displayDate, setDisplayDate] = useState<Date>(new Date());
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Zone whose Draft the Admin is about to delete (the row itself is read live from validationZoneProgress).
+  const [draftDeleteZone, setDraftDeleteZone] = useState<string | null>(null);
 
   // Delete hook
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
@@ -67,6 +75,8 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
   // Permission checks for delete
   const canDeleteReport = user_id === "Administrator" ||
     ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role || "");
+  // Only Admin and PMO may delete a zone's Draft from the zone chip.
+  const canDeleteDraft = isNirmaanAdmin(role, user_id) || role === PMO_EXECUTIVE_PROFILE;
 
   // Admin gate for Target % column
   const canSeeTargetProgress = canViewTargetProgress(role, user_id);
@@ -130,6 +140,69 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     referenceDate: displayDate,
     workMilestonesList,
   });
+
+  // The Draft behind the open delete dialog, read live so a refetch never leaves it stale.
+  const draftToDelete = draftDeleteZone ? validationZoneProgress.get(draftDeleteZone) : undefined;
+  const { data: draftOwnerRows } = useFrappeGetDocList<{ full_name: string }>(
+    "Nirmaan Users",
+    {
+      fields: ["full_name"],
+      filters: [["email", "=", draftToDelete?.draft_owner ?? ""]],
+      limit: 1,
+    },
+    draftToDelete?.draft_owner ? undefined : null
+  );
+  const draftOwnerName = draftOwnerRows?.[0]?.full_name || draftToDelete?.draft_owner || null;
+
+  // Deletes a zone's Draft. Anyone still filling it gets the "This draft was deleted" dialog in the
+  // DPR editor the next time it checks; this only clears the deleting user's own browser copy.
+  const handleDeleteDraft = useCallback(async () => {
+    if (!selectedProject || !draftDeleteZone || !draftToDelete || draftToDelete.status !== "Draft") {
+      setDraftDeleteZone(null);
+      return;
+    }
+
+    try {
+      await deleteDoc("Project Progress Reports", draftToDelete.name);
+      clearDprSessionData(sessionStorage, selectedProject, formatDate(displayDate), draftDeleteZone);
+      await mutateAllReportsForDate?.();
+
+      toast({
+        title: "Draft Deleted",
+        description: `The draft report for ${draftDeleteZone} on ${formatDate(displayDate)} has been deleted.`,
+        variant: "success",
+      });
+      setDraftDeleteZone(null);
+    } catch (error: unknown) {
+      console.error("Error deleting draft report:", error);
+      toast({
+        title: "Delete Failed",
+        // frappe-react-sdk rejects with a plain object carrying `message`, not an Error.
+        description:
+          (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
+            ? error.message
+            : "") || "Failed to delete the draft. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [selectedProject, draftDeleteZone, draftToDelete, deleteDoc, displayDate, mutateAllReportsForDate]);
+
+  // The bin after a Draft chip's clock icon: Admin and PMO only, and only on Draft chips.
+  const renderDraftDeleteButton = (zoneName: string) => {
+    if (!canDeleteDraft || validationZoneProgress.get(zoneName)?.status !== "Draft") return null;
+    return (
+      <button
+        type="button"
+        onClick={() => setDraftDeleteZone(zoneName)}
+        disabled={deleteLoading}
+        className="h-7 w-7 flex items-center justify-center rounded border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 disabled:opacity-50"
+        title={`Delete the draft report for ${zoneName}`}
+        aria-label={`Delete the draft report for ${zoneName}`}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    );
+  };
 
   // Effect to initialize selectedZone
   useEffect(() => {
@@ -291,21 +364,23 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
                           const zoneStatus = validationZoneProgress.get(zone.zone_name);
                           const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
                           return (
-                            <button
-                              key={zone.zone_name}
-                              type="button"
-                              onClick={() => handleZoneChange(zone.zone_name)}
-                              className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
-                                selectedZone === zone.zone_name
-                                  ? "bg-sky-500 text-white"
-                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                              }`}
-                            >
-                              {zone.zone_name}
-                              <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                                {statusData.icon}
-                              </Badge>
-                            </button>
+                            <div key={zone.zone_name} className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleZoneChange(zone.zone_name)}
+                                className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                                  selectedZone === zone.zone_name
+                                    ? "bg-sky-500 text-white"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                {zone.zone_name}
+                                <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                                  {statusData.icon}
+                                </Badge>
+                              </button>
+                              {renderDraftDeleteButton(zone.zone_name)}
+                            </div>
                           );
                         })
                       )}
@@ -356,21 +431,23 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
                           const zoneStatus = validationZoneProgress.get(zone.zone_name);
                           const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
                           return (
-                            <button
-                              key={zone.zone_name}
-                              type="button"
-                              onClick={() => handleZoneChange(zone.zone_name)}
-                              className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
-                                selectedZone === zone.zone_name
-                                  ? "bg-sky-500 text-white"
-                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                              }`}
-                            >
-                              {zone.zone_name}
-                              <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                                {statusData.icon}
-                              </Badge>
-                            </button>
+                            <div key={zone.zone_name} className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleZoneChange(zone.zone_name)}
+                                className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                                  selectedZone === zone.zone_name
+                                    ? "bg-sky-500 text-white"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                              >
+                                {zone.zone_name}
+                                <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                                  {statusData.icon}
+                                </Badge>
+                              </button>
+                              {renderDraftDeleteButton(zone.zone_name)}
+                            </div>
                           );
                         })
                       )}
@@ -533,6 +610,47 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
             >
               {deleteLoading ? "Deleting..." : "Delete Report"}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Draft Confirmation Dialog (Admin or PMO, from the zone chip) */}
+      <AlertDialog
+        open={!!draftDeleteZone}
+        onOpenChange={(open) => {
+          if (!open && !deleteLoading) setDraftDeleteZone(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft report?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Draft report for <span className="font-semibold">{draftDeleteZone}</span> dated{' '}
+              <span className="font-semibold">{formatDate(displayDate)}</span>
+              {draftOwnerName && (
+                <>
+                  , started by <span className="font-semibold">{draftOwnerName}</span>
+                </>
+              )}
+              {draftToDelete?.draft_last_updated && (
+                <>, last saved {formatServerDateTime(draftToDelete.draft_last_updated)}</>
+              )}
+              .
+              <br />
+              <br />
+              Photos in this draft are deleted too. Whoever is filling it will be asked to clear it and
+              start a new report. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancel</AlertDialogCancel>
+            <Button
+              onClick={handleDeleteDraft}
+              disabled={deleteLoading || draftToDelete?.status !== "Draft"}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {deleteLoading ? "Deleting..." : "Delete Draft"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -271,11 +271,14 @@ class TestAVendorRefundRecountsVendorCredit(TestAVendorRefundMovesAmountPaid):
         return flt(frappe.db.get_value("Vendors", self.vendor, "credit_used"))
 
     def _new_ledger_rows(self):
+        # In write order by `idx` (#1609), never `creation`: Frappe stamps a new child row with its
+        # PARENT's creation, so every ledger row of a vendor shares one, and Postgres returns ties in
+        # whatever order it stores them. `append` numbers each new row one past the last.
         rows = frappe.get_all(
             "Vendor Credit Ledger",
             filters={"parent": self.vendor},
             fields=["name", "entry_type", "po_id"],
-            order_by="creation asc",
+            order_by="idx asc",
         )
         return [r for r in rows if r.name not in self.ledger]
 

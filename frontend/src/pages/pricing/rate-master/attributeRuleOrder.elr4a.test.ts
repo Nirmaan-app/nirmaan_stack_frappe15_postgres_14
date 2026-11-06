@@ -170,11 +170,15 @@ describe("ELR-4a AC1: each line is written from its source -- delete the source 
 });
 
 describe("ELR-4a AC2: nothing else moves", () => {
-  it("UNCHANGED: wiring's thirteen lines, the other eight Electrical categories and every HVAC category", () => {
-    expect(lines(cfg("wiring_cabling")).length).toBe(13);
+  // ELR-4b (owner P6, 2026-10-29) INVERTED: WAS wiring 13 lines and the other eight Electrical categories []; NOW wiring
+  // 15 (WC-b / WC-c inserted) and the other eight list their own rules (attributeRuleOrder.elr4b.test.ts); only the
+  // Pricing Inputs category stays without a list. Every HVAC category: unchanged.
+  it("UNCHANGED: every HVAC category; Electrical as ELR-4b ruled (wiring 15, the other eight listed, the Pricing Inputs none)", () => {
+    expect(lines(cfg("wiring_cabling")).length).toBe(15);
     for (const c of elec.category_configs) {
       if (["wiring_cabling", "point_wiring", "switches_sockets", "popup_boxes"].includes(c.category_id)) continue;
-      expect(lines(c), c.category_id).toEqual([]);
+      if (c.category_id === "electrical_pricing_inputs") expect(lines(c), c.category_id).toEqual([]);
+      else expect(lines(c).length, c.category_id).toBeGreaterThan(0);
     }
     for (const c of hvac.category_configs) expect(attributeRuleOrder(c, hvac.items), c.category_id).toEqual([]);
   });

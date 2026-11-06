@@ -53,6 +53,7 @@ import {
   GeneratedInvoicesTable,
 } from "@/pages/ServiceRequests/service-request/components/GeneratedInvoices";
 import { isGstExplicitlyOff } from "@/utils/workOrderGst";
+import { generatedInvoiceDeleteNote } from "@/utils/generatedInvoices";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -123,6 +124,11 @@ export const DocumentAttachments = <T extends DocumentType>({
   // A signed upload's Vendor Invoice carries what the vendor signed: never edited (#1547, story 87).
   const signedUploadInvoices = useMemo(
     () => new Set(generatedInvoices.map((g) => g.vendor_invoice).filter(Boolean)),
+    [generatedInvoices]
+  );
+  // Deleting a signed upload's Vendor Invoice deletes its generated invoice too: the confirmation says so.
+  const signedUploadDeleteNote = useCallback(
+    (item: VendorInvoice): string | undefined => generatedInvoiceDeleteNote(generatedInvoices, item.name),
     [generatedInvoices]
   );
   const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);
@@ -310,6 +316,7 @@ export const DocumentAttachments = <T extends DocumentType>({
             variant: "success",
           });
           await mutateInvoices(); // Refresh the vendor invoices list
+          await mutateGenerated(); // A signed upload's delete took its generated invoice with it
           await mutateAttachments(); // Refresh attachments
           await docMutate(); // Refresh the parent PO/SR document data
           // Mirror the create/edit refresh so the PO page dialogs and the Vendor
@@ -337,7 +344,7 @@ export const DocumentAttachments = <T extends DocumentType>({
         });
       }
     },
-    [docName, docType, deleteInvoiceEntryApi, toast, mutateInvoices, mutateAttachments, docMutate]
+    [docName, docType, deleteInvoiceEntryApi, toast, mutateInvoices, mutateGenerated, mutateAttachments, docMutate]
   );
 
   const handleEditInvoice = useCallback((invoice: VendorInvoice) => {
@@ -591,6 +598,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                 onDeleteEntry={handleDeleteInvoiceEntry}
                 isLoading={deleteInvoiceEntryLoading}
                 canDeleteEntry={canDeleteInvoice}
+                getDeleteNote={signedUploadDeleteNote}
                 getUserName={getUserName}
                 hideActions={isEstimatesExecutive}
                 poName={isPO ? docName : undefined}
@@ -602,6 +610,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                   workOrder={docName}
                   invoices={generatedInvoices}
                   canManage={!!generatedState?.can_generate && !isEstimatesExecutive}
+                  canDelete={!!generatedState?.can_delete && !isEstimatesExecutive}
                   onPrint={setInvoicePreview}
                   onChanged={() => {
                     mutateGenerated();

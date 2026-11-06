@@ -106,7 +106,7 @@ class TestTheLandlordIsRequired(OfficeRentCase):
 
         self.assertEqual(result["succeeded"], [])
         self.assertEqual([f["reason"] for f in result["failed"]], [REFUSAL])
-        self.assertEqual(self._expense(name), {"status": "CEO Pending", "amount": 100000})
+        self.assertEqual(self._expense(name), {"status": "CEO Pending", "amount": 100000, "gst_amount": 0})
         self.assertEqual(self._records(name), [])
         self.assertIsNone(frappe.db.get_value(NPE, name, "ceo_approval_date"))
 
@@ -117,7 +117,7 @@ class TestTheLandlordIsRequired(OfficeRentCase):
         result = self._decide(ADMIN, name, "l1_approve")
 
         self.assertEqual([f["reason"] for f in result["failed"]], [REFUSAL])
-        self.assertEqual(self._expense(name), {"status": "Requested", "amount": 30000})
+        self.assertEqual(self._expense(name), {"status": "Requested", "amount": 30000, "gst_amount": 0})
         self.assertEqual(self._records(name), [])
 
     def test_a_reviewers_approval_without_the_landlord_is_refused_and_the_request_stays_pending(self):
@@ -152,7 +152,7 @@ class TestTheLandlordIsRequired(OfficeRentCase):
             frappe.set_user("Administrator")
         created = approve_expense_request(request)["created_expense"]
 
-        self.assertEqual(self._expense(created), {"status": "CEO Pending", "amount": 100000})
+        self.assertEqual(self._expense(created), {"status": "CEO Pending", "amount": 100000, "gst_amount": 0})
 
     def test_a_row_with_no_request_is_not_born_approved(self):
         before = frappe.db.count(NPE, {"type": OFFICE_RENT})
@@ -175,11 +175,11 @@ class TestTheLandlordIsRequired(OfficeRentCase):
         self._decide(ADMIN, name, "l1_approve")
         self.assertTrue(missing(), "at CEO Pending too")
 
-    def test_with_the_landlord_the_approval_withholds_as_before(self):
-        _request, name = self._raise(30000)
+    def test_with_the_landlord_a_35400_bill_splits_into_rent_30000_and_gst_5400(self):
+        _request, name = self._raise(35400)
 
         self.assertEqual(self._decide(ADMIN, name, "l1_approve")["statuses"], {name: "Approved"})
 
-        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 27000})
+        self.assertEqual(self._expense(name), {"status": "Approved", "amount": 32400, "gst_amount": 5400})
         [record] = self._records(name)
         self.assertEqual((record.deductee_name, record.deductee_pan), ("Asha Rao", "ABCPK1234D"))

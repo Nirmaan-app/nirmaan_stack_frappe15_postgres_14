@@ -19,6 +19,7 @@ from nirmaan_stack.services.expense_tds import (
     OFFICE_RENT_TDS,
     deductee_gaps,
     tds_rule_for,
+    tds_split,
     withholds_now,
 )
 from nirmaan_stack.services.payment_tds import TDS_SECTIONS
@@ -27,7 +28,8 @@ NPE = "Non Project Expenses"
 PE = "Project Expenses"
 RENT = "Office Rent"
 
-FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures", "expense_type.json")
+# A new site's Office Rent form (`services/expense_type_seed`).
+FIXTURE = os.path.join(os.path.dirname(__file__), "expense_types_seed.json")
 
 
 class TestWhichTypeAndRate(unittest.TestCase):
@@ -78,8 +80,31 @@ class TestWhen(unittest.TestCase):
         self.assertFalse(withholds_now(PE, RENT, "Requested", "Approved", inserted=False))
 
 
-# `tds_split` rounds through Frappe's `flt(x, 2)`, which reads the site's rounding method, so it is
-# pinned through the endpoints (`test_office_rent_tds`), not here.
+# The split of an Office Rent bill (spec #1613): one table of cases, read by this test and by the
+# frontend twin's (`frontend/src/utils/expenses/expenseTds.test.ts`), so the two copies cannot differ.
+SPLIT_CASES = os.path.join(os.path.dirname(__file__), "office_rent_split_cases.json")
+
+
+class TestTheBillSplit(unittest.TestCase):
+    def test_each_case_of_the_shared_table(self):
+        with open(SPLIT_CASES) as handle:
+            cases = json.load(handle)["cases"]
+        for case in cases:
+            with self.subTest(case=case["label"]):
+                split = tds_split(case["type"], case["bill"])
+                if case["split"] is None:
+                    self.assertIsNone(split)
+                    continue
+                self.assertEqual(
+                    {"bill": split.bill, "base": split.base, "gst": split.gst, "tds": split.tds,
+                     "landlord_gets": split.landlord_gets},
+                    {"bill": case["bill"], **case["split"]})
+                self.assertEqual(round(split.base + split.gst, 2), case["bill"], "base + GST is the bill")
+
+    def test_the_rule_carries_18_percent_gst(self):
+        self.assertEqual(OFFICE_RENT_TDS.gst_rate, 18.0)
+
+
 class TestTheLandlord(unittest.TestCase):
     def test_a_named_landlord_with_a_valid_pan_in_any_case_has_no_gap(self):
         self.assertEqual(deductee_gaps("Asha Rao", "ABCPK1234D"), [])

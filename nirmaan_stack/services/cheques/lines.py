@@ -14,7 +14,8 @@ The rules:
   Work Order, and a Rejected one cannot be put on a live (not Cancelled) Cheque.
 * Expense lines (#1411): the expense is required; a Project Expense is in its line's project.
 * Secured PO/WO lines (#1486, spec #1477): a Security Deposit cheque's only kind, and only its. Each
-  names one of the cheque's Vendor's POs, once, never a Work Order (spec #1514); its project is the PO's.
+  names one of the cheque's Vendor's POs or Work Orders, once (ADR-0035 Amendment C); its project is the
+  record's.
 * A payment or an expense sits on at most one Cheque that is not Cancelled, and on one line of it.
 """
 

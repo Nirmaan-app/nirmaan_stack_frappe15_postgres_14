@@ -1,0 +1,14 @@
+{
+  "_about": "Shared cases for the FINAL rule: frontend isFinalAmount (utils/generatedInvoices.ts) and backend is_final (services/wo_generated_invoices.py) must both give `final`. Read by utils/generatedInvoices.test.ts and services/test_wo_generated_invoices.py.",
+  "cases": [
+    { "name": "exactly reaches the WO amount", "wo_amount": 100000, "billed": 40000, "amount": 60000, "final": true },
+    { "name": "the whole WO in one invoice", "wo_amount": 100000, "billed": 0, "amount": 100000, "final": true },
+    { "name": "stops short", "wo_amount": 100000, "billed": 40000, "amount": 20000, "final": false },
+    { "name": "the first part of a WO", "wo_amount": 100000, "billed": 0, "amount": 60000, "final": false },
+    { "name": "ten rupees short is still FINAL", "wo_amount": 100000, "billed": 50000, "amount": 49990, "final": true },
+    { "name": "more than ten rupees short is RA", "wo_amount": 100000, "billed": 50000, "amount": 49989.99, "final": false },
+    { "name": "previous invoices count", "wo_amount": 250000, "billed": 200000, "amount": 50000, "final": true },
+    { "name": "previous invoices not enough", "wo_amount": 250000, "billed": 0, "amount": 50000, "final": false },
+    { "name": "paise", "wo_amount": 6000.5, "billed": 4000.25, "amount": 2000.25, "final": true }
+  ]
+}

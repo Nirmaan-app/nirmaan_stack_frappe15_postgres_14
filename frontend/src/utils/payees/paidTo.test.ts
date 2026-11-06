@@ -16,6 +16,7 @@ import {
     paidToExportText,
     PAY_TO_FIELDS,
     payToBoxView,
+    reimbursementAccountLine,
     rowEligibility,
     switchLine,
     unpayableReason,
@@ -156,6 +157,17 @@ describe("rowEligibility: which rows of Payment need to paid can be paid, and ho
         expect(rowEligibility({ ...paymentWithNone, by_cheque: true }, "")).toEqual(cheque);
         // An expense on a cheque: the cheque pays it, so it is not Ineligible even with no account.
         expect(rowEligibility({ ...expenseWithNone("Required"), by_cheque: true }, "Rent Expenses")).toEqual(cheque);
+    });
+});
+
+describe("a reimbursement's expense on Payment need to paid (ADR-0040)", () => {
+    // What `get_paid_to` answers for one (localhost, 2026-10-27): the claimant's account copied onto the
+    // expense, no Expense Type (so the rule is Not asked and the type blank).
+    const reimbursement: PaidTo = { account, missing: null, payee_rule: "Not asked", ...NO_SWITCH };
+
+    it("can be ticked for bulk Mark as Paid and goes in the bank file, with no expense type", () => {
+        expect(rowEligibility(reimbursement, "")).toEqual({ kind: "payable" });
+        expect(unpayableReason(reimbursement, "", false)).toBeNull();
     });
 });
 
@@ -485,6 +497,14 @@ describe("Change account names the expense and words its type's rule", () => {
         expect(canRemoveExpenseAccount("Optional", true)).toBe(true);
         expect(canRemoveExpenseAccount(null, true)).toBe(true);
         expect(canRemoveExpenseAccount("Optional", false)).toBe(false);
+    });
+
+    it("words a reimbursement's expense by the claimant's account, never by a type it doesn't have (ADR-0040)", () => {
+        expect(reimbursementAccountLine(true)).toBe(
+            "The claimant's bank account, copied from their claim. Remove it if this is paid by card or cash.",
+        );
+        expect(reimbursementAccountLine(false)).toBe("The claimant's bank account, copied from their claim.");
+        expect(reimbursementAccountLine(true)).not.toContain("type");
     });
 });
 

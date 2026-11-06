@@ -74,3 +74,73 @@ never settles**.
   identity. Revisit this ADR then, rather than loosening the check.
 - A second card issuer needs its own reader, and therefore its own source string, as a second bank
   does (outflow-import Q24).
+
+## Amendment A (2026-10-27) — a password-locked PDF is opened with its password
+
+**Status:** Accepted. Amends decision 3 (its last sentence) and spec #1565 story 3 ("the system never asks
+for or keeps a card password"). Every other decision is unchanged.
+
+**Why.** ICICI sends the statement PDF password-locked, so refusing a locked file meant every statement had
+to be unlocked outside the app before upload. The owner asked for a password field when the PDF is locked,
+and for the stored PDF to have no password.
+
+**Decision.**
+
+- A locked PDF uploaded without a password is refused with *"This PDF is password-locked. Enter its password
+  and upload again."*; Upload then shows a PDF password field. A wrong password is refused with *"That
+  password did not open this PDF. Check it and upload again."* Both refusals save nothing, as every other
+  refusal does. The screen recognises them by those exact sentences (`card_pdf.py` ↔ `creditCardImport.ts`,
+  pinned by test).
+- The password opens the file in memory for that one request. It is never saved to any record, never logged
+  and never returned; the endpoint pops it from the request form as soon as it reads it.
+- The PDF stored on the Credit Card Statement is an unlocked copy: the same pages written again with no
+  encryption. An upload that was not locked is stored as uploaded.
+- There is no remembered password: each locked statement needs its password typed again.
+- The field also shows **before** the first upload, as soon as a picked PDF looks locked (it carries an
+  `/Encrypt` entry, read in the browser by `pdfLooksLocked`), so a locked statement is uploaded once. That
+  check is only a hint: the server still decides, and Upload stays enabled with the field empty, since a PDF
+  encrypted with an owner password only carries the entry yet opens without one. After either refusal above,
+  the field must be filled.
+
+## Amendment B (2026-11-04) — the company name is shown, not checked
+
+**Status:** Accepted (owner, 2026-11-04). Amends decision 2 ("refuses a statement not issued to Stratos Infra
+Technologies"). Every other decision is unchanged.
+
+**Why.** A statement was refused as another company's ("issued to OBEYA VERVE 11376 A 5TH MAIN"): the reader
+took each address line one place too low. The cause was the dev bench's pypdf 3.17.4, which joins
+`State Code: 29` and the holder into one line; Frappe pins pypdf 6.13.3, which reads them apart, and the stale
+version came from `scripts/devenv/python.lock.txt`. The owner chose to drop the check anyway, rather than keep a
+gate that a reading fault can turn against the company's own cards.
+
+**Decision.**
+
+- The upload no longer refuses a statement for the company it names. The accountant checks the company, shown on
+  Review, before Create.
+- The company is the line under the holder only when it ends in a company word (PVT, PRIVATE, LTD, LIMITED, LLP).
+  Otherwise the statement printed no company, the line is the street address, and the company is left blank;
+  Review shows *Not printed*. A statement with no company line still imports.
+
+**Consequences.** Any statement in this layout imports, a personal card's included: Review is the only guard
+against creating company Expenses from the wrong card.
+
+## Amendment C (2026-11-04) — a cash advance is imported as a spend
+
+**Status:** Accepted (owner, 2026-11-04). Amends decision 3 and spec #1565 story 9 ("a statement with a
+non-zero *Cash Advances* total refused"). Every other decision is unchanged.
+
+**Why.** The owner's rule for this import: an upload is blocked only when it was uploaded before, or when the
+file cannot be read or does not add up. A cash withdrawal is money out on the card, printed as a line without
+`CR`, so it is read like any spend.
+
+**Decision.**
+
+- A non-zero *Cash Advances* is no longer refused.
+- The totals gate checks the lines without `CR` against *Purchases / Charges* plus *Cash Advances*, and the `CR`
+  lines against *Payments / Credits*, to the paisa, as before. The refusal names "Purchases / Charges + Cash
+  Advances" when Cash Advances is not zero.
+- The withdrawal is staged and created as a card spend like any other: one Paid Non-Project Expense, its type
+  editable on Review, where the Cash Advances total is shown.
+
+**Consequences.** A withdrawal is not told apart from a purchase. Doing that needs a real statement with a cash
+advance, to learn how the bank prints the line.

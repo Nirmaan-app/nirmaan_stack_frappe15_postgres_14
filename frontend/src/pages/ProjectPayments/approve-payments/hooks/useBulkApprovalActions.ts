@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
 import { useExpenseDecision } from "@/hooks/useExpenseDecision";
-import { isExpenseDoctype, type ExpenseAction } from "@/utils/expenses/expenseDecision";
+import { isExpenseDoctype, splitByLedger, type ExpenseAction } from "@/utils/expenses/expenseDecision";
 
 import { ApprovalQueueRow } from "../../config/approvalsTable.config";
 import {
@@ -53,8 +53,9 @@ export function useBulkApprovalActions(mode: BulkMode) {
       action: BulkAction,
       rejectionReason?: string
     ): Promise<BulkResult> => {
-      const expenseIds = rows.filter(isExpenseRow).map((r) => r.name);
-      const paymentIds = rows.filter((r) => !isExpenseRow(r)).map((r) => r.name);
+      const split = splitByLedger(rows);
+      const expenseIds = split.expenses.map((r) => r.name);
+      const paymentIds = split.payments.map((r) => r.name);
 
       const succeeded: string[] = [];
       const failed: BulkFailure[] = [];
