@@ -24,11 +24,6 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
 from nirmaan_stack.services.outflow_import.card_credits import skip_values, sort_card_lines
-from nirmaan_stack.services.outflow_import.internal_transfers import (
-    CARD_AUTO_DEBIT_RULE,
-    card_auto_debit_transfer,
-    transfer_sentence,
-)
 from nirmaan_stack.services.outflow_import.card_pdf import statement_text
 from nirmaan_stack.services.outflow_import.card_statement import (
     CardLine,
@@ -38,6 +33,11 @@ from nirmaan_stack.services.outflow_import.card_statement import (
     read_card_statement,
 )
 from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CARD_AUTO_DEBIT_RULE,
+    card_auto_debit_transfer,
+    transfer_sentence,
+)
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
     DIRECTION_CREDIT,

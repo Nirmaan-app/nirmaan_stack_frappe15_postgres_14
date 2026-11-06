@@ -32,15 +32,15 @@ import os
 import frappe
 from frappe.utils.file_manager import save_file
 
-from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.internal_transfers import move_already_recorded, record_for_line
+from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import.bank_exclusions import should_skip
-from nirmaan_stack.services.outflow_import.internal_transfers import bank_line_transfer
 from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
 from nirmaan_stack.services.outflow_import.duplicates import (
     assess_duplicates,
     row_identity_of,
 )
+from nirmaan_stack.services.outflow_import.internal_transfers import bank_line_transfer
 from nirmaan_stack.services.outflow_import.parser import (
     DIRECTION_CREDIT,
     DIRECTION_DEBIT,

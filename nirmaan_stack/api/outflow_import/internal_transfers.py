@@ -30,7 +30,7 @@ INTERNAL_TRANSFER_DOCTYPE = "Internal Transfer"
 def _same_move(line) -> tuple[str, list]:
     """The SQL test (on `r`) and its values for the lines of `line`'s move: its repeat identity -- source, Txn Id,
     amount and direction, plus the bank text on a bank statement, whose Txn Ids repeat across lines."""
-    get = line.get if hasattr(line, "get") else lambda key: getattr(line, key, None)
+    get = line.get
     source = (get("source") or "").strip()
     clause = "r.source = %s AND r.transfer_id = %s AND r.amount = %s AND TRIM(COALESCE(r.direction, '')) = %s"
     params = [source, get("transfer_id"), float(get("amount") or 0), (get("direction") or "").strip()]
@@ -89,7 +89,7 @@ def record_for_line(
     for a Cashbook line, which states no direction of its own; by default the line's. The unique index on
     `import_row` refuses a second record for the same line.
     """
-    get = line.get if hasattr(line, "get") else lambda key: getattr(line, key, None)
+    get = line.get
     added_on = get("added_on")
     doc = frappe.new_doc(INTERNAL_TRANSFER_DOCTYPE)
     doc.update(
