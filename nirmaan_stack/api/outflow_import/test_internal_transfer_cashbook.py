@@ -58,7 +58,6 @@ class CashbookStageCase(FrappeTestCase):
         return rows[0] if rows else None
 
 
-
 class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
     def test_the_three_types_are_internal_transfers_with_one_record_each(self):
         tag = frappe.generate_hash(length=6).upper()
@@ -186,7 +185,21 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
         with patch.object(cb, "_enqueue_worker"):
             result = _post(cb.confirm_cashbook_import, content, "test-it-reupload.xlsx")
         self.addCleanup(_purge, result["batch"])
+        self.addCleanup(self._purge_statement_file, result["batch"])
         return result
+
+    @staticmethod
+    def _purge_statement_file(batch: str) -> None:
+        """The statement `save_file` committed; `_purge` deletes no File. Rolled back first, committed on its own."""
+        frappe.db.rollback()
+        try:
+            for name in frappe.get_all("File", filters={"attached_to_doctype": "Outflow Import Batch",
+                                                        "attached_to_name": batch}, pluck="name"):
+                frappe.delete_doc("File", name, ignore_permissions=True, force=True)
+            frappe.db.commit()
+        except Exception as exc:
+            frappe.db.rollback()
+            print(f"internal transfer re-upload test: could not purge the statement file of {batch}: {exc}")
 
     def test_an_exact_repeat_fills_a_zero_record_and_nothing_else(self):
         tag = frappe.generate_hash(length=6).upper()

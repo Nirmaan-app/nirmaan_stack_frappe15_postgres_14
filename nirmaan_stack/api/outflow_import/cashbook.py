@@ -208,7 +208,7 @@ def confirm_cashbook_import():
         late_bill_jobs=[_late_bill_job(bill) for bill in late],
     )
     # Owner decision 2 (#1619): a ₹0 record an old import left takes the money from this file.
-    fill_zero_records(zero_records_to_fill(parsed.rows))
+    fill_zero_records(fills)
     # Raw (`set_value`): the File's own hooks run before insert only, and these pointer fields feed nothing of ours.
     frappe.db.set_value(
         "File",

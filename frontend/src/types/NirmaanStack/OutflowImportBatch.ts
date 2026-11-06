@@ -130,7 +130,6 @@ export interface ChequeOutcome {
     double_payments: ChequeDoublePayment[];
 }
 
-/** One staged transfer, as `get_batch_rows` returns it. */
 /** The server's hand-mark offer on an open line (#1626): its own side, the places to choose from, the Detail to start with. */
 export interface HandMarkOffer {
     /** Where the line's own statement account is: the fixed From (money out) or To (money in). */
@@ -141,6 +140,7 @@ export interface HandMarkOffer {
     detail: string;
 }
 
+/** One staged transfer, as `get_batch_rows` returns it. */
 export interface OutflowImportRow {
     name: string;
     transfer_id: string;
