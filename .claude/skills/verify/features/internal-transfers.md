@@ -12,7 +12,8 @@ an open line as one, or send one back to Mismatched. The card import's Review li
   `Direction`, `From`, `To`, `Detail` and `Made by` columns (no `Ledger`); its count is every Internal Transfer line.
   `Made by` is words: `Rule: Cashfree wallet top-up`, `Rule: Cashbook VA → Wallet`, `By hand` (#1619 review).
 - `it-figure` the summary chip `Internal transfers <n> lines · ₹<out> out · ₹<in> in`, beside the status chips;
-  zero is shown, not hidden; it follows Period and Import.
+  zero is shown, not hidden; it follows Period and Import. Its line count equals the tab's count and the number of
+  Internal Transfer records: every Internal Transfer line holds exactly one (owner decision 3, #1619).
 - `it-skipped` the `<n> Skipped` chip's popup holds no line of a moved kind (Cashfree / Cashbook / Porter wallet
   top-up, Wallet money returned, Bank internal transfer, Credit card bill payment, Credit card auto-debit).
 - `it-mark` `Mark as Internal Transfer` under `Choose` on an open ICICI, Cashfree or Cashbook line (Admin, Accountant
@@ -20,12 +21,13 @@ an open line as one, or send one back to Mismatched. The card import's Review li
   server sends what it offers with the row (`hand_mark`). On a Cashbook line `Detail` starts as the wallet holder:
   the statement's From for money out, its To for money in (owner decision 8a).
 - `it-send-back` `Send back to Mismatched` on an Internal Transfer line (Admin, Accountant Lead): a dialog with
-  `Reason`; the line returns to `Not Matched – Outflow` with `Sent back to Mismatched by … : <reason>`. Every
-  Internal Transfer line of the same move (a status-changed repeat in another import) goes back with it, with the
-  same reason, and the move's one record is deleted (#1619 review).
+  `Reason`; the line returns to `Not Matched – Outflow` with `Sent back to Mismatched by … : <reason>`, and its own
+  record is deleted. It takes no other line: every Internal Transfer line holds its own record (owner decision 3).
 - `it-cashbook-preview` the Cashbook upload preview (`Import statement` → Source `Cashbook (petty cash)` → file →
   `Read statement`) lists Cashbook's own moves under `Internal transfers · <n> line(s)`, each with the money it moved
-  and `Internal Transfer from … to …`, not under `Not importing` (owner decision 7).
+  and `Internal Transfer from … to …`, not under `Not importing` (owner decision 7). When the file repeats an old
+  line whose record holds ₹0, it says `<n> old Internal Transfer record(s) get(s) their amount from this file`, and
+  after Create the progress panel says how many got it (owner decision 2).
 - `it-card-review` a Credit Card Statement import's Review shows `Internal transfers · <n> line(s)` above the
   skipped lines, holding the `Autodebit Payment Recd.` credit.
 
@@ -41,10 +43,12 @@ an open line as one, or send one back to Mismatched. The card import's Review li
 
 `BIN/walk_internal_transfers.py --task <task> --lead <accountant lead> --accountant <accountant> --password <pw>`
 walks every sub-feature above and exits 1 on a miss. It seeds made-up lines (`BIN/internal_transfers_seed.py`): an
-open Cashfree line it marks and sends back, an open Cashbook spend whose Mark dialog it opens and cancels, and one
-Cashbook move seen twice whose repeat it sends back; and a made-up Cashbook statement (under the bench's `tmp/`)
-whose preview the Accountant reads and never confirms. It reads the DB beside each write
-(`BIN/internal_transfers_db.py`), saving `db.txt` beside the screenshots.
+open Cashfree line it marks and sends back, an open Cashbook spend whose Mark dialog it opens and cancels, and an
+old Cashbook top-up whose record holds ₹0; and a made-up Cashbook statement (under the bench's `tmp/`) that repeats
+that top-up, whose preview the Accountant reads and never confirms. It reads the DB beside each write
+(`BIN/internal_transfers_db.py`: the tab, the chip and the records counts among it), saving `db.txt` beside the
+screenshots. The result-after-Create line is not walked (the walk never confirms); `internalTransferView.test.ts`
+pins its words.
 
 Preconditions:
 

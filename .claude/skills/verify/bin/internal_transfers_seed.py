@@ -6,11 +6,15 @@ Writes to the env DB only, and is idempotent: a line already seeded (remarks WAL
 
 - `line:` one open Cashfree line, to mark by hand and send back;
 - `cashbook_line:` one open Cashbook spend (From `WALK-IT Test Employee`), whose Mark dialog pre-fills Detail;
-- `repeat_first:` / `repeat_second:` one Cashbook move seen twice (SUCCESS, then REVERSED in a later import), both
-  Internal Transfer lines and the record on the first, to send back together;
-- `statement:` a made-up Cashbook statement (.xlsx, fresh Txn Ids each run) with one `Bank → VA` top-up and one
-  spend, for the upload preview. It is written under the bench's `tmp/`, which the host sees at
-  `benches/<task>/tmp/`. Never confirmed by the walk.
+- `zero_line:` one old Cashbook top-up, an Internal Transfer line whose record holds ₹0 (as imports before #1623
+  left them), which the statement below repeats: its preview says one old record gets its amount;
+- `statement:` a made-up Cashbook statement (.xlsx, fresh Txn Ids each run) with one `Bank → VA` top-up, one spend
+  and the old top-up again with its Credit, for the upload preview. It is written under the bench's `tmp/`, which
+  the host sees at `benches/<task>/tmp/`. Never confirmed by the walk.
+
+An earlier version seeded a move seen twice (`WALK-IT made-up wallet move seen twice`) for Send back of a repeat, which
+#1619's decision 3 retired: such lines left in the env DB are sent back to Mismatched here, record and all, so every
+Internal Transfer line holds one record.
 """
 
 import os
@@ -21,14 +25,16 @@ from openpyxl import Workbook
 from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     PLACE_CASHBOOK_VA,
-    PLACE_CASHBOOK_WALLET,
+    PLACE_ICICI_CURRENT,
     TransferEnds,
 )
 
 ROW = "Outflow Import Row"
 REMARKS = "WALK-IT made-up wallet top-up the rules missed"
 CASHBOOK_REMARKS = "WALK-IT made-up cashbook spend"
-REPEAT_REMARKS = "WALK-IT made-up wallet move seen twice"
+RETIRED_REPEAT_REMARKS = "WALK-IT made-up wallet move seen twice"
+ZERO_REMARKS = "WALK-IT made-up old top-up with a zero record"
+ZERO_TXN = "VALOAD-WALKITZERO"
 
 
 def batch(source: str, filename: str) -> str:
@@ -59,18 +65,18 @@ cashbook = line(CASHBOOK_REMARKS, {
     "added_on": "2026-10-21 10:00:00", "row_kind": "Wallet Spend", **open_values,
 }, source="Cashbook", filename="walk-it-cashbook-a.xlsx", reset=open_values)
 
-moved = {"row_status": "Internal Transfer", "outcome_note": "Internal Transfer from Cashbook Virtual Account to "
-         "Cashbook Employee Wallet (WALK-IT Test Employee).", "decided_by": None}
-repeat_values = {"transfer_id": "WALKITCB0002", "amount": 0.0, "direction": "", "added_on": "2026-10-22 10:00:00",
-                 "row_kind": "VA → Wallet", "added_by_raw": "Virtual Account",
-                 "beneficiary_name": "WALK-IT Test Employee", **moved}
-first = line(REPEAT_REMARKS, {**repeat_values, "status_raw": "SUCCESS"}, source="Cashbook",
-             filename="walk-it-cashbook-b.xlsx", reset=moved)
-second = line(REPEAT_REMARKS, {**repeat_values, "status_raw": "REVERSED"}, source="Cashbook",
-              filename="walk-it-cashbook-c.xlsx", reset=moved)
-record_for_line(frappe.get_doc(ROW, first),
-                TransferEnds(PLACE_CASHBOOK_VA, PLACE_CASHBOOK_WALLET, "WALK-IT Test Employee"),
-                made_by="cashbook_va_to_wallet", amount=650, direction="In")
+for retired in frappe.get_all(ROW, filters={"remarks": RETIRED_REPEAT_REMARKS}, pluck="name"):
+    frappe.db.delete("Internal Transfer", {"import_row": retired})
+    frappe.db.set_value(ROW, retired, open_values, update_modified=False)
+
+moved = {"row_status": "Internal Transfer", "outcome_note": "Internal Transfer from ICICI Current Account to "
+         "Cashbook Virtual Account.", "decided_by": None}
+zero = line(ZERO_REMARKS, {"transfer_id": ZERO_TXN, "amount": 0.0, "direction": "", "status_raw": "SUCCESS",
+                           "added_on": "2026-10-01 10:00:00", "row_kind": "Bank → VA",
+                           "added_by_raw": "WALK-IT Test Company", "beneficiary_name": "Virtual Account", **moved},
+            source="Cashbook", filename="walk-it-cashbook-old.xlsx", reset=moved)
+record_for_line(frappe.get_doc(ROW, zero), TransferEnds(PLACE_ICICI_CURRENT, PLACE_CASHBOOK_VA),
+                made_by="cashbook_bank_to_va", amount=0, direction="In")
 
 header = ["Date", "Time", "Type", "From", "To", "Debit", "Credit", "Affected Wallet Balance", "VA Balance", "Remark",
           "Note", "Employee ID", "Reporting Manager", "Reporting Manager Employee ID", "Payment Status", "Txn Id",
@@ -88,7 +94,8 @@ book = Workbook()
 for row in (header,
             statement_line("Bank → VA", "WALK-IT Test Company", "Virtual Account", "", "12000", f"VALOAD-WALKIT{tag}"),
             statement_line("Wallet Spend", "WALK-IT Test Employee", "WALK-IT Test Shop", "150", "", f"OBOWALKIT{tag}",
-                           "Made-up tea and snacks")):
+                           "Made-up tea and snacks"),
+            statement_line("Bank → VA", "WALK-IT Test Company", "Virtual Account", "", "9000", ZERO_TXN, ZERO_REMARKS)):
     book.active.append(row)
 path = os.path.abspath(os.path.join(frappe.get_site_path(), "..", "..", "tmp", "walk-it-cashbook-statement.xlsx"))
 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -97,6 +104,5 @@ book.save(path)
 frappe.db.commit()
 print(f"line: {cashfree}")
 print(f"cashbook_line: {cashbook}")
-print(f"repeat_first: {first}")
-print(f"repeat_second: {second}")
+print(f"zero_line: {zero}")
 print(f"statement: {path}")

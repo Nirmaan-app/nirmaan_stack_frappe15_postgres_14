@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Walk the Internal Transfers feature (spec #1619): the tab, the summary figure, the Skipped popup, the two hand
-actions, Made by in words, the Mark dialog's pre-filled Detail on a Cashbook line, Send back of a move seen twice,
-the Cashbook upload preview's Internal transfers heading, and the card import's Review list. Exits 1 on the first
-screen or DB read that is not as expected.
+"""Walk the Internal Transfers feature (spec #1619): the tab, the summary figure and the records as one number, the
+Skipped popup, the two hand actions (Send back takes its own line only), Made by in words, the Mark dialog's
+pre-filled Detail on a Cashbook line, the Cashbook upload preview's Internal transfers heading and its sentence on
+the old ₹0 records it fills, and the card import's Review list. Exits 1 on the first screen or DB read that is not
+as expected.
 
     python3 .claude/skills/verify/bin/walk_internal_transfers.py --task <task> \
         --lead <accountant lead email> --accountant <accountant email> --password <pw>
@@ -53,7 +54,7 @@ def check(ok: bool, what: str) -> None:
 
 seeded = dict(re.findall(r"^(\w+): (\S+)$", script("internal_transfers_seed.py"), re.M))
 line, cashbook_line = seeded["line"], seeded["cashbook_line"]
-repeat_first, repeat_second = seeded["repeat_first"], seeded["repeat_second"]
+zero_line = seeded["zero_line"]
 # The container's /workspace/development is the host's development folder, four levels above this app.
 statement = Path("../../../..").resolve() / seeded["statement"].removeprefix("/workspace/development/")
 before = db()
@@ -74,6 +75,10 @@ with session(a.task, a.lead, a.password) as (page, out):
     n = before["figure"][0]
     check(re.search(rf"\b{n} lines? ·", figure) is not None, f"summary figure counts {n} lines: {figure!r}")
     check(tab.inner_text().split()[-1] == str(before["tab"]), f"tab count {before['tab']} = DB")
+    # Owner decision 3 (#1619): every Internal Transfer line holds one record, so the three are one number.
+    counts = {"tab": before["tab"], "chip": n, "records": before["records"]}
+    check(len(set(counts.values())) == 1, f"tab, chip and records agree: {counts}")
+    log.append(f"counts (tab, chip, records): {json.dumps(counts)}")
     save(page, out, "01-summary-figure-and-tab")
 
     tab.click()
@@ -131,6 +136,9 @@ with session(a.task, a.lead, a.password) as (page, out):
     row.get_by_role("button", name="Send back to Mismatched").click()
     dialog = page.get_by_role("dialog", name="Send back to Mismatched")
     dialog.wait_for()
+    check(dialog.get_by_text(re.compile(r"^Deletes this line's Internal Transfer record")).count() == 1
+          and dialog.get_by_text(re.compile("Any repeat of the same move")).count() == 0,
+          "the dialog says it deletes this line's record, and nothing about repeats")
     dialog.locator("#it-reason").fill("Walk: not ours after all")
     settle(page)
     save(page, out, "06-send-back-dialog")
@@ -164,35 +172,6 @@ with session(a.task, a.lead, a.password) as (page, out):
     dialog.wait_for(state="hidden")
     check(db(cashbook_line)["line"]["row_status"] == "Mismatched", "DB: cancelling changed nothing")
 
-    # Review finding (#1619): sending back a status-changed repeat sends back its whole move, record and all.
-    page.get_by_role("button", name=re.compile(r"^Internal Transfers \d+$")).click()
-    page.get_by_placeholder(re.compile("Search remarks")).fill("WALK-IT made-up wallet move")
-    rows = page.get_by_role("row").filter(has_text="WALK-IT made-up wallet move seen twice")
-    rows.nth(1).wait_for()
-    check(rows.count() == 2, "both lines of the move are in the Internal Transfers tab")
-    repeat_row = rows.filter(has_not=page.get_by_role("link", name=re.compile(r"^INT-")))
-    check(repeat_row.count() == 1, "one of them, the repeat, holds no record link")
-    repeat_row.get_by_role("button", name="Send back to Mismatched").click()
-    dialog = page.get_by_role("dialog", name="Send back to Mismatched")
-    dialog.wait_for()
-    check(dialog.get_by_text(re.compile("Any repeat of the same move")).count() == 1,
-          "the dialog says the move's repeats go back with it")
-    dialog.locator("#it-reason").fill("Walk: an employee's own money")
-    settle(page)
-    save(page, out, "10-send-back-a-repeat-dialog")
-    dialog.get_by_role("button", name="Send back to Mismatched").click()
-    dialog.wait_for(state="hidden", timeout=30_000)
-    pair = [db(name)["line"] for name in (repeat_first, repeat_second)]
-    check(all(l["row_status"] == "Mismatched" and l["records"] == [] and "Walk: an employee's own money"
-              in (l["outcome_note"] or "") for l in pair),
-          "DB: both lines of the move are Mismatched with the same reason, and the move's record is gone")
-    log.append(f"db after sending back the repeat: {json.dumps(pair)}")
-    page.get_by_role("button", name=re.compile(r"^Not Matched – Outflow \d+$")).click()
-    page.get_by_placeholder(re.compile("Search remarks")).fill("WALK-IT made-up wallet move")
-    rows = page.get_by_role("row").filter(has_text="WALK-IT made-up wallet move seen twice")
-    rows.nth(1).wait_for()
-    check(rows.filter(has_text="Sent back to Mismatched").count() == 2, "both open rows say who sent them back")
-    save(page, out, "11-the-whole-move-back-in-not-matched")
     (out / "db.txt").write_text("\n".join(log) + "\n")
     print(f"evidence: {out}")
 
@@ -218,6 +197,15 @@ with session(a.task, a.accountant, a.password) as (page, out):
     check(dialog.get_by_text("Not importing", exact=True).count() == 0, "and there is no Not importing list for it")
     settle(page)
     save(page, out, "12-cashbook-preview-internal-transfers")
+    # Owner decision 2 (#1619): the preview says how many old ₹0 records this file gives their amount.
+    fill = dialog.get_by_text("1 old Internal Transfer record gets its amount from this file", exact=True)
+    check(fill.count() == 1, "the preview says 1 old Internal Transfer record gets its amount from this file")
+    fill.scroll_into_view_if_needed()
+    settle(page)
+    save(page, out, "13-cashbook-preview-fill-sentence")
+    zero = db(zero_line)["line"]
+    check(zero["records"][0]["amount"] == 0, "DB: the preview wrote nothing, the old record still holds 0")
+    (out / "db.txt").write_text(f"zero record after the preview: {json.dumps(zero)}\n")
     page.keyboard.press("Escape")
     print(f"evidence: {out}")
 
