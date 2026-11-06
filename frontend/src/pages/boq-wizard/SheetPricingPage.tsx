@@ -27,7 +27,7 @@ import {
 } from "./GridColumnFilter";
 import { CLS_LABELS } from "./reviewRender";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { isNirmaanAdmin } from "@/constants/roles";
@@ -206,7 +206,9 @@ import {
   rateKindsOf,
 } from "./rate-helper/rateSuggestionModel";
 import { RateHelperPanel, type UseMeta } from "./rate-helper/RateHelperPanel";
-import { buildHelperList } from "./rate-helper/rateHelperRegistry";
+import { buildHelperList, makePreviouslyPricedHelper, type MatchRunData } from "./rate-helper/rateHelperRegistry";
+import type { MatchDetail, PreviousMatch } from "./rate-helper/rateHelperTypes";
+import { canOpenBoqHub } from "./boqAccess";
 import {
   buildExtractionByRow,
   rowUsesPreRunHelper,
@@ -214,7 +216,13 @@ import {
   makePreRunHelper,
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
-import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
+import {
+  RateSuggestProgressModal,
+  confirmEstimateLine,
+  type MatchPaces,
+  type MatchPhaseState,
+  type SuggestModalSummary,
+} from "./rate-helper/RateSuggestProgressModal";
 // Calculator slice 2: the rate-master data plumbing (config targets, the per-category config
 // fetcher, the config map, the items fetch) moved OUT of this page into ONE shared module so the
 // Calculator tab mounts the same helper on the same data. A move, not a redesign -- same methods,
@@ -398,6 +406,8 @@ interface SuggestStatusResponse {
   /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
    *  it to report what RAN rather than the population. Already published by the worker. */
   scoped_row_count?: number | null;
+  /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
+  match?: { queued: boolean; run?: string; reason?: string } | null;
 }
 
 /** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
@@ -434,6 +444,56 @@ function SuggestStatusPoller({
     if (msg) onStatus(msg);
   }, [msg, onStatus]);
   return null;
+}
+
+/** DEV2-B4: the match phase's status (get_match_status). Switch OFF -> {match_enabled: false} and nothing else. */
+interface MatchStatusResponse {
+  match_enabled: boolean;
+  paces?: MatchPaces;
+  state?: "running" | "done" | "idle";
+  phase?: string;
+  done?: number;
+  total?: number;
+  seconds?: number;
+  estimate_left_s?: number;
+  run?: string;
+  status?: string;
+  halt_reason?: string | null;
+  rows_done?: number;
+  rows_total?: number;
+}
+
+/** DEV2-B4: poll the match phase for one sheet (as SuggestStatusPoller): once on mount (which tells the page whether
+ *  matching is ON, and its paces), every 3 s while a match runs. Renders no DOM. */
+function MatchStatusPoller({
+  boq,
+  sheetName,
+  running,
+  onStatus,
+}: {
+  boq: string;
+  sheetName: string;
+  running: boolean;
+  onStatus: (msg: MatchStatusResponse) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: MatchStatusResponse }>(
+    "nirmaan_stack.api.boq.rate_match.get_match_status",
+    { boq, sheet_name: sheetName },
+    `boq-match-status::${boq}::${sheetName}`,
+    { refreshInterval: running ? 3000 : 0 },
+  );
+  const msg = data?.message;
+  useEffect(() => {
+    if (msg) onStatus(msg);
+  }, [msg, onStatus]);
+  return null;
+}
+
+/** DEV2-B5 S4 (G14 (a)): the `?row=` value as an Excel row, or null (absent, not a whole number, or below 1). Pure. */
+export function rowParamOf(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value.trim())) return null;
+  const n = Number(value.trim());
+  return Number.isInteger(n) && n >= 1 ? n : null;
 }
 
 // T1 reconnect-gate: the editor's socket self-heal refetches (get_priced_rows + get_sheet_categories)
@@ -1246,6 +1306,20 @@ const SheetPricingPage = () => {
   // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
   // attempted_count) stay declared in ONE place rather than drifting between page and modal.
   const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
+  // DEV2-B4: historical matching after a COMPLETE Suggest run (switch read from get_match_status; OFF -> all inert)
+  const [matchEnabled, setMatchEnabled] = useState(false);
+  const [matchPaces, setMatchPaces] = useState<MatchPaces | null>(null);
+  const [matchRunning, setMatchRunning] = useState(false);
+  const [matchPhase, setMatchPhase] = useState<MatchPhaseState | null>(null);
+  const matchRunRef = useRef<string | null>(null);
+  // DEV2-B4: the sheet's stored matches (the active match run), fetched only while matching is ON and refetched when a
+  // match run ends. DEV2-B5: they feed the "Previously priced" card (the closure below); with matching OFF the fetch is
+  // off and the card is the static stub, as before.
+  const { data: matchResultsData, mutate: mutateMatchResults } = useFrappeGetCall<{ message: { run: MatchRunData | null } }>(
+    "nirmaan_stack.api.boq.rate_match.get_match_results",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
+    rmEnabled && matchEnabled ? undefined : null,
+  );
   // SELECTED-ROW runs. The selection lives HERE, at page level, for two reasons: the button that
   // consumes it is a page control, and the grid must receive only per-row BOOLEANS. The COUNT
   // derived below is used by the page's own confirmation and is NEVER passed to PricingGrid -- a
@@ -2941,7 +3015,55 @@ const SheetPricingPage = () => {
         : null,
     [configsByCategory, rmItems, extractionByRow, suggestRun],
   );
-  const helperList = useMemo(() => buildHelperList(pricingSheetHelper), [pricingSheetHelper]);
+  // DEV2-B5 S4: the "Previously priced BoQs" helper -- a closure over the sheet's match results (keyed by excelRow),
+  // built only while matching is ON; null => the static stub, exactly as before. Its result is a decline that carries
+  // the matches (no value to Use, no badge: G4 (a)).
+  const { call: markNotAMatchCall } = useFrappePostCall("nirmaan_stack.api.boq.rate_match.mark_not_a_match");
+  const { call: undoNotAMatchCall } = useFrappePostCall("nirmaan_stack.api.boq.rate_match.undo_not_a_match");
+  const { call: matchDetailCall } = useFrappePostCall("nirmaan_stack.api.boq.rate_match.get_match_detail");
+  const matchRunForVersion = useMemo(() => {
+    const run = matchResultsData?.message?.run ?? null;
+    return run && commitVersion !== null && Number(run.commit_version) === Number(commitVersion) ? run : null;
+  }, [matchResultsData, commitVersion]);
+  const unitByExcelRow = useMemo(() => new Map(rows.map((r) => [r.source_row_number, r.unit ?? ""])), [rows]);
+  // DEV2-B6 (owner answer 2, "widen"): the rows with "Previously priced" matches -> the grid's visible sparkle.
+  const matchResultRows = useMemo(
+    () => new Set((matchRunForVersion?.rows ?? []).filter((r) => (r.matches?.length ?? 0) > 0).map((r) => Number(r.excel_row))),
+    [matchRunForVersion],
+  );
+  const previouslyPricedHelper = useMemo(() => {
+    if (!RATE_HELPER_ENABLED || !matchEnabled || !boqId || !sheetName) return null;
+    const target = (m: PreviousMatch, excelRow: number) => ({
+      boq: boqId, sheet_name: sheetName, excel_row: excelRow, match_run: matchRunForVersion?.name,
+      match_boq: m.boq, match_sheet_name: m.sheet_name, match_excel_row: m.excel_row,
+    });
+    return makePreviouslyPricedHelper({
+      run: matchRunForVersion,
+      running: matchRunning,
+      failedReason: matchPhase?.state === "failed" ? (matchPhase.reason ?? "the match run stopped") : null,
+      boq: boqId,
+      sheetName,
+      unitByExcelRow,
+      actions: {
+        canMark: !locked,
+        canOpenBoqs: canOpenBoqHub(role, currentUser),
+        loadDetail: async (m, excelRow) => {
+          const r = await matchDetailCall(target(m, excelRow));
+          return (r as { message: MatchDetail }).message;
+        },
+        onMark: async (m, excelRow, reason, note) => {
+          await markNotAMatchCall({ ...target(m, excelRow), reason, note });
+          await mutateMatchResults();
+        },
+        onUndo: async (m, excelRow) => {
+          await undoNotAMatchCall(target(m, excelRow));
+          await mutateMatchResults();
+        },
+      },
+    });
+  }, [matchEnabled, boqId, sheetName, matchRunForVersion, matchRunning, matchPhase, unitByExcelRow, locked, role, currentUser,
+      matchDetailCall, markNotAMatchCall, undoNotAMatchCall, mutateMatchResults]);
+  const helperList = useMemo(() => buildHelperList(pricingSheetHelper, previouslyPricedHelper), [pricingSheetHelper, previouslyPricedHelper]);
   // SLICE 2 (J5, owner P-a / P-d): BEFORE a run, the panel shows the "Pricing sheet" decline card
   // ("coming soon" / the config's helper_message) for a row whose DISCIPLINE has nothing to price --
   // no eligible config among that discipline's fetched configs (HVAC today: ADP is data-only and the
@@ -2967,9 +3089,9 @@ const SheetPricingPage = () => {
     const discipline = resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null;
     const categoryId = liveCategoriesByExcelRow.get(helperPanel.excelRow)?.effective_category_id ?? null;
     return rowUsesPreRunHelper(discipline, categoryId, configsByCategory, RATE_MASTER_CONFIG_TARGETS)
-      ? buildHelperList(preRunHelper)
+      ? buildHelperList(preRunHelper, previouslyPricedHelper)
       : helperList;
-  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, liveCategoriesByExcelRow, configsByCategory, helperList]);
+  }, [pricingSheetHelper, preRunHelper, helperPanel, resolvedByExcelRow, liveCategoriesByExcelRow, configsByCategory, helperList, previouslyPricedHelper]);
 
   // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
   // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).
@@ -3052,12 +3174,47 @@ const SheetPricingPage = () => {
           usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
           setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
         }
+        // DEV2-B4: a COMPLETE run with matching ON hands over to the matching phase (the payload says whether a
+        // match run was queued; without the key -- switch OFF -- nothing changes).
+        if (msg.status === "success" && msg.match) {
+          if (msg.match.queued && msg.match.run) {
+            matchRunRef.current = msg.match.run;
+            setMatchPhase({ state: "running", done: 0, total: 0, elapsedS: 0, leftS: null });
+            setMatchRunning(true);
+          } else {
+            setMatchPhase({ state: "failed", done: 0, total: 0, elapsedS: 0, leftS: null, reason: msg.match.reason ?? null });
+          }
+        }
         // Refetch either way: a partial still needs the resume affordance to appear.
         void mutateActiveRun();
         void mutateSuggestEvents();
       }
     },
     [mutateActiveRun, mutateSuggestEvents],
+  );
+
+  // DEV2-B4: the match status handler (poll). Learns the switch and the paces; drives the phase of THIS run only.
+  const onMatchStatus = useCallback(
+    (msg: MatchStatusResponse) => {
+      setMatchEnabled(!!msg.match_enabled);
+      if (!msg.match_enabled) return;
+      if (msg.paces) setMatchPaces(msg.paces);
+      const mine = matchRunRef.current;
+      if (!mine || msg.run !== mine) return;
+      if (msg.state === "running") {
+        setMatchPhase({ state: "running", done: msg.done ?? 0, total: msg.total ?? 0, elapsedS: msg.seconds ?? 0,
+          leftS: typeof msg.estimate_left_s === "number" ? msg.estimate_left_s : null });
+      } else if (msg.state === "done") {
+        matchRunRef.current = null;
+        setMatchRunning(false);
+        setMatchPhase(msg.status === "success"
+          ? { state: "done", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null }
+          : { state: "failed", done: msg.rows_done ?? 0, total: msg.rows_total ?? 0, elapsedS: 0, leftS: null,
+            reason: msg.halt_reason ?? null });
+        void mutateMatchResults();
+      }
+    },
+    [mutateMatchResults],
   );
 
   // ── SELECTED-ROW runs: the eligible set, the tick handler, and the confirmation ──────
@@ -3093,6 +3250,12 @@ const SheetPricingPage = () => {
     () => suggestConfirmCopy(selectedCount, eligibleRows.size, neverReadLabels),
     [selectedCount, eligibleRows, neverReadLabels],
   );
+  // DEV2-B4: the ONE estimate line (total + split) when matching is ON; "" -> the dialog is exactly as before. The rows
+  // are the ones the run will read: the ticked rows plus the never-read ones, or the whole eligible set.
+  const confirmEstimate = useMemo(
+    () => confirmEstimateLine(matchEnabled, selectedCount > 0 ? selectedCount + neverReadLabels.length : eligibleRows.size, matchPaces),
+    [matchEnabled, selectedCount, neverReadLabels, eligibleRows, matchPaces],
+  );
 
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
   // SR-1: pass resumeRunId to CONTINUE a partial run -- the server fills only its pending rows and
@@ -3103,6 +3266,9 @@ const SheetPricingPage = () => {
     setHelperPanel(null);
     setSuggestSummary(null);
     setSuggestProgress(null);
+    matchRunRef.current = null;
+    setMatchRunning(false);
+    setMatchPhase(null);
     setSuggestRunning(true);
     setSuggestModalOpen(true);
     try {
@@ -3228,6 +3394,23 @@ const SheetPricingPage = () => {
     // SLICE 12d-1a (owner R2): `rows` rides along so the context carries the row's section headings.
     return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows), unit: row.unit ?? "" };
   }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
+  // DEV2-B5 S4 (G14 (a)): `?row=<excel_row>` -- the "Open this row" link of the Previously priced card. Once the rows are
+  // loaded and the row exists: clear the view filters (a filtered-out row could not be shown) and scroll to it through
+  // the grid's own jump (which also opens a collapsed parent). Once per load; no parameter -> nothing happens.
+  const [searchParams] = useSearchParams();
+  const rowParam = rowParamOf(searchParams.get("row"));
+  const rowJumpDoneRef = useRef(false);
+  useEffect(() => {
+    if (rowJumpDoneRef.current || rowParam === null) return;
+    if (!rows.some((r) => r.source_row_number === rowParam)) return;
+    clearAllViewFilters();
+    const t = window.setTimeout(() => {
+      if (!gridRef.current || rowJumpDoneRef.current) return;
+      rowJumpDoneRef.current = true;
+      gridRef.current.scrollToRow(rowParam);
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [rowParam, rows, clearAllViewFilters]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
   // RM-3b: the embedded rate-helper panel is a PERMANENT part of the embedded layout (panel-as-default)
@@ -4623,6 +4806,9 @@ const SheetPricingPage = () => {
           onStatus={onSuggestStatus}
         />
       )}
+      {RATE_HELPER_ENABLED && boqId && sheetName && (
+        <MatchStatusPoller boq={boqId} sheetName={sheetName} running={matchRunning} onStatus={onMatchStatus} />
+      )}
       {RATE_HELPER_ENABLED && (
         <RateSuggestProgressModal
           open={suggestModalOpen}
@@ -4633,8 +4819,10 @@ const SheetPricingPage = () => {
           onClose={() => {
             setSuggestModalOpen(false);
             setSuggestProgress(null);
+            setMatchPhase(null);
           }}
           onResume={partialSuggestRun ? resumeSuggestRun : undefined}
+          match={matchEnabled ? matchPhase : null}
         />
       )}
       {/* SELECTED-ROW runs: THE confirmation before ANY AI call. There is no other path from the
@@ -4650,6 +4838,7 @@ const SheetPricingPage = () => {
                 <div className="space-y-2">
                   <p>{confirmCopy.body}</p>
                   {confirmCopy.neverRead && <p data-testid="suggest-confirm-never-read">{confirmCopy.neverRead}</p>}
+                  {confirmEstimate && <p data-testid="suggest-confirm-estimate">{confirmEstimate}</p>}
                   {confirmCopy.warning && (
                     <p className="font-medium text-destructive">{confirmCopy.warning}</p>
                   )}
@@ -5419,6 +5608,7 @@ const SheetPricingPage = () => {
             // is a stable useCallback; rowSuggestionsByExcelRow changes only on a run / a "Use this
             // value" (like liveCategoriesByExcelRow) -- never on keystroke, so the memo shield holds.
             rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
+            matchResultRows={RATE_HELPER_ENABLED && matchEnabled ? matchResultRows : undefined}
             onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
             tickableRows={RATE_HELPER_ENABLED ? eligibleRows : undefined}
             selectedRows={RATE_HELPER_ENABLED ? selectedRows : undefined}
