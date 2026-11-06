@@ -19,26 +19,12 @@ import { Textarea } from "@/components/ui/textarea";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { isCreditRow } from "../outflowTableModel";
+import { describeFrappeError, isCreditRow } from "../outflowTableModel";
 import { otherEndChoices, ownPlace } from "../internalTransferView";
 
 export type InternalTransferAction = "mark" | "sendBack";
 
 const ENDPOINT = "nirmaan_stack.api.outflow_import.internal_transfer_actions";
-
-/** The server's refusal sentence, as the screen shows it. */
-const serverSentence = (error: unknown): string => {
-    const raw = (error as { message?: string; exception?: string; _server_messages?: string }) ?? {};
-    if (raw._server_messages) {
-        try {
-            const first = JSON.parse(JSON.parse(raw._server_messages)[0]);
-            if (first?.message) return String(first.message);
-        } catch {
-            // fall through to the plain message
-        }
-    }
-    return raw.message || "It could not be saved. Nothing was changed.";
-};
 
 /**
  * Mark as Internal Transfer, and Send back to Mismatched (#1626, spec #1619). Admin and Accountant Lead only: the
@@ -89,7 +75,7 @@ export const InternalTransferDialog = ({
             );
             onDone();
         } catch (caught) {
-            setError(serverSentence(caught));
+            setError(describeFrappeError(caught, "It could not be saved. Nothing was changed."));
         }
     };
 

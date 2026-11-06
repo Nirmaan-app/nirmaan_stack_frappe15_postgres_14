@@ -77,7 +77,8 @@ from nirmaan_stack.services.outflow_import.cashbook_reopen import (
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CASHBOOK_INTERNAL_KINDS,
     TransferEnds,
-    cashbook_line_transfer,
+    cashbook_internal_facts,
+    cashbook_raw_transfer,
     transfer_sentence,
 )
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -199,9 +200,7 @@ class PlannedRow:
     partner: str = ""
     # #1596: the earlier line skipped as own balances that this line re-opens in place; it is then not staged anew.
     reopens: EarlierWrongSkip | None = None
-    # #1623: on an internal line, where the money came from and went (`internal_transfers.cashbook_line_transfer`),
-    # the money moved (its Debit, or its Credit where the Debit is blank, as on a top-up), whether this line makes
-    # the record (False on a status-changed repeat: its earlier sighting already did), and the rule id it names.
+    # #1623: an internal line's transfer facts (`internal_transfers.cashbook_internal_facts`).
     transfer: TransferEnds | None = None
     transfer_money: Decimal = Decimal("0")
     records_transfer: bool = False
@@ -360,7 +359,9 @@ def plan_statement(
             placement = _placement(base["remarks"], index, expense_rules)
             planned.append(PlannedRow(action=action, reason=reason, **base, **placement))
         elif action == ACTION_INTERNAL:
-            planned.append(PlannedRow(action=action, reason=reason, **base, **_internal(split.kept[position])))
+            line = split.kept[position]
+            facts = cashbook_internal_facts(line.row, repeat=bool(line.earlier or line.in_file))
+            planned.append(PlannedRow(action=action, reason=reason, **base, **facts))
         else:
             if action == ACTION_OPEN and base["row_kind"] in REFUND_ROW_KINDS:
                 reason = unpaired_reason(base["transfer_id"], base["amount"], rows)
@@ -398,8 +399,7 @@ def _decide(
     if kind in CASHBOOK_INTERNAL_KINDS and (line.earlier or line.in_file or bool(getattr(raw, "is_success", False))):
         # #1623: Cashbook's own moves are Internal Transfers, a status-changed repeat included (it records nothing:
         # see `_internal`). One the wallet says did not happen keeps today's skip: no money moved.
-        ends = _ends(raw)
-        return ACTION_INTERNAL, transfer_sentence(ends), None
+        return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
     if kind in CREDIT_ROW_KINDS:
         if kind in REFUND_ROW_KINDS:
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES
@@ -465,29 +465,6 @@ def _skip_reason(
         # that knows which ledger it queried.
         return SKIP_ALREADY_BOOKED.format(record=record), SKIP_KIND_OUTFLOW_RECORDED
     return "", None
-
-
-def _ends(raw) -> TransferEnds:
-    """Where an internal line's money came from and went: by its Type, naming the employee from `From` / `To`."""
-    return cashbook_line_transfer(
-        _row_kind(raw),
-        from_party=getattr(raw, "added_by_raw", "") or "",
-        to_party=getattr(raw, "beneficiary_name", "") or "",
-    )
-
-
-def _internal(line: KeptLine) -> dict:
-    """An internal line's transfer facts (#1623). A STATUS-CHANGED repeat (`line.earlier` / `line.in_file`) is still
-    an Internal Transfer line, but makes no record: its earlier sighting already recorded the move."""
-    raw = line.row
-    debit = getattr(raw, "amount", Decimal("0")) or Decimal("0")
-    credit = getattr(raw, "credit_amount", Decimal("0")) or Decimal("0")
-    return {
-        "transfer": _ends(raw),
-        "transfer_money": debit if debit > 0 else credit,
-        "records_transfer": not (line.earlier or line.in_file),
-        "transfer_rule": CASHBOOK_INTERNAL_KINDS[_row_kind(raw)],
-    }
 
 
 def _pairable_spend(line: KeptLine, booked: Mapping[tuple, tuple[PriorSighting, ...]]) -> bool:

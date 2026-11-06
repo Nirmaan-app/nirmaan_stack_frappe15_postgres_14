@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.bank_exclusions import IFSC_CASHBOOK, IFSC_CASHFREE, IFSC_PORTER
 
@@ -156,6 +157,30 @@ def cashbook_line_transfer(row_kind: str, *, from_party: str, to_party: str) -> 
     if kind == CASHBOOK_WALLET_TO_VA:
         return TransferEnds(PLACE_CASHBOOK_WALLET, PLACE_CASHBOOK_VA, (from_party or "").strip())
     return None
+
+
+def cashbook_raw_transfer(raw) -> TransferEnds | None:
+    """`cashbook_line_transfer` for a parsed Cashbook row: its Type, and the employee from `From` / `To`."""
+    return cashbook_line_transfer(
+        getattr(raw, "row_kind", "") or "",
+        from_party=getattr(raw, "added_by_raw", "") or "",
+        to_party=getattr(raw, "beneficiary_name", "") or "",
+    )
+
+
+def cashbook_internal_facts(raw, *, repeat: bool) -> dict:
+    """An internal Cashbook line's transfer facts, as `cashbook.PlannedRow` carries them (#1623): where the money
+    came from and went, the money moved (its Debit, or its Credit where the Debit is blank, as on a top-up), whether
+    the line makes the record (not a STATUS-CHANGED repeat: its earlier sighting already recorded the move), and the
+    rule id the record names."""
+    debit = getattr(raw, "amount", None) or Decimal("0")
+    credit = getattr(raw, "credit_amount", None) or Decimal("0")
+    return {
+        "transfer": cashbook_raw_transfer(raw),
+        "transfer_money": debit if debit > 0 else credit,
+        "records_transfer": not repeat,
+        "transfer_rule": CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
+    }
 
 
 def transfer_sentence(ends: TransferEnds) -> str:
