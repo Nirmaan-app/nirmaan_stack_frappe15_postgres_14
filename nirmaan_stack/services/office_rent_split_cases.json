@@ -1,0 +1,16 @@
+{
+  "_about": "The Office Rent split (spec #1613), one table read by both copies of the rule: services/test_expense_tds_rule.py and frontend/src/utils/expenses/expenseTds.test.ts. A case with split null splits nothing.",
+  "cases": [
+    {"label": "a Rs 1,18,000 bill", "type": "Office Rent", "bill": 118000,
+     "split": {"base": 100000, "gst": 18000, "tds": 10000, "landlord_gets": 108000}},
+    {"label": "a Rs 50,000 bill, whose base does not divide evenly", "type": "Office Rent", "bill": 50000,
+     "split": {"base": 42372.88, "gst": 7627.12, "tds": 4237.29, "landlord_gets": 45762.71}},
+    {"label": "a Rs 14,999 bill, under the approval tier", "type": "Office Rent", "bill": 14999,
+     "split": {"base": 12711.02, "gst": 2287.98, "tds": 1271.1, "landlord_gets": 13727.9}},
+    {"label": "a Rs 10,010 bill, whose TDS falls on a half paisa (848.305) and rounds to the even paisa", "type": "Office Rent", "bill": 10010,
+     "split": {"base": 8483.05, "gst": 1526.95, "tds": 848.3, "landlord_gets": 9161.7}},
+    {"label": "a zero", "type": "Office Rent", "bill": 0, "split": null},
+    {"label": "a refund", "type": "Office Rent", "bill": -5000, "split": null},
+    {"label": "a type that is not rent", "type": "Electricity Expenses", "bill": 118000, "split": null}
+  ]
+}

@@ -121,17 +121,21 @@ Both share one approval lifecycle and are entered/managed together in a single u
   when the row is new or its type changed, so an old row whose type was re-flagged stays editable.
   Paths that refuse before building anything (`settle._assert_type_scope`, `execute_adjustment`)
   ask the same `expense_type_problem`.
-- **An Office Rent expense withholds 10% TDS (194-I) when it is approved** (spec #1522, #1525). Approved
-  from an earlier step (`decide`'s `l1_approve` / `ceo_approve` landing on Approved) or born Approved,
-  it gets one `Payment TDS Deduction` (the full rent, the tax, the landlord from its request's answers)
-  and its `amount` becomes the net, once (`services/expense_tds`, hooks `controllers/expense_tds`). The
-  status machine is unchanged and the tiers read the gross, because the cut comes after the approval;
-  the Expense Request keeps the gross. No other type withholds, and nothing backfills. Full rule:
+- **An Office Rent expense's amount is the landlord's bill incl. 18% GST, and it withholds 10% TDS (194-I)
+  on the base rent when it is approved** (spec #1522, #1525, #1613, ADR-0043). Base = bill ÷ 1.18 (to the
+  paisa), GST = bill − base, TDS = 10% of the base, landlord gets = bill − TDS (`expense_tds.tds_split`).
+  Approved from an earlier step (`decide`'s `l1_approve` / `ceo_approve` landing on Approved) or born
+  Approved, it gets one `Payment TDS Deduction` (gross = the base rent, the tax, the landlord from its
+  request's answers), its `amount` becomes what the landlord gets and its read-only `gst_amount` the GST,
+  once (`services/expense_tds`, hooks `controllers/expense_tds`). The status machine is unchanged and the
+  tiers read the bill, because the cut comes after the approval; the Expense Request keeps the bill.
+  Rows the imports create (born Paid) carry no tax and no GST; rents approved before #1613 keep GST 0. No other type withholds, and nothing backfills. Full rule:
   `payment-tds.md` § Load-bearing invariants: withholding from an Office Rent expense. Its record's
   **Payment Paid On** copies the Expense's `payment_date` while it is Paid (`payment-tds.md` § Payment
   Paid On).
-  **Once withheld, its amount is locked** for every role and every system save, except Bulk Import's
-  single-line correction within ₹5, which leaves the tax record as it was; deleting it deletes its tax
+  **Once withheld, its amount and GST are locked** for every role and every system save, except Bulk
+  Import's single-line correction of the amount within ₹5, which leaves the tax record and the GST as they
+  were; deleting it deletes its tax
   record, and is refused once that tax is on a challan (#1526, `expense_tds.guard_withheld_amount` /
   `delete_with_expense`; `payment-tds.md` § a withheld Office Rent expense).
   **No approval withholds without the landlord** (owner, 2026-10-21): an approval that would withhold is
@@ -716,10 +720,16 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `person_name` and the rent period, which the duplicate staff-stay check reads.
 - **Office Rent's form (spec #1522, #1524) and the `pan` and `month` field kinds.** Office Rent asks Rent
   Month (a `month` field: month and year only, owner 2026-10-21), Office Location, Landlord Name and
-  Landlord PAN, all required (`templateId` `office-rent`, `templateVersion` 2), and its sentence is
-  `Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (10%
-  TDS will be deducted)`, e.g. "Office rent for Oct 2026 – …"; pinned by
-  `test_request_forms.TestTheOfficeRentForm`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
+  Landlord PAN, all required (`templateId` `office-rent`), and its sentence is
+  `Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (Amount
+  incl. 18% GST; 10% TDS on the rent will be deducted)` (`templateVersion` 3, spec #1613; version 2 said
+  "(10% TDS will be deducted)"), e.g. "Office rent for Oct 2026 – …"; a new site's form,
+  `services/expense_types_seed.json`, pinned by
+  `test_request_forms.TestTheOfficeRentForm`. An existing site gets version 3 from the one-time patch
+  `v3_0.office_rent_form_says_gst`, only where its live form is still, as JSON, the version-2 one the seed
+  shipped: a form an Admin edited, one already at version 3, and a site without Office Rent are left alone,
+  and requests already raised keep their frozen form (owner 2026-11-06). Pinned by
+  `test_office_rent_form_gst_patch`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
   exemption to "no form names who gets paid" (`TAX_DEDUCTEE_FIELDS`); who gets paid is the landlord's
   account, through the Payee picker: Office Rent is *Required* (owner 2026-10-21, reversing the spec's
   "payee out of scope"), enforced like every *Required* type, on screen only (`payees.md`). A `month`
@@ -734,8 +744,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   `services/vendor_tds.is_valid_pan` / `clean_pan`), which stores the answer uppercased and refuses one
   not shaped like ABCPK1234D. ⚠️ Office Rent's landlord name and PAN are the ONE pair of form answers
   the server REQUIRES (`create.guard_deductee_answers`, on create and edit, read under the tax rule's
-  keys; spec #1522 review): every other required answer is still the dialog's. The New Expense form shows the
-  10% split under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
+  keys; spec #1522 review): every other required answer is still the dialog's. The New Expense form shows
+  "Bill ₹… = Rent ₹… + GST 18% ₹… − TDS 10% ₹… → Landlord gets ₹…" under the Amount for Office Rent only (`utils/expenses/expenseTds`; see
   `payment-tds.md` § One tax record, two sources).
 - **Per-type visibility (`Expense Type.allowed_roles`, 2026-09-16).** Role PROFILES that may pick
   the type in the request dialog; Admin sees every type and is never listed, so **EMPTY = Admin

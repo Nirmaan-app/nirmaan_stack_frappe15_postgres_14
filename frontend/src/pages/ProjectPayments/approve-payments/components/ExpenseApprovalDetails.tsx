@@ -87,7 +87,7 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
   const extraFiles = requestAttachments(d);
   const outcome = expenseApprovalOutcome(stage, d.amount);
   // An Office Rent expense whose request does not name the landlord: the server refuses the approve, so
-  // the Rent / TDS / Net caption warns instead, no outcome is promised, and Confirm is disabled (spec
+  // the Bill / Rent / GST / TDS / Landlord gets caption warns instead, no outcome is promised, and Confirm is disabled (spec
   // #1522 review batch 2).
   const blocked = approvalBlocked(d, approving);
   const invoiceBits = [d.invoice_ref, d.invoice_date ? formatDate(d.invoice_date) : ""].filter(Boolean);
@@ -104,7 +104,7 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
         <Row label="Type">{d.type || "--"}</Row>
         <Row label="Amount">
           <span className="font-semibold tabular-nums">{formatToIndianRupee(d.amount)}</span>
-          {/* Office Rent: Rent / TDS / Net, what this approval will withhold or did (#1527). */}
+          {/* Office Rent: Bill / Rent / GST / TDS / Landlord gets, what this approval will withhold or did (#1527). */}
           <ExpenseTdsBreakdown
             shown={shownExpenseTds({ type: d.type, amount: d.amount, status: d.status, withheld: d.withheld_tds })}
             variant="block"

@@ -11,6 +11,8 @@ export interface NonProjectExpenses {
     description?: string;
     comment?: string
     amount: number;
+    /** An Office Rent bill's 18% GST, set once at approval (spec #1613); 0 on every other expense. Read-only. */
+    gst_amount?: number;
 
     status?: "Requested" | "Approved" | "Paid"; // Approval workflow status (default "Requested")
 

@@ -25,6 +25,7 @@
   "description",
   "comment",
   "amount",
+  "gst_amount",
   "payment_details_section",
   "payment_attachment",
   "payment_ref",
@@ -226,12 +227,19 @@
    "options": "Outflow Import Batch",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "description": "An Office Rent bill's 18% GST (bill - bill / 1.18), set once when the Expense is approved and its TDS withheld (spec #1613). 0 for every other expense.",
+   "fieldname": "gst_amount",
+   "fieldtype": "Currency",
+   "label": "GST",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-02 08:45:53.296208",
+ "modified": "2026-11-05 22:26:13.058953",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",
