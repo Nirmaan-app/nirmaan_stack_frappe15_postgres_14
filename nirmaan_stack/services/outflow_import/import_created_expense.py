@@ -19,14 +19,14 @@ so neither was renamed.
 from __future__ import annotations
 
 import frappe
-from psycopg2.errors import UniqueViolation
+
+from nirmaan_stack.services.outflow_import.concurrency import is_unique_refusal_by_index
 
 __all__ = [
     "IMPORT_CREATED_EXPENSE_INDEX",
     "IMPORT_CREATED_EXPENSE_PREDICATE",
     "import_created_expense_holding",
     "is_import_created_expense_refusal",
-    "is_unique_refusal_by_index",
     "transfers_with_two_import_created_expenses",
 ]
 
@@ -75,23 +75,3 @@ def is_import_created_expense_refusal(exc: BaseException) -> bool:
     no other database error (another unique key, a deadlock, a lost race) is ever relabelled "Already
     imported"."""
     return is_unique_refusal_by_index(exc, IMPORT_CREATED_EXPENSE_INDEX)
-
-
-def is_unique_refusal_by_index(exc: BaseException, index_name: str) -> bool:
-    """True only for a `UniqueViolation` whose constraint is `index_name`. Follows the cause chain and Frappe's
-    wrapping (`UniqueValidationError(doctype, name, exc)`). Shared with `settled_target_index` (#1606), so the
-    two refusals are recognised one way."""
-    seen = set()
-    pending = [exc]
-    while pending:
-        current = pending.pop()
-        if current is None or id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, UniqueViolation):
-            diag = getattr(current, "diag", None)
-            if getattr(diag, "constraint_name", None) == index_name:
-                return True
-        pending.extend([current.__cause__, current.__context__])
-        pending.extend(arg for arg in getattr(current, "args", ()) if isinstance(arg, BaseException))
-    return False

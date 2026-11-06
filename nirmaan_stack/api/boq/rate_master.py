@@ -805,6 +805,20 @@ def _mark_run_failed(run_name, halt_reason):
     )
 
 
+def _start_match_after_suggest(boq, sheet_name, run_id, scope, resume_run_id, user):
+    """DEV2-B4: hand a COMPLETE run to historical matching (api/boq/rate_match.start_after_suggest). None when the
+    switch is OFF. NEVER raises and never touches this run: any failure is logged and Suggest carries on as before."""
+    try:
+        from nirmaan_stack.api.boq import rate_match
+        return rate_match.start_after_suggest(
+            boq, sheet_name, run_id, only_rows=sorted(scope) if scope is not None else None,
+            resume_run_id=resume_run_id, user=user,
+        )
+    except Exception:  # noqa: BLE001
+        frappe.log_error(title="BoQ match trigger failed", message=frappe.get_traceback())
+        return None
+
+
 def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, only_rows=None):
     """Background worker: run extraction, WRITE the Suggestion Run doc (prior active -> active=0) at
     terminal SUCCESS, commit BEFORE publish, record + publish the terminal payload. On failure,
@@ -934,6 +948,12 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
             # document-level `attempted_count` cannot answer that question.
             "pass_attempted_count": pass_attempted_count(env),
         }
+        # DEV2-B4 SEQUENCE (owner G1): historical matching follows a COMPLETE run -- after the commit above, outside
+        # this run's transaction, before the done payload. Switch OFF -> None and the payload is untouched.
+        if complete:
+            match = _start_match_after_suggest(boq, sheet_name, run_id, scope, resume_run_id, user)
+            if match is not None:
+                payload["match"] = match
     except Exception:
         # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was
         # taken, and rolling back would throw away exactly the work SR-1 exists to preserve. The run

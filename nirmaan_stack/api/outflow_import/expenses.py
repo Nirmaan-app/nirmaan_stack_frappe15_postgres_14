@@ -77,33 +77,35 @@ from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
 from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
+# `allocation` also holds `allocation_note` (moved there from a private `expenses.py` helper at
+# review; `row_settlement` reads it) -- it is pure arithmetic-plus-wording over legs, which is that
+# module's job, not `api/`'s.
+from nirmaan_stack.services.outflow_import.allocation import (
+    MATCH_SETTLED,
+    allocated_of,
+    allocation_fits,
+    is_over_allocated,
+    remaining_of,
+)
+from nirmaan_stack.services.outflow_import.amounts import to_decimal
+from nirmaan_stack.services.outflow_import.cashbook_collect import (
+    COLLECT_PAYMENT_CHOICES_REFUSAL,
+    is_collect_payment_line,
+)
+from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
+from nirmaan_stack.services.outflow_import.import_comment import (
+    import_comment,
+    import_comment_problem,
+)
 from nirmaan_stack.services.outflow_import.import_created_expense import (
     import_created_expense_holding,
     is_import_created_expense_refusal,
-)
-from nirmaan_stack.services.outflow_import.settled_target_index import (
-    is_settled_target_refusal,
-    settled_target_holding,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.cashbook_collect import (
-    COLLECT_PAYMENT_CHOICES_REFUSAL,
-    is_collect_payment_line,
-)
-from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
-from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
-from nirmaan_stack.services.outflow_import.amounts import to_decimal
-from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
-# ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
-# and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
-# PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
-# the app, would drift -- and the drift shows up as a PO whose terms stopped adding up, months
-# later, with no way to tell which copy wrote it.
-from nirmaan_stack.services.payment_split import split_payment
 from nirmaan_stack.services.outflow_import.partial_settle import (
     REFUSAL_NOT_APPROVED,
     REFUSAL_NOT_A_PAYMENT,
@@ -113,9 +115,13 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     VALID_INTENTS,
     partial_eligibility,
 )
-from nirmaan_stack.services.outflow_import.import_comment import (
-    import_comment,
-    import_comment_problem,
+# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
+# written directly by `record_settlement`. See `refresh_row_allocation`.
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    link_statement_file_to_target,
+    record_settlement,
+    refresh_batch_rollup,
+    refresh_row_allocation,
 )
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
@@ -125,6 +131,12 @@ from nirmaan_stack.services.outflow_import.settle import (
     link_lines_to_expense,
     settle_payment,
 )
+from nirmaan_stack.services.outflow_import.settled_target_index import (
+    is_settled_target_refusal,
+    settled_target_holding,
+)
+from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
+from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
 from nirmaan_stack.services.outflow_import.status import (
     ORIGIN_ACCEPTED,
     ROW_PARTIALLY_ALLOCATED,
@@ -135,6 +147,7 @@ from nirmaan_stack.services.outflow_import.status import (
     RECORDED_DUPLICATE,
     LINK_REFUSED_ALREADY_LINKED,
     LINK_REFUSED_TXN_ID_HELD,
+    LINK_REFUSED_TXN_ID_TICKED_TWICE,
     SKIP_REASON_ALREADY_IMPORTED_AS,
     derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
@@ -144,23 +157,12 @@ from nirmaan_stack.services.outflow_import.status import (
     # would present as money settled on the debit side but reported under `Received`.
     is_received_direction,
 )
-# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
-# written directly by `record_settlement`. See `refresh_row_allocation`. `allocation_note` moved
-# here from a private `expenses.py` helper at review -- it is pure arithmetic-plus-wording over
-# legs, which is this module's job, not `api/`'s.
-from nirmaan_stack.services.outflow_import.allocation import (
-    MATCH_SETTLED,
-    allocated_of,
-    allocation_fits,
-    is_over_allocated,
-    remaining_of,
-)
-from nirmaan_stack.services.outflow_import.row_settlement import (
-    link_statement_file_to_target,
-    record_settlement,
-    refresh_batch_rollup,
-    refresh_row_allocation,
-)
+# ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
+# and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
+# PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
+# the app, would drift -- and the drift shows up as a PO whose terms stopped adding up, months
+# later, with no way to tell which copy wrote it.
+from nirmaan_stack.services.payment_split import split_payment
 
 # The one status a partial settlement reads or writes. Both halves come out `Reconciliation Pending`:
 # the money was already sanctioned AND already marked as gone, and this import re-partitions that
@@ -218,6 +220,13 @@ class AlreadyLinkedError(frappe.ValidationError):
     the line that hold it. Nothing was written."""
 
 
+class TxnIdTickedTwiceError(frappe.ValidationError):
+    """A many-line Link refused because two of the ticked lines carry one Txn Id (#1611).
+
+    One of the two match indexes refused the second line's match insert inside the same request, so no committed
+    line holds the Txn Id; the sentence names that Txn Id and the record the person picked. Nothing was written."""
+
+
 def already_imported_sentence(transfer_id: str | None) -> str | None:
     """"Already imported in batch <batch> as <ledger> <name>." for the Expense the import created for this
     Txn Id, or `None` when none holds it.
@@ -238,24 +247,29 @@ def refuse_link_of_a_held_txn_id(transfer_ids, target_doctype: str, target_name:
 
     * The one-Expense-per-Txn-Id index (#1601), for a Cashbook line: another line holds the Txn Id Settled to a
       DIFFERENT Expense -> `LINK_REFUSED_TXN_ID_HELD`, `AlreadyImportedError`.
-    * `ofm_match_settled_target_unique` (#1606), every source: another line already ties the Txn Id to the
-      Expense the person PICKED -> `LINK_REFUSED_ALREADY_LINKED`, `AlreadyLinkedError`, naming that line. A
-      Cashbook line refused for this reason may reach here through either index -- Postgres checks them in its own
-      order -- so the picked Expense holding it is told the same way whichever index spoke.
+    * `ofm_match_settled_target_unique` (#1606), every source and every ledger (a Payment too, #1611): another line
+      already ties the Txn Id to the record the person PICKED -> `LINK_REFUSED_ALREADY_LINKED`,
+      `AlreadyLinkedError`, naming that line. A Cashbook line refused for this reason may reach here through either
+      index -- Postgres checks them in its own order -- so the picked Expense holding it is told the same way
+      whichever index spoke.
+    * Neither holder, but two of `transfer_ids` are one Txn Id (#1611): a many-line Link ticked two lines of it, and
+      the index refused the second inside this request -> `LINK_REFUSED_TXN_ID_TICKED_TWICE`,
+      `TxnIdTickedTwiceError`.
 
     ⚠️ A FULL ROLLBACK, NOT THE SAVEPOINT'S, for `_refuse_as_already_imported`'s reason: the holder was committed
     after this request's snapshot, so only a new transaction can read it. Nothing of this request is kept.
 
     ⚠️ RECOGNISED BY THE INDEX'S NAME ONLY. Any other error -- another unique key, a deadlock, a lost race -- is
     left to the caller untouched, before the rollback. When no holder is left by the time it is read (Unreconciled
-    meanwhile), the original error stands."""
+    meanwhile) and no Txn Id was ticked twice, the original error stands."""
     by_txn_id_index = is_import_created_expense_refusal(exc)
     if not (by_txn_id_index or is_settled_target_refusal(exc)):
         return
     frappe.db.rollback()
-    held = [transfer_id for transfer_id in transfer_ids if transfer_id]
+    txn_ids = [transfer_id for transfer_id in transfer_ids if transfer_id]
+    records = f"{target_doctype} {target_name}"
     if by_txn_id_index:
-        for transfer_id in held:
+        for transfer_id in txn_ids:
             holder = import_created_expense_holding(transfer_id)
             if holder and (holder["target_doctype"], holder["target_name"]) != (target_doctype, target_name):
                 frappe.throw(
@@ -268,19 +282,26 @@ def refuse_link_of_a_held_txn_id(transfer_ids, target_doctype: str, target_name:
                     title="Already recorded",
                     exc=AlreadyImportedError,
                 )
-    for transfer_id in held:
+    for transfer_id in txn_ids:
         line = settled_target_holding(transfer_id, target_doctype, target_name)
         if line:
             frappe.throw(
                 LINK_REFUSED_ALREADY_LINKED.format(
                     transfer_id=transfer_id,
-                    records=f"{target_doctype} {target_name}",
+                    records=records,
                     line=line["import_row"],
                     batch=line["import_batch"],
                 ),
                 title="Already linked",
                 exc=AlreadyLinkedError,
             )
+    ticked_twice = next((transfer_id for transfer_id in txn_ids if txn_ids.count(transfer_id) > 1), None)
+    if ticked_twice:
+        frappe.throw(
+            LINK_REFUSED_TXN_ID_TICKED_TWICE.format(transfer_id=ticked_twice, records=records),
+            title="Ticked twice",
+            exc=TxnIdTickedTwiceError,
+        )
     raise exc
 
 
@@ -442,11 +463,10 @@ def _settle_and_commit(
         # note is the only place on this screen that fact survives.
         refresh_row_allocation(staged.name, actor, result)
     except Exception as exc:
-        # #1601, #1606: a Link refused because another line holds the Txn Id -- Settled to a different Expense
-        # (a Cashbook line), or to this very Expense (any source) -- is told so here (raises); any other error
-        # falls through.
-        if target_doctype != PAYMENT_DOCTYPE:
-            refuse_link_of_a_held_txn_id([staged.transfer_id], target_doctype, target_name, exc)
+        # #1601, #1606, #1611: a Link refused because another line holds the Txn Id -- Settled to a different
+        # Expense (a Cashbook line), or to this very record (any source, a Payment too) -- is told so here (raises);
+        # any other error falls through.
+        refuse_link_of_a_held_txn_id([staged.transfer_id], target_doctype, target_name, exc)
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
         # and the database is exactly as it was before this row was attempted.
         #

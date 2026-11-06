@@ -102,7 +102,7 @@ def standing_of(request, expense: dict | None, level: str | None, withheld: dict
 	serves the same through this.
 
 	`withheld_tds` is the Expense's tax record's figures once an Office Rent expense is approved (#1527),
-	else None: before approval `amount` is still the full rent, and the screen forecasts from it."""
+	else None: before approval `amount` is still the bill (spec #1613), and the screen forecasts from it."""
 	return {
 		"status": live_status(request["status"], expense and expense["status"]),
 		"amount": expense["amount"] if expense else flt(request["amount"]),

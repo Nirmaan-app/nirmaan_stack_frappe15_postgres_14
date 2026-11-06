@@ -16,3 +16,5 @@ build
 .claude/state/
 # Personal daily task notes
 .A-Daily Task/
+# DEV2-B2: the server pricing step, built from the frontend pricing source by frontend/scripts/build_pricing_step.mjs
+nirmaan_stack/services/boq_rate_match/_build/

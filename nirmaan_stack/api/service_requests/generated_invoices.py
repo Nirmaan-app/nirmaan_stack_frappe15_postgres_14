@@ -105,6 +105,8 @@ def generate_invoice(work_order: str, invoice_date: str | None = None, amount=No
         invoice_type = gi.FINAL if gi.is_final(sr.total_amount, state["billed"], bill) else gi.RA
 
         date = getdate(invoice_date or today())
+        if date > getdate(today()):
+            frappe.throw(_("Invoice Date can't be in the future."))
         ra_number = state["next_ra_number"]
         doc = _new_record({
             "work_order": sr.name,

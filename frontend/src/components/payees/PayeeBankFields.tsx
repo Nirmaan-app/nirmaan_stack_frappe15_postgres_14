@@ -21,6 +21,7 @@ import {
     accountsMatch,
     cleanAccountNumber,
     duplicateSentence,
+    holderNameProblem,
     ifscShapeProblem,
     OWN_ACCOUNT_REFUSAL,
     refusesOwnAccount,
@@ -72,6 +73,7 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
                 id="payee_account_name"
                 label={inForm ? "Account Name" : "Account Holder Name"}
                 help="As the bank has it. This is the name the bank file sends."
+                error={form.account_name.trim() ? holderNameProblem(form.account_name) : null}
             >
                 <Input
                     id="payee_account_name"

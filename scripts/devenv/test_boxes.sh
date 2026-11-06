@@ -177,6 +177,7 @@ has "ok    test dod check" "status runs the Definition of Done check"
 task done t2
 rc_is 0 "done t2"; has "laptop already has box/t2" "done asks the recorded box"
 
+export DEVBOX_CLAUDE_HOME="$T/laptop-claude"; mkdir -p "$DEVBOX_CLAUDE_HOME"
 fresh_log
 task start t3 --brief "$T/brief.md"
 rc_is 0 "start t3 with an agent on the default box"; has "[the default]" "start without --box takes the default"
@@ -184,6 +185,31 @@ same "$(rec t3)" contabo "the default box is recorded"
 log_has "orca agent launch --environment test-orca --agent claude" "the agent is launched on contabo's Orca server"
 log_has "--prompt You are an agent on a dev box, working on task 't3'" "the agent gets the task prompt"
 has "Claude is working in 't3'" "start sees the agent's terminal"
+has "Claude plugins and pstack-models.md match the laptop's" "start says when the box's Claude setup matches the laptop's"
+
+mkdir -p "$DEVBOX_CLAUDE_HOME/plugins"
+echo '{"enabledPlugins": {"pstack@p": true, "off@p": false}}' > "$DEVBOX_CLAUDE_HOME/settings.json"
+echo '{"plugins": {"pstack@p": [{"version": "1.0"}]}}' > "$DEVBOX_CLAUDE_HOME/plugins/installed_plugins.json"
+echo "session hook: off" > "$DEVBOX_CLAUDE_HOME/pstack-models.md"
+task start t5 --box contabo --brief "$T/brief.md"
+rc_is 0 "a box whose Claude setup differs still gets its agent"
+has "WARN  box contabo's Claude setup differs from the laptop's" "start warns when the box lacks the laptop's setup"
+has "laptop: plugin pstack@p" "the warning names the plugin the box lacks"
+has "box:    pstack-models.md absent" "the warning names the missing pstack-models.md"
+case "$OUT" in *"off@p"*) fail "a disabled plugin is not compared" ;; *) pass "a disabled plugin is not compared" ;; esac
+has "Claude is working in 't5'" "the agent starts after the warning"
+mkdir -p "$T/boxes/t@contabo-test/.claude"; cp -R "$DEVBOX_CLAUDE_HOME/." "$T/boxes/t@contabo-test/.claude/"
+task start t6 --box contabo --brief "$T/brief.md"
+has "Claude plugins and pstack-models.md match the laptop's" "the same setup on both sides matches"
+case "$OUT" in *"note  plugin versions differ"*) fail "the same versions print no note" ;; *) pass "the same versions print no note" ;; esac
+echo '{"plugins": {"pstack@p": [{"version": "2.0"}]}}' > "$T/boxes/t@contabo-test/.claude/plugins/installed_plugins.json"
+task start t7 --box contabo --brief "$T/brief.md"
+has "Claude plugins and pstack-models.md match the laptop's" "another version alone is no warning"
+has "note  plugin versions differ (laptop -> box): pstack@p 1.0 -> 2.0" "another version is one note line"
+
+task done t3
+rc_is 0 "done t3"
+has "Separate review (fills the report's ## Review): /mattpocock-skills:code-review $(git -C "$L" merge-base master box/t3 | cut -c1-9), on box/t3" "done names the separate review against the task's base"
 
 TASK_ENV="STUB_FAIL_ON=_box STUB_FAIL_RC=255" task start t4 --box air --no-agent
 rc_is 3 "a box lost mid-start is exit 3"; has "Steps already done stay done" "a box lost mid-start says rerun"

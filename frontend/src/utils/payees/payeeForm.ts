@@ -27,6 +27,9 @@ const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const IFSC_SHAPE_PROBLEM =
     "An IFSC is 11 characters: four letters, a zero, then six letters or digits (e.g. SBIN0005943).";
 const ACCOUNT_CHARS = /^[A-Z0-9]+$/;
+const LETTER = /[A-Za-z]/;
+/** A holder name naming a bank. Twin of `rules._BANK_WORD`: whole words, the word BANK or a short name. */
+const BANK_WORD = /\b(BANK|SBI|HDFC|ICICI|PNB|IDFC|IDBI|UCO|KOTAK|INDUSIND)\b/i;
 
 /** The account number as the server stores it: no spaces or dashes, upper-cased. */
 export const cleanAccountNumber = (value: string): string => value.replace(/[\s-]+/g, "").toUpperCase();
@@ -89,10 +92,23 @@ export const accountsMatch = (form: PayeeFormValues): boolean => {
 };
 
 /**
+ * Why the holder name can't be saved, or null: blank, no letter (an account number in the wrong box), or a
+ * bank's name. Twin of `rules.holder_name_problem`.
+ */
+export const holderNameProblem = (name: string): string | null => {
+    const clean = squashHolderName(name);
+    if (!clean) return "Enter the account holder name.";
+    if (!LETTER.test(clean)) return "Account holder name can't be only numbers. Enter the name on the bank account.";
+    if (BANK_WORD.test(clean)) return "Account holder name can't be a bank name. Enter the person or company who owns the account.";
+    return null;
+};
+
+/**
  * Why the form can't be submitted yet, or null. `bankFound` is whether the IFSC lookup found a bank.
  */
 export const payeeFormProblem = (form: PayeeFormValues, { bankFound }: { bankFound: boolean }): string | null => {
-    if (!form.account_name.trim()) return "Enter the account holder name.";
+    const holder = holderNameProblem(form.account_name);
+    if (holder) return holder;
     const number = cleanAccountNumber(form.account_number);
     if (!number || normalizeAccount(number) === "0") return "Enter the account number.";
     if (!ACCOUNT_CHARS.test(number)) return "An account number holds only letters and digits.";

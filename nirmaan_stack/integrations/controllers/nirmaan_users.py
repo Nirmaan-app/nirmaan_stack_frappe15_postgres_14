@@ -1,6 +1,9 @@
 import frappe
+from frappe import _
 
 from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
+from nirmaan_stack.services.exited_employees import switch_off_login
+from nirmaan_stack.services.nirmaan_users import forget_nirmaan_users
 from nirmaan_stack.services.payees.own_accounts import check_own_account, delete_own_account
 
 
@@ -8,11 +11,37 @@ def validate(doc, method):
     """The person's own bank account (Reimbursements) changes only through
     `services/payees/own_accounts.add_own_account`, and is never another person's."""
     check_own_account(doc)
+    check_role_profile_copy(doc)
+
+
+def check_role_profile_copy(doc):
+    """`role_profile` is a copy of the Frappe User's `role_profile_name`, and changes only through the
+    User's sync (`on_user_update` / `create_user_profile`), for everyone, Admin included (owner, 2026-11-05):
+    a change is refused unless it matches the login's profile, which only a User admin can change.
+
+    Many roles may write their own Nirmaan Users record, and about 100 gates read this copy
+    (`services/role_profiles`), so a copy that differs from the User is refused. A User admin gives a
+    role profile on the User (the Users screen does). The site install writes Administrator's copy.
+    """
+    if frappe.flags.in_install or not doc.has_value_changed("role_profile"):
+        return
+    on_user = frappe.db.get_value("User", doc.name, "role_profile_name")
+    if (doc.role_profile or None) != (on_user or None):
+        frappe.throw(
+            _("A role profile is changed on the user's login (Users page), not here."), frappe.PermissionError
+        )
+
+
+def after_insert(doc, method):
+    """A new Nirmaan user: the login gate's cached set must take them in."""
+    forget_nirmaan_users()
 
 
 def after_delete(doc, method):
     """The person's own bank account goes with them (owner, 2026-10-28), unless a Vendor is also paid into it.
-    Here, not in `on_trash`: the person's row must be gone first, or Frappe refuses to delete the Payee it links."""
+    Here, not in `on_trash`: the person's row must be gone first, or Frappe refuses to delete the Payee it links.
+    The login gate's cached set of Nirmaan users drops them at once."""
+    forget_nirmaan_users()
     delete_own_account(doc.get("payee"))
 
 
@@ -42,10 +71,9 @@ def on_update(doc, method):
 
 def on_trash(doc, method):
     """
-    Delete associated User Permissions, Notifications, and User Doctype
-    when a Nirmaan Users record is deleted.
-
-    Handles edge cases where associated records may not exist.
+    The person has left: delete their User Permissions and Notifications, and switch their login off
+    (`services/exited_employees.switch_off_login`). The Frappe User is kept, because many records link
+    to it; deleting it failed on those links, and the failure was swallowed.
     """
     email = doc.name
 
@@ -68,30 +96,16 @@ def on_trash(doc, method):
             "Nirmaan Users Delete"
         )
 
-    # Delete Frappe User - with existence check
-    try:
-        if frappe.db.exists("User", email):
-            user = frappe.get_doc("User", email)
-            user.delete()
-        else:
-            # Log for debugging - User doesn't exist but Nirmaan Users did
-            frappe.log_error(
-                f"Frappe User {email} does not exist but Nirmaan Users did. "
-                "This indicates a sync issue between User and Nirmaan Users doctypes.",
-                "Nirmaan Users Sync Warning"
-            )
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to delete Frappe User {email}: {str(e)}",
-            "Nirmaan Users Delete"
-        )
+    if frappe.db.exists("User", email):
+        switch_off_login(email)
 
 
 def after_rename(doc, method, old_name, new_name, merge):
     """
-    Update email field after document rename.
+    Update email field after document rename, and drop the login gate's cached set of Nirmaan users.
     Called when Nirmaan Users document is renamed (email change).
     """
+    forget_nirmaan_users()
     try:
         # Update the email field to match the new name (primary key)
         frappe.db.set_value("Nirmaan Users", new_name, "email", new_name, update_modified=False)

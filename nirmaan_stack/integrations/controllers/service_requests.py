@@ -18,6 +18,7 @@ from nirmaan_stack.api.invoices._item_billing_sync import invoiced_of
 from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.api.service_requests.vendor_fy_limit import validate_vendor_gst_hold
 from nirmaan_stack.services.amount_paid import amount_paid_of
+from nirmaan_stack.services import gst_payment_requests
 from nirmaan_stack.services.role_profiles import ACCOUNTANT_PROFILES, SERVICE_PROCUREMENT_PROFILES, can_decide_work_order
 from nirmaan_stack.services.work_order_amendment import ACCEPTED, REVERTED, mark_snapshots, vendor_before_amendment
 from nirmaan_stack.services.work_order_gst import gst_flag_for_vendor, gst_is_on
@@ -219,6 +220,15 @@ def validate_gst_not_switched_off_with_gst_payments(doc):
             ),
             title=_("GST payments exist"),
         )
+    # A Pending GST request would become a GST payment on a Work Order with no GST.
+    waiting = gst_payment_requests.pending_requests(doc.name)
+    if waiting:
+        frappe.throw(
+            _("GST cannot be switched off on {0} while GST requests wait for the Accountant: {1}.").format(
+                doc.name, ", ".join(waiting)
+            ),
+            title=_("GST requests waiting"),
+        )
 
 
 def on_trash(doc, method):
@@ -229,6 +239,16 @@ def on_trash(doc, method):
     that still exists. The rollback that ends a refused delete drops the queued events, and the deletes here.
     """
     frappe.db.delete("Nirmaan Comments", {"reference_name": doc.name})
+    # Its GST requests go with it, or their Link would refuse the delete. A raw delete, which skips the
+    # request's own `on_trash` (only a decider deletes a request) on purpose: it is the Work Order that is
+    # deleted, and its requests mean nothing without it. Nothing derives from a request. A Work Order with a
+    # payment is refused by Frappe's link check after this hook, and that rollback restores its requests.
+    # Their bell rows and Version history go too.
+    requests = frappe.get_all(gst_payment_requests.DOCTYPE, filters={"work_order": doc.name}, pluck="name")
+    if requests:
+        frappe.db.delete("Nirmaan Notifications", {"document": gst_payment_requests.DOCTYPE, "docname": ["in", requests]})
+        frappe.db.delete("Version", {"ref_doctype": gst_payment_requests.DOCTYPE, "docname": ["in", requests]})
+        frappe.db.delete(gst_payment_requests.DOCTYPE, {"name": ["in", requests]})
     notifications = frappe.get_all("Nirmaan Notifications", filters={"docname": doc.name},
                                    fields=["name", "recipient"])
     for notification in notifications:

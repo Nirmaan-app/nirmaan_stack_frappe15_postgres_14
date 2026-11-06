@@ -16,7 +16,7 @@ from nirmaan_stack.services.approval_tiers import (
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_steps import ROUTED_AT_REQUEST
-from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.services import cheque_payments, gst_payment_requests
 from nirmaan_stack.services.tds_forecast import request_amount_as_stored
 from nirmaan_stack.services.cheques import decide as cheque_decision
 from nirmaan_stack.services.cheques.payment_rules import CREDIT_TERM, credit_request_problem
@@ -44,26 +44,26 @@ ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
 # `services/payment_split.py` references it by name; nothing routes on it any more.
 PAYMENT_AUTO_APPROVAL_THRESHOLD = 10001.0
 
-def _route_new_payment(amount):
-    """`(status, l1_cleared, ceo_cleared)` for a payment the SESSION USER is raising.
+def _route_new_payment(amount, raiser: str | None = None):
+    """`(status, l1_cleared, ceo_cleared)` for a payment `raiser` (default: the SESSION USER) is raising.
 
     ⚠️ A step the raiser already holds is not asked of them again (owner, 2026-09-21): an L1
     approver's payment is born past L1, the CEO's past both -- `approval_tiers` owns the rule,
     `approval_raiser` knows who holds what. The auto band is unchanged. Both creation endpoints
     route through here so they cannot disagree.
     """
-    level = raiser_level(frappe.session.user)
+    level = raiser_level(raiser or frappe.session.user)
     status = initial_status_for_raiser(amount, TIER_L2_ABOVE, level)
     l1_cleared, ceo_cleared = steps_cleared_by_raiser(amount, TIER_L2_ABOVE, level)
     return status, l1_cleared, ceo_cleared
 
 
-def tier_new_payment(amount, cheque):
-    """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` the session user
-    raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount (spec #1477,
-    C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
+def tier_new_payment(amount, cheque, raiser: str | None = None):
+    """`(auto_approve, status, l1_cleared, ceo_cleared)` for a new payment of `amount` that `raiser` (default:
+    the session user) raises. A cheque payment (`cheque`, its cheque's header) is tiered on the CHEQUE amount
+    (spec #1477, C3): one cheque is one decision. Small payments auto-approve; a negative refund never does."""
     tier_amount = cheque.amount if cheque else amount
-    return (is_auto_approved(tier_amount), *_route_new_payment(tier_amount))
+    return (is_auto_approved(tier_amount), *_route_new_payment(tier_amount, raiser))
 
 
 def _stamp_raiser_approval(pay, l1_cleared: bool, ceo_cleared: bool) -> None:
@@ -74,9 +74,10 @@ def _stamp_raiser_approval(pay, l1_cleared: bool, ceo_cleared: bool) -> None:
         pay.ceo_approval_date = nowdate()
 
 
-def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
+def _comment_raiser_approval(pay, ceo_cleared: bool, raiser: str | None = None) -> None:
     pay.add_comment("Comment", _("Approved at request: raised by {0}, who holds {1}.").format(
-        frappe.utils.get_fullname(frappe.session.user), _("L1 and CEO approval") if ceo_cleared else _("L1 approval")))
+        frappe.utils.get_fullname(raiser or frappe.session.user),
+        _("L1 and CEO approval") if ceo_cleared else _("L1 approval")))
 
 
 def _assert_within_po_balance(src, amount):
@@ -86,6 +87,64 @@ def _assert_within_po_balance(src, amount):
     problem = po_balance_refusal(po_available_balance(src), amount)
     if problem:
         frappe.throw(problem)
+
+
+def insert_requested_payment(src, amount, gst_payment: bool, payload: dict, *, gst_request=None):
+    """Insert a requested payment on PO / Work Order `src`, routed as its raiser raises it.
+
+    `(pay, cheque_name, status)`. The one insert behind Request Payment and the approval of a GST
+    Payment Request (`api/payments/gst_payment_requests`), so the two route, auto-approve, comment and
+    put a cheque on alike. The caller has checked the order's limit and commits; nothing is committed
+    here. The raiser is the session user, or `gst_request`'s requester when an approved request makes the
+    payment: routed on the requester's level, and owned by them (`gst_payment_requests.link_payment`, at
+    `after_insert`), with no switch of the session user.
+    """
+    raiser = gst_request.owner if gst_request else None
+    # Before the insert: its `after_insert` commits, so a refusal after it would come too late.
+    cheque = cheque_header(payload, vendor=src.vendor)
+    refuse_unless_cheque_can_be_made(cheque)
+
+    # ── create payment doc  (ACID wrapper) ─────────────────────────
+    # Small payments auto-approve; negative refunds (amount < 0) always go
+    # through manual review, hence the strict `0 < amount` lower bound.
+    auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque, raiser)
+
+    pay = frappe.new_doc("Project Payments")
+    pay.update({
+        "document_type" : src.doctype,
+        "document_name" : src.name,
+        "project"       : src.project,
+        "vendor"        : src.vendor,
+        "amount"        : request_amount_as_stored(amount),
+        "status"        : status,
+        "is_gst_payment": 1 if gst_payment else 0,
+        **_mode_fields(payload),
+    })
+    if auto_approve:
+        pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
+        pay.approval_date = nowdate()
+        pay.ceo_approval_date = nowdate()
+    else:
+        _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
+    # Checked by the caller against the amount AS REQUESTED; the insert validation must not check the
+    # rounded figure again and refuse what the caller just allowed.
+    pay.flags.work_order_limit_checked = True
+    # Routed above by the raiser's level (`tier_new_payment`), on the requested amount or the cheque's.
+    pay.flags[ROUTED_AT_REQUEST] = True
+    if gst_request:
+        # The request's name: `after_insert` links it and gives the payment its requester as owner.
+        pay.flags[gst_payment_requests.FROM_GST_REQUEST] = gst_request.name
+    expect_new_cheque(pay, cheque)
+    pay.insert(ignore_permissions=bool(gst_request))
+
+    if auto_approve:
+        pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
+            frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
+    elif l1_cleared:
+        _comment_raiser_approval(pay, ceo_cleared, raiser)
+
+    cheque_name = put_on_new_cheque(pay.name, cheque)
+    return pay, cheque_name, status
 
 
 @frappe.whitelist()
@@ -126,6 +185,10 @@ def create_payment_request_for_service(data: str) -> str:
     gst_payment = bool(frappe.utils.cint(payload.get("is_gst_payment")))
     if gst_payment and doctype != "Service Requests":
         frappe.throw(_("A GST payment can only be requested on a Work Order."))
+    # Every person's GST is approved in GST Requests first (`request_gst_payment`), an Accountant's own too.
+    if gst_payment and not gst_payment_requests.raises_gst_directly(frappe.session.user):
+        frappe.throw(_("A GST payment is approved in GST Requests first: send it to the Accountant."),
+                     title=_("Accountant approval needed"))
 
     # ── fetch source document inside the txn ───────────────────────
     src = frappe.get_doc(doctype, docname)
@@ -135,47 +198,7 @@ def create_payment_request_for_service(data: str) -> str:
     else:
         _assert_within_po_balance(src, amount)
 
-    # Before the insert: its `after_insert` commits, so a refusal after it would come too late.
-    cheque = cheque_header(payload, vendor=src.vendor)
-    refuse_unless_cheque_can_be_made(cheque)
-
-    # ── create payment doc  (ACID wrapper) ─────────────────────────
-    # Small payments auto-approve; negative refunds (amount < 0) always go
-    # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque)
-
-    pay = frappe.new_doc("Project Payments")
-    pay.update({
-        "document_type" : doctype,
-        "document_name" : docname,
-        "project"       : src.project,
-        "vendor"        : src.vendor,
-        "amount"        : request_amount_as_stored(amount),
-        "status"        : status,
-        "is_gst_payment": 1 if gst_payment else 0,
-        **_mode_fields(payload),
-    })
-    if auto_approve:
-        pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
-        pay.approval_date = nowdate()
-        pay.ceo_approval_date = nowdate()
-    else:
-        _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
-    # Checked above against the amount AS REQUESTED; the insert validation must not check the
-    # rounded figure again and refuse what this endpoint just allowed.
-    pay.flags.work_order_limit_checked = True
-    # Routed above by the raiser's level (`tier_new_payment`), on the requested amount or the cheque's.
-    pay.flags[ROUTED_AT_REQUEST] = True
-    expect_new_cheque(pay, cheque)
-    pay.insert()
-
-    if auto_approve:
-        pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
-            frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
-    elif l1_cleared:
-        _comment_raiser_approval(pay, ceo_cleared)
-
-    cheque_name = put_on_new_cheque(pay.name, cheque)
+    pay, cheque_name, status = insert_requested_payment(src, amount, gst_payment, payload)
     frappe.db.commit()
 
     # A cheque born Approved (the auto band, or a raiser who holds the approval) goes straight

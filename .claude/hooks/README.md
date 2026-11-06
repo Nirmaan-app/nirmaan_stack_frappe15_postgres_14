@@ -1,6 +1,6 @@
 # Repo guard hooks
 
-Two small, committed guards that enforce conventions which were previously prose-only
+Small, committed guards that enforce conventions which were previously prose-only
 (and therefore silently ignored). Both fail open / are bypassable for genuine exceptions.
 
 ## 1. `guard_claude_md.py` — keep per-slice detail out of CLAUDE.md (Claude Code hook)
@@ -66,3 +66,19 @@ returns `decision: block` with the list of what is missing, so the hook teaches 
 - *Bounded* — after 3 consecutive blocks it lets a stuck session end; the report then says what is missing.
 - *Proofs, not claims* — it reads stamps written by `devenv.sh test/unit/typecheck` and the verify skill's
   `drive.py`, each holding the tree hash of the code it ran on.
+
+## 4. `guard_log_polling.py` — no foreground loops that poll a log (Claude Code hook)
+
+**What:** a `PreToolUse` hook (matcher `Bash`). It denies an `until`/`while` loop that sleeps and reads a file (`grep`,
+`tail`, `cat`, `wc`) unless the command runs with `run_in_background`. Such a loop spends the 10-minute tool limit and
+ends before the work does; the deny reason tells the agent to run the long command in the background and act on its
+completion notice. A box agent ran four such loops in one task with the prose rule in its context.
+
+**Registered in** `.claude/settings.json` only (app-root launches; agents start at a worktree's root).
+
+**Properties:**
+- *Fail-open* — any parse error → allow.
+- *Reads only what runs* — heredoc bodies and quoted strings are skipped, so writing a script that holds a loop is allowed.
+- *Narrow* — a retry loop that reads no file (a readiness probe such as `until curl …`) is allowed.
+
+**Test:** `python3 -I .claude/hooks/test_guard_log_polling.py`

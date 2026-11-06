@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.import_created_expense import is_unique_refusal_by_index
+from nirmaan_stack.services.outflow_import.concurrency import is_unique_refusal_by_index
 
 __all__ = ["SETTLED_TARGET_INDEX", "is_settled_target_refusal", "settled_target_holding"]
 

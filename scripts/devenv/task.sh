@@ -40,19 +40,21 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 cd "$(git -C "$SELF_DIR" rev-parse --show-toplevel)"
 . "$SELF_DIR/boxes.sh"
 
-# The one rule for a task's state. alive: 1 or 0 for a claude process whose folder is the task's env, - when the box
-# did not answer. A finished Claude session stays alive waiting for input, so alive alone never means working.
+# The one rule for a task's state: task_state <alive> <report word> <dod>. alive: 1 or 0 for a claude process whose
+# folder is the task's env, - when the box did not answer. A finished Claude session stays alive waiting for input,
+# so alive alone never means working. dod: 1 or 0 for `dod.py check` in the env, - when the env has no dod.py. A
+# report says DONE before its last test run ends ("DONE (draft, ...)", #1611), so DONE counts only with the check.
 task_state() {
-  case "$1:$2" in
+  case "$1:$2:$3" in
     -:*) echo unreachable ;;
-    ?:DONE|?:BLOCKED) echo finished ;;
+    ?:DONE:1|?:BLOCKED:1|?:DONE:-|?:BLOCKED:-) echo finished ;;
     1:*) echo working ;;
     *) echo crashed ;;
   esac
 }
 
-# Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<the first
-# paragraph under ## Status in its report, joined: reports wrap it>". Paths are compared physical (pwd -P), as /proc
+# Runs on a box under bash -s (bash 3.2 on macOS), args <checkout> <task>...: per task "<name>\t<alive>\t<dod>\t<the
+# first paragraph under ## Status in its report, joined: reports wrap it>". Paths are compared physical (pwd -P), as /proc
 # and lsof report them, and exactly: the macOS box also runs spare claude daemons in other folders.
 watch_probe() {
   cat <<'EOF'
@@ -63,18 +65,46 @@ case "$(uname)" in
   *) cwds="$(lsof -a -c claude -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" ;;
 esac
 for n in "$@"; do
-  alive=0; printf '%s\n' "$cwds" | grep -qxF "$root/benches/$n/apps/nirmaan_stack" && alive=1
+  wt="$root/benches/$n/apps/nirmaan_stack"
+  alive=0; printf '%s\n' "$cwds" | grep -qxF "$wt" && alive=1
+  dod=-; [ ! -f "$wt/scripts/devenv/dod.py" ] || { dod=0; (cd "$wt" && python3 scripts/devenv/dod.py check) >/dev/null 2>&1 && dod=1; }
   line="$(awk 'f && /^#/ {exit} f && NF {gsub(/\t/, " "); p = p (p == "" ? "" : " ") $0; next} f && p != "" {exit}
     /^## Status/ {f=1} END {print p}' ~/claude-artifacts/dod/box-"$n"/REPORT.md 2>/dev/null)"
-  printf '%s\t%s\t%s\n' "$n" "$alive" "$line"
+  printf '%s\t%s\t%s\t%s\n' "$n" "$alive" "$dod" "$line"
 done
+EOF
+}
+
+# Runs under python3 - <claude home>, on the laptop and on a box: the enabled plugins with their installed versions,
+# and a hash of pstack-models.md (its model roles and its SessionStart hook switch). A box that lacked pstack ran 13
+# agent tasks without it, and nothing said so.
+claude_setup() {
+  cat <<'EOF'
+import hashlib, json, os, sys
+home = sys.argv[1]
+def load(name):
+    try:
+        with open(os.path.join(home, name)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+enabled = sorted(k for k, v in (load("settings.json").get("enabledPlugins") or {}).items() if v)
+installed = load("plugins/installed_plugins.json").get("plugins") or {}
+for name in enabled:
+    versions = sorted({str(e.get("version", "?")) for e in installed.get(name, [])})
+    print("plugin", name, ",".join(versions) or "not-installed")
+try:
+    with open(os.path.join(home, "pstack-models.md"), "rb") as f:
+        print("pstack-models.md", hashlib.sha256(f.read()).hexdigest()[:12])
+except OSError:
+    print("pstack-models.md absent")
 EOF
 }
 
 WATCH_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/watch"
 
 watch_pass() {
-  local recs box names n out rc note row alive line word state detail old alerts="" f
+  local recs box names n out rc note row alive dod line word state detail old alerts="" f
   mkdir -p "$WATCH_DIR"
   recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
   echo; echo "== $(date '+%Y-%m-%d %H:%M:%S')  task watch"
@@ -90,10 +120,10 @@ watch_pass() {
     fi
     for n in $names; do
       row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
-      alive=- line=""
-      [ -z "$row" ] || IFS=$'\t' read -r _ alive line <<<"$row"
+      alive=- dod=- line=""
+      [ -z "$row" ] || IFS=$'\t' read -r _ alive dod line <<<"$row"
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
-      state="$(task_state "$alive" "$word")"
+      state="$(task_state "$alive" "$word" "$dod")"
       case "$state" in
         finished) detail="$(printf '%s\n' "$line" | sed 's/\([.!?]\)[[:space:]].*/\1/')" ;;
         unreachable) detail="${note:-no answer for this task}" ;;
@@ -124,7 +154,7 @@ watch_pass() {
 
 # box_pick: set PICK and PICK_WHY for a start without --box (the rule is in the header, under <box>).
 box_pick() {
-  local order b names out rc busy cap alive line word
+  local order b names out rc busy cap alive dod line word
   PICK="" PICK_WHY=""
   box_registry
   order="$(git config -f "$DEVBOX_REGISTRY" devbox.order || true)"
@@ -136,10 +166,10 @@ box_pick() {
     rc=0; out="$(watch_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
     if [ "$rc" != 0 ]; then echo "  $b: did not answer over SSH (exit $rc)"; continue; fi
     busy=0
-    while IFS=$'\t' read -r _ alive line; do
+    while IFS=$'\t' read -r _ alive dod line; do
       [ -n "$alive" ] || continue
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
-      [ "$(task_state "$alive" "$word")" != working ] || busy=$((busy + 1))
+      [ "$(task_state "$alive" "$word" "$dod")" != working ] || busy=$((busy + 1))
     done <<<"$out"
     cap="${BOX_AGENTS:-1}"
     echo "  $b: $busy of $cap agents working"
@@ -223,6 +253,8 @@ case "$CMD" in
     [ -z "$BRIEF" ] || [ -s "$BRIEF" ] || die "no brief at $BRIEF"
     # A placeholder left from BRIEF_TEMPLATE.md would hand the agent a wrong base, ticket or env.
     [ -z "$BRIEF" ] || ! grep -n '<<FILL' "$BRIEF" >&2 || die "the brief still holds a <<FILL: …>> from the template (lines above): fill it first"
+    [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
+      || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
     [ "$AGENT" = 0 ] || agent_ready
     box_reach
 
@@ -262,6 +294,17 @@ case "$CMD" in
     # Claude also reads it from the main checkout (the env is a worktree of it), so hide it in both.
     box_ssh "for d in $WT ~/$BOX_CO; do (cd \$d && if git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 && [ -f .claude/settings.local.json ]; then git update-index --skip-worktree .claude/settings.local.json && rm .claude/settings.local.json; fi); done; python3 -c 'import json,os,sys; p=os.path.expanduser(\"~/.claude.json\"); c=json.load(open(p)) if os.path.exists(p) else {}; c.setdefault(\"projects\",{}).setdefault(sys.argv[1],{})[\"hasTrustDialogAccepted\"]=True; json.dump(c,open(p,\"w\"),indent=2)' $WT" \
       && ok "env ready for Claude (folder trusted, the committed settings.local.json hidden in this env)"
+    HERE_SETUP="$(claude_setup | python3 - "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}")"
+    BOX_SETUP="$(claude_setup | box_ssh 'python3 - ~/.claude')"
+    # A missing plugin or another pstack-models.md changes what the agent can do: WARN. Versions drift between
+    # machines all the time (measured 2026-11-05: three pstack versions on three machines), so they get one note line.
+    names() { printf '%s\n' "$1" | awk '$1 == "plugin" {print $1, $2; next} {print}'; }
+    if [ "$(names "$HERE_SETUP")" != "$(names "$BOX_SETUP")" ]; then
+      echo "WARN  box $BOX_NAME's Claude setup differs from the laptop's: its agent may lack a skill the brief names"
+      diff <(names "$HERE_SETUP") <(names "$BOX_SETUP") | sed -n 's/^< /        laptop: /p; s/^> /        box:    /p' || true
+    else ok "Claude plugins and pstack-models.md match the laptop's"; fi
+    [ "$(names "$HERE_SETUP")" != "$(names "$BOX_SETUP")" ] || [ "$HERE_SETUP" = "$BOX_SETUP" ] \
+      || echo "note  plugin versions differ (laptop -> box): $(join -j 2 <(printf '%s\n' "$HERE_SETUP" | awk '$1 == "plugin"' | sort -k2,2) <(printf '%s\n' "$BOX_SETUP" | awk '$1 == "plugin"' | sort -k2,2) | awk '$3 != $5 {printf "%s%s %s -> %s", s, $1, $3, $5; s = "; "}')"
     agent_launch "$WT" "$(prompt)"
     n=0; until agent_alive "$WT"; do
       n=$((n + 1)); [ $n -gt 20 ] && die "no Claude terminal in '$NAME' after 60 s; open the env in Orca and run claude there"; sleep 3
@@ -292,6 +335,12 @@ case "$CMD" in
         && ok "copied the box's ~/$d to $HOME_COPY/$(basename "$d")/"
     done
     echo; echo "Review: git log --stat master..$BRANCH ; git diff master...$BRANCH"
+    # The report's ## Review is the runner's step (docs/agents/definition-of-done.md): a fresh read against the task's
+    # own base, which the box knows (a branch cut --from another ref has a base master does not).
+    ROOT="$(box_root)"
+    BASE="$(box_ssh "cd $ROOT/benches/$NAME/apps/nirmaan_stack 2>/dev/null && python3 scripts/devenv/dod.py base" 2>/dev/null || true)"
+    git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$(git merge-base master "$BRANCH")"
+    echo "Separate review (fills the report's ## Review): /mattpocock-skills:code-review ${BASE:0:9}, on $BRANCH"
     echo "Then merge and push yourself. Afterwards: task.sh clean $NAME"
     ;;
 

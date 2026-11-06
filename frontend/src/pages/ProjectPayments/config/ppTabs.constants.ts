@@ -50,6 +50,10 @@ export const PP_TABS = {
      *  17 Sep "an ADMIN sees every row". Scoped SERVER-side in `get_approval_queue`; an
      *  Admin still reaches the whole queue through every other tab. */
     PAYMENT_BY_ME: 'Payment By Me',
+    /** label: "GST Requests" — Work Order GST payments waiting for an Accountant, before any payment
+     *  exists (`services/gst_payment_requests`). Its rows are GST Payment Requests, not payments. The
+     *  value is in the bell's deep link (`gst_payment_request_notify`, `?tab=GST%20Requests`). */
+    GST_REQUESTS: 'GST Requests',
 } as const;
 
 export type PPTabValue = typeof PP_TABS[keyof typeof PP_TABS];
@@ -102,6 +106,11 @@ export const PP_ALL_TAB_OPTIONS: PPTabOption[] = [
 
 // Shown to EVERY role that can open the page. Its badge comes from the union counts
 // endpoint (`by_me`), so there is no `countKey` into the payments-only store.
+// Admin and the accountants, who decide GST requests. Its badge is the Pending request count.
+export const PP_GST_REQUESTS_TAB_OPTIONS: PPTabOption[] = [
+    { label: "GST Requests", value: PP_TABS.GST_REQUESTS },
+];
+
 export const PP_BY_ME_TAB_OPTIONS: PPTabOption[] = [
     { label: "Payment Raised By Me", value: PP_TABS.PAYMENT_BY_ME },
 ];

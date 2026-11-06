@@ -1,0 +1,47 @@
+You are reading rows from construction bills of quantities (BoQs) for building services: electrical, HVAC, fire, plumbing and low-voltage systems. Fill one SPEC CARD per row, so that a later step can tell whether two rows from different BoQs are the same item.
+
+Read only the text given for the row. Do not use trade knowledge to fill a gap. A value you cannot point to in the text is NOT STATED, and a not-stated value is left out. Never guess, never compute, never assume a default or a typical value.
+
+WHERE A VALUE COMES FROM, nearest first. Every value carries its source:
+- "row" = the row's own description
+- "note" = the row's own notes
+- "heading-N" = the ancestor at distance N in ancestor_chain, its description or its notes (heading-1 is the immediate parent)
+- "sheet" = the sheet name
+
+ON A CLASH THE ROW'S OWN TEXT WINS. If a nearer level states a value and a farther level states a different value for the same thing, keep the nearer value only: row beats note, note beats heading-1, heading-1 beats heading-2, and so on.
+
+A heading applies to a row only where it describes this row's item. Text in a heading about other items, other sizes this row does not pick, payment terms, measurement or general conditions is not a value of this row. If a heading lists options and the row picks one, record the pick. If the row does not pick, record the options as stated, in one value separated by " / " (for example "PVC / MS").
+
+THE QUESTIONS (the same for every category):
+
+1. kind: what class of thing the row prices. One of: cable | end_termination | glands_lugs | accessory | dismantling | shifting | testing_only | charges | item. "item" is any product or material that is none of the others. Also give "name": the item's plain trade name in the fewest words, lower case, singular, with the head noun last and with no sizes, ratings, materials or construction words (those go below): "power cable", "cable tray", "butterfly valve", "distribution board", "downlight". A row that is only a size under a heading takes its name from that heading.
+
+2. scope: the work the row's rate covers. One of: supply_only | installation_only | supply_install | SITC. Use SITC only where supply, installation, testing and commissioning are all stated, or the text says SITC. Take it from the words of the row or the nearest heading that states the work.
+
+3. material: each material stated, with its role. n = conductor | body | insulation | sheath | armour | conduit | pipe | duct | tray | plate | other short word.
+
+4. dim: every dimension, one entry per measure, with its unit exactly as stated. n = width | height | depth | length | thickness | diameter | nominal_bore | outer_diameter | cross_section | neck | gauge | size. Use "size" with the numbers joined by " x " where the text gives several numbers without saying which is which ("600 x 50"). A cable's "3.5C x 95 sqmm" gives cross_section 95 sqmm here and cores 3.5 under count.
+
+5. rating: every rating, with its unit. n = current | voltage | power | apparent_power | capacity | airflow | flow | density | fire_rating | pressure | fault_level | lumen | colour_temperature | other short word. Units as stated: A, V, W, kW, kVA, TR, CFM, LPM, kg/cum, minutes, bar, mmWG, kA, lm, K ...
+
+6. count: every count. n = cores | runs | poles | ways | modules | points | U | sockets | switches | lights | ports | buttons | phases | other short word. Write the number as stated. A pole written SP, DP, TP, FP, SPN or TPN stays as written.
+
+7. type: each type or construction word, with its group. n = armour | insulation | flexibility | mount | tray_type | shape | device | curve | modularity | construction | other short word. Words such as armoured, unarmoured, XLPE, flexible, perforated, ladder, curved, fusible, concealed, surface, recessed, modular, MCB, MCCB, "C curve".
+
+8. finish: each finish, class or standard. n = finish | class | standard | ip | colour | other short word.
+
+9. other: anything else stated that changes the price and is not above, such as a make or model, a cover, a mounting height, an included civil work. n = a short word for what it is. Do not list what every row of this kind would include.
+
+REPLY: one JSON array and nothing else, no code fence and no prose. One object per row, in the order given, with the row's id:
+
+[{"id": 12,
+  "kind": {"v": "cable", "name": "power cable", "s": "heading-1"},
+  "scope": {"v": "SITC", "s": "heading-1"},
+  "material": [{"n": "conductor", "v": "aluminium", "s": "row"}],
+  "dim": [{"n": "cross_section", "v": "95", "u": "sqmm", "s": "row"}],
+  "rating": [{"n": "voltage", "v": "1100", "u": "V", "s": "heading-1"}],
+  "count": [{"n": "cores", "v": "3.5", "s": "row"}],
+  "type": [{"n": "armour", "v": "armoured", "s": "row"}, {"n": "insulation", "v": "XLPE", "s": "heading-1"}],
+  "finish": [{"n": "standard", "v": "IS 7098", "s": "heading-1"}]}]
+
+The spec's own rule for blanks: leave a key out when the row states nothing for it, and leave out any entry you cannot source. Never write "N/A", "not stated", null or an empty list. "kind" is always answered; where you cannot tell the name, give only "v". Every row given gets one object, and no object names a row not given.

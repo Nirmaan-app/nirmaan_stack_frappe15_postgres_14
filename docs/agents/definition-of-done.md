@@ -49,7 +49,8 @@ Set the report's `## Status` to `BLOCKED` and explain why, and what the owner mu
 
 - **A separate review.** The builder does not grade its own work. A second agent (or the owner) reads the diff and
   the evidence and writes its verdict in the report's `## Review` section. The hook cannot tell who wrote it, so the
-  runner that starts agent tasks owns this step.
+  runner that starts agent tasks owns this step: `task.sh done` prints the `/mattpocock-skills:code-review` command
+  against the task's base.
 - **Test quality.** A green run proves the tests pass, not that they test the right thing. Review covers that.
 - **Fresh data.** `devenv.sh up` and `create` print the data's age and warn past 7 days. Ask the owner for a fresh
   backup (`scripts/devenv/data.sh`); never fetch one yourself.

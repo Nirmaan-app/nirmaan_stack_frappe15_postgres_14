@@ -12,6 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useHasLoadedOnce } from '@/hooks/useHasLoadedOnce';
 import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
@@ -532,6 +533,10 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || listIsLoading;
+    // Skeleton on the first load only: `listIsLoading` is true on every refetch, and swapping
+    // the DataTable out then unmounts the search box mid-typing. The table shows its own row
+    // skeleton while it refetches.
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedErrorOverall = projectsError || vendorsError || poError || srError || userError || listError;
 
     if (combinedErrorOverall) {
@@ -542,7 +547,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     return (
         <div className="flex-1 space-y-4">
 
-            {isLoadingOverall ? (
+            {!hasLoadedOnce && isLoadingOverall ? (
                 <TableSkeleton />
             ) : (
                 // --- (Indicator) Render DataTable directly, removing the wrapper ---

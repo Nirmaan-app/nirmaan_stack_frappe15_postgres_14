@@ -181,6 +181,8 @@ override_doctype_class = {
 
 doc_events = {
 	"User": {
+        # Only User admins create users or give role profiles (services/role_profiles.USER_ADMIN_PROFILES).
+        "validate": "nirmaan_stack.integrations.controllers.user.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
@@ -197,6 +199,8 @@ doc_events = {
         ],
         # The person's own bank account (Payee) goes with them, unless a Vendor is also paid into it.
         "after_delete": "nirmaan_stack.integrations.controllers.nirmaan_users.after_delete",
+        # Drops the cached set of Nirmaan users the login gate reads (services/nirmaan_users.py).
+        "after_insert": "nirmaan_stack.integrations.controllers.nirmaan_users.after_insert",
         "after_rename": "nirmaan_stack.integrations.controllers.nirmaan_users.after_rename",
     },
     "User Permission": {
@@ -439,15 +443,24 @@ doc_events = {
         # Carry the match records to the new name (ADR-0022 Amendment G).
         "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
-        "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        "after_insert": [
+            # A decider's own GST payment gets its request, already decided; first, before the notifications
+            # below commit (`services/gst_payment_requests`).
+            "nirmaan_stack.integrations.controllers.gst_payment_request.record_decider_request",
+            "nirmaan_stack.integrations.controllers.project_payments.after_insert",
+        ],
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_payments.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
+            # A GST payment's request follows it, Approved <-> Paid (`services/gst_payment_requests`).
+            "nirmaan_stack.integrations.controllers.gst_payment_request.sync_from_payment",
         ],
         # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
             "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
+            # A GST payment takes its request along, before Frappe's link check would refuse the delete.
+            "nirmaan_stack.integrations.controllers.gst_payment_request.delete_with_payment",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # after_delete, never on_trash: the cashflow check must read the payment gone (#1453).
@@ -594,6 +607,11 @@ doc_events = {
     "Expense Request": {
         "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
     },
+    # Only its endpoints write it (`services/gst_payment_requests`).
+    "GST Payment Request": {
+        "validate": "nirmaan_stack.integrations.controllers.gst_payment_request.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.gst_payment_request.on_trash",
+    },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.material_test_certificate.on_trash",
@@ -703,6 +721,14 @@ scheduler_events = {
 			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task",
 			# CU-A: a rate-suggestion run left `running` by a killed worker -> failed, "stale - worker gone".
 			"nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs",
+			# DEV2-B4: a match run left queued / running past its clocks -> halted, "stale - worker gone".
+			"nirmaan_stack.tasks.match_run_healer.heal_stale_match_runs",
+		],
+		# DEV2-B4 (owner 2026-11-02 21:41): the historical-match pool rebuilt every day at 06:00 in the SYSTEM time
+		# zone (Frappe's cron reads System Settings time_zone; production must hold Asia/Kolkata). It enqueues
+		# pool.rebuild_pool on `long` (a Cron job runs on `default` at 300 s; a build takes ~5 min).
+		"0 6 * * *": [
+			"nirmaan_stack.api.boq.rate_match.daily_pool_rebuild"
 		],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
@@ -783,9 +809,9 @@ scheduler_events = {
 # Authentication and authorization
 # --------------------------------
 
-# auth_hooks = [
-# 	"nirmaan_stack.auth.validate"
-# ]
+# Only Nirmaan users (a Nirmaan Users record) log in or make a request; Administrator and Guest always pass.
+on_session_creation = ["nirmaan_stack.integrations.login_gate.refuse_login"]
+auth_hooks = ["nirmaan_stack.integrations.login_gate.refuse_request"]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True

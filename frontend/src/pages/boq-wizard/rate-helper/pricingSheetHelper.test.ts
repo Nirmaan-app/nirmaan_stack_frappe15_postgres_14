@@ -5052,7 +5052,7 @@ describe("SLICE 2 / helper_message: the decline reason comes from the config, el
     // row on the card it had. The slice-3 call is gone from the page (negative kept).
     expect(page).toContain("rowUsesPreRunHelper(discipline, categoryId, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
     expect(page).not.toContain("disciplineHasNothingToRun(discipline, configsByCategory, RATE_MASTER_CONFIG_TARGETS)");
-    expect(page).toContain("? buildHelperList(preRunHelper)");
+    expect(page).toContain("? buildHelperList(preRunHelper, previouslyPricedHelper)");   // DEV2-B5 owner answer 3: pre-run rows show the match card's "Matching not run yet"
     expect(page).toContain(": helperList;");
     expect(page).toContain("resolvedByExcelRow.get(helperPanel.excelRow)?.resolved_discipline ?? null");
     expect(page).not.toContain("makeDeclineOnlyHelper");

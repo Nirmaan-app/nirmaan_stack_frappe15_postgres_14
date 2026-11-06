@@ -63,14 +63,17 @@ const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }
   const left = state?.left ?? 0;
   const billed = state?.billed ?? 0;
   const remainingPaid = left > 0 ? String(left) : "";
-  const [invoiceDate, setInvoiceDate] = useState(formatDate(new Date(), "yyyy-MM-dd"));
+  const today = formatDate(new Date(), "yyyy-MM-dd");
+  const [invoiceDate, setInvoiceDate] = useState(today);
   const [amount, setAmount] = useState("");
   const [percent, setPercent] = useState("");
 
   const typed = Number(amount);
   const problem: string | null = !invoiceDate
     ? "Invoice Date is required."
-    : !amount || !(typed > 0)
+    : invoiceDate > today
+      ? "Invoice Date can't be in the future."
+      : !amount || !(typed > 0)
       ? "Enter an amount more than ₹0."
       : Math.round(typed * 100) > Math.round(left * 100)
         ? `This invoice can bill at most ${formatToIndianRupee(left)}.`
@@ -152,6 +155,7 @@ const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }
             <Input
               id="gi_invoice_date"
               type="date"
+              max={today}
               value={invoiceDate}
               onChange={(e) => setInvoiceDate(e.target.value)}
             />

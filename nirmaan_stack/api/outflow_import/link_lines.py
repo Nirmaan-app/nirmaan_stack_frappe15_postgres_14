@@ -152,9 +152,9 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
             for staged, _ in loaded
         ]
     except Exception as exc:
-        # #1601, #1606: when a ticked line's Txn Id is already held Settled by another line -- to another Expense
-        # (a Cashbook line), or to this very Expense (any source) -- this says so and raises; any other error
-        # falls through to the rollback below.
+        # #1601, #1606, #1611: a Link refused because another line holds the Txn Id -- Settled to a different
+        # Expense (a Cashbook line), or to this very Expense (any source) -- or because two of the ticked lines
+        # carry one Txn Id, is told so here (raises); any other error falls through to the rollback below.
         refuse_link_of_a_held_txn_id([staged.transfer_id for staged, _ in loaded], target_doctype, target_name, exc)
         frappe.db.rollback(save_point=savepoint)
         raise

@@ -42,6 +42,7 @@
 | Doctype | Purpose |
 |---------|---------|
 | **Project Payments** | Payments to vendors |
+| **GST Payment Request** | A Work Order GST payment waiting for the Accountant, before any payment exists (Pending / Approved / Rejected / Paid). Autoname `GPR-.YY.-.#####`. Written only by `api/payments/gst_payment_requests`. See ADR-0030 Amendment A |
 | **Vendor Invoices** | Centralized invoice store (PO + SR). Autoname: `VI-.YYYY.-.#####` |
 | **Project Invoices** | Legacy invoice tracking (being replaced by Vendor Invoices) |
 | **Project Expenses** | Project-related expenses |

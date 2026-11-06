@@ -23,6 +23,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from nirmaan_stack.services import gst_payment_requests
 from nirmaan_stack.services.outflow_import.amounts import rupees
 from nirmaan_stack.services.role_profiles import assert_match_gst_to_vendor_access
 from nirmaan_stack.services.work_order_gst import (
@@ -43,7 +44,8 @@ MATCHABLE_STATUS = "Approved"
 def get_gst_mismatch_work_orders() -> list:
     """Every Approved Work Order (Finalized included) whose GST flag disagrees with its vendor, both
     directions: GST off with a vendor that has a GST number, and GST on with one that has none.
-    `gst_payments` counts the GST payments that would stop turning one off."""
+    `gst_payments` counts the GST payments, and the GST requests waiting for the Accountant, that would stop
+    turning one off."""
     assert_match_gst_to_vendor_access(frappe.session.user)
     rows = frappe.db.sql(
         """
@@ -56,7 +58,9 @@ def get_gst_mismatch_work_orders() -> list:
                s.creation,
                (SELECT COUNT(*) FROM "tabProject Payments" pp
                  WHERE pp.document_type = %(sr)s AND pp.document_name = s.name
-                   AND pp.is_gst_payment = 1) AS gst_payments
+                   AND pp.is_gst_payment = 1)
+               + (SELECT COUNT(*) FROM "tabGST Payment Request" g
+                   WHERE g.work_order = s.name AND g.status = 'Pending') AS gst_payments
         FROM "tabService Requests" s
         JOIN "tabVendors" v ON v.name = s.vendor
         LEFT JOIN "tabProjects" p ON p.name = s.project
@@ -127,7 +131,7 @@ def _figures(doc) -> dict:
             filters={"document_type": SR, "document_name": doc.name, "is_gst_payment": 1},
             pluck="name",
             order_by="creation asc",
-        )
+        ) + gst_payment_requests.pending_requests(doc.name)
     return {
         "work_order": doc.name,
         "status": doc.status,

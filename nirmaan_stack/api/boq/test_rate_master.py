@@ -4912,7 +4912,10 @@ class TestRateMaster(FrappeTestCase):
         prior_attempted = prior_attempted or []
         with mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),              mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),              mock.patch.object(rate_master, "_open_run_doc",
                                return_value=("RUN-NAME", "RUN-ID", prior_results, prior_attempted,
-                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()):
+                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()),                 mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
+            # DEV2-B4 (mechanical inversion; the B4 brief's S2 trigger + S5 "match_enabled LEFT ON in dev2"): these pins
+            # are the pre-B4 payload, i.e. historical matching OFF - pinned explicitly here instead of read from the live
+            # setting. With it ON the payload gains exactly one key, "match" (test_rate_match.TestSuggestWorkerHook).
             rate_master._suggest_worker(
                 boq="B", sheet_name="S", user="u@x", only_rows=only_rows,
             )

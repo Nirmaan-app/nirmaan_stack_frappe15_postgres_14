@@ -75,7 +75,7 @@ export interface GetNonProjectExpenseColumnsOptions {
   onDelete: (expense: NonProjectExpenses) => void;
 }
 
-/** An Office Rent expense's Rent / TDS / Net (#1527); the page provides its tax records by context. */
+/** An Office Rent expense's Bill / Rent / GST / TDS / Landlord gets (#1527); the page provides its tax records by context. */
 const AmountTds = ({ row }: { row: NonProjectExpenses }) => {
   const withheld = useContext(WithheldTdsContext)[row.name];
   return (

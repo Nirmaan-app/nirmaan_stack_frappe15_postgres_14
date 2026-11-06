@@ -15,8 +15,8 @@ the Expense's amount is still the full rent, so the screens forecast from it wit
 rule (`utils/expenses/expenseTds.shownExpenseTds`). What these tests pin before approval is that the
 inputs of that forecast arrive: the type, the gross amount and a status before approval.
 
-AFTER APPROVAL they serve the record's gross, rate, tax and section, which stay as withheld after
-Bulk Import's few-rupee correction of the amount.
+AFTER APPROVAL they serve the record's gross (the base rent), rate, tax and section, and the Expense's GST
+(spec #1613), which stay as split after Bulk Import's few-rupee correction of the amount.
 
 Run:
   devenv.sh test --module nirmaan_stack.api.expense_requests.test_office_rent_tds_shown
@@ -45,7 +45,9 @@ from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
 HR_LEAD = "xrtds_hr_lead@example.com"
 NOBODY = "xrtds_nobody@example.com"
 
-WITHHELD = {"gross_amount": 100000, "tds_percentage": 10, "tds_amount": 10000, "tds_section": "194-I"}
+# A Rs 1,18,000 bill: rent 1,00,000 + GST 18,000, TDS 10% of the rent.
+WITHHELD = {"gross_amount": 100000, "gst_amount": 18000, "tds_percentage": 10, "tds_amount": 10000,
+            "tds_section": "194-I"}
 
 
 class TestTheWithheldTaxIsServed(OfficeRentCase):
@@ -85,54 +87,54 @@ class TestTheWithheldTaxIsServed(OfficeRentCase):
         self.assertEqual(served["lookup"], {name: expected})
 
     # -- before approval: the inputs of the forecast, and nothing withheld ------------------------
-    def test_before_approval_nothing_is_served_as_withheld_and_the_amount_is_the_full_rent(self):
-        request, name = self._raise(100000)
+    def test_before_approval_nothing_is_served_as_withheld_and_the_amount_is_the_bill(self):
+        request, name = self._raise(118000)
 
         served = self._served(request, name)
         self._assert_none_withheld(served)
         row = served["row"]
-        self.assertEqual((row["expense_type"], row["status"], row["amount"]), (OFFICE_RENT, "Requested", 100000))
+        self.assertEqual((row["expense_type"], row["status"], row["amount"]), (OFFICE_RENT, "Requested", 118000))
         self.assertEqual((served["detail"]["type"], served["detail"]["status"], served["detail"]["amount"]),
-                         (OFFICE_RENT, "Requested", 100000))
-        self.assertEqual(served["page"]["amount"], 100000)
+                         (OFFICE_RENT, "Requested", 118000))
+        self.assertEqual(served["page"]["amount"], 118000)
         self.assertEqual(served["standing"]["expense"]["status"], "Requested")
 
         self.assertEqual(self._decide(ADMIN, name, "l1_approve")["statuses"], {name: "CEO Pending"})
         served = self._served(request, name)
         self._assert_none_withheld(served)
-        self.assertEqual((served["row"]["status"], served["row"]["amount"]), ("CEO Pending", 100000))
+        self.assertEqual((served["row"]["status"], served["row"]["amount"]), ("CEO Pending", 118000))
 
     # -- after approval: the stored split, to a caller who cannot read it -------------------------
-    def test_after_approval_the_stored_split_is_served_and_the_amount_is_the_net(self):
-        request, name = self._raise(100000)
+    def test_after_approval_the_stored_split_is_served_and_the_amount_is_what_the_landlord_gets(self):
+        request, name = self._raise(118000)
         self._approve_by_admin_then_ceo(name)
 
         served = self._served(request, name)
         self._assert_withheld(served, name)
-        self.assertEqual((served["row"]["status"], served["row"]["amount"]), ("Approved", 90000))
-        self.assertEqual(served["detail"]["amount"], 90000)
-        self.assertEqual(served["page"]["amount"], 90000)
+        self.assertEqual((served["row"]["status"], served["row"]["amount"]), ("Approved", 108000))
+        self.assertEqual(served["detail"]["amount"], 108000)
+        self.assertEqual(served["page"]["amount"], 108000)
 
-    def test_its_req_amount_is_the_full_rent_and_sorts_and_filters_as_it(self):
-        """"Req. Amount" is the full bill (story 60): a withheld Office Rent expense reads the rent before
-        withholding, not the net it is now stored at."""
-        _, name = self._raise(100000)
+    def test_its_req_amount_is_the_bill_and_sorts_and_filters_as_it(self):
+        """"Req. Amount" is the full bill (#1522 story 60, #1613 story 17): a withheld Office Rent expense
+        reads its base rent plus its GST, not the base alone nor what the landlord gets."""
+        _, name = self._raise(118000)
         self._approve_by_admin_then_ceo(name)
         [row] = self._as_hr_lead(get_approval_queue, filters=json.dumps([["name", "=", name]]))["data"]
-        self.assertEqual((row["requested_amount"], row["amount"]), (100000, 90000))
-        found = self._as_hr_lead(get_approval_queue, filters=json.dumps([["name", "=", name], ["amount", ">=", 95000]]))
+        self.assertEqual((row["requested_amount"], row["amount"]), (118000, 108000))
+        found = self._as_hr_lead(get_approval_queue, filters=json.dumps([["name", "=", name], ["amount", ">=", 110000]]))
         self.assertEqual([r["name"] for r in found["data"]], [name])
 
     def test_a_bank_line_a_little_short_leaves_the_served_split_as_withheld(self):
-        request, name = self._raise(100000)
+        request, name = self._raise(118000)
         self._approve_by_admin_then_ceo(name)
         self._decide(ACCOUNTANT, name, "mark_done")
-        line = self._bank_line(89998)
+        line = self._bank_line(107998)
         link_rows_to_expense(rows=json.dumps([line]), target_doctype=NPE, target_name=name)
 
         served = self._served(request, name)
         self._assert_withheld(served, name)
-        self.assertEqual((served["row"]["status"], served["row"]["amount"]), ("Paid", 89998))
+        self.assertEqual((served["row"]["status"], served["row"]["amount"]), ("Paid", 107998))
 
     # -- what serves nothing --------------------------------------------------------------------
     def test_any_other_type_is_served_no_tax(self):

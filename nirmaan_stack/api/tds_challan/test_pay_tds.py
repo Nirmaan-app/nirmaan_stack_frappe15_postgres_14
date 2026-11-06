@@ -44,7 +44,8 @@ class TestPayTds(FrappeTestCase):
 
     # -- helpers --------------------------------------------------------------------------------
     def _rent_row(self, amount) -> str:
-        """An Office Rent expense at Approved, its tax withheld; returns the tax record."""
+        """An Office Rent expense of this bill (incl. 18% GST, spec #1613) at Approved, its tax withheld; returns
+        the tax record."""
         name = f"{P}NPE-{frappe.generate_hash(length=8)}"
         frappe.db.sql(
             """INSERT INTO "tabNon Project Expenses" (name, creation, modified, modified_by, owner,
@@ -89,7 +90,7 @@ class TestPayTds(FrappeTestCase):
 
     # -- tests ----------------------------------------------------------------------------------
     def test_a_rent_row_is_paid_against_a_new_challan(self):
-        rent = self._rent_row(100000)
+        rent = self._rent_row(118000)
 
         result = create_challan_and_pay(deductions=frappe.as_json([rent]),
                                         challan_data=frappe.as_json(self._challan_data(25000, "NEW")))
@@ -100,10 +101,10 @@ class TestPayTds(FrappeTestCase):
         self.assertEqual(result["remaining"], 15000)
 
     def test_rent_and_work_order_rows_share_an_existing_challan_and_its_used_balance_is_their_sum(self):
-        first = create_challan_and_pay(deductions=frappe.as_json([self._rent_row(100000)]),
+        first = create_challan_and_pay(deductions=frappe.as_json([self._rent_row(118000)]),
                                        challan_data=frappe.as_json(self._challan_data(25000, "OLD")))
         challan = first["created_challan"]
-        rent, work_order = self._rent_row(55000), self._work_order_row(800)
+        rent, work_order = self._rent_row(64900), self._work_order_row(800)
 
         pay_tds(deductions=frappe.as_json([rent, work_order]), challan=challan)
 
@@ -114,9 +115,9 @@ class TestPayTds(FrappeTestCase):
         self.assertEqual(self._used(challan), self._sum_of_rows(challan))
 
     def test_rent_rows_over_the_challans_balance_are_refused_and_nothing_is_paid(self):
-        challan = create_challan_and_pay(deductions=frappe.as_json([self._rent_row(100000)]),
+        challan = create_challan_and_pay(deductions=frappe.as_json([self._rent_row(118000)]),
                                          challan_data=frappe.as_json(self._challan_data(12000, "FULL")))["created_challan"]
-        rent = self._rent_row(30000)
+        rent = self._rent_row(35400)
 
         with self.assertRaisesRegex(frappe.ValidationError, "has only 2000.0 left"):
             pay_tds(deductions=frappe.as_json([rent]), challan=challan)

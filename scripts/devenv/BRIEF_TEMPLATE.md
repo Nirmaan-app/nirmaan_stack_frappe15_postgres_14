@@ -31,7 +31,9 @@ each section marked "omit when". Each rule in "Rules" was broken once by a box a
 
 ## Review
 Call the Skill tool with `mattpocock-skills:code-review` against the task's base, and fix its findings that are
-inside the task. `dod.py check` stays red until `tdd` and `code-review` were both loaded.
+inside the task. `dod.py check` stays red until `tdd` and `code-review` were both loaded. This task closes its own
+review: every in-scope finding is fixed here, and the rest are listed in the report's Open questions. (Spec #1585's
+review findings became a chain of follow-up tickets, #1601 -> #1606 -> #1611.)
 
 ## Known failing tests
 `CODING_STANDARDS.md` § Writing tests, "Known failing tests", lists the modules that fail on `master` for a reason
@@ -42,7 +44,9 @@ outside any task. If only those fail, set the report's Status to BLOCKED (the ga
   data into a fixture, test, comment or commit message.
 - **Pages stay local.** Any checklist or report page goes in `~/claude-artifacts/` as a local `.html` file. Never
   publish anything to claude.ai or any other outside service.
-- **Delete nothing** beyond what a test's own teardown removes. No bulk deletes in any DB, not even the env's.
+- **Delete nothing** beyond what a test's own teardown removes, and any env you made yourself in this task
+  (`devenv.sh destroy <it>`, e.g. a throwaway env on the base to show a test already failed there). No bulk deletes
+  in any DB, not even the env's.
 - Never push, never open a PR, never edit, comment on or close a GitHub issue.
 
 ## Done
