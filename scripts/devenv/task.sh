@@ -253,6 +253,8 @@ case "$CMD" in
     [ -z "$BRIEF" ] || [ -s "$BRIEF" ] || die "no brief at $BRIEF"
     # A placeholder left from BRIEF_TEMPLATE.md would hand the agent a wrong base, ticket or env.
     [ -z "$BRIEF" ] || ! grep -n '<<FILL' "$BRIEF" >&2 || die "the brief still holds a <<FILL: …>> from the template (lines above): fill it first"
+    [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
+      || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
     [ "$AGENT" = 0 ] || agent_ready
     box_reach
 
