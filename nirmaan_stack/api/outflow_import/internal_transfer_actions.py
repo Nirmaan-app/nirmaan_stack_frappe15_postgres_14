@@ -19,17 +19,15 @@ import frappe
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     INTERNAL_TRANSFER_DOCTYPE,
     MADE_BY_HAND,
-    record_direction,
     record_for_line,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
 from nirmaan_stack.services.outflow_import.internal_transfer_rules import (
+    hand_mark_ends,
     mark_refusal,
     other_end_refusal,
-    own_place,
     send_back_refusal,
 )
-from nirmaan_stack.services.outflow_import.internal_transfers import TransferEnds
 from nirmaan_stack.services.outflow_import.row_settlement import (
     ROW_DOCTYPE,
     refresh_batch_rollup,
@@ -77,13 +75,7 @@ def mark_internal_transfer(row: str, other_end: str, reason: str, detail: str | 
         if refusal:
             frappe.throw(refusal, title="Cannot mark as Internal Transfer")
 
-        own = own_place(line.source)
-        money_in = record_direction(line.direction) == "In"
-        ends = TransferEnds(
-            from_place=other_end if money_in else own,
-            to_place=own if money_in else other_end,
-            detail=(detail or "").strip(),
-        )
+        ends = hand_mark_ends(line.source, line.direction, other_end, detail)
         now = frappe.utils.now_datetime()
         record_for_line(line, ends, MADE_BY_HAND, marked_by=actor, marked_at=now, reason=reason)
         note = MARKED_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)

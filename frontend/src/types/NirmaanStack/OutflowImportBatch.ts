@@ -300,6 +300,9 @@ export interface OutflowImportRow {
     transfer_marked_by?: string | null;
     transfer_marked_at?: string | null;
     transfer_mark_reason?: string | null;
+    /** The record's money and direction (`In` / `Out`): a Cashbook top-up's line stages 0 and states no direction. */
+    transfer_amount?: number | null;
+    transfer_record_direction?: string | null;
     /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *

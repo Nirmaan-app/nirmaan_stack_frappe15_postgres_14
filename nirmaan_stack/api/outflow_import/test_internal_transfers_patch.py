@@ -21,15 +21,6 @@ CARD = "ICICI Credit Card Statement"
 
 
 class TestTheOldSkipsPatch(InternalTransferLineFixture):
-    def tearDown(self):
-        for batch in self.batches:
-            frappe.db.sql(
-                """DELETE FROM "tabInternal Transfer" WHERE import_row IN
-                   (SELECT name FROM "tabOutflow Import Row" WHERE import_batch = %s)""",
-                (batch,),
-            )
-        frappe.db.commit()
-        super().tearDown()
 
     def _old(self, batch, kind, *, source=ICICI, remarks="", direction="Debit", transfer_id=None, row_kind=None,
              status="SUCCESS", amount=1000.0, who_from="", who_to=""):

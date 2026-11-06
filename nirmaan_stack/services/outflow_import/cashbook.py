@@ -203,6 +203,7 @@ class PlannedRow:
     # #1623: an internal line's transfer facts (`internal_transfers.cashbook_internal_facts`).
     transfer: TransferEnds | None = None
     transfer_money: Decimal = Decimal("0")
+    transfer_direction: str = ""
     records_transfer: bool = False
     transfer_rule: str = ""
 

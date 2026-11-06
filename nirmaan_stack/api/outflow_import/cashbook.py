@@ -76,7 +76,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
     lock_line_if,
 )
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
-from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
+from nirmaan_stack.api.outflow_import.internal_transfers import move_already_recorded, record_for_line
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -951,8 +951,17 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
         doc.insert(ignore_permissions=True)
         # #1623: one of Cashbook's own moves gets its Internal Transfer record, with the money it moved (a top-up
         # carries it in its Credit, so the line's own `amount` may be 0). A status-changed repeat records nothing.
-        if planned.action == ACTION_INTERNAL and planned.records_transfer:
-            record_for_line(doc, planned.transfer, made_by=planned.transfer_rule, amount=planned.transfer_money)
+        if planned.action == ACTION_INTERNAL and (
+            planned.records_transfer
+            or not move_already_recorded(doc.source, doc.transfer_id, doc.amount, doc.direction)
+        ):
+            record_for_line(
+                doc,
+                planned.transfer,
+                made_by=planned.transfer_rule,
+                amount=planned.transfer_money,
+                direction=planned.transfer_direction,
+            )
         if _copies_a_collect_bill(raw, planned):
             collect_lines.append(doc.name)
 

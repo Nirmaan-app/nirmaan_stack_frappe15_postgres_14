@@ -114,10 +114,11 @@ class TestStaging(CashbookImportCase):
         """Denormalised from the batch so the master table can filter without a join."""
         self.assertTrue(all(row.source == "Cashbook" for row in self._rows()))
 
-    def test_a_skipped_row_carries_the_reason_and_no_plan(self):
+    def test_a_wallet_top_up_is_an_internal_transfer_with_no_plan(self):
+        """CHANGED AT #1623 (spec #1619): Cashbook's own moves are Internal Transfers, no longer skipped."""
         top_up = self._row("900001-0")
-        self.assertEqual(top_up.row_status, ROW_SKIPPED)
-        self.assertIn("balances", top_up.skip_reason)
+        self.assertEqual(top_up.row_status, "Internal Transfer")
+        self.assertIsNone(top_up.skip_reason)
         self.assertIsNone(top_up.suggested_doctype)
 
     def test_a_skipped_row_is_marked_system_and_a_planned_row_is_not(self):
@@ -136,9 +137,10 @@ class TestStaging(CashbookImportCase):
             r.name: (r.row_status, frappe.db.get_value("Outflow Import Row", r.name, "skip_kind"))
             for r in self._rows()
         }
+        # #1623: the top-up is an Internal Transfer now, so a failed spend is the skip whose kind is checked.
         self.assertEqual(
-            frappe.db.get_value("Outflow Import Row", self._row("900001-0").name, "skip_kind"),
-            "Cashbook internal movement",
+            frappe.db.get_value("Outflow Import Row", self._row("6FFFFFF").name, "skip_kind"),
+            "Bank refused",
         )
         for status, kind in kinds.values():
             if status == ROW_SKIPPED:
@@ -375,7 +377,10 @@ class TestStatus(CashbookImportCase):
     def test_the_counts_account_for_every_staged_row(self):
         cb._cashbook_worker(self.batch, "Administrator")
         status = cb.get_cashbook_status(self.batch)
-        total = status["created"] + status["failed"] + status["skipped"] + status["pending"] + status["open"]
+        total = (
+            status["created"] + status["failed"] + status["skipped"] + status["pending"] + status["open"]
+            + status["internal_transfers"]  # #1623
+        )
         self.assertEqual(total, len(self.parsed.rows))
 
 

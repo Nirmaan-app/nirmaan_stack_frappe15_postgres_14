@@ -1109,6 +1109,25 @@ describe("tabs", () => {
         expect(column("transfer_direction").get({ direction: "Debit" } as unknown as OutflowImportRow)).toBe("Out");
     });
 
+    it("reads the record's direction, amount and maker where the line has them (review finding)", () => {
+        const ids = INTERNAL_TRANSFER_COLUMNS.map((c) => c.id);
+        expect(ids).toContain("transfer_made_by");
+        expect(ids).toContain("transfer_amount");
+        expect(ids).not.toContain("amount");
+        const column = (id: string) => INTERNAL_TRANSFER_COLUMNS.find((c) => c.id === id)!;
+        // A Cashbook top-up: the line states no direction and stages 0; its record holds In and the money.
+        const topUp = {
+            direction: "",
+            amount: 0,
+            transfer_record_direction: "In",
+            transfer_amount: 50000,
+            transfer_made_by: "cashbook_bank_to_va",
+        } as unknown as OutflowImportRow;
+        expect(column("transfer_direction").get(topUp)).toBe("In");
+        expect(column("transfer_amount").get(topUp)).toBe(50000);
+        expect(column("transfer_made_by").get(topUp)).toBe("cashbook_bank_to_va");
+    });
+
     it("maps every declared tab, with no gaps", () => {
         // A tab present in the strip but missing from the map renders an empty table with no error.
         for (const tab of OUTFLOW_TABS) expect(SCOPE_FOR_TAB[tab.id]).toBeTruthy();

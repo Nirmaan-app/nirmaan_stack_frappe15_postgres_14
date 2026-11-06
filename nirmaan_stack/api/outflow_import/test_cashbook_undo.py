@@ -310,7 +310,8 @@ class TestSkipAndUnskip(CashbookUndoCase):
         self.assertIn(self._leg(other).target_name, self._stored(row).outcome_note)
 
     def test_a_system_cashbook_skip_stays_locked(self):
-        row = self._row("900001-0").name
+        # #1623: the fixture's top-up is an Internal Transfer now; its failed spend is a system skip.
+        row = self._row("6FFFFFF").name
         with self.assertRaises(frappe.ValidationError) as caught:
             unskip_row(row, "try")
         self.assertIn(UNSKIP_REFUSED_CASHBOOK, str(caught.exception))

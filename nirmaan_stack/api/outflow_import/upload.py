@@ -33,7 +33,7 @@ import frappe
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
+from nirmaan_stack.api.outflow_import.internal_transfers import move_already_recorded, record_for_line
 from nirmaan_stack.services.outflow_import.bank_exclusions import should_skip
 from nirmaan_stack.services.outflow_import.internal_transfers import bank_line_transfer
 from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
@@ -650,10 +650,11 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str, plan: RepeatSp
             }
         )
         doc.insert(ignore_permissions=True)
-        # ⚠️ A REPEAT MAKES NO RECORD (spec #1619): a status-changed repeat is still an Internal Transfer line,
-        # but its earlier sighting already recorded the move. The duplicate identity that found the repeat
-        # decides it, as it decides every repeat.
-        if transfer is not None and not repeat:
+        # ⚠️ A REPEAT MAKES NO SECOND RECORD (spec #1619): a status-changed repeat is still an Internal Transfer
+        # line, and it is recorded only when no earlier line of the same move (its repeat identity) holds a record.
+        if transfer is not None and not (
+            repeat and move_already_recorded(doc.source, doc.transfer_id, doc.amount, doc.direction, doc.remarks)
+        ):
             record_for_line(doc, transfer, made_by=category)
 
     _apply_batch_rollup(batch, statuses)

@@ -906,8 +906,12 @@ export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((
     column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
 );
 
-/** The record's direction, as the line states it: `In` for a credit, else `Out` (`internal_transfers.record_direction`). */
-const transferDirection = (row: Pick<OutflowImportRow, "direction">): string => (isCreditRow(row) ? "In" : "Out");
+/**
+ * The record's direction (a Cashbook line states none of its own; its record says which column held the money),
+ * else the line's: `In` for a credit, else `Out` (`internal_transfers.record_direction`).
+ */
+const transferDirection = (row: Pick<OutflowImportRow, "direction" | "transfer_record_direction">): string =>
+    row.transfer_record_direction || (isCreditRow(row) ? "In" : "Out");
 
 /**
  * The Internal Transfers tab's columns (#1621): the page's, with Ledger (an internal move settles nothing)
@@ -919,10 +923,29 @@ const INTERNAL_TRANSFER_EXTRA_COLUMNS: OutflowColumn[] = [
     { id: "transfer_from", title: "From", get: (r) => r.transfer_from ?? "", filter: "none", width: "170px" },
     { id: "transfer_to", title: "To", get: (r) => r.transfer_to ?? "", filter: "none", width: "170px" },
     { id: "transfer_detail", title: "Detail", get: (r) => r.transfer_detail ?? "", filter: "none", width: "150px" },
+    // Which rule made the record, or "by hand" (spec #1619 story 38).
+    { id: "transfer_made_by", title: "Made by", get: (r) => r.transfer_made_by ?? "", filter: "none", width: "150px" },
 ];
 
+/**
+ * The money the record moved, where the line's own amount is not it: a Cashbook top-up stages 0 (its money is in
+ * the statement's Credit column, #1623). A line with no record (a status-changed repeat) shows its own amount.
+ */
+const TRANSFER_AMOUNT_COLUMN: OutflowColumn = {
+    id: "transfer_amount",
+    title: "Amount",
+    get: (r) => r.transfer_amount ?? r.amount ?? 0,
+    filter: "none",
+    align: "right",
+    width: "140px",
+};
+
 export const INTERNAL_TRANSFER_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
-    column.id === "settled_ledger" ? INTERNAL_TRANSFER_EXTRA_COLUMNS : [column]
+    column.id === "settled_ledger"
+        ? INTERNAL_TRANSFER_EXTRA_COLUMNS
+        : column.id === "amount"
+          ? [TRANSFER_AMOUNT_COLUMN]
+          : [column]
 );
 
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(

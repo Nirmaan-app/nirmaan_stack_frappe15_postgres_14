@@ -115,3 +115,27 @@ class TestACashbookImportRecordsItsOwnMoves(FrappeTestCase):
                                    "FAILED", f"BUSINESS_USER-{tag}")])
         self.assertEqual([(l["row_status"], l["skip_kind"]) for l in self._lines(batch)],
                          [("Skipped", "Cashbook internal movement")])
+
+    def test_a_move_first_seen_failed_is_recorded_when_it_comes_back_successful(self):
+        """Review finding: the earlier sighting was skipped (no money moved), so it holds no record; the repeat
+        that says SUCCESS is the move, and it is recorded once."""
+        tag = frappe.generate_hash(length=6).upper()
+        txn = f"VALOAD-{tag}"
+        first = self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
+                                   "FAILED", txn)])
+        second = self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
+                                    "SUCCESS", txn)])
+        self.assertIsNone(self._record(self._lines(first)[0]["name"]))
+        again = self._lines(second)[0]
+        self.assertEqual(again["row_status"], "Internal Transfer")
+        self.assertIsNotNone(self._record(again["name"]))
+
+    def test_a_top_up_into_the_virtual_account_is_money_in_and_money_back_out_is_money_out(self):
+        """Review finding: the record's direction is the column the statement filled -- Credit is In, Debit is Out."""
+        tag = frappe.generate_hash(length=6).upper()
+        batch = self._stage([
+            _line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "500", "SUCCESS", f"VALOAD-{tag}1"),
+            _line("02/08/2026", "Wallet → VA", "Test Employee B", "Virtual Account", "300", "", "SUCCESS",
+                  f"VALOAD-{tag}2"),
+        ])
+        self.assertEqual([self._record(l["name"])["direction"] for l in self._lines(batch)], ["In", "Out"])

@@ -88,9 +88,9 @@ class TestCashbookLines(unittest.TestCase):
         self.assertEqual(placed.outcome, UNPLACED)
         self.assertIn("Txn Id", placed.why)
 
-    def test_a_move_the_wallet_says_failed_is_reported(self):
+    def test_a_move_the_wallet_says_failed_is_left_as_the_import_leaves_it(self):
         placed = _cashbook("VALOAD-7654321", status="FAILED")
-        self.assertEqual(placed.outcome, UNPLACED)
+        self.assertEqual(placed.outcome, LEFT)
         self.assertIn("did not succeed", placed.why)
 
 

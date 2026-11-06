@@ -48,7 +48,13 @@ import {
     confirmByHandNote,
     unreconcileAffordance,
 } from "../unreconcileView";
-import { canMarkInternalTransfer, canSendBack, markedByHandLine } from "../internalTransferView";
+import {
+    canMarkInternalTransfer,
+    canSendBack,
+    internalTransferRecordHref,
+    markedByHandLine,
+    transferAmountToneClass,
+} from "../internalTransferView";
 import type { InternalTransferAction } from "./InternalTransferDialog";
 import { MOVE_ORDER_LABEL, rectifyAffordance } from "../porterRectify";
 import { chequeOutcomeChip, type ChequeOutcomeTone } from "../chequeOutcomeView";
@@ -741,6 +747,14 @@ const Cell = ({
                 );
             }
 
+        case "transfer_amount":
+            // The Internal Transfers tab's Amount (#1623): the record's money, coloured by the record's direction.
+            return (
+                <span className={transferAmountToneClass(row)}>
+                    {formatToRoundedIndianRupee(row.transfer_amount ?? row.amount)}
+                </span>
+            );
+
         case "remarks": {
             // ⚠️ WRAPPED, NOT CLIPPED (see `wrapRemarks`). `truncate` cut the narration to one line
             // with no `title` beneath it, so the tail was unrecoverable from the screen -- and the
@@ -924,6 +938,7 @@ const OutcomeButton = ({
         const rectify = rectifyAffordance(row, Boolean(onRectify));
         // #1626: who marked an Internal Transfer by hand, when and why; and its Send back button.
         const markedByHand = markedByHandLine(row);
+        const recordHref = internalTransferRecordHref(row);
         const sendBack = canSendBack(row);
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
@@ -945,6 +960,17 @@ const OutcomeButton = ({
                           <SettledRecordLine key={`${target.doctype}-${target.name}`} target={target} />
                       ))
                     : links.map((link) => <RecordLink key={`${link.href}-${link.label}`} link={link} />)}
+                {/* #1621: an Internal Transfer line links its record, as a Settled line links what it settled. */}
+                {recordHref && (
+                    <a
+                        href={recordHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate font-mono text-[11px] text-violet-700 hover:underline"
+                    >
+                        {row.internal_transfer}
+                    </a>
+                )}
                 {markedByHand && (
                     <span className="block truncate text-[11px] text-muted-foreground/80" title={markedByHand}>
                         {markedByHand}

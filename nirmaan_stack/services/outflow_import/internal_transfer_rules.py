@@ -14,6 +14,9 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     PLACE_CASHFREE,
     PLACE_ICICI_CURRENT,
     PLACES,
+    TRANSFER_IN,
+    TransferEnds,
+    record_direction,
 )
 from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
@@ -96,3 +99,11 @@ def other_end_refusal(source: str | None, other_end: str | None) -> str | None:
 def send_back_refusal(row_status: str | None) -> str | None:
     """Why this line may NOT be sent back to Mismatched, or `None` when it may: only an Internal Transfer line."""
     return None if (row_status or "").strip() == ROW_INTERNAL_TRANSFER else SEND_BACK_REFUSED
+
+
+def hand_mark_ends(source: str | None, line_direction: str | None, other_end: str, detail: str = "") -> TransferEnds:
+    """A hand mark's From and To: money out of the line runs from its own side to `other_end`, money in the other way."""
+    own = own_place(source)
+    if record_direction(line_direction) == TRANSFER_IN:
+        return TransferEnds(other_end, own, (detail or "").strip())
+    return TransferEnds(own, other_end, (detail or "").strip())

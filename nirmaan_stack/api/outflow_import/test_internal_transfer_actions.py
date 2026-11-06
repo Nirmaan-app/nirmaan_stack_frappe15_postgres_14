@@ -27,14 +27,8 @@ class ActionFixture(InternalTransferLineFixture):
         self.users = _Users()
 
     def tearDown(self):
+        frappe.db.rollback()
         frappe.set_user("Administrator")
-        for batch in self.batches:
-            frappe.db.sql(
-                """DELETE FROM "tabInternal Transfer" WHERE import_row IN
-                   (SELECT name FROM "tabOutflow Import Row" WHERE import_batch = %s)""",
-                (batch,),
-            )
-        frappe.db.commit()
         self.users.purge()
         super().tearDown()
 

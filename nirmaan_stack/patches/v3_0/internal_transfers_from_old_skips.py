@@ -38,9 +38,13 @@ from dataclasses import dataclass, field
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE, record_for_line
+from nirmaan_stack.api.outflow_import.internal_transfers import (
+    INTERNAL_TRANSFER_DOCTYPE,
+    move_already_recorded,
+    record_for_line,
+)
 from nirmaan_stack.services.outflow_import.internal_transfer_backfill import LEFT, PLACED, UNPLACED, place_old_skip
-from nirmaan_stack.services.outflow_import.internal_transfers import transfer_sentence
+from nirmaan_stack.services.outflow_import.internal_transfers import CARD_AUTO_DEBIT_RULE, transfer_sentence
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_BY_EXCLUSION_CATEGORY,
@@ -111,7 +115,6 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
         as_dict=True,
     )
     report = Report()
-    recorded = _cashbook_moves_already_recorded(lines)
     touched = set()
     for line in lines:
         placement = place_old_skip(
@@ -132,7 +135,7 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
             report.unplaced.append((line.name, line.skip_kind, placement.why))
             continue
         assert placement.outcome == PLACED
-        _convert(line, placement, recorded)
+        _convert(line, placement)
         touched.add(line.import_batch)
         report.converted += 1
     for batch in sorted(touched):
@@ -140,13 +143,13 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
     return report
 
 
-def _convert(line, placement, recorded: set) -> None:
-    """The line becomes an Internal Transfer line; it gets the move's record unless one already holds the move."""
+def _convert(line, placement) -> None:
+    """The line becomes an Internal Transfer line; it gets the move's record unless a line of the same move (its
+    repeat identity, `move_already_recorded`) already holds one -- a status-changed repeat, or a run before."""
     is_cashbook = (line.source or "").strip() == CASHBOOK_SOURCE
-    move = (line.transfer_id, float(line.amount or 0))
     note = (
         transfer_sentence(placement.ends)
-        if is_cashbook or placement.rule == "card_auto_debit"
+        if is_cashbook or placement.rule == CARD_AUTO_DEBIT_RULE
         else STAGED_NOTE_INTERNAL_TRANSFER.format(category=placement.rule)
     )
     # ⚠️ RAW, AND SAFE: the row has no `doc_events`; the batch rollup is recomputed after the loop.
@@ -164,22 +167,10 @@ def _convert(line, placement, recorded: set) -> None:
     )
     if frappe.db.exists(INTERNAL_TRANSFER_DOCTYPE, {"import_row": line.name}):
         return
-    if is_cashbook and move in recorded:
-        return  # a status-changed repeat: its earlier sighting holds the move's record
-    record_for_line(line, placement.ends, placement.rule)
-    if is_cashbook:
-        recorded.add(move)
-
-
-def _cashbook_moves_already_recorded(lines) -> set:
-    """`(Txn Id, amount)` of every Cashbook move that already has a record (from a fresh import or an earlier run)."""
-    ids = tuple({line.transfer_id for line in lines if (line.source or "").strip() == CASHBOOK_SOURCE})
-    if not ids:
-        return set()
-    held = frappe.db.sql(
-        """SELECT r.transfer_id, r.amount FROM "tabOutflow Import Row" r
-           JOIN "tabInternal Transfer" it ON it.import_row = r.name
-           WHERE r.source = %s AND r.transfer_id IN %s""",
-        (CASHBOOK_SOURCE, ids),
-    )
-    return {(transfer_id, float(amount or 0)) for transfer_id, amount in held}
+    remarks = line.remarks if (line.source or "").strip() == "ICICI Bank Statement" else None
+    if move_already_recorded(line.source, line.transfer_id, line.amount, line.direction, remarks):
+        return
+    # A Cashbook line states no direction: its stored amount is its Debit, so a line with one is money out, and a
+    # top-up (its money in the Credit column, stored as 0) is money in -- as the import decides it (#1623).
+    direction = ("Out" if float(line.amount or 0) > 0 else "In") if is_cashbook else None
+    record_for_line(line, placement.ends, placement.rule, direction=direction)

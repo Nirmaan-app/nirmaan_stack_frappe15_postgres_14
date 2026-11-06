@@ -22,8 +22,9 @@ places, and the owner wants them listed and counted apart from real spend and in
 
 - The status is final, like Settled: the match run never touches it, it is in no open-work figure, and every hand
   action refuses it except *Send back to Mismatched* (#1626), which deletes the record and reopens the line.
-- The record links to its line (one record per line, a unique index), never the other way, and no expense, inflow
-  or payment figure reads it. A status-changed repeat of an internal line is an Internal Transfer line with no
+- The record names its line (one record per line, a unique index on `import_row`); the line holds no field back,
+  and the screen links a line to its record by reading that index, as a Settled line links what it settled. No
+  expense, inflow or payment figure reads the record. A status-changed repeat of an internal line is an Internal Transfer line with no
   second record.
 - The import summary's totals leave these lines out, as they did while they were Skipped, and show them in their
   own *Internal transfers* figure. Gross Outflow and Gross Inflow already include them and do not change.

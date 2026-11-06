@@ -180,6 +180,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 # Pure: which lines are cheque lines, and what a line no Payment cheque claims says (#1485).
 from nirmaan_stack.services.cheques.bank_import_rules import bank_cheque_key, no_payment_cheque_note
+from nirmaan_stack.services.outflow_import.internal_transfers import TRANSFER_IN, TRANSFER_OUT
 from nirmaan_stack.services.outflow_import.row_settlement import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
@@ -1716,6 +1717,10 @@ def get_batch_rows(batch: str):
                 # #1485: the Payment cheque this line cleared or was linked to, else None.
                 "cheque_outcome": cheques.get(row["name"]),
                 "amount": float(row.get("amount") or 0),
+                # #1623: the record's money (a Cashbook top-up's line stages 0); None on a line with no record.
+                "transfer_amount": (
+                    float(row["transfer_amount"]) if row.get("transfer_amount") is not None else None
+                ),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
@@ -2817,7 +2822,8 @@ _INTERNAL_TRANSFER_JOIN = 'LEFT JOIN "tabInternal Transfer" it ON it.import_row 
 _INTERNAL_TRANSFER_COLUMNS = (
     "it.name AS internal_transfer, it.from_place AS transfer_from, it.to_place AS transfer_to, "
     "it.detail AS transfer_detail, it.made_by AS transfer_made_by, it.marked_by AS transfer_marked_by, "
-    "it.marked_at AS transfer_marked_at, it.mark_reason AS transfer_mark_reason"
+    "it.marked_at AS transfer_marked_at, it.mark_reason AS transfer_mark_reason, "
+    "it.amount AS transfer_amount, it.direction AS transfer_record_direction"
 )
 
 # One page. Generous enough that a whole statement usually fits on one, capped so a client cannot
@@ -3077,6 +3083,10 @@ def get_outflow_rows(
             {
                 **{k: v for k, v in row.items() if k != "suggested_refunds"},
                 "amount": float(row.get("amount") or 0),
+                # #1623: the record's money (a Cashbook top-up's line stages 0); None on a line with no record.
+                "transfer_amount": (
+                    float(row["transfer_amount"]) if row.get("transfer_amount") is not None else None
+                ),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
@@ -3614,6 +3624,10 @@ def export_outflow_rows(
             {
                 **row,
                 "amount": float(row.get("amount") or 0),
+                # #1623: the record's money (a Cashbook top-up's line stages 0); None on a line with no record.
+                "transfer_amount": (
+                    float(row["transfer_amount"]) if row.get("transfer_amount") is not None else None
+                ),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,
@@ -4369,13 +4383,13 @@ def _internal_transfer_figure(where, params) -> dict:
     figure = frappe.db.sql(
         f"""
         SELECT COUNT(*) AS rows,
-               COALESCE(SUM(CASE WHEN it.direction = 'Out' THEN it.amount ELSE 0 END), 0) AS out_value,
-               COALESCE(SUM(CASE WHEN it.direction = 'In' THEN it.amount ELSE 0 END), 0) AS in_value
+               COALESCE(SUM(CASE WHEN it.direction = %s THEN it.amount ELSE 0 END), 0) AS out_value,
+               COALESCE(SUM(CASE WHEN it.direction = %s THEN it.amount ELSE 0 END), 0) AS in_value
         FROM "tabOutflow Import Row" r
         {_INTERNAL_TRANSFER_JOIN}
         WHERE {clause}
         """,
-        tuple(params) + (ROW_INTERNAL_TRANSFER,) + failed_params,
+        (TRANSFER_OUT, TRANSFER_IN) + tuple(params) + (ROW_INTERNAL_TRANSFER,) + failed_params,
         as_dict=True,
     )[0]
     return {

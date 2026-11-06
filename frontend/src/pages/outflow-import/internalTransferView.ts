@@ -9,6 +9,7 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 
 import { ROW_INTERNAL_TRANSFER, ROW_PENDING_MATCH, isOpen } from "./outflowImportStatus";
+import { amountToneClass } from "./outflowTableModel";
 
 /** From and To, a fixed list (owner, 2026-11-06). */
 export const INTERNAL_TRANSFER_PLACES = [
@@ -61,3 +62,16 @@ export const markedByHandLine = (
     if (row.transfer_mark_reason) parts.push(row.transfer_mark_reason);
     return parts.join(" · ");
 };
+
+/** The Internal Transfers tab's Amount tone: by the record's direction where it has one, else the line's. */
+export const transferAmountToneClass = (
+    row: Pick<OutflowImportRow, "direction" | "transfer_record_direction">
+): string => {
+    if (row.transfer_record_direction === "In") return amountToneClass({ direction: "Credit" });
+    if (row.transfer_record_direction === "Out") return amountToneClass({ direction: "Debit" });
+    return amountToneClass(row);
+};
+
+/** The line's Internal Transfer record in Desk, or `null` for a line with none (spec #1619 story 48). */
+export const internalTransferRecordHref = (row: Pick<OutflowImportRow, "internal_transfer">): string | null =>
+    row.internal_transfer ? `/app/internal-transfer/${encodeURIComponent(row.internal_transfer)}` : null;

@@ -119,7 +119,9 @@ class ReopenCase(FrappeTestCase):
         as_old = dataclasses.replace(
             self.parsed,
             rows=[
-                row if row.row_kind == "Wallet Spend" else dataclasses.replace(row, row_kind="VA → Wallet")
+                # #1623: a Type no rule knows is still read as own balances (`cashbook._decide`), as every non-spend
+                # line was before #1594; `VA → Wallet` is an Internal Transfer now.
+                row if row.row_kind == "Wallet Spend" else dataclasses.replace(row, row_kind="Old Movement")
                 for row in self.parsed.rows
             ],
         )

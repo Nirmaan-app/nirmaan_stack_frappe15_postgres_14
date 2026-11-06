@@ -7,8 +7,9 @@
 
 import type { CardImport, CardImportLine } from "./creditCardImport";
 
+import { ROW_INTERNAL_TRANSFER as INTERNAL_TRANSFER } from "./outflowImportStatus";
+
 const SKIPPED = "Skipped";
-const INTERNAL_TRANSFER = "Internal Transfer";
 
 /** The lines still to work, in statement order: the spends, and any credit that stayed open. */
 export const cardWorkLines = (card: Pick<CardImport, "lines">): CardImportLine[] =>

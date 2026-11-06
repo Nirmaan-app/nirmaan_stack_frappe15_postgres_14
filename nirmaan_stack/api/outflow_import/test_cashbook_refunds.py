@@ -171,14 +171,12 @@ class TestOpenLines(CashbookRefundsCase):
             totals["skipped_rows"], sum(moved(line) and line.row_status == "Skipped" for line in lines)
         )
 
-    def test_internal_movements_are_still_skipped_as_own_balances(self):
+    def test_internal_movements_are_internal_transfers(self):
+        """CHANGED AT #1623 (spec #1619): Cashbook's own moves are Internal Transfers, no longer skipped."""
         for txn in INTERNAL:
             line = self._line(txn)
             with self.subTest(txn=txn):
-                self.assertEqual(
-                    (line.row_status, line.skip_kind, line.skip_reason),
-                    ("Skipped", "Cashbook internal movement", OWN_BALANCES),
-                )
+                self.assertEqual((line.row_status, line.skip_kind or None, line.skip_reason), ("Internal Transfer", None, None))
 
 
 class TestAnOpenMoneyInLineHasTheUnpairedCardCreditChoices(CashbookRefundsCase):

@@ -114,5 +114,6 @@ def _cashbook(transfer_id: str, row_kind: str, status_raw: str, who_from: str, w
     if ends is None:
         return Placement(UNPLACED, why=f"no Type, and its Txn Id ({txn[:14] or 'blank'}) names no Cashbook move")
     if (status_raw or "").strip().upper() != "SUCCESS":
-        return Placement(UNPLACED, why=f"the wallet says it did not succeed ({status_raw or 'no status'})")
+        # As the import leaves it (#1623): no money moved, so there is nothing to record.
+        return Placement(LEFT, why="a Cashbook move the wallet says did not succeed")
     return Placement(PLACED, ends, CASHBOOK_INTERNAL_KINDS[kind])

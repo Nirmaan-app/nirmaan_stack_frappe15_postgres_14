@@ -41,6 +41,16 @@ PLACES = (
 )
 
 
+#: A record's direction, as its line states it: money out of, or into, the statement's own account.
+TRANSFER_OUT = "Out"
+TRANSFER_IN = "In"
+
+
+def record_direction(line_direction: str | None) -> str:
+    """`In` for a line the statement calls a Credit, else `Out`."""
+    return TRANSFER_IN if (line_direction or "").strip() == "Credit" else TRANSFER_OUT
+
+
 @dataclass(frozen=True)
 class TransferEnds:
     """Where one internal move came from and went to, plus a short detail (an employee, a card's last four)."""
@@ -178,6 +188,8 @@ def cashbook_internal_facts(raw, *, repeat: bool) -> dict:
     return {
         "transfer": cashbook_raw_transfer(raw),
         "transfer_money": debit if debit > 0 else credit,
+        # The column the statement filled: a Debit is money out of the statement's account, a Credit money in.
+        "transfer_direction": TRANSFER_OUT if debit > 0 else TRANSFER_IN,
         "records_transfer": not repeat,
         "transfer_rule": CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
     }
