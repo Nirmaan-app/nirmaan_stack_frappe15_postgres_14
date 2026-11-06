@@ -130,6 +130,16 @@ export interface ChequeOutcome {
     double_payments: ChequeDoublePayment[];
 }
 
+/** The server's hand-mark offer on an open line (#1626): its own side, the places to choose from, the Detail to start with. */
+export interface HandMarkOffer {
+    /** Where the line's own statement account is: the fixed From (money out) or To (money in). */
+    own_place: string;
+    /** Every other place, in the server's order. */
+    other_ends: string[];
+    /** On a Cashbook line, the wallet holder (owner decision 8a, #1619); else blank. The person may change it. */
+    detail: string;
+}
+
 /** One staged transfer, as `get_batch_rows` returns it. */
 export interface OutflowImportRow {
     name: string;
@@ -288,6 +298,30 @@ export interface OutflowImportRow {
      */
     settled_ledgers?: string[];
     /**
+     * The line's Internal Transfer record (#1621, spec #1619), read by `review.get_outflow_rows` from the record's
+     * unique `import_row`: its name, From, To and Detail, which rule made it (or "by hand"), and for a hand mark
+     * who, when and why (#1626). Blank on every other line.
+     */
+    internal_transfer?: string | null;
+    transfer_from?: string | null;
+    transfer_to?: string | null;
+    transfer_detail?: string | null;
+    transfer_made_by?: string | null;
+    transfer_marked_by?: string | null;
+    transfer_marked_at?: string | null;
+    transfer_mark_reason?: string | null;
+    /** The record's money and direction (`In` / `Out`): a Cashbook top-up's line stages 0 and states no direction. */
+    transfer_amount?: number | null;
+    transfer_record_direction?: string | null;
+    /** Who made the record, in words: "Rule: Cashfree wallet top-up", "By hand" (`internal_transfers.made_by_words`). */
+    transfer_made_by_label?: string | null;
+    /**
+     * What Mark as Internal Transfer offers on this line, or null when it may not be marked
+     * (`internal_transfer_rules.hand_mark_offer`, review finding F1 of #1619). The screen keeps no copy of the
+     * places or the rule; the endpoint asks them again under the line's lock.
+     */
+    hand_mark?: HandMarkOffer | null;
+    /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
@@ -370,6 +404,8 @@ export interface OutflowRowsPage {
         /** The Skipped popup's Outflow / Inflow tabs: `skipped` narrowed to one direction. */
         skipped_outflow: number;
         skipped_inflow: number;
+        /** The Internal Transfers tab (#1621): every `Internal Transfer` line, both directions. */
+        internal_transfers: number;
     };
     /**
      * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH
@@ -529,6 +565,13 @@ export interface OutflowImportSummary {
          */
         failed_rows: number;
         failed_value: number;
+        /**
+         * The Internal transfers figure (#1625): Internal Transfer lines under the panel's filters, and the money
+         * their records moved out and in. Outside every figure above. Optional for an older server.
+         */
+        internal_transfer_rows?: number;
+        internal_transfer_out_value?: number;
+        internal_transfer_in_value?: number;
         /**
          * The WHOLE-STATEMENT figure split by which way the money went, as plain counts and
          * totals (`status.derive_import_summary`).

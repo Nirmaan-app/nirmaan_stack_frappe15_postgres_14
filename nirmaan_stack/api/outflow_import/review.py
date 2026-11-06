@@ -45,6 +45,12 @@ from typing import Sequence
 import frappe
 
 from nirmaan_stack.api.outflow_import.card_refund_pairs import unskip_refund_pair
+from nirmaan_stack.api.outflow_import.internal_transfers import (
+    INTERNAL_TRANSFER_COLUMNS,
+    INTERNAL_TRANSFER_JOIN,
+    hand_mark_of_row,
+    internal_transfer_fields,
+)
 from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
     has_outflow_undo_access,
@@ -152,6 +158,7 @@ from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
     settleable_candidates,
     ROW_ERROR,
+    ROW_INTERNAL_TRANSFER,
     ROW_MATCHED,
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
@@ -179,6 +186,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 # Pure: which lines are cheque lines, and what a line no Payment cheque claims says (#1485).
 from nirmaan_stack.services.cheques.bank_import_rules import bank_cheque_key, no_payment_cheque_note
+from nirmaan_stack.services.outflow_import.internal_transfers import TRANSFER_IN, TRANSFER_OUT
 from nirmaan_stack.services.outflow_import.row_settlement import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
@@ -194,7 +202,8 @@ from nirmaan_stack.services.outflow_import.row_settlement import (
 # ends with `frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})`. A partially allocated row
 # reaching that line would have its settlement evidence deleted while the payments stayed Paid --
 # silently. Frozen does NOT mean finished here: the row is still ACTIVE and still needs a human.
-_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
+# `Internal Transfer` joins it at #1620: a final line with a record of its own, which the run must never re-derive.
+_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED, ROW_INTERNAL_TRANSFER)
 
 
 class StagedRow:
@@ -2588,6 +2597,9 @@ SCOPE_SKIPPED = "skipped"
 # so their counts ride `tab_counts` under the popup's own filters. Still no TAB on the page reaches them.
 SCOPE_SKIPPED_OUTFLOW = "skipped_outflow"
 SCOPE_SKIPPED_INFLOW = "skipped_inflow"
+# The Internal Transfers tab (#1621, spec #1619): our own money moving between our own places, both directions,
+# after the Settled tabs. Its own scope, so it has its own count under the screen's period and import filters.
+SCOPE_INTERNAL_TRANSFERS = "internal_transfers"
 
 # The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
 # the funnel, the tabs and the summary name a side identically.
@@ -2625,6 +2637,7 @@ _SCOPE_STATUSES = {
     SCOPE_SKIPPED: (ROW_SKIPPED,),
     SCOPE_SKIPPED_OUTFLOW: (ROW_SKIPPED,),
     SCOPE_SKIPPED_INFLOW: (ROW_SKIPPED,),
+    SCOPE_INTERNAL_TRANSFERS: (ROW_INTERNAL_TRANSFER,),
 }
 
 # The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
@@ -3010,9 +3023,11 @@ def get_outflow_rows(
                {SETTLED_LEDGER_SQL} AS settled_ledgers,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
-               b.period_to         AS import_period_to
+               b.period_to         AS import_period_to,
+               {INTERNAL_TRANSFER_COLUMNS}
         FROM "tabOutflow Import Row" r
         LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {INTERNAL_TRANSFER_JOIN}
         {clause}
         ORDER BY {column} {direction}, r.name ASC
         LIMIT %s OFFSET %s
@@ -3059,6 +3074,8 @@ def get_outflow_rows(
             {
                 **{k: v for k, v in row.items() if k != "suggested_refunds"},
                 "amount": float(row.get("amount") or 0),
+                **internal_transfer_fields(row),
+                "hand_mark": hand_mark_of_row(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
@@ -3155,7 +3172,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     params.extend(
         [
             tuple(sorted(CREATE_GATED_SOURCES)),
-            (ROW_SETTLED, ROW_SKIPPED),
+            (ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER),
             tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
             DIRECTION_CREDIT,
         ]
@@ -3579,9 +3596,11 @@ def export_outflow_rows(
                {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amounts,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
-               b.period_to         AS import_period_to
+               b.period_to         AS import_period_to,
+               {INTERNAL_TRANSFER_COLUMNS}
         FROM "tabOutflow Import Row" r
         LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {INTERNAL_TRANSFER_JOIN}
         {clause}
         ORDER BY {column} {direction}, r.name ASC
         """,
@@ -3594,6 +3613,7 @@ def export_outflow_rows(
             {
                 **row,
                 "amount": float(row.get("amount") or 0),
+                **internal_transfer_fields(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,
@@ -4314,7 +4334,7 @@ def get_outflow_summary(
         # caption that quietly describes the wrong statement. Absent is the honest shape there; the
         # screen reads the `imports` list instead.
         "import": _batch_meta(batch) if batch else None,
-        "totals": _jsonable_summary(summary),
+        "totals": {**_jsonable_summary(summary), **_internal_transfer_figure(where, params)},
         # Which skips were the system's and which were a person's. The screen labels them
         # differently because they mean different things: one is bookkeeping, one is a decision.
         "auto_skipped_rows": auto_skipped,
@@ -4328,6 +4348,39 @@ def get_outflow_summary(
             for g in grouped
             if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
         ),
+    }
+
+
+def _internal_transfer_figure(where, params) -> dict:
+    """The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
+    and the money their records moved out and in.
+
+    ⚠️ UNDER THE SAME `_row_filters` WHERE AS EVERY OTHER FIGURE, so it follows the period and the imports. It counts
+    every Internal Transfer line, as the tab does: each holds its record (owner decision 3, #1619), so a line a person
+    marked whatever its bank status counts too.
+
+    ⚠️ THE MONEY IS THE RECORDS', NOT THE LINES'. A Cashbook top-up carries its money in the statement's Credit
+    column and stages its line at 0 (#1623); its record holds what moved. Out and In are the record's direction, as
+    the line stated it. These lines are already out of the totals and Still open
+    (`status.SUMMARY_EXCLUDED_STATUSES`); this is the only place their money is shown.
+    """
+    clause = " AND ".join([*where, "r.row_status = %s"])
+    figure = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) AS rows,
+               COALESCE(SUM(CASE WHEN it.direction = %s THEN it.amount ELSE 0 END), 0) AS out_value,
+               COALESCE(SUM(CASE WHEN it.direction = %s THEN it.amount ELSE 0 END), 0) AS in_value
+        FROM "tabOutflow Import Row" r
+        {INTERNAL_TRANSFER_JOIN}
+        WHERE {clause}
+        """,
+        (TRANSFER_OUT, TRANSFER_IN) + tuple(params) + (ROW_INTERNAL_TRANSFER,),
+        as_dict=True,
+    )[0]
+    return {
+        "internal_transfer_rows": int(figure["rows"] or 0),
+        "internal_transfer_out_value": float(normalize_amount(figure["out_value"])),
+        "internal_transfer_in_value": float(normalize_amount(figure["in_value"])),
     }
 
 

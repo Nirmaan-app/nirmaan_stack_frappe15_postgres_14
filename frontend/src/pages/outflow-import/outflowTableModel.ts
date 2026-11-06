@@ -17,6 +17,7 @@
 import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
 import { resolveDateFilter } from "@/utils/dateFilterRange";
 import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
 // leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
 // NOT flip this to satisfy some other convenience; check for a cycle again before you do.
@@ -905,6 +906,48 @@ export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((
     column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
 );
 
+/**
+ * The record's direction (a Cashbook line states none of its own; its record says which column held the money),
+ * else the line's: `In` for a credit, else `Out` (`internal_transfers.record_direction`).
+ */
+const transferDirection = (row: Pick<OutflowImportRow, "direction" | "transfer_record_direction">): string =>
+    row.transfer_record_direction || (isCreditRow(row) ? "In" : "Out");
+
+/**
+ * The Internal Transfers tab's columns (#1621): the page's, with Ledger (an internal move settles nothing)
+ * REPLACED by a Direction column and the record's From, To and Detail. A separate list, like `SKIPPED_COLUMNS`,
+ * so no tab that never holds such a line grows four blank columns. No funnels: they are not server facets.
+ */
+const INTERNAL_TRANSFER_EXTRA_COLUMNS: OutflowColumn[] = [
+    { id: "transfer_direction", title: "Direction", get: transferDirection, filter: "none", width: "90px" },
+    { id: "transfer_from", title: "From", get: (r) => r.transfer_from ?? "", filter: "none", width: "170px" },
+    { id: "transfer_to", title: "To", get: (r) => r.transfer_to ?? "", filter: "none", width: "170px" },
+    { id: "transfer_detail", title: "Detail", get: (r) => r.transfer_detail ?? "", filter: "none", width: "150px" },
+    // Which rule made the record, or "by hand" (spec #1619 story 38).
+    { id: "transfer_made_by", title: "Made by", get: (r) => r.transfer_made_by_label ?? "", filter: "none", width: "150px" },
+];
+
+/**
+ * The money the record moved, where the line's own amount is not it: a Cashbook top-up stages 0 (its money is in
+ * the statement's Credit column, #1623). A line with no record (a status-changed repeat) shows its own amount.
+ */
+const TRANSFER_AMOUNT_COLUMN: OutflowColumn = {
+    id: "transfer_amount",
+    title: "Amount",
+    get: (r) => r.transfer_amount ?? r.amount ?? 0,
+    filter: "none",
+    align: "right",
+    width: "140px",
+};
+
+export const INTERNAL_TRANSFER_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
+    column.id === "settled_ledger"
+        ? INTERNAL_TRANSFER_EXTRA_COLUMNS
+        : column.id === "amount"
+          ? [TRANSFER_AMOUNT_COLUMN]
+          : [column]
+);
+
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
 ).map((c) => c.id);
@@ -930,7 +973,8 @@ export type OutflowTab =
     | "partlyAllocatedOutflow"
     | "matchedOutflow"
     | "notMatchedInflow"
-    | "settledInflow";
+    | "settledInflow"
+    | "internalTransfers";
 
 export type TransactionDirection = "outflow" | "inflow";
 
@@ -944,6 +988,9 @@ export const OUTFLOW_TABS: { id: OutflowTab; label: string; direction?: Transact
     { id: "partlyAllocatedOutflow", label: "Partly Allocated – Outflow", direction: "outflow" },
     { id: "matchedOutflow", label: "Matched / Settled – Outflow", direction: "outflow" },
     { id: "settledInflow", label: "Settled – Inflow", direction: "inflow" },
+    // Our own money moving between our own places (#1621, spec #1619): AFTER the Settled tabs so the working
+    // tabs stay first, and with no direction -- it lists money out and money in together.
+    { id: "internalTransfers", label: "Internal Transfers" },
 ];
 
 /** Where the screen opens: the outflow work, not the archive (owner ruling, carried across #1264). */
@@ -973,6 +1020,7 @@ export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     matchedOutflow: "matched_outflow",
     notMatchedInflow: "not_matched_inflow",
     settledInflow: "settled_inflow",
+    internalTransfers: "internal_transfers",
 };
 
 /**
@@ -1689,6 +1737,23 @@ export const summaryTiles = (totals: {
         });
     }
     return tiles;
+};
+
+/**
+ * The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
+ * and the money their records moved out and in. Shown at zero rather than hidden: "none in this period" is a fact
+ * worth reading. `null` only for a server that predates the figure, so nothing claims a zero it was never sent.
+ */
+export const internalTransferFigure = (totals: {
+    internal_transfer_rows?: number;
+    internal_transfer_out_value?: number;
+    internal_transfer_in_value?: number;
+}): { count: number; text: string } | null => {
+    if (totals.internal_transfer_rows === undefined) return null;
+    const count = totals.internal_transfer_rows;
+    const out = formatToRoundedIndianRupee(totals.internal_transfer_out_value ?? 0);
+    const inward = formatToRoundedIndianRupee(totals.internal_transfer_in_value ?? 0);
+    return { count, text: `${count} ${count === 1 ? "line" : "lines"} · ${out} out · ${inward} in` };
 };
 
 /**

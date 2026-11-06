@@ -80,7 +80,11 @@ from nirmaan_stack.services.outflow_import.settle import (
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_references_of_row,
 )
-from nirmaan_stack.services.outflow_import.status import derive_batch_status
+from nirmaan_stack.services.outflow_import.status import (
+    ROW_INTERNAL_TRANSFER,
+    derive_batch_status,
+    internal_transfer_refusal,
+)
 from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_DELETE_CREATED,
     VERDICT_REFUSED,
@@ -257,6 +261,8 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
 
     with concurrent_writer_refusal_as_sentence("unreconcile_row", row):
         line = _lock_row(row)
+        if (line.get("row_status") or "") == ROW_INTERNAL_TRANSFER:
+            frappe.throw(internal_transfer_refusal("unreconciled"), title="Internal Transfer")
         requested = _lock_legs(line, legs)
         # A vendor refund line is undone whole (`reverse_all_only`): a request naming only some of its
         # live legs is refused before anything is read for writing.

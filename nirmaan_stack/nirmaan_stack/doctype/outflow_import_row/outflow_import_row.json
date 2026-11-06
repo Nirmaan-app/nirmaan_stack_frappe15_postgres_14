@@ -264,7 +264,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Row Status",
-   "options": "Pending match run\nMatched\nMismatched\nPartially Allocated\nSettled\nSkipped\nError"
+   "options": "Pending match run\nMatched\nMismatched\nPartially Allocated\nSettled\nInternal Transfer\nSkipped\nError"
   },
   {
    "description": "Why this row was skipped. REQUIRED for a manual skip (owner ruling); an automatic skip -- duplicate transfer_id, or a non-SUCCESS transfer -- carries a system-generated reason instead, because making someone retype 'duplicate' forty times is theatre.",
@@ -285,7 +285,7 @@
    "fieldname": "skip_kind",
    "fieldtype": "Select",
    "label": "Skip Kind",
-   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair\nPaired wallet refund",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair\nPaired wallet refund\nUnknown Cashbook type",
    "read_only": 1
   },
   {
@@ -442,7 +442,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-11-03 19:02:53.240404",
+ "modified": "2026-11-06 21:44:14.141816",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

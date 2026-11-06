@@ -119,7 +119,10 @@ class ReopenCase(FrappeTestCase):
         as_old = dataclasses.replace(
             self.parsed,
             rows=[
-                row if row.row_kind == "Wallet Spend" else dataclasses.replace(row, row_kind="VA → Wallet")
+                # #1623: `VA → Wallet` is an Internal Transfer now, so every non-spend line is given a Type no rule
+                # knows; the UPDATE below files it as own balances, as every non-spend line was before #1594
+                # (since owner decision 4, #1619, a fresh import files an unknown Type under its own Skip Type).
+                row if row.row_kind == "Wallet Spend" else dataclasses.replace(row, row_kind="Old Movement")
                 for row in self.parsed.rows
             ],
         )
@@ -128,6 +131,11 @@ class ReopenCase(FrappeTestCase):
         ).name
         self.batches.append(batch)
         frappe.db.sql("""UPDATE "tabOutflow Import Row" SET row_kind = NULL WHERE import_batch = %s""", (batch,))
+        frappe.db.sql(
+            """UPDATE "tabOutflow Import Row" SET skip_reason = %s, skip_kind = %s
+               WHERE import_batch = %s AND skip_kind = %s""",
+            (OWN_BALANCES, "Cashbook internal movement", batch, "Unknown Cashbook type"),
+        )
         frappe.db.commit()
         with patch.object(bills, "fetch_bill", _fake_bills()):
             cb._cashbook_worker(batch, "Administrator")

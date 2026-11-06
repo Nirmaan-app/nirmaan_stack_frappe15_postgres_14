@@ -181,7 +181,14 @@ def discard_card_import(batch: str):
         )
 
     statements = frappe.get_all(STATEMENT_DOCTYPE, filters={"import_batch": batch}, pluck="name")
-    for doctype, names in ((ROW_DOCTYPE, rows), (STATEMENT_DOCTYPE, statements), (BATCH_DOCTYPE, [batch])):
+    # #1624: the auto-debit lines' Internal Transfer records go first, with their lines (nothing else reads them).
+    transfers = frappe.get_all("Internal Transfer", filters={"import_row": ["in", rows or [""]]}, pluck="name")
+    for doctype, names in (
+        ("Internal Transfer", transfers),
+        (ROW_DOCTYPE, rows),
+        (STATEMENT_DOCTYPE, statements),
+        (BATCH_DOCTYPE, [batch]),
+    ):
         if not names:
             continue
         frappe.db.delete("Version", {"ref_doctype": doctype, "docname": ["in", names]})

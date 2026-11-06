@@ -35,6 +35,9 @@ Three standards fail silently when broken, so they are summarised here too (full
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
   `gh issue view <n> --json title,body,labels,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`
   (`--comments` alone prints only the comments, never the body).
+- **Grilling a change to a figure or a rule:** first find every reader of it by search (screens, reports, exports,
+  other services, and text stored in the DB such as form sentences and fixtures). Put each reader whose meaning
+  changes to the owner as its own question.
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run

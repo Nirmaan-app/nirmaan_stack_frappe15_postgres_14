@@ -26,7 +26,7 @@ THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_sta
 
 A line is `DD/MM/YYYY`, an 11-digit SerNo, the transaction details, the reward points, an optional
 international amount, the amount and an optional `CR`. A line dated before the period, or out of date
-order, is kept as printed. The card numbers printed as headings in the list are not read (ADR-0039).
+order, is kept as printed. The card number printed as a heading over each card's lines is kept on each line as its last four digits only (#1624).
 
 The company is read to be SHOWN on Review, never checked (ADR-0039 Amendment B). The layout is the text
 pypdf 6.13.3 (Frappe's pin) extracts; pypdf 3.17.4 joins some of these lines and misreads the statement.
@@ -77,6 +77,9 @@ class CardLine:
     amount: Decimal
     is_credit: bool
     merchant_key: str
+    #: The last four digits of the card the statement lists this line under (its `1000XXXXXXXX1111` heading),
+    #: or blank when no heading came before it (#1624: an auto-debit credit's Internal Transfer names the card).
+    card_last_four: str = ""
 
 
 @dataclass(frozen=True)
@@ -230,8 +233,17 @@ def _statement_date(rows: list[str], period_to: date) -> date:
     return min(dates) if dates else period_to
 
 
+# A card number as the statement prints it over that card's lines: four digits, eight X's, the last four (#1624).
+_CARD_HEADING = re.compile(r"^\s*\d{4}X{8}(\d{4})\s*$")
+
+
 def _lines(rows: list[str]):
+    last_four = ""
     for row in rows:
+        heading = _CARD_HEADING.match(row)
+        if heading:
+            last_four = heading.group(1)
+            continue
         found = _LINE.match(row)
         if not found:
             continue
@@ -243,6 +255,7 @@ def _lines(rows: list[str]):
             amount=_money(found.group("amount")),
             is_credit=bool(found.group("cr")),
             merchant_key=merchant_key(details),
+            card_last_four=last_four,
         )
 
 

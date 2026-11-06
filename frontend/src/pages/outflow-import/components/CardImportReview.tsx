@@ -27,6 +27,7 @@ import {
     type CardImportLine,
 } from "../creditCardImport";
 import { cardWorkLines } from "../cardCreditsView";
+import { CardInternalTransfers } from "./CardInternalTransfers";
 import { CardSkippedLines } from "./CardSkippedLines";
 
 interface TypeOption {
@@ -165,6 +166,7 @@ export const CardImportReview = ({
                 </table>
             </div>
 
+            <CardInternalTransfers card={card} />
             <CardSkippedLines card={card} />
         </div>
     );

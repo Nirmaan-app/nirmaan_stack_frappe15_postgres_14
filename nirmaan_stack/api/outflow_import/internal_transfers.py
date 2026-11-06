@@ -1,0 +1,197 @@
+# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
+# For license information, please see license.txt
+
+"""The Internal Transfer record of one Bulk Import line (spec #1619, ADR-0044).
+
+GLOSSARY: *Internal Transfer*. One record per line whose status is `Internal Transfer`, saying where the money came
+from and went (`services/outflow_import/internal_transfers`, the one category table). The record links to its line
+(`import_row`, unique), so a line never has two. It is never edited, and it is counted in no expense, inflow or
+payment figure: nothing that sums those ledgers reads this doctype.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import frappe
+
+from nirmaan_stack.services.outflow_import.internal_transfer_rules import hand_mark_offer
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CASHBOOK_INTERNAL_KINDS,
+    TransferEnds,
+    cashbook_transfer_money,
+    made_by_words,
+    record_direction,
+)
+from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES, CASHBOOK_SOURCE
+
+INTERNAL_TRANSFER_DOCTYPE = "Internal Transfer"
+
+
+def _same_move(line) -> tuple[str, list]:
+    """The SQL test (on `r`) and its values for the lines of `line`'s move: its repeat identity -- source, Txn Id,
+    amount and direction, plus the bank text on a bank statement, whose Txn Ids repeat across lines."""
+    get = line.get
+    source = (get("source") or "").strip()
+    clause = "r.source = %s AND r.transfer_id = %s AND r.amount = %s AND TRIM(COALESCE(r.direction, '')) = %s"
+    params = [source, get("transfer_id"), float(get("amount") or 0), (get("direction") or "").strip()]
+    if source in BANK_STATEMENT_SOURCES:
+        clause += " AND r.remarks = %s"
+        params.append(get("remarks"))
+    return clause, params
+
+
+def recorded_line_of_move(line) -> str | None:
+    """The line of the same move as `line` (an `Outflow Import Row` doc or dict; `_same_move`) that holds its
+    Internal Transfer record, or `None`. A repeat of an internal line makes no second record (spec #1619)."""
+    clause, params = _same_move(line)
+    found = frappe.db.sql(
+        f"""SELECT r.name FROM "tabOutflow Import Row" r JOIN "tabInternal Transfer" it ON it.import_row = r.name
+            WHERE {clause} ORDER BY r.name LIMIT 1""",
+        tuple(params),
+    )
+    return found[0][0] if found else None
+
+
+def earlier_line_of_move(line):
+    """The first line of `line`'s move (`_same_move`) staged before it under another bank status -- its
+    `import_batch` and `status_raw` -- or `None`. `line` carries `name` and `creation`."""
+    clause, params = _same_move(line)
+    found = frappe.db.sql(
+        f"""SELECT r.import_batch, r.status_raw FROM "tabOutflow Import Row" r
+            WHERE {clause} AND (r.creation, r.name) < (%s, %s)
+              AND UPPER(TRIM(COALESCE(r.status_raw, ''))) != UPPER(TRIM(%s))
+            ORDER BY r.creation, r.name LIMIT 1""",
+        tuple(params + [line.get("creation"), line.get("name"), line.get("status_raw") or ""]),
+        as_dict=True,
+    )
+    return found[0] if found else None
+
+
+def record_for_line(
+    line,
+    ends: TransferEnds,
+    made_by: str,
+    *,
+    amount=None,
+    direction=None,
+    marked_by=None,
+    marked_at=None,
+    reason=None,
+) -> str:
+    """Insert the Internal Transfer record of `line` (an `Outflow Import Row` doc or dict) and return its name.
+
+    `amount` is the money moved when the line's own `amount` is not it (a Cashbook top-up carries its money in the
+    statement's Credit column and stages 0, #1623); by default the line's amount. `direction` (`In` / `Out`) likewise,
+    for a Cashbook line, which states no direction of its own; by default the line's. The unique index on
+    `import_row` refuses a second record for the same line.
+    """
+    get = line.get
+    added_on = get("added_on")
+    doc = frappe.new_doc(INTERNAL_TRANSFER_DOCTYPE)
+    doc.update(
+        {
+            "transfer_date": frappe.utils.getdate(added_on) if added_on else None,
+            "amount": float(amount if amount is not None else (get("amount") or 0)),
+            "direction": direction or record_direction(get("direction")),
+            "from_place": ends.from_place,
+            "to_place": ends.to_place,
+            "detail": ends.detail or None,
+            "source": get("source"),
+            "import_row": get("name"),
+            "reference": get("remarks") or get("settlement_reference") or get("transfer_id"),
+            "made_by": made_by,
+            "marked_by": marked_by,
+            "marked_at": marked_at,
+            "mark_reason": reason,
+        }
+    )
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
+
+def record_cashbook_move(line, move) -> str:
+    """Insert the record of a Cashbook Internal Transfer line (`line`, staged) for its `move`
+    (`internal_transfers.CashbookMove`), and return its name."""
+    return record_for_line(line, move.ends, made_by=move.rule, amount=move.money, direction=move.direction)
+
+
+def zero_records_to_fill(rows) -> tuple[tuple[str, Decimal], ...]:
+    """`(record, money)` for each Cashbook Internal Transfer record holding ₹0 that a line of this statement (parsed
+    `rows`) repeats and can fill (owner decision 2, #1619). READ-ONLY.
+
+    Imports before #1623 never stored a top-up's Credit, so its record holds 0. The statement's line of the same
+    move -- the same Txn Id and the same stored amount, its repeat identity -- carries the money in whichever column
+    it filled (`internal_transfers.cashbook_transfer_money`). Only a line that says SUCCESS fills (owner decision 3:
+    a line that does not moved no money). A record holding any other amount is never read.
+    """
+    money_of = {}
+    for raw in rows:
+        money = cashbook_transfer_money(raw)
+        moved = getattr(raw, "is_success", False) and money > 0
+        if (getattr(raw, "row_kind", "") or "").strip() in CASHBOOK_INTERNAL_KINDS and raw.transfer_id and moved:
+            money_of[(raw.transfer_id, Decimal(str(getattr(raw, "amount", None) or 0)))] = money
+    if not money_of:
+        return ()
+    found = frappe.db.sql(
+        """SELECT it.name, r.transfer_id, r.amount FROM "tabInternal Transfer" it
+           JOIN "tabOutflow Import Row" r ON r.name = it.import_row
+           WHERE r.source = %s AND r.transfer_id IN %s AND it.amount = 0
+           ORDER BY it.name""",
+        (CASHBOOK_SOURCE, tuple(sorted({txn for txn, _ in money_of}))),
+        as_dict=True,
+    )
+    return tuple(
+        (row.name, money_of[key])
+        for row in found
+        if (key := (row.transfer_id, Decimal(str(row.amount or 0)))) in money_of
+    )
+
+
+def fill_zero_records(fills) -> None:
+    """Give each ₹0 record of `fills` (`zero_records_to_fill`) its money. Nothing else on it changes.
+
+    ⚠️ RAW (`set_value`), AND WHY SKIPPING THE LIFECYCLE IS CORRECT (CODING_STANDARDS rule 1): the record's controller
+    refuses every save after insert ("never edited"), which this one sanctioned fill must pass. The record has no
+    `doc_events`, and nothing stores a figure derived from its amount: the summary sums the records live.
+    """
+    for record, money in fills:
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "amount", float(money), update_modified=False)
+
+
+# --- The record on a main-table row (`review.get_outflow_rows`, `review.export_outflow_rows`) -------------------
+
+# A line's Internal Transfer record (#1621), for the Internal Transfers tab's From, To and Detail columns and the
+# hand mark's who / when / why (#1626). A LEFT JOIN on the record's UNIQUE `import_row`, so it can never multiply a
+# line; blank on every other line. Read by the page query and the export only -- `_row_filters` stays single-table.
+INTERNAL_TRANSFER_JOIN = 'LEFT JOIN "tabInternal Transfer" it ON it.import_row = r.name'
+INTERNAL_TRANSFER_COLUMNS = (
+    "it.name AS internal_transfer, it.from_place AS transfer_from, it.to_place AS transfer_to, "
+    "it.detail AS transfer_detail, it.made_by AS transfer_made_by, it.marked_by AS transfer_marked_by, "
+    "it.marked_at AS transfer_marked_at, it.mark_reason AS transfer_mark_reason, "
+    "it.amount AS transfer_amount, it.direction AS transfer_record_direction"
+)
+
+
+def internal_transfer_fields(row) -> dict:
+    """The Internal Transfer record's figures on a page or export row (#1621, #1623): the record's money -- a Cashbook
+    top-up's line stages 0, its record holds what moved -- None on a line with no record; and who made it, in words
+    (`internal_transfers.made_by_words`, review finding #1619)."""
+    money = row.get("transfer_amount")
+    return {
+        "transfer_amount": float(money) if money is not None else None,
+        "transfer_made_by_label": made_by_words(row.get("transfer_made_by")),
+    }
+
+
+def hand_mark_of_row(row) -> dict | None:
+    """What the Mark dialog offers on a page row, or None when it may not be marked (#1626, review finding F1,
+    #1619): the screen keeps no copy of the places or the rule (`internal_transfer_rules.hand_mark_offer`)."""
+    return hand_mark_offer(
+        row_status=row.get("row_status"),
+        source=row.get("source"),
+        direction=row.get("direction"),
+        import_batch=row.get("import_batch"),
+        added_by_raw=row.get("added_by_raw"),
+        beneficiary_name=row.get("beneficiary_name"),
+    )

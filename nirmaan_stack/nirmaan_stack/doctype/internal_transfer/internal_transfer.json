@@ -1,0 +1,182 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "INT-.YY.-.######",
+ "creation": "2026-11-06 21:48:48.839774",
+ "description": "The company's own money moving between two of its own places, recorded from one Bulk Import line (spec #1619, ADR-0044). Never edited; counted in no expense, inflow or payment figure.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "transfer_date",
+  "amount",
+  "direction",
+  "from_place",
+  "to_place",
+  "detail",
+  "column_break_line",
+  "source",
+  "import_row",
+  "reference",
+  "made_by",
+  "hand_section",
+  "marked_by",
+  "marked_at",
+  "mark_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "transfer_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "description": "As the line states it: Out is money leaving the statement's account, In is money arriving.",
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Direction",
+   "options": "Out\nIn",
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_place",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "From",
+   "options": "ICICI Current Account\nICICI Bank Ledger\nCashfree Wallet\nCashbook Virtual Account\nCashbook Employee Wallet\nPorter Wallet\nICICI Credit Card",
+   "read_only": 1
+  },
+  {
+   "fieldname": "to_place",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "To",
+   "options": "ICICI Current Account\nICICI Bank Ledger\nCashfree Wallet\nCashbook Virtual Account\nCashbook Employee Wallet\nPorter Wallet\nICICI Credit Card",
+   "read_only": 1
+  },
+  {
+   "description": "The employee for a Cashbook employee wallet, the card's last four digits for a card, the ledger numbers for a bank ledger move.",
+   "fieldname": "detail",
+   "fieldtype": "Data",
+   "label": "Detail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_line",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The statement the line came from (Outflow Import Batch.source).",
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Source",
+   "read_only": 1
+  },
+  {
+   "description": "The one import line this record is. One record per line: the unique index refuses a second.",
+   "fieldname": "import_row",
+   "fieldtype": "Link",
+   "label": "Import Line",
+   "options": "Outflow Import Row",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "The line's bank text, so the move can be found in the bank's records.",
+   "fieldname": "reference",
+   "fieldtype": "Text",
+   "label": "Reference",
+   "read_only": 1
+  },
+  {
+   "description": "The rule that recognised the line (its category id), or 'by hand'.",
+   "fieldname": "made_by",
+   "fieldtype": "Data",
+   "label": "Made By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "hand_section",
+   "fieldtype": "Section Break",
+   "label": "Marked by hand"
+  },
+  {
+   "description": "The user id who marked the line by hand (Data, not a Link: a Link would block deleting that user).",
+   "fieldname": "marked_by",
+   "fieldtype": "Data",
+   "label": "Marked By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "marked_at",
+   "fieldtype": "Datetime",
+   "label": "Marked At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mark_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-07 00:28:05.688201",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Internal Transfer",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Admin Profile"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "from_place"
+}

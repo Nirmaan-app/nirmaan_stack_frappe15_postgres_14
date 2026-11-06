@@ -14,11 +14,12 @@ from collections.abc import Callable
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_OPEN
+from nirmaan_stack.services.outflow_import.cashbook import ACTION_CREATE, ACTION_INTERNAL, ACTION_OPEN
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.settlement_reference import resolve_settlement_reference
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 from nirmaan_stack.services.outflow_import.status import (
+    ROW_INTERNAL_TRANSFER,
     ROW_MISMATCHED,
     ROW_PENDING_MATCH,
     ROW_SKIPPED,
@@ -63,7 +64,9 @@ def line_values(raw, planned) -> dict:
     # the start (spec #1585 "Phase 2 stages new open lines away from the job"). Its note says what it is. A
     # Collect payment keeps the plan's placement, so Create opens pre-filled (`newExpenseSeed`).
     opening = planned.action == ACTION_OPEN
-    skipping = not creating and not opening
+    # #1623: one of Cashbook's own moves -- an Internal Transfer line; its record is written by the stage.
+    internal = planned.action == ACTION_INTERNAL
+    skipping = not creating and not opening and not internal
     placed = creating or (opening and bool(planned.ledger))
     return {
         "source": CASHBOOK_SOURCE,
@@ -93,7 +96,13 @@ def line_values(raw, planned) -> dict:
         )
         or None,
         "row_status": (
-            ROW_PENDING_MATCH if creating else ROW_MISMATCHED if opening else ROW_SKIPPED
+            ROW_PENDING_MATCH
+            if creating
+            else ROW_MISMATCHED
+            if opening
+            else ROW_INTERNAL_TRANSFER
+            if internal
+            else ROW_SKIPPED
         ),
         "skip_reason": planned.reason if skipping else None,
         # A Cashbook skip is the import plan's decision, never a person's (#1273).
@@ -102,7 +111,7 @@ def line_values(raw, planned) -> dict:
         # #1602: a *Paired wallet refund* keeps the other line's Txn Id, so the Skipped list names it without
         # reading the sentence. Blank on every other line, and cleared on an earlier line a re-open makes open.
         "cashbook_refund_partner": (planned.partner or None) if skipping else None,
-        "outcome_note": planned.reason if opening else None,
+        "outcome_note": planned.reason if opening or internal else None,
         "suggested_doctype": planned.ledger if placed else None,
         "suggested_expense_type": planned.expense_type if placed else None,
         "resolved_project": (

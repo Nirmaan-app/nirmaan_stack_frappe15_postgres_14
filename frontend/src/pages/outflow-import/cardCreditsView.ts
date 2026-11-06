@@ -7,11 +7,20 @@
 
 import type { CardImport, CardImportLine } from "./creditCardImport";
 
+import { ROW_INTERNAL_TRANSFER as INTERNAL_TRANSFER } from "./outflowImportStatus";
+
 const SKIPPED = "Skipped";
 
 /** The lines still to work, in statement order: the spends, and any credit that stayed open. */
 export const cardWorkLines = (card: Pick<CardImport, "lines">): CardImportLine[] =>
-    card.lines.filter((line) => line.row_status !== SKIPPED);
+    card.lines.filter((line) => line.row_status !== SKIPPED && line.row_status !== INTERNAL_TRANSFER);
+
+/**
+ * The bank's auto-debit paying the card (#1624): Internal Transfer lines, each with its note naming From, To and
+ * the card. Listed on their own, like the main table's Internal Transfers tab, never with the skipped lines.
+ */
+export const cardInternalTransferLines = (card: Pick<CardImport, "lines">): CardImportLine[] =>
+    card.lines.filter((line) => line.row_status === INTERNAL_TRANSFER);
 
 /** The lines sorted out at upload (or skipped since), each carrying its kind and reason. */
 export const cardSkippedLines = (card: Pick<CardImport, "lines">): CardImportLine[] =>

@@ -6,7 +6,8 @@
 PURE: no Frappe, no DB. `sort_card_lines(lines)` answers, for every line the reader returned, what it is:
 
     SPEND            a card spend: it becomes a Non-Project Expense on Create
-    CARD_PAYMENT     money paid INTO the card (auto-debit, UPI and other payments received, an auto-debit
+    CARD_AUTO_DEBIT  the bank's auto-debit paying the card: an Internal Transfer line with its record (#1624)
+    CARD_PAYMENT     any other money paid INTO the card (UPI and other payments received, an auto-debit
                      return): a system skip, never unskipped
     CASHBACK         the bank's cashback: a system skip, never unskipped (cashback is not recorded as income)
     REFUND           a merchant credit that cancels a spend of the same merchant key and exactly the same
@@ -30,7 +31,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from nirmaan_stack.services.outflow_import.amounts import rupees
-from nirmaan_stack.services.outflow_import.card_statement import CardLine
+from nirmaan_stack.services.outflow_import.card_statement import CardLine, merchant_key
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_CARD_CASHBACK,
     SKIP_KIND_CARD_PAYMENT,
@@ -51,6 +52,10 @@ CASHBACK = "cashback"
 REFUND = "refund"
 REFUNDED_SPEND = "refunded spend"
 UNPAIRED_CREDIT = "unpaired credit"
+# The bank's auto-debit paying the card ("Autodebit Payment Recd.", #1624, spec #1619): an Internal Transfer from
+# the ICICI Current Account to the card. Every other payment credit stays CARD_PAYMENT: the statement does not
+# say who paid it (#1618).
+CARD_AUTO_DEBIT = "card auto-debit"
 
 #: What a main-table action on a card SPEND is refused with: it waits for the card import's own Create
 #: (`sources.line_waits_for_its_own_create`). A card credit is decided on the main table.
@@ -65,7 +70,15 @@ SKIPPED_KINDS = frozenset({CARD_PAYMENT, CASHBACK, REFUND, REFUNDED_SPEND})
 # Read on the merchant key (upper case, punctuation dropped): "Autodebit Payment Recd." ->
 # "AUTODEBIT PAYMENT RECD", "Auto Dr.Retn-Insuff. fund" -> "AUTO DR RETN INSUFF FUND".
 _PAYMENT = re.compile(r"\bPAYMENT (?:RECD|RECEIVED)\b|^AUTO DR RETN\b")
+# Asked before `_PAYMENT`, which its words also match.
+_AUTO_DEBIT = re.compile(r"^AUTODEBIT PAYMENT RECD\b")
 _CASHBACK = re.compile(r"\bCASH ?BACK\b")
+
+
+def auto_debit_words(details: str) -> bool:
+    """Whether a card credit's words are the bank's auto-debit paying the card (#1624), read as `sort_card_lines`
+    reads them. Shared with the one-time patch that places old card payment lines (#1627)."""
+    return bool(_AUTO_DEBIT.search(merchant_key(details or "")))
 
 
 @dataclass(frozen=True)
@@ -78,6 +91,11 @@ class LineSort:
     @property
     def skipped(self) -> bool:
         return self.kind in SKIPPED_KINDS
+
+    @property
+    def internal(self) -> bool:
+        """An Internal Transfer line (#1624), staged with its record, never a skip."""
+        return self.kind == CARD_AUTO_DEBIT
 
 
 def skip_values(sort: LineSort) -> dict:
@@ -115,6 +133,8 @@ def sort_card_lines(lines: Iterable[CardLine]) -> dict[str, LineSort]:
     for position, line in enumerate(lines):
         if not line.is_credit:
             result[line.serno] = LineSort(SPEND)
+        elif _AUTO_DEBIT.search(line.merchant_key):
+            result[line.serno] = LineSort(CARD_AUTO_DEBIT)
         elif _PAYMENT.search(line.merchant_key):
             result[line.serno] = LineSort(CARD_PAYMENT)
         elif _CASHBACK.search(line.merchant_key):

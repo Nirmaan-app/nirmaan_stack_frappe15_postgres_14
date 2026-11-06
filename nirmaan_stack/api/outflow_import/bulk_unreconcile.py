@@ -41,7 +41,7 @@ from nirmaan_stack.api.outflow_import.unreconcile import (
     plan_of_line,
     unreconcile_line,
 )
-from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED, ROW_SETTLED
+from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER, ROW_MISMATCHED, ROW_SETTLED
 
 ROW_DOCTYPE = "Outflow Import Row"
 
@@ -53,7 +53,7 @@ NOT_SETTLED_REFUSAL = "This transfer is {status} now, not Settled, so it was lef
 NOT_FOUND_REFUSAL = "This transfer no longer exists; its import may have been deleted."
 #: An error that is not a refusal. Its detail goes to the Error Log, never to the screen.
 #: Mirrors the frontend's `ROW_STATUS_LABEL` (display only; the stored value is unchanged).
-STATUS_LABELS = {ROW_MISMATCHED: "Not-Matched"}
+STATUS_LABELS = {ROW_MISMATCHED: "Not-Matched", ROW_INTERNAL_TRANSFER: "an Internal Transfer"}
 UNEXPECTED_REFUSAL = "Something went wrong undoing this transfer, so nothing on it was changed."
 
 # The screen's page size too (`DEFAULT_PAGE_SIZE`), since a run works on one page at a time -- but the

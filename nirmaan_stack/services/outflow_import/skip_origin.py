@@ -58,6 +58,7 @@ from nirmaan_stack.services.outflow_import.sources import (
 )
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
+    ROW_INTERNAL_TRANSFER,
     ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
@@ -65,6 +66,7 @@ from nirmaan_stack.services.outflow_import.status import (
     SKIP_ORIGIN_MANUAL,
     SKIP_ORIGIN_SYSTEM,
     SYSTEM_SKIP_SENTENCES,
+    internal_transfer_refusal,
 )
 
 __all__ = [
@@ -145,6 +147,8 @@ def manual_skip_refusal(
             return SKIP_REFUSED_PARTIALLY_ALLOCATED
         if status == ROW_SKIPPED:
             return SKIP_REFUSED_ALREADY_SKIPPED
+        if status == ROW_INTERNAL_TRANSFER:
+            return internal_transfer_refusal("skipped")
         return SKIP_REFUSED_NOT_OPEN.format(status=status or "in no known state")
     # ⚠️ A PORTER LINE IS NEVER SKIPPED FROM THE MAIN TABLE (#1443). It is created by its own import once
     # Porter's invoices agree; a hand skip would let one order quietly drop out of an import whose
@@ -199,6 +203,8 @@ def unskip_refusal(
     re-check for Cashbook is the wallet duplicate check (`review.unskip_row`), not the matcher, and it
     was never asked to judge a line the import itself set aside.
     """
+    if (row_status or "").strip() == ROW_INTERNAL_TRANSFER:
+        return internal_transfer_refusal("unskipped")
     if (row_status or "").strip() != ROW_SKIPPED:
         return UNSKIP_REFUSED_NOT_SKIPPED
     kind = (skip_kind or "").strip()

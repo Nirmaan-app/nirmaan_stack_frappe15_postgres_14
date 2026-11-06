@@ -24,9 +24,15 @@ each section marked "omit when". Each rule in "Rules" was broken once by a box a
 1. Call the Skill tool with `mattpocock-skills:tdd` before the first test, and build through it. Show the first test
    red on the untouched code before any fix. Name every skill this way, with its exact name: a box agent loads a
    skill only when told to call it, and the box may lack a plugin the laptop has.
-2. <<FILL: a screen changes: walk it with the verify skill as its role. Or: no screen changes.>>
-3. Stay inside the ticket. Anything outside it that you find broken: list it in the report, do not fix it.
-4. <<FILL: STOP conditions: a choice that belongs to the owner. Set the report's Status to BLOCKED and say what it
+2. <<FILL: each screen that changes and the role that walks it; or "No screen changes", and delete the rest of this
+   step.>> Walk them with the `verify` skill. Write the walk as `.claude/skills/verify/bin/walk_<feature>.py` on the
+   pattern of `walk_purchase_orders.py`: it asserts each screen's text and its DB row, and exits 1 on any miss.
+   Commit it with `.claude/skills/verify/features/<feature>.md` and that file's line in `features/README.md`.
+3. Before the report, call the Skill tool with `mattpocock-skills:domain-modeling` over this task's diff. Write each
+   new or changed term to `GLOSSARY.md` and commit it. List each ADR its three tests call for in the report's Open
+   questions, for the owner's yes. Change an existing term or ADR only where the code proves it wrong, and say so.
+4. Stay inside the ticket. Anything outside it that you find broken: list it in the report, do not fix it.
+5. <<FILL: STOP conditions: a choice that belongs to the owner. Set the report's Status to BLOCKED and say what it
    would change; do not decide it yourself.>>
 
 ## Review
