@@ -17,10 +17,9 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.bulk_unreconcile import bulk_unreconcile_rows
 from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense, settle_row
-from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_imports
 from nirmaan_stack.api.outflow_import.link_lines import link_rows_to_expense
 from nirmaan_stack.api.outflow_import.review import (
-    MATCH_DOCTYPE,
     export_outflow_rows,
     get_outflow_rows,
     get_outflow_summary,
@@ -44,23 +43,9 @@ class InternalTransferLineFixture(unittest.TestCase):
         self.batches = []
 
     def tearDown(self):
-        """Roll back first, then purge each batch in its own try, committing per batch (CODING_STANDARDS § tests)."""
         frappe.db.rollback()
         frappe.set_user("Administrator")
-        for batch in self.batches:
-            try:
-                rows = frappe.get_all(ROW_DOCTYPE, filters={"import_batch": batch}, pluck="name")
-                if rows:
-                    frappe.db.delete("Version", {"ref_doctype": ROW_DOCTYPE, "docname": ["in", rows]})
-                    frappe.db.delete("Comment", {"reference_doctype": ROW_DOCTYPE, "reference_name": ["in", rows]})
-                purge_internal_transfers(batch)
-                frappe.db.delete(MATCH_DOCTYPE, {"import_batch": batch})
-                frappe.db.delete(ROW_DOCTYPE, {"import_batch": batch})
-                frappe.db.delete(BATCH_DOCTYPE, {"name": batch})
-                frappe.db.commit()
-            except Exception as exc:
-                frappe.db.rollback()
-                print(f"internal transfer test purge: could not purge {batch}: {exc}")
+        purge_imports(self.batches, suite="internal transfer test purge")
         super().tearDown()
 
     def _batch(self, source=ICICI) -> str:

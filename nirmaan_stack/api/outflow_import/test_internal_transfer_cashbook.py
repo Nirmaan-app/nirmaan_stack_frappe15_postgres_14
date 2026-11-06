@@ -240,28 +240,17 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
     ₹0. A re-upload repeating that line gives the record the money from the file, and changes nothing else."""
 
     def _confirm(self, content: bytes) -> dict:
+        """Confirm through the endpoint, its statement File seeded as a fake cloud URL (CODING_STANDARDS § Deleting an
+        uploaded File): the local site writes real uploads to the production bucket for good."""
         from unittest.mock import patch
 
         from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
 
-        with patch.object(cb, "_enqueue_worker"):
+        with patch.object(cb, "_enqueue_worker"), patch("frappe.utils.file_manager.save_file", _fake_cloud_file):
             result = _post(cb.confirm_cashbook_import, content, "test-it-reupload.xlsx")
         self.addCleanup(_purge, result["batch"])
-        self.addCleanup(self._purge_statement_file, result["batch"])
+        self.addCleanup(_purge_statement_file, result["batch"])
         return result
-
-    @staticmethod
-    def _purge_statement_file(batch: str) -> None:
-        """The statement `save_file` committed; `_purge` deletes no File. Rolled back first, committed on its own."""
-        frappe.db.rollback()
-        try:
-            for name in frappe.get_all("File", filters={"attached_to_doctype": "Outflow Import Batch",
-                                                        "attached_to_name": batch}, pluck="name"):
-                frappe.delete_doc("File", name, ignore_permissions=True, force=True)
-            frappe.db.commit()
-        except Exception as exc:
-            frappe.db.rollback()
-            print(f"internal transfer re-upload test: could not purge the statement file of {batch}: {exc}")
 
     def test_an_exact_repeat_fills_a_zero_record_and_nothing_else(self):
         tag = frappe.generate_hash(length=6).upper()
@@ -312,6 +301,29 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
         preview = _post(cb.preview_cashbook_statement, _xlsx(lines), "test-it-preview-fill.xlsx")
         self.assertEqual((preview["records_to_fill"], preview["refused"]), (1, False))
         self.assertEqual(float(self._record(old["name"])["amount"]), 0.0)
+
+
+def _fake_cloud_file(fname, content, dt, dn, is_private=1, **_):
+    """`save_file` as the storage app leaves it, with no upload: a File whose URL is a cloud key no bucket holds."""
+    doc = frappe.new_doc("File")
+    doc.update({"file_name": fname, "is_private": is_private,
+                "file_url": f"/api/method/frappe_gcp_attachment.controller.generate_file?key=test-{fname}"})
+    doc.db_insert()
+    return doc
+
+
+def _purge_statement_file(batch: str) -> None:
+    """The statement File confirm attached to `batch`; `_purge` deletes no File. Rolled back first, committed on its
+    own, through `stored_files.delete_files` (CODING_STANDARDS § Deleting an uploaded File)."""
+    from nirmaan_stack.services.stored_files import delete_files
+
+    frappe.db.rollback()
+    try:
+        delete_files({"attached_to_doctype": "Outflow Import Batch", "attached_to_name": batch})
+        frappe.db.commit()
+    except Exception as exc:
+        frappe.db.rollback()
+        print(f"internal transfer re-upload test: could not purge the statement file of {batch}: {exc}")
 
 
 class TestOnlyASuccessfulLineFillsARecord(CashbookStageCase):

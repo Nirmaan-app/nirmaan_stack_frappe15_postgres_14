@@ -22,7 +22,6 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     record_direction,
 )
 from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES, CASHBOOK_SOURCE
-from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
 
 INTERNAL_TRANSFER_DOCTYPE = "Internal Transfer"
 
