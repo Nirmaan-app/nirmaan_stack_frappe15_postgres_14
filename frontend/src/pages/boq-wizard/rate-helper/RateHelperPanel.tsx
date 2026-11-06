@@ -1327,11 +1327,22 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
   };
   return (
     <>
+      {/* VRF-4 (U2, O-5): on a BoQ row, what the BoQ says this unit's price includes, as the model read it */}
+      {ex.boqNote && (
+        <div className={cn(NOTE_BOX_CLASS, "ml-3")} data-testid="extra-boq-note">
+          <Info className={NOTE_ICON_CLASS} aria-hidden />
+          <p className="text-[10px] leading-tight">{ex.boqNote}</p>
+        </div>
+      )}
       {ex.lines.map((l) => (
         <div key={l.id} className="relative ml-3 space-y-1.5 rounded-md border border-l-4 border-l-sky-300 bg-muted/20 px-2 py-1.5 dark:border-l-sky-800" data-testid="extra-line" data-line={l.id}>
           <div className="flex items-start justify-between gap-1.5">
             <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="extra-line-heading">{l.heading}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="extra-line-heading">
+                {l.heading}
+                {/* VRF-4 (U2): the line is on this BoQ row because the model read that the unit's price includes it */}
+                {l.fromBoq && <span className="ml-1 rounded bg-sky-100 px-1 normal-case text-sky-800 dark:bg-sky-900/40 dark:text-sky-200" data-testid="extra-line-from-boq">{l.fromBoqText}</span>}
+              </div>
               <div className="text-xs font-semibold">{l.title}</div>
             </div>
             <button
@@ -1449,6 +1460,21 @@ function ItemListBlocks({
   );
   return (
     <div className="space-y-2" data-testid="item-list-blocks">
+      {/* VRF-4 (U4: R-WS, D-5 "option D", D-9): the model read working + standby words -- a SOLID red bar above the card and
+          the row's unit and quantity ringed red; the price is one unit */}
+      {!section && view.standbyBar && (
+        <div className="rounded-md bg-red-600 px-2 py-1.5 text-white dark:bg-red-700" data-testid="item-standby-bar">
+          <div className="text-xs font-bold uppercase tracking-wide">{view.standbyBar.title}</div>
+          {view.standbyBar.lines.map((l, li) => (
+            <p key={li} className="mt-0.5 text-[11px] font-medium leading-snug">{l}</p>
+          ))}
+        </div>
+      )}
+      {!section && view.standbyBar && (
+        <div className="inline-block rounded-full border-2 border-red-600 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:text-red-400" data-testid="item-standby-ring">
+          {view.standbyBar.ring}
+        </div>
+      )}
       {/* VRF-3a K2 (U4 / U5 / U6, boards 9 / 11): a per-Set or whole-lot row -- a SOLID bar above the card, orange when the
           row prices on the team rule, red when it does not, and the row's unit and quantity ringed in the same colour */}
       {!section && view.unitBar && (

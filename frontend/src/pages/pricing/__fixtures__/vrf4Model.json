@@ -1,0 +1,63 @@
+{
+  "_about": "VRF-4 (owner 2026-11-06 q1-q6; D-5 option D; D-9; R-BRAND (a)). The hvac_vrf additions the v60 mint writes into the asset (mint_hvac_v60_vrf4.py reads this file; test_vrf_v60 proves the asset equals it). K1 tests price v59 + these keys.",
+  "extras_from_model": {
+    "includes": {
+      "copper": "includes_copper",
+      "insulation": "includes_insulation",
+      "power": "includes_power",
+      "comm": "includes_comm"
+    },
+    "yes": "Yes",
+    "copper_size": "extra_copper_size_as_written",
+    "insulation_thickness": "extra_insulation_thickness_as_written",
+    "cable_spec": "extra_cable_spec_as_written",
+    "comm_words": "control|communication|\\bcomm\\b|transmission|signal",
+    "length": "extra_length_as_written"
+  },
+  "extras_words": {
+    "boq_note": "The BoQ says this unit's price includes {list} (read by the model). Each is priced below by its own sheet's rules."
+  },
+  "brand_from_attr": "brand_as_written",
+  "counted_from_sheet": {
+    "sides": {
+      "outdoor": ["Outdoor Unit"],
+      "indoor": ["Hi-Wall", "Cassette", "Floor-cum-Ceiling Mounted", "Verticool", "Concealed Split", "Ductable", "Packaged Unit", "Single Skin Treated Fresh Air"]
+    },
+    "line": "Counted from this sheet: {n} {word} units ({rows}). Change it if this row's system differs.",
+    "none": "No {word} unit was read on this sheet - type the count."
+  },
+  "working_standby": {
+    "attr": "working_standby_as_written",
+    "words": [
+      "\\b\\d*\\s*W\\s*\\+\\s*\\d*\\s*S\\b",
+      "\\b\\d*\\s*N\\s*\\+\\s*\\d*\\s*N\\b",
+      "working\\s*(?:\\+|&|\\band\\b|\\bcum\\b)\\s*\\d*\\s*stand\\s*-?\\s*by"
+    ],
+    "bar": {
+      "title": "WORKING + STANDBY - THIS RATE IS FOR 1 UNIT ONLY.",
+      "line": "The BoQ says \"{said}\" and its quantity is {qty}. Working and standby must be priced together: check that the quantity covers both before changing the rate."
+    }
+  },
+  "questions": [
+    {"id": "item", "label": "Item", "type": "choice", "values": ["Outdoor Unit", "Hi-Wall", "Cassette", "Floor-cum-Ceiling Mounted", "Verticool", "Concealed Split", "Ductable", "Packaged Unit", "Single Skin Treated Fresh Air", "Refnet/Y-Joint", "AHU Expansion Kit", "Remote Controller", "Touch Screen Central Controller", "Drain Pump", "BACnet Integration Controller for VRF Units", "Refrigerant Gas Filling (R-410)", "MS Angle Base Frame Structure", "none of these"], "note": "The VRF family this item is: one of the listed families. 'Touch Screen Central Controller' is a central / i-Touch / touch-panel controller for the whole system; 'BACnet Integration Controller for VRF Units' only when the row names BACnet or a BMS gateway. A drain pump bought on its own row is 'Drain Pump'. 'None' when the row does not say what kind of unit it is (an indoor unit whose type is not stated - a person picks it); 'none of these' when the row names an item that is not listed.", "allow_none": true},
+    {"id": "brand", "label": "Brand", "type": "choice", "values": ["Blue Star", "Daikin"], "note": "The make, from the sheet's BRAND column. Stored in the item's brand column (read into the attributes at read time); the four shared Misc items carry none.", "allow_none": true},
+    {"id": "brand_as_written", "label": "Brand as written", "type": "text", "note": "Every make the row, or a heading that describes this item, names - copied exactly as written and separated as written ('Daikin / Toshiba'). Leave it out when no make is named."},
+    {"id": "cooling", "label": "Cool / heat", "type": "choice", "values": ["Cool Only", "Heat Pump"], "note": "Outdoor units: Cool Only or Heat Pump (the sheet writes HEAT PUMP on Blue Star and Heat Pump on Daikin: one value).", "allow_none": true},
+    {"id": "discharge", "label": "Discharge", "type": "choice", "values": ["Top", "Side"], "note": "Outdoor units: Top or Side, from the sheet's Item.", "allow_none": true},
+    {"id": "compressor", "label": "Compressor", "type": "choice", "values": ["Standard", "Single Compressor"], "note": "Outdoor units: Single Compressor where the sheet's Type says so, else Standard (owner D-6).", "allow_none": true},
+    {"id": "way", "label": "Cassette way", "type": "choice", "values": ["FOUR-WAY", "FOUR-WAY COMPACT", "ONE-WAY", "TWO-WAY"], "note": "Cassettes: the sheet's Type.", "allow_none": true},
+    {"id": "remote_type", "label": "Remote type", "type": "choice", "values": ["Cordless", "Wired"], "note": "Remote controllers: Wired or Cordless. Wireless or handset = Cordless; corded, wired or 'with wire' = Wired.", "allow_none": true},
+    {"id": "capacity", "type": "text", "label": "Capacity", "note": "The capacity AS WRITTEN for this item, with its unit (16 HP, 1.5 TR). The outdoor units are sold in HP and the indoor units and AHU kits in TR. A split the row writes is copied WHOLE on this ONE item ('60 HP (18+18+24)', '26(14+12)HP', '38HP (20+18)') - never one item per module; '2# 12 HP' is 12 HP."},
+    {"id": "includes_copper", "label": "Includes copper piping", "type": "choice", "values": ["Yes", "No"], "note": "Yes when this row's text, or a heading that describes this unit, says the unit's price includes its refrigerant copper piping ('complete with copper piping', 'including refrigerant piping'). No when it says the copper is extra or by others. 'None' when it is silent.", "allow_none": true},
+    {"id": "includes_insulation", "label": "Includes insulation", "type": "choice", "values": ["Yes", "No"], "note": "Yes when the price includes insulation of the refrigerant piping it includes. No when it says insulation is extra or by others. 'None' when it is silent.", "allow_none": true},
+    {"id": "includes_power", "label": "Includes power cable", "type": "choice", "values": ["Yes", "No"], "note": "Yes when the unit's price includes its power cabling / power supply wiring to the unit. No when it says it is extra or by others. 'None' when it is silent.", "allow_none": true},
+    {"id": "includes_comm", "label": "Includes communication cable", "type": "choice", "values": ["Yes", "No"], "note": "Yes when the unit's price includes its control / communication / transmission cabling. No when it says it is extra or by others. 'None' when it is silent.", "allow_none": true},
+    {"id": "extra_copper_size_as_written", "label": "Copper size as written", "type": "text", "note": "The copper pipe sizes the row states for THIS unit, copied exactly as written ('12.7 mm / 6.4 mm', '1/2\" & 1/4\"'), in the order written. Leave it out when no size is stated."},
+    {"id": "extra_insulation_thickness_as_written", "label": "Insulation thickness as written", "type": "text", "note": "The insulation thickness the row states for the copper this unit includes ('19 mm', '13/19 mm'), copied as written. Leave it out when none is stated."},
+    {"id": "extra_cable_spec_as_written", "label": "Cable spec as written", "type": "text", "note": "A cable the row states this unit includes, copied as written ('2C x 1.5 Sqmm copper', '4 core x 10 sqmm'), with the words that say which cable it is (power / control) when the row gives them. Leave it out when none is stated."},
+    {"id": "extra_length_as_written", "label": "Length as written", "type": "text", "note": "A length the row says the price covers for this unit's piping or cabling ('up to 15 m', 'first 10 RMT'), copied as written. Leave it out when none is stated."},
+    {"id": "working_standby_as_written", "label": "Working + standby as written", "type": "text", "note": "Words saying this row covers working AND standby units together, copied as written: '1W+1S', 'N+N', '2N+N', 'W+S', 'working + standby'. A row that is only the standby (or only the working) unit is not this; a heading's 'Working/Standby mode' about dampers is not this. Leave it out otherwise."},
+    {"id": "set_contents_as_written", "label": "What one Set / Lot holds", "type": "text", "note": "For a row priced per Set, Lot, job or 'complete system': what the row says one Set or the lot contains, copied as written. Leave it out when it does not say."},
+    {"id": "set_covers", "label": "Refnets: what the row covers", "type": "choice", "values": ["Whole system (indoor + outdoor)", "Outdoor side only", "Indoor side only"], "note": "Refnets / Y-joints only: whether the row's refnets serve both sides of the system, the outdoor side only or the indoor side only, as the row or its heading says. 'None' when it does not say.", "allow_none": true}
+  ]
+}

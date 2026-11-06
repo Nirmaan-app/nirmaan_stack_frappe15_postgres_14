@@ -85,7 +85,21 @@ export function buildRowContext(
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
     // VRF-3a K2 (QR-1 (a)): the row's quantity, for a refnet on a Set row -- with the page's rows, as the three above
     ...(rows && typeof row.qty_total === "number" ? { quantity: row.qty_total } : {}),
+    // VRF-4 (q2): every row's quantity, for a refnet's unit counts read from the sheet (one map per rows array)
+    ...(rows ? { rowQuantities: rowQuantitiesOf(rows) } : {}),
   };
+}
+
+const ROW_QTY_CACHE = new WeakMap<readonly PricedRow[], Readonly<Record<number, number>>>();
+/** VRF-4 (owner "q2 ok"). PURE (memoised per rows array). Each priced row's `qty_total` by its excel row; a row without a
+ * numeric quantity is absent. */
+export function rowQuantitiesOf(rows: readonly PricedRow[]): Readonly<Record<number, number>> {
+  const hit = ROW_QTY_CACHE.get(rows);
+  if (hit) return hit;
+  const out: Record<number, number> = {};
+  for (const r of rows) if (typeof r.qty_total === "number" && Number.isFinite(r.qty_total)) out[r.source_row_number] = r.qty_total;
+  ROW_QTY_CACHE.set(rows, out);
+  return out;
 }
 
 /**

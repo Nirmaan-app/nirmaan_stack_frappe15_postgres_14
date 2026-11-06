@@ -571,6 +571,12 @@ export interface RateHelperRowContext {
    * priced row. Read ONLY by a counted item (a refnet) on a per-Set row. OPTIONAL: the calculator has no row and omits it.
    */
   quantity?: number;
+  /**
+   * VRF-4 (owner 2026-11-06 "q2 ok": refnet counts added up by code from the sheet's VRF unit rows): every priced row's
+   * quantity on this sheet, by excel row, built by `buildRowContext` beside `quantity`. Read ONLY by a counted item (a
+   * refnet) on a per-Set row of a config declaring `per_set.counted.from_sheet`. OPTIONAL: the calculator omits it.
+   */
+  rowQuantities?: Readonly<Record<number, number>>;
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

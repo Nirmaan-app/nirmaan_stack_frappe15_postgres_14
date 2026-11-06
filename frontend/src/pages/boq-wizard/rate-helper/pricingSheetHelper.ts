@@ -108,10 +108,14 @@ import {
   parseCableSpec,
   pricingInputRates,
   readTypedSizeMm,
+  boqExtrasOf,
+  sheetUnitCounts,
+  workingStandbyWords,
   type ExtraIncludeId,
   type ExtraLineId,
   type ExtrasSpec,
   type CountedPieces,
+  type CountedSpec,
   type ExtractedListItem,
   type ItemFieldDef,
   type ItemListPricingSpec,
@@ -160,13 +164,18 @@ export function buildExtractionByRow(
     attributes: Record<string, { value: string | number | null; confidence: number; corroborated?: boolean }>;
     /** SLICE 6: an item-list row's stored items (slice 4's `results[i].items`); absent on every other row. */
     items?: ExtractedListItem[];
+    /** VRF-4 (q2): the row's category, carried onto an item-list row only (a refnet counts the sheet's VRF units) */
+    category_id?: string;
   }>,
 ): Map<number, ExtractionRow> {
   const m = new Map<number, ExtractionRow>();
   for (const r of results ?? []) {
     const row: ExtractionRowWithItems = { excelRow: r.excel_row, description: r.description, attributes: r.attributes };
     // carried ONLY when present, so a non-list row's map entry is byte-identical to before
-    if (Array.isArray(r.items)) row.items = r.items;
+    if (Array.isArray(r.items)) {
+      row.items = r.items;
+      if (typeof r.category_id === "string" && r.category_id) row.category = r.category_id;
+    }
     m.set(r.excel_row, row);
   }
   return m;
@@ -174,7 +183,7 @@ export function buildExtractionByRow(
 
 /** SLICE 6: an extraction row that may carry the run's ITEMS (an item-list category). The base type lives
  * outside this slice's scope, so the items ride as an optional extension read through this alias. */
-export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[] };
+export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[]; category?: string };
 
 /** SLICE 6: a row context that may carry the BoQ row's UNIT (the page attaches it; the calculator has no row,
  * so the unit is a pick held in the panel's session state instead). */
@@ -192,6 +201,9 @@ export type RowContextWithUnit = RateHelperRowContext & {
    * outside diameter / inch size (true), or it is another pipe (false). Absent on an Insulation row of its own, where
    * the row's own words decide. Read only by the cladding's girth. */
   pipeOdHint?: boolean;
+  /** VRF-4 (q2): the sheet's outdoor / indoor unit counts, added up from the rows the model read (`sheetUnitCounts`), set by
+   * `compute` on a BoQ row of a config whose refnets count from the sheet. Absent everywhere else. */
+  sheetUnits?: ReturnType<typeof sheetUnitCounts>;
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -1491,7 +1503,14 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         }
         return { reason: r.kind === "none" ? r.reason : (r.basis || "no cable rate row matches") };
       };
-      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      // VRF-4 (q2): a refnet on a Set row of a BoQ sheet counts the sheet's outdoor / indoor units from the rows the model read
+      const fromSheet = listSpec.per_set?.counted?.from_sheet;
+      const rowCtx = ctx as RowContextWithUnit;
+      const onSheet = fromSheet && rowCtx.rowQuantities && typeof rowCtx.unit === "string" && rowCtx.noRow !== true && isPerSetUnit(listSpec, rowCtx.unit)
+        ? { ...rowCtx, sheetUnits: sheetUnitCounts(fromSheet, [...extractionByRow.values()] as ExtractionRowWithItems[], ctx.excelRow, ctx.category,
+                                                    rowCtx.rowQuantities, familyAttr(listSpec)) }
+        : rowCtx;
+      return computeItemList(category, listSpec, items, onSheet, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -2522,7 +2541,8 @@ export interface ItemBlockView {
   /** VRF-3a K2 (U5, board 11): a counted item (a refnet) on a per-Set row -- its three typed fields, the expected-count
    * formula, the case's sentence, the pieces the rule gave (null = withheld: the box blank and red) and whether the
    * pricer typed the pieces themselves. */
-  setCount?: { fields: Array<{ id: string; label: string; note?: string; options?: string[]; value: string; /** VRF-3b (U8): typed by the pricer (its undo arrow) */ edited?: true }>; formula?: string; sentence: string; pieces: number | null; typed: boolean };
+  setCount?: { fields: Array<{ id: string; label: string; note?: string; options?: string[]; value: string; /** VRF-3b (U8): typed by the pricer (its undo arrow) */ edited?: true;
+    /** VRF-4 (q2, U5): added up from the sheet's rows (the note names them); editable */ fromSheet?: true }>; formula?: string; sentence: string; pieces: number | null; typed: boolean };
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
@@ -2567,7 +2587,8 @@ export interface ItemBlockView {
   lineNo?: number;
   /** VRF-3b (U1-U5, boards 12 / 13): the extra lines this unit's price includes, drawn under it; the lines the pricer
    * removed ("You removed: ... [Put it back]"). Present only on an indoor / outdoor unit of a row with extras. */
-  extras?: { lines: ExtraLineView[]; removed: Array<{ id: ExtraLineId; label: string }>; removedNote?: string };
+  extras?: { lines: ExtraLineView[]; removed: Array<{ id: ExtraLineId; label: string }>; removedNote?: string;
+    /** VRF-4 (O-5): on a BoQ row, "the BoQ says this unit's price includes ..." (read by the model) */ boqNote?: string };
 }
 
 /** VRF-3b (U1 / U2 / U3 / U8): one field of an extra line. */
@@ -2609,6 +2630,9 @@ export interface ExtraLineView {
   heading: string;
   /** "Copper pipe - supply line" */
   title: string;
+  /** VRF-4 (U2): a BoQ row's line -- the model read that the unit's price includes it ("from the BoQ") */
+  fromBoq?: true;
+  fromBoqText?: string;
   fields: ExtraFieldView[];
   state: "priced" | "blank";
   reason?: string;
@@ -2663,6 +2687,9 @@ export interface ItemListView {
   /** VRF-3a K2 (U4 / U5 / U6, boards 9 / 11): the bold bar above the card on a per-Set or whole-lot row -- orange when the
    * row prices on the team rule, red when it is not priced -- and the ringed "Unit Set · Qty q" line. */
   unitBar?: { tone: "orange" | "red"; title: string; lines: string[]; ring?: string };
+  /** VRF-4 (R-WS, D-5 "option D", D-9): the solid red WORKING + STANDBY bar above the card and the ringed unit and quantity,
+   * raised only by the model's copied W+S words. The price is ONE unit: nothing else changes. */
+  standbyBar?: { title: string; lines: string[]; ring: string };
   /** VRF-3a K2 (U4): the per-item quantity box's label on a per-Set row ("Pieces in one Set of this row"). */
   qtyLabel?: string;
   /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" -- shown only on a per-Set row with a counted
@@ -3845,6 +3872,11 @@ function computeItemListOwn(
       // the three answers as the item carries them -- typed by the pricer or read from the row (a model item's attributes)
       const said = (id: string) => { const v = a.attributes[id]?.value; return v === null || v === undefined ? undefined : String(v); };
       const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id)].map((id) => [id, said(id)]));
+      // VRF-4 (q2): a count the row did not answer is added up from the sheet (a typed count -- even blank -- stays the pricer's)
+      for (const c of counted.counts) {
+        const sheet = ctx.sheetUnits?.[c.side];
+        if (answers[c.id] === undefined && sheet && sheet.rows.length) answers[c.id] = String(sheet.n);
+      }
       const rc = countedPieces(counted, answers, rowQty);
       const typed = e?.qty !== undefined;
       countedByBlock.set(i, { ...rc, typed });
@@ -3967,9 +3999,22 @@ function computeItemListOwn(
       const said = (id: string) => { const v = forDisplay[i]?.attributes[id]?.value; return v === null || v === undefined ? "" : String(v); };
       // VRF-3b (U8): a count the pricer typed carries its undo arrow
       const edited = (id: string) => (e && Object.prototype.hasOwnProperty.call(e.attrs, id) ? { edited: true as const } : {});
+      // VRF-4 (q2, U5): a count added up from the sheet shows that count, with the rows it came from as its note
+      const fs = counted.from_sheet;
+      const fromSheetOf = (c: CountedSpec["counts"][number]) => {
+        const sheet = ctx.sheetUnits?.[c.side];
+        if (!fs || !sheet || forDisplay[i]?.attributes[c.id]?.value !== undefined && forDisplay[i]?.attributes[c.id]?.value !== null) return null;
+        const rows = sheet.rows.map((r) => `row ${r.row}${r.units > 1 ? ` (${r.units} units)` : ""} x ${r.qty === null ? "no qty" : fmtN(r.qty)}`).join(", ");
+        return { value: sheet.rows.length ? String(sheet.n) : "", note: (sheet.rows.length ? fs.line : fs.none).replace("{n}", String(sheet.n)).replace("{word}", c.word).replace("{rows}", rows) };
+      };
       const fields = [
         { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: said(counted.covers.id), ...edited(counted.covers.id) },
-        ...counted.counts.map((c) => ({ id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: said(c.id), ...edited(c.id) })),
+        ...counted.counts.map((c) => {
+          const sheet = fromSheetOf(c);
+          return sheet
+            ? { id: c.id, label: c.label, note: sheet.note, value: sheet.value, fromSheet: true as const }
+            : { id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: said(c.id), ...edited(c.id) };
+        }),
       ];
       const sentence = rc.typed ? counted.lines.typed.replace("{p}", String(e?.qty ?? "")) : rc.sentence;
       blocks[i] = {
@@ -4021,8 +4066,23 @@ function computeItemListOwn(
     }
     return { tone: "orange", title: spec.per_set.bar.title, lines: [setLine], ring };
   })();
+  // VRF-4 (R-WS, D-5 "option D", D-9): the model's copied working + standby words raise the red bar -- ONLY words matching the
+  // config's list (never a standby-only or heading-only mention); the price stays ONE unit
+  const standbyBar = ((): ItemListView["standbyBar"] => {
+    const ws = spec.working_standby;
+    if (!ws) return undefined;
+    const said = [...new Set(forDisplay.map((a) => workingStandbyWords(ws, a.attributes[ws.attr]?.value)).filter((w): w is string => w !== null))];
+    if (!said.length) return undefined;
+    const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? fmtN(rowQty) : "-";
+    return {
+      title: ws.bar.title,
+      lines: said.map((w) => ws.bar.line.replace("{said}", w).replace("{qty}", qtyShown)),
+      ring: `Unit ${unit.trim() || "-"} · Qty ${qtyShown}`,
+    };
+  })();
   const view: ItemListView = {
     ...(splitView ? { split: splitView } : {}),
+    ...(standbyBar ? { standbyBar } : {}),
     ...(unitBar ? { unitBar } : {}),
     ...(perSetRow && spec.per_set ? { qtyLabel: spec.per_set.qty_label } : {}),
     ...(calculator && counted && countedByBlock.size ? { rowQtyField: { label: "BoQ quantity of this row", value: rowQtyText } } : {}),
@@ -4123,11 +4183,21 @@ function withExtras(
   const view = own.itemList!;
   const L = x.lines;
   const calculator = view.unitPickable || ctx.noRow === true;
-  // the flags: the calculator's tick boxes; a BoQ row's from the model (VRF-4; the row's `includes` cell is the fixture)
+  // the flags: the calculator's tick boxes; a BoQ row's from the model -- VRF-4 (owner "q1 ok"): PER ITEM, the model item's own
+  // includes_* answers (`x.from_model`; a split module reads its source item's); without `from_model` the row's `includes` cell
   const modelFlags = ext?.attributes?.includes?.value;
   const on = extrasIncludesOf(calculator ? overrides?.[EXTRAS_INCLUDES_KEY] : (typeof modelFlags === "string" ? modelFlags : undefined));
+  const edits0 = probe.edits ?? view.editState;
+  const modelItems0 = ext?.items ?? [];
+  const perItem = !calculator && !!x.from_model;
+  const boqOf = (i: number) => {
+    const e = edits0.items[i];
+    return boqExtrasOf(e && e.base !== null ? modelItems0[e.base] : undefined, x.from_model);
+  };
+  const onFor = (i: number): Set<ExtraIncludeId> => (perItem ? boqOf(i).includes : on);
   const incSpec = new Map(x.includes.map((i) => [i.id, i]));
-  const active = (id: ExtraIncludeId) => on.has(id) && (!incSpec.get(id)?.needs || on.has(incSpec.get(id)!.needs!));
+  const activeIn = (set: Set<ExtraIncludeId>, id: ExtraIncludeId) => set.has(id) && (!incSpec.get(id)?.needs || set.has(incSpec.get(id)!.needs!));
+  const active = (id: ExtraIncludeId) => activeIn(on, id);
   const includesView: ItemListView["extrasIncludes"] = calculator
     ? { title: L.includes_title, options: x.includes.map((i) => {
         const blocked = !!i.needs && !on.has(i.needs);
@@ -4135,7 +4205,8 @@ function withExtras(
       }) }
     : undefined;
   const rowClassOk = !isLotUnit(spec, view.unit) && view.unitClass === x.row_class;
-  if (![...on].some((id) => active(id)) || !rowClassOk || view.items.length === 0) {
+  const anyOn = perItem ? view.items.some((_b, i) => [...onFor(i)].some((id) => activeIn(onFor(i), id))) : [...on].some((id) => active(id));
+  if (!anyOn || !rowClassOk || view.items.length === 0) {
     return includesView ? { ...own, itemList: { ...view, extrasIncludes: includesView } } : own;
   }
 
@@ -4211,10 +4282,16 @@ function withExtras(
     const ex = e?.extras ?? {};
     const removed = new Set(ex.removed ?? []);
     const set = ex.set ?? {};
-    const modelItem = e && e.base !== null && e.family === null ? modelItems[e.base] : undefined;
+    // VRF-4: the model item this block came from (a split module, or a block whose family the pricer changed, keeps it)
+    const modelItem = e && e.base !== null ? modelItems[e.base] : undefined;
+    const itemOn = onFor(i);
+    const boq = perItem ? boqOf(i).values : {};
     const said = (line: string, field: string): string | undefined => {
       const v = modelItem?.attributes?.[`extra_${line}_${field}`]?.value;
-      return v === null || v === undefined || String(v).trim() === "" ? undefined : String(v);
+      if (!(v === null || v === undefined || String(v).trim() === "")) return String(v);
+      // VRF-4 (B1): the model's copied words, read into this line's fields (`boqExtrasOf`)
+      const w = boq[`${line}_${field}`];
+      return w === undefined || w.trim() === "" ? undefined : w;
     };
     const pick = (line: string, field: string, def: string | undefined) => {
       const typed = set[line]?.[field];
@@ -4237,8 +4314,9 @@ function withExtras(
     const powerBand = extraBandOf(x.power_bands[role], bandValue);
     const lengthDefault = (id: string) => { const f = pricingInputFactor(items, id); return f !== null ? fmtMm(f) : undefined; };
 
+    const act = (id: ExtraIncludeId) => activeIn(itemOn, id);
     const want: ExtraLineId[] = EXTRA_LINE_ORDER.filter((id) =>
-      (id.startsWith("copper") && active("copper")) || (id.startsWith("ins") && active("insulation")) || (id === "power" && active("power")) || (id === "comm" && active("comm")));
+      (id.startsWith("copper") && act("copper")) || (id.startsWith("ins") && act("insulation")) || (id === "power" && act("power")) || (id === "comm" && act("comm")));
     const gone = (id: ExtraLineId) => removed.has(id) || (id === "ins_supply" && removed.has("copper_supply")) || (id === "ins_return" && removed.has("copper_return"));
     const mine: ExtraLineView[] = [];
     const copperUsed = new Map<string, { size: number | null; length: string }>();
@@ -4264,7 +4342,8 @@ function withExtras(
         if (cnt !== 1) working.push(L.working_count.replace("{n}", fmtMm(cnt)).replace("{S}", String(s)).replace("{I}", String(ins)));
         figures = { supply_rate: s, install_rate: ins, combined_rate: s + ins };
       }
-      const lv: ExtraLineView = { id, unitIndex: i, lineNo, heading, title: titleOf(id), fields, state: reason ? "blank" : "priced", ...(reason ? { reason } : {}), working, ...(per ? { perMetre: per } : {}), figures };
+      const lv: ExtraLineView = { id, unitIndex: i, lineNo, heading, title: titleOf(id), fields, state: reason ? "blank" : "priced", ...(reason ? { reason } : {}), working, ...(per ? { perMetre: per } : {}), figures,
+        ...(perItem ? { fromBoq: true as const, fromBoqText: L.tag_boq } : {}) };
       return lv;
     };
     const lengthField = (line: ExtraLineId, def: string | undefined, follows?: { text: string }): ExtraFieldView => {
@@ -4410,7 +4489,11 @@ function withExtras(
     }
     lineViews.push(...mine);
     const removedList = want.filter((id) => removed.has(id)).map((id) => ({ id, label: titleOf(id) }));
-    return { ...b, lineNo: unitNo, extras: { lines: mine, removed: removedList, ...(removedList.length ? { removedNote: L.removed_note } : {}) } };
+    // VRF-4 (O-5 "...we can add a note"): on a BoQ row, what the BoQ says this unit's price includes, read by the model
+    const incLabels = x.includes.filter((inc) => act(inc.id)).map((inc) => inc.label.toLowerCase());
+    const boqNote = perItem && incLabels.length && L.boq_note ? L.boq_note.replace("{list}", incLabels.join(", ")) : undefined;
+    if (!want.length && !removedList.length) return { ...b, lineNo: unitNo };
+    return { ...b, lineNo: unitNo, extras: { lines: mine, removed: removedList, ...(removedList.length ? { removedNote: L.removed_note } : {}), ...(boqNote ? { boqNote } : {}) } };
   });
 
   // ── the row: every unit and every extra is a LINE; all or nothing (O-6 "n of m items need a person") ──

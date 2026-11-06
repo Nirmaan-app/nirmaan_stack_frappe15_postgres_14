@@ -253,7 +253,10 @@ export interface DefaultSpec {
    * several brands ("Daikin / Toshiba") or one off the sheet ("Toshiba") -- prices as this default, marked as one, with
    * the line naming the row's words ({said}). ABSENT => such a value is read as stated (and refuses as unstocked).
    */
-  unlisted?: { several: string; off_sheet: string };
+  unlisted?: { several: string; off_sheet: string;
+    /** VRF-4 (R-BRAND (a) on a BoQ row): the model's COPIED words for this attribute ("brand_as_written"). Several makes,
+     *  or one the attribute does not list, stand in for the choice; one listed make fills a choice the model left blank. */
+    from_attr?: string };
 }
 
 /**
@@ -650,6 +653,14 @@ export interface ItemListPricingSpec {
    * "complete system") -- the row refuses with `line` ({unit} as written) and the panel shows the red `bar`. */
   lot_units?: { units: string[]; bar: string; line: string };
   /**
+   * VRF-4 (owner R-WS / D-5 "option D" / D-9 "it should say check the quantity"; the list 2026-11-01 13:16 "give me th eexact
+   * rows") -- WORKING + STANDBY. The model copies the row's words into `attr`; ONLY words matching one of `words` (regex,
+   * case-insensitive: W+S, 1W+1S, N+N, 2N+N, "working + standby") raise the solid red bar ABOVE the card (`bar.title`,
+   * `bar.line` with {said} and {qty}) and ring the unit and quantity. Never a standby-only or heading-only mention. The
+   * price is ONE unit and never doubled: nothing here moves a figure. Read by the panel helper. ABSENT => no bar.
+   */
+  working_standby?: { attr: string; words: string[]; bar: { title: string; line: string } };
+  /**
    * VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15) -- THE EXTRAS A UNIT'S PRICE
    * INCLUDES, priced from the OTHER sheets: copper (Piping), insulation (Insulation) and power / communication cable
    * (Electrical), each by its own rules, as own lines under each indoor / outdoor unit, per Nos. Read by the panel helper
@@ -729,6 +740,13 @@ export interface CountedSpec {
   tolerance: { share: number; min: number };
   bar: string;
   lines: { formula: string; match: string; below: string; rounded: string; misfit: string; counts_missing: string; qty_missing: string; typed: string };
+  /**
+   * VRF-4 (owner 2026-11-06 "q2 ok"): on a BoQ row the unit counts are ADDED UP BY CODE from the same sheet's rows the model
+   * read: each model item whose family is in `sides[side]`, times its row's BoQ quantity. The count fills a field the row
+   * did not answer, with `line` ({n} the count, {word} the side's word, {rows} the rows counted) as its note; it stays
+   * editable (a typed count wins). The calculator has no sheet and is unchanged. ABSENT => typed only, as before.
+   */
+  from_sheet?: { sides: Record<string, string[]>; line: string; none: string };
 }
 
 /** VRF-3a K2: the unit is one of the config's per-Set spellings. PURE. */
@@ -771,6 +789,25 @@ export interface ExtrasSpec {
   cable: { category: string; discipline: string; attrs: Record<string, string>; cores_attr: string; size_attr: string; label: string };
   /** the board's words: the line headings, the tags, the notes */
   lines: Record<string, string>;
+  /**
+   * VRF-4 (owner 2026-11-06 "q1 ok": four per-item Yes / No includes, read from the ITEM): on a BoQ row the includes and
+   * the stated sizes come from the MODEL ITEM's own answers -- `includes` maps each include to its Yes / No question
+   * (`yes` is the value that means included); the `*_as_written` ids are copied texts the code reads into the lines'
+   * fields (`boqExtrasOf`). A split module reads its source item's answers. ABSENT => the row's `includes` cell, as before.
+   */
+  from_model?: ExtrasFromModel;
+}
+
+/** VRF-4: see `ExtrasSpec.from_model`. */
+export interface ExtrasFromModel {
+  includes: Partial<Record<ExtraIncludeId, string>>;
+  yes: string;
+  copper_size?: string;
+  insulation_thickness?: string;
+  cable_spec?: string;
+  /** a regex (case-insensitive): a cable spec whose words match is the COMMUNICATION cable; else the power cable */
+  comm_words?: string;
+  length?: string;
 }
 
 /** VRF-3b. PURE. A Pricing Inputs TABLE ROW: every single-factor input whose id is `<prefix>_<key>`, as { key: factor }
@@ -837,6 +874,126 @@ export function parseCableSpec(text: string): { cores: number; sqmm: number } | 
 export function cableSpecText(cores: number, sqmm: number): string {
   const f = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3))));
   return `${f(cores)}C x ${f(sqmm)}`;
+}
+
+/**
+ * VRF-4 (owner 2026-11-06 "q1 ok"; brief B1: "a pair '12.7 / 6.4' = supply / return"). PURE. A size text the model COPIED,
+ * as one or two values: "12.7 mm / 6.4 mm" -> ["12.7 mm", "6.4 mm"]; '1/2" & 1/4"' -> ['1/2"', '1/4"']; "40/50" -> ["40",
+ * "50"]; "1/2"" stays ONE value (a fraction). A slash splits only where it has a space beside it, a unit before it, or
+ * stands between two numbers that are not a fraction (a decimal on either side, or both whole numbers of 3 or more).
+ * Nothing is resolved here: each value goes to its line as written, where the source category's own rule reads it.
+ */
+export function splitAsWrittenPair(text: string): string[] {
+  const t = String(text ?? "").trim();
+  if (t === "") return [];
+  const parts = t.split(/\s*(?:&|,|;|\band\b|\s\/\s*|(?<=mm|"|''|inch|in)\s*\/\s*)\s*/i).map((x) => x.trim()).filter((x) => x !== "");
+  if (parts.length >= 2) return parts.slice(0, 2);
+  const m = /^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*(mm)?\s*$/i.exec(t);
+  if (m) {
+    const [a, b] = [m[1], m[2]];
+    const decimal = a.includes(".") || b.includes(".");
+    if (decimal || (Number(a) >= 3 && Number(b) >= 3)) return [a + (m[3] ? " mm" : ""), b + (m[3] ? " mm" : "")];
+  }
+  return [t];
+}
+
+/** VRF-4. PURE. A cable as the BoQ WRITES it, anywhere in the text: "2C x 1.5 Sqmm copper", "4 core x 10 sqmm",
+ * "3 cores x 2.5 sq mm", "4Cx10" -> {cores, sqmm}; null when no "<n> core(s) / C x <size>" is written (the words are then
+ * shown as stated and the line asks for a spec). Reads the words only; whether Electrical stocks it is Electrical's rule. */
+export function readCableSpecWords(text: string): { cores: number; sqmm: number } | null {
+  const m = /(\d+(?:\.\d+)?)\s*(?:c|cores?|cr)\.?\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:sq\.?\s*mm|sqmm|mm2|mm²|sq)?/i.exec(String(text ?? ""));
+  return m ? { cores: Number(m[1]), sqmm: Number(m[2]) } : null;
+}
+
+/** VRF-4. PURE. A length the BoQ writes for the piping or cabling ("up to 15 m", "first 10 RMT", "15 mtr"), in metres as a
+ * plain number text; null when no length in metres is written. */
+export function readLengthWords(text: string): string | null {
+  const m = /(\d+(?:\.\d+)?)\s*(?:m|mtr|mtrs|meters?|metres?|rmt|r\.m\.?t?|rm|running\s+met(?:er|re)s?)\b/i.exec(String(text ?? ""));
+  return m ? String(Number(m[1])) : null;
+}
+
+/**
+ * VRF-4 (owner "q1 ok"; brief B1). PURE. What a MODEL ITEM says about its extras, as the lines' own field ids
+ * (`<line>_<field>`): the includes it answered `yes` to, the copper size (a pair = supply / return; one value = both
+ * lines), the insulation thickness (the same), the cable spec (cores + sqmm, or the words as `<line>_spec` when they are
+ * not a spec; the COMMUNICATION line when the words match `comm_words`, else power) and the length (every line's). Raw
+ * values only: the line's own category resolves each.
+ */
+export function boqExtrasOf(item: ExtractedListItem | undefined, fm: ExtrasFromModel | undefined): { includes: Set<ExtraIncludeId>; values: Record<string, string> } {
+  const includes = new Set<ExtraIncludeId>();
+  const values: Record<string, string> = {};
+  if (!item || !fm) return { includes, values };
+  const said = (id: string | undefined) => {
+    if (!id) return "";
+    const v = item.attributes?.[id]?.value;
+    return v === null || v === undefined ? "" : String(v).trim();
+  };
+  for (const [inc, attr] of Object.entries(fm.includes) as Array<[ExtraIncludeId, string]>) {
+    if (said(attr).toLowerCase() === fm.yes.toLowerCase()) includes.add(inc);
+  }
+  const pair = (text: string, a: string, b: string, field: string) => {
+    const p = splitAsWrittenPair(text);
+    if (p.length === 0) return;
+    values[`${a}_${field}`] = p[0];
+    values[`${b}_${field}`] = p[1] ?? p[0];
+  };
+  pair(said(fm.copper_size), "copper_supply", "copper_return", "size");
+  pair(said(fm.insulation_thickness), "ins_supply", "ins_return", "thickness");
+  const cable = said(fm.cable_spec);
+  if (cable !== "") {
+    let comm = false;
+    try { comm = !!fm.comm_words && new RegExp(fm.comm_words, "i").test(cable); } catch { comm = false; }
+    const line = comm ? "comm" : "power";
+    const spec = readCableSpecWords(cable);
+    if (spec) { values[`${line}_cores`] = String(spec.cores); values[`${line}_sqmm`] = String(spec.sqmm); }
+    else values[`${line}_spec`] = cable;
+  }
+  const len = readLengthWords(said(fm.length));
+  if (len !== null) for (const line of ["copper_supply", "copper_return", "power", "comm"]) values[`${line}_length`] = len;
+  return { includes, values };
+}
+
+/**
+ * VRF-4 (owner "q2 ok"). PURE. The outdoor / indoor unit counts of a sheet, ADDED UP from the rows the model read: each
+ * model item whose family is in a side's list, times its row's BoQ quantity (a row with no quantity counts 0 and is named).
+ * `rows` lists every row counted, per side, for the note. The asking row itself is never counted.
+ */
+export function sheetUnitCounts(
+  fromSheet: NonNullable<CountedSpec["from_sheet"]>,
+  rows: Iterable<{ excelRow: number; category?: string | null; items?: readonly ExtractedListItem[] }>,
+  ownRow: number,
+  category: string | null | undefined,
+  qtyOf: Readonly<Record<number, number>>,
+  famAttr: string,
+): Record<string, { n: number; rows: Array<{ row: number; units: number; qty: number | null }> }> {
+  const out: Record<string, { n: number; rows: Array<{ row: number; units: number; qty: number | null }> }> = {};
+  for (const side of Object.keys(fromSheet.sides)) out[side] = { n: 0, rows: [] };
+  for (const r of rows) {
+    if (r.excelRow === ownRow || !Array.isArray(r.items)) continue;
+    if (category && r.category && r.category !== category) continue;
+    for (const [side, fams] of Object.entries(fromSheet.sides)) {
+      const units = r.items.filter((it) => fams.includes(String(it.attributes?.[famAttr]?.value ?? ""))).length;
+      if (!units) continue;
+      const q = qtyOf[r.excelRow];
+      const qty = typeof q === "number" && Number.isFinite(q) ? q : null;
+      out[side].n += units * (qty ?? 0);
+      out[side].rows.push({ row: r.excelRow, units, qty });
+    }
+  }
+  for (const side of Object.keys(out)) out[side].rows.sort((a, b) => a.row - b.row);
+  return out;
+}
+
+/** VRF-4 (R-WS). PURE. The words that raise the working + standby bar: the item's copied text when it matches one of the
+ * config's `words` (case-insensitive), else null -- a standby-only "(Standby)" never matches. */
+export function workingStandbyWords(ws: ItemListPricingSpec["working_standby"], text: unknown): string | null {
+  if (!ws) return null;
+  const t = text === null || text === undefined ? "" : String(text).trim();
+  if (t === "") return null;
+  for (const w of ws.words) {
+    try { if (new RegExp(w, "i").test(t)) return t; } catch { /* a bad pattern never fires (the validator refuses one) */ }
+  }
+  return null;
 }
 
 export interface CountedPieces {
@@ -3941,6 +4098,23 @@ function priceOneItem(
       continue;
     }
     let v = rawValue(item, attr);
+    // VRF-4 (R-BRAND (a) on a BoQ row): the make(s) the model COPIED stand in for the choice where they say more -- several
+    // makes, or one the attribute does not list; one listed make fills a choice left blank. A typed value is the pricer's.
+    const unlFrom = spec.defaults?.[attr]?.unlisted?.from_attr;
+    if (unlFrom && item.attributes?.[attr]?.typed !== true) {
+      const w = rawValue(item, unlFrom);
+      const said = w === null ? "" : String(w).trim();
+      if (said !== "") {
+        const listedVals = spec.choice_defs?.[attr]?.values ?? [];
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const parts = [...new Set(said.split(/\s*(?:\/|,|&|\+|\band\b|\bor\b)\s*/i).map((x) => x.trim()).filter((x) => x !== "").map(norm))];
+        const one = parts.length === 1 ? listedVals.find((x) => norm(x) === parts[0]) : undefined;
+        const choiceListed = v !== null && v !== "None" && listedVals.includes(String(v));
+        if (parts.length >= 2) v = said;
+        else if (one !== undefined) { if (!choiceListed) v = one; }
+        else if (!choiceListed) v = said;
+      }
+    }
     // SLICE 12e-5b (owner R2): an UNANSWERED choice the BoQ named in a word the catalogue does not stock ("26 G GI
     // cladding", copied as written) prices as the stocked option the config maps it to, with its amber line
     if (v === null || v === "None") {
