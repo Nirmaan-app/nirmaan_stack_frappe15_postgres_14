@@ -115,14 +115,14 @@ class TestTheFixturesOpenLines(unittest.TestCase):
         )
         self.assertFalse(set(self.plan.opening) & set(self.plan.skipping))
 
-    def test_internal_movements_are_still_skipped_as_own_balances(self):
+    def test_internal_movements_are_internal_transfers(self):
+        """CHANGED AT #1623 (spec #1619): Cashbook's own moves are Internal Transfers, no longer skipped as own
+        balances. They stay out of the open lines and the pairs, as before."""
         for transfer_id in ("BUSINESS_USER-900001-0", "VALOAD-9000001", "BUSINESS_USER-900007-1"):
             line = _by_id(self.plan, transfer_id)
             with self.subTest(transfer_id=transfer_id):
-                self.assertEqual(
-                    (line.action, line.reason, line.skip_kind),
-                    (ACTION_SKIP, SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL),
-                )
+                self.assertEqual((line.action, line.skip_kind), ("internal", None))
+                self.assertNotIn(line, self.plan.opening)
 
     def test_an_unpaired_collect_payment_is_an_open_line(self):
         """#1595: open and highlighted, while the one refunded in full is paired (above)."""

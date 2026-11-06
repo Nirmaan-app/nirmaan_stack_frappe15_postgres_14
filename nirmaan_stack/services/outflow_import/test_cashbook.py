@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
+    ACTION_INTERNAL,
     ACTION_SKIP,
     FALLBACK_EXPENSE_TYPE,
     SKIP_ALREADY_BOOKED,
@@ -118,15 +119,43 @@ def _sightings(*entries):
 class TestWhatIsNotImported(unittest.TestCase):
     """Four ways a row is skipped. Each carries its own sentence -- none is a silent drop."""
 
-    def test_a_wallet_top_up_is_skipped_as_a_movement_not_a_spend(self):
-        row = _plan([_row(kind="VA → Wallet", amount="10000")]).rows[0]
-        self.assertEqual(row.action, ACTION_SKIP)
-        self.assertEqual(row.reason, SKIP_NOT_A_SPEND)
+    def test_a_wallet_top_up_is_an_internal_transfer_not_a_spend(self):
+        """CHANGED AT #1623 (spec #1619): Cashbook's own moves are Internal Transfers, no longer skipped."""
+        row = _plan([_row(kind="VA → Wallet", amount="0", credit="10000", payee="Test Employee A")]).rows[0]
+        self.assertEqual(row.action, ACTION_INTERNAL)
+        self.assertEqual(
+            (row.transfer.from_place, row.transfer.to_place, row.transfer.detail),
+            ("Cashbook Virtual Account", "Cashbook Employee Wallet", "Test Employee A"),
+        )
+        self.assertEqual(row.transfer_money, Decimal("10000"))
+        self.assertTrue(row.records_transfer)
+        self.assertIsNone(row.skip_kind)
 
-    def test_a_bank_load_and_a_wallet_to_va_move_are_skipped_the_same_way(self):
-        """#1594: a refund and a wallet credit are no longer among them (`test_cashbook_refunds`)."""
-        plan = _plan([_row(kind="Bank → VA"), _row(number=2, transfer_id="OBO2", kind="Wallet → VA")])
-        self.assertEqual([r.reason for r in plan.rows], [SKIP_NOT_A_SPEND, SKIP_NOT_A_SPEND])
+    def test_a_bank_load_and_a_wallet_to_va_move_are_internal_transfers_too(self):
+        """#1594: a refund and a wallet credit are not among them (`test_cashbook_refunds`)."""
+        plan = _plan([
+            _row(kind="Bank → VA", amount="0", credit="50000"),
+            _row(number=2, transfer_id="OBO2", kind="Wallet → VA", amount="300", spender="Test Employee B"),
+        ])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_INTERNAL, ACTION_INTERNAL])
+        self.assertEqual(
+            [(r.transfer.from_place, r.transfer.to_place, r.transfer.detail, r.transfer_money) for r in plan.rows],
+            [
+                ("ICICI Current Account", "Cashbook Virtual Account", "", Decimal("50000")),
+                ("Cashbook Employee Wallet", "Cashbook Virtual Account", "Test Employee B", Decimal("300")),
+            ],
+        )
+
+    def test_any_other_non_spend_type_keeps_todays_skip(self):
+        row = _plan([_row(kind="Something New", amount="0")]).rows[0]
+        self.assertEqual((row.action, row.reason), (ACTION_SKIP, SKIP_NOT_A_SPEND))
+
+    def test_a_status_changed_repeat_of_an_internal_line_is_internal_and_records_nothing(self):
+        raw = _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED")
+        already = _sightings(("VA7", "0", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        row = _plan([raw], already=already).rows[0]
+        self.assertEqual(row.action, ACTION_INTERNAL)
+        self.assertFalse(row.records_transfer)
 
     def test_a_spend_that_failed_at_the_wallet_is_skipped(self):
         row = _plan([_row(status="FAILED")]).rows[0]
@@ -365,7 +394,8 @@ class TestWhatIsNotImported(unittest.TestCase):
             _row(transfer_id="OBO5", kind="VA → Wallet"),
             _row(number=2, transfer_id="OBO5"),
         ])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_CREATE])
+        # #1623: the top-up is an Internal Transfer now; it still does not stop the later spend.
+        self.assertEqual([r.action for r in plan.rows], [ACTION_INTERNAL, ACTION_CREATE])
         self.assertEqual(plan.split.repeats_not_saved, 0)
 
     def test_the_first_batch_an_exact_repeat_came_from_is_the_one_named(self):
@@ -514,10 +544,11 @@ class TestThePreviewGrouping(unittest.TestCase):
         values = [g.value for g in group_plan(self.plan) if g.ledger == PROJECT_LEDGER]
         self.assertEqual(values, sorted(values, reverse=True))
 
-    def test_a_skipped_row_is_in_no_group(self):
+    def test_a_row_that_creates_nothing_is_in_no_group(self):
+        """#1623: the fixture's top-up is an Internal Transfer now, not a skip; it is in no group either way."""
         grouped = sum(g.count for g in group_plan(self.plan))
         self.assertEqual(grouped, len(self.plan.creating))
-        self.assertEqual(len(self.plan.skipping), 1)
+        self.assertEqual((len(self.plan.skipping), len(self.plan.internal)), (0, 1))
 
     def test_the_totals_add_up_to_the_plan(self):
         self.assertEqual(sum(g.value for g in group_plan(self.plan)), self.plan.total_value)

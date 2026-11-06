@@ -160,7 +160,11 @@ def preview_payload(parsed, plan: CashbookPlan, filename: str, verdict, late_bil
             for group in groups
         ],
         # The lines of a pair are shown under `pairs`, not here.
-        "skipped": [_preview_line(row) for row in plan.skipping if not row.partner],
+        # #1623: Cashbook's own moves are listed with the skips, under "Not importing", each reason naming its
+        # From and To: no expense is made from them.
+        "skipped": [_preview_line(row) for row in plan.skipping if not row.partner]
+        + [_preview_line(row) for row in plan.internal],
+        "internal_transfers": len(plan.internal),
         # #1594: each Paired wallet refund, refund first: both lines are skipped, each naming the other.
         "pairs": [
             {"refund": _preview_line(refund), "spend": _preview_line(spend)} for refund, spend in plan.pairs

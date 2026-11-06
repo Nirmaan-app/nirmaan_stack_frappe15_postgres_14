@@ -13,6 +13,8 @@ before the job runs: these are spends with no bill, the ones that wait.
 from pathlib import Path
 
 import frappe
+
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_to_date, now, nowdate
 
@@ -105,6 +107,7 @@ class CashbookInvoiceCase(FrappeTestCase):
                 names = frappe.get_all(doctype, filters={"cashbook_batch": self.batch}, pluck="name")
                 purge_records(doctype, names)
             frappe.db.sql("""DELETE FROM "tabOutflow Row Match" WHERE import_batch = %s""", (self.batch,))
+            purge_internal_transfers(self.batch)
             frappe.db.sql("""DELETE FROM "tabOutflow Import Row" WHERE import_batch = %s""", (self.batch,))
             frappe.db.sql("""DELETE FROM "tabOutflow Import Batch" WHERE name = %s""", (self.batch,))
             frappe.db.commit()

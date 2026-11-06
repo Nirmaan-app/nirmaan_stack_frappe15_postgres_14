@@ -27,10 +27,14 @@ def record_direction(line_direction: str | None) -> str:
     return DIRECTION_IN if (line_direction or "").strip() == "Credit" else DIRECTION_OUT
 
 
-def record_for_line(line, ends: TransferEnds, made_by: str, *, marked_by=None, marked_at=None, reason=None) -> str:
+def record_for_line(
+    line, ends: TransferEnds, made_by: str, *, amount=None, marked_by=None, marked_at=None, reason=None
+) -> str:
     """Insert the Internal Transfer record of `line` (an `Outflow Import Row` doc or dict) and return its name.
 
-    The unique index on `import_row` refuses a second record for the same line.
+    `amount` is the money moved when the line's own `amount` is not it (a Cashbook top-up carries its money in the
+    statement's Credit column and stages 0, #1623); by default the line's amount. The unique index on `import_row`
+    refuses a second record for the same line.
     """
     get = line.get if hasattr(line, "get") else lambda key: getattr(line, key, None)
     added_on = get("added_on")
@@ -38,7 +42,7 @@ def record_for_line(line, ends: TransferEnds, made_by: str, *, marked_by=None, m
     doc.update(
         {
             "transfer_date": frappe.utils.getdate(added_on) if added_on else None,
-            "amount": float(get("amount") or 0),
+            "amount": float(amount if amount is not None else (get("amount") or 0)),
             "direction": record_direction(get("direction")),
             "from_place": ends.from_place,
             "to_place": ends.to_place,

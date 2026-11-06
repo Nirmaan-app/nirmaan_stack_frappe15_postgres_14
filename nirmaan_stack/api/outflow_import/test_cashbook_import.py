@@ -19,6 +19,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import frappe
+
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
@@ -67,6 +69,7 @@ def _purge(batch: str) -> None:
             f"""DELETE FROM "tab{target.target_doctype}" WHERE name = %s""", (target.target_name,)
         )
     frappe.db.sql("""DELETE FROM "tabOutflow Row Match" WHERE import_batch = %s""", (batch,))
+    purge_internal_transfers(batch)
     frappe.db.sql("""DELETE FROM "tabOutflow Import Row" WHERE import_batch = %s""", (batch,))
     frappe.db.sql("""DELETE FROM "tabOutflow Import Batch" WHERE name = %s""", (batch,))
     frappe.db.commit()

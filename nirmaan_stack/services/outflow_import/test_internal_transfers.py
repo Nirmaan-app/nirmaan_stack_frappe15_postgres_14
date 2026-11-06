@@ -133,3 +133,37 @@ class TestABouncedWalletTopUp(unittest.TestCase):
     def test_a_word_that_only_contains_a_wallet_name_does_not_count(self):
         self.assertIsNone(_bank("NEFT-RETURN-TESTREF0007-SITE TRANSPORTER CO", out=False))
         self.assertIsNone(_bank("NEFT-RETURN-TESTREF0008-MYCASHBOOKS LTD", out=False))
+
+
+class TestCashbookTypes(unittest.TestCase):
+    """#1623: Cashbook's own moves, by the statement's Type."""
+
+    def test_a_bank_load_runs_from_the_current_account_to_the_virtual_account(self):
+        from nirmaan_stack.services.outflow_import.internal_transfers import cashbook_line_transfer
+
+        self.assertEqual(
+            cashbook_line_transfer("Bank → VA", from_party="Test Company", to_party="Virtual Account"),
+            TransferEnds("ICICI Current Account", "Cashbook Virtual Account"),
+        )
+
+    def test_a_wallet_top_up_names_the_employee_it_went_to(self):
+        from nirmaan_stack.services.outflow_import.internal_transfers import cashbook_line_transfer
+
+        self.assertEqual(
+            cashbook_line_transfer("VA → Wallet", from_party="Virtual Account", to_party="Test Employee A"),
+            TransferEnds("Cashbook Virtual Account", "Cashbook Employee Wallet", "Test Employee A"),
+        )
+
+    def test_money_back_from_a_wallet_names_the_employee_it_came_from(self):
+        from nirmaan_stack.services.outflow_import.internal_transfers import cashbook_line_transfer
+
+        self.assertEqual(
+            cashbook_line_transfer(" Wallet → VA ", from_party="Test Employee B", to_party="Virtual Account"),
+            TransferEnds("Cashbook Employee Wallet", "Cashbook Virtual Account", "Test Employee B"),
+        )
+
+    def test_any_other_type_is_not_internal(self):
+        from nirmaan_stack.services.outflow_import.internal_transfers import cashbook_line_transfer
+
+        for kind in ("Wallet Spend", "Refund to Wallet", "Wallet Credit", "Collect Payment", "Something New", ""):
+            self.assertIsNone(cashbook_line_transfer(kind, from_party="x", to_party="y"), kind)

@@ -126,3 +126,40 @@ def bank_line_transfer(category: str, remarks: str) -> TransferEnds | None:
     as today's skip (no category, or a category that is not an internal move)."""
     ends = _BANK_CATEGORY_ENDS.get(category or "")
     return ends(remarks or "") if ends else None
+
+
+# --- Cashbook Statement (#1623) ---------------------------------------------------------------------------------
+
+CASHBOOK_BANK_TO_VA = "Bank → VA"
+CASHBOOK_VA_TO_WALLET = "VA → Wallet"
+CASHBOOK_WALLET_TO_VA = "Wallet → VA"
+#: The Cashbook Types that are our own moves, each with the id its record names as the rule that made it.
+CASHBOOK_INTERNAL_KINDS = {
+    CASHBOOK_BANK_TO_VA: "cashbook_bank_to_va",
+    CASHBOOK_VA_TO_WALLET: "cashbook_va_to_wallet",
+    CASHBOOK_WALLET_TO_VA: "cashbook_wallet_to_va",
+}
+
+
+def cashbook_line_transfer(row_kind: str, *, from_party: str, to_party: str) -> TransferEnds | None:
+    """The transfer a Cashbook line is, by its Type (the statement's `From` and `To` name the employee), or `None`
+    for every other Type (a spend, a refund, a wallet credit, a collect payment keep their own handling).
+
+    ⚠️ `Bank → VA` RUNS FROM THE ICICI CURRENT ACCOUNT, a decision (spec #1619): it is the only bank account that
+    funds Cashbook (57 of 57 such lines Jan to Sep 2026 matched an ICICI debit).
+    """
+    kind = (row_kind or "").strip()
+    if kind == CASHBOOK_BANK_TO_VA:
+        return TransferEnds(PLACE_ICICI_CURRENT, PLACE_CASHBOOK_VA)
+    if kind == CASHBOOK_VA_TO_WALLET:
+        return TransferEnds(PLACE_CASHBOOK_VA, PLACE_CASHBOOK_WALLET, (to_party or "").strip())
+    if kind == CASHBOOK_WALLET_TO_VA:
+        return TransferEnds(PLACE_CASHBOOK_WALLET, PLACE_CASHBOOK_VA, (from_party or "").strip())
+    return None
+
+
+def transfer_sentence(ends: TransferEnds) -> str:
+    """The line's note, naming both ends: `Internal Transfer from Cashbook Virtual Account to Cashbook Employee
+    Wallet (Test Employee A).`"""
+    detail = f" ({ends.detail})" if ends.detail else ""
+    return f"Internal Transfer from {ends.from_place} to {ends.to_place}{detail}."

@@ -76,6 +76,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
     lock_line_if,
 )
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
+from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -85,7 +86,7 @@ from nirmaan_stack.services.outflow_import.candidates import (
     load_project_aliases,
     prior_import_sightings,
 )
-from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
+from nirmaan_stack.services.outflow_import.cashbook import ACTION_INTERNAL, CashbookPlan, plan_statement
 from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
@@ -109,6 +110,7 @@ from nirmaan_stack.services.outflow_import.project_match import build_project_in
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
+    ROW_INTERNAL_TRANSFER,
     ROW_MISMATCHED,
     ROW_PENDING_MATCH,
     ROW_SETTLED,
@@ -213,6 +215,8 @@ def confirm_cashbook_import():
         "creating": len(plan.creating),
         "skipping": len(plan.skipping),
         "opening": len(plan.opening),
+        # #1623: Cashbook's own moves, staged as Internal Transfer lines.
+        "internal_transfers": len(plan.internal),
         "repeats_not_saved": plan.split.repeats_not_saved,
         # #1593: the existing Expenses the job will give a bill.
         "late_bills": len(late),
@@ -260,6 +264,8 @@ def get_cashbook_status(batch: str):
         "created": counts.get(ROW_SETTLED, 0),
         "failed": counts.get(ROW_ERROR, 0),
         "skipped": counts.get(ROW_SKIPPED, 0),
+        # #1623: Cashbook's own moves, staged as Internal Transfer lines.
+        "internal_transfers": counts.get(ROW_INTERNAL_TRANSFER, 0),
         # #1594: the open lines (unpaired wallet refunds, wallet credits, and any line a person reopened).
         "open": counts.get(ROW_MISMATCHED, 0),
         "pending": pending,
@@ -943,6 +949,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update({"import_batch": batch.name, **line_values(raw, planned)})
         doc.insert(ignore_permissions=True)
+        # #1623: one of Cashbook's own moves gets its Internal Transfer record, with the money it moved (a top-up
+        # carries it in its Credit, so the line's own `amount` may be 0). A status-changed repeat records nothing.
+        if planned.action == ACTION_INTERNAL and planned.records_transfer:
+            record_for_line(doc, planned.transfer, made_by=planned.transfer_rule, amount=planned.transfer_money)
         if _copies_a_collect_bill(raw, planned):
             collect_lines.append(doc.name)
 
