@@ -19,7 +19,7 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     record_direction,
 )
 from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
-from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
+from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE, CASHFREE_SOURCE, ICICI_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
     ROW_INTERNAL_TRANSFER,
@@ -28,13 +28,10 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SKIPPED,
 )
 
-ICICI_SOURCE = "ICICI Bank Statement"
-CASHFREE_SOURCE = "Cashfree"
-
 #: The line's own side when marked by hand: where the statement's account is. A Cashbook line's own side is an
 #: employee's wallet, where the statement's spends, refunds and collect payments sit (decision, #1626).
 OWN_PLACE_BY_SOURCE = {
-    ICICI_SOURCE: PLACE_ICICI_CURRENT,
+    ICICI_STATEMENT_SOURCE: PLACE_ICICI_CURRENT,
     CASHFREE_SOURCE: PLACE_CASHFREE,
     CASHBOOK_SOURCE: PLACE_CASHBOOK_WALLET,
 }
@@ -107,3 +104,40 @@ def hand_mark_ends(source: str | None, line_direction: str | None, other_end: st
     if record_direction(line_direction) == TRANSFER_IN:
         return TransferEnds(other_end, own, (detail or "").strip())
     return TransferEnds(own, other_end, (detail or "").strip())
+
+
+def hand_mark_detail(
+    source: str | None, line_direction: str | None, added_by_raw: str | None, beneficiary_name: str | None
+) -> str:
+    """The Detail the Mark dialog starts with (owner decision 8a, #1619): on a Cashbook line, the wallet holder --
+    the statement's From for money out, its To for money in. Blank on any other line. The person may change it."""
+    if (source or "").strip() != CASHBOOK_SOURCE:
+        return ""
+    holder = beneficiary_name if record_direction(line_direction) == TRANSFER_IN else added_by_raw
+    return (holder or "").strip()
+
+
+def hand_mark_offer(
+    *,
+    row_status: str | None,
+    source: str | None,
+    direction: str | None,
+    import_batch: str | None,
+    added_by_raw: str | None,
+    beneficiary_name: str | None,
+) -> dict | None:
+    """What the Mark dialog offers on this line, or `None` when it may not be marked (`mark_refusal`).
+
+    The server sends it with each row (review finding F1, #1619), so the screen keeps no copy of the places, the
+    own-side table or the may-mark rule: `own_place`, the `other_ends` to choose from (every place but the line's own,
+    in `PLACES` order) and the `detail` to start with (`hand_mark_detail`). The endpoint asks the same rules again
+    under the line's row lock.
+    """
+    if mark_refusal(row_status=row_status, source=source, direction=direction, import_batch=import_batch):
+        return None
+    own = own_place(source)
+    return {
+        "own_place": own,
+        "other_ends": [place for place in PLACES if place != own],
+        "detail": hand_mark_detail(source, direction, added_by_raw, beneficiary_name),
+    }

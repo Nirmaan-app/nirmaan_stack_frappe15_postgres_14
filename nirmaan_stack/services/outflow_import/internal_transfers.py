@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.bank_exclusions import IFSC_CASHBOOK, IFSC_CASHFREE, IFSC_PORTER
+from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_EXCLUSION_CATEGORY
 
 PLACE_ICICI_CURRENT = "ICICI Current Account"
 PLACE_ICICI_LEDGER = "ICICI Bank Ledger"
@@ -45,10 +46,19 @@ PLACES = (
 TRANSFER_OUT = "Out"
 TRANSFER_IN = "In"
 
+#: `made_by` on a record a person made (#1626); a rule's record carries its rule id instead.
+MADE_BY_HAND = "by hand"
+
 
 def record_direction(line_direction: str | None) -> str:
     """`In` for a line the statement calls a Credit, else `Out`."""
     return TRANSFER_IN if (line_direction or "").strip() == "Credit" else TRANSFER_OUT
+
+
+def cashbook_direction(debit) -> str:
+    """A Cashbook move's direction, by the column the statement filled: a Debit is money out of the statement's
+    account, a Credit (a top-up, whose Debit is blank and so stored as 0) money in (#1623)."""
+    return TRANSFER_OUT if (debit or 0) > 0 else TRANSFER_IN
 
 
 @dataclass(frozen=True)
@@ -66,10 +76,16 @@ _RE_CARD_LAST_FOUR = re.compile(r"[Xx*]{2,}(\d{4})\b")
 _RE_GL_NUMBERS = re.compile(r"from\s+gl\s+(\w+)\s+to\s+(\w+)", re.I)
 
 
+def card_ending(last_four: str) -> str:
+    """A record's detail naming a card: `Card ending 1234`, or blank with no digits."""
+    last_four = (last_four or "").strip()
+    return f"Card ending {last_four}" if last_four else ""
+
+
 def card_detail(text: str) -> str:
     """`Card ending 1234` when the text carries a masked card number, else blank."""
     found = _RE_CARD_LAST_FOUR.search(text or "")
-    return f"Card ending {found.group(1)}" if found else ""
+    return card_ending(found.group(1)) if found else ""
 
 
 def _gl_detail(text: str) -> str:
@@ -195,8 +211,7 @@ def cashbook_internal_facts(raw) -> dict:
     return {
         "transfer": cashbook_raw_transfer(raw),
         "transfer_money": cashbook_transfer_money(raw),
-        # The column the statement filled: a Debit is money out of the statement's account, a Credit money in.
-        "transfer_direction": TRANSFER_OUT if debit > 0 else TRANSFER_IN,
+        "transfer_direction": cashbook_direction(debit),
         "records_transfer": bool(getattr(raw, "is_success", False)),
         "transfer_rule": CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
     }
@@ -217,5 +232,27 @@ CARD_AUTO_DEBIT_RULE = "card_auto_debit"
 
 def card_auto_debit_transfer(card_last_four: str) -> TransferEnds:
     """The bank's auto-debit paying the card: ICICI Current Account to ICICI Credit Card, on that card."""
-    last_four = (card_last_four or "").strip()
-    return TransferEnds(PLACE_ICICI_CURRENT, PLACE_ICICI_CARD, f"Card ending {last_four}" if last_four else "")
+    return TransferEnds(PLACE_ICICI_CURRENT, PLACE_ICICI_CARD, card_ending(card_last_four))
+
+
+# --- Made by, in words ------------------------------------------------------------------------------------------
+
+# The bank rules' words are their Skip Types' (the same move, once skipped); a bounced top-up's is its own here,
+# because only a bounce that names one of our wallets is an Internal Transfer.
+_RULE_WORDS = {
+    **{category: SKIP_KIND_BY_EXCLUSION_CATEGORY[category] for category in INTERNAL_BANK_CATEGORIES},
+    "neft_return_failed": "Bounced wallet top-up",
+    **{rule: f"Cashbook {kind}" for kind, rule in CASHBOOK_INTERNAL_KINDS.items()},
+    CARD_AUTO_DEBIT_RULE: "Card auto-debit",
+}
+
+
+def made_by_words(made_by: str | None) -> str:
+    """Who made a record, as the screen says it (review finding, #1619): `By hand`, or `Rule: <the rule in words>`,
+    e.g. `Rule: Cashfree wallet top-up`. A rule id this table does not know is shown as stored."""
+    made_by = (made_by or "").strip()
+    if not made_by:
+        return ""
+    if made_by == MADE_BY_HAND:
+        return "By hand"
+    return f"Rule: {_RULE_WORDS.get(made_by, made_by)}"

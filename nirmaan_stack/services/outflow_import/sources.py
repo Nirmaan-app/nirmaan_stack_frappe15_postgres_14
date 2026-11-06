@@ -63,6 +63,11 @@ CARD_STATEMENT_SOURCE = "ICICI Credit Card Statement"
 #: `skip_origin.own_import_refusal`. ⚠️ The same string is `api/outflow_import/cashbook.SOURCE`.
 CASHBOOK_SOURCE = "Cashbook"
 
+#: The payout gateway's statement, and the company current account's passbook. Spelled here for the readers that
+#: name one source (the hand mark's own side, #1626); the same strings as the parser's `SUPPORTED_SOURCES`.
+CASHFREE_SOURCE = "Cashfree"
+ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
+
 #: Sources that are a BANK PASSBOOK rather than a payout gateway.
 #:
 #: Four things follow from membership, and they are one decision rather than four: the statement
@@ -77,7 +82,7 @@ CASHBOOK_SOURCE = "Cashbook"
 #: three are the same one string; a rename has to move all three together or every upload of that
 #: source fails Frappe's own Select validation with nothing on screen explaining why. `test_upload`
 #: pins this set against both, and `test_review` pins the match run's reading of it.
-BANK_STATEMENT_SOURCES = frozenset({"ICICI Bank Statement"})
+BANK_STATEMENT_SOURCES = frozenset({ICICI_STATEMENT_SOURCE})
 
 #: Sources whose OWN transfer id is the only reference they will ever have.
 #:

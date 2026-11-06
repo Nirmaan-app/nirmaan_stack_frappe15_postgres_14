@@ -25,8 +25,6 @@ from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES
 from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
 
 INTERNAL_TRANSFER_DOCTYPE = "Internal Transfer"
-#: `made_by` on a record a person made (#1626); a rule's record carries its category id instead.
-MADE_BY_HAND = "by hand"
 
 
 def _same_move(line) -> tuple[str, list]:

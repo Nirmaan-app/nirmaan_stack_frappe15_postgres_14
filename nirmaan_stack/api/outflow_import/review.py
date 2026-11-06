@@ -180,7 +180,8 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 # Pure: which lines are cheque lines, and what a line no Payment cheque claims says (#1485).
 from nirmaan_stack.services.cheques.bank_import_rules import bank_cheque_key, no_payment_cheque_note
-from nirmaan_stack.services.outflow_import.internal_transfers import TRANSFER_IN, TRANSFER_OUT
+from nirmaan_stack.services.outflow_import.internal_transfer_rules import hand_mark_offer
+from nirmaan_stack.services.outflow_import.internal_transfers import TRANSFER_IN, TRANSFER_OUT, made_by_words
 from nirmaan_stack.services.outflow_import.row_settlement import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
@@ -1717,10 +1718,6 @@ def get_batch_rows(batch: str):
                 # #1485: the Payment cheque this line cleared or was linked to, else None.
                 "cheque_outcome": cheques.get(row["name"]),
                 "amount": float(row.get("amount") or 0),
-                # #1623: the record's money (a Cashbook top-up's line stages 0); None on a line with no record.
-                "transfer_amount": (
-                    float(row["transfer_amount"]) if row.get("transfer_amount") is not None else None
-                ),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
@@ -2826,6 +2823,19 @@ _INTERNAL_TRANSFER_COLUMNS = (
     "it.amount AS transfer_amount, it.direction AS transfer_record_direction"
 )
 
+
+
+def _internal_transfer_fields(row) -> dict:
+    """The Internal Transfer record's figures on a page or export row (#1621, #1623): the record's money -- a Cashbook
+    top-up's line stages 0, its record holds what moved -- None on a line with no record; and who made it, in words
+    (`internal_transfers.made_by_words`, review finding #1619)."""
+    money = row.get("transfer_amount")
+    return {
+        "transfer_amount": float(money) if money is not None else None,
+        "transfer_made_by_label": made_by_words(row.get("transfer_made_by")),
+    }
+
+
 # One page. Generous enough that a whole statement usually fits on one, capped so a client cannot
 # ask for the entire table and reinstate the problem this endpoint exists to solve.
 _DEFAULT_PAGE_SIZE = 50
@@ -3083,9 +3093,16 @@ def get_outflow_rows(
             {
                 **{k: v for k, v in row.items() if k != "suggested_refunds"},
                 "amount": float(row.get("amount") or 0),
-                # #1623: the record's money (a Cashbook top-up's line stages 0); None on a line with no record.
-                "transfer_amount": (
-                    float(row["transfer_amount"]) if row.get("transfer_amount") is not None else None
+                **_internal_transfer_fields(row),
+                # #1626, review finding F1 (#1619): what the Mark dialog offers on this line, or None when it may
+                # not be marked. The screen keeps no copy of the places or the rule.
+                "hand_mark": hand_mark_offer(
+                    row_status=row.get("row_status"),
+                    source=row.get("source"),
+                    direction=row.get("direction"),
+                    import_batch=row.get("import_batch"),
+                    added_by_raw=row.get("added_by_raw"),
+                    beneficiary_name=row.get("beneficiary_name"),
                 ),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
@@ -3624,10 +3641,7 @@ def export_outflow_rows(
             {
                 **row,
                 "amount": float(row.get("amount") or 0),
-                # #1623: the record's money (a Cashbook top-up's line stages 0); None on a line with no record.
-                "transfer_amount": (
-                    float(row["transfer_amount"]) if row.get("transfer_amount") is not None else None
-                ),
+                **_internal_transfer_fields(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,

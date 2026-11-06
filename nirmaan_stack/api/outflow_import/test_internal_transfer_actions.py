@@ -224,3 +224,37 @@ class TestOnlySendBackDeletesARecord(unittest.TestCase):
         self.assertEqual(
             [perm.role for perm in frappe.get_meta(INTERNAL_TRANSFER_DOCTYPE).permissions if perm.delete], []
         )
+
+
+class TestTheRowCarriesWhatTheScreenShows(ActionFixture):
+    """Review findings (#1619): the screen keeps no copy of the places or the may-mark rule (frontend F1), and Made by
+    is words. Read through `get_outflow_rows`, as the main table reads it."""
+
+    def _row(self, line):
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows
+
+        batch = frappe.db.get_value(ROW_DOCTYPE, line, "import_batch")
+        return next(r for r in get_outflow_rows(scope="all", batch=batch, limit=50)["rows"] if r["name"] == line)
+
+    def test_an_open_line_carries_its_hand_mark_offer_from_the_backends_places(self):
+        from nirmaan_stack.services.outflow_import.internal_transfers import PLACES
+
+        offer = self._row(self._line(self._batch(), status="Mismatched"))["hand_mark"]
+        self.assertEqual(offer["own_place"], "ICICI Current Account")
+        self.assertEqual(offer["other_ends"], [place for place in PLACES if place != "ICICI Current Account"])
+
+    def test_a_cashbook_line_offers_its_wallet_holder_as_the_detail(self):
+        line = self._line(self._batch(source="Cashbook"), status="Mismatched", source="Cashbook", direction="")
+        frappe.db.set_value(ROW_DOCTYPE, line, {"added_by_raw": "Test Employee A", "beneficiary_name": "A Shop"})
+        frappe.db.commit()
+        self.assertEqual(self._row(line)["hand_mark"]["detail"], "Test Employee A")
+
+    def test_a_line_that_may_not_be_marked_carries_no_offer(self):
+        self.assertIsNone(self._row(self._line(self._batch(), status="Settled"))["hand_mark"])
+
+    def test_made_by_is_words(self):
+        line = self._line(self._batch(), status="Mismatched")
+        self._as(ADMIN)
+        mark_internal_transfer(line, other_end="Porter Wallet", reason="by a person")
+        frappe.set_user("Administrator")
+        self.assertEqual(self._row(line)["transfer_made_by_label"], "By hand")

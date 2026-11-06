@@ -55,7 +55,11 @@ from nirmaan_stack.services.outflow_import.internal_transfer_backfill import (
     UNPLACED,
     place_old_skip,
 )
-from nirmaan_stack.services.outflow_import.internal_transfers import CARD_AUTO_DEBIT_RULE, transfer_sentence
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CARD_AUTO_DEBIT_RULE,
+    cashbook_direction,
+    transfer_sentence,
+)
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_BANK_REFUSED,
@@ -208,7 +212,6 @@ def _convert(line, placement) -> None:
         return
     if move_already_recorded(line):
         return
-    # A Cashbook line states no direction: its stored amount is its Debit, so a line with one is money out, and a
-    # top-up (its money in the Credit column, stored as 0) is money in -- as the import decides it (#1623).
-    direction = ("Out" if float(line.amount or 0) > 0 else "In") if is_cashbook else None
+    # A Cashbook line states no direction: its stored amount is its Debit, read as the import reads it (#1623).
+    direction = cashbook_direction(line.amount) if is_cashbook else None
     record_for_line(line, placement.ends, placement.rule, direction=direction)

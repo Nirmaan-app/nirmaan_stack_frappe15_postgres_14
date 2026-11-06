@@ -6,10 +6,17 @@
 import unittest
 
 from nirmaan_stack.services.outflow_import.internal_transfer_rules import (
+    hand_mark_offer,
     mark_refusal,
     other_end_refusal,
     own_place,
     send_back_refusal,
+)
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CARD_AUTO_DEBIT_RULE,
+    CASHBOOK_INTERNAL_KINDS,
+    INTERNAL_BANK_CATEGORIES,
+    made_by_words,
 )
 
 
@@ -63,3 +70,62 @@ class TestSendBack(unittest.TestCase):
     def test_only_an_internal_transfer_line_may_be_sent_back(self):
         self.assertIsNone(send_back_refusal("Internal Transfer"))
         self.assertIn("not an Internal Transfer", send_back_refusal("Mismatched"))
+
+
+class TestTheHandMarkOffer(unittest.TestCase):
+    """What the server sends the Mark dialog with each row (review finding F1, #1619): the screen keeps no copy of the
+    places, the own-side table or the may-mark rule."""
+
+    def _offer(self, **line):
+        facts = dict(row_status="Mismatched", source="ICICI Bank Statement", direction="Debit", import_batch="OFI-1",
+                     added_by_raw="", beneficiary_name="")
+        facts.update(line)
+        return hand_mark_offer(**facts)
+
+    def test_an_open_line_offers_its_own_side_and_every_other_place(self):
+        offer = self._offer()
+        self.assertEqual(offer["own_place"], "ICICI Current Account")
+        self.assertEqual(
+            offer["other_ends"],
+            ["ICICI Bank Ledger", "Cashfree Wallet", "Cashbook Virtual Account", "Cashbook Employee Wallet",
+             "Porter Wallet", "ICICI Credit Card"],
+        )
+
+    def test_a_line_that_may_not_be_marked_is_offered_nothing(self):
+        for line in (
+            dict(row_status="Settled"),
+            dict(row_status="Internal Transfer"),
+            dict(source="Porter Statement"),
+            dict(source="Cashbook", direction="", row_status="Pending match run"),
+        ):
+            with self.subTest(**line):
+                self.assertIsNone(self._offer(**line))
+
+    def test_a_cashbook_line_prefills_the_wallet_holder(self):
+        """Owner decision 8a (#1619): the statement's From for money out, its To for money in."""
+        out = self._offer(source="Cashbook", direction="", added_by_raw="Test Employee A", beneficiary_name="A Shop")
+        back_in = self._offer(source="Cashbook", direction="Credit", added_by_raw="A Shop",
+                              beneficiary_name="Test Employee B")
+        self.assertEqual((out["detail"], back_in["detail"]), ("Test Employee A", "Test Employee B"))
+        self.assertEqual(out["own_place"], "Cashbook Employee Wallet")
+
+    def test_any_other_line_prefills_no_detail(self):
+        self.assertEqual(self._offer(added_by_raw="Someone", beneficiary_name="Someone else")["detail"], "")
+
+
+class TestMadeByInWords(unittest.TestCase):
+    """Review finding (#1619): Made by shows words, not rule ids."""
+
+    def test_a_rule_and_a_person_in_words(self):
+        self.assertEqual(made_by_words("platform_cashfree"), "Rule: Cashfree wallet top-up")
+        self.assertEqual(made_by_words("cashbook_va_to_wallet"), "Rule: Cashbook VA → Wallet")
+        self.assertEqual(made_by_words("card_auto_debit"), "Rule: Card auto-debit")
+        self.assertEqual(made_by_words("by hand"), "By hand")
+
+    def test_every_rule_that_makes_a_record_has_words(self):
+        rules = set(INTERNAL_BANK_CATEGORIES) | set(CASHBOOK_INTERNAL_KINDS.values()) | {CARD_AUTO_DEBIT_RULE}
+        for rule in sorted(rules):
+            with self.subTest(rule=rule):
+                words = made_by_words(rule)
+                self.assertTrue(words.startswith("Rule: "), words)
+                self.assertNotIn("_", words)

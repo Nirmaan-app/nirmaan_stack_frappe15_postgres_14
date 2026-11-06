@@ -18,7 +18,6 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     INTERNAL_TRANSFER_DOCTYPE,
-    MADE_BY_HAND,
     internal_transfer_lines_of_move,
     record_for_line,
 )
@@ -29,6 +28,7 @@ from nirmaan_stack.services.outflow_import.internal_transfer_rules import (
     other_end_refusal,
     send_back_refusal,
 )
+from nirmaan_stack.services.outflow_import.internal_transfers import MADE_BY_HAND
 from nirmaan_stack.services.outflow_import.row_settlement import (
     ROW_DOCTYPE,
     refresh_batch_rollup,
