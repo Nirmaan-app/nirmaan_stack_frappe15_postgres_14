@@ -670,6 +670,12 @@ def _commit_one_sheet(
 
     frappe.db.commit()
 
+    # SPEC CARDS AT COMMIT (DEV2-B1, R-H2W): AFTER the sheet's commit, so the job reads committed rows. Queued ONLY
+    # when the two historical-matching switches are both on (both OFF by default: then the two switches are the only
+    # thing read and nothing is queued). It can never fail or change this sheet's commit.
+    if disposition == "finalized":
+        _enqueue_spec_cards(boq_name, sheet_name, commit_version)
+
     result = {
         "sheet_name": sheet_name,
         "disposition": disposition,
@@ -684,6 +690,17 @@ def _commit_one_sheet(
         "froze_nodes": node_result["froze_nodes"],
     }
     return result
+
+
+def _enqueue_spec_cards(boq_name: str, sheet_name: str, commit_version: int) -> None:
+    """One spec-card job for a committed sheet, through services/boq_rate_match/cards.enqueue_sheet_cards (which
+    checks match_enabled AND match_cards_at_commit first). Swallows every error: the sheet is already committed."""
+    try:
+        from nirmaan_stack.services.boq_rate_match.cards import enqueue_sheet_cards
+
+        enqueue_sheet_cards(boq_name, sheet_name, commit_version)
+    except Exception:
+        frappe.log_error(title="BoQ spec-card enqueue failed", message=frappe.get_traceback())
 
 
 def _write_grid(

@@ -11,7 +11,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **One owner.** Every Payee rule lives in the Payee module, `services/payees/`. Screens and other
   modules call it and re-state none of its rules:
   - `rules.py` (pure): cleaning what was typed (`parse_details`), what makes details complete
-    (`details_problem`), the duplicate refusal's wording, `PAID_STATUSES`.
+    (`details_problem`), the duplicate refusal's wording, `PAID_STATUSES`. A holder name with no letter, or
+    naming a bank (the word BANK or a bank short name, whole words), is refused (`holder_name_problem`, owner,
+    2026-11-04); twin `payeeForm.holderNameProblem` shows it under the field. Payees saved before keep their
+    name until next edited, which then must fix it.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
     calling endpoint checks who may add a Payee from that screen. The one other creator is
     `backfill_payee`, for the #1424 patch only: bank and branch as recorded on the vendor, no lookup.

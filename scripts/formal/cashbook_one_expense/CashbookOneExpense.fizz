@@ -1,0 +1,409 @@
+---
+# The Cashbook import, as the database sees it: one wallet Txn Id must never get two expenses.
+#
+# Run: scripts/formal/cashbook_one_expense/run.sh   (pins FizzBee, runs every .cfg, checks outcomes)
+#
+# HOW TO READ THIS FILE. Every `atomic action` is ONE indivisible step of the real system: one SQL
+# statement, or one transaction's commit. The comment above each names the code it stands for, at the
+# skill's sync commit (`.claude/skills/cashbook-one-expense/SKILL.md`); code before spec #1585 Phase 1 is
+# named at cd1ce4e74. The model checker runs the steps of all processes in every possible order.
+#
+# THE TWO DATABASE RULES THAT DECIDE EVERYTHING. Frappe opens every Postgres connection at
+# REPEATABLE READ (frappe/database/postgres/database.py: `ISOLATION_LEVEL_REPEATABLE_READ`).
+#   1. A transaction reads from a SNAPSHOT taken at its first statement. It never sees a commit made
+#      after that -- not even one made while it waited for a lock (measured; see the skill's
+#      Evidence section). In the model: `snap_exp` (how many expenses the snapshot can see) and
+#      `snap_ver` (the version of the line the snapshot saw).
+#   2. An UPDATE, or a SELECT ... FOR UPDATE, of a row another transaction changed and committed after
+#      our snapshot raises a serialization failure (SQLSTATE 40001) and the transaction rolls back.
+#      In the model: `lines[l].ver != snap_ver`. Before Phase 1 it was the ONLY conflict: an INSERT of
+#      a new expense conflicts with nothing, because no unique key covers `payment_ref`.
+# Phase 1 C adds a THIRD rule, the one that closes overlap: a partial unique index on `Outflow Row Match`
+# (`ofm_match_import_created_expense_unique`: one Settled, import-created Expense match row per
+# transfer_id). The match row is inserted in the same transaction as the Expense, so a second create of
+# a Txn Id fails at that insert and rolls back, Expense included. In the model: `index_rows`.
+# #1601 widens it to a Cashbook line's Link (`created_by_import = 1 OR source = 'Cashbook'`): a person's
+# Link writes an index row too, and is refused when the Txn Id is already held. `LINK_HOLDS_TXN_ID`.
+options:
+  crash_on_yield: false
+  max_actions: 1000
+  max_concurrent_actions: 1
+deadlock_detection: false
+---
+
+# ---- Configuration. Each .cfg file next to this one overrides these (fizz --preinit-hook-file). ----
+
+# Which code the processes run: "before_1585" (cashbook.py at cd1ce4e74, before spec #1585) or "phase1"
+# (spec #1585 as built: Phase 1's A row lock and status re-check, B's gate, C's unique index, and the
+# open lines of #1594-#1596. No Txn Id lock, no confirm lock -- the spec dropped both after this check).
+CODE = "before_1585"
+
+# One statement file per confirm request. All confirms may run at the same moment.
+STATEMENTS = [["T1", "T2"], ["T2"]]
+
+# Batches already staged before anything runs, as lists of Txn Ids, jobs already queued. Spec #1585
+# Testing Decision C sets up "two staged batches holding the same Txn Id" this way.
+PRESTAGED = []
+
+# #1595: the Txn Ids whose statement Type is Collect Payment. The plan stages such a line OPEN
+# (`Mismatched`, `cashbook_lines.line_values`), a status the job never takes: only a person decides it,
+# and only by Create (or Skip) -- `expenses.guard_collect_payment_choice` refuses Link. A Txn Id is one
+# row of the wallet, so its Type is the same in every statement that carries it.
+COLLECT = []
+
+# #1596: Collect payments an earlier import skipped as "moves money between our own balances". Each is one
+# line (status "OwnSkip", in an earlier import with no job) at the start. A statement carrying the Txn Id
+# re-opens THAT line (it becomes open) instead of staging a new one. Must be in COLLECT and in a statement.
+OWN_BALANCE_SKIPS = []
+
+# Batches that get a SECOND job run on top of the one confirm enqueues. Before Phase 1: someone re-runs
+# `_cashbook_worker` by hand while the first run is still going. Phase 1: the Resume button.
+# Frappe's `enqueue(deduplicate=True)` is check-then-act and a killed worker can leave its job
+# "started", so the second run may overlap the first. A design that survives overlap survives less.
+# Batch numbers: confirms first (0, 1, ...), then PRESTAGED.
+SECOND_RUN_BATCHES = [0]
+
+# True: the second run starts only after the first has finished or crashed (a re-run after a crash,
+# no overlap). False: it may start at any moment.
+SECOND_RUN_AFTER_FIRST = False
+
+# People working the main table, each doing one Create or one Link. Both go through the same
+# recorded-money guard and the same row update, so the model treats them as one action -- except at C's
+# index (a Link joined it at #1601) and on a Collect line (Create only).
+PERSON = True
+PERSONS = 1
+
+# Which of the two a person may do. A config narrows it to split a scenario, never to hide one.
+PERSON_ACTIONS = ["create", "link"]
+
+# #1601: does C's index hold a person's Link of a Cashbook line? True is the code since #1601 (the Link's
+# match row carries `source` 'Cashbook', inside the widened predicate). False is #1588 as first built, when
+# the index saw only created rows -- kept so `phase1_link_before_1601` shows the gap it closed.
+LINK_HOLDS_TXN_ID = True
+
+# A job may die at any step (worker killed, timeout). Postgres rolls back its open transaction.
+CRASH = True
+
+# Creating an expense may raise (validation, a bad project). `_cashbook_worker` then marks the line.
+WRITE_ERRORS = True
+
+
+# ---- helpers ----
+
+atomic func booked_in_snapshot(txn, snap_exp):
+    # Is there an expense for this Txn Id that a snapshot seeing the first `snap_exp` expenses can see?
+    # Real queries: `_booked_index` (cashbook.py:796) and the recorded-money guard, by `payment_ref`.
+    return txn in expenses[:snap_exp]
+
+
+atomic func commit_line(l, status):
+    lines[l].status = status
+    lines[l].ver = lines[l].ver + 1
+
+
+atomic func release_locks(me):
+    for l in [k for k in row_lock if row_lock[k] == me]:
+        row_lock.pop(l)
+
+
+atomic func index_refuses(txn):
+    # Phase 1 C: would inserting an import-created Expense match row for this Txn Id hit the unique index?
+    # Before Phase 1 there is no such index. (A concurrent uncommitted insert of the same key makes Postgres
+    # wait and then refuse; every create here is one atomic step, so only committed rows are ever in play.)
+    return CODE == "phase1" and txn in index_rows
+
+
+atomic func reopen_own_balance_skip(txn):
+    # #1596 `cashbook_reopen.reopen_lines`: the earlier line, still an own-balances skip under the claim's
+    # row lock, becomes open. When another import took it first, `_plan_claiming_reopens` plans again
+    # without the re-open, and the line is a repeat of the one that took it: nothing is staged.
+    for l in sorted(lines.keys()):
+        if lines[l].txn == txn and lines[l].status == "OwnSkip":
+            commit_line(l, "Open")
+            return
+
+
+# ---- the background job: `_cashbook_worker` (cashbook.py:329) ----
+
+role Job:
+    action Init:
+        self.me = "job" + str(self.batch) + "." + str(self.run)
+        self.pc = "waiting"
+        self.todo = []
+        self.first_ver = -1
+        self.list_exp = -1
+        self.cur = -1
+        self.snap_ver = -1
+        self.snap_exp = -1
+        self.refused = False
+
+    atomic func idle(pc):
+        # Between lines nothing from the last line matters any more.
+        self.cur = -1
+        self.snap_ver = -1
+        self.snap_exp = -1
+        self.refused = False
+        self.pc = pc
+        if pc in ("done", "crashed"):
+            if self.run == 0:
+                first_run_over[self.batch] = True
+            self.todo = []
+            self.first_ver = -1
+            self.list_exp = -1
+
+    # cashbook.py:360 -- `SELECT name ... WHERE row_status = 'Pending match run' ORDER BY name`. The
+    # worker's first transaction takes its snapshot here (the reads before it, `bill_work` and the statement
+    # URL, are reads of the same snapshot). The FIRST line's write runs in this same transaction (no commit
+    # between the list and the first `_write_one`), so it keeps this snapshot.
+    atomic action ListPendingLines:
+        require self.pc == "waiting"
+        require staged.get(self.batch, False)
+        require self.run > 0 or enqueued.get(self.batch, False)
+        require self.run == 0 or not SECOND_RUN_AFTER_FIRST or first_run_over.get(self.batch, False)
+        self.todo = [l for l in sorted(lines.keys()) if lines[l].batch == self.batch and lines[l].status == "Pending"]
+        if len(self.todo) > 0:
+            self.first_ver = lines[self.todo[0]].ver
+        self.list_exp = len(expenses)
+        self.pc = "next"
+
+    # Before Phase 1: cashbook.py:271 at cd1ce4e74, `_write_one`'s `frappe.db.get_value` of the line -- no
+    # lock, no status check. Phase 1: the start of the `SELECT ... FOR UPDATE` in `cashbook_lines.lock_line_if`
+    # (:48), which `_lock_pending_line` calls; card_create.py:145 is the model. From the second line on, a
+    # new transaction takes its snapshot HERE, before any lock wait.
+    atomic action ReadLine:
+        require self.pc == "next"
+        if len(self.todo) == 0:
+            self.idle("done")
+            return
+        self.cur = self.todo[0]
+        self.todo = self.todo[1:]
+        if self.first_ver >= 0:
+            self.snap_ver = self.first_ver
+            self.snap_exp = self.list_exp
+            self.first_ver = -1
+        else:
+            self.snap_ver = lines[self.cur].ver
+            self.snap_exp = len(expenses)
+        self.list_exp = -1
+        if CODE == "phase1":
+            self.pc = "lock_line"
+        else:
+            self.pc = "write"
+
+    # Phase 1, A: `_lock_pending_line`'s FOR UPDATE completes (cashbook.py:466). It waits while another
+    # transaction holds the line. Then: changed after our snapshot -> serialization failure, "another run
+    # took it": rollback, no Error. No longer Pending -> write nothing.
+    atomic action LockLine:
+        require self.pc == "lock_line"
+        require row_lock.get(self.cur, self.me) == self.me
+        if lines[self.cur].ver != self.snap_ver or lines[self.cur].status != "Pending":
+            self.idle("next")
+        else:
+            row_lock[self.cur] = self.me
+            self.pc = "write"
+
+    # `_write_one` (cashbook.py:488): `create_expense_from_row` (an INSERT), the match INSERT (:548, `source`
+    # 'Cashbook', `created_by_import` 1), the line UPDATE to Settled, then `_cashbook_worker`'s
+    # `frappe.db.commit()` (:378). One transaction, so one step. Rule 2 bites at the line UPDATE: if the line
+    # changed after our snapshot, everything rolls back, the expense with it. Rule 3 (phase 1 C) bites at the
+    # match INSERT: the Txn Id already holds an Expense match row in the index, so everything rolls back and
+    # the line is to become an "Already imported" skip. Or the expense insert raises (WRITE_ERRORS). Each way
+    # `_cashbook_worker`'s except branch runs. (#1591: after the commit, `cashbook_bills.copy_created_line_bills`
+    # attaches the bills to the new Expense in transactions of its own; it writes no line status, no Expense
+    # and no `payment_ref`, so it is not a step here.)
+    atomic action WriteOne:
+        require self.pc == "write"
+        require row_lock.get(self.cur, self.me) == self.me
+        outcomes = ["ok", "raises"] if WRITE_ERRORS else ["ok"]
+        outcome = oneof outcomes
+        txn = lines[self.cur].txn
+        # (A fizz function is called only as a statement of its own, never inside a condition.)
+        refused = index_refuses(txn)
+        if outcome == "raises" or lines[self.cur].ver != self.snap_ver:
+            release_locks(self.me)
+            self.pc = "mark_error"
+        elif refused:
+            release_locks(self.me)
+            self.refused = True
+            self.pc = "mark_error"
+        else:
+            expenses.append(txn)
+            index_rows.append(txn)
+            commit_line(self.cur, "Settled")
+            release_locks(self.me)
+            self.idle("next")
+
+    # After the rollback, in a fresh transaction. Before Phase 1: a blind `set_value(line, Error)` and a
+    # commit. Phase 1, A: `_write_failed` (cashbook.py:393) -> `_mark_if_still_pending` (:434), a conditional
+    # UPDATE "where the line is still Pending"; an index refusal (C) is written as the "Already imported"
+    # system skip, anything else as Error.
+    atomic action MarkError:
+        require self.pc == "mark_error"
+        require row_lock.get(self.cur, self.me) == self.me
+        if CODE == "before_1585" or lines[self.cur].status == "Pending":
+            commit_line(self.cur, "Skipped" if self.refused else "Error")
+        self.idle("next")
+
+    # The worker dies. Postgres rolls back its open transaction and frees its locks. Lines it had not
+    # reached stay Pending (gap F); only another run can take them.
+    atomic action Crash:
+        require CRASH
+        require self.pc in ("next", "lock_line", "write", "mark_error")
+        release_locks(self.me)
+        self.idle("crashed")
+
+
+# ---- the confirm request: `confirm_cashbook_import` (cashbook.py:155) ----
+
+role Confirm:
+    action Init:
+        self.me = "confirm" + str(self.idx)
+        self.pc = "start"
+        self.new = []
+        self.reopen = []
+
+    # `confirm_cashbook_import` -> `_plan_claiming_reopens` (cashbook.py:642) -> `_build_plan` (:671) asks
+    # `_already_imported` (any stored line with this Txn Id, in flight or not), `_already_booked` (any expense
+    # with this `payment_ref`) and `cashbook_reopen.wrong_skips` (an own-balances skip of this Txn Id), from the
+    # request's snapshot. A Collect payment on an own-balances skip, not yet booked, re-opens it (#1596,
+    # `claim_wrong_skips`); otherwise a Txn Id on any line is a repeat. Nothing orders two confirms, so both
+    # can read "new" -- and phase 1 C leaves it so on purpose: the index refuses the second create instead.
+    atomic action Plan:
+        require self.pc == "start"
+        on_lines = [lines[l].txn for l in lines]
+        own_skips = [lines[l].txn for l in lines if lines[l].status == "OwnSkip"]
+        self.reopen = [t for t in STATEMENTS[self.idx] if t in COLLECT and t in own_skips and t not in expenses]
+        self.new = [t for t in STATEMENTS[self.idx] if t not in on_lines and t not in expenses]
+        self.pc = "stage"
+
+    # `save_file` (cashbook.py:182, commits), the re-open claim taken again under row locks held to the commit
+    # (:185), `_stage` (:898: one line per new Txn Id -- `Pending match run` for a spend, open for a Collect
+    # payment, `cashbook_lines.line_values`; an exact repeat is not staged; `cashbook_reopen.reopen_lines`
+    # re-opens the claimed lines in place), commit (:208), `_enqueue_worker` (:317). A file of nothing but
+    # repeats is refused and writes nothing. (When it re-opens, confirm plans again after `save_file`, in this
+    # transaction; that later read can only see more lines and expenses, so it stages no Txn Id the plan above
+    # did not.)
+    atomic action StageAndEnqueue:
+        require self.pc == "stage"
+        for t in self.reopen:
+            reopen_own_balance_skip(t)
+        for t in self.new:
+            lines[len(lines)] = record(batch=self.idx, txn=t, status="Open" if t in COLLECT else "Pending", ver=0)
+        if len(self.new) > 0 or len(self.reopen) > 0:
+            staged[self.idx] = True
+            enqueued[self.idx] = True
+        self.new = []
+        self.reopen = []
+        self.pc = "done"
+
+
+# ---- a person on the main table: `expenses.create_expense` (:1057), or a Link (`settle_row` :298,
+# `link_lines.link_rows_to_expense` :65) ----
+
+role Person:
+    action Init:
+        self.pc = "idle"
+        self.cur = -1
+        self.snap_ver = -1
+        self.snap_exp = -1
+
+    # expenses.py:1174 `_load_settleable_row` (a Link of many lines: link_lines.py:184 `_load_linkable_row`)
+    # refuses Settled, Partially Allocated and Skipped -- an own-balances skip too -- so an Error or open line
+    # passes. Before Phase 1 a Cashbook line at Pending passed as well. Phase 1, B (`guard_not_an_own_import_line`
+    # :1217 -> `skip_origin.own_import_refusal`): a Cashbook line at Pending is refused. Then :1297
+    # `_guard_money_not_recorded` refuses when an expense already carries this Txn Id. Both read the request's
+    # snapshot, taken here.
+    atomic action OpenLine:
+        require PERSON
+        require self.pc == "idle"
+        l = oneof sorted(lines.keys())
+        status = lines[l].status
+        booked = booked_in_snapshot(lines[l].txn, len(expenses))
+        gated = status in ("Settled", "Skipped", "OwnSkip") or (CODE == "phase1" and status == "Pending")
+        if gated or booked:
+            self.pc = "refused"
+        else:
+            self.cur = l
+            self.snap_ver = lines[l].ver
+            self.snap_exp = len(expenses)
+            self.pc = "write"
+
+    # Create: `create_expense_from_row` + `row_settlement.record_settlement` (the match INSERT,
+    # `created_by_import` 1) + `refresh_row_allocation` (the line UPDATE) + commit. Link: `settle_row` /
+    # `link_rows_to_expense` write this Txn Id into the chosen expense's `payment_ref` (settle.py), so that
+    # expense now counts for it; its match row has `created_by_import` 0 and `source` 'Cashbook'
+    # (`row_settlement.line_source`) -- inside C's index since #1601 (`LINK_HOLDS_TXN_ID`), outside it before.
+    # A Collect payment refuses Link (`guard_collect_payment_choice`, expenses.py:1239; read in the loader,
+    # nothing written). Rule 2 at the line UPDATE; it waits while a Phase 1 job holds the line. Rule 3 refuses a
+    # Create (`_refuse_as_already_imported` :1127), and since #1601 a Link (`refuse_link_of_a_held_txn_id` :223),
+    # of a Txn Id the index already holds (`AlreadyImportedError`, naming the Expense, read after the rollback).
+    # The person's Link is always to an existing Expense that does not hold the Txn Id; a Link to the holder
+    # itself is refused by the older (transfer, target) key and books nothing, so it is not modelled.
+    atomic action CreateOrLink:
+        require self.pc == "write"
+        require row_lock.get(self.cur, "person") == "person"
+        kind = oneof PERSON_ACTIONS
+        txn = lines[self.cur].txn
+        refused = index_refuses(txn)
+        in_index = kind == "create" or LINK_HOLDS_TXN_ID
+        if kind == "link" and txn in COLLECT:
+            self.pc = "refused"
+        elif lines[self.cur].ver != self.snap_ver:
+            self.pc = "lost_race"
+        elif in_index and refused:
+            self.pc = "refused"
+        else:
+            expenses.append(txn)
+            if in_index and CODE == "phase1":
+                index_rows.append(txn)
+            commit_line(self.cur, "Settled")
+            self.pc = "done"
+        self.cur = -1
+        self.snap_ver = -1
+        self.snap_exp = -1
+
+
+action Init:
+    lines = {}
+    expenses = []
+    row_lock = {}
+    index_rows = []
+    staged = {}
+    enqueued = {}
+    first_run_over = {}
+    for t in OWN_BALANCE_SKIPS:
+        lines[len(lines)] = record(batch=-1, txn=t, status="OwnSkip", ver=0)
+    for p in range(len(PRESTAGED)):
+        batch = len(STATEMENTS) + p
+        for t in PRESTAGED[p]:
+            lines[len(lines)] = record(batch=batch, txn=t, status="Pending", ver=0)
+        staged[batch] = True
+        enqueued[batch] = True
+    confirms = []
+    for i in range(len(STATEMENTS)):
+        confirms.append(Confirm(idx=i))
+    jobs = []
+    for b in range(len(STATEMENTS) + len(PRESTAGED)):
+        jobs.append(Job(batch=b, run=0))
+        if b in SECOND_RUN_BATCHES:
+            jobs.append(Job(batch=b, run=1))
+    persons = []
+    for i in range(PERSONS):
+        persons.append(Person())
+
+
+# THE PROPERTY. Each wallet Txn Id gets at most one expense.
+always assertion AtMostOneExpensePerTxnId:
+    for t in expenses:
+        if len([x for x in expenses if x == t]) > 1:
+            return False
+    return True
+
+
+# Not vacuous: in some run, every Txn Id in play does get its expense.
+exists assertion EveryTxnIdCanBeBooked:
+    for s in STATEMENTS + PRESTAGED:
+        for t in s:
+            if t not in expenses:
+                return False
+    return True

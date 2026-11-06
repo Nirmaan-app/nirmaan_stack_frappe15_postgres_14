@@ -22,7 +22,7 @@ THE STEPS
 ⚠️ IT NEVER RUNS THE MATCHER (`sources.NEVER_MATCHED_SOURCES`). The generic upload refuses this source.
 
 ⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `save_file` commits inside the request (the cloud
-attachment hook), so every refusal -- a locked PDF, another company, the totals gate, a cash advance, the
+attachment hook), so every refusal -- a locked PDF, the totals gate, the
 same holder and period, nothing new -- happens before it.
 
 ⚠️ ITS SPENDS ARE NOT BANK LINES. Until Create settles them they are outside the main table's population
@@ -88,8 +88,8 @@ def upload_card_statement():
 
     Refused, with the reason, and with NOTHING saved: a file that is not a .pdf; a password-locked PDF sent
     without its password, or with a wrong one (the screen then asks for it); a statement that is not this
-    layout; a statement not issued to Stratos Infra Technologies; a non-zero Cash Advances; spends that do
-    not equal Purchases / Charges or credits that do not equal Payments / Credits, to the paisa (both figures
+    layout (no holder at `State Code:`); spends that do
+    not equal Purchases / Charges plus Cash Advances or credits that do not equal Payments / Credits, to the paisa (both figures
     shown); a second statement for the same holder and billing period (naming the earlier import); a file
     whose every SerNo is already imported. A line whose SerNo is already imported is LEFT OUT and counted in
     the batch's `repeats_not_saved`.

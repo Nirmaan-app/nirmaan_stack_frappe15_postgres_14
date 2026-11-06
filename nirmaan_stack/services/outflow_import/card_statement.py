@@ -8,10 +8,9 @@
 from the address block, the statement date, the billing period, the five summary totals and every
 transaction line, as printed. It refuses, with `CardStatementError`, anything it cannot import whole:
 
-  * text that is not this statement's layout (no period, no summary, no address block, no lines);
-  * a statement not issued to Stratos Infra Technologies ("PVT LTD" and "Private Limited" are one name);
-  * a non-zero *Cash Advances*;
-  * THE TOTALS GATE (ADR-0039 decision 3): the spends read must equal *Purchases / Charges* and the
+  * text that is not this statement's layout (no period, no summary, no holder, no lines);
+  * THE TOTALS GATE (ADR-0039 decision 3): the spends read must equal *Purchases / Charges* plus *Cash
+    Advances* (a cash withdrawal is a line without CR, read as a spend; Amendment C) and the
     credits read *Payments / Credits*, to the paisa. Plain code reads the PDF; the gate keeps it honest.
 
 THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_statement.txt`):
@@ -19,7 +18,7 @@ THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_sta
     Statement period : September 2, 2026 to October 1, 2026
     State Code: 29
     MR <HOLDER>                                   <- the address block: holder line, then company line
-    <COMPANY>
+    <COMPANY>                                     <- blank when this line does not end PVT/LTD/LLP/...
     Previous Balance Purchases / Charges Cash Advances Payments / Credits
     Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73     <- `Á` is how pypdf reads the rupee sign
     11/09/2026 14144135412 transaction cashback 0 1,854.21 CR
@@ -28,6 +27,9 @@ THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_sta
 A line is `DD/MM/YYYY`, an 11-digit SerNo, the transaction details, the reward points, an optional
 international amount, the amount and an optional `CR`. A line dated before the period, or out of date
 order, is kept as printed. The card numbers printed as headings in the list are not read (ADR-0039).
+
+The company is read to be SHOWN on Review, never checked (ADR-0039 Amendment B). The layout is the text
+pypdf 6.13.3 (Frappe's pin) extracts; pypdf 3.17.4 joins some of these lines and misreads the statement.
 """
 
 from __future__ import annotations
@@ -38,9 +40,6 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.amounts import rupees
-
-#: The one company whose cards are imported (GLOSSARY: Credit Card Statement), as `company_key` reads it.
-OUR_COMPANY = "Stratos Infra Technologies"
 
 _LINE = re.compile(
     r"^(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<serno>\d{11})\s+(?P<details>.+?)\s+(?P<points>-?\d+)"
@@ -54,8 +53,9 @@ _SUMMARY_LABEL = "Previous Balance Purchases / Charges Cash Advances Payments / 
 _ADDRESS_ANCHOR = re.compile(r"^\s*State Code\s*:")
 _HONORIFIC = re.compile(r"^(?:MR|MRS|MS|MISS|DR|M/S)\.?\s+", re.IGNORECASE)
 
-# Company suffixes, as one spelling each: "PVT LTD" and "Private Limited" are the same name.
-_COMPANY_SUFFIXES = frozenset({"PVT", "PRIVATE", "P", "LTD", "LIMITED"})
+# The words a company name ends in. The line under the holder is the company only when it ends in one;
+# otherwise the statement printed no company and that line is the street address (ADR-0039 Amendment B).
+_COMPANY_ENDINGS = frozenset({"PVT", "PRIVATE", "LTD", "LIMITED", "LLP"})
 # What `merchant_key` drops from the END of a merchant's name (spec #1565): the bank prints the same
 # merchant as "MAKEMYTRIP(INDIA) P", "MAKEMYTRIP INDIA PVT" and "makemytrip".
 _MERCHANT_SUFFIXES = frozenset({"PVT", "PRIVATE", "P", "LTD", "LIMITED", "INDIA"})
@@ -122,11 +122,6 @@ def read_card_statement(text: str) -> CardStatement:
     rows = [row.strip() for row in (text or "").splitlines()]
     period_from, period_to = _period(text or "")
     holder, company = _address_block(rows)
-    if company_key(company) != company_key(OUR_COMPANY):
-        raise CardStatementError(
-            f"This statement is issued to {company}, not {OUR_COMPANY}. Only a company card's statement "
-            "can be imported."
-        )
     totals = _totals(rows)
     lines = tuple(_lines(rows))
     if not lines:
@@ -167,12 +162,6 @@ def line_reference(line: CardLine) -> str:
     return f"{line.details} - {line.serno}"
 
 
-def company_key(name: str) -> str:
-    """A company name with its suffixes and punctuation dropped: "PVT LTD" == "Private Limited"."""
-    words = re.sub(r"[^A-Z0-9]+", " ", (name or "").upper()).split()
-    return " ".join(word for word in words if word not in _COMPANY_SUFFIXES)
-
-
 # --- the parts ------------------------------------------------------------------------------------
 
 
@@ -199,14 +188,21 @@ def _period(text: str) -> tuple[date, date]:
 
 
 def _address_block(rows: list[str]) -> tuple[str, str]:
-    """The holder line and the company line under `State Code:`. The holder's honorific is dropped."""
+    """The holder (the line under `State Code:`, title dropped) and the company: the line under the holder
+    when it ends in a company word, else blank (ADR-0039 Amendment B)."""
     for index, row in enumerate(rows):
-        if _ADDRESS_ANCHOR.match(row) and index + 2 < len(rows):
-            holder = _HONORIFIC.sub("", rows[index + 1]).strip()
-            company = rows[index + 2].strip()
-            if holder and company:
-                return holder, company
+        if not _ADDRESS_ANCHOR.match(row) or index + 1 >= len(rows):
+            continue
+        holder = _HONORIFIC.sub("", rows[index + 1]).strip()
+        below = rows[index + 2] if index + 2 < len(rows) else ""
+        if holder:
+            return holder, below.strip() if _is_company_line(below) else ""
     raise _not_this_layout("the card holder's address block")
+
+
+def _is_company_line(row: str) -> bool:
+    words = re.sub(r"[^A-Z0-9]+", " ", row.upper()).split()
+    return bool(words) and words[-1] in _COMPANY_ENDINGS
 
 
 def _totals(rows: list[str]) -> CardTotals:
@@ -251,18 +247,18 @@ def _lines(rows: list[str]):
 
 
 def _gate(statement: CardStatement) -> None:
-    """ADR-0039 decision 3: all or nothing, to the paisa, no override."""
+    """ADR-0039 decision 3: all or nothing, to the paisa, no override.
+
+    A cash withdrawal is a line without CR, so it is read as a spend: the spends add up to Purchases / Charges
+    plus Cash Advances (ADR-0039 Amendment C).
+    """
     totals = statement.totals
-    if totals.cash_advances != 0:
-        raise CardStatementError(
-            f"This statement has Cash Advances of {rupees(totals.cash_advances)}. A cash withdrawal on a card "
-            "cannot be imported, so nothing was imported."
-        )
     problems = []
-    if statement.spends_total != totals.purchases:
+    money_out = totals.purchases + totals.cash_advances
+    if statement.spends_total != money_out:
+        label = "Purchases / Charges" if totals.cash_advances == 0 else "Purchases / Charges + Cash Advances"
         problems.append(
-            f"spends read {rupees(statement.spends_total, paise=True)}, Purchases / Charges "
-            f"{rupees(totals.purchases, paise=True)}"
+            f"spends read {rupees(statement.spends_total, paise=True)}, {label} {rupees(money_out, paise=True)}"
         )
     if statement.credits_total != totals.payments:
         problems.append(

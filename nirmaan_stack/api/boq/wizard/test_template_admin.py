@@ -19,6 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.template_admin import set_template_active
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 
 def _wipe_all_templates():
@@ -73,13 +74,13 @@ class _TemplateAdminBase(FrappeTestCase):
         # User.after_insert may auto-create a Nirmaan Users row (role None). Ensure the
         # desired role_profile is set. Nirmaan Users is named by lowercased email.
         if frappe.db.exists("Nirmaan Users", email):
-            frappe.db.set_value("Nirmaan Users", email, "role_profile", role_profile)
+            set_role_copy_for_test(email, role_profile)
         else:
             nu = frappe.new_doc("Nirmaan Users")
             nu.email = email
             nu.first_name = "Tmpl Gate"
-            nu.role_profile = role_profile
             nu.insert(ignore_permissions=True)
+            set_role_copy_for_test(email, role_profile)
         frappe.db.commit()
         self._created_users.append(email)
         return email

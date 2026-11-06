@@ -12,6 +12,7 @@
   "reimbursement",
   "porter_order",
   "credit_card_statement",
+  "cashbook_batch",
   "pay_to_account_name",
   "pay_to_account_number",
   "pay_to_ifsc",
@@ -24,6 +25,7 @@
   "description",
   "comment",
   "amount",
+  "gst_amount",
   "payment_details_section",
   "payment_attachment",
   "payment_ref",
@@ -188,7 +190,7 @@
    "search_index": 1
   },
   {
-   "description": "Set when an Admin or Accountant Lead marks a card spend No invoice (ADR-0039 ruling 8): why it will never have one. Written only by api/expenses/card_invoices.mark_card_no_invoice, with no_invoice_by and no_invoice_at.",
+   "description": "Set when an Admin or Accountant Lead marks a card spend (ADR-0039 ruling 8) or a Cashbook wallet spend (#1592, ADR-0015 Amendment B) No invoice: why it will never have one. Written only by api/expenses/card_invoices.mark_card_no_invoice and api/expenses/cashbook_invoices.mark_cashbook_no_invoice, with no_invoice_by and no_invoice_at.",
    "fieldname": "no_invoice_reason",
    "fieldtype": "Small Text",
    "label": "No Invoice Reason",
@@ -216,12 +218,28 @@
    "options": "Reimbursement",
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "description": "The Cashbook Statement import batch that created this expense (spec #1585, #1592, ADR-0015 Amendment B). Written once by the Cashbook job at Create; blank on every other expense, and on expenses earlier Cashbook imports made. It is the marker that puts a wallet spend in Pending Invoices Upload -> Cashbook.",
+   "fieldname": "cashbook_batch",
+   "fieldtype": "Link",
+   "label": "Cashbook Import Batch",
+   "options": "Outflow Import Batch",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "An Office Rent bill's 18% GST (bill - bill / 1.18), set once when the Expense is approved and its TDS withheld (spec #1613). 0 for every other expense.",
+   "fieldname": "gst_amount",
+   "fieldtype": "Currency",
+   "label": "GST",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-25 16:56:33.554599",
+ "modified": "2026-11-05 22:26:13.058953",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",

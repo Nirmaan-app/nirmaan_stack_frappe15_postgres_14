@@ -578,18 +578,57 @@ class TestElr3aV69(FrappeTestCase):
 
 
 class TestElr3aLive(FrappeTestCase):
-    """AC3 / AC6 against the LIVE (dev) catalogue with v69 loaded. READ-ONLY: a download, a preview (`build_plan` never
-    writes) and a read of the input."""
+    """AC3 / AC6 against a catalogue with v69 loaded. #1608: v69 is SEEDED through the app's own loader into a scratch
+    discipline (`setUpClass`), so these pass whatever Electrical version the live rows hold; WAS: read the live
+    `Electrical` rows, which pass only after a manual import of v69 or later. The tests themselves are read-only:
+    a download, a preview (`build_plan` never writes) and a read of the input."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import _purge_test_disciplines
+        from nirmaan_stack.services.boq_rate_master import loader
+        cls.disc = "TEST_RM_" + frappe.generate_hash(length=8)
+        cls.addClassCleanup(_purge_test_disciplines, {cls.disc})   # before the load: a half-done load is purged too
+        payload = _asset(_V69)
+        payload["discipline"] = cls.disc
+        loader.load_rate_master(payload=payload)
+
+    def _seeded_input(self, item):
+        for r in frappe.get_all("BoQ Rate Master Item", fields=["name", "attributes"],
+                                filters={"discipline": self.disc, "kind": "electrical_pricing_input", "active": 1}):
+            a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+            if a.get("item") == item:
+                return r["name"]
+        raise AssertionError("%s is not seeded" % item)
 
     def test_01_the_pricing_inputs_download_previews_as_ZERO_changes_nine_rows_included(self):
-        text, _h, n = csv_exporter.build_category_csv("Electrical", "electrical_pricing_inputs")
+        text, _h, n = csv_exporter.build_category_csv(self.disc, "electrical_pricing_inputs")
         for name, _v, _u in _NAMES.values():
             self.assertIn(name, text)
-        plan = csv_importer.build_plan("Electrical", text.encode("utf-8"), category_id="electrical_pricing_inputs")
+        plan = csv_importer.build_plan(self.disc, text.encode("utf-8"), category_id="electrical_pricing_inputs")
         self.assertEqual(plan.get("errors") or [], [])
         counts = plan.get("counts") or {}
         self.assertEqual((counts.get("unchanged"), counts.get("rates_changed"), counts.get("items_added")), (n, 0, 0))
         self.assertEqual(n, 44)
 
     def test_02_the_read_back_reads_the_live_input(self):
-        self.assertEqual(extraction.secondary_length_per_point(), 5.0)
+        """The reader reads an ACTIVE row from the database, whatever discipline holds it. #1608: other rows may carry
+        the same input (the live `Electrical` discipline once v69+ is imported, another suite's scratch), so inside a
+        savepoint the seeded row is made the only active one and given a value no asset ships (6.5); the savepoint is
+        rolled back, so no other row is ever changed outside this test's own transaction."""
+        self.assertEqual(extraction.SECONDARY_LENGTH_INPUT, "pw_circuit_length_further")
+        mine = self._seeded_input(extraction.SECONDARY_LENGTH_INPUT)
+        self.assertEqual(frappe.parse_json(frappe.db.get_value("BoQ Rate Master Item", mine, "rates")), {"factor": 5})
+        frappe.db.savepoint("elr3a_read_back")
+        try:
+            # Raw writes, no hooks: a test-only state inside a savepoint that is always rolled back -- nothing derives from it.
+            frappe.db.sql("""UPDATE "tabBoQ Rate Master Item" SET active = 0
+                             WHERE active = 1 AND kind = 'electrical_pricing_input' AND name != %s""", (mine,))
+            frappe.db.set_value("BoQ Rate Master Item", mine, "rates", json.dumps({"factor": 6.5}), update_modified=False)
+            self.assertEqual(extraction.secondary_length_per_point(), 6.5)
+            frappe.db.set_value("BoQ Rate Master Item", mine, "active", 0, update_modified=False)
+            self.assertIsNone(extraction.secondary_length_per_point())     # no active input -> None, never a guessed 5
+        finally:
+            frappe.db.rollback(save_point="elr3a_read_back")
+        self.assertEqual(frappe.parse_json(frappe.db.get_value("BoQ Rate Master Item", mine, "rates")), {"factor": 5})

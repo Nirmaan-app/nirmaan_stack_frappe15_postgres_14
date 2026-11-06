@@ -28,6 +28,7 @@ from nirmaan_stack.api.sr_remarks import (
 )
 from nirmaan_stack.api.vendor.test_gst_hold import _Fixture
 from nirmaan_stack.patches.v3_0 import pmo_write_on_work_orders as pmo_patch
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 SR = "Service Requests"
 NOTIFY_ON_UPDATE = "nirmaan_stack.integrations.controllers.service_requests.on_update"
@@ -65,7 +66,7 @@ def _make_user(email, profile, *, roles=None):
         user.insert(ignore_permissions=True)   # its after_insert creates the Nirmaan Users row
         if roles:
             user.add_roles(*roles)
-    frappe.db.set_value("Nirmaan Users", email, "role_profile", profile, update_modified=False)
+    set_role_copy_for_test(email, profile)
 
 
 def _drop_user(email):

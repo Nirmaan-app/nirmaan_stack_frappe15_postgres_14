@@ -59,6 +59,7 @@ from typing import NamedTuple
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.cashbook_collect import statement_line_create_extras
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
     require_outflow_undo_access,
@@ -76,24 +77,35 @@ from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
     recompute_for_settled_payment,
 )
 from nirmaan_stack.services.expense_type_ledger import LEDGER_TYPE_FLAG
+# `allocation` also holds `allocation_note` (moved there from a private `expenses.py` helper at
+# review; `row_settlement` reads it) -- it is pure arithmetic-plus-wording over legs, which is that
+# module's job, not `api/`'s.
+from nirmaan_stack.services.outflow_import.allocation import (
+    MATCH_SETTLED,
+    allocated_of,
+    allocation_fits,
+    is_over_allocated,
+    remaining_of,
+)
+from nirmaan_stack.services.outflow_import.amounts import to_decimal
+from nirmaan_stack.services.outflow_import.cashbook_collect import (
+    COLLECT_PAYMENT_CHOICES_REFUSAL,
+    is_collect_payment_line,
+)
+from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
+from nirmaan_stack.services.outflow_import.import_comment import (
+    import_comment,
+    import_comment_problem,
+)
+from nirmaan_stack.services.outflow_import.import_created_expense import (
+    import_created_expense_holding,
+    is_import_created_expense_refusal,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     PAYMENT_DOCTYPE,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.skip_origin import own_import_line_refusal
-from nirmaan_stack.services.outflow_import.sources import (
-    line_waits_for_its_own_create,
-    source_names_its_spender,
-)
-from nirmaan_stack.services.outflow_import.amounts import to_decimal
-from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
-# ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
-# and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
-# PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
-# the app, would drift -- and the drift shows up as a PO whose terms stopped adding up, months
-# later, with no way to tell which copy wrote it.
-from nirmaan_stack.services.payment_split import split_payment
 from nirmaan_stack.services.outflow_import.partial_settle import (
     REFUSAL_NOT_APPROVED,
     REFUSAL_NOT_A_PAYMENT,
@@ -103,9 +115,13 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     VALID_INTENTS,
     partial_eligibility,
 )
-from nirmaan_stack.services.outflow_import.import_comment import (
-    import_comment,
-    import_comment_problem,
+# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
+# written directly by `record_settlement`. See `refresh_row_allocation`.
+from nirmaan_stack.services.outflow_import.row_settlement import (
+    link_statement_file_to_target,
+    record_settlement,
+    refresh_batch_rollup,
+    refresh_row_allocation,
 )
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
@@ -115,6 +131,12 @@ from nirmaan_stack.services.outflow_import.settle import (
     link_lines_to_expense,
     settle_payment,
 )
+from nirmaan_stack.services.outflow_import.settled_target_index import (
+    is_settled_target_refusal,
+    settled_target_holding,
+)
+from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
+from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
 from nirmaan_stack.services.outflow_import.status import (
     ORIGIN_ACCEPTED,
     ROW_PARTIALLY_ALLOCATED,
@@ -123,6 +145,10 @@ from nirmaan_stack.services.outflow_import.status import (
     RECORDED_ACTION_CREATE,
     RECORDED_ACTION_LINK,
     RECORDED_DUPLICATE,
+    LINK_REFUSED_ALREADY_LINKED,
+    LINK_REFUSED_TXN_ID_HELD,
+    LINK_REFUSED_TXN_ID_TICKED_TWICE,
+    SKIP_REASON_ALREADY_IMPORTED_AS,
     derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
     # `_guard_is_a_debit` is the exact NEGATION of the receipt side's rule, so it must read the
@@ -131,23 +157,12 @@ from nirmaan_stack.services.outflow_import.status import (
     # would present as money settled on the debit side but reported under `Received`.
     is_received_direction,
 )
-# ADR-0020 (Task 3): the row's status is now DERIVED from its `Outflow Row Match` legs, never
-# written directly by `record_settlement`. See `refresh_row_allocation`. `allocation_note` moved
-# here from a private `expenses.py` helper at review -- it is pure arithmetic-plus-wording over
-# legs, which is this module's job, not `api/`'s.
-from nirmaan_stack.services.outflow_import.allocation import (
-    MATCH_SETTLED,
-    allocated_of,
-    allocation_fits,
-    is_over_allocated,
-    remaining_of,
-)
-from nirmaan_stack.services.outflow_import.row_settlement import (
-    link_statement_file_to_target,
-    record_settlement,
-    refresh_batch_rollup,
-    refresh_row_allocation,
-)
+# ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
+# and this import is the whole reason it was generalised rather than copied (ADR-0010 B1, slice
+# PS-1). Two implementations of the sum invariant and the PO-term surgery, one on either side of
+# the app, would drift -- and the drift shows up as a PO whose terms stopped adding up, months
+# later, with no way to tell which copy wrote it.
+from nirmaan_stack.services.payment_split import split_payment
 
 # The one status a partial settlement reads or writes. Both halves come out `Reconciliation Pending`:
 # the money was already sanctioned AND already marked as gone, and this import re-partitions that
@@ -189,6 +204,105 @@ class RecordedMoneyNeedsConfirmationError(frappe.ValidationError):
     ⚠️ THE SCREEN KEYS ON THIS CLASS NAME (`exc_type`) to offer "... anyway?" and re-call with
     `confirm_mismatch`. Renaming it silently turns the confirmation into a plain refusal.
     """
+
+
+class AlreadyImportedError(frappe.ValidationError):
+    """A hand Create refused because another line already created this Txn Id's Expense (spec #1585 C, #1588).
+
+    The database's one-Expense-per-Txn-Id index refused the match insert; the sentence names the Expense
+    that holds it. Nothing was written."""
+
+
+class AlreadyLinkedError(frappe.ValidationError):
+    """A hand Link refused because another line already ties this Txn Id to the Expense the person picked (#1606).
+
+    The database's `ofm_match_settled_target_unique` refused the match insert; the sentence names the Expense and
+    the line that hold it. Nothing was written."""
+
+
+class TxnIdTickedTwiceError(frappe.ValidationError):
+    """A many-line Link refused because two of the ticked lines carry one Txn Id (#1611).
+
+    One of the two match indexes refused the second line's match insert inside the same request, so no committed
+    line holds the Txn Id; the sentence names that Txn Id and the record the person picked. Nothing was written."""
+
+
+def already_imported_sentence(transfer_id: str | None) -> str | None:
+    """"Already imported in batch <batch> as <ledger> <name>." for the Expense the import created for this
+    Txn Id, or `None` when none holds it.
+
+    ⚠️ CALL IT AFTER A FULL ROLLBACK of the refused write: inside that transaction's snapshot the other
+    Expense is invisible."""
+    holder = import_created_expense_holding(transfer_id) if transfer_id else None
+    if not holder:
+        return None
+    return SKIP_REASON_ALREADY_IMPORTED_AS.format(
+        batch=holder["import_batch"], records=f"{holder['target_doctype']} {holder['target_name']}"
+    )
+
+
+def refuse_link_of_a_held_txn_id(transfer_ids, target_doctype: str, target_name: str, exc: Exception) -> None:
+    """Turn a hand Link's refusal by one of the two match indexes into a sentence naming who holds it, never the
+    database error. Returns at once when `exc` is any other error; otherwise raises.
+
+    * The one-Expense-per-Txn-Id index (#1601), for a Cashbook line: another line holds the Txn Id Settled to a
+      DIFFERENT Expense -> `LINK_REFUSED_TXN_ID_HELD`, `AlreadyImportedError`.
+    * `ofm_match_settled_target_unique` (#1606), every source and every ledger (a Payment too, #1611): another line
+      already ties the Txn Id to the record the person PICKED -> `LINK_REFUSED_ALREADY_LINKED`,
+      `AlreadyLinkedError`, naming that line. A Cashbook line refused for this reason may reach here through either
+      index -- Postgres checks them in its own order -- so the picked Expense holding it is told the same way
+      whichever index spoke.
+    * Neither holder, but two of `transfer_ids` are one Txn Id (#1611): a many-line Link ticked two lines of it, and
+      the index refused the second inside this request -> `LINK_REFUSED_TXN_ID_TICKED_TWICE`,
+      `TxnIdTickedTwiceError`.
+
+    ⚠️ A FULL ROLLBACK, NOT THE SAVEPOINT'S, for `_refuse_as_already_imported`'s reason: the holder was committed
+    after this request's snapshot, so only a new transaction can read it. Nothing of this request is kept.
+
+    ⚠️ RECOGNISED BY THE INDEX'S NAME ONLY. Any other error -- another unique key, a deadlock, a lost race -- is
+    left to the caller untouched, before the rollback. When no holder is left by the time it is read (Unreconciled
+    meanwhile) and no Txn Id was ticked twice, the original error stands."""
+    by_txn_id_index = is_import_created_expense_refusal(exc)
+    if not (by_txn_id_index or is_settled_target_refusal(exc)):
+        return
+    frappe.db.rollback()
+    txn_ids = [transfer_id for transfer_id in transfer_ids if transfer_id]
+    records = f"{target_doctype} {target_name}"
+    if by_txn_id_index:
+        for transfer_id in txn_ids:
+            holder = import_created_expense_holding(transfer_id)
+            if holder and (holder["target_doctype"], holder["target_name"]) != (target_doctype, target_name):
+                frappe.throw(
+                    LINK_REFUSED_TXN_ID_HELD.format(
+                        transfer_id=transfer_id,
+                        records=f"{holder['target_doctype']} {holder['target_name']}",
+                        batch=holder["import_batch"],
+                        target=target_name,
+                    ),
+                    title="Already recorded",
+                    exc=AlreadyImportedError,
+                )
+    for transfer_id in txn_ids:
+        line = settled_target_holding(transfer_id, target_doctype, target_name)
+        if line:
+            frappe.throw(
+                LINK_REFUSED_ALREADY_LINKED.format(
+                    transfer_id=transfer_id,
+                    records=records,
+                    line=line["import_row"],
+                    batch=line["import_batch"],
+                ),
+                title="Already linked",
+                exc=AlreadyLinkedError,
+            )
+    ticked_twice = next((transfer_id for transfer_id in txn_ids if txn_ids.count(transfer_id) > 1), None)
+    if ticked_twice:
+        frappe.throw(
+            LINK_REFUSED_TXN_ID_TICKED_TWICE.format(transfer_id=ticked_twice, records=records),
+            title="Ticked twice",
+            exc=TxnIdTickedTwiceError,
+        )
+    raise exc
 
 
 class ConcurrentAllocationError(frappe.ValidationError):
@@ -348,7 +462,11 @@ def _settle_and_commit(
         # This is the ONE path that rewrites an approved figure to the bank's (slice X1), and the
         # note is the only place on this screen that fact survives.
         refresh_row_allocation(staged.name, actor, result)
-    except Exception:
+    except Exception as exc:
+        # #1601, #1606, #1611: a Link refused because another line holds the Txn Id -- Settled to a different
+        # Expense (a Cashbook line), or to this very record (any source, a Payment too) -- is told so here (raises);
+        # any other error falls through.
+        refuse_link_of_a_held_txn_id([staged.transfer_id], target_doctype, target_name, exc)
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
         # and the database is exactly as it was before this row was attempted.
         #
@@ -676,7 +794,7 @@ def _load_allocatable_row(row: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
-    guard_not_an_own_import_line(doc)
+    guard_line_may_be_settled_by_hand(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This transfer is fully allocated. Reverse an allocation to change it.",
@@ -1006,7 +1124,7 @@ def create_expense(
     URL: /api/method/nirmaan_stack.api.outflow_import.expenses.create_expense
     """
     actor = require_outflow_access()
-    staged, doc = _load_settleable_row(row)
+    staged, doc = _load_settleable_row(row, creating=True)
     # ⚠️ THE SAME GUARD `settle_row` CARRIES, AND IT MATTERS AT LEAST AS MUCH HERE. A settle at
     # least has an approved record in front of it that somebody sanctioned; this path CREATES a
     # `Paid` expense out of the bank row alone, so an unguarded credit would mint a brand-new
@@ -1040,12 +1158,17 @@ def create_expense(
             # writes the `From` column, and a reopened Cashbook line created here must match it.
             # Everywhere else `None`, and `create_expense_from_row` keeps the actor.
             payment_by=_statement_spender(doc),
+            # #1595: a line staged by the Cashbook Statement import (an open Collect payment, a reopened spend)
+            # gives the Expense the Cashbook marker, and the line's stored bill as its invoice.
+            **statement_line_create_extras(doc, _batch_source(doc["import_batch"])),
         )
         record_settlement(staged, doc, result, actor)
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
         # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
         refresh_row_allocation(staged.name, actor, result)
-    except Exception:
+    except Exception as exc:
+        if is_import_created_expense_refusal(exc):
+            _refuse_as_already_imported(staged.transfer_id, exc)
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)
@@ -1054,6 +1177,21 @@ def create_expense(
     frappe.db.commit()
     link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
+
+
+def _refuse_as_already_imported(transfer_id: str, exc: Exception) -> None:
+    """The one-Expense-per-Txn-Id index refused this Create (spec #1585 C): say "Already imported" and name
+    the Expense, never the database error (user story P9).
+
+    ⚠️ A FULL ROLLBACK, NOT THE SAVEPOINT'S. The Expense holding the Txn Id was committed after this request's
+    snapshot -- that is how every guard before the write missed it -- so it can only be read in a new
+    transaction. Nothing of this request is kept: nothing was committed before the write. When nothing holds
+    the Txn Id by the time it is read (the holder was Unreconciled meanwhile), the original error stands."""
+    frappe.db.rollback()
+    sentence = already_imported_sentence(transfer_id)
+    if not sentence:
+        raise exc
+    frappe.throw(sentence, title="Already imported", exc=AlreadyImportedError)
 
 
 def _statement_spender(doc) -> str | None:
@@ -1088,9 +1226,10 @@ def _statement_file_url(batch: str) -> str | None:
     return frappe.db.get_value(BATCH_DOCTYPE, batch, "source_file") or None
 
 
-def _load_settleable_row(row: str):
+def _load_settleable_row(row: str, creating: bool = False):
     """The guard shared by every WHOLE-TRANSFER write (`settle_row`, `settle_row_partial`,
-    `create_expense`).
+    `create_expense`). `creating`: the write creates the record (`create_expense`), the one write besides Skip an
+    open Collect payment takes (`guard_collect_payment_choice`).
 
     ⚠️ REFUSES `ROW_PARTIALLY_ALLOCATED` (Task 6 review fix A, ADR-0020). None of the three
     whole-transfer paths above consults `live_legs` or `is_over_allocated` -- `settle_row`'s own
@@ -1113,6 +1252,8 @@ def _load_settleable_row(row: str):
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
     guard_not_an_own_import_line(doc)
+    if not creating:
+        guard_collect_payment_choice(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This row has already settled an expense.", title="Already settled"
@@ -1129,18 +1270,42 @@ def _load_settleable_row(row: str):
 
 
 def guard_not_an_own_import_line(doc) -> None:
-    """Refuse a line whose source creates it through its OWN import, never from the main table (#1443).
+    """Refuse a line its OWN import still owns, never written from the main table (#1443, #1587).
 
     A Porter Statement line is created only by its Porter import, after every Porter Invoice in the file
     has been checked against Porter's PDF (ADR-0032). Creating, linking, allocating or settling it from
     here would bypass that gate, which must never be bypassable -- so every main-table loader asks this
-    first, whatever the line's status. The sentence points to the import that owns the line.
+    first. The sentence points to the import that owns the line.
+
+    A Cashbook line is owned by its job only while `Pending match run` (#1587): a hand write then is
+    written again by the job. At any other open status it is worked here (ADR-0015 Amendment A).
     """
     # Per line (#1567): a card spend waits for the card import's Create; a card credit is decided here.
-    if line_waits_for_its_own_create(doc.get("source"), doc.get("direction")):
-        frappe.throw(
-            own_import_line_refusal(doc.get("source")), ExpenseSettlementError, title="Not a main-table line"
-        )
+    refusal = own_import_refusal(
+        source=doc.get("source"),
+        direction=doc.get("direction"),
+        row_status=doc.get("row_status"),
+        import_batch=doc.get("import_batch"),
+    )
+    if refusal:
+        frappe.throw(refusal, ExpenseSettlementError, title="Not a main-table line")
+
+
+def guard_collect_payment_choice(doc) -> None:
+    """Refuse Link, Allocate and Split / Part payment on a Collect payment (spec #1585 "Open Cashbook lines": "An
+    open Collect payment offers Create expense and Skip by hand"). A shop asked for the money and it may not be a
+    company spend, so it is recorded as a new Expense or closed on record, never settled against a record that
+    already exists. Create (`create_expense`) and Skip (`review.skip_row`) do not ask this.
+    """
+    if is_collect_payment_line(doc.get("source"), doc.get("row_kind")):
+        frappe.throw(COLLECT_PAYMENT_CHOICES_REFUSAL, ExpenseSettlementError, title="Create expense or Skip")
+
+
+def guard_line_may_be_settled_by_hand(doc) -> None:
+    """The one guard a main-table Link or Allocate loader asks first: the line is not its own import's to write
+    (`guard_not_an_own_import_line`) and is not a Collect payment (`guard_collect_payment_choice`)."""
+    guard_not_an_own_import_line(doc)
+    guard_collect_payment_choice(doc)
 
 
 def _guard_is_a_debit(doc) -> None:

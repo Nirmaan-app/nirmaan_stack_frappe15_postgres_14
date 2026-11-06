@@ -23,10 +23,10 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     SKIP_NO_AMOUNT,
     SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
     CashbookPlan,
-    group_plan,
     pick_expense_type,
     plan_statement,
 )
+from nirmaan_stack.services.outflow_import.cashbook_review import group_plan, invoice_counts
 from nirmaan_stack.services.outflow_import.duplicates import index_prior_sightings
 from nirmaan_stack.services.outflow_import.parser import RawRow
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
@@ -68,7 +68,8 @@ RULES = {
 
 
 def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Spend",
-         status="SUCCESS", payee="A Payee", spender="A Spender", added_on=date(2026, 8, 1)):
+         status="SUCCESS", payee="A Payee", spender="A Spender", added_on=date(2026, 8, 1),
+         links=(), credit="0"):
     """A parsed Cashbook row. Uses the real `RawRow` so the plan is tested against what it will get."""
     from datetime import datetime
 
@@ -91,6 +92,8 @@ def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Sp
         normalized_account="",
         normalized_reference="",
         row_kind=kind,
+        bill_links=tuple(links),
+        credit_amount=Decimal(credit),
     )
 
 
@@ -120,8 +123,9 @@ class TestWhatIsNotImported(unittest.TestCase):
         self.assertEqual(row.action, ACTION_SKIP)
         self.assertEqual(row.reason, SKIP_NOT_A_SPEND)
 
-    def test_a_bank_load_and_a_refund_are_skipped_the_same_way(self):
-        plan = _plan([_row(kind="Bank → VA"), _row(number=2, transfer_id="OBO2", kind="Wallet Credit")])
+    def test_a_bank_load_and_a_wallet_to_va_move_are_skipped_the_same_way(self):
+        """#1594: a refund and a wallet credit are no longer among them (`test_cashbook_refunds`)."""
+        plan = _plan([_row(kind="Bank → VA"), _row(number=2, transfer_id="OBO2", kind="Wallet → VA")])
         self.assertEqual([r.reason for r in plan.rows], [SKIP_NOT_A_SPEND, SKIP_NOT_A_SPEND])
 
     def test_a_spend_that_failed_at_the_wallet_is_skipped(self):
@@ -531,9 +535,32 @@ class TestPlanShape(unittest.TestCase):
         self.assertEqual(plan.total_value, Decimal("100"))
 
     def test_who_spent_it_is_carried_separately_from_who_was_paid(self):
-        row = _plan([_row(payee="Hanuman Hardware", spender="Sowmya T P")]).rows[0]
+        row = _plan([_row(payee="Hanuman Hardware", spender="Meera Iyer")]).rows[0]
         self.assertEqual(row.beneficiary_name, "Hanuman Hardware")
-        self.assertEqual(row.spent_by, "Sowmya T P")
+        self.assertEqual(row.spent_by, "Meera Iyer")
+
+
+class TestInvoiceCounts(unittest.TestCase):
+    """What Review says about the bills before Create (#1591): 1 file, merged, will wait."""
+
+    def test_spends_are_counted_by_how_many_bills_they_carry(self):
+        plan = _plan(
+            [
+                _row(1, "A", links=["a"]),
+                _row(2, "B", links=["b1", "b2"]),
+                _row(3, "C", links=["c1", "c2", "c3", "c4"]),
+                _row(4, "D"),
+                _row(5, "E"),
+                _row(6, "F", links=["f"]),
+            ]
+        )
+        counts = invoice_counts(plan)
+        self.assertEqual((counts.one_file, counts.merged, counts.waiting), (2, 2, 2))
+
+    def test_a_skipped_line_is_not_counted_whatever_its_links(self):
+        plan = _plan([_row(1, "A", links=["a"]), _row(2, "B", kind="Bank → VA", links=["b"])])
+        counts = invoice_counts(plan)
+        self.assertEqual((counts.one_file, counts.merged, counts.waiting), (1, 0, 0))
 
 
 class TestPurity(unittest.TestCase):

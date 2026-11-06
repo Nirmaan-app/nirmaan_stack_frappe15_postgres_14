@@ -49,6 +49,7 @@ import {
     type HistorySelection,
 } from "./components/ImportHistoryDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
+import { CashbookJobPanel } from "./components/CashbookResume";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
 import { useOutflowRows } from "./useOutflowRows";
 import { useOutflowPeriod } from "./useOutflowPeriodStore";
@@ -1342,6 +1343,12 @@ export const OutflowMasterPage = () => {
                 onShowSkipped={() => setShowingSkipped(true)}
                 onResetScope={handleResetScope}
             />
+
+            {/* #1589: a pinned Cashbook import whose job stopped part-way shows its waiting lines and Resume;
+                while its job runs, its progress. Nothing once no line waits. */}
+            {selectedImport && historySelection?.source === "Cashbook" && (
+                <CashbookJobPanel key={selectedImport} batch={selectedImport} onFinished={refreshAll} />
+            )}
 
             {/* ⚠️ THE "same period" LINE IS GONE (owner ruling, slice CF/S1), AND WHAT IT WAS
                 GUARDING IS WORTH RECORDING SO IT IS NOT RE-ADDED AS AN OBVIOUS GAP. It began as a

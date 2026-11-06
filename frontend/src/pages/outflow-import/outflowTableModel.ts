@@ -27,6 +27,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
+    cashbookPendingLineRefusal,
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
@@ -34,6 +35,10 @@ import {
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     SKIP_ORIGIN_MANUAL,
+    isCashbookLineItsJobOwns,
+    isCollectPaymentLine,
+    isOpenCollectPaymentLine,
+    COLLECT_PAYMENT_PICK,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
@@ -305,11 +310,26 @@ export const amountToneClass = (row: Pick<OutflowImportRow, "direction">): strin
  * screen, the confirmability check and the server's guards cannot disagree about a row by
  * accident. `isConfirmable` refuses anything outside the row's list, and `DecisionDialog` renders
  * only the cards inside it.
+ *
+ * An open Collect payment (spec #1585 "Open Cashbook lines") takes Create expense only; its other choice, Skip by
+ * hand, is the Skip box. The server refuses Link, Allocate and Split on it (`cashbook_collect`).
  */
 export function availableDecisionTargets(
-    row: Pick<OutflowImportRow, "direction">
+    row: Pick<OutflowImportRow, "direction"> & Partial<Pick<OutflowImportRow, "source" | "row_kind">>
 ): DecisionTarget[] {
+    if (isCollectPaymentLine(row)) return ["new"];
     return isCreditRow(row) ? [...RECEIVED_TARGETS] : [...PAID_TARGETS];
+}
+
+/**
+ * Is this a money-in line, worked by recording it (a project inflow, a non-project inflow, a vendor refund)?
+ * The Choose dialog's "This transfer is money received" note reads it (spec #1585 story 36). Not "no link
+ * list offered": an open Collect payment offers no link list either, and it is money out.
+ */
+export function isMoneyReceivedLine(
+    row: Pick<OutflowImportRow, "direction"> & Partial<Pick<OutflowImportRow, "source" | "row_kind">>
+): boolean {
+    return !isCollectPaymentLine(row) && isCreditRow(row);
 }
 
 /** The reviewer's in-progress decision for one row. Client state until they confirm. */
@@ -2782,9 +2802,13 @@ export const confirmBlocker = (
     if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
         return `This transfer is ${row.row_status || "closed"} — there is nothing left to confirm.`;
     }
+    // #1587: a Cashbook line the match never runs on waits for its import, not for Re-run match.
+    if (isCashbookLineItsJobOwns(row)) return cashbookPendingLineRefusal(row.import_batch);
     if (row.row_status === "Pending match run") {
         return "This line has not been matched yet — press Re-run match first.";
     }
+    // Code review R6: an open Collect payment has two choices, so its sentence never asks for a record to link.
+    if (isOpenCollectPaymentLine(row) && decision?.target !== "new") return COLLECT_PAYMENT_PICK;
     if (!decision) return "Pick the record this transfer paid, or choose what to create from it.";
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense

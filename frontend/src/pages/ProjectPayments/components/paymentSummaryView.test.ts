@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   barSegments,
   gstLeftNote,
+  gstWaitingForAccountant,
   invoiceCheckBlock,
   invoiceCheckLine,
   leftAfter,
@@ -83,6 +84,7 @@ const LIMIT: WorkOrderLimit = {
   gst_released: 18000,
   base_paid: 40000,
   gst_paid: 9000,
+  gst_requested: 0,
   base_left: 60000,
   gst_left: 9000,
   total_left: 69000,
@@ -126,6 +128,9 @@ describe("gstLeftNote", () => {
       "All approved invoice GST is already requested"
     );
   });
+  it("names the GST waiting for the Accountant when that is what holds it", () => {
+    expect(gstLeftNote({ ...LIMIT, gst_requested: 9000, gst_left: 0 })).toMatch(/9,000.* is waiting for the Accountant$/);
+  });
 });
 
 describe("workOrderPaymentCap", () => {
@@ -160,5 +165,15 @@ describe("invoice check (#1488)", () => {
 
   it("does not block once invoices have caught up", () => {
     expect(invoiceCheckBlock({ ...behind, passes: true })).toBeNull();
+  });
+});
+
+describe("gstWaitingForAccountant", () => {
+  it("is what the Work Order's waiting GST requests hold", () => {
+    expect(gstWaitingForAccountant({ limit: { ...LIMIT, gst_requested: 5000 } })).toBe(5000);
+  });
+  it("is 0 with none waiting, and on a PO, which has no limit", () => {
+    expect(gstWaitingForAccountant({ limit: LIMIT })).toBe(0);
+    expect(gstWaitingForAccountant({})).toBe(0);
   });
 });

@@ -34,6 +34,12 @@ export interface ProjectExpenses {
 
     // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
     porter_order?: string | null;
+    // Set only by the Cashbook job's Create (#1592): the import batch; it makes the spend wait in the Cashbook queue.
+    cashbook_batch?: string | null;
+    // A Cashbook spend marked "No invoice" (#1592): why, who and when. Set only by api/expenses/cashbook_invoices.
+    no_invoice_reason?: string | null;
+    no_invoice_by?: string | null;
+    no_invoice_at?: string | null;
 
     // The Expense Request this expense was created from, written by its approval; blank on a Direct Expense.
     request_id?: string | null;

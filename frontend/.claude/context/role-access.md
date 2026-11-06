@@ -329,6 +329,7 @@ queue — edit & revert" below).
 | ProjectPayments | Approve Tab | Y | Read-only | Read-only | Read-only* |
 | ProjectPayments | New Payments + Reconciliation Pending Tabs | Y | - | Y | - |
 | ProjectPayments | Edit Payment | Y | - | Y | - |
+| ProjectPayments | GST Requests Tab (approve / reject / delete WO GST requests) | Y | - | Y (+ Accountant Lead) | - |
 | ProjectPayments | Header "New Expense" button | Y | - | - | - |
 
 *Read-only Approve tab visible to all roles with sidebar access (PL, Procurement Exec, etc.)

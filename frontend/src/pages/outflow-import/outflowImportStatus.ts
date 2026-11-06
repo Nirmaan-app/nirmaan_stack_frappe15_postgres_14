@@ -219,35 +219,96 @@ export const OUTFLOW_UNDO_PROFILES: ReadonlySet<string> = new Set([
 export const canUndoOutflow = (role: string | null | undefined, userId: string | null | undefined): boolean =>
     userId === "Administrator" || OUTFLOW_UNDO_PROFILES.has(role ?? "");
 
+/** The Cashbook import's `source`. Mirrors `sources.CASHBOOK_SOURCE`. */
+export const CASHBOOK_SOURCE = "Cashbook";
+
 /**
  * The sources the matcher never runs over (Cashbook). Mirrors `sources.NEVER_MATCHED_SOURCES`; the
  * parity test pins it. Since #1314 they are skipped, unskipped and unreconciled like any other source,
  * with two Cashbook rules of their own: no Skip while the Cashbook job has not written the line
  * (`Pending match run`), and Unskip only for a hand skip.
  */
-export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set(["Cashbook", PORTER_SOURCE, CARD_SOURCE]);
+export const NEVER_MATCHED_SOURCES: ReadonlySet<string> = new Set([CASHBOOK_SOURCE, PORTER_SOURCE, CARD_SOURCE]);
 
 /**
  * The sources whose statement names who spent the money (#1314): a Create from their line writes
  * Paid by from the statement's `From`, server-side. Mirrors `sources.SPENDER_NAMED_SOURCES`; the parity
  * test pins it. The Create form shows it, read-only.
  */
-export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set(["Cashbook"]);
+export const SPENDER_NAMED_SOURCES: ReadonlySet<string> = new Set([CASHBOOK_SOURCE]);
+
+/**
+ * The sentence every main-table write is refused with on a Cashbook line its import job still owns
+ * (`Pending match run`), as a template: `{batch}` is the line's import (spec #1585 B). Mirrors
+ * `skip_origin.CASHBOOK_PENDING_LINE_REFUSAL` word for word (#1587); fill it with `cashbookPendingLineRefusal`.
+ */
+export const CASHBOOK_PENDING_LINE_REFUSAL =
+    "The Cashbook import {batch} is still creating this line's expense, so it can't be worked by hand yet.";
+
+/** The pending-line sentence naming `batch`, as `skip_origin.cashbook_pending_line_refusal` fills it. */
+export const cashbookPendingLineRefusal = (batch: string | null | undefined): string => {
+    const name = (batch ?? "").trim();
+    return CASHBOOK_PENDING_LINE_REFUSAL.replace("{batch} ", name ? `${name} ` : "");
+};
+
+/**
+ * Is this a Cashbook line its import job still owns? Mirrors `skip_origin.own_import_refusal`'s Cashbook
+ * arm: the STATUS as well as the source, so a reopened (`Mismatched`) or `Error` line stays workable.
+ */
+export const isCashbookLineItsJobOwns = (row: { row_status: string; source?: string | null }): boolean =>
+    (row.source ?? "").trim() === CASHBOOK_SOURCE && row.row_status === ROW_PENDING_MATCH;
+
+/** A Cashbook line's statement Type for a Collect payment. Mirrors `cashbook_refunds.COLLECT_ROW_KIND`. */
+export const COLLECT_ROW_KIND = "Collect Payment";
+
+/** What Link, Allocate and Split say on a Collect payment. Mirrors `cashbook_collect.COLLECT_PAYMENT_CHOICES_REFUSAL`. */
+export const COLLECT_PAYMENT_CHOICES_REFUSAL =
+    "A Collect payment is decided by Create expense or Skip by hand. It can't be linked to a record, allocated or split.";
+
+/** What Skip says on a Collect payment to anyone but an Admin or an Accountant Lead. Mirrors
+ * `cashbook_collect.COLLECT_PAYMENT_SKIP_REFUSAL`. */
+export const COLLECT_PAYMENT_SKIP_REFUSAL = "Only an Admin or an Accountant Lead can skip a Collect payment by hand.";
+
+/** Why Confirm is greyed on an open Collect payment (code review R6): its two choices, never a link. */
+export const COLLECT_PAYMENT_PICK = "Pick Create expense, or Skip by hand.";
+
+/** Why "Link N to one expense" is off with an open Collect payment ticked (code review R5). */
+export const collectPaymentsLinkNote = (count: number): string =>
+    "A Collect payment is decided by Create expense or Skip by hand, never linked. " +
+    `Untick the ${count} Collect ${count === 1 ? "payment" : "payments"} to link the rest.`;
+
+/** An OPEN Collect payment: one whose two choices are still to make. */
+export const isOpenCollectPaymentLine = (row: {
+    row_status: string;
+    source?: string | null;
+    row_kind?: string | null;
+}): boolean => isCollectPaymentLine(row) && isOpen(row.row_status);
+
+/**
+ * Is this line a Collect payment: a Cashbook line whose stored statement Type says so? Mirrors
+ * `cashbook_collect.is_collect_payment_line`. Such a line offers exactly two choices on the main table, Create
+ * expense and Skip by hand (spec #1585 "Open Cashbook lines").
+ */
+export const isCollectPaymentLine = (row: { source?: string | null; row_kind?: string | null }): boolean =>
+    (row.source ?? "").trim() === CASHBOOK_SOURCE && (row.row_kind ?? "").trim() === COLLECT_ROW_KIND;
 
 /**
  * May the "Nothing to link?" Skip box show on this line? Mirrors the server's
  * `skip_origin.manual_skip_refusal`: an OPEN line -- bar a Cashbook line still `Pending match run`,
  * which its own job is about to write (#1314). The server re-checks all of it.
  *
- * ⚠️ NO ROLE CHECK (ADR-0022 Amendment E, owner 2026-09-24): Skip is open to everyone in the module,
- * Accountant included, so the module route is the only gate. It used to require `canUndoOutflow`.
+ * `mayUndo` is `canUndoOutflow`'s answer for the viewer. It decides ONE line kind only: an open Collect payment,
+ * whose Skip by hand is an Admin's or Accountant Lead's (spec #1585 story 39, `review.skip_row`). Every other line
+ * keeps ADR-0022 Amendment E (owner 2026-09-24): Skip is open to everyone in the module, Accountant included.
  */
 export const canSkipByHand = (
-    row: { row_status: string; source?: string | null } | null | undefined,
+    row: { row_status: string; source?: string | null; row_kind?: string | null } | null | undefined,
+    mayUndo: boolean,
 ): boolean =>
     Boolean(row) &&
     isOpen(row!.row_status) &&
-    !(NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim()) && row!.row_status === ROW_PENDING_MATCH);
+    !(NEVER_MATCHED_SOURCES.has((row!.source ?? "").trim()) && row!.row_status === ROW_PENDING_MATCH) &&
+    (mayUndo || !isCollectPaymentLine(row!));
 
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the

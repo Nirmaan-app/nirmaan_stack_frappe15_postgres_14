@@ -43,6 +43,8 @@ export interface WorkOrderLimit {
   gst_released: number;
   base_paid: number;
   gst_paid: number;
+  /** What the Work Order's GST requests waiting for the Accountant hold: already out of GST left. */
+  gst_requested: number;
   base_left: number;
   gst_left: number;
   total_left: number;
@@ -135,6 +137,13 @@ export const visibleLines = (lines: Partial<Record<SummaryLineKey, number>>) =>
   }));
 
 /** "Left after this payment": the cap's balance less the figure being approved or requested. */
+/**
+ * GST asked for on a Work Order and waiting for the Accountant: no payment yet, so not in `lines`, but it
+ * holds its share of what is left (`services/gst_payment_requests`). 0 on a PO.
+ */
+export const gstWaitingForAccountant = (summary: Pick<PaymentSummary, "limit">): number =>
+  Math.max(0, Number(summary.limit?.gst_requested || 0));
+
 export const leftAfter = (left: number, thisAmount: number) =>
   Math.round((Number(left || 0) - Number(thisAmount || 0)) * 100) / 100;
 
@@ -180,8 +189,9 @@ export const payForCap = (limit: WorkOrderLimit, payFor: PayFor) => {
 /** Why GST left reads 0, or null while some is left. */
 export const gstLeftNote = (limit: WorkOrderLimit): string | null => {
   if (limit.gst_left > 0) return null;
-  return limit.gst_released <= 0
-    ? "Opens when an invoice with GST is approved"
+  if (limit.gst_released <= 0) return "Opens when an invoice with GST is approved";
+  return limit.gst_requested > 0
+    ? `${formatToIndianRupeeOrZero(limit.gst_requested)} is waiting for the Accountant`
     : "All approved invoice GST is already requested";
 };
 

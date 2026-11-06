@@ -188,13 +188,14 @@ class TestBackfillPatch(FrappeTestCase):
 
 class TestOfficeRentPaidOn(OfficeRentCase):
 	def _paid_rent(self):
-		_request, name = self._raise(100000)
+		# A Rs 1,18,000 bill (spec #1613): the landlord gets Rs 1,08,000, the bank line's figure.
+		_request, name = self._raise(118000)
 		self._approve_by_admin_then_ceo(name)
 		[record] = self._records(name)
 		self.assertIsNone(_paid_on(record.name), "Approved: no date")
 		self.assertEqual(self._decide(ACCOUNTANT, name, "mark_done")["statuses"], {name: "Reconciliation Pending"})
 		self.assertIsNone(_paid_on(record.name), "Reconciliation Pending: no date")
-		line = self._bank_line(90000)
+		line = self._bank_line(108000)
 		link_rows_to_expense(rows=json.dumps([line]), target_doctype=NPE, target_name=name)
 		return name, record.name, line
 

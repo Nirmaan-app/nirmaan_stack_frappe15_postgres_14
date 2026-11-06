@@ -131,4 +131,54 @@ describe("skipSourceSummary", () => {
         expect(summary.reference).toBe("");
         expect(summary.groups).toEqual([{ title: "", facts: [{ label: "Why", value: "Already imported in batch OFI-9." }] }]);
     });
+
+    describe("a Paired wallet refund names its partner under the tag (#1602)", () => {
+        const refundReason =
+            "Paired wallet refund: this refund gives back the whole of the spend OBO7000000000001 on this " +
+            "statement. Neither line becomes a record.";
+
+        it("★ each line of the pair shows \"Paired with <the other line's Txn Id>\"", () => {
+            const refund = skipSourceSummary(
+                row({
+                    skip_kind: "Paired wallet refund",
+                    skip_reason: refundReason,
+                    cashbook_refund_partner: "OBO7000000000001",
+                }),
+            );
+            const spend = skipSourceSummary(
+                row({ skip_kind: "Paired wallet refund", cashbook_refund_partner: "REF-OBO7000000000001" }),
+            );
+            expect(refund.reference).toBe("Paired with OBO7000000000001");
+            expect(spend.reference).toBe("Paired with REF-OBO7000000000001");
+            // A Txn Id is longer than the column: the line wraps rather than cut the id off (walk, 2026-11-03).
+            expect(refund.referenceWraps).toBe(true);
+        });
+
+        it("the hover still carries the full reason", () => {
+            const summary = skipSourceSummary(
+                row({
+                    skip_kind: "Paired wallet refund",
+                    skip_reason: refundReason,
+                    cashbook_refund_partner: "OBO7000000000001",
+                }),
+            );
+            expect(allFacts(summary)).toMatchObject({ Why: refundReason });
+        });
+
+        it("a line paired before the partner was kept shows the tag and the hover as before", () => {
+            const summary = skipSourceSummary(
+                row({ skip_kind: "Paired wallet refund", skip_reason: refundReason, cashbook_refund_partner: null }),
+            );
+            expect(summary.reference).toBe("");
+            expect(summary.groups).toEqual([{ title: "", facts: [{ label: "Why", value: refundReason }] }]);
+        });
+
+        it("another kind never shows a partner, even if one were sent", () => {
+            const summary = skipSourceSummary(
+                row({ skip_kind: "Skipped by hand", decided_by: "asha@example.test", cashbook_refund_partner: "X1" }),
+            );
+            expect(summary.reference).toBe("asha@example.test");
+            expect(summary.referenceWraps).toBe(false);
+        });
+    });
 });

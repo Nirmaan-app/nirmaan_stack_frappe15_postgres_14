@@ -30,8 +30,9 @@
 // account read-only. The server COPIES the account into the request's own pay-to fields
 // (`services/payees/pay_to`) and refuses nothing: Required is this screen's rule.
 //
-// Office Rent (spec #1522, #1524): the raiser types the full rent, and the line under the Amount
-// shows the 10% TDS and what the landlord gets (`utils/expenses/expenseTds`). A form's PAN answer
+// Office Rent (spec #1522, #1524, #1613): the raiser types the landlord's bill incl. 18% GST, and the line
+// under the Amount shows the rent, the GST, the 10% TDS on the rent and what the landlord gets
+// (`utils/expenses/expenseTds`). A form's PAN answer
 // not shaped like ABCPK1234D, or month answer not a month and year, blocks submit, and the server
 // refuses it too. Office Rent's Who gets paid is Required: the landlord's account.
 
@@ -356,7 +357,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const badPanAnswers = useMemo(() => invalidPanKeys(parsedFormat, answers), [parsedFormat, answers]);
     // A month not given as month and year (`YYYY-MM`) likewise (`create.guard_month_answers`).
     const badMonthAnswers = useMemo(() => invalidMonthKeys(parsedFormat, answers), [parsedFormat, answers]);
-    // Office Rent withholds 10% (#1524): the raiser types the full rent and sees the split under it.
+    // Office Rent (#1524, #1613): the raiser types the bill incl. GST and sees its split under it.
     const tdsLine = tdsPreviewLine(expenseTdsSplit(form.expense_type, amountValue));
     // The standard request's own requirement: the SAME rule the server's `guard_request_form`
     // applies. The vendor is optional (#1501) and the invoice only warns (#1502).

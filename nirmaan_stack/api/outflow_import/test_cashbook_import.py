@@ -16,6 +16,7 @@ turn a passing test red.
 """
 
 from pathlib import Path
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -213,6 +214,19 @@ class TestTheWorker(CashbookImportCase):
         self.assertEqual(expense.payment_ref, row.transfer_id)
         self.assertEqual(expense.payment_attachment, "/private/files/test-statement.csv")
 
+    def test_every_created_expense_carries_its_batch_as_the_cashbook_marker(self):
+        """#1592: the marker that puts a wallet spend in Pending Invoices Upload -> Cashbook. A Project
+        Expense carries it too: `api/expenses/test_cashbook_invoices` lists one."""
+        cb._cashbook_worker(self.batch, "Administrator")
+        matches = frappe.get_all(
+            "Outflow Row Match", filters={"import_batch": self.batch}, fields=["target_doctype", "target_name"]
+        )
+        self.assertTrue(matches)
+        for m in matches:
+            self.assertEqual(
+                frappe.db.get_value(m.target_doctype, m.target_name, "cashbook_batch"), self.batch, m.target_name
+            )
+
     def test_the_expense_is_dated_the_day_the_money_moved(self):
         """⚠️ THE REGRESSION TEST FOR A DEFECT NO SUITE COULD SEE.
 
@@ -334,22 +348,31 @@ class TestTheWorker(CashbookImportCase):
     def test_the_batch_status_follows_its_rows(self):
         self.assertEqual(frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Draft")
         cb._cashbook_worker(self.batch, "Administrator")
+        # #1594: the sample's wallet credit stays open for a person, so the batch is not Completed yet.
         self.assertEqual(
-            frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Completed"
+            frappe.db.get_value(cb.BATCH_DOCTYPE, self.batch, "status"), "Partially Settled"
         )
 
 
 class TestStatus(CashbookImportCase):
-    def test_it_reports_running_until_no_row_is_pending(self):
-        """Counted from the rows, which are the durable record -- no Redis marker to disagree."""
-        self.assertTrue(cb.get_cashbook_status(self.batch)["running"])
+    def test_running_is_the_job_and_pending_lines_without_one_are_stopped(self):
+        """#1589: `running` asks the queue, never the pending count -- a job that died part-way leaves
+        lines pending with nothing to write them, which is `stopped`, the state Resume answers."""
+        with patch.object(cb, "is_job_enqueued", return_value=True):
+            status = cb.get_cashbook_status(self.batch)
+        self.assertTrue(status["running"])
+        self.assertFalse(status["stopped"])
+        # Staged, and no job queued for it: stopped.
+        self.assertTrue(cb.get_cashbook_status(self.batch)["stopped"])
         cb._cashbook_worker(self.batch, "Administrator")
-        self.assertFalse(cb.get_cashbook_status(self.batch)["running"])
+        status = cb.get_cashbook_status(self.batch)
+        self.assertFalse(status["running"])
+        self.assertFalse(status["stopped"])
 
     def test_the_counts_account_for_every_staged_row(self):
         cb._cashbook_worker(self.batch, "Administrator")
         status = cb.get_cashbook_status(self.batch)
-        total = status["created"] + status["failed"] + status["skipped"] + status["pending"]
+        total = status["created"] + status["failed"] + status["skipped"] + status["pending"] + status["open"]
         self.assertEqual(total, len(self.parsed.rows))
 
 
@@ -831,14 +854,19 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
         self.addCleanup(_purge, batch)
         return batch
 
-    def _post(self, endpoint, content: bytes, filename="cashbook.csv"):
-        """Call a real endpoint with `content` as the posted file. Only the transport is faked."""
+    def _post(self, endpoint, content: bytes, filename="cashbook.xlsx"):
+        """Call a real endpoint with `content` (CSV text, posted as the provider's .xlsx) as the posted file. Only
+        the transport is faked."""
         import io
 
         from werkzeug.datastructures import FileStorage, MultiDict
 
+        from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
+
         class _Request:
-            files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
+            files = MultiDict(
+                {"file": FileStorage(stream=io.BytesIO(as_statement_xlsx(content)), filename=filename)}
+            )
 
         previous = getattr(frappe.local, "request", None)
         frappe.set_user("Administrator")
@@ -853,7 +881,7 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
             "Outflow Import Row",
             filters={"import_batch": batch},
             fields=["transfer_id", "row_status", "skip_kind", "skip_reason", "skip_origin",
-                    "source", "amount"],
+                    "source", "amount", "direction"],
         )
 
     def _batch(self, batch):
@@ -952,6 +980,17 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
         self.assertEqual((payload["duplicate_rows"], payload["new_rows"]), (1, 0))
         self.assertIn(batch, payload["duplicate_message"])
 
+    def test_repeats_from_two_earlier_imports_name_each_with_its_count(self):
+        """#1605: the preview named only the first repeat's batch though the repeats came from two imports."""
+        first = self._stage(self._file(self.data[:3]))
+        second = self._stage(self._file(self.data[3:5]))
+        payload = self._post(cb.preview_cashbook_statement, self.full)
+        self.assertEqual(payload["duplicate_rows"], 5)
+        self.assertEqual(
+            payload["duplicate_message"],
+            f"5 of 10 transfers were already imported: 3 in {first}, 2 in {second}. They will not be saved.",
+        )
+
     def test_an_identical_in_flight_line_twice_in_one_file_is_saved_once(self):
         pending = self.data[0].replace('"SUCCESS"', '"PENDING"')
         self.assertNotEqual(pending, self.data[0], "the fixture line changed shape; this asserts nothing")
@@ -985,8 +1024,11 @@ class TestRepeatsAreNotSaved(FrappeTestCase):
     def test_money_totals_describe_only_the_stored_lines(self):
         first = self._stage(self._file(self.data[:3]))
         second = self._stage(self.full)
+        # #1594: an open wallet credit is money IN, so it is not in the gross outflow.
         stored_gross = sum(
-            row.amount for row in self._stored(second) if row.row_status != ROW_SKIPPED
+            row.amount
+            for row in self._stored(second)
+            if row.row_status != ROW_SKIPPED and row.direction != "Credit"
         )
         self.assertEqual(self._batch(second).gross_amount, stored_gross)
         self.assertEqual(self._batch(second).gross_amount, 6750 - (180 + 70 + 6000))

@@ -6,9 +6,10 @@ from frappe.model.rename_doc import rename_doc
 
 from nirmaan_stack.services.asset_history import rename_person as rename_person_in_asset_history
 from nirmaan_stack.services.departments import assert_active_department, is_department_editor
+from nirmaan_stack.services.role_profiles import assert_user_admin
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_user(
     first_name: str,
     last_name: str = None,
@@ -18,7 +19,8 @@ def create_user(
     department: str = None,
 ):
     """
-    Create a new user with graceful handling of email failures.
+    Create a new user with graceful handling of email failures. User admins only
+    (`services/role_profiles.USER_ADMIN_PROFILES`).
 
     Creates the user first (with send_welcome_email=0), then attempts
     to send the welcome email separately. If email fails, user is still
@@ -29,7 +31,7 @@ def create_user(
         last_name: User's last name
         email: User's email address (required, becomes the user ID)
         mobile_no: User's mobile number
-        role_profile_name: Role profile to assign
+        role_profile_name: Role profile to assign (any, Admin included)
         department: The person's department (Nirmaan Users.department); Admin/HR only
 
     Returns:
@@ -41,6 +43,8 @@ def create_user(
             email_error: str (if email failed)
         }
     """
+    assert_user_admin(frappe.session.user)
+
     if not email:
         frappe.throw(_("Email is required"))
 
@@ -91,6 +95,10 @@ def create_user(
             "user_type": "System User",
         })
         user_doc.insert(ignore_permissions=True)
+        if not frappe.db.exists("Nirmaan Users", email):
+            # The User's after_insert sync logs and swallows its own failure; a login with no Nirmaan Users
+            # record is refused at every request (integrations/login_gate.py), so don't report a success.
+            frappe.throw(_("The user's Nirmaan Users record could not be created. See the Error Log."))
         if department:
             # The User after_insert hook has just created the person's Nirmaan Users record.
             profile = frappe.get_doc("Nirmaan Users", email)
@@ -145,100 +153,60 @@ def create_user(
         }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reset_password(user: str):
     """
-    Send password reset email to a user with graceful error handling.
+    Send a password reset email to a user. User admins only.
 
-    Generates the reset key first (critical operation), then attempts to send
-    the email. If email fails, returns success=True with email_sent=False
-    since the reset key was generated.
+    The key is made and stored by Frappe (`User._reset_password`, the step Frappe's own reset runs), which
+    keeps only its hash, so the link works in Frappe's update-password flow. Refused for Administrator and a
+    switched-off login. The link is never returned to the caller: it goes
+    only to the user's own inbox. If the email fails, the reset is reported as not sent.
 
     Args:
         user: User's email/name
 
     Returns:
-        dict: {
-            success: bool,
-            message: str,
-            email_sent: bool,
-            reset_link: str (only if email failed, for manual sharing)
-        }
+        dict: {success: bool, message: str, email_sent: bool, email_error: str (if email failed)}
     """
+    assert_user_admin(frappe.session.user)
+
     if not user:
         frappe.throw(_("User is required"))
 
     user = user.strip().lower()
 
-    # Check if user exists
     if not frappe.db.exists("User", user):
         frappe.throw(_("User {0} does not exist").format(user))
 
-    # Step 1: Get user and generate reset key (critical operation)
-    user_doc = None
-    link = None
-
+    user_doc = frappe.get_doc("User", user)
+    # As Frappe's own `frappe.core.doctype.user.user.reset_password`: never for Administrator or a switched-off
+    # login (an exited employee's).
+    if user_doc.name == "Administrator" or not user_doc.enabled:
+        frappe.throw(_("A password can't be reset for {0}: the login is switched off.").format(user))
+    user_doc.validate_reset_password()
     try:
-        user_doc = frappe.get_doc("User", user)
-
-        # Generate reset password key
-        from frappe.utils import random_string, get_url
-        key = random_string(32)
-        user_doc.db_set("reset_password_key", key)
-        frappe.db.commit()
-
-        # Build the reset link
-        link = get_url(f"/update-password?key={key}")
-
-    except Exception as e:
-        frappe.log_error(f"Password reset failed for {user}: {str(e)}", "Password Reset Failed")
-        frappe.throw(_("Failed to process password reset: {0}").format(str(e)))
-
-    # Step 2: Send email (non-critical, completely isolated)
-    email_sent = False
-    email_error_msg = None
-
-    try:
-        frappe.sendmail(
-            recipients=user_doc.email,
-            subject="Password Reset",
-            template="password_reset",
-            args={
-                "first_name": user_doc.first_name or user_doc.full_name,
-                "last_name": user_doc.last_name or "",
-                "user": user_doc.name,
-                "link": link
-            },
-            header=["Password Reset", "green"],
-            now=True
-        )
-        email_sent = True
+        user_doc._reset_password(send_email=True)
     except Exception as email_error:
-        email_error_msg = str(email_error) if email_error else "Unknown email error"
-        # Log error silently
-        try:
-            frappe.log_error(
-                f"Failed to send password reset email to {user}: {email_error_msg}",
-                "Password Reset - Email Failed"
-            )
-        except Exception:
-            pass  # Ignore logging errors
-
-    # Build response - reset key is definitely generated at this point
-    if email_sent:
+        email_error_msg = str(email_error) or "Unknown email error"
+        frappe.log_error(
+            f"Failed to send password reset email to {user}: {email_error_msg}",
+            "Password Reset - Email Failed",
+        )
+        frappe.db.commit()
         return {
             "success": True,
-            "message": f"Password reset email has been sent to {user_doc.email}",
-            "email_sent": True
-        }
-    else:
-        return {
-            "success": True,
-            "message": f"Password reset link generated, but email could not be sent. Please contact the tech admin to resolve email configuration issues.",
+            "message": "The password reset email could not be sent. Please contact the tech admin to resolve email configuration issues.",
             "email_sent": False,
             "email_error": email_error_msg,
-            "reset_link": link  # Provide link so admin can share manually if needed
         }
+
+    frappe.db.commit()
+    return {
+        "success": True,
+        "message": f"Password reset email has been sent to {user_doc.email}",
+        "email_sent": True,
+    }
 
 
 @frappe.whitelist()

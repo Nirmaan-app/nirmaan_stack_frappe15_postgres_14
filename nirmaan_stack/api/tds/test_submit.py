@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.tds.client_status import CLIENT_STATUS_REJECTED
 from nirmaan_stack.api.tds.submit import submit_tds_request
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 ROW = "Project TDS Item List"
 PMO_USER = "tds-submit-pmo@example.com"
@@ -48,7 +49,7 @@ def _make_user(email, profile, roles):
 		u.flags.no_welcome_mail = True
 		u.insert(ignore_permissions=True)
 	frappe.get_doc("User", email).add_roles(*roles)
-	frappe.db.set_value("Nirmaan Users", email, "role_profile", profile, update_modified=False)
+	set_role_copy_for_test(email, profile)
 
 
 def _create_project():

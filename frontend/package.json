@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "NODE_OPTIONS=--max-http-header-size=8192 vite --host",
-    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry && yarn run copy-sw",
+    "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry && yarn run copy-sw && node scripts/build_pricing_step.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

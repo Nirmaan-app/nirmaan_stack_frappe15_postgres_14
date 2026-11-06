@@ -64,6 +64,23 @@ class TestSplitRepeats(unittest.TestCase):
         )
         self.assertEqual(split.repeat_of_batch, "OFI-1")
 
+    def test_each_earlier_batch_is_counted_in_the_order_it_is_first_met(self):
+        """#1605: the message names every earlier import a repeat came from, with its count."""
+        split = _split(
+            [_line("A"), _line("B"), _line("C"), _line("C"), _line("D")],
+            {
+                "A": (_seen("OFI-2", "SUCCESS"),),
+                "B": (_seen("OFI-1", "SUCCESS"),),
+                "C": (_seen("OFI-2", "SUCCESS"),),
+            },
+        )
+        self.assertEqual(split.repeats_by_batch, (("OFI-2", 3), ("OFI-1", 1)))
+        self.assertEqual(split.repeats_not_saved, 4)
+
+    def test_an_in_file_copy_counts_toward_no_batch(self):
+        split = _split([_line("A"), _line("A")])
+        self.assertEqual(split.repeats_by_batch, ())
+
     def test_an_identical_in_flight_line_is_an_exact_repeat(self):
         """#1359: the same identity AND the same status is a repeat, whatever the status."""
         split = _split([_line("A", "QUEUED"), _line("A", "QUEUED")])
@@ -96,6 +113,12 @@ class TestSplitRepeats(unittest.TestCase):
     def test_a_line_repeating_an_earlier_import_is_not_an_in_file_repeat(self):
         split = _split([_line("A"), _line("A")], {"A": (_seen("OFI-1", "SUCCESS"),)})
         self.assertEqual((split.repeats_not_saved, split.repeated_in_file), (2, 0))
+
+    def test_the_lines_repeating_an_earlier_import_are_handed_back_but_not_in_file_copies(self):
+        # #1593: Cashbook reads their bill links.
+        earlier, new, new_copy = _line("A"), _line("B"), _line("B")
+        split = _split([earlier, new, new_copy], {"A": (_seen("OFI-1", "SUCCESS"),)})
+        self.assertEqual((split.earlier_exact, split.repeats_not_saved), ((earlier,), 2))
 
     def test_a_failed_line_is_a_sighting_by_default(self):
         """Cashfree/ICICI: every TERMINAL line is a sighting, whatever its own outcome."""

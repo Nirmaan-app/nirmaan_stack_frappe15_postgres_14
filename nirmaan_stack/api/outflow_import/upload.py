@@ -383,6 +383,7 @@ def _assess_statement(parsed, filename: str, plan: RepeatSplit | None = None):
         earliest_batch=plan.repeat_of_batch,
         filename=filename,
         repeated_in_file=plan.repeated_in_file,
+        earlier_batches=plan.repeats_by_batch,
     )
 
 

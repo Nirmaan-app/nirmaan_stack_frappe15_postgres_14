@@ -27,7 +27,8 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _guard_is_a_debit,
     _guard_money_not_recorded,
     _statement_file_url,
-    guard_not_an_own_import_line,
+    guard_line_may_be_settled_by_hand,
+    refuse_link_of_a_held_txn_id,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
@@ -150,7 +151,11 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
             }
             for staged, _ in loaded
         ]
-    except Exception:
+    except Exception as exc:
+        # #1601, #1606, #1611: a Link refused because another line holds the Txn Id -- Settled to a different
+        # Expense (a Cashbook line), or to this very Expense (any source) -- or because two of the ticked lines
+        # carry one Txn Id, is told so here (raises); any other error falls through to the rollback below.
+        refuse_link_of_a_held_txn_id([staged.transfer_id for staged, _ in loaded], target_doctype, target_name, exc)
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)
@@ -188,7 +193,7 @@ def _load_linkable_row(name: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{name}' not found.", title="Not found")
-    guard_not_an_own_import_line(doc)
+    guard_line_may_be_settled_by_hand(doc)
     status = doc.get("row_status") or ""
     if status not in OPEN_ROW_STATUSES:
         who = (doc.get("beneficiary_name") or "").strip() or name

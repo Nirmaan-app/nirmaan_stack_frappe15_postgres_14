@@ -313,6 +313,18 @@ export interface OutflowImportRow {
     /** Denormalised from the batch, so the table can filter by source without a join. */
     source?: string;
     /**
+     * Cashbook Statement only: the line's Type as the statement printed it ("Wallet Spend", "Collect Payment",
+     * ...), stored at staging (#1595). An open Collect payment offers only Create expense and Skip by hand
+     * (`outflowImportStatus.isCollectPaymentLine`). Blank on every other source and on older Cashbook lines.
+     */
+    row_kind?: string | null;
+    /**
+     * Cashbook Statement only: on a line skipped as a Paired wallet refund, the other line's Txn Id (the spend
+     * the refund gives back, or the refund that gives back this spend), stored at staging (#1602). The Skipped
+     * popup shows it as "Paired with <it>". Blank on every other line and on lines paired before #1602.
+     */
+    cashbook_refund_partner?: string | null;
+    /**
      * Which import staged this row.
      *
      * ⚠️ `import_batch` HAS ALWAYS EXISTED ON THE DOCTYPE; what is new at X3 is that the SCREEN

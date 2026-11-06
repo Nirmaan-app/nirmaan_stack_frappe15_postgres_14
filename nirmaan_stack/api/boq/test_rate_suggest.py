@@ -244,9 +244,12 @@ class TestRateSuggest(FrappeTestCase):
             "category_id": "wiring_cabling", "attribute_definitions": [],
             "results": [{"excel_row": 2, "description": "d", "attributes": {}}],
         }
+        # DEV2-B5 (B4 open item e): the REAL worker runs here, so historical matching is pinned OFF in the harness -
+        # never read from dev2's live match_enabled (ON since B4), which made the trigger insert a match run for this
+        # fixture and enqueue a real match job (B4 D2).
         with mock.patch(
             "nirmaan_stack.services.boq_rate_master.extraction.run_extraction", return_value=canned
-        ):
+        ), mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
             rate_master._suggest_worker(boq=self.boq, sheet_name=self.sheet_name, user="Administrator")
 
         active = frappe.get_all(
@@ -497,7 +500,8 @@ class TestRateSuggest(FrappeTestCase):
             kw.pop("client", None)
             return real(boq, sheet_name, client=client, **kw)
 
-        with mock.patch.object(extraction, "run_extraction", side_effect=_with_client):
+        # DEV2-B5 (B4 open item e): historical matching pinned OFF in the harness, never read from dev2's live switch.
+        with mock.patch.object(extraction, "run_extraction", side_effect=_with_client),                 mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
             rate_master._suggest_worker(
                 boq=self.boq, sheet_name=self.sheet_name, user="Administrator",
                 resume_run_id=resume_run_id,

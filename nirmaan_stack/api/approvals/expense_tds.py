@@ -25,11 +25,12 @@ from nirmaan_stack.services.outflow_import.ledgers import NON_PROJECT_EXPENSE_DO
 @frappe.whitelist()
 def get_withheld_tds(names) -> dict[str, dict]:
     """For each named Non-Project Expense the caller may read that has a tax record:
-    `{gross_amount, tds_percentage, tds_amount, tds_section}`. An Expense with none is absent, so an
-    empty answer means nothing was withheld (before approval, or any type but Office Rent).
+    `{gross_amount, gst_amount, tds_percentage, tds_amount, tds_section}` (the base rent, the Expense's GST,
+    spec #1613). An Expense with none is absent, so an empty answer means nothing was withheld (before
+    approval, or any type but Office Rent).
 
-    Example: `{"NPE-0042": {"gross_amount": 100000, "tds_percentage": 10, "tds_amount": 10000,
-    "tds_section": "194-I"}}`.
+    Example: `{"NPE-0042": {"gross_amount": 100000, "gst_amount": 18000, "tds_percentage": 10,
+    "tds_amount": 10000, "tds_section": "194-I"}}`.
     """
     if not frappe.has_permission(NON_PROJECT_EXPENSE_DOCTYPE, "read"):
         frappe.throw(_("Not permitted"), frappe.PermissionError)

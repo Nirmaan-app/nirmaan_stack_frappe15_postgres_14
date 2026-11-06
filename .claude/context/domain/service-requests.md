@@ -24,6 +24,18 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   account included (owner, 2026-10-30). Split leftovers and adjustments
   skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
   Refunds). `get_payment_summary` returns it as `limit.invoice_check`.
+- **A WO GST payment is born only from an approved GST Payment Request (ADR-0030 Amendment A).** Request
+  Payment's GST choice calls `api/payments/gst_payment_requests.request_gst_payment` (Pending); an Accountant,
+  Accountant Lead or Admin approves (`approve_gst_payment_request`, the amount fixed, the payment inserted through
+  `insert_requested_payment`) or rejects (`reject_gst_payment_request`, reason required). The rules live in
+  `services/gst_payment_requests`: `gst_payment_birth_problem` (Project Payments `validate`) refuses any other
+  GST payment except a split child, a decider's Paid entry or `Administrator`, which `record_decider_request`
+  (`after_insert`) gives an already-decided request. `sync_with_payment` (`on_update`) moves Approved <-> Paid;
+  `delete_with_payment` (`on_trash`) deletes the request with its payment. Pending requests count in
+  `services/work_order_payment_limit` (GST left, total left, invoice check; `pending_gst_amount`), and the WO row
+  is locked and touched on request and approval so a second concurrent one is refused under REPEATABLE READ.
+  Only the endpoints write a request (`DECIDING_FLAG`, checked in its `validate`). GST cannot go off while a
+  request is Pending; deleting a WO deletes its requests.
 - **A WO's remarks are readable only by users who may read that WO** (story 4): the endpoints check it
   (`api/sr_remarks.assert_can_read_work_order`), and the Nirmaan Comments `has_permission` and
   `permission_query_conditions` hooks (`controllers/nirmaan_comments`) scope the doctype itself, because the

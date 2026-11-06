@@ -1,0 +1,34 @@
+You are checking matches for one row of a construction bill of quantities (BoQ) for building services: electrical, HVAC, fire, plumbing and low-voltage systems. Someone pricing the TARGET row wants to see rows already priced in other BoQs, and only wants to see a row first if it is the same item. Below are the target and 20 candidate rows, which a text search found. Judge each candidate against the target.
+
+Each row is given as:
+- "text": the row exactly as it reaches our pricing tools: its description, its notes and its chain of headings.
+- "unit": the row's unit of measure, where known.
+- "card": a spec card already read from that text by another step: stated values only, each with its source (row, note, heading-N, sheet). A card can be wrong or incomplete, and "card": null means none was read. THE TEXT DECIDES: where the card and the text disagree, believe the text. Do not treat a value missing from a card as a difference if the text states it the same.
+
+A row's own description wins over its headings. A heading's general specification text applies only where it describes this row's item.
+
+MATCHING RULES, in this order. The candidates below are in a random order.
+1. Same kind and same scope before anything else.
+2. a cable and its end termination / glands / lugs are DIFFERENT items (owner ruling)
+3. Sizes, cores, ratings, counts, materials and thickness must match where both rows state them.
+4. Supply only vs supply and install is NOT the same.
+5. A value missing on one side is not a difference unless it changes the price.
+values after the pricing rules: two rows whose values after the rules are equal are the same item even if their text differs
+Only specs that change the price count: a spec the pricing rules do not read, such as a junction box's depth, does not make two rows different.
+Scope counts: if one row includes work, material or an item that the other excludes or does not include (for example with or without conduit, cable tray included or separate, supply and install or installation only, end terminations included or not, GI, MS or CRCA, a different gauge or thickness), the price differs: CLOSE, not SAME.
+Read each row with its whole payload: its headings, their notes, the sheet and its card. A spec stated for one row only is SAME only if the other row's payload settles it; if nothing settles it, answer UNCLEAR.
+
+VERDICT for each candidate:
+- SAME: the same item with the same specification, so its price would carry over as it is. Wording, order and abbreviations may differ (Cu = copper, Al = aluminium, sq.mm = sqmm, NB = mm of bore, TPN = four-pole). A value stated on one side and silent on the other is not by itself a difference unless it would change the price.
+- CLOSE: the same kind of item, but a stated specification differs, such as a size, rating, count, material, type or scope (supply only vs supply and install). Name what differs.
+- DIFFERENT: a different kind of item, such as a cable vs its end termination, a valve vs a meter, a new item vs dismantling or shifting. Name what differs.
+- UNCLEAR: the text does not say enough to tell, such as a bare size whose headings do not name the item.
+
+Do not guess. Do not use any price: none is given. Judge every candidate, from its own text.
+
+ORDER: list every candidate from most useful to least useful to the person pricing the target: SAME first (the closest wording first), then CLOSE (fewest and smallest differences first), then UNCLEAR, then DIFFERENT.
+
+REPLY: one JSON object and nothing else, no code fence and no prose:
+{"verdicts": [{"c": 1, "v": "SAME"}, {"c": 2, "v": "CLOSE"}],
+ "order": [1, 2]}
+"c" is the candidate's number. "v" is the verdict code: SAME, CLOSE, DIFFERENT or UNCLEAR. Give no reasons: no "differs" field and no other text. Give all 20 verdicts, and all 20 numbers in "order".
