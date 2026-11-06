@@ -221,7 +221,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Card spend** — a line of a Credit Card Statement that is money the card paid out (a line not marked CR). Each one is recorded as exactly one *Paid* **Non-Project** Expense (a card never pays for a project's work), with no vendor, and then waits for its invoice. (Owner, 2026-10-25.)
 
-- **Card payment (a statement credit)** — money paid *into* the card to settle its bill (auto-debit, UPI or any other payment received), or a cashback. It is not a spend and not a refund, so it is skipped by rule, with its reason shown. (Owner, 2026-10-25.)
+- **Card payment (a statement credit)** — money paid *into* the card to settle its bill (UPI or any other payment received, or an auto-debit return), or a cashback. It is not a spend and not a refund, so it is skipped by rule, with its reason shown. The bank's own auto-debit paying the card ("Autodebit Payment Recd.") is not a card payment but an *Internal Transfer* from the ICICI Current Account to the card. (Owner, 2026-10-25; auto-debit 2026-11-06, [ADR-0044](docs/adr/0044-an-internal-move-is-a-record-and-a-line-status.md).)
 
 - **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
 

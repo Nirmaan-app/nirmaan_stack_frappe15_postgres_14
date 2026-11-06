@@ -22,7 +22,13 @@ from dataclasses import dataclass
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
 from nirmaan_stack.services.outflow_import.card_credits import skip_values, sort_card_lines
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CARD_AUTO_DEBIT_RULE,
+    card_auto_debit_transfer,
+    transfer_sentence,
+)
 from nirmaan_stack.services.outflow_import.card_pdf import statement_text
 from nirmaan_stack.services.outflow_import.card_statement import (
     CardLine,
@@ -39,7 +45,7 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
-from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED, ROW_PENDING_MATCH
+from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER, ROW_MISMATCHED, ROW_PENDING_MATCH
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -224,9 +230,15 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
             )
         # A payment into the card, cashback and both lines of a refund pair are system skips.
         values.update(skip_values(sorts[line.serno]))
+        # #1624: the bank's auto-debit paying the card is an Internal Transfer line, with its record.
+        transfer = card_auto_debit_transfer(line.card_last_four) if sorts[line.serno].internal else None
+        if transfer:
+            values.update({"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": transfer_sentence(transfer)})
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(values)
         doc.insert(ignore_permissions=True)
+        if transfer:
+            record_for_line(doc, transfer, made_by=CARD_AUTO_DEBIT_RULE)
         names[line.serno] = doc.name
 
     # Each line of a refund pair links the other, once both exist. Raw, and safe: the row has no doc_events,

@@ -163,3 +163,15 @@ def transfer_sentence(ends: TransferEnds) -> str:
     Wallet (Test Employee A).`"""
     detail = f" ({ends.detail})" if ends.detail else ""
     return f"Internal Transfer from {ends.from_place} to {ends.to_place}{detail}."
+
+
+# --- Credit Card Statement (#1624) ------------------------------------------------------------------------------
+
+#: The id a card auto-debit's record names as the rule that made it.
+CARD_AUTO_DEBIT_RULE = "card_auto_debit"
+
+
+def card_auto_debit_transfer(card_last_four: str) -> TransferEnds:
+    """The bank's auto-debit paying the card: ICICI Current Account to ICICI Credit Card, on that card."""
+    last_four = (card_last_four or "").strip()
+    return TransferEnds(PLACE_ICICI_CURRENT, PLACE_ICICI_CARD, f"Card ending {last_four}" if last_four else "")

@@ -50,9 +50,23 @@ class TestTheFixtureStatement(unittest.TestCase):
         return self.sorted[serno].kind
 
     def test_payments_into_the_card(self):
-        for serno in ("14194111379", "14200624627", "14194563678", "14194569955", "14200195290"):
+        """CHANGED AT #1624: the "Autodebit Payment Recd." credit (14200624627) is an auto-debit now, below."""
+        for serno in ("14194111379", "14194563678", "14194569955", "14200195290"):
             with self.subTest(serno=serno):
                 self.assertEqual(self._kind(serno), CARD_PAYMENT)
+
+    def test_the_banks_auto_debit_paying_the_card_is_an_internal_transfer(self):
+        """#1624: ICICI Current Account to ICICI Credit Card, on the card the statement lists it under."""
+        from nirmaan_stack.services.outflow_import.card_credits import CARD_AUTO_DEBIT
+
+        self.assertEqual(self._kind("14200624627"), CARD_AUTO_DEBIT)
+        self.assertTrue(self.sorted["14200624627"].internal)
+        self.assertFalse(self.sorted["14200624627"].skipped)
+
+    def test_each_line_knows_the_last_four_of_the_card_it_is_listed_under(self):
+        by_serno = {line.serno: line for line in self.statement.lines}
+        self.assertEqual(by_serno["14200624627"].card_last_four, "1111")
+        self.assertEqual(by_serno["14092030373"].card_last_four, "2222")
 
     def test_cashback(self):
         self.assertEqual(self._kind("14144135412"), CASHBACK)
@@ -61,10 +75,12 @@ class TestTheFixtureStatement(unittest.TestCase):
         self.assertEqual(self._kind("14261832070"), UNPAIRED_CREDIT)
         self.assertIsNone(self.sorted["14261832070"].partner)
 
-    def test_six_credits_skipped_one_open(self):
+    def test_five_credits_skipped_one_internal_one_open(self):
+        """CHANGED AT #1624: the auto-debit payment is an Internal Transfer now, not a skip."""
         credits = [self.sorted[line.serno] for line in self.statement.credits]
-        self.assertEqual(sum(1 for s in credits if s.skipped), 6)
-        self.assertEqual([s.kind for s in credits if not s.skipped], [UNPAIRED_CREDIT])
+        self.assertEqual(sum(1 for s in credits if s.skipped), 5)
+        self.assertEqual(sum(1 for s in credits if s.internal), 1)
+        self.assertEqual([s.kind for s in credits if not s.skipped and not s.internal], [UNPAIRED_CREDIT])
 
     def test_every_spend_stays_a_spend_the_two_identical_ones_too(self):
         for line in self.statement.spends:
@@ -160,8 +176,8 @@ class TestRefundPairs(unittest.TestCase):
 
 class TestPaymentAndCashbackWording(unittest.TestCase):
     def test_the_payment_received_forms(self):
+        # "Autodebit Payment Recd." left this list at #1624: it is the bank's auto-debit (`TestTheAutoDebitWords`).
         for details in (
-            "Autodebit Payment Recd.",
             "UPI Payment Received",
             "Auto Dr.Retn-Insuff. fund",
             "BBPS Payment received",
@@ -181,3 +197,20 @@ class TestPaymentAndCashbackWording(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheAutoDebitWords(unittest.TestCase):
+    """#1624: only the bank's auto-debit payment is internal; every other payment credit stays a card payment."""
+
+    def test_only_autodebit_payment_recd_is_an_auto_debit(self):
+        from nirmaan_stack.services.outflow_import.card_credits import CARD_AUTO_DEBIT
+
+        sorted_ = sort_card_lines([
+            _line(20, "Autodebit Payment Recd.", "1000.00", credit=True, serno="1"),
+            _line(21, "UPI Payment Received", "500.00", credit=True, serno="2"),
+            _line(22, "Auto Dr.Retn-Insuff. fund", "0.00", credit=True, serno="3"),
+            _line(23, "Payment Received", "200.00", credit=True, serno="4"),
+        ])
+        self.assertEqual(
+            [sorted_[s].kind for s in "1234"], [CARD_AUTO_DEBIT, CARD_PAYMENT, CARD_PAYMENT, CARD_PAYMENT]
+        )

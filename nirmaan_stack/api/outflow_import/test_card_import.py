@@ -83,6 +83,9 @@ def _purge(holder: str) -> None:
             frappe.db.rollback()
             print(f"card test purge: could not delete the files of {statement.name}")
         rows = frappe.get_all(ROW_DOCTYPE, filters={"import_batch": statement.import_batch}, pluck="name")
+        # #1624: the auto-debit's Internal Transfer record, before its line.
+        purge_records("Internal Transfer", frappe.get_all("Internal Transfer", filters={"import_row": ["in", rows or [""]]},
+                                                          pluck="name"))
         purge_records(ROW_DOCTYPE, rows)
         purge_records(STATEMENT_DOCTYPE, [statement.name])
         purge_records(BATCH_DOCTYPE, [statement.import_batch])
@@ -223,8 +226,11 @@ class TestUploadingAStatement(CardImportCase):
         self.assertEqual({row.row_status for row in spends}, {"Pending match run"})
         self.assertEqual({row.match_basis for row in spends}, {"card statement"})
         self.assertEqual({row.suggested_doctype for row in spends}, {"Non Project Expenses"})
-        # Sorted at upload (#1567): six skipped by rule, the unpaired MakeMyTrip credit open.
-        self.assertEqual(sorted(row.row_status for row in credits), ["Mismatched"] + ["Skipped"] * 6)
+        # Sorted at upload (#1567): five skipped by rule, the auto-debit payment an Internal Transfer (#1624; it was
+        # the sixth skip), the unpaired MakeMyTrip credit open.
+        self.assertEqual(
+            sorted(row.row_status for row in credits), ["Internal Transfer", "Mismatched"] + ["Skipped"] * 5
+        )
 
     def test_a_line_keeps_its_date_amount_details_and_reference(self):
         row = next(row for row in self._rows(self.batch) if row.remarks == "PARK RESIDENCY Cochin IN")
@@ -452,6 +458,13 @@ class TestDiscard(CardImportCase):
         self.assertEqual(frappe.db.count(ROW_DOCTYPE, {"import_batch": self.batch}), 0)
         self.assertFalse(frappe.db.exists(STATEMENT_DOCTYPE, self.statement.name))
         self.assertFalse(frappe.db.exists("File", file[0]))
+
+    def test_it_removes_the_internal_transfer_record_of_its_auto_debit_line(self):
+        """#1624: the auto-debit line's record goes with its line, so no record outlives a discarded import."""
+        rows = frappe.get_all(ROW_DOCTYPE, filters={"import_batch": self.batch}, pluck="name")
+        self.assertEqual(frappe.db.count("Internal Transfer", {"import_row": ["in", rows]}), 1)
+        self._discard()
+        self.assertEqual(frappe.db.count("Internal Transfer", {"import_row": ["in", rows]}), 0)
 
     def test_the_same_statement_can_be_uploaded_again_afterwards(self):
         self._discard()
