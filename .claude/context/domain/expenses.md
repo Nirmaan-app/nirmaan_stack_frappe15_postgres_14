@@ -373,6 +373,19 @@ Done"** a Paid **Non Project** expense row carries a small **Upload Inv** button
   (retrying uploads again) — the same as every expense dialog. Two people editing one invoice: last write
   wins.
 
+### Payments queue: Payment Source column (owner, 2026-11-06)
+
+- **What it shows:** the statement a row was reconciled from (Cashfree, Cashbook, ICICI Bank Statement,
+  Porter Statement, ICICI Credit Card Statement); with several bank lines, the one linked last. No live line:
+  "Unknown" (the cell draws "—"). The rule and its owner: `outflow-import.md` § Residence, *Which statement a
+  record was reconciled from*.
+- **Where:** Payment Done (after UTR / Ref), Payment Raised By Me and All Payments (after Paid on), with a
+  faceted filter and a CSV column (`approvalColumns.tsx`, `approvalsTable.config.ts`, `useApprovalFacets.ts`,
+  `approvalExportColumns.ts`). ⚠️ **Not on Reconciliation Pending** (owner).
+- A part-covered expense is still Reconciliation Pending but names its statement on Raised By Me and All
+  Payments. No schema change: `Outflow Row Match.source` is written on every link. Pinned by
+  `api/approvals/test_approval_queue_payment_source.py`.
+
 ### Payments queue: All Payments returns; HR Lead view-only (spec #1470, #1476)
 
 - **All Payments** (every PO / WO payment, Project Expense and Non-Project Expense, in every status) is

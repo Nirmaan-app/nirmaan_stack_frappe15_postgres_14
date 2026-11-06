@@ -97,3 +97,11 @@ wkhtmltopdf never honoured `@page { size: A4 landscape }` either. Set orientatio
   `LSProject Commission Report - Filled Task`.
 - `Print Format` is an unfiltered fixture. Edit in Desk, export fixtures, then commit `fixtures/print_format.json`.
   A DB-only edit is reverted by the next `bench migrate`.
+
+### The print sandbox has no `frappe.parse_json`
+A print format's Jinja runs in Frappe's safe-exec sandbox, whose `frappe` has no `parse_json`. Use `json.loads`,
+which the sandbox does offer. The failure hides by path: Desk's print page passes a JSON field (e.g. a Work
+Order's `notes`) as a string, so only Desk reaches the parse and fails with "module has no attribute
+'parse_json'"; the app's Download PDF loads the doc by name, gets the field already parsed, and skips it. Guard
+the parse with `{% if x is string %}` and test both paths. Fixed in "Work Orders" and "Work Orders Without Rate"
+(2026-11-06); keep the reference copies in `frontend/src/pages/ServiceRequests/print/` in step with the fixture.

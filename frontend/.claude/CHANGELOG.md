@@ -4,6 +4,28 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-06 — Payment Source column; GST Requests reject and status-pill fixes
+
+Branch `fixes/06-11`. Backend: `../../.claude/CHANGELOG.md` (same date).
+
+### What changed
+
+- **Payment Source** (`8ab10a3af`): `ProjectPayments/config/approvalColumns.tsx`, `approvalsTable.config.ts`,
+  `useApprovalFacets.ts`, `approvalExportColumns.ts`. The column sits after UTR / Ref on Payment Done and after
+  Paid on on Payment Raised By Me and All Payments, with a faceted filter and a CSV column; "Unknown" draws "—".
+  Not on Reconciliation Pending (owner).
+- **GST reject reason** (`b41cb6524`): `gst-requests/GstDecisionDialog.tsx` stops typing at 250 with an n/250
+  counter; `GstRequestsTab.tsx` shows the reason behind an icon after the Rejected chip (hover for the full text,
+  as on TDS History); `GstRequestTableRows.tsx` (WO Transaction Details) shows its first 50 characters, full text
+  on hover.
+- **Status pills** (`1bca2e675`): `GstRequestsTab.tsx` disables the pills while the table loads (faded, wait
+  cursor) and `chooseStatus` ignores a change during a load, because `useServerDataTable` drops a fetch asked for
+  mid-load (`.claude/context/data-tables.md` § Known gap).
+- **WO print reference copies** (`d0075a608`): `ServiceRequests/print/work-orders-printformat.html` and
+  `work-orders-without-rate-printformat.html` use `json.loads`, matching the fixture.
+
+---
+
 ## 2026-10-30 — Request payment: the "You skip the invoice check" note is gone
 
 Nobody skips the Work Order invoice check any more (owner, 2026-10-30), so the server no longer sends

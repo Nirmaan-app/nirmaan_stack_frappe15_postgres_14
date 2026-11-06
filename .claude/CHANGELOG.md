@@ -4,6 +4,31 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-06: Payment Source column; GST request reject fixes; WO Desk print
+
+**Summary** (branch `fixes/06-11`, on `upstream/develop` `f41b4abbc`, unpushed): the Payments queue shows which
+statement each record was reconciled from (GLOSSARY *Payment Source*; `outflow-import.md` § Residence;
+`expenses.md`). Three defects from the PR #1600/#1610 walk are fixed: a long GST-request reject reason errored
+after saving, GST Requests' status pills could show the wrong rows, and Desk print of the two Work Order formats
+failed. No schema change. **Owner owes `bench migrate`** on other sites for the Print Format fixture (the Desk
+print fix lives only in `fixtures/print_format.json`).
+
+| Commit | Change |
+|---|---|
+| `d0075a608` | "Work Orders" and "Work Orders Without Rate": `frappe.parse_json` → `json.loads` (the print sandbox has no `parse_json`; `patterns.md` § Print Formats); fixture + reference copies |
+| `b41cb6524` | `reject_gst_payment_request` refuses a reason over 250 (`REJECT_REASON_MAX`); `gst_payment_request_notify._send` cuts the bell text to 140 and logs, not raises, a failure after the decision commits |
+| `1bca2e675` | GST Requests status pills disabled while the table loads (frontend only) |
+| `8ab10a3af` | `expense_links.last_source_join`; `get_approval_queue` `payment_source` (+ `PAYMENT_SOURCE_NONE`, filter, facet); `test_approval_queue_payment_source.py` |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+### Verification
+
+- NOT browser-walked: the Payment Source column.
+- Print formats rendered with `notes` as a dict and as a string; both print the same notes (commit `d0075a608`).
+
+---
+
 ## 2026-11-04: Work Order GST waits for the Accountant; payee holder name; vendor created by
 
 **Summary** (branch `fixes/04-11`, unpushed): a Work Order GST payment is now a **GST Payment Request** until an
