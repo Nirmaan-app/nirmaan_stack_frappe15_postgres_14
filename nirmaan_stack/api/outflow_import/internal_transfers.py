@@ -57,20 +57,6 @@ def move_already_recorded(line) -> bool:
     )
 
 
-def internal_transfer_lines_of_move(line, *, for_update: bool = False) -> list[str]:
-    """Every Internal Transfer line of `line`'s move (`_same_move`), `line` itself included, by name.
-
-    Send back to Mismatched sends them back together (review finding, #1619): the move's record sits on one of them,
-    and a status-changed repeat left behind would be an Internal Transfer line with no record.
-    """
-    clause, params = _same_move(line)
-    return frappe.db.sql_list(
-        f"""SELECT r.name FROM "tabOutflow Import Row" r WHERE {clause} AND r.row_status = %s
-            ORDER BY r.name{" FOR UPDATE" if for_update else ""}""",
-        tuple(params + [ROW_INTERNAL_TRANSFER]),
-    )
-
-
 def record_for_line(
     line,
     ends: TransferEnds,

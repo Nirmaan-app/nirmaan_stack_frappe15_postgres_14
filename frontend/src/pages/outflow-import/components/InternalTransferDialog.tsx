@@ -117,9 +117,8 @@ export const InternalTransferDialog = ({ row, action, onClose, onDone }: Interna
                     </div>
                 ) : (
                     <p className="text-sm text-muted-foreground">
-                        Deletes this move's Internal Transfer record ({row.transfer_from ?? "—"} to{" "}
+                        Deletes this line's Internal Transfer record ({row.transfer_from ?? "—"} to{" "}
                         {row.transfer_to ?? "—"}) and reopens the line as Mismatched, to be worked like any other.
-                        Any repeat of the same move in another import goes back with it, with the same reason.
                     </p>
                 )}
 

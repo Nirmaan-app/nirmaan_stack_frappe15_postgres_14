@@ -192,29 +192,19 @@ class TestSendBackToMismatched(ActionFixture):
         frappe.db.commit()
         return name
 
-    def test_the_repeats_of_the_move_go_back_together_with_the_same_reason(self):
-        """Review finding (#1619): every Internal Transfer line keeps exactly one record. Sending back the line that
-        holds it, or a status-changed repeat that holds none, sends back every Internal Transfer line of that move."""
-        for send_back_the in ("line with the record", "repeat"):
-            with self.subTest(send_back_the=send_back_the):
-                frappe.set_user("Administrator")
-                txn = f"it-{frappe.generate_hash(length=10)}"
-                first = self._recorded_line(self._batch(), transfer_id=txn)
-                repeat = self._line(self._batch(), transfer_id=txn, status_raw="REVERSED")
-                other_move = self._recorded_line(self._batch(), transfer_id=txn, amount=99.0)
-                not_internal = self._line(self._batch(), transfer_id=txn, status="Skipped", status_raw="FAILED")
-                self._as(ACCOUNTANT_LEAD)
-                send_back_to_mismatched(first if send_back_the == "line with the record" else repeat,
-                                        reason="A vendor payment after all")
-                frappe.set_user("Administrator")
-                for line in (first, repeat):
-                    row = frappe.db.get_value(ROW_DOCTYPE, line, ["row_status", "outcome_note"], as_dict=True)
-                    self.assertEqual(row.row_status, "Mismatched")
-                    self.assertIn("A vendor payment after all", row.outcome_note)
-                    self.assertIsNone(self._record(line))
-                self.assertEqual(self._status(other_move), "Internal Transfer")
-                self.assertIsNotNone(self._record(other_move))
-                self.assertEqual(self._status(not_internal), "Skipped")
+    def test_send_back_takes_only_its_own_line(self):
+        """Every Internal Transfer line holds its own record (owner decision 3, #1619), so Send back takes one line and
+        its record. Two lines of one move each hold one only when a person marked the second: it stays as it is."""
+        txn = f"it-{frappe.generate_hash(length=10)}"
+        first = self._recorded_line(self._batch(), transfer_id=txn)
+        marked = self._recorded_line(self._batch(), transfer_id=txn, status_raw="REVERSED")
+        self._as(ACCOUNTANT_LEAD)
+        result = send_back_to_mismatched(first, reason="A vendor payment after all")
+        frappe.set_user("Administrator")
+        self.assertEqual(result["row"], first)
+        self.assertEqual((self._status(first), self._record(first)), ("Mismatched", None))
+        self.assertEqual(self._status(marked), "Internal Transfer")
+        self.assertIsNotNone(self._record(marked))
 
 
 class TestOnlySendBackDeletesARecord(unittest.TestCase):
