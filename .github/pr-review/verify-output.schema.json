@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdicts"],
+  "properties": {
+    "verdicts": {
+      "type": "array",
+      "description": "One verdict per finding in the verify brief.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "keep", "reason"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^F[0-9]+$"},
+          "keep": {"type": "boolean"},
+          "reason": {"type": "string", "description": "One sentence: what in the code confirms or refutes the finding."}
+        }
+      }
+    }
+  }
+}
