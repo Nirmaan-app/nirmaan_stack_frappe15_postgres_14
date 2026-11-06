@@ -31,8 +31,9 @@ and a build there takes ~20 minutes. The manual entry point stays: `bench --site
 nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`, after hours.
 
 THE WAIT ESTIMATE (owner 2026-11-03 11:11: "it should give total estinmate _ suggest rate + historical rates -- with
-splits -- give a safe number"): PACES below, measured in dev2 at p90; the dialog adds the two phases, each rounded UP
-to whole minutes (RateSuggestProgressModal.matchWaitEstimate).
+splits -- give a safe number"): PACES below, measured at p90; the dialog adds the two phases, each rounded UP to whole
+minutes (RateSuggestProgressModal.matchWaitEstimate). DEV2-B8 (owner 12:42 "yes"): the matching part also counts the
+rows that need a new spec card (`count_rows_without_card`).
 """
 import json
 
@@ -62,13 +63,21 @@ POOL_REBUILD_TIMEOUT_SEC = 3600
 #   53 s -> 1-20 rows 30/31, 21-100 70/74, 101-300 74/75, >300 9/9 (the dialog rounds each phase UP to minutes).
 # MATCHING: DEV2-B4 S4's 9 sheets of 4 BoQs, seconds = fixed + rows x per-row: fixed = p90 of the four <= 30-row
 #   sheets' wall (26.6 / 60.1 / 63.7 / 65.4 s) = 64.9 -> 65; per-row = p90 of (wall - 64.9) / rows over the five
-#   >= 90-row sheets (0.284 .. 0.444) = 0.443 -> 0.45. Re-checked in DEV2-B5 on B4 S4 + B5 S1.
+#   >= 90-row sheets (0.284 .. 0.444) = 0.443 -> 0.45. Re-checked in DEV2-B5 on B4 S4 + B5 S1. Since DEV2-B8 these two
+#   drive ONLY the running modal's time left (estimate_left_seconds), unchanged, so its numbers do not move.
+# THE CONFIRM BOX'S MATCHING PART (DEV2-B8 S2): fixed + rows x per_row + rows_without_a_valid_card x per_card, each a
+#   p90 (B4's method) on the 16 stored dev2 match runs + production's watched run BOQ-26-00344 (81 rows, 38 new cards,
+#   142 s vs 2 min shown): 48.6 -> 49 s, 0.398 -> 0.40 s, 1.96 -> 2.0 s; covers 16 / 17 (test_match_estimate). An
+#   all-new-cards sheet is over-estimated (card calls run in parallel waves).
 PACES = {
     "suggest_fixed_seconds": 13.0,
     "suggest_seconds_per_batch": 53.0,
     "suggest_batch_rows": 20,
     "match_fixed_seconds": 65.0,
     "match_seconds_per_row": 0.45,
+    "estimate_match_fixed_seconds": 49.0,
+    "estimate_match_seconds_per_row": 0.40,
+    "estimate_match_seconds_per_card": 2.0,
 }
 
 
@@ -216,6 +225,25 @@ def estimate_coverage(runs, paces=None):
         rs = [(n, s) for n, s in runs if n >= lo and (hi is None or n <= hi)]
         out[(lo, hi)] = (sum(1 for n, s in rs if suggest_estimate_minutes(n, paces) * 60 >= s), len(rs))
     return out
+
+
+def match_estimate_minutes(rows, rows_without_card=None, paces=None):
+    """The MATCHING part of the dialog's estimate (DEV2-B8 S2), as RateSuggestProgressModal.matchWaitEstimate computes
+    it (pinned equal): ceil((fixed + rows x per_row + without_card x per_card) / 60), at least 1 minute.
+    `rows_without_card` None (the count is unknown or its call failed) -> every row needs a card (the safe side)."""
+    import math
+    p = paces or PACES
+    n = max(0, int(rows or 0))
+    c = n if rows_without_card is None else min(n, max(0, int(rows_without_card)))
+    secs = (p["estimate_match_fixed_seconds"] + n * p["estimate_match_seconds_per_row"]
+            + c * p["estimate_match_seconds_per_card"])
+    return max(1, math.ceil(secs / 60))
+
+
+def match_estimate_coverage(runs, paces=None):
+    """(covered, runs) for stored match runs [(rows, rows_without_card, real_seconds)]: covered when the matching
+    part's whole minutes x 60 >= the real seconds. The S2 proof: >= 90 % (DEV2-B8)."""
+    return sum(1 for n, c, s in runs if match_estimate_minutes(n, c, paces) * 60 >= s), len(runs)
 
 
 def estimate_left_seconds(rows_total, seconds_so_far):
@@ -444,3 +472,29 @@ def daily_pool_rebuild():
 
 # DEV2-B8 S1: DEV2-B6's queue_pool_rebuild (the one background rebuild a STALE run queued) is REMOVED: a user's run
 # never queues a rebuild (POOL ONLY AT 06:00, above), and it had no other caller. The 06:00 job above is unchanged.
+
+
+@frappe.whitelist()
+def count_rows_without_card(boq=None, sheet_name=None, excel_rows=None):
+    """THE CONFIRM BOX'S NO-CARD COUNT (DEV2-B8 S2; READ ONLY): of the rows a Suggest press will read (`excel_rows`, a
+    JSON list), how many have no valid spec card - an ok card for the row's CURRENT payload, the card prompt and the
+    settings' card model (cards.plan_sheet, the planner the match run's card step itself uses; nothing is sent or
+    written). -> {"match_enabled", "rows", "rows_without_card"}; rows = those in the committed sheet. With no card model
+    set, every row counts as needing one (the safe side; the run itself would refuse)."""
+    _require_login()
+    if not boq or not sheet_name:
+        frappe.throw("boq and sheet_name are required.", title="Missing field")
+    if not match_enabled():
+        return {"match_enabled": False}
+    from nirmaan_stack.api.boq.wizard import ai_settings as AS
+    from nirmaan_stack.services.boq_rate_match import cards as C
+    rows = json.loads(excel_rows) if isinstance(excel_rows, str) else (excel_rows or [])
+    rows = sorted({int(r) for r in rows})
+    if not rows:
+        return {"match_enabled": True, "rows": 0, "rows_without_card": 0}
+    model = AS.get_boq_match_settings().get("match_card_model")
+    if not model:
+        return {"match_enabled": True, "rows": len(rows), "rows_without_card": len(rows)}
+    plan = C.plan_sheet(boq, sheet_name, model, excel_rows=rows)
+    todo = sum(len(b["rows"]) for b in plan["batches"])
+    return {"match_enabled": True, "rows": todo + len(plan["reused"]), "rows_without_card": todo}

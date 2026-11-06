@@ -57,8 +57,12 @@ class TestClocks(FrappeTestCase):
         # DEV2-B5 S2 (mechanical inversion, the SAFE ESTIMATE ruling 11:11; B4 pinned suggest_seconds_per_row 3.12):
         # Suggest = 13 s + 53 s a batch of 20 rows (p90 fit on 189 stored runs, per batch raised once 48 -> 53 for the
         # >300-row band); matching from B4 S4's 9 sheets (65 s + 0.45 s a row)
+        # DEV2-B8 S2 (mechanical, the WAIT ESTIMATE ruling 12:42): + the confirm box's matching part (49 s + 0.40 s a
+        # row + 2.0 s a row that needs a new card; test_match_estimate); match_fixed / per_row stay for the time left
         self.assertEqual(RM.PACES, {"suggest_fixed_seconds": 13.0, "suggest_seconds_per_batch": 53.0, "suggest_batch_rows": 20,
-                                    "match_fixed_seconds": 65.0, "match_seconds_per_row": 0.45})
+                                    "match_fixed_seconds": 65.0, "match_seconds_per_row": 0.45,
+                                    "estimate_match_fixed_seconds": 49.0, "estimate_match_seconds_per_row": 0.40,
+                                    "estimate_match_seconds_per_card": 2.0})
         self.assertNotIn("suggest_seconds_per_row", RM.PACES)
         self.assertTrue(all(isinstance(v, (int, float)) and v > 0 for v in RM.PACES.values()))
 

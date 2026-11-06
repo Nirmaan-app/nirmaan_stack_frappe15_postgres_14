@@ -20,6 +20,7 @@ import {
   confirmEstimateLine,
   formatSeconds,
   matchWaitEstimate,
+  suggestReadRows,
   type MatchPhaseState,
   type SuggestModalSummary,
 } from "./RateSuggestProgressModal";
@@ -102,6 +103,57 @@ describe("DEV2-B4 the estimate line (total + split, safe: p90, rounded up)", () 
   it("formatSeconds", () => {
     expect(formatSeconds(45)).toBe("45 s");
     expect(formatSeconds(185)).toBe("3 min 05 s");
+  });
+});
+
+// DEV2-B8 S2 (WAIT ESTIMATE, owner 2026-11-06 12:42): the matching part counts the rows that need a new spec card.
+// The paces api/boq/rate_match.PACES serves since B8 (test_rate_match pins them; test_match_estimate pins the cases).
+const B8 = { ...DEV2, estimate_match_fixed_seconds: 49, estimate_match_seconds_per_row: 0.4, estimate_match_seconds_per_card: 2 };
+
+describe("DEV2-B8 the matching part counts the rows that need a new card", () => {
+  it("the same minutes as the server's match_estimate_minutes (test_match_estimate PARITY)", () => {
+    const cases: [number, number | null, number][] = [[0, null, 1], [1, 0, 1], [20, 0, 1], [20, 20, 2], [81, 38, 3],
+      [81, null, 5], [81, 0, 2], [206, 0, 3], [361, 361, 16], [30, 999, 3]];
+    expect(cases.map(([n, c]) => matchWaitEstimate(n, B8, c).matchMin)).toEqual(cases.map(([, , m]) => m));
+  });
+
+  it("production's watched run: 81 rows, 38 new cards -> 49 + 32.4 + 76 = 157.4 s -> 3 minutes (it took 142 s)", () => {
+    const e = matchWaitEstimate(81, B8, 38);
+    expect([e.suggestMin, e.matchMin, e.totalMin]).toEqual([5, 3, 8]);
+    expect(e.matchMin * 60).toBeGreaterThanOrEqual(142);
+    expect(matchWaitEstimate(81, DEV2).matchMin * 60).toBeLessThan(142);   // B4's 101.5 s -> 2 min under-ran it
+  });
+
+  it("the count not known yet, or its call failed (null / undefined) -> every row needs a card (the safe side)", () => {
+    expect(matchWaitEstimate(81, B8, null).matchMin).toBe(matchWaitEstimate(81, B8, 81).matchMin);
+    expect(matchWaitEstimate(81, B8).matchMin).toBe(matchWaitEstimate(81, B8, 81).matchMin);
+    expect(matchWaitEstimate(81, B8, null).matchMin).toBeGreaterThanOrEqual(matchWaitEstimate(81, B8, 38).matchMin);
+  });
+
+  it("fewer rows without a card -> a smaller figure; a count above the rows is capped; never below 1", () => {
+    expect(matchWaitEstimate(361, B8, 0).matchMin).toBeLessThan(matchWaitEstimate(361, B8, 361).matchMin);
+    expect(matchWaitEstimate(30, B8, 999).matchMin).toBe(matchWaitEstimate(30, B8, 30).matchMin);
+    expect(matchWaitEstimate(0, B8, 0).matchMin).toBe(1);
+  });
+
+  it("the Suggest part and the sentence are unchanged: only the numbers move", () => {
+    expect(matchWaitEstimate(81, B8, 38).suggestMin).toBe(matchWaitEstimate(81, DEV2).suggestMin);
+    expect(matchWaitEstimate(81, B8, 38).line).toBe(
+      "This will take about 8 minutes in all: about 5 to suggest rates and about 3 to match with previously priced BoQs.");
+    expect(confirmEstimateLine(true, 81, B8, 38)).toBe(matchWaitEstimate(81, B8, 38).line);
+    expect(confirmEstimateLine(false, 81, B8, 38)).toBe("");
+  });
+
+  it("an older server with no estimate_match_* paces -> the B4 formula, the count ignored", () => {
+    expect(matchWaitEstimate(206, DEV2, 0).matchMin).toBe(matchWaitEstimate(206, DEV2).matchMin);
+    expect(matchWaitEstimate(206, DEV2, 0).matchMin).toBe(3);
+  });
+
+  it("suggestReadRows: the ticked rows + the never-read ones, or the whole eligible set; sorted, no repeats", () => {
+    const eligible = new Set([5, 1, 3, 9]);
+    expect(suggestReadRows(new Set(), [{ excel_row: 7 }], eligible)).toEqual([1, 3, 5, 9]);
+    expect(suggestReadRows(new Set([9, 3]), [{ excel_row: 7 }, { excel_row: 3 }], eligible)).toEqual([3, 7, 9]);
+    expect(suggestReadRows(new Set(), [], new Set())).toEqual([]);
   });
 });
 

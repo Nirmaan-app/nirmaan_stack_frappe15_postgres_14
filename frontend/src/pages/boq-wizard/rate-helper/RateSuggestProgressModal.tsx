@@ -187,17 +187,40 @@ export interface MatchPaces {
   suggest_batch_rows: number;
   match_fixed_seconds: number;
   match_seconds_per_row: number;
+  /** DEV2-B8 S2 (WAIT ESTIMATE, owner 2026-11-06 12:42): the confirm box's matching part = a fixed part + one part a
+   *  row + one part a row that needs a new spec card, each a p90 on the stored match runs. Absent (an older server)
+   *  -> the B4 formula above. */
+  estimate_match_fixed_seconds?: number;
+  estimate_match_seconds_per_row?: number;
+  estimate_match_seconds_per_card?: number;
 }
 
 /** PURE. The confirm dialog's estimate: each phase at its p90 pace, rounded UP to whole minutes (at least 1); the
  *  total = the two parts added.
  *    suggest = ceil((suggest_fixed_seconds + ceil(rows / suggest_batch_rows) x suggest_seconds_per_batch) / 60)
- *    match   = ceil((match_fixed_seconds + rows x match_seconds_per_row) / 60)  */
-export function matchWaitEstimate(rows: number, p: MatchPaces): { suggestMin: number; matchMin: number; totalMin: number; line: string } {
+ *    match   = ceil((estimate_match_fixed_seconds + rows x estimate_match_seconds_per_row
+ *                    + rowsWithoutCard x estimate_match_seconds_per_card) / 60)       (DEV2-B8; = the server's
+ *              rate_match.match_estimate_minutes, pinned by the same cases)
+ *  `rowsWithoutCard` = the selected rows with no valid spec card (count_rows_without_card); null / undefined (not
+ *  known yet, or its call failed) -> every row needs a card (the safe side). */
+export function matchWaitEstimate(
+  rows: number,
+  p: MatchPaces,
+  rowsWithoutCard?: number | null,
+): { suggestMin: number; matchMin: number; totalMin: number; line: string } {
   const n = Math.max(0, rows);
   const batches = Math.ceil(n / Math.max(1, p.suggest_batch_rows));
   const suggestMin = Math.max(1, Math.ceil((p.suggest_fixed_seconds + batches * p.suggest_seconds_per_batch) / 60));
-  const matchMin = Math.max(1, Math.ceil((p.match_fixed_seconds + n * p.match_seconds_per_row) / 60));
+  const perCard = p.estimate_match_seconds_per_card;
+  let matchSecs: number;
+  if (typeof perCard === "number" && typeof p.estimate_match_fixed_seconds === "number"
+    && typeof p.estimate_match_seconds_per_row === "number") {
+    const c = rowsWithoutCard == null ? n : Math.min(n, Math.max(0, rowsWithoutCard));
+    matchSecs = p.estimate_match_fixed_seconds + n * p.estimate_match_seconds_per_row + c * perCard;
+  } else {
+    matchSecs = p.match_fixed_seconds + n * p.match_seconds_per_row;
+  }
+  const matchMin = Math.max(1, Math.ceil(matchSecs / 60));
   const totalMin = suggestMin + matchMin;
   return {
     suggestMin, matchMin, totalMin,
@@ -207,9 +230,26 @@ export function matchWaitEstimate(rows: number, p: MatchPaces): { suggestMin: nu
 }
 
 /** PURE. The line the dialog shows: "" when matching is OFF (or its paces are unknown) -> the dialog is as before. */
-export function confirmEstimateLine(matchEnabled: boolean, rows: number, paces: MatchPaces | null | undefined): string {
+export function confirmEstimateLine(
+  matchEnabled: boolean,
+  rows: number,
+  paces: MatchPaces | null | undefined,
+  rowsWithoutCard?: number | null,
+): string {
   if (!matchEnabled || !paces) return "";
-  return matchWaitEstimate(rows, paces).line;
+  return matchWaitEstimate(rows, paces, rowsWithoutCard).line;
+}
+
+/** PURE (DEV2-B8 S2). The rows a Suggest press will read, as the confirm box counts them: the ticked rows plus the
+ *  never-read ones the run reads too, or (nothing ticked) the whole eligible set. Sorted, no repeats: the rows the
+ *  no-card count is asked for. */
+export function suggestReadRows(
+  selected: ReadonlySet<number>,
+  neverRead: readonly { excel_row: number }[],
+  eligible: ReadonlySet<number>,
+): number[] {
+  const out = selected.size > 0 ? new Set<number>([...selected, ...neverRead.map((r) => r.excel_row)]) : new Set(eligible);
+  return [...out].sort((a, b) => a - b);
 }
 
 export interface MatchPhaseState {
