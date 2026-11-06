@@ -232,3 +232,23 @@ class TestTheDoctypeMatchesTheCode(unittest.TestCase):
         options = frappe.get_meta(ROW_DOCTYPE).get_field("row_status").options.split("\n")
         self.assertEqual(tuple(options), ROW_STATUSES)
 
+
+class TestABouncedWalletTopUpOnUpload(InternalTransferUploadFixture):
+    """#1622: the return of a top-up that named a wallet is an Internal Transfer; a vendor's bounce keeps its skip."""
+
+    def test_the_wallet_return_is_recorded_and_the_vendor_bounce_keeps_todays_sentence(self):
+        lines = (
+            ("MMT/IMPS/600900000011/Cashbook Bal/IDFB0080101", "2,500.00", ""),  # the top-up
+            ("NEFT-RETURN-TESTREF0011-CASHBOOK TOPUP-IDFB0080101", "", "2,500.00"),  # ... bounced back
+            ("NEFT-RETURN-TESTREF0012-SITE TRANSPORTER CO", "", "700.00"),  # a vendor payment bounced
+        )
+        batch = self._stage(_parsed(lines))
+        rows = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": batch},
+            fields=["name", "row_status", "skip_kind", "skip_reason"], order_by="transfer_id asc",
+        )
+        self.assertEqual([r["row_status"] for r in rows], ["Internal Transfer", "Internal Transfer", "Skipped"])
+        record = self._records(rows)[rows[1]["name"]]
+        self.assertEqual((record["from_place"], record["to_place"]), ("Cashbook Virtual Account", "ICICI Current Account"))
+        self.assertEqual(rows[2]["skip_kind"], "Failed payment bounced back")
+        self.assertIn("neft_return_failed", rows[2]["skip_reason"])

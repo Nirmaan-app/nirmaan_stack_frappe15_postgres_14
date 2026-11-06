@@ -97,3 +97,39 @@ class TestBankCategories(unittest.TestCase):
             answer = bank_line_transfer(category, "")
             self.assertTrue(answer is None or isinstance(answer, TransferEnds), category)
 
+
+class TestABouncedWalletTopUp(unittest.TestCase):
+    """#1622: a `NEFT-RETURN-` line is internal only when its text names one of our wallets."""
+
+    def test_a_return_naming_a_wallet_runs_from_that_wallet_to_the_current_account(self):
+        self.assertEqual(
+            _bank("NEFT-RETURN-TESTREF0001-CASHFREE PAYMENTS-WALLET TOPUP", out=False),
+            TransferEnds("Cashfree Wallet", "ICICI Current Account"),
+        )
+        self.assertEqual(
+            _bank("NEFT-RETURN-TESTREF0002-Cash Book Topup", out=False),
+            TransferEnds("Cashbook Virtual Account", "ICICI Current Account"),
+        )
+        self.assertEqual(
+            _bank("NEFT-RETURN-TESTREF0003-PORTER WALLET", out=False),
+            TransferEnds("Porter Wallet", "ICICI Current Account"),
+        )
+
+    def test_a_return_naming_a_wallet_by_its_ifsc_counts(self):
+        self.assertEqual(
+            _bank("NEFT-RETURN-TESTREF0004-RATN0000156-TESTREF", out=False),
+            TransferEnds("Porter Wallet", "ICICI Current Account"),
+        )
+
+    def test_the_ifsc_wins_when_the_name_and_the_ifsc_disagree(self):
+        self.assertEqual(
+            _bank("NEFT-RETURN-TESTREF0005-Cashbook Bal-IDFB0020101", out=False),
+            TransferEnds("Cashfree Wallet", "ICICI Current Account"),
+        )
+
+    def test_a_return_naming_no_wallet_stays_a_skip(self):
+        self.assertIsNone(_bank("NEFT-RETURN-TESTREF0006-TESTVENDOR TRADERS", out=False))
+
+    def test_a_word_that_only_contains_a_wallet_name_does_not_count(self):
+        self.assertIsNone(_bank("NEFT-RETURN-TESTREF0007-SITE TRANSPORTER CO", out=False))
+        self.assertIsNone(_bank("NEFT-RETURN-TESTREF0008-MYCASHBOOKS LTD", out=False))

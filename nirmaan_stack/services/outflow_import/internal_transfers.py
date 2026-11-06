@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from nirmaan_stack.services.outflow_import.bank_exclusions import IFSC_CASHBOOK, IFSC_CASHFREE, IFSC_PORTER
+
 PLACE_ICICI_CURRENT = "ICICI Current Account"
 PLACE_ICICI_LEDGER = "ICICI Bank Ledger"
 PLACE_CASHFREE = "Cashfree Wallet"
@@ -64,6 +66,35 @@ def _gl_detail(text: str) -> str:
     return f"GL {found.group(1)} to {found.group(2)}" if found else ""
 
 
+# A bounced wallet top-up (#1622): our wallets, each by its IFSC and by its name. The IFSC wins over the name, as
+# it does for the top-up rules (`bank_exclusions` design rule (c)). Names are WORD-BOUNDED on both sides: a word
+# that only contains one ("transporter", "mycashbooks") names no wallet.
+_WALLET_BY_IFSC = ((IFSC_CASHFREE, PLACE_CASHFREE), (IFSC_CASHBOOK, PLACE_CASHBOOK_VA), (IFSC_PORTER, PLACE_PORTER))
+_WALLET_BY_NAME = (
+    (re.compile(r"\bcash\s*free\b", re.I), PLACE_CASHFREE),
+    (re.compile(r"\bcash\s*book\b", re.I), PLACE_CASHBOOK_VA),
+    (re.compile(r"\bporter\b", re.I), PLACE_PORTER),
+)
+
+
+def named_wallet(text: str) -> str | None:
+    """The wallet a bank text names -- by IFSC first, then by name -- or `None` when it names none."""
+    text = text or ""
+    for ifsc, place in _WALLET_BY_IFSC:
+        if ifsc in text:
+            return place
+    for pattern, place in _WALLET_BY_NAME:
+        if pattern.search(text):
+            return place
+    return None
+
+
+def _bounced_top_up(remarks: str) -> TransferEnds | None:
+    """A returned NEFT is ours only when it names one of our wallets; a bounced vendor payment stays a skip."""
+    wallet = named_wallet(remarks)
+    return TransferEnds(wallet, PLACE_ICICI_CURRENT) if wallet else None
+
+
 def _to_card(remarks: str) -> TransferEnds:
     return TransferEnds(PLACE_ICICI_CURRENT, PLACE_ICICI_CARD, card_detail(remarks))
 
@@ -81,9 +112,12 @@ _BANK_CATEGORY_ENDS = {
     ),
     "credit_card_bill_payment": _to_card,
     "credit_facility_auto_debit": _to_card,
+    # #1622: only when the return names one of our wallets; otherwise `None`, and the line keeps its skip.
+    "neft_return_failed": _bounced_top_up,
 }
 
-#: The bank-exclusion categories whose lines are Internal Transfers (spec #1619 Implementation Decisions).
+#: The bank-exclusion categories whose lines may be Internal Transfers (spec #1619 Implementation Decisions).
+#: `neft_return_failed` only when the line names one of our wallets.
 INTERNAL_BANK_CATEGORIES = frozenset(_BANK_CATEGORY_ENDS)
 
 
