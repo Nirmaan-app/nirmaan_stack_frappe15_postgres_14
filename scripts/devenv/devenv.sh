@@ -721,7 +721,10 @@ case "$CMD" in
           *) ARGS+=("$1"); shift ;;
         esac
       done
-      if [ "$AFFECTED" = 1 ] && ! printf '%s\n' "${ARGS[@]+"${ARGS[@]}"}" | grep -qx -- --module; then
+      # A loop, not `printf | grep -q`: under pipefail, grep -q exiting on the first match sends printf SIGPIPE
+      # on a long module list, and the pipeline reads as "no module" (a run of 325 modules ran none).
+      HAS_MODULE=0; for a in ${ARGS[@]+"${ARGS[@]}"}; do [ "$a" != --module ] || HAS_MODULE=1; done
+      if [ "$AFFECTED" = 1 ] && [ "$HAS_MODULE" = 0 ]; then
         echo "devenv: no backend test module is affected; nothing to run"
         proof "$B/apps/nirmaan_stack" test 0 "{\"affected_base\": \"$AFF_BASE\", \"modules\": 0}"; exit 0
       fi
