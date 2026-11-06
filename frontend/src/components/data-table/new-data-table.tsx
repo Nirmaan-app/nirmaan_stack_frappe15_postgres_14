@@ -97,6 +97,92 @@ export interface DataTableProps<T> {
   renderExpandedRow?: (row: TanRow<T>) => React.ReactNode;
 }
 
+/* ---------- one drawn row (memoised) ------------------------------------ */
+// Module-level so the default keeps one identity and does not redraw every memoised row.
+const DEFAULT_NEW_ROW_INDICATOR = <div className="h-2 w-2 rounded-full bg-red-500" />;
+
+interface DataTableRowProps<T> {
+  row: TanRow<T>;
+  index: number;
+  isSelected: boolean;
+  isExpanded: boolean;
+  rowClassName?: string;
+  isNew: boolean;
+  showIndicator: boolean;
+  showSelection: boolean;
+  newRowIndicator: React.ReactNode;
+  stickyColumnClassName: string;
+  measureRef?: (el: Element | null) => void;
+  renderExpandedRow?: (row: TanRow<T>) => React.ReactNode;
+  colSpan: number;
+  // Not read in the row. They are props only so a row redraws when the page's columns, the table meta
+  // or the visible columns change: cells read all three through `cell.getContext()`.
+  columnsKey: unknown;
+  metaKey: unknown;
+  visibleKey: string;
+}
+
+/**
+ * One drawn table row. It is memoised, so it redraws only when its own props change: a scroll frame or a key
+ * typed in search redraws the table but not the rows already on screen. TanStack keeps the same `row` object
+ * while the data is unchanged, and new data brings new row objects, so changed rows still redraw.
+ */
+function DataTableRowInner<T>({
+  row, index, isSelected, isExpanded, rowClassName, isNew, showIndicator, showSelection,
+  newRowIndicator, stickyColumnClassName, measureRef, renderExpandedRow, colSpan,
+}: DataTableRowProps<T>) {
+  const expanded = isExpanded && renderExpandedRow ? renderExpandedRow(row) : null;
+  return (
+    <React.Fragment>
+      <TableRow
+        data-state={isSelected ? "selected" : undefined}
+        className={rowClassName}
+        // The virtualizer measures each drawn row's real height (rows are 41, 57 or 63 px, not the
+        // 45 px guess), so rows taller or shorter than the guess no longer shift the content.
+        data-index={measureRef ? index : undefined}
+        ref={measureRef}>
+        {showIndicator && (
+          <TableCell
+            className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}
+            style={{ zIndex: 20 }}>
+            {isNew ? newRowIndicator : null}
+          </TableCell>
+        )}
+
+        {showSelection && (
+          <TableCell
+            className={cn("sticky w-[40px] px-2", stickyColumnClassName)}
+            style={{ zIndex: 20, left: showIndicator ? '20px' : 0 }}>
+            <Checkbox
+              aria-label="Select row"
+              disabled={!row.getCanSelect()}
+              checked={isSelected}
+              onCheckedChange={v => row.toggleSelected(!!v)}
+            />
+          </TableCell>
+        )}
+
+        {row.getVisibleCells().map(cell => {
+          if (showSelection && cell.column.id === "select") return null;
+          return (
+            <TableCell key={cell.id}>
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          );
+        })}
+      </TableRow>
+      {expanded && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={colSpan} className="bg-muted/30 p-0">
+            {expanded}
+          </TableCell>
+        </TableRow>
+      )}
+    </React.Fragment>
+  );
+}
+const DataTableRow = React.memo(DataTableRowInner) as typeof DataTableRowInner;
+
 /* ---------- component --------------------------------------------------- */
 export function DataTable<T>({
   table, columns,
@@ -111,7 +197,7 @@ export function DataTable<T>({
   showRowSelection = false,
   showSearchBar = true, // --- ADD THIS LINE (with a default value) --
   isNewRow,
-  newRowIndicatorComponent = <div className="h-2 w-2 rounded-full bg-red-500" />,
+  newRowIndicatorComponent = DEFAULT_NEW_ROW_INDICATOR,
   estimatedRowHeight = 45,
   enableVirtualization = true,
   // Default theme-appropriate classNames with good defaults
@@ -171,6 +257,9 @@ export function DataTable<T>({
   }, []);
 
   const rows = table.getRowModel().rows;
+  // Worked out once per render and handed to every memoised row.
+  const visibleKey = table.getVisibleLeafColumns().map(c => c.id).join("|");
+  const rowColSpan = leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0);
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -414,75 +503,27 @@ export function DataTable<T>({
 
                 {renderRows.map(vRow => {
                   const row = rows[vRow.index] as TanRow<T>;
-                  const customRowClassName = getRowClassName?.(row);
-                  const expanded = renderExpandedRow && row.getIsExpanded() ? renderExpandedRow(row) : null;
+                  const isExpanded = !!renderExpandedRow && row.getIsExpanded();
                   return (
-                    <React.Fragment key={row.id}>
-                    <TableRow
-                      data-state={row.getIsSelected() ? "selected" : undefined}
-                      className={customRowClassName}
-                      // The virtualizer measures each drawn row's real height (rows are 41, 57 or 63 px, not the
-                      // 45 px guess), so rows taller or shorter than the guess no longer shift the content.
-                      data-index={enableVirtualization ? vRow.index : undefined}
-                      ref={enableVirtualization ? rowVirtualizer.measureElement : undefined}>
-                      {shouldRenderIndicatorColumn && (
-                        <TableCell
-                          className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}
-                          style={{ zIndex: 20 }}>
-                          {isNewRow && isNewRow(row) ? newRowIndicatorComponent : null}
-                        </TableCell>
-                      )}
-
-                      {shouldRenderSelectionColumn && (
-                        <TableCell
-                          className={cn(
-                            "sticky w-[40px] px-2",
-                            stickyColumnClassName
-                          )}
-                          style={{
-                            zIndex: 20,
-                            left: shouldRenderIndicatorColumn ? '20px' : 0
-                          }}>
-                          <Checkbox
-                            aria-label="Select row"
-                            disabled={!row.getCanSelect()}
-                            checked={row.getIsSelected()}
-                            onCheckedChange={v => row.toggleSelected(!!v)}
-                          />
-                        </TableCell>
-                      )}
-
-                      {row.getVisibleCells().map((cell, idx) => {
-                        if (shouldRenderSelectionColumn && cell.column.id === "select") return null;
-                        const first = idx === 0;
-                        const left = first ? stickyOffset(0) : undefined;
-                        const isSelected = row.getIsSelected();
-                        return (
-                          <TableCell key={cell.id}
-                            className={cn(
-                              // first ? "sticky" : "",
-                              // (first && !isSelected) ? stickyColumnClassName : "",
-                            )}
-                            style={{
-                              // left,
-                              // zIndex: first ? 20 : 10
-                            }}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-
-                        );
-                      })}
-                    </TableRow>
-                    {expanded && (
-                      <TableRow className="hover:bg-transparent">
-                        <TableCell
-                          colSpan={leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)}
-                          className="bg-muted/30 p-0">
-                          {expanded}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    </React.Fragment>
+                    <DataTableRow<T>
+                      key={row.id}
+                      row={row}
+                      index={vRow.index}
+                      isSelected={row.getIsSelected()}
+                      isExpanded={isExpanded}
+                      rowClassName={getRowClassName?.(row)}
+                      isNew={!!isNewRow && isNewRow(row)}
+                      showIndicator={shouldRenderIndicatorColumn}
+                      showSelection={!!shouldRenderSelectionColumn}
+                      newRowIndicator={newRowIndicatorComponent}
+                      stickyColumnClassName={stickyColumnClassName}
+                      measureRef={enableVirtualization ? rowVirtualizer.measureElement : undefined}
+                      renderExpandedRow={isExpanded ? renderExpandedRow : undefined}
+                      colSpan={rowColSpan}
+                      columnsKey={table.options.columns}
+                      metaKey={table.options.meta}
+                      visibleKey={visibleKey}
+                    />
                   );
                 })}
 
