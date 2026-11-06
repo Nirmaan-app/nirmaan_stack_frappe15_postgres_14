@@ -85,7 +85,9 @@ with session(a.task, a.lead, a.password) as (page, out):
     check(page.get_by_role("row").filter(has_text="Not-Matched").count() == 0,
           "a row names ICICI Current Account as an end, and no open line is in the tab")
     table = page.get_by_role("table").first.inner_text()
-    check("Rule: " in table and not re.search(r"\b(platform|cashbook|card|internal_gl|credit)_[a-z_]+\b", table),
+    # A Made by cell is words; a rule id may appear only inside the line's stored note, never as a cell of its own.
+    check("Rule: " in table and not re.search(r"^\s*(platform|cashbook|card|internal_gl|credit|gateway|neft)_[a-z_]+\s*$",
+                                               table, re.M),
           "Made by is words (Rule: ...), never a rule id")
     save(page, out, "02-internal-transfers-tab")
 
@@ -203,6 +205,8 @@ with session(a.task, a.accountant, a.password) as (page, out):
     dialog.wait_for()
     dialog.get_by_role("combobox", name="Source").click()
     page.get_by_role("option", name=re.compile(r"^Cashbook")).click()
+    # The dialog's title follows the source ("Import a petty cash statement").
+    dialog = page.get_by_role("dialog", name=re.compile(r"^Import a "))
     dialog.locator("input[type=file]").set_input_files(str(statement))
     dialog.get_by_role("button", name="Read statement").click()
     heading = dialog.get_by_text("Internal transfers · 1 line", exact=True)
