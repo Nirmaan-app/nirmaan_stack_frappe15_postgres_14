@@ -39,6 +39,7 @@ from nirmaan_stack.services.outflow_import.status import (
     is_received_direction,
 )
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.services.expense_tds import EXPENSE_TDS_RULES
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.expense_links import load_expense_links
 from nirmaan_stack.services.outflow_import.settle import (
@@ -101,11 +102,23 @@ class SettlementFixture(unittest.TestCase):
         # Expenses (Bus)" and "(Train)" are valid for project AND non-project -- so a type picked
         # on `project=1` alone would legitimately pass the non-project scope check and make
         # test_a_project_type_is_refused_on_a_non_project_expense assert nothing.
+        # By name, not Frappe's default `modified desc`: a patch that re-saved a TDS type once changed the pick.
+        tds_types = [rule.expense_type for rule in EXPENSE_TDS_RULES]
         cls.project_type = frappe.db.get_value(
-            "Expense Type", {"project": 1, "non_project": 0}, "name"
+            "Expense Type",
+            {"project": 1, "non_project": 0, "name": ["not in", tds_types]},
+            "name",
+            order_by="name asc",
         )
         cls.non_project_type = frappe.db.get_value(
-            "Expense Type", {"non_project": 1, "project": 0}, "name"
+            "Expense Type",
+            {"non_project": 1, "project": 0, "name": ["not in", tds_types]},
+            "name",
+            order_by="name asc",
+        )
+        assert cls.project_type and cls.non_project_type, (
+            "This suite needs one project-only and one non-project-only Expense Type outside the "
+            f"TDS rules {tds_types}; got {cls.project_type!r} and {cls.non_project_type!r}."
         )
         frappe.db.commit()
 
