@@ -234,8 +234,10 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 	// The dialog holds the request's name; the row is read from the live page.
 	const open = useMemo(() => data.find((r) => r.name === decision?.name) ?? null, [data, decision]);
 
+	// No pill change while rows are loading: useServerDataTable drops a fetch asked for while one is running
+	// and never retries it, so a pill clicked then would light up over the previous status's rows.
 	const chooseStatus = (next: GstRequestStatus | "All") => {
-		if (next === status) return;
+		if (next === status || isLoading) return;
 		setStatus(next);
 		urlStateManager.updateParam(STATUS_PARAM, next);
 		table.setPageIndex(0);
@@ -271,9 +273,10 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 						<div className="flex flex-wrap gap-2" role="tablist" aria-label="GST requests by status">
 							{STATUS_PILLS.map((pill) => (
 								<button key={pill.status} type="button" role="tab" aria-selected={status === pill.status}
+									disabled={isLoading}
 									onClick={() => chooseStatus(pill.status)}
 									className={cn(
-										"whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors",
+										"whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-wait disabled:opacity-60",
 										status === pill.status ? "bg-sky-500 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200",
 									)}>
 									{pill.label}
