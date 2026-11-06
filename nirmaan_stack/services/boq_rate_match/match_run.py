@@ -5,9 +5,10 @@
     run_match(run_name, *, only_rows=None, resume=False, client=None, card_client=None, progress=None) -> summary
 
 Called by the match job (api/boq/rate_match._match_worker). Steps, each timed:
-  1. job_pool       THE POOL RULE (DEV2-B6 S1, below): a cached pool file is always USED - a stale one too, noted
-                    "pool stale" in usage.pool with the stamp it used, and ONE background rebuild queued; built
-                    inline only when no usable file exists (the 06:00 IST rebuild keeps it fresh);
+  1. job_pool       THE POOL RULE (DEV2-B8 S1, below): a run NEVER builds the pool and NEVER queues a rebuild. A
+                    cached pool file is USED as it is - a stale one too, noted "pool stale" in usage.pool with the
+                    stamp it used; with no usable file the run asks nothing and every row says "pool not ready"
+                    (the 06:00 IST rebuild is the only automatic build);
   2. targets        the Suggest run's own rows: every row of the run, or `only_rows` (a selected-row Suggest), or on
                     a resume the rows the previous match run at the same committed version has not matched;
   3. cards          cards.card_sheet for the target rows -- REUSE FIRST (a stored ok card is never re-asked); paid
@@ -127,45 +128,77 @@ def _judge_with_progress(judge, wrapped, report, every_s=2.0):
     return box["out"]
 
 
-def job_pool(path=None, builder=None, queue_rebuild=None):
-    """THE POOL RULE for a user's match run (DEV2-B6 S1; DEV2-B5 A11: 440 s of pass 2's 481.8 s was an inline rebuild
-    after the pricing stamp moved). A run never waits for a rebuild while a cached pool file exists:
-      fresh and current   used as is; nothing queued.
+POOL_NOT_READY = "pool not ready"   # the prefix the page maps to "Earlier BoQs are being prepared..." (DEV2-B6 wording)
+
+
+def job_pool(path=None):
+    """THE POOL RULE for a user's match run. DEV2-B8 S1 (owner 2026-11-06 12:41 "can we also do this at 6Am everyday
+    rather than run time"; 12:42 "yes"; production runs ONE worker for every queue, and a build there takes ~20 min)
+    REPLACES DEV2-B6's "queue ONE background rebuild": a user's run NEVER builds the pool and NEVER queues a rebuild.
+      fresh and current   used as is.
       STALE               its pricing stamp is no longer current, or the file is older than 24 h: USED as it is; the
-                          run notes "pool stale" and the stamp it used (usage.pool - no new field); ONE background
-                          rebuild is queued (rate_match.queue_pool_rebuild: long, the 06:00 job's id, never a twin).
-      no usable file      missing, unreadable or another format: built inline as before (pool.ensure_pool, under its
-                          one lock); a lock wait that times out -> MatchRefused "pool not ready: ...".
-    The 06:00 job and pool.rebuild_pool are unchanged. `path` / `builder` / `queue_rebuild` are seams (tests).
-    -> (pool, {"rebuilt", "stale", "stamp_used", "stamp_current", "rebuild_queued"})."""
-    from filelock import Timeout
+                          run notes "pool stale" and the stamp it used (usage.pool); nothing is queued.
+      no usable file      missing, unreadable or another format: NOT built -> (None, info), info["not_ready"] =
+                          "pool not ready: ..."; run_match then asks nothing and every row carries that reason.
+    The ONLY automatic build is the 06:00 job (rate_match.daily_pool_rebuild -> pool.rebuild_pool); the manual entry
+    point (`bench --site <site> execute nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`) is unchanged.
+    `path` is a seam (tests).
+    -> (pool | None, {"rebuilt": False, "stale", "stamp_used", "stamp_current", "rebuild_queued": False, "not_ready"})."""
     from nirmaan_stack.services.boq_rate_match import pool as P
 
     path = path or P.pool_path()
     stamp = P._current_stamp()
-    cached = None
+    info = {"rebuilt": False, "stale": None, "stamp_used": None, "stamp_current": stamp, "rebuild_queued": False,
+            "not_ready": None}
+    cached, why_not = None, "no earlier-BoQ pool file yet (the 06:00 job builds it)"
     if os.path.exists(path):
         try:
             cached = P.load_pool(path)
-        except Exception as exc:  # noqa: BLE001 -- unusable: built inline below
+        except Exception as exc:  # noqa: BLE001 -- unusable: never built here; the run says "pool not ready"
             frappe.logger("boq_rate_match").warning("match pool file unreadable: %s: %s", type(exc).__name__, exc)
+            why_not = "the earlier-BoQ pool file cannot be read (the 06:00 job rebuilds it)"
         if cached is not None and getattr(cached, "format", None) != P.POOL_FORMAT:
-            cached = None
-    if cached is not None:
-        used = (cached.pricing or {}).get("stamp")
-        why = [w for w, bad in (("pricing stamp changed", used != stamp), ("older than 24 h", not P.is_fresh(path))) if bad]
-        info = {"rebuilt": False, "stale": None, "stamp_used": used, "stamp_current": stamp, "rebuild_queued": False}
-        if why:
-            if queue_rebuild is None:
-                from nirmaan_stack.api.boq.rate_match import queue_pool_rebuild as queue_rebuild
-            info.update(stale="pool stale: " + ", ".join(why), rebuild_queued=bool(queue_rebuild()))
-        return cached, info
-    try:
-        pool, rebuilt = P.ensure_pool(path=path, builder=builder)
-    except Timeout:
-        raise MatchRefused("pool not ready: the earlier-BoQ pool is being built by another job")
-    return pool, {"rebuilt": rebuilt, "stale": None, "stamp_used": (pool.pricing or {}).get("stamp"),
-                  "stamp_current": stamp, "rebuild_queued": False}
+            cached, why_not = None, "the earlier-BoQ pool file is in another format (the 06:00 job rebuilds it)"
+    if cached is None:
+        info["not_ready"] = f"{POOL_NOT_READY}: {why_not}"
+        return None, info
+    used = (cached.pricing or {}).get("stamp")
+    why = [w for w, bad in (("pricing stamp changed", used != stamp), ("older than 24 h", not P.is_fresh(path))) if bad]
+    info["stamp_used"] = used
+    if why:
+        info["stale"] = "pool stale: " + ", ".join(why)
+    return cached, info
+
+
+def _store(run_name, boq, sheet, entries, usage, scope, stop=None, halt=None):
+    """Write the run's results and usage; COMPLETE -> active=1 and the prior active run retired. -> the summary."""
+    status = "halted" if stop else "complete"
+    values = {"results": json.dumps({"rows": [entries[k] for k in sorted(entries)]}, ensure_ascii=False, default=str),
+              "usage": json.dumps(usage, default=str), "status": status, "halt_reason": halt, "rows_done": len(scope),
+              "run_at": frappe.utils.now()}
+    if status == "complete":
+        values["active"] = 1
+        for prior in frappe.get_all(MATCH_DOCTYPE, filters={"boq": boq, "sheet_name": sheet, "active": 1}, pluck="name"):
+            if prior != run_name:
+                frappe.db.set_value(MATCH_DOCTYPE, prior, "active", 0, update_modified=False)
+    frappe.db.set_value(MATCH_DOCTYPE, run_name, values)
+    frappe.db.commit()
+    return {"status": status, "rows_total": len(scope), "rows_done": len(scope), "halt_reason": halt, "usage": usage}
+
+
+def _store_pool_not_ready(run_name, boq, sheet, scope, carried, pool_info, secs, t0, nw, extra):
+    """DEV2-B8 S1: no usable pool file. Nothing is built and nothing is asked (no card call, no judge call): every row
+    in scope carries the "pool not ready" reason as its no_verdict (the page shows "Earlier BoQs are being prepared.
+    Try again in a few minutes."); carried rows stay; the run ends COMPLETE, never halted."""
+    entries = dict(carried)
+    for er in scope:
+        entries[er] = {"excel_row": er, "target_key": f"{boq}|{sheet}|{er}", "matches": [], "judge_order": [],
+                       "no_verdict": pool_info["not_ready"], "same_as_row": None, "carried": False, "status": "no verdict"}
+    usage = {"cards": {}, "judge": {"calls": 0, "tokens_in": 0, "tokens_out": 0, "spent_usd": 0.0},
+             "seconds": {**secs, "total": round(time.time() - t0, 1)}, "lane_workers": nw,
+             "pool": {"as_of": None, "rows": 0, **pool_info},
+             "rows": {"targets": 0, "judged_once": 0, "carried": len(carried), "with_card": None}, **extra}
+    return _store(run_name, boq, sheet, entries, usage, scope)
 
 
 def _previous_active(boq, sheet_name, cv, exclude):
@@ -222,6 +255,10 @@ def run_match(run_name, *, only_rows=None, resume=False, client=None, card_clien
     carried = {er: {**e, "carried": True} for er, e in prev.items() if er in set(all_rows) - set(scope)} if (only_rows or resume) else {}
     frappe.db.set_value(MATCH_DOCTYPE, run_name, {"rows_total": len(scope), "rows_done": 0}, update_modified=False)
     frappe.db.commit()
+    extra = {"scope": scope if (only_rows or resume) else None, "carried_from": prev_name if carried else None}
+    if pool is None:                       # DEV2-B8 S1: no pool file -> nothing built, nothing asked
+        report("storing", len(scope))
+        return _store_pool_not_ready(run_name, boq, sheet, scope, carried, pool_info, secs, t0, nw, extra)
 
     report("cards", 0)
     tc = time.time()
@@ -276,19 +313,8 @@ def run_match(run_name, *, only_rows=None, resume=False, client=None, card_clien
         "seconds": {**secs, "total": round(time.time() - t0, 1)},
         "lane_workers": nw, "pool": {"as_of": pool.as_of, "rows": len(pool.rows), **pool_info},
         "rows": {"targets": len(targets), "judged_once": len(firsts), "carried": len(carried), "with_card": tinfo["with_card"]},
-        "scope": scope if (only_rows or resume) else None, "carried_from": prev_name if carried else None,
+        **extra,
         "pricing": {**{k: tinfo[k] for k in ("pricing_available", "pricing_reason")}, "prepare": pinfo},
     }
-    status = "halted" if stop else "complete"
     halt = f"The call runner stopped: {stop} ({run_r.get('stop_detail')})" if stop else None
-    values = {"results": json.dumps({"rows": [entries[k] for k in sorted(entries)]}, ensure_ascii=False, default=str),
-              "usage": json.dumps(usage, default=str), "status": status, "halt_reason": halt, "rows_done": len(scope),
-              "run_at": frappe.utils.now()}
-    if status == "complete":
-        values["active"] = 1
-        for prior in frappe.get_all(MATCH_DOCTYPE, filters={"boq": boq, "sheet_name": sheet, "active": 1}, pluck="name"):
-            if prior != run_name:
-                frappe.db.set_value(MATCH_DOCTYPE, prior, "active", 0, update_modified=False)
-    frappe.db.set_value(MATCH_DOCTYPE, run_name, values)
-    frappe.db.commit()
-    return {"status": status, "rows_total": len(scope), "rows_done": len(scope), "halt_reason": halt, "usage": usage}
+    return _store(run_name, boq, sheet, entries, usage, scope, stop=stop, halt=halt)
