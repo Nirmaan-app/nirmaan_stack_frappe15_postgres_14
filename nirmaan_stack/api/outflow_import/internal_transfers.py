@@ -11,10 +11,17 @@ payment figure: nothing that sums those ledgers reads this doctype.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import frappe
 
-from nirmaan_stack.services.outflow_import.internal_transfers import TransferEnds, record_direction
-from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CASHBOOK_INTERNAL_KINDS,
+    TransferEnds,
+    cashbook_transfer_money,
+    record_direction,
+)
+from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES, CASHBOOK_SOURCE
 from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
 
 INTERNAL_TRANSFER_DOCTYPE = "Internal Transfer"
@@ -106,3 +113,44 @@ def record_for_line(
     )
     doc.insert(ignore_permissions=True)
     return doc.name
+
+
+def zero_records_to_fill(rows) -> tuple[tuple[str, Decimal], ...]:
+    """`(record, money)` for each Cashbook Internal Transfer record holding ₹0 that a line of this statement (parsed
+    `rows`) repeats and can fill (owner decision 2, #1619). READ-ONLY.
+
+    Imports before #1623 never stored a top-up's Credit, so its record holds 0. The statement's line of the same
+    move -- the same Txn Id and the same stored amount, its repeat identity -- carries the money in whichever column
+    it filled (`internal_transfers.cashbook_transfer_money`). A record holding any other amount is never read.
+    """
+    money_of = {}
+    for raw in rows:
+        money = cashbook_transfer_money(raw)
+        if (getattr(raw, "row_kind", "") or "").strip() in CASHBOOK_INTERNAL_KINDS and raw.transfer_id and money > 0:
+            money_of[(raw.transfer_id, Decimal(str(getattr(raw, "amount", None) or 0)))] = money
+    if not money_of:
+        return ()
+    found = frappe.db.sql(
+        """SELECT it.name, r.transfer_id, r.amount FROM "tabInternal Transfer" it
+           JOIN "tabOutflow Import Row" r ON r.name = it.import_row
+           WHERE r.source = %s AND r.transfer_id IN %s AND it.amount = 0
+           ORDER BY it.name""",
+        (CASHBOOK_SOURCE, tuple(sorted({txn for txn, _ in money_of}))),
+        as_dict=True,
+    )
+    return tuple(
+        (row.name, money_of[key])
+        for row in found
+        if (key := (row.transfer_id, Decimal(str(row.amount or 0)))) in money_of
+    )
+
+
+def fill_zero_records(fills) -> None:
+    """Give each ₹0 record of `fills` (`zero_records_to_fill`) its money. Nothing else on it changes.
+
+    ⚠️ RAW (`set_value`), AND WHY SKIPPING THE LIFECYCLE IS CORRECT (CODING_STANDARDS rule 1): the record's controller
+    refuses every save after insert ("never edited"), which this one sanctioned fill must pass. The record has no
+    `doc_events`, and nothing stores a figure derived from its amount: the summary sums the records live.
+    """
+    for record, money in fills:
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "amount", float(money), update_modified=False)

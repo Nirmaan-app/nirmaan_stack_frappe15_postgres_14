@@ -32,7 +32,9 @@ def _line(date, kind, who_from, who_to, debit, credit, status, txn):
     )
 
 
-class TestACashbookImportRecordsItsOwnMoves(FrappeTestCase):
+class CashbookStageCase(FrappeTestCase):
+    """Stage a made-up statement through `_stage`, and read its lines and records back."""
+
     def _stage(self, lines) -> str:
         content = ("\n".join([_HEADER, *lines]) + "\n").encode()
         parsed = parse_statement(content, source="Cashbook")
@@ -55,6 +57,9 @@ class TestACashbookImportRecordsItsOwnMoves(FrappeTestCase):
         )
         return rows[0] if rows else None
 
+
+
+class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
     def test_the_three_types_are_internal_transfers_with_one_record_each(self):
         tag = frappe.generate_hash(length=6).upper()
         batch = self._stage([
@@ -152,3 +157,69 @@ class TestACashbookImportRecordsItsOwnMoves(FrappeTestCase):
                   f"VALOAD-{tag}2"),
         ])
         self.assertEqual([self._record(l["name"])["direction"] for l in self._lines(batch)], ["In", "Out"])
+
+
+def _xlsx(lines) -> bytes:
+    """The made-up statement as the .xlsx the Cashbook import takes."""
+    import csv
+    import io
+
+    from openpyxl import Workbook
+
+    book = Workbook()
+    for row in csv.reader([_HEADER, *lines]):
+        book.active.append(row)
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+class TestAReuploadFillsAZeroRecord(CashbookStageCase):
+    """Owner decision 2 (#1619, 2026-11-07): imports before #1623 never stored a top-up's Credit, so its record holds
+    ₹0. A re-upload repeating that line gives the record the money from the file, and changes nothing else."""
+
+    def _confirm(self, content: bytes) -> dict:
+        from unittest.mock import patch
+
+        from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
+
+        with patch.object(cb, "_enqueue_worker"):
+            result = _post(cb.confirm_cashbook_import, content, "test-it-reupload.xlsx")
+        self.addCleanup(_purge, result["batch"])
+        return result
+
+    def test_an_exact_repeat_fills_a_zero_record_and_nothing_else(self):
+        tag = frappe.generate_hash(length=6).upper()
+        lines = [
+            _line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "50000", "SUCCESS",
+                  f"VALOAD-{tag}1"),
+            _line("02/08/2026", "Wallet → VA", "Test Employee B", "Virtual Account", "300", "", "SUCCESS",
+                  f"C2B-{tag}2"),
+        ]
+        old = self._lines(self._stage(lines))
+        top_up, back = old[1], old[0]  # ordered by Txn Id: C2B- before VALOAD-
+        # As an import before #1623 left them: the top-up's record at 0; the other one non-zero, and never touched.
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": top_up["name"]}, "amount", 0)
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": back["name"]}, "amount", 250)
+        frappe.db.commit()
+
+        result = self._confirm(_xlsx(lines))
+
+        self.assertEqual(result["repeats_not_saved"], 2)
+        self.assertEqual(result["records_filled"], 1)
+        self.assertEqual(self._lines(result["batch"]), [])
+        self.assertEqual(float(self._record(top_up["name"])["amount"]), 50000.0)
+        self.assertEqual(self._record(top_up["name"])["direction"], "In")
+        self.assertEqual(float(self._record(back["name"])["amount"]), 250.0)
+        self.assertEqual(float(frappe.db.get_value("Outflow Import Row", top_up["name"], "amount")), 0.0)
+        self.assertEqual(frappe.db.count(INTERNAL_TRANSFER_DOCTYPE, {"import_row": ["in", [l["name"] for l in old]]}), 2)
+
+    def test_a_file_that_only_fills_records_is_not_refused_as_nothing_new(self):
+        tag = frappe.generate_hash(length=6).upper()
+        lines = [_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS",
+                       f"VALOAD-{tag}")]
+        old = self._lines(self._stage(lines))[0]
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": old["name"]}, "amount", 0)
+        frappe.db.commit()
+        self.assertEqual(self._confirm(_xlsx(lines))["records_filled"], 1)
+        self.assertEqual(float(self._record(old["name"])["amount"]), 700.0)

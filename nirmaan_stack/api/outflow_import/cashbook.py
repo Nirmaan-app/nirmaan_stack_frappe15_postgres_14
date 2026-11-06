@@ -76,7 +76,12 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
     lock_line_if,
 )
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
-from nirmaan_stack.api.outflow_import.internal_transfers import move_already_recorded, record_for_line
+from nirmaan_stack.api.outflow_import.internal_transfers import (
+    fill_zero_records,
+    move_already_recorded,
+    record_for_line,
+    zero_records_to_fill,
+)
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -148,8 +153,13 @@ def preview_cashbook_statement():
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
+    fills = zero_records_to_fill(parsed.rows)
     return preview_payload(
-        parsed, plan, filename, _assess(parsed, plan, filename, late), [_late_bill_preview(bill) for bill in late]
+        parsed,
+        plan,
+        filename,
+        _assess(parsed, plan, filename, late, fills),
+        [_late_bill_preview(bill) for bill in late],
     )
 
 
@@ -172,7 +182,8 @@ def confirm_cashbook_import():
     # path): `save_file` commits inside this request, so a refusal after it would leave an orphan File
     # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
     # them bring a bill for an Expense still waiting for one (#1593).
-    verdict = _assess(parsed, plan, filename, late)
+    fills = zero_records_to_fill(parsed.rows)
+    verdict = _assess(parsed, plan, filename, late, fills)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
@@ -196,6 +207,8 @@ def confirm_cashbook_import():
         user=user,
         late_bill_jobs=[_late_bill_job(bill) for bill in late],
     )
+    # Owner decision 2 (#1619): a ₹0 record an old import left takes the money from this file.
+    fill_zero_records(zero_records_to_fill(parsed.rows))
     # Raw (`set_value`): the File's own hooks run before insert only, and these pointer fields feed nothing of ours.
     frappe.db.set_value(
         "File",
@@ -222,6 +235,8 @@ def confirm_cashbook_import():
         "late_bills": len(late),
         # #1596: the earlier lines this import re-opened in place.
         "reopened": len(plan.reopening),
+        # Owner decision 2 (#1619): the ₹0 Internal Transfer records this file gave their money.
+        "records_filled": len(fills),
     }
 
 
@@ -874,13 +889,14 @@ def booked_elsewhere(row: str) -> str | None:
     return f"{leg.target_doctype} {leg.target_name}" if leg else None
 
 
-def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = ()) -> DuplicateVerdict:
+def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = (), fills: tuple = ()) -> DuplicateVerdict:
     """Refuse / warn / proceed, counted from THE plan `_stage` writes from (ADR-0031). READ-ONLY.
 
     The same `duplicates.assess_duplicates` the Cashfree path asks, so both sources refuse a file of
     nothing but exact repeats and warn at the same 90%. Shared by the preview and the confirm, so
-    what the preview promised is what the confirm enforces. A repeat bringing a late bill (`late`, #1593) is work:
-    a file of nothing but repeats is accepted when some of them bring one.
+    what the preview promised is what the confirm enforces. A repeat bringing a late bill (`late`, #1593) is work,
+    and so is one giving a ₹0 Internal Transfer record its money (`fills`, owner decision 2, #1619): a file of
+    nothing but repeats is accepted when some of them bring either.
     """
     return assess_duplicates(
         total=len(parsed.rows),
@@ -889,7 +905,7 @@ def _assess(parsed, plan: CashbookPlan, filename: str, late: tuple = ()) -> Dupl
         filename=filename,
         repeated_in_file=plan.split.repeated_in_file,
         earlier_batches=plan.split.repeats_by_batch,
-        repeats_with_work=len(late),
+        repeats_with_work=len(late) + len(fills),
     )
 
 
