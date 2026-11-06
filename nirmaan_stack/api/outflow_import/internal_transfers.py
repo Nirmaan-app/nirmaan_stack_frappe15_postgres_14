@@ -121,12 +121,14 @@ def zero_records_to_fill(rows) -> tuple[tuple[str, Decimal], ...]:
 
     Imports before #1623 never stored a top-up's Credit, so its record holds 0. The statement's line of the same
     move -- the same Txn Id and the same stored amount, its repeat identity -- carries the money in whichever column
-    it filled (`internal_transfers.cashbook_transfer_money`). A record holding any other amount is never read.
+    it filled (`internal_transfers.cashbook_transfer_money`). Only a line that says SUCCESS fills (owner decision 3:
+    a line that does not moved no money). A record holding any other amount is never read.
     """
     money_of = {}
     for raw in rows:
         money = cashbook_transfer_money(raw)
-        if (getattr(raw, "row_kind", "") or "").strip() in CASHBOOK_INTERNAL_KINDS and raw.transfer_id and money > 0:
+        moved = getattr(raw, "is_success", False) and money > 0
+        if (getattr(raw, "row_kind", "") or "").strip() in CASHBOOK_INTERNAL_KINDS and raw.transfer_id and moved:
             money_of[(raw.transfer_id, Decimal(str(getattr(raw, "amount", None) or 0)))] = money
     if not money_of:
         return ()

@@ -9,6 +9,8 @@ it writes only `Pending match run` lines, and an internal line is never one). Re
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Every batch, row and record this suite makes is purged.
 """
 
+from decimal import Decimal
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -296,6 +298,29 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
         frappe.db.commit()
         self.assertEqual(self._confirm(_xlsx(lines))["records_filled"], 1)
         self.assertEqual(float(self._record(old["name"])["amount"]), 700.0)
+
+
+class TestOnlyASuccessfulLineFillsARecord(CashbookStageCase):
+    def test_a_repeat_the_wallet_now_calls_reversed_fills_nothing(self):
+        """Owner decision 2 (#1619): the fill takes its amount only from a file line that says SUCCESS."""
+        from nirmaan_stack.api.outflow_import.internal_transfers import zero_records_to_fill
+
+        tag = frappe.generate_hash(length=6).upper()
+        txn = f"VALOAD-{tag}"
+        old = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
+                                             "SUCCESS", txn)]))[0]
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": old["name"]}, "amount", 0)
+        frappe.db.commit()
+        record = frappe.db.get_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": old["name"]}, "name")
+        statement = [_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", status, txn)
+                     for status in ("REVERSED", "SUCCESS")]
+        self.assertEqual(zero_records_to_fill(parse_statement(_csv(statement[:1]), source="Cashbook").rows), ())
+        self.assertEqual(zero_records_to_fill(parse_statement(_csv(statement[1:]), source="Cashbook").rows),
+                         ((record, Decimal("700")),))
+
+
+def _csv(lines) -> bytes:
+    return ("\n".join([_HEADER, *lines]) + "\n").encode()
 
 
 class TestThePreviewListsInternalTransfersUnderTheirOwnHeading(FrappeTestCase):
