@@ -79,6 +79,7 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     CashbookMove,
     cashbook_move,
     cashbook_raw_transfer,
+    name_refused_moves,
     transfer_sentence,
 )
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -337,7 +338,7 @@ def plan_statement(
     )
 
     bases = [{**_base(line.row), "reopens": claims.get(id(line.row))} for line in split.kept]
-    decisions = [_decide(line, base["amount"], booked) for line, base in zip(split.kept, bases)]
+    decisions = [_decide(line, base["amount"], booked) for line, base in zip(name_refused_moves(split.kept), bases)]
     pairs = pair_refunds(
         split.kept, [action == ACTION_OPEN for action, _, _ in decisions], lambda line: _pairable_spend(line, booked)
     )
@@ -358,7 +359,8 @@ def plan_statement(
             placement = _placement(base["remarks"], index, expense_rules)
             planned.append(PlannedRow(action=action, reason=reason, **base, **placement))
         elif action == ACTION_INTERNAL:
-            planned.append(PlannedRow(action=action, reason=reason, move=cashbook_move(split.kept[position].row), **base))
+            move = cashbook_move(split.kept[position].row)
+            planned.append(PlannedRow(action=action, reason=reason, move=move, **base))
         else:
             if action == ACTION_OPEN and base["row_kind"] in REFUND_ROW_KINDS:
                 reason = unpaired_reason(base["transfer_id"], base["amount"], rows)
@@ -384,7 +386,7 @@ def _decide(
       * a refund (Refund to Wallet, Credit Adjustment) and a Wallet Credit are OPEN lines, unless the same
         repeat / outcome / amount tests skip them. Pairing may then turn a refund and its spend into a skip;
       * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when this line says SUCCESS, else Bank refused
-        (`_repeat_sentence` names an earlier sighting); any other Type is an Unknown Cashbook type skip (#1619).
+        (`repeat_sentence` names an earlier sighting); any other Type is an Unknown Cashbook type skip (#1619).
 
     The reason of an open refund is filled in after pairing (`cashbook_refunds.unpaired_reason`); a wallet credit's is fixed.
     """
@@ -397,7 +399,7 @@ def _decide(
     if kind in CASHBOOK_INTERNAL_KINDS:
         if getattr(raw, "is_success", False):
             return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
-        return ACTION_SKIP, refused_move_reason(_repeat_sentence(line)), SKIP_KIND_BANK_REFUSED
+        return ACTION_SKIP, refused_move_reason(repeat_sentence(line)), SKIP_KIND_BANK_REFUSED
     if kind in CREDIT_ROW_KINDS:
         if kind in REFUND_ROW_KINDS:
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES
@@ -412,12 +414,11 @@ def _decide(
 
 
 def refused_move_reason(repeat: str = "") -> str:
-    """The Bank refused sentence of a Cashbook move whose own line is not a success (owner decision 3, #1619), whatever
-    an earlier sighting said: it names that sighting when `repeat`, a status-changed repeat's sentence, is given."""
+    """A Cashbook move whose own line is not a success is Bank refused, naming `repeat`'s sighting (decision 3)."""
     return f"{SKIP_NOT_SUCCESSFUL}. {repeat}" if repeat else SKIP_NOT_SUCCESSFUL
 
 
-def _repeat_sentence(line: KeptLine) -> str:
+def repeat_sentence(line: KeptLine) -> str:
     """A STATUS-CHANGED repeat's sentence, naming its earlier sighting and both statuses; blank on any other line."""
     now = bank_status_key(getattr(line.row, "status_raw", ""))
     if line.earlier:
@@ -450,7 +451,7 @@ def _skip_reason(
     raw = line.row
     if moved is None:
         moved = bool(getattr(raw, "is_success", False))
-    repeat = _repeat_sentence(line)
+    repeat = repeat_sentence(line)
     if repeat:
         return repeat, SKIP_KIND_ALREADY_IMPORTED if line.earlier else SKIP_KIND_REPEATED_IN_FILE
     if not moved:

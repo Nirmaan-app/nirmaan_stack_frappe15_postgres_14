@@ -15,7 +15,7 @@ extended here, in code (owner, 2026-11-06).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.bank_exclusions import (
@@ -24,6 +24,8 @@ from nirmaan_stack.services.outflow_import.bank_exclusions import (
     IFSC_PORTER,
     NEFT_RETURN_FAILED,
 )
+from nirmaan_stack.services.outflow_import.duplicates import Repeat, bank_status_key
+from nirmaan_stack.services.outflow_import.repeats import KeptLine
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_EXCLUSION_CATEGORY
 
 PLACE_ICICI_CURRENT = "ICICI Current Account"
@@ -227,6 +229,27 @@ def cashbook_move(raw) -> CashbookMove:
         direction=cashbook_direction(getattr(raw, "amount", None)),
         rule=CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
     )
+
+
+def name_refused_moves(kept) -> tuple[KeptLine, ...]:
+    """`kept` (the repeat walk's lines, in file order), each Cashbook move line that does not say SUCCESS and has no
+    earlier sighting of its own carrying, as `in_file`, the first earlier line of this file of the same move (Txn Id
+    and stored amount) under another bank status (owner decision 3, #1619): its Bank refused sentence names it.
+
+    The repeat walk never makes an Internal Transfer line the basis of an in-file status change (a top-up must not
+    swallow a spend that shares its identity), so without this the sentence would name nothing."""
+    first_status: dict[tuple, str] = {}
+    named = []
+    for line in kept:
+        raw = line.row
+        move = (getattr(raw, "transfer_id", "") or "", getattr(raw, "amount", None))
+        status, earlier = bank_status_key(getattr(raw, "status_raw", "")), first_status.get(move)
+        refused = (getattr(raw, "row_kind", "") or "").strip() in CASHBOOK_INTERNAL_KINDS and not raw.is_success
+        if refused and not (line.earlier or line.in_file) and earlier not in (None, status):
+            line = replace(line, in_file=Repeat(label="", earlier_status=earlier, exact=False))
+        first_status.setdefault(move, status)
+        named.append(line)
+    return tuple(named)
 
 
 def transfer_sentence(ends: TransferEnds) -> str:

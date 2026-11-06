@@ -50,11 +50,10 @@ from nirmaan_stack.api.outflow_import.internal_transfers import (
     recorded_line_of_move,
 )
 from nirmaan_stack.services.outflow_import.cashbook import (
-    SKIP_ALREADY_IMPORTED_STATUS_CHANGED,
-    SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
     refused_move_reason,
+    repeat_sentence,
 )
-from nirmaan_stack.services.outflow_import.duplicates import bank_status_key
+from nirmaan_stack.services.outflow_import.duplicates import Repeat, bank_status_key
 from nirmaan_stack.services.outflow_import.internal_transfer_backfill import (
     LEFT,
     PLACED,
@@ -67,6 +66,7 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     cashbook_direction,
     transfer_sentence,
 )
+from nirmaan_stack.services.outflow_import.repeats import KeptLine
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_BANK_REFUSED,
@@ -195,20 +195,20 @@ def _refuse(line) -> None:
     frappe.db.set_value(
         ROW_DOCTYPE,
         line.name,
-        {"skip_kind": SKIP_KIND_BANK_REFUSED, "skip_reason": refused_move_reason(_repeat_sentence(line))},
+        {"skip_kind": SKIP_KIND_BANK_REFUSED, "skip_reason": refused_move_reason(_earlier_sentence(line))},
         update_modified=False,
     )
 
 
-def _repeat_sentence(line) -> str:
-    """The status change from the move's earlier line, as the import words it: in this import, or in an earlier one."""
+def _earlier_sentence(line) -> str:
+    """The status change from the move's earlier line, worded by the import's own `repeat_sentence`: in this import
+    (the same file), or in an earlier one."""
     earlier = earlier_line_of_move(line)
     if not earlier:
         return ""
-    statuses = {"earlier": bank_status_key(earlier.status_raw), "now": bank_status_key(line.status_raw)}
-    if earlier.import_batch == line.import_batch:
-        return SKIP_REPEATED_IN_FILE_STATUS_CHANGED.format(**statuses)
-    return SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(batch=earlier.import_batch, **statuses)
+    seen = Repeat(label=earlier.import_batch, earlier_status=bank_status_key(earlier.status_raw), exact=False)
+    same_file = earlier.import_batch == line.import_batch
+    return repeat_sentence(KeptLine(row=line, earlier=None if same_file else seen, in_file=seen if same_file else None))
 
 
 def _convert(line, placement) -> None:

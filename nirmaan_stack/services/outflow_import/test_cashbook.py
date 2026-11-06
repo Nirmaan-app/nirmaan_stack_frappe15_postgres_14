@@ -183,8 +183,8 @@ class TestWhatIsNotImported(unittest.TestCase):
                 )
 
     def test_a_not_successful_line_after_its_successful_copy_in_the_same_file_is_bank_refused(self):
-        """An Internal Transfer line is never the basis of an in-file status change (`plan_statement`), so the later
-        line names no earlier sighting: it is plain Bank refused."""
+        """Owner decision 3 (#1619): Bank refused, naming the earlier copy in this file as the import names an earlier
+        import's, and as the patch names an old line's."""
         plan = _plan([
             _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="SUCCESS"),
             _row(number=2, transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED"),
@@ -193,7 +193,12 @@ class TestWhatIsNotImported(unittest.TestCase):
             [(r.action, r.skip_kind, r.reason) for r in plan.rows],
             [
                 (ACTION_INTERNAL, None, plan.rows[0].reason),
-                (ACTION_SKIP, SKIP_KIND_BANK_REFUSED, SKIP_NOT_SUCCESSFUL),
+                (
+                    ACTION_SKIP,
+                    SKIP_KIND_BANK_REFUSED,
+                    "Did not succeed at the wallet. The same transfer appears earlier in this file, bank status "
+                    "changed SUCCESS → REVERSED",
+                ),
             ],
         )
 

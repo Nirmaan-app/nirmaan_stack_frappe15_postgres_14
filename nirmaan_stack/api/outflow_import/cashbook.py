@@ -76,9 +76,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
     lock_line_if,
 )
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
-from nirmaan_stack.api.outflow_import.internal_transfers import (
-    fill_zero_records, record_cashbook_move, zero_records_to_fill
-)
+from nirmaan_stack.api.outflow_import import internal_transfers as internal_transfer_records
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -150,7 +148,7 @@ def preview_cashbook_statement():
     _, filename, _, parsed = _read_and_parse()
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
-    fills = zero_records_to_fill(parsed.rows)
+    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
     verdict = _assess(parsed, plan, filename, late, fills)
     return preview_payload(parsed, plan, filename, verdict, [_late_bill_preview(b) for b in late], len(fills))
 
@@ -174,7 +172,7 @@ def confirm_cashbook_import():
     # path): `save_file` commits inside this request, so a refusal after it would leave an orphan File
     # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
     # them bring a bill for an Expense still waiting for one (#1593).
-    fills = zero_records_to_fill(parsed.rows)
+    fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
     verdict = _assess(parsed, plan, filename, late, fills)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
@@ -199,7 +197,7 @@ def confirm_cashbook_import():
         user=user,
         late_bill_jobs=[_late_bill_job(bill) for bill in late],
     )
-    fill_zero_records(fills)
+    internal_transfer_records.fill_zero_records(fills)
     # Raw (`set_value`): the File's own hooks run before insert only, and these pointer fields feed nothing of ours.
     frappe.db.set_value(
         "File",
@@ -960,7 +958,7 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
         # carries it in its Credit, so the line's own `amount` may be 0). Only a line that says SUCCESS is one (owner
         # decision 3, #1619), so each Internal Transfer line holds exactly one record.
         if planned.move:
-            record_cashbook_move(doc, planned.move)
+            internal_transfer_records.record_cashbook_move(doc, planned.move)
         if _copies_a_collect_bill(raw, planned):
             collect_lines.append(doc.name)
 
