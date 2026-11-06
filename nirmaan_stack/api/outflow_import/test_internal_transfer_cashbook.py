@@ -223,3 +223,24 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
         frappe.db.commit()
         self.assertEqual(self._confirm(_xlsx(lines))["records_filled"], 1)
         self.assertEqual(float(self._record(old["name"])["amount"]), 700.0)
+
+
+class TestThePreviewListsInternalTransfersUnderTheirOwnHeading(FrappeTestCase):
+    """Owner decision 7 (#1619): the Cashbook upload preview lists Internal Transfer lines on their own, as the card
+    Review does, not under "Not importing"."""
+
+    def test_an_internal_line_is_listed_with_the_money_it_moved_and_not_with_the_skips(self):
+        from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
+
+        tag = frappe.generate_hash(length=6).upper()
+        preview = _post(cb.preview_cashbook_statement, _xlsx([
+            _line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "500", "SUCCESS", f"VALOAD-{tag}1"),
+            _line("02/08/2026", "Something New", "Test Employee B", "Virtual Account", "", "10", "SUCCESS",
+                  f"VALOAD-{tag}2"),
+        ]), "test-it-preview.xlsx")
+        self.assertEqual(
+            [(line["transfer_id"], line["amount"], line["reason"]) for line in preview["internal_transfers"]],
+            [(f"VALOAD-{tag}1", 500.0,
+              "Internal Transfer from ICICI Current Account to Cashbook Virtual Account.")],
+        )
+        self.assertEqual([line["transfer_id"] for line in preview["skipped"]], [f"VALOAD-{tag}2"])
