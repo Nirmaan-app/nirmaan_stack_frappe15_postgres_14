@@ -17,6 +17,7 @@
 import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
 import { resolveDateFilter } from "@/utils/dateFilterRange";
 import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
 // leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
 // NOT flip this to satisfy some other convenience; check for a cycle again before you do.
@@ -1713,6 +1714,23 @@ export const summaryTiles = (totals: {
         });
     }
     return tiles;
+};
+
+/**
+ * The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
+ * and the money their records moved out and in. Shown at zero rather than hidden: "none in this period" is a fact
+ * worth reading. `null` only for a server that predates the figure, so nothing claims a zero it was never sent.
+ */
+export const internalTransferFigure = (totals: {
+    internal_transfer_rows?: number;
+    internal_transfer_out_value?: number;
+    internal_transfer_in_value?: number;
+}): { count: number; text: string } | null => {
+    if (totals.internal_transfer_rows === undefined) return null;
+    const count = totals.internal_transfer_rows;
+    const out = formatToRoundedIndianRupee(totals.internal_transfer_out_value ?? 0);
+    const inward = formatToRoundedIndianRupee(totals.internal_transfer_in_value ?? 0);
+    return { count, text: `${count} ${count === 1 ? "line" : "lines"} · ${out} out · ${inward} in` };
 };
 
 /**

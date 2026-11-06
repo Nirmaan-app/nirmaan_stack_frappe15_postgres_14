@@ -4334,7 +4334,7 @@ def get_outflow_summary(
         # caption that quietly describes the wrong statement. Absent is the honest shape there; the
         # screen reads the `imports` list instead.
         "import": _batch_meta(batch) if batch else None,
-        "totals": _jsonable_summary(summary),
+        "totals": {**_jsonable_summary(summary), **_internal_transfer_figure(where, params)},
         # Which skips were the system's and which were a person's. The screen labels them
         # differently because they mean different things: one is bookkeeping, one is a decision.
         "auto_skipped_rows": auto_skipped,
@@ -4348,6 +4348,40 @@ def get_outflow_summary(
             for g in grouped
             if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
         ),
+    }
+
+
+def _internal_transfer_figure(where, params) -> dict:
+    """The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
+    and the money their records moved out and in.
+
+    ⚠️ UNDER THE SAME `_row_filters` WHERE AS EVERY OTHER FIGURE, so it follows the period and the imports. A
+    transfer the bank refused is left out, as from every summary figure (option B).
+
+    ⚠️ THE MONEY IS THE RECORDS', NOT THE LINES'. A Cashbook top-up carries its money in the statement's Credit
+    column and stages its line at 0 (#1623); its record holds what moved. A status-changed repeat is a line with no
+    record: it counts as a line and adds no money, so one move is never summed twice. Out and In are the record's
+    direction, as the line stated it. These lines are already out of the totals and Still open
+    (`status.SUMMARY_EXCLUDED_STATUSES`); this is the only place their money is shown.
+    """
+    failed_sql, failed_params = _failed_transfer_sql()
+    clause = " AND ".join([*where, "r.row_status = %s", f"NOT ({failed_sql})"])
+    figure = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) AS rows,
+               COALESCE(SUM(CASE WHEN it.direction = 'Out' THEN it.amount ELSE 0 END), 0) AS out_value,
+               COALESCE(SUM(CASE WHEN it.direction = 'In' THEN it.amount ELSE 0 END), 0) AS in_value
+        FROM "tabOutflow Import Row" r
+        {_INTERNAL_TRANSFER_JOIN}
+        WHERE {clause}
+        """,
+        tuple(params) + (ROW_INTERNAL_TRANSFER,) + failed_params,
+        as_dict=True,
+    )[0]
+    return {
+        "internal_transfer_rows": int(figure["rows"] or 0),
+        "internal_transfer_out_value": float(normalize_amount(figure["out_value"])),
+        "internal_transfer_in_value": float(normalize_amount(figure["in_value"])),
     }
 
 

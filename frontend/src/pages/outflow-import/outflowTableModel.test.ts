@@ -49,6 +49,7 @@ import {
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
     INTERNAL_TRANSFER_COLUMNS,
+    internalTransferFigure,
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
@@ -4940,5 +4941,31 @@ describe("settledBankLineTargets — the Bank lines dialog on a Settled row", ()
     it("drops a match with a blank name", () => {
         const blank = [{ target_doctype: "Project Expenses", target_name: " " }] as OutflowImportRow["matches"];
         expect(settledBankLineTargets(row({ row_status: "Settled", matches: blank }))).toEqual([]);
+    });
+});
+
+describe("the Internal transfers figure (#1625)", () => {
+    it("states the count, the money out and the money in", () => {
+        expect(
+            internalTransferFigure({
+                internal_transfer_rows: 8,
+                internal_transfer_out_value: 26000,
+                internal_transfer_in_value: 5400,
+            })
+        ).toEqual({ count: 8, text: "8 lines · ₹26,000 out · ₹5,400 in" });
+    });
+
+    it("shows zero rather than disappearing when none are in scope", () => {
+        expect(
+            internalTransferFigure({
+                internal_transfer_rows: 0,
+                internal_transfer_out_value: 0,
+                internal_transfer_in_value: 0,
+            })
+        ).toEqual({ count: 0, text: "0 lines · ₹0 out · ₹0 in" });
+    });
+
+    it("renders nothing for a server that predates the figure", () => {
+        expect(internalTransferFigure({})).toBeNull();
     });
 });

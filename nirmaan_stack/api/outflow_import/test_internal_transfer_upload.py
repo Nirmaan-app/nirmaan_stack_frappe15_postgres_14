@@ -179,8 +179,10 @@ class TestTheRecordIsNeverEdited(InternalTransferUploadFixture):
         doc = frappe.new_doc(INTERNAL_TRANSFER_DOCTYPE)
         doc.update({"import_row": line, "from_place": "ICICI Current Account", "to_place": "Cashfree Wallet",
                     "direction": "Out", "amount": 1})
+        frappe.db.savepoint("it_second_record")
         with self.assertRaises(frappe.UniqueValidationError):
             doc.insert(ignore_permissions=True)
+        frappe.db.rollback(save_point="it_second_record")
 
 
 class TestTheInternalTransfersTab(InternalTransferUploadFixture):
@@ -252,3 +254,37 @@ class TestABouncedWalletTopUpOnUpload(InternalTransferUploadFixture):
         self.assertEqual((record["from_place"], record["to_place"]), ("Cashbook Virtual Account", "ICICI Current Account"))
         self.assertEqual(rows[2]["skip_kind"], "Failed payment bounced back")
         self.assertIn("neft_return_failed", rows[2]["skip_reason"])
+
+
+class TestTheSummaryFigure(InternalTransferUploadFixture):
+    """#1625: the panel's Internal transfers figure -- count, money out, money in -- under the panel's filters."""
+
+    def test_it_counts_the_lines_and_sums_money_out_and_in_and_moves_no_other_figure(self):
+        from nirmaan_stack.api.outflow_import.review import get_outflow_summary
+
+        batch = self._stage(_parsed())
+        totals = get_outflow_summary(batch=batch)["totals"]
+        # Out: 1,000 + 2,000 + 3,000 + 5,000 + 7,000 + 8,000; in: 400 + 5,000.
+        self.assertEqual(
+            (totals["internal_transfer_rows"], totals["internal_transfer_out_value"],
+             totals["internal_transfer_in_value"]),
+            (8, 26000.0, 5400.0),
+        )
+        # Still open and the totals leave these lines out, exactly as they did while they were Skipped.
+        open_lines = [l for l in self._lines(batch) if l["row_status"] == "Mismatched"]
+        self.assertEqual(totals["open_rows"], len(open_lines))
+        self.assertEqual(totals["total_rows"], len(open_lines))
+
+    def test_it_follows_the_period_filter_and_shows_zero_when_none_are_in_scope(self):
+        from nirmaan_stack.api.outflow_import.review import get_outflow_summary
+
+        batch = self._stage(_parsed())
+        narrowed = get_outflow_summary(batch=batch, date_from="2026-02-01", date_to="2026-02-02")["totals"]
+        self.assertEqual(
+            (narrowed["internal_transfer_rows"], narrowed["internal_transfer_out_value"]), (2, 3000.0)
+        )
+        empty = get_outflow_summary(batch=batch, date_from="2026-02-13", date_to="2026-02-13")["totals"]
+        self.assertEqual(
+            (empty["internal_transfer_rows"], empty["internal_transfer_out_value"], empty["internal_transfer_in_value"]),
+            (0, 0.0, 0.0),
+        )

@@ -545,6 +545,13 @@ export interface OutflowImportSummary {
         failed_rows: number;
         failed_value: number;
         /**
+         * The Internal transfers figure (#1625): Internal Transfer lines under the panel's filters, and the money
+         * their records moved out and in. Outside every figure above. Optional for an older server.
+         */
+        internal_transfer_rows?: number;
+        internal_transfer_out_value?: number;
+        internal_transfer_in_value?: number;
+        /**
          * The WHOLE-STATEMENT figure split by which way the money went, as plain counts and
          * totals (`status.derive_import_summary`).
          *
