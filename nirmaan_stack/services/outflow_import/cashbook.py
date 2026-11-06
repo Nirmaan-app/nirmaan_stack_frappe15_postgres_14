@@ -389,9 +389,8 @@ def _decide(
       * a Wallet Spend creates, and a Collect Payment is an OPEN line (#1595), unless `_skip_reason` skips it;
       * a refund (Refund to Wallet, Credit Adjustment) and a Wallet Credit are OPEN lines, unless the same
         repeat / outcome / amount tests skip them. Pairing may then turn a refund and its spend into a skip;
-      * Bank → VA, VA → Wallet and Wallet → VA are Cashbook's own moves: an Internal Transfer when money moved,
-        else a Bank refused skip (or a repeat's skip) (#1623; owner decision 3, #1619);
-      * any other Type is one the app does not know: an Unknown Cashbook type skip (owner decision 4, #1619).
+      * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when money moved, else Bank refused (#1619);
+      * any other Type: an Unknown Cashbook type skip (owner decision 4, #1619).
 
     The reason of an open refund is filled in after pairing (`cashbook_refunds.unpaired_reason`); a wallet credit's is fixed.
     """
@@ -402,14 +401,11 @@ def _decide(
         opened = (ACTION_CREATE, "", None) if kind == SPEND_ROW_KIND else (ACTION_OPEN, COLLECT_PAYMENT_NOTE, None)
         return (ACTION_SKIP, reason, skip_kind) if reason else opened
     if kind in CASHBOOK_INTERNAL_KINDS:
-        # #1623: Cashbook's own moves are Internal Transfers when money moved: this line says SUCCESS, or it is a
-        # status-changed repeat of a line that did (the move happened; the repeat itself records nothing).
-        moved = bool(getattr(raw, "is_success", False))
-        if moved or any(seen and seen.earlier_status == BANK_SUCCESS_STATUS for seen in (line.earlier, line.in_file)):
+        # An Internal Transfer when money moved: this line says SUCCESS, or it repeats one that did (#1623).
+        seen = (line.earlier, line.in_file)
+        if getattr(raw, "is_success", False) or any(s and s.earlier_status == BANK_SUCCESS_STATUS for s in seen):
             return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
-        # No money moved (owner decision 3, #1619): Bank refused, or the repeat sentence when it was seen before.
-        reason, skip_kind = _skip_reason(line, amount, None, moved=False)
-        return ACTION_SKIP, reason, skip_kind
+        return (ACTION_SKIP, *_skip_reason(line, amount, None, moved=False))  # Bank refused, or the repeat's skip
     if kind in CREDIT_ROW_KINDS:
         if kind in REFUND_ROW_KINDS:
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES
@@ -420,7 +416,6 @@ def _decide(
         if reason:
             return ACTION_SKIP, reason, skip_kind
         return ACTION_OPEN, OPEN_WALLET_CREDIT if kind == WALLET_CREDIT_ROW_KIND else "", None
-    # Owner decision 4 (#1619): a Type the app does not know is never filed as one of our own moves.
     return ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind=kind or "blank"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE
 
 
