@@ -78,6 +78,7 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     CASHBOOK_INTERNAL_KINDS,
     TransferEnds,
     cashbook_internal_facts,
+    cashbook_move_happened,
     cashbook_raw_transfer,
     transfer_sentence,
 )
@@ -87,7 +88,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     row_identity,
 )
-from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS, DIRECTION_CREDIT
+from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex
 from nirmaan_stack.services.outflow_import.repeats import KeptLine, RepeatSplit, split_repeats
 from nirmaan_stack.services.outflow_import.skip_kinds import (
@@ -132,8 +133,7 @@ ACTION_CREATE = "create"
 ACTION_SKIP = "skip"
 # An open line (#1594): staged at `Mismatched`, a status the job never takes, and decided on the main table.
 ACTION_OPEN = "open"
-# One of Cashbook's own moves (#1623, spec #1619): staged at `Internal Transfer` with one record, never an expense.
-ACTION_INTERNAL = "internal"
+ACTION_INTERNAL = "internal"  # One of Cashbook's own moves (#1623): an Internal Transfer line, never an expense.
 
 # Every reason a row is not imported. They are constants because the preview groups by them and a
 # reworded sentence would silently split one group into two.
@@ -202,8 +202,7 @@ class PlannedRow:
     partner: str = ""
     # #1596: the earlier line skipped as own balances that this line re-opens in place; it is then not staged anew.
     reopens: EarlierWrongSkip | None = None
-    # #1623: an internal line's transfer facts (`internal_transfers.cashbook_internal_facts`).
-    transfer: TransferEnds | None = None
+    transfer: TransferEnds | None = None  # #1623: an internal line's facts (`cashbook_internal_facts`).
     transfer_money: Decimal = Decimal("0")
     transfer_direction: str = ""
     records_transfer: bool = False
@@ -270,6 +269,7 @@ def plan_statement(
     already_imported: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
     already_booked: Mapping[tuple, tuple[PriorSighting, ...]] | None = None,
     wrong_skips: Sequence[EarlierWrongSkip] = (),
+    recorded_moves: frozenset = frozenset(),
 ) -> CashbookPlan:
     """Decide what every parsed row becomes.
 
@@ -303,6 +303,7 @@ def plan_statement(
     that never existed. Kind first, then a STATUS-CHANGED repeat (an earlier batch, then further up
     this sheet), then outcome, then amount, then an existing expense.
 
+    `recorded_moves`: the Txn Ids whose Cashbook move holds an Internal Transfer record (#1619).
     ⚠️ A LINE THAT RE-OPENS AN EARLIER OWN-BALANCES SKIP (`wrong_skips`) IS NOT A REPEAT (#1596, `cashbook_reopen`):
     it carries that line as `reopens`, which is re-opened in place, never staged again.
 
@@ -314,10 +315,11 @@ def plan_statement(
     """
     already = dict(already_imported or {})
     booked = dict(already_booked or {})
+    decide = lambda line, amount: _decide(line, amount, booked, recorded_moves)  # noqa: E731
     # Read twice: by the repeat walk, and by `unpaired_reason` (is a refund's spend on this statement?).
     rows = list(rows)
     claims = claim_wrong_skips(
-        rows, wrong_skips, lambda raw: _decide(KeptLine(raw, None, None), _amount(raw), booked)[0] == ACTION_OPEN
+        rows, wrong_skips, lambda raw: decide(KeptLine(raw, None, None), _amount(raw))[0] == ACTION_OPEN
     )
 
     # ⚠️ THE IN-FILE CHECK STAYS ON THE EXACT TRIPLE, AND THAT IS NOT AN OVERSIGHT. Three places ask
@@ -337,11 +339,11 @@ def plan_statement(
         ),
         earlier_sightings_of=lambda raw: earlier_sightings(raw, already, claims),
         # An internal line is not final here, exactly as when it was a skip (#1623 changes no repeat).
-        is_final_in_file=lambda line: _decide(line, _amount(line.row), booked)[0] not in (ACTION_SKIP, ACTION_INTERNAL),
+        is_final_in_file=lambda line: decide(line, _amount(line.row))[0] not in (ACTION_SKIP, ACTION_INTERNAL),
     )
 
     bases = [{**_base(line.row), "reopens": claims.get(id(line.row))} for line in split.kept]
-    decisions = [_decide(line, base["amount"], booked) for line, base in zip(split.kept, bases)]
+    decisions = [decide(line, base["amount"]) for line, base in zip(split.kept, bases)]
     pairs = pair_refunds(
         split.kept, [action == ACTION_OPEN for action, _, _ in decisions], lambda line: _pairable_spend(line, booked)
     )
@@ -381,6 +383,7 @@ def _decide(
     line: KeptLine,
     amount: Decimal,
     booked: Mapping[tuple, tuple[PriorSighting, ...]],
+    recorded_moves: frozenset = frozenset(),
 ) -> tuple[str, str, str | None]:
     """`(action, reason, skip_kind)` for one line, BEFORE refunds are paired (`cashbook_refunds.pair_refunds`).
 
@@ -389,8 +392,8 @@ def _decide(
       * a Wallet Spend creates, and a Collect Payment is an OPEN line (#1595), unless `_skip_reason` skips it;
       * a refund (Refund to Wallet, Credit Adjustment) and a Wallet Credit are OPEN lines, unless the same
         repeat / outcome / amount tests skip them. Pairing may then turn a refund and its spend into a skip;
-      * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when money moved, else Bank refused (#1619);
-      * any other Type: an Unknown Cashbook type skip (owner decision 4, #1619).
+      * Bank → VA, VA → Wallet, Wallet → VA: an Internal Transfer when money moved, else skipped; any other Type is
+        an Unknown Cashbook type skip (#1619).
 
     The reason of an open refund is filled in after pairing (`cashbook_refunds.unpaired_reason`); a wallet credit's is fixed.
     """
@@ -401,9 +404,7 @@ def _decide(
         opened = (ACTION_CREATE, "", None) if kind == SPEND_ROW_KIND else (ACTION_OPEN, COLLECT_PAYMENT_NOTE, None)
         return (ACTION_SKIP, reason, skip_kind) if reason else opened
     if kind in CASHBOOK_INTERNAL_KINDS:
-        # An Internal Transfer when money moved: this line says SUCCESS, or it repeats one that did (#1623).
-        seen = (line.earlier, line.in_file)
-        if getattr(raw, "is_success", False) or any(s and s.earlier_status == BANK_SUCCESS_STATUS for s in seen):
+        if cashbook_move_happened(raw, line.earlier, line.in_file, recorded_moves):  # #1623, #1619
             return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
         return (ACTION_SKIP, *_skip_reason(line, amount, None, moved=False))  # Bank refused, or the repeat's skip
     if kind in CREDIT_ROW_KINDS:

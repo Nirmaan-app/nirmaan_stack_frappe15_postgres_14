@@ -113,6 +113,24 @@ def record_for_line(
     return doc.name
 
 
+def recorded_cashbook_moves(transfer_ids) -> frozenset:
+    """Which of these Txn Ids name a Cashbook move that holds an Internal Transfer record. READ-ONLY.
+
+    The Cashbook plan asks it of a status-changed repeat (`internal_transfers.cashbook_move_happened`): a move sent
+    back to Mismatched holds none, so a later sighting that moved no money is not an Internal Transfer line.
+    """
+    if not transfer_ids:
+        return frozenset()
+    return frozenset(
+        frappe.db.sql_list(
+            """SELECT DISTINCT r.transfer_id FROM "tabOutflow Import Row" r
+               JOIN "tabInternal Transfer" it ON it.import_row = r.name
+               WHERE r.source = %s AND r.transfer_id IN %s""",
+            (CASHBOOK_SOURCE, tuple(transfer_ids)),
+        )
+    )
+
+
 def zero_records_to_fill(rows) -> tuple[tuple[str, Decimal], ...]:
     """`(record, money)` for each Cashbook Internal Transfer record holding ₹0 that a line of this statement (parsed
     `rows`) repeats and can fill (owner decision 2, #1619). READ-ONLY.

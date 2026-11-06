@@ -147,6 +147,21 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
         self.assertEqual(again["row_status"], "Internal Transfer")
         self.assertIsNotNone(self._record(again["name"]))
 
+    def test_a_failed_repeat_of_a_move_sent_back_to_mismatched_is_no_internal_transfer(self):
+        """Code review (#1619): every Internal Transfer line keeps exactly one record. The SUCCESS line was sent back,
+        so the move holds no record; a later REVERSED sighting moved no money and keeps the repeat's skip."""
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+
+        tag = frappe.generate_hash(length=6).upper()
+        txn = f"VALOAD-{tag}"
+        first = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "",
+                                               "700", "SUCCESS", txn)]))[0]
+        send_back_to_mismatched(first["name"], reason="Not our own move")
+        again = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "",
+                                               "700", "REVERSED", txn)]))[0]
+        self.assertEqual((again["row_status"], again["skip_kind"]), ("Skipped", "Already imported"))
+        self.assertIsNone(self._record(again["name"]))
+
     def test_a_top_up_into_the_virtual_account_is_money_in_and_money_back_out_is_money_out(self):
         """Review finding: the record's direction is the column the statement filled -- Credit is In, Debit is Out."""
         tag = frappe.generate_hash(length=6).upper()

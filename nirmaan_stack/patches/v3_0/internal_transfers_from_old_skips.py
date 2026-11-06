@@ -158,6 +158,13 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
         if placement.outcome == LEFT:
             report.left.append((line.name, line.skip_kind, placement.why))
             continue
+        if placement.outcome == REFUSED and move_already_recorded(line):
+            # A status-changed repeat of a move that holds its record: an Internal Transfer line with none, as the
+            # import files it (#1619 code review). Lines are read oldest first, so the SUCCESS line came before.
+            _convert(line, placement)
+            touched.add(line.import_batch)
+            report.converted += 1
+            continue
         if placement.outcome == REFUSED:
             _refuse(line)
             touched.add(line.import_batch)

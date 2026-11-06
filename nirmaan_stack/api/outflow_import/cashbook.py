@@ -80,6 +80,7 @@ from nirmaan_stack.api.outflow_import.internal_transfers import (
     fill_zero_records,
     move_already_recorded,
     record_for_line,
+    recorded_cashbook_moves,
     zero_records_to_fill,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -710,6 +711,7 @@ def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
         wrong_skips=[
             skip for skip in wrong_skips(_statement_transfer_ids(parsed)) if skip.line not in not_reopening
         ],
+        recorded_moves=recorded_cashbook_moves(_statement_transfer_ids(parsed)),
     )
 
 

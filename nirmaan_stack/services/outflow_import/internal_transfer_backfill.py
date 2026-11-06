@@ -118,5 +118,7 @@ def _cashbook(transfer_id: str, row_kind: str, status_raw: str, who_from: str, w
         return Placement(UNPLACED, why=f"no Type, and its Txn Id ({txn[:14] or 'blank'}) names no Cashbook move")
     if (status_raw or "").strip().upper() != "SUCCESS":
         # As the import skips it (owner decision 3, #1619): no money moved, so it is Bank refused, with no record.
-        return Placement(REFUSED, why="a Cashbook move the wallet says did not succeed")
+        # It carries its move's ends: a repeat of a move whose record exists is filed as that move's line (the patch).
+        why = "a Cashbook move the wallet says did not succeed"
+        return Placement(REFUSED, ends, CASHBOOK_INTERNAL_KINDS[kind], why=why)
     return Placement(PLACED, ends, CASHBOOK_INTERNAL_KINDS[kind])

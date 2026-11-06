@@ -100,10 +100,10 @@ def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Sp
     )
 
 
-def _plan(rows, already=None, booked=None):
+def _plan(rows, already=None, booked=None, recorded=frozenset()):
     index = build_project_index(PROJECTS, aliases=ALIASES)
     return plan_statement(
-        rows, index, RULES, already_imported=already, already_booked=booked
+        rows, index, RULES, already_imported=already, already_booked=booked, recorded_moves=recorded
     )
 
 
@@ -181,9 +181,17 @@ class TestWhatIsNotImported(unittest.TestCase):
     def test_a_status_changed_repeat_of_an_internal_line_is_internal_and_records_nothing(self):
         raw = _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED")
         already = _sightings(("VA7", "0", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
-        row = _plan([raw], already=already).rows[0]
+        row = _plan([raw], already=already, recorded={"VA7"}).rows[0]
         self.assertEqual(row.action, ACTION_INTERNAL)
         self.assertFalse(row.records_transfer)
+
+    def test_a_failed_repeat_of_a_move_whose_record_was_sent_back_is_not_an_internal_transfer(self):
+        """Code review (#1619): every Internal Transfer line keeps exactly one record. The earlier SUCCESS line was
+        sent back, so the move holds no record, and this line moved no money: it keeps the repeat's skip."""
+        raw = _row(transfer_id="VA6", kind="VA → Wallet", amount="0", credit="900", status="REVERSED")
+        already = _sightings(("VA6", "0", date(2026, 8, 1), "OFI-26-00006", "SUCCESS"))
+        row = _plan([raw], already=already, recorded=frozenset()).rows[0]
+        self.assertEqual((row.action, row.skip_kind), (ACTION_SKIP, SKIP_KIND_ALREADY_IMPORTED))
 
     def test_a_spend_that_failed_at_the_wallet_is_skipped(self):
         row = _plan([_row(status="FAILED")]).rows[0]

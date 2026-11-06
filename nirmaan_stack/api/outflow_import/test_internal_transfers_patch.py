@@ -147,3 +147,20 @@ class TestTheOldSkipsPatch(InternalTransferLineFixture):
         frappe.db.commit()
         self.assertEqual([self._state(first)[0], self._state(repeat)[0]], ["Internal Transfer"] * 2)
         self.assertEqual(len(self._state(first)[2]) + len(self._state(repeat)[2]), 1)
+
+    def test_a_failed_repeat_of_a_recorded_move_is_filed_as_the_import_files_it(self):
+        """Code review (#1619): the patch and the import agree. A REVERSED sighting of a move whose SUCCESS line holds
+        the record is an Internal Transfer line with no record; a failed move with no recorded sighting is Bank
+        refused."""
+        batch = self._batch(source="Cashbook")
+        tag = frappe.generate_hash(length=6).upper()
+        moved = self._old(batch, "Cashbook internal movement", source="Cashbook", direction="",
+                          transfer_id=f"VALOAD-{tag}", amount=0.0)
+        reversed_later = self._old(self._batch(source="Cashbook"), "Cashbook internal movement", source="Cashbook",
+                                   direction="", transfer_id=f"VALOAD-{tag}", amount=0.0, status="REVERSED")
+        report = convert_old_skips(rows=[moved, reversed_later])
+        frappe.db.commit()
+        self.assertEqual(self._state(moved)[:2], ("Internal Transfer", None))
+        self.assertEqual(len(self._state(moved)[2]), 1)
+        self.assertEqual(self._state(reversed_later), ("Internal Transfer", None, []))
+        self.assertEqual(report.refused, [])
