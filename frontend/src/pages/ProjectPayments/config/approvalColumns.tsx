@@ -43,6 +43,7 @@ import {
   ApprovalQueueRow,
   ApprovalTab,
   descriptionFirstLine,
+  PAYMENT_SOURCE_NONE,
   TIER_LABEL,
   TYPE_BADGE,
   TYPE_LABEL,
@@ -807,6 +808,23 @@ const REGISTRY: Record<
       exportHeaderName: "UTR / Ref",
       exportValue: (r: ApprovalQueueRow) => utrOrChequeText(r),
     },
+  }),
+
+  // The statement the row was reconciled from (owner, 2026-11-06). Faceted (`useApprovalFacets`), not sorted:
+  // the server sorts only on `SORTABLE`. "Unknown" is a real value, for the filter; the cell shows "—".
+  payment_source: () => ({
+    id: "payment_source",
+    accessorKey: "payment_source",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Source" />,
+    size: 160,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const source = row.original.payment_source;
+      return source && source !== PAYMENT_SOURCE_NONE
+        ? <span className="block max-w-[150px] truncate" title={source}>{source}</span>
+        : <Blank />;
+    },
+    meta: { exportHeaderName: "Payment Source", exportValue: (r: ApprovalQueueRow) => r.payment_source || "" },
   }),
 
   proof: () => ({

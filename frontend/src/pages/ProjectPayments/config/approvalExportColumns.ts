@@ -119,6 +119,8 @@ export const buildApprovalExportColumns = (
   // `proof` is a file URL; `has_proof` is the server's own verdict on it. Export the
   // verdict — a reader wants to know WHETHER there is proof, and the URL is useless
   // without a session anyway.
+  // The statement it was reconciled from, or "Unknown" (the screen's "—" written out).
+  col("payment_source", "Payment Source", (r) => r.payment_source || ""),
   col("proof", "Proof", (r) => (r.has_proof ? "yes" : "")),
   col("payment_by", "Payment By", (r) => r.payment_by || ""),
 
