@@ -44,7 +44,9 @@ outside any task. If only those fail, set the report's Status to BLOCKED (the ga
   data into a fixture, test, comment or commit message.
 - **Pages stay local.** Any checklist or report page goes in `~/claude-artifacts/` as a local `.html` file. Never
   publish anything to claude.ai or any other outside service.
-- **Delete nothing** beyond what a test's own teardown removes. No bulk deletes in any DB, not even the env's.
+- **Delete nothing** beyond what a test's own teardown removes, and any env you made yourself in this task
+  (`devenv.sh destroy <it>`, e.g. a throwaway env on the base to show a test already failed there). No bulk deletes
+  in any DB, not even the env's.
 - Never push, never open a PR, never edit, comment on or close a GitHub issue.
 
 ## Done
