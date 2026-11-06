@@ -141,6 +141,7 @@ export function useApprovalFacets({
   const vendor = useQueueFacet("vendor", opened.has("vendor"), ...common);
   const status = useQueueFacet("status", includeStatus && opened.has("status"), ...common);
   const raisedBy = useQueueFacet("raised_by", opened.has("raised_by"), ...common);
+  const paymentSource = useQueueFacet("payment_source", opened.has("payment_source"), ...common);
 
   const facetOptions = useMemo(() => {
     const withCounts = (
@@ -190,12 +191,18 @@ export function useApprovalFacets({
         // Falls back to the email when the user has no Nirmaan Users row, as the cell does.
         options: withCounts("raised_by", raisedBy.values, (v) => userLabels?.get(v) || v),
       },
+      // The five statements and "Unknown" (owner, 2026-11-06); shown only where the column is.
+      payment_source: {
+        title: "Payment Source",
+        isLoading: paymentSource.isLoading,
+        options: withCounts("payment_source", paymentSource.values, (v) => v),
+      },
     };
     if (includeStatus) {
       map.status = { title: "Status", isLoading: status.isLoading, options: withCounts("status", status.values, (v) => v) };
     }
     return map;
-  }, [type, project, vendor, status, raisedBy, columnFilters, projectLabels, vendorLabels, userLabels, includeStatus]);
+  }, [type, project, vendor, status, raisedBy, paymentSource, columnFilters, projectLabels, vendorLabels, userLabels, includeStatus]);
 
   return { facetOptions, onFacetOpen };
 }

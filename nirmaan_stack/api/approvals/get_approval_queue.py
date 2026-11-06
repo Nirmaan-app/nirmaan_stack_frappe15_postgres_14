@@ -29,6 +29,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from nirmaan_stack.services.outflow_import.expense_links import (
+    last_source_join,
     linked_totals_join,
     remaining_balance,
 )
@@ -82,6 +83,12 @@ TYPE_DETAIL_GST = "GST"
 TYPE_DETAIL_CHEQUE = "Cheque"
 TYPE_DETAIL_CREDIT_CHEQUE = "Credit Cheque"
 
+# The Payment Source column (owner, 2026-11-06): the statement a record was reconciled from -- the source of
+# its live bank-line slip linked last (`expense_links.last_source_join`) -- or this word when no live slip
+# reaches it. A real value, not a blank, so the column's filter and facet offer and count it like the five
+# statements; the screen draws it as "—".
+PAYMENT_SOURCE_NONE = "Unknown"
+
 SOURCE_TO_DOCTYPE = {
     SOURCE_VENDOR_PAYMENT: "Project Payments",
     SOURCE_PROJECT_EXPENSE: "Project Expenses",
@@ -119,7 +126,7 @@ DATE_FIELDS = {"creation", "approved_on", "paid_on"}
 # `cheque_status`: Project Payments' Reconciliation Pending tab sends `cheque_status != Issued` (#1483,
 # spec #1477). A payment on an Issued cheque waits in the Cheque Tracker's Issued tab instead; an Online
 # payment or an expense has a blank `cheque_status`, so it stays.
-FILTERABLE = SORTABLE | {"doctype", "cheque_status"}
+FILTERABLE = SORTABLE | {"doctype", "cheque_status", "payment_source"}
 
 SEARCHABLE = {
     "name", "against_primary", "against_secondary", "vendor", "project",
@@ -203,6 +210,11 @@ def _payments_select():
             -- part-reconciled split family is overwritten with the family's figures
             -- after the fetch (see `get_approval_queue`).
             COALESCE(l."linked_total", 0)::numeric AS linked_amount,
+            -- The statement this payment was reconciled from (`PAYMENT_SOURCE_NONE` when none). Its own
+            -- slips only: a split payment's Reconciliation Pending balance has none, so it reads
+            -- "Unknown" while its Paid half names the statement. ⚠️ POSITIONAL: right after
+            -- `linked_amount` in `_expense_select` too.
+            COALESCE(s."source", '{none}')::text AS payment_source,
             -- Mode of Payment (2026-09-19). ⚠️ POSITIONAL, like every column here: the
             -- same three sit at the same place in `_expense_select`, blank there.
             COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
@@ -243,6 +255,7 @@ def _payments_select():
         LEFT JOIN "tabCheques" c ON c."name" = p."cheque"
         LEFT JOIN ({counted}) w ON w."project_payment" = p."name"
         {linked_join}
+        {source_join}
     """.format(
         counted=counted_deductions_sql(),
         requested=requested_amount_sql("w"),
@@ -250,6 +263,8 @@ def _payments_select():
         po=TYPE_PO_PAYMENT,
         sr=TYPE_SR_PAYMENT,
         linked_join=linked_totals_join("Project Payments", "p"),
+        source_join=last_source_join("Project Payments", "p"),
+        none=PAYMENT_SOURCE_NONE,
         pay_to_p=_pay_to_columns("p"),
     )
 
@@ -270,6 +285,7 @@ def _expense_select(table, source, project_col):
     payment_by_expr = 'COALESCE(e."payment_by", \'\')::text' if source == SOURCE_PROJECT_EXPENSE else "''::text"
     # Grouped by target, so it can only ever add columns to a row -- never duplicate one.
     linked_join = linked_totals_join(SOURCE_TO_DOCTYPE[source], "e")
+    source_join = last_source_join(SOURCE_TO_DOCTYPE[source], "e")
     # A Non-Project Expense whose tax was withheld (Office Rent, spec #1522) is stored at what the landlord
     # gets; its full bill is its tax record's gross plus its GST (spec #1613; `non_project_expense` is
     # unique, so the join adds no row). Tax the company pays on top leaves the amount whole. A Project
@@ -332,6 +348,8 @@ def _expense_select(table, source, project_col):
             -- The linked total those lines add up to -- the figure the Bank lines card
             -- reads, from the same join. The Amount cell shows it with what is left.
             COALESCE(l."linked_total", 0)::numeric AS linked_amount,
+            -- The statement this expense was reconciled from, or `PAYMENT_SOURCE_NONE`.
+            COALESCE(s."source", '{PAYMENT_SOURCE_NONE}')::text AS payment_source,
             -- A payment's Mode of Payment; an expense has none.
             ''::text                        AS mode_of_payment,
             ''::text                        AS cheque_no,
@@ -351,6 +369,7 @@ def _expense_select(table, source, project_col):
         FROM "{table}" e
         {tds_join}
         {linked_join}
+        {source_join}
     """
 
 
@@ -706,7 +725,9 @@ def get_approval_queue_counts():
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in
 # Python from the amount, not stored, so there is nothing in SQL to group by --
 # and a closed 3-value set needs no server round trip anyway.
-FACETABLE = {"source", "source_type", "status", "vendor", "project", "doctype", "expense_type", "raised_by"}
+FACETABLE = {
+    "source", "source_type", "status", "vendor", "project", "doctype", "expense_type", "raised_by", "payment_source",
+}
 
 
 @frappe.whitelist(allow_guest=False)

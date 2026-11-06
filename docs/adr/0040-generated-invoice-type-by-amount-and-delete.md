@@ -87,3 +87,26 @@ Owner: numbering follows the last number still held. Reverses decision 5 for del
 - **Consequence:** the Deleted Document copies are no longer read for numbering (`_deleted_records` and
   `ra_number_of_record` removed). A deleted invoice that was printed or signed can share its number with a later
   one; delete stays Admin-only, on a Voided invoice, so that is a deliberate call.
+
+## Amendment C (2026-11-06): an invoice covers what is paid and may run ahead of it
+
+Owner: every paid rupee must be invoiced, and an invoice may bill more than is paid, up to the Work Order's
+amount. Replaces the amount limit of decision 1 ("only a fully paid Work Order can reach its FINAL").
+
+- **The amount lies in a range** (`services/wo_generated_invoices.billable_range`), each end less what is
+  billed or waiting (counted as in decision 1):
+  - **least** = Amount Paid (incl. TDS, capped at the Work Order's amount) − billed, never below ₹0;
+  - **most** = the Work Order's amount − billed, never below ₹0.
+  `generate_invoice` refuses an amount outside it, naming the figure ("at least ₹X" / "at most ₹Y").
+- **Example (WO ₹10,000).** ₹3,000 paid: the first invoice bills ₹3,000 to ₹10,000; say RA-1 = ₹7,000. At
+  ₹7,000 paid the least is ₹0 (everything paid is invoiced) and the most ₹3,000. At ₹9,000 paid: ₹2,000 to
+  ₹3,000. At ₹10,000 paid: exactly ₹1,000, the FINAL.
+- **Owner's answers (2026-11-06):** an invoice may be generated when the least is ₹0 (any amount up to the
+  most); the FINAL may be generated before the Work Order is fully paid; the amount may equal the most, which
+  makes it the FINAL; and an invoice billed ahead of payment, once signed and Approved, raises Total Amount
+  Invoiced and so lets more payments through the Work Order invoice check (#1488), as intended.
+- **Put Paid** fills in the least (`min_amount`), the same figure it filled before. `get_generated_invoices`
+  returns `min_amount` and `max_amount` in place of `left`; the dialog shows the range and refuses outside it.
+- **Consequences:** an amendment that lowers the Work Order below what is billed leaves a range of ₹0 – ₹0, so
+  nothing can be generated until an invoice is voided or rejected. A Vendor Refund lowers Amount Paid and so the
+  least. No schema change; saved records are untouched.

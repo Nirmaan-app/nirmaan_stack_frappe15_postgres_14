@@ -112,7 +112,8 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
     `approve_gst_payment_request(name)`, `reject_gst_payment_request(name, comment)`, `delete_gst_payment_request(name)`
     (Pending or Rejected only)
   - `payment_summary.get_payment_summary(document_type, document_name, exclude_payment)` - where a PO / WO's money stands (value, paid, waiting at each step, left after), matching the request cap
-- `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions)
+- `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions). Every row carries
+  `payment_source` (the statement it was reconciled from, or "Unknown"; filterable and faceted)
   - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)

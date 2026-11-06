@@ -206,6 +206,47 @@ class TestGstPaymentRequests(FrappeTestCase):
         with self.assertRaisesRegex(frappe.ValidationError, "reason"):
             self._as(self.accountant, reject_gst_payment_request, name, "  ")
 
+    def test_a_reason_over_250_characters_is_refused(self):
+        name = self._ask(self._wo(), 10000)
+        with self.assertRaisesRegex(frappe.ValidationError, "at most 250"):
+            self._as(self.accountant, reject_gst_payment_request, name, "x" * 251)
+        frappe.db.rollback()
+        self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, "status"), gpr.PENDING)
+
+    def test_a_long_reason_rejects_and_the_requesters_bell_is_cut_to_fit(self):
+        name = self._ask(self._wo(), 10000)
+        reason = "x" * 250
+        self._as(self.accountant, reject_gst_payment_request, name, reason)
+        self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, ["status", "review_comment"]),
+                         (gpr.REJECTED, reason))
+        bell = frappe.db.get_value("Nirmaan Notifications", {"docname": name, "recipient": self.pm}, "description")
+        self.assertIsNotNone(bell, "the requester got no bell row")
+        self.assertLessEqual(len(bell), 140)
+        self.assertTrue(bell.endswith("…"), bell)
+
+    def test_a_failed_bell_leaves_the_rejection_and_logs_the_failure(self):
+        name = self._ask(self._wo(), 10000)
+        new_doc = frappe.new_doc
+
+        def failing_bell(doctype, *args, **kwargs):
+            if doctype == "Nirmaan Notifications":
+                raise frappe.ValidationError("bell down")
+            return new_doc(doctype, *args, **kwargs)
+
+        title = f"GST request notification failed: {name}"
+        self.addCleanup(self._delete_error_logs, title)
+        with patch("frappe.new_doc", side_effect=failing_bell):
+            result = self._as(self.accountant, reject_gst_payment_request, name, "Invoice GST is wrong")
+        self.assertEqual(result["status"], gpr.REJECTED)
+        self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, "status"), gpr.REJECTED)
+        self.assertTrue(frappe.db.exists("Error Log", {"method": title}), "the failure was not logged")
+
+    @staticmethod
+    def _delete_error_logs(title):
+        frappe.db.rollback()
+        frappe.db.delete("Error Log", {"method": title})
+        frappe.db.commit()
+
     # -- the approval ---------------------------------------------------------------------------
     def test_approval_creates_the_payment_as_the_requester(self):
         sr = self._wo()

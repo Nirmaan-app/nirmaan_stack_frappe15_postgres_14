@@ -101,6 +101,14 @@ data-table.py                  useServerDataTable.ts          new-data-table.tsx
 - **Server-side mode** (default): Fetches paginated data from backend API. Sorting, filtering, search all server-side.
 - **Client-side mode** (`clientData` provided): All data in memory. TanStack handles pagination/sort/filter client-side. No server fetches.
 
+### Known gap: a fetch asked for while one is running is dropped
+
+`fetchData` returns early while a fetch is in flight (`if (isLoading && !isRefetch) return;`) and never retries.
+A filter that changes during a load (e.g. a status pill clicked before the first page arrives) updates the URL
+and the control but shows the previous filter's rows. On develop, the page guards it itself: GST Requests
+(`gst-requests/GstRequestsTab.tsx`) disables its status pills while `isLoading`, and `chooseStatus` ignores a
+change during a load. The hook-wide fix (`61de1d1e3`) is on `perf/nov`, not develop.
+
 ---
 
 ## DataTable Component Props
