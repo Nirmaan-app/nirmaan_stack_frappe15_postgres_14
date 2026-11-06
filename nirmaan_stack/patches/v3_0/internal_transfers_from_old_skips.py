@@ -20,9 +20,10 @@ IT NEVER GUESSES
     line, with its Skip Type and why.
 
 IDEMPOTENT
-    Only Skipped lines are read; a converted line is `Internal Transfer` and never read again, and a line that
-    already has a record gets no second one. A STATUS-CHANGED REPEAT of a Cashbook move (two lines, one Txn Id and
-    amount) becomes an Internal Transfer line with no record of its own, as the import would make it.
+    Only Skipped lines are read; a converted line is `Internal Transfer` and never read again. EVERY INTERNAL
+    TRANSFER LINE HOLDS EXACTLY ONE RECORD (owner decision 3, #1619): a second line of a move that already holds one
+    (an old import could stage a move twice) stays skipped and is printed, and a not-successful repeat is Bank
+    refused, its sentence naming the move's earlier line, as the import files it.
 
 WHAT IT CANNOT KNOW, STATED
     An old card auto-debit line kept no card heading, so its record names no card digits. An old Cashbook top-up
@@ -44,10 +45,16 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     INTERNAL_TRANSFER_DOCTYPE,
-    move_already_recorded,
+    earlier_line_of_move,
     record_for_line,
+    recorded_line_of_move,
 )
-from nirmaan_stack.services.outflow_import.cashbook import SKIP_NOT_SUCCESSFUL
+from nirmaan_stack.services.outflow_import.cashbook import (
+    SKIP_ALREADY_IMPORTED_STATUS_CHANGED,
+    SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
+    refused_move_reason,
+)
+from nirmaan_stack.services.outflow_import.duplicates import bank_status_key
 from nirmaan_stack.services.outflow_import.internal_transfer_backfill import (
     LEFT,
     PLACED,
@@ -85,7 +92,7 @@ CANDIDATE_KINDS = tuple(
 
 _FIELDS = (
     "name, import_batch, source, skip_kind, remarks, direction, transfer_id, row_kind, status_raw, "
-    "added_by_raw, beneficiary_name, amount, added_on, settlement_reference"
+    "added_by_raw, beneficiary_name, amount, added_on, settlement_reference, creation"
 )
 
 
@@ -158,13 +165,6 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
         if placement.outcome == LEFT:
             report.left.append((line.name, line.skip_kind, placement.why))
             continue
-        if placement.outcome == REFUSED and move_already_recorded(line):
-            # A status-changed repeat of a move that holds its record: an Internal Transfer line with none, as the
-            # import files it (#1619 code review). Lines are read oldest first, so the SUCCESS line came before.
-            _convert(line, placement)
-            touched.add(line.import_batch)
-            report.converted += 1
-            continue
         if placement.outcome == REFUSED:
             _refuse(line)
             touched.add(line.import_batch)
@@ -174,6 +174,12 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
             report.unplaced.append((line.name, line.skip_kind, placement.why))
             continue
         assert placement.outcome == PLACED
+        # Lines are read oldest first: a second line of a move whose record exists stays skipped, so every Internal
+        # Transfer line holds exactly one record (owner decision 3, #1619).
+        recorded_on = recorded_line_of_move(line)
+        if recorded_on:
+            report.left.append((line.name, line.skip_kind, f"repeats a move already recorded, on line {recorded_on}"))
+            continue
         _convert(line, placement)
         touched.add(line.import_batch)
         report.converted += 1
@@ -184,18 +190,29 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
 
 def _refuse(line) -> None:
     """A Cashbook move the wallet did not complete keeps its skip, re-filed as the import files it (owner decision 3,
-    #1619): Bank refused, with the import's sentence. ⚠️ RAW, AND SAFE, as `_convert` says."""
+    #1619): Bank refused, whatever an earlier line of the move said, with the import's sentence naming that line.
+    ⚠️ RAW, AND SAFE, as `_convert` says."""
     frappe.db.set_value(
         ROW_DOCTYPE,
         line.name,
-        {"skip_kind": SKIP_KIND_BANK_REFUSED, "skip_reason": SKIP_NOT_SUCCESSFUL},
+        {"skip_kind": SKIP_KIND_BANK_REFUSED, "skip_reason": refused_move_reason(_repeat_sentence(line))},
         update_modified=False,
     )
 
 
+def _repeat_sentence(line) -> str:
+    """The status change from the move's earlier line, as the import words it: in this import, or in an earlier one."""
+    earlier = earlier_line_of_move(line)
+    if not earlier:
+        return ""
+    statuses = {"earlier": bank_status_key(earlier.status_raw), "now": bank_status_key(line.status_raw)}
+    if earlier.import_batch == line.import_batch:
+        return SKIP_REPEATED_IN_FILE_STATUS_CHANGED.format(**statuses)
+    return SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(batch=earlier.import_batch, **statuses)
+
+
 def _convert(line, placement) -> None:
-    """The line becomes an Internal Transfer line; it gets the move's record unless a line of the same move (its
-    repeat identity, `move_already_recorded`) already holds one -- a status-changed repeat, or a run before."""
+    """The line becomes an Internal Transfer line with the move's record (none of its lines holds one yet)."""
     is_cashbook = (line.source or "").strip() == CASHBOOK_SOURCE
     note = (
         transfer_sentence(placement.ends)
@@ -215,10 +232,6 @@ def _convert(line, placement) -> None:
         },
         update_modified=False,
     )
-    if frappe.db.exists(INTERNAL_TRANSFER_DOCTYPE, {"import_row": line.name}):
-        return
-    if move_already_recorded(line):
-        return
     # A Cashbook line states no direction: its stored amount is its Debit, read as the import reads it (#1623).
     direction = cashbook_direction(line.amount) if is_cashbook else None
     record_for_line(line, placement.ends, placement.rule, direction=direction)

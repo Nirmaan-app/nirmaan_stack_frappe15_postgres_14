@@ -136,31 +136,40 @@ class TestTheOldSkipsPatch(InternalTransferLineFixture):
         self.assertEqual(again.converted, 0)
         self.assertEqual({key: self._state(name) for key, name in lines.items()}, before)
 
-    def test_a_status_changed_repeat_of_a_cashbook_move_makes_no_second_record(self):
+    def test_a_second_successful_line_of_a_recorded_move_is_left_skipped_and_printed(self):
+        """Every Internal Transfer line holds exactly one record (owner decision 3, #1619). An old import could stage
+        the same move twice; the first line takes the record, the second stays skipped and is printed."""
         batch = self._batch(source="Cashbook")
         tag = frappe.generate_hash(length=6).upper()
         first = self._old(batch, "Cashbook internal movement", source="Cashbook", direction="",
                           transfer_id=f"VALOAD-{tag}", amount=0.0)
         repeat = self._old(batch, "Cashbook internal movement", source="Cashbook", direction="",
                            transfer_id=f"VALOAD-{tag}", amount=0.0)
-        convert_old_skips(rows=[first, repeat])
+        report = convert_old_skips(rows=[first, repeat])
         frappe.db.commit()
-        self.assertEqual([self._state(first)[0], self._state(repeat)[0]], ["Internal Transfer"] * 2)
-        self.assertEqual(len(self._state(first)[2]) + len(self._state(repeat)[2]), 1)
+        self.assertEqual(self._state(first)[:2], ("Internal Transfer", None))
+        self.assertEqual(len(self._state(first)[2]), 1)
+        self.assertEqual(self._state(repeat), ("Skipped", "Cashbook internal movement", []))
+        self.assertIn(
+            (repeat, "Cashbook internal movement", f"repeats a move already recorded, on line {first}"), report.left
+        )
 
-    def test_a_failed_repeat_of_a_recorded_move_is_filed_as_the_import_files_it(self):
-        """Code review (#1619): the patch and the import agree. A REVERSED sighting of a move whose SUCCESS line holds
-        the record is an Internal Transfer line with no record; a failed move with no recorded sighting is Bank
-        refused."""
-        batch = self._batch(source="Cashbook")
+    def test_a_failed_repeat_of_a_recorded_move_is_bank_refused_naming_the_earlier_import(self):
+        """Owner decision 3, for repeats too (#1619): the patch files it as the import does. The SUCCESS line keeps
+        its record; the REVERSED one is Bank refused, and its sentence names the earlier import."""
         tag = frappe.generate_hash(length=6).upper()
-        moved = self._old(batch, "Cashbook internal movement", source="Cashbook", direction="",
+        first_batch = self._batch(source="Cashbook")
+        moved = self._old(first_batch, "Cashbook internal movement", source="Cashbook", direction="",
                           transfer_id=f"VALOAD-{tag}", amount=0.0)
         reversed_later = self._old(self._batch(source="Cashbook"), "Cashbook internal movement", source="Cashbook",
                                    direction="", transfer_id=f"VALOAD-{tag}", amount=0.0, status="REVERSED")
         report = convert_old_skips(rows=[moved, reversed_later])
         frappe.db.commit()
-        self.assertEqual(self._state(moved)[:2], ("Internal Transfer", None))
         self.assertEqual(len(self._state(moved)[2]), 1)
-        self.assertEqual(self._state(reversed_later), ("Internal Transfer", None, []))
-        self.assertEqual(report.refused, [])
+        self.assertEqual(self._state(reversed_later), ("Skipped", "Bank refused", []))
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, reversed_later, "skip_reason"),
+            f"Did not succeed at the wallet. Already imported in batch {first_batch}, bank status changed SUCCESS → "
+            "REVERSED.",
+        )
+        self.assertEqual([line for line, _, _ in report.refused], [reversed_later])

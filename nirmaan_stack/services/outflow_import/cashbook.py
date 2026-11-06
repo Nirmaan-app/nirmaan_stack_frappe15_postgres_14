@@ -397,10 +397,7 @@ def _decide(
     if kind in CASHBOOK_INTERNAL_KINDS:
         if getattr(raw, "is_success", False):
             return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
-        # Owner decision 3 (#1619): Bank refused, whatever an earlier sighting said; a repeat's sentence names it.
-        repeat = _repeat_sentence(line)
-        reason = f"{SKIP_NOT_SUCCESSFUL}. {repeat}" if repeat else SKIP_NOT_SUCCESSFUL
-        return ACTION_SKIP, reason, SKIP_KIND_BANK_REFUSED
+        return ACTION_SKIP, refused_move_reason(_repeat_sentence(line)), SKIP_KIND_BANK_REFUSED
     if kind in CREDIT_ROW_KINDS:
         if kind in REFUND_ROW_KINDS:
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES
@@ -412,6 +409,12 @@ def _decide(
             return ACTION_SKIP, reason, skip_kind
         return ACTION_OPEN, OPEN_WALLET_CREDIT if kind == WALLET_CREDIT_ROW_KIND else "", None
     return ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind=kind or "blank"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE
+
+
+def refused_move_reason(repeat: str = "") -> str:
+    """The Bank refused sentence of a Cashbook move whose own line is not a success (owner decision 3, #1619), whatever
+    an earlier sighting said: it names that sighting when `repeat`, a status-changed repeat's sentence, is given."""
+    return f"{SKIP_NOT_SUCCESSFUL}. {repeat}" if repeat else SKIP_NOT_SUCCESSFUL
 
 
 def _repeat_sentence(line: KeptLine) -> str:

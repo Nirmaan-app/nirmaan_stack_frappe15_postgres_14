@@ -40,21 +40,31 @@ def _same_move(line) -> tuple[str, list]:
     return clause, params
 
 
-def move_already_recorded(line) -> bool:
-    """Whether a line of the same move as `line` (an `Outflow Import Row` doc or dict; `_same_move`) already holds
-    an Internal Transfer record.
-
-    A repeat of an internal line makes no second record (spec #1619) -- but only when its earlier sighting holds
-    one: an earlier sighting the wallet said FAILED, or one sent back to Mismatched, recorded nothing.
-    """
+def recorded_line_of_move(line) -> str | None:
+    """The line of the same move as `line` (an `Outflow Import Row` doc or dict; `_same_move`) that holds its
+    Internal Transfer record, or `None`. A repeat of an internal line makes no second record (spec #1619)."""
     clause, params = _same_move(line)
-    return bool(
-        frappe.db.sql(
-            f"""SELECT 1 FROM "tabOutflow Import Row" r JOIN "tabInternal Transfer" it ON it.import_row = r.name
-                WHERE {clause} LIMIT 1""",
-            tuple(params),
-        )
+    found = frappe.db.sql(
+        f"""SELECT r.name FROM "tabOutflow Import Row" r JOIN "tabInternal Transfer" it ON it.import_row = r.name
+            WHERE {clause} ORDER BY r.name LIMIT 1""",
+        tuple(params),
     )
+    return found[0][0] if found else None
+
+
+def earlier_line_of_move(line):
+    """The first line of `line`'s move (`_same_move`) staged before it under another bank status -- its
+    `import_batch` and `status_raw` -- or `None`. `line` carries `name` and `creation`."""
+    clause, params = _same_move(line)
+    found = frappe.db.sql(
+        f"""SELECT r.import_batch, r.status_raw FROM "tabOutflow Import Row" r
+            WHERE {clause} AND (r.creation, r.name) < (%s, %s)
+              AND UPPER(TRIM(COALESCE(r.status_raw, ''))) != UPPER(TRIM(%s))
+            ORDER BY r.creation, r.name LIMIT 1""",
+        tuple(params + [line.get("creation"), line.get("name"), line.get("status_raw") or ""]),
+        as_dict=True,
+    )
+    return found[0] if found else None
 
 
 def record_for_line(
