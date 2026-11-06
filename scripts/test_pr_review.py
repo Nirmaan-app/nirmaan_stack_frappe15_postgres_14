@@ -16,15 +16,19 @@ from pr_review import (  # noqa: E402
     OWNER_ID,
     CiTally,
     Command,
+    Context,
     MergeFacts,
     Route,
+    act,
     add_spent,
     after_review,
+    author_notice,
     build_options,
     carry_out,
     check_comment_size,
     checks_from_pr,
     compact_schema,
+    cost_notices,
     dismiss,
     empty_state,
     fence,
@@ -313,6 +317,17 @@ def proposed(state, head=HEAD, **fact_changes):
     return propose(state, head, build_options(facts(**fact_changes), "asha", state["decisions_used"]))
 
 
+def sent_back(state, used=0, **fact_changes):
+    options = build_options(facts(**fact_changes), "asha", used)
+    return carry_out(propose(state, HEAD, options), "B", options), options
+
+
+NEWER = "c0ffee0000000000000000000000000000000000"
+FAILING_CI = [OK_CHECKS[0], {"name": "ci", "ok": False, "detail": "1 failed: Frontend / vitest."}]
+ANSWERED = '[{"type": "assistant"}]'
+CHECKLIST = {"id": 5, "html_url": "https://github.com/example/repo/pull/7#issuecomment-5"}
+
+
 def walk(head_sha=OLD, failed=0):
     return {"head_sha": head_sha, "url": "https://example.com/walk", "walked_at": "2026-11-07T10:00:00Z",
             "rows": [{"change": "GST tab", "seen": 3, "failed": failed, "not_walked": 1}]}
@@ -356,6 +371,13 @@ class Routing(unittest.TestCase):
         self.assertEqual(route(Command("review"), state_with(reviewed_sha=OLD), HEAD, True), Route("review"))
         self.assertEqual(route(Command("review"), empty_state(), HEAD, True), Route("review"))
 
+    def test_a_rerun_whose_commits_change_none_of_the_prs_files_only_refreshes(self):
+        state = state_with(reviewed_sha=OLD, spent_usd=2.3)
+        self.assertEqual(route(Command("review"), state, HEAD, True, 0), Route("refresh"))
+        state = {**state, "spent_usd": 0.5}
+        self.assertEqual(route(Command("review"), state, HEAD, True, 2), Route("review"))
+        self.assertEqual(route(Command("review"), state, HEAD, True, None), Route("review"))
+
     def test_a_review_stops_when_less_than_forty_cents_is_left(self):
         self.assertEqual(route(Command("review"), state_with(spent_usd=2.10), HEAD, True), Route("review"))
         self.assertEqual(route(Command("review"), state_with(spent_usd=2.15), HEAD, True),
@@ -392,27 +414,39 @@ class Budget(unittest.TestCase):
     def test_the_cost_is_the_last_result_messages_total(self):
         log = [{"type": "system", "subtype": "init"},
                {"type": "result", "subtype": "success", "total_cost_usd": 0.8123}]
-        self.assertEqual(step_cost("review", log, 2.5), {"step": "review", "usd": 0.8123, "measured": True,
-                                                         "cut_off": False})
+        self.assertEqual(step_cost("review", json.dumps(log), 2.5), {"step": "review", "usd": 0.8123,
+                                                                     "basis": "measured", "cut_off": False})
 
     def test_a_run_stopped_by_its_cap_is_cut_off(self):
-        cost = step_cost("verify", {"type": "result", "subtype": "error_max_budget_usd", "total_cost_usd": 0.47}, 0.45)
+        log = json.dumps({"type": "result", "subtype": "error_max_budget_usd", "total_cost_usd": 0.47})
+        cost = step_cost("verify", log, 0.45)
         self.assertTrue(cost["cut_off"])
         self.assertEqual(cost["usd"], 0.47)
 
-    def test_a_step_with_no_result_is_charged_its_whole_cap(self):
-        for log in (None, [], [{"type": "assistant"}], {"type": "result"}):
-            self.assertEqual(step_cost("review", log, 1.75), {"step": "review", "usd": 1.75, "measured": False,
-                                                              "cut_off": False})
+    def test_a_step_where_claude_answered_but_left_no_cost_is_charged_its_whole_cap(self):
+        for log in (ANSWERED, '{"type": "result"}', "", ANSWERED[:12]):
+            self.assertEqual(step_cost("review", log, 1.75), {"step": "review", "usd": 1.75, "basis": "cap",
+                                                              "cut_off": False}, log)
+
+    def test_a_step_that_never_reached_claude_is_charged_nothing_and_the_comment_says_so(self):
+        for log in (None, "[]", '[{"type": "system", "subtype": "init"}]'):
+            self.assertEqual(step_cost("review", log, 1.75), {"step": "review", "usd": 0.0, "basis": "not_started",
+                                                              "cut_off": False}, log)
+        costs = [step_cost("review", None, 2.5)]
+        body = render_comment("asha", add_spent(state_with(spent_usd=0.6), costs), [], RUN_URL, failed=True,
+                              notice=" · ".join(cost_notices(costs)))
+        self.assertIn("spent $0.60 of $2.50 · cost unknown: the review step did not start, or its timeout stopped it",
+                      body)
+        self.assertEqual(cost_notices([step_cost("review", ANSWERED, 2.5)]), [])
 
     def test_every_steps_cost_is_added_to_the_prs_spend(self):
-        costs = [step_cost("review", {"type": "result", "total_cost_usd": 0.9}, 2.5),
-                 step_cost("verify", None, 0.4)]
+        costs = [step_cost("review", json.dumps({"type": "result", "total_cost_usd": 0.9}), 2.5),
+                 step_cost("verify", ANSWERED, 0.4)]
         self.assertAlmostEqual(add_spent(state_with(spent_usd=0.5), costs)["spent_usd"], 1.8)
 
     def test_a_failed_run_still_shows_what_it_spent(self):
-        body = render_comment("asha", add_spent(state_with(), [step_cost("review", None, 2.5)]), [], RUN_URL,
-                              failed=True)
+        body = render_comment("asha", add_spent(state_with(), [step_cost("review", ANSWERED, 2.5)]),
+                              [], RUN_URL, failed=True)
         self.assertIn("spent $2.50 of $2.50", body)
 
 
@@ -457,6 +491,16 @@ class Rerun(unittest.TestCase):
     def test_a_compare_cut_at_githubs_300_files_asks_for_a_full_review(self):
         files = [{"filename": f"f{i}.py", "patch": "+x"} for i in range(300)]
         self.assertIsNone(incremental_diff({**self.COMPARE, "files": files}, {"f1.py"}))
+
+    def test_commits_that_only_merge_the_base_move_the_review_to_the_head_for_free(self):
+        _, rerun = incremental_diff({**self.COMPARE, "files": [self.COMPARE["files"][2]]}, self.PR_FILES)
+        self.assertEqual(rerun.files, 0)
+        state = state_with(shown("F1"), reviewed_sha=OLD, spent_usd=1.1)
+        ctx = Context("example/repo", 7, RUN_URL, {"headRefOid": HEAD, "author": {"login": "asha"}}, [], None, state)
+        after, notice = act(ctx, Command("review"), route(Command("review"), state, HEAD, True, rerun.files), False)
+        self.assertEqual((after["reviewed_sha"], after["findings"], after["spent_usd"]), (HEAD, state["findings"], 1.1))
+        self.assertEqual(notice, "No change to the PR's files since the review of `ba86814f9`: the review now covers "
+                                 "`a2650c859`, checks refreshed, no AI run")
 
     def test_the_rerun_brief_points_at_the_new_changes_and_the_first_brief_does_not(self):
         pr = {"number": 7, "title": "t", "author": {"login": "asha"}, "body": "Mine."}
@@ -606,12 +650,27 @@ class DecisionComment(unittest.TestCase):
         self.assertIn("- **B** · Send back to the author. **Recommended.** Tag @asha", body)
         self.assertIn("Reply `/claude-merge B` or `/claude-merge C`.", body)
 
-    def test_a_send_back_tags_the_author_with_what_stops_the_merge(self):
-        options = build_options(facts(open_blocking=["F1"]), "asha", 0)
-        state = carry_out(propose(state_with(shown("F1")), HEAD, options), "B", options)
-        body = render_comment("asha", state, OK_CHECKS, RUN_URL, head_sha=HEAD)
+    def test_a_send_back_tags_the_author_with_only_what_the_author_can_fix(self):
+        state, options = sent_back(state_with(shown("F1")), open_blocking=["F1"], reviewed_head=False,
+                                   walk="no walk report for the frontend changes", ci=CiTally(["Frontend / vitest"], 0, 1))
+        self.assertIn("no review of the current head", options[0]["why"])
+        body = render_comment("asha", state, FAILING_CI, RUN_URL, head_sha=HEAD)
         self.assertIn("**Decision 1 of 2:** B, sent back to the author at `a2650c859`.", body)
-        self.assertIn("@asha, what stops the merge: open findings: F1. Fix it and push.", body)
+        self.assertIn("@asha, to fix: CI: 1 failed: Frontend / vitest; F1 · Must fix · Totals skip the hook. "
+                      "Push the fixes, and the owner decides once more.", body)
+        self.assertNotIn("no review of the current head", body.split("<!--")[1])
+        self.assertNotIn("walk report", body.split("<!--")[1])
+
+    def test_after_a_send_back_the_headline_says_so_and_never_nothing_blocking(self):
+        state, _ = sent_back(state_with(reviewed_sha=HEAD), reviewed_head=False)
+        self.assertEqual(render_comment("asha", state, OK_CHECKS, RUN_URL, head_sha=HEAD).splitlines()[1],
+                         "@asha, the owner sent this PR back. See the decision below.")
+        state, _ = sent_back(state_with(shown("F1"), reviewed_sha=HEAD), open_blocking=["F1"])
+        self.assertEqual(render_comment("asha", state, OK_CHECKS, RUN_URL, head_sha=HEAD).splitlines()[1],
+                         "@asha, the owner sent this PR back: 1 item needs your attention.")
+        later = {**state, "findings": [shown("F1", status="fixed")], "reviewed_sha": NEWER}
+        self.assertEqual(render_comment("asha", later, OK_CHECKS, RUN_URL, head_sha=NEWER).splitlines()[1],
+                         "@asha, nothing blocking: ready to merge. The owner can comment `/claude-decide`.")
 
     def test_a_merged_pr_says_it_is_locked_and_lists_no_commands(self):
         state = carry_out(proposed(state_with(reviewed_sha=HEAD)), "A", build_options(facts(), "asha", 0))
@@ -635,6 +694,58 @@ class DecisionComment(unittest.TestCase):
                               notice="Not run: budget used: $2.31 of $2.50")
         footer = [line for line in body.splitlines() if line.startswith("<sub>")][0]
         self.assertIn("spent $2.31 of $2.50 · Not run: budget used: $2.31 of $2.50", footer)
+
+
+class AuthorNotice(unittest.TestCase):
+    def test_a_send_back_posts_what_the_author_can_fix_with_a_link_to_the_checklist(self):
+        before = proposed(state_with(shown("F1"), shown("F2", "pre")), open_blocking=["F1"], reviewed_head=False)
+        after = carry_out(before, "B", before["decision"]["options"])
+        self.assertEqual(author_notice(before, after, "asha", FAILING_CI, CHECKLIST), "\n".join([
+            "@asha, the owner sent this PR back. To fix:",
+            "",
+            "- CI: 1 failed: Frontend / vitest.",
+            "- F1 · Must fix · Totals skip the hook",
+            "",
+            "Push the fixes, and the owner decides once more. The full list is in "
+            "[the review checklist](https://github.com/example/repo/pull/7#issuecomment-5).",
+        ]))
+
+    def test_a_send_back_with_nothing_for_the_author_to_fix_points_at_the_owners_comments(self):
+        before = proposed(state_with(), reviewed_head=False)
+        after = carry_out(before, "B", before["decision"]["options"])
+        self.assertEqual(author_notice(before, after, "asha", OK_CHECKS, None),
+                         "@asha, the owner sent this PR back. See his comments and the review checklist. "
+                         "Push the fixes, and the owner decides once more.")
+
+    def test_the_second_send_back_says_the_pr_is_locked(self):
+        first, _ = sent_back(state_with(shown("F1")), open_blocking=["F1"])
+        before = proposed(first, open_blocking=["F1"])
+        after = carry_out(before, "B", before["decision"]["options"])
+        self.assertTrue(after["locked"])
+        self.assertIn("That was the last decision: the PR is locked.", author_notice(before, after, "asha", OK_CHECKS,
+                                                                                    CHECKLIST))
+
+    def test_a_rerun_that_adds_must_or_should_findings_to_the_checklist_tags_the_author(self):
+        before = state_with(shown("F1"))
+        after = {**before, "run": 2,
+                 "findings": [shown("F1", status="fixed"), shown("F2"), shown("F3", "should"), shown("F4", "pre")]}
+        self.assertEqual(author_notice(before, after, "asha", OK_CHECKS, CHECKLIST),
+                         "@asha, review run 2 found 2 new items to fix: F2, F3. "
+                         "See [the review checklist](https://github.com/example/repo/pull/7#issuecomment-5).")
+
+    def test_no_new_comment_when_the_checklist_is_new_or_nothing_new_needs_the_author(self):
+        self.assertEqual(author_notice(empty_state(), state_with(shown("F1")), "asha", OK_CHECKS, None), "")
+        before = state_with(shown("F1"))
+        clean = proposed(state_with())
+        cases = {
+            "a clean rerun": (before, {**before, "run": 2, "findings": [shown("F1", status="fixed")]}),
+            "only a pre-existing finding": (before, {**before, "run": 2, "findings": [shown("F1"), shown("F2", "pre")]}),
+            "a dismiss": (before, dismiss(before, "F1", "x")),
+            "a decision": (before, proposed(before)),
+            "a merge": (clean, carry_out(clean, "A", build_options(facts(), "asha", 0))),
+        }
+        for name, (old, new) in cases.items():
+            self.assertEqual(author_notice(old, new, "asha", FAILING_CI, CHECKLIST), "", name)
 
 
 if __name__ == "__main__":

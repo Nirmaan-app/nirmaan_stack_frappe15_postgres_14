@@ -10,12 +10,16 @@ The owner comments a command on a PR:
 Only the review uses Claude, inside BUDGET_USD per PR. The workflow runs these subcommands from the root checkout:
 
   route     reads the command and the state and prints the action: review, or one the act job does for $0
+            (a rerun whose new commits change none of the PR's files only refreshes)
   prepare   writes .pr-review-run/brief.md (and new-changes.diff on a rerun), the schemas and step 1's budget
   cost      adds one Claude step's measured cost to .pr-review-run/costs.json and gives step 2's budget
   number    gives step 1's new findings their ids and writes .pr-review-run/verify-brief.md for step 2
   publish   posts or edits the one review comment and rewrites the PR description
   fail      marks that comment as failed, keeping the last checklist
   act       carries out refresh, dismiss, decide, merge, or a stop with its reason
+
+The review comment is edited in place, and GitHub notifies nobody of an edit, so a send-back, or a rerun that adds
+must or should findings to an existing comment, also posts one short new comment that tags the author.
 
 Stdlib only. Environment: GITHUB_REPOSITORY and PR_NUMBER; COMMENT_BODY for route and act; REVIEW_OUTPUT (step 1)
 for number and publish; VERIFY_OUTPUT (step 2) for publish; EXECUTION_FILE and STEP_CAP for cost. With --dry-run
@@ -156,9 +160,11 @@ class ReviewOutput(TypedDict):
 
 
 class StepCost(TypedDict):
+    """basis is "measured" (the log's result), "cap" (Claude answered but the log holds no cost) or "not_started"
+    (no log, or one where Claude never answered: charged nothing, and the comment says the cost is unknown)."""
     step: str
     usd: float
-    measured: bool
+    basis: str
     cut_off: bool
 
 
@@ -343,15 +349,15 @@ def budget_used_text(state: ReviewState) -> str:
     return f"budget used: ${state['spent_usd']:.2f} of ${BUDGET_USD:.2f}"
 
 
-def _route_review(cmd: Command, state: ReviewState, head_sha: str) -> Route:
-    if state["reviewed_sha"] == head_sha:
+def _route_review(cmd: Command, state: ReviewState, head_sha: str, files_since_review: int | None) -> Route:
+    if state["reviewed_sha"] == head_sha or files_since_review == 0:
         return Route("refresh")
     if not step_cap(remaining_budget(state)):
         return Route("stop", budget_used_text(state))
     return Route("review")
 
 
-def _route_dismiss(cmd: Command, state: ReviewState, head_sha: str) -> Route:
+def _route_dismiss(cmd: Command, state: ReviewState, head_sha: str, files_since_review: int | None) -> Route:
     finding = next((f for f in state["findings"] if f["id"] == cmd.target), None)
     if not finding or finding["status"] != "open":
         return Route("stop", f"{cmd.target} is not an open finding")
@@ -360,11 +366,11 @@ def _route_dismiss(cmd: Command, state: ReviewState, head_sha: str) -> Route:
     return Route("dismiss")
 
 
-def _route_decide(cmd: Command, state: ReviewState, head_sha: str) -> Route:
+def _route_decide(cmd: Command, state: ReviewState, head_sha: str, files_since_review: int | None) -> Route:
     return Route("decide")
 
 
-def _route_merge(cmd: Command, state: ReviewState, head_sha: str) -> Route:
+def _route_merge(cmd: Command, state: ReviewState, head_sha: str, files_since_review: int | None) -> Route:
     decision = state["decision"]
     if not decision or decision["status"] != "proposed":
         return Route("stop", "there is no decision to carry out, comment `/claude-decide` first")
@@ -376,7 +382,7 @@ def _route_merge(cmd: Command, state: ReviewState, head_sha: str) -> Route:
     return Route("merge")
 
 
-ROUTERS: dict[str, Callable[[Command, ReviewState, str], Route]] = {
+ROUTERS: dict[str, Callable[[Command, ReviewState, str, int | None], Route]] = {
     "review": _route_review,
     "dismiss": _route_dismiss,
     "decide": _route_decide,
@@ -384,28 +390,46 @@ ROUTERS: dict[str, Callable[[Command, ReviewState, str], Route]] = {
 }
 
 
-def route(cmd: Command, state: ReviewState, head_sha: str, pr_open: bool) -> Route:
-    """What the command does on this PR now. Only `review` runs Claude."""
+def route(cmd: Command, state: ReviewState, head_sha: str, pr_open: bool,
+          files_since_review: int | None = None) -> Route:
+    """What the command does on this PR now. Only `review` runs Claude. files_since_review counts the PR's own
+    files changed since the reviewed commit (None when unknown); 0, as after merging in the base, only refreshes."""
     if cmd.kind == "none":
         return Route("stop", USAGE)
     if state["locked"]:
         return Route("stop", "this PR is locked, its decision was carried out")
     if not pr_open:
         return Route("stop", "the PR is not open")
-    return ROUTERS[cmd.kind](cmd, state, head_sha)
+    return ROUTERS[cmd.kind](cmd, state, head_sha, files_since_review)
 
 
-def step_cost(step: str, execution: object, cap: float) -> StepCost:
-    """One Claude step's cost from the action's execution file (the run's messages, ending in a result). A step
-    with no readable result, such as one killed by its timeout, is charged its whole cap."""
-    messages = execution if isinstance(execution, list) else [execution]
-    results = [m for m in messages if isinstance(m, dict) and m.get("type") == "result"
-               and isinstance(m.get("total_cost_usd"), (int, float))]
-    if not results:
-        return {"step": step, "usd": cap, "measured": False, "cut_off": False}
-    last = results[-1]
-    return {"step": step, "usd": float(last["total_cost_usd"]), "measured": True,
-            "cut_off": last.get("subtype") == "error_max_budget_usd"}
+def step_cost(step: str, log: str | None, cap: float) -> StepCost:
+    """One Claude step's cost from the text of the action's execution file (the run's messages, ending in a
+    result), or None when the step wrote none."""
+    # The action writes the file only after Claude ends or errors. No file means the step failed before Claude
+    # (a bad flag, a failed install, a missing key) or its timeout killed it; charging the cap would use up the
+    # PR's budget for a step that may have cost nothing, so it is charged 0 and the comment says so.
+    not_started: StepCost = {"step": step, "usd": 0.0, "basis": "not_started", "cut_off": False}
+    charged_cap: StepCost = {"step": step, "usd": cap, "basis": "cap", "cut_off": False}
+    if log is None:
+        return not_started
+    try:
+        parsed = json.loads(log)
+    except json.JSONDecodeError:
+        return charged_cap
+    messages = [m for m in (parsed if isinstance(parsed, list) else [parsed]) if isinstance(m, dict)]
+    results = [m for m in messages if m.get("type") == "result" and isinstance(m.get("total_cost_usd"), (int, float))]
+    if results:
+        last = results[-1]
+        return {"step": step, "usd": float(last["total_cost_usd"]), "basis": "measured",
+                "cut_off": last.get("subtype") == "error_max_budget_usd"}
+    return charged_cap if any(m.get("type") in ("assistant", "result") for m in messages) else not_started
+
+
+def cost_notices(costs: list[StepCost]) -> list[str]:
+    """A footer notice for each step whose cost is unknown."""
+    return [f"cost unknown: the {c['step']} step did not start, or its timeout stopped it"
+            for c in costs if c["basis"] == "not_started"]
 
 
 class CiTally(NamedTuple):
@@ -655,7 +679,28 @@ def _display_order(f: Finding) -> tuple:
     return (f["status"] != "open", TIER_RANK[f["tier"]], _id_number(f["id"]))
 
 
-def _render_decision(state: ReviewState, author: str) -> list[str]:
+def author_items(state: ReviewState, checks: list[Check]) -> list[str]:
+    """What the author can fix: failing plain checks (a conflict, failed CI) and open must and should findings.
+    The owner's own blockers (no review of the head, no walk report, CI still running) are not the author's."""
+    items = [f"{CHECK_LABELS[c['name']]}: {c['detail']}" for c in checks if not c["ok"]]
+    blocking = [f for f in state["findings"] if f["status"] == "open" and TIER_BY_KEY[f["tier"]].blocking]
+    items += [f"{f['id']} · {TIER_BY_KEY[f['tier']].label} · {_one_line(f['title'])}"
+              for f in sorted(blocking, key=_display_order)]
+    return items
+
+
+def _sent_back(state: ReviewState) -> bool:
+    decision = _executed_decision(state)
+    return bool(decision) and OPTION_BY_KEY[decision["choice"]].action == "send_back"
+
+
+def _after_send_back(state: ReviewState) -> str:
+    if state["locked"]:
+        return "That was the last decision: the PR is locked."
+    return "Push the fixes, and the owner decides once more."
+
+
+def _render_decision(state: ReviewState, author: str, items: list[str]) -> list[str]:
     decision = state["decision"]
     if not decision:
         return []
@@ -671,12 +716,37 @@ def _render_decision(state: ReviewState, author: str) -> list[str]:
     spec = OPTION_BY_KEY[decision["choice"]]
     lines = [f"**Decision {state['decisions_used']} of {MAX_DECISIONS}:** {spec.key}, {spec.done} "
              f"at `{decision['head_sha'][:9]}`."]
-    merge_option = decision["options"][0]
-    if spec.action == "send_back" and not merge_option["available"]:
-        lines.append(f"@{author}, what stops the merge: {merge_option['why']}. Fix it and push.")
+    if spec.action == "send_back" and items:
+        lines.append(f"@{author}, to fix: {'; '.join(item.rstrip('.') for item in items)}. {_after_send_back(state)}")
     elif spec.action == "send_back":
-        lines.append(f"@{author}, the owner sent this back. See his comments.")
+        lines.append(f"@{author}, the owner sent this back. See his comments. {_after_send_back(state)}")
     return lines + [""]
+
+
+def _checklist_link(url: str | None) -> str:
+    return f"[the review checklist]({url})" if url else "the review checklist"
+
+
+def author_notice(before: ReviewState, after: ReviewState, author: str, checks: list[Check],
+                  checklist: dict | None) -> str:
+    """The one new comment a run posts to tag the author, or "" when it needs none. checklist is the review
+    comment as it was before the run, None when the run creates it."""
+    # GitHub notifies nobody of an edited comment, so a send-back or a rerun's new findings written only into the
+    # existing checklist would never reach the author. A newly created checklist notifies by itself.
+    link = _checklist_link((checklist or {}).get("html_url"))
+    if after["decisions_used"] > before["decisions_used"] and _sent_back(after):
+        items = author_items(after, checks)
+        if not items:
+            return f"@{author}, the owner sent this PR back. See his comments and {link}. {_after_send_back(after)}"
+        return "\n".join([f"@{author}, the owner sent this PR back. To fix:", "",
+                          *[f"- {item}" for item in items], "",
+                          f"{_after_send_back(after)} The full list is in {link}."])
+    known = {f["id"] for f in before["findings"]}
+    added = [i for i in open_blocking_ids(after) if i not in known]
+    if not added or not checklist:
+        return ""
+    noun = "item" if len(added) == 1 else "items"
+    return f"@{author}, review run {after['run']} found {len(added)} new {noun} to fix: {', '.join(added)}. See {link}."
 
 
 def _headline(author: str, state: ReviewState, blocking: int, head_sha: str | None, failed: bool,
@@ -688,6 +758,11 @@ def _headline(author: str, state: ReviewState, blocking: int, head_sha: str | No
         return f"This review run failed, [see the log]({run_url}).{earlier}"
     if state["locked"]:
         return f"This PR is locked: {OPTION_BY_KEY[state['decision']['choice']].done} by the owner's decision."
+    if _sent_back(state) and state["decision"]["head_sha"] == head_sha:
+        if not blocking:
+            return f"@{author}, the owner sent this PR back. See the decision below."
+        noun = "item needs" if blocking == 1 else "items need"
+        return f"@{author}, the owner sent this PR back: {blocking} {noun} your attention."
     if blocking:
         noun = "item needs" if blocking == 1 else "items need"
         return f"@{author}, {blocking} {noun} your attention."
@@ -714,12 +789,10 @@ def _footer(state: ReviewState, run_url: str, failed: bool, notice: str) -> str:
 def render_comment(author: str, state: ReviewState, checks: list[Check], run_url: str, failed: bool = False, *,
                    head_sha: str | None = None, notice: str = "", out_of_budget: bool = False) -> str:
     """The one review comment: headline, plain checks, findings, decision, footer and the hidden state."""
-    open_findings = [f for f in state["findings"] if f["status"] == "open"]
-    blocking = sum(1 for f in open_findings if TIER_BY_KEY[f["tier"]].blocking)
-    blocking += sum(1 for c in checks if not c["ok"])
+    items = author_items(state, checks)
     failed = failed or out_of_budget
 
-    lines = [COMMENT_MARKER, _headline(author, state, blocking, head_sha, failed, out_of_budget, run_url), ""]
+    lines = [COMMENT_MARKER, _headline(author, state, len(items), head_sha, failed, out_of_budget, run_url), ""]
     if checks:
         lines += ["**Checks**", ""]
         lines += [f"- [{'x' if c['ok'] else ' '}] {CHECK_LABELS[c['name']]}: {c['detail']}" for c in checks]
@@ -730,7 +803,7 @@ def render_comment(author: str, state: ReviewState, checks: list[Check], run_url
         lines.append("")
     elif not failed:
         lines += ["No findings.", ""]
-    lines += _render_decision(state, author)
+    lines += _render_decision(state, author, items)
     lines.append(_footer(state, run_url, failed, notice))
     lines.append(state_marker(state))
     return "\n".join(lines)
@@ -938,13 +1011,18 @@ def fetch_compare(repo: str, base: str, head: str) -> dict | None:
     return json.loads(raw) if raw else None
 
 
+def post_comment(repo: str, number: int, body: str) -> None:
+    """Add a new comment to the PR."""
+    gh(["api", "--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"], {"body": body})
+
+
 def save_comment(repo: str, number: int, existing: dict | None, body: str) -> None:
     """Edit the review comment, or create it on the first run."""
     check_comment_size(body)
     if existing:
         gh(["api", "--method", "PATCH", f"repos/{repo}/issues/comments/{existing['id']}", "--input", "-"], {"body": body})
     else:
-        gh(["api", "--method", "POST", f"repos/{repo}/issues/{number}/comments", "--input", "-"], {"body": body})
+        post_comment(repo, number, body)
 
 
 def save_pr_body(repo: str, number: int, body: str) -> None:
@@ -1001,6 +1079,33 @@ def _publish_comment(ctx: Context, body: str, dry_run: bool) -> None:
         save_comment(ctx.repo, ctx.number, ctx.comment, body)
 
 
+def _notify_author(ctx: Context, notice: str, dry_run: bool) -> None:
+    if not notice:
+        return
+    if dry_run:
+        RUN_DIR.mkdir(exist_ok=True)
+        (RUN_DIR / "notify.md").write_text(notice)
+        print(f"--- new comment for the author ({RUN_DIR / 'notify.md'}) ---\n{notice}")
+    else:
+        post_comment(ctx.repo, ctx.number, notice)
+
+
+def files_since_review(ctx: Context) -> int | None:
+    """How many of the PR's files changed since the reviewed commit, or None when no earlier review covers part of
+    the head (none yet, or the branch was rewritten)."""
+    since, head = ctx.state["reviewed_sha"], ctx.pr["headRefOid"]
+    if not since or since == head:
+        return None
+    found = incremental_diff(fetch_compare(ctx.repo, since, head), fetch_pr_files(ctx.repo, ctx.number))
+    return found[1].files if found else None
+
+
+def route_now(ctx: Context, cmd: Command) -> Route:
+    """route() with the facts it needs read from GitHub."""
+    files = files_since_review(ctx) if cmd.kind == "review" else None
+    return route(cmd, ctx.state, ctx.pr["headRefOid"], ctx.pr.get("state") == "OPEN", files)
+
+
 def _reviewed_head(pr: dict) -> str:
     """The commit the review reads: the pr-head checkout's, which can trail a push made during the run."""
     result = subprocess.run(["git", "-C", "pr-head", "rev-parse", "HEAD"], capture_output=True, text=True)
@@ -1014,8 +1119,7 @@ def _read_costs() -> list[StepCost]:
 
 def cmd_route(args: argparse.Namespace) -> None:
     ctx = load(args.state_from)
-    result = route(parse_command(os.environ.get("COMMENT_BODY")), ctx.state, ctx.pr["headRefOid"],
-                   ctx.pr.get("state") == "OPEN")
+    result = route_now(ctx, parse_command(os.environ.get("COMMENT_BODY")))
     print(f"action={result.action}" + (f" ({result.reason})" if result.reason else ""))
     _set_outputs(action=result.action)
 
@@ -1045,17 +1149,20 @@ def cmd_prepare(args: argparse.Namespace) -> None:
 
 def cmd_cost(args: argparse.Namespace) -> None:
     cap = float(os.environ["STEP_CAP"])
-    path = os.environ.get("EXECUTION_FILE") or ""
-    try:
-        execution = json.loads(Path(path).read_text()) if path else None
-    except (OSError, json.JSONDecodeError):
-        execution = None
-    cost = step_cost(args.step, execution, cap)
+    path = Path(os.environ.get("EXECUTION_FILE") or "")
+    log = None
+    if path.name and path.is_file():
+        try:
+            log = path.read_text()
+        except OSError:
+            log = ""
+    cost = step_cost(args.step, log, cap)
     RUN_DIR.mkdir(exist_ok=True)
     (RUN_DIR / "costs.json").write_text(json.dumps(_read_costs() + [cost]))
     _set_outputs(next_cap=step_cap(cap - cost["usd"]))
-    print(f"{args.step}: ${cost['usd']:.4f}" + ("" if cost["measured"] else " (no result in the log: charged its cap)")
-          + (" (cut off by its cap)" if cost["cut_off"] else ""))
+    basis = {"measured": "", "cap": " (no cost in the log: charged its cap)",
+             "not_started": " (no log: cost unknown, charged nothing)"}[cost["basis"]]
+    print(f"{args.step}: ${cost['usd']:.4f}{basis}" + (" (cut off by its cap)" if cost["cut_off"] else ""))
 
 
 def cmd_number(args: argparse.Namespace) -> None:
@@ -1075,28 +1182,34 @@ def cmd_publish(args: argparse.Namespace) -> None:
     numbered = number_findings(review["findings"], ctx.state)
     head_file = RUN_DIR / "head-sha"
     head = head_file.read_text().strip() if head_file.exists() else ctx.pr["headRefOid"]
+    costs = _read_costs()
     state = merge(ctx.state, review["previous"], numbered, parse_verdicts(verify_raw))
-    state = add_spent(after_review(state, head), _read_costs())
+    state = add_spent(after_review(state, head), costs)
     unchecked = len(numbered) if numbered and not verify_raw else 0
-    notice = f"{unchecked} new findings went unchecked and are not shown: the budget ran out" if unchecked else ""
-    comment_body = render_comment(ctx.pr["author"]["login"], state, checks_from_pr(ctx.pr), ctx.run_url,
-                                  head_sha=ctx.pr["headRefOid"], notice=notice)
+    notices = [f"{unchecked} new findings went unchecked and are not shown: the budget ran out"] if unchecked else []
+    author, checks = ctx.pr["author"]["login"], checks_from_pr(ctx.pr)
+    comment_body = render_comment(author, state, checks, ctx.run_url, head_sha=ctx.pr["headRefOid"],
+                                  notice=" · ".join(notices + cost_notices(costs)))
     pr_body = rewrite_body(review["description"], ctx.pr.get("body"))
-    refuse_secrets(comment_body + pr_body, dict(os.environ))
+    tell_author = author_notice(ctx.state, state, author, checks, ctx.comment)
+    refuse_secrets(comment_body + pr_body + tell_author, dict(os.environ))
     check_comment_size(comment_body)
     if args.dry_run:
         _write_dry_run(comment_body, pr_body)
+        _notify_author(ctx, tell_author, True)
         return
     # The body goes first: if it fails, the comment (and the cost it records) is left for `fail` to write once.
     save_pr_body(ctx.repo, ctx.number, pr_body)
     save_comment(ctx.repo, ctx.number, ctx.comment, comment_body)
+    _notify_author(ctx, tell_author, False)
 
 
 def cmd_fail(args: argparse.Namespace) -> None:
     ctx = load(args.state_from)
     costs = _read_costs()
     body = render_comment(ctx.pr["author"]["login"], add_spent(ctx.state, costs), checks_from_pr(ctx.pr),
-                          ctx.run_url, failed=True, out_of_budget=any(c["cut_off"] for c in costs))
+                          ctx.run_url, failed=True, notice=" · ".join(cost_notices(costs)),
+                          out_of_budget=any(c["cut_off"] for c in costs))
     _publish_comment(ctx, body, args.dry_run)
 
 
@@ -1155,7 +1268,13 @@ def act(ctx: Context, cmd: Command, result: Route, dry_run: bool) -> tuple[Revie
     if result.action == "stop":
         return state, f"Not run: {result.reason}"
     if result.action == "refresh":
-        return state, f"No new commits since the review of `{state['reviewed_sha'][:9]}`: checks refreshed, no AI run"
+        head = ctx.pr["headRefOid"]
+        if state["reviewed_sha"] == head:
+            return state, f"No new commits since the review of `{head[:9]}`: checks refreshed, no AI run"
+        # Routed here because the new commits change none of the PR's files, so the review still covers the head.
+        return after_review(state, head), (f"No change to the PR's files since the review of "
+                                           f"`{state['reviewed_sha'][:9]}`: the review now covers `{head[:9]}`, "
+                                           "checks refreshed, no AI run")
     if result.action == "dismiss":
         return dismiss(state, cmd.target, cmd.text), f"{cmd.target} dismissed"
     if result.action == "decide":
@@ -1169,12 +1288,13 @@ def act(ctx: Context, cmd: Command, result: Route, dry_run: bool) -> tuple[Revie
 def cmd_act(args: argparse.Namespace) -> None:
     ctx = load(args.state_from)
     cmd = parse_command(os.environ.get("COMMENT_BODY"))
-    result = route(cmd, ctx.state, ctx.pr["headRefOid"], ctx.pr.get("state") == "OPEN")
+    result = route_now(ctx, cmd)
     print(f"action={result.action}" + (f" ({result.reason})" if result.reason else ""))
     state, notice = act(ctx, cmd, result, args.dry_run)
-    body = render_comment(ctx.pr["author"]["login"], state, checks_from_pr(ctx.pr), ctx.run_url,
-                          head_sha=ctx.pr["headRefOid"], notice=notice)
+    author, checks = ctx.pr["author"]["login"], checks_from_pr(ctx.pr)
+    body = render_comment(author, state, checks, ctx.run_url, head_sha=ctx.pr["headRefOid"], notice=notice)
     _publish_comment(ctx, body, args.dry_run)
+    _notify_author(ctx, author_notice(ctx.state, state, author, checks, ctx.comment), args.dry_run)
 
 
 COMMANDS = {
