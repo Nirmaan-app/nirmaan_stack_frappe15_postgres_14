@@ -52,6 +52,7 @@ from nirmaan_stack.services.outflow_import.status import (
     SKIP_ORIGIN_MANUAL,
     SKIP_ORIGIN_SYSTEM,
 )
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 ACCOUNTANT = "Nirmaan Accountant Profile"
 ACCOUNTANT_LEAD = "Nirmaan Accountant Lead Profile"
@@ -75,13 +76,13 @@ class _Users:
         user.insert(ignore_permissions=True)
         # `User.after_insert` may already have minted the Nirmaan Users row, with no profile.
         if frappe.db.exists("Nirmaan Users", email):
-            frappe.db.set_value("Nirmaan Users", email, "role_profile", role_profile)
+            set_role_copy_for_test(email, role_profile)
         else:
             nu = frappe.new_doc("Nirmaan Users")
             nu.email = email
             nu.first_name = "OFI Skip"
-            nu.role_profile = role_profile
             nu.insert(ignore_permissions=True)
+            set_role_copy_for_test(email, role_profile)
         frappe.db.commit()
         self.created.append(email)
         return email

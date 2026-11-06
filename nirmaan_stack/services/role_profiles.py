@@ -157,6 +157,13 @@ MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LE
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
+# User admins (owner, 2026-11-05; GLOSSARY.md): create users, give or change any role profile (Admin included)
+# and reset passwords -- the people who see the Users page. Nobody else, on the screen, in Desk or through the API.
+# ENFORCEMENT boundary: `api/users.create_user` / `reset_password` and the User `validate` hook
+# (`integrations/controllers/user.py`). Mirrored client-side by `UsersRoute` in
+# `frontend/src/utils/auth/ProtectedRoute.tsx` -- keep the two in sync.
+USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE)
+
 # Upload / replace a Paid expense's invoice from the Payments queue's Payment Done tab (owner, 2026-10-31): the
 # queue's settle roles plus HR. The invoice file, number and date only; no other field of a Paid expense opens
 # up. ENFORCEMENT boundary of `api/expenses/paid_invoice.set_paid_expense_invoice`, which saves elevated.
@@ -258,6 +265,15 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
 def is_nirmaan_admin(user: str) -> bool:
     """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+def assert_user_admin(user: str) -> None:
+    """Refuse `user` unless they are a User admin (`USER_ADMIN_PROFILES`, or Administrator)."""
+    if not has_role_profile(user, USER_ADMIN_PROFILES):
+        frappe.throw(
+            _("Only Admin, PMO and HR may create users, change role profiles or reset passwords."),
+            frappe.PermissionError,
+        )
 
 
 def assert_match_gst_to_vendor_access(user: str) -> None:

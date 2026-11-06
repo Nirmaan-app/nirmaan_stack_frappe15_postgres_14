@@ -21,6 +21,7 @@ from nirmaan_stack.api.invoices.approve_vendor_invoice import (
     approve_vendor_invoice,
     bulk_approve_vendor_invoices,
 )
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 PROCUREMENT = "Nirmaan Procurement Executive Profile"
 ACCOUNTANT = "Nirmaan Accountant Profile"
@@ -44,7 +45,7 @@ class _AsRoleCase(_InvoiceEndpointCase):
             user.flags.no_welcome_mail = True
             user.insert(ignore_permissions=True)   # its after_insert creates the Nirmaan Users row
             user.add_roles("Nirmaan Project Lead")
-        frappe.db.set_value("Nirmaan Users", PROJECT_LEAD_USER, "role_profile", PROJECT_LEAD, update_modified=False)
+        set_role_copy_for_test(PROJECT_LEAD_USER, PROJECT_LEAD)
         frappe.db.commit()
 
     @classmethod

@@ -36,7 +36,9 @@ frappe.db.sql('''
 **Cascade on delete** (`integrations/controllers/nirmaan_users.on_trash`):
 - Deletes all `User Permission` records for the user
 - Deletes all `Nirmaan Notifications` (both sender and recipient)
-- Deletes the linked Frappe `User` document
+- Switches the person's Frappe `User` off and keeps it (`services/exited_employees.switch_off_login`): disabled,
+  every role and the role profile removed, API key and secret cleared, sessions ended after commit. The person
+  is now an *exited employee* (GLOSSARY.md). Deleting the User failed on its many links, and was swallowed.
 - Creates audit record in `Nirmaan Versions`
 
 **Does NOT delete**: PRs, POs, Comments (preserves audit trail with orphaned `owner`/`modified_by`)
@@ -102,8 +104,12 @@ Use `nirmaan_stack.api.users.reset_password` for graceful email error handling:
 result = frappe.call("nirmaan_stack.api.users.reset_password", {
     "user": "john@example.com"
 })
-# Returns: { success, message, email_sent, error? }
+# Returns: { success, message, email_sent, email_error? }
 ```
+
+User admins only (`services/role_profiles.USER_ADMIN_PROFILES`), as is `create_user`. Frappe makes and stores the
+key (`User._reset_password`, hashed), so the link works; the link goes only to the user's inbox, never back to the
+caller. Refused for Administrator and a switched-off login.
 
 ---
 
@@ -120,6 +126,5 @@ This prevents orphaned Frappe Users without Nirmaan Users records.
 ## Deletion Edge Cases
 
 The `on_trash` handler in `integrations/controllers/nirmaan_users.py`:
-- Uses isolated try/catch for each deletion (User Permissions, Notifications, User)
-- Checks if Frappe User exists before attempting delete
-- Logs sync warning if Nirmaan Users exists but Frappe User doesn't
+- Uses isolated try/catch for each deletion (User Permissions, Notifications)
+- Switches the login off only when a Frappe User exists

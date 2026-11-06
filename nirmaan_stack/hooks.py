@@ -181,6 +181,8 @@ override_doctype_class = {
 
 doc_events = {
 	"User": {
+        # Only User admins create users or give role profiles (services/role_profiles.USER_ADMIN_PROFILES).
+        "validate": "nirmaan_stack.integrations.controllers.user.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.create_user_profile",
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.on_user_update",
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
@@ -197,6 +199,8 @@ doc_events = {
         ],
         # The person's own bank account (Payee) goes with them, unless a Vendor is also paid into it.
         "after_delete": "nirmaan_stack.integrations.controllers.nirmaan_users.after_delete",
+        # Drops the cached set of Nirmaan users the login gate reads (services/nirmaan_users.py).
+        "after_insert": "nirmaan_stack.integrations.controllers.nirmaan_users.after_insert",
         "after_rename": "nirmaan_stack.integrations.controllers.nirmaan_users.after_rename",
     },
     "User Permission": {
@@ -797,9 +801,9 @@ scheduler_events = {
 # Authentication and authorization
 # --------------------------------
 
-# auth_hooks = [
-# 	"nirmaan_stack.auth.validate"
-# ]
+# Only Nirmaan users (a Nirmaan Users record) log in or make a request; Administrator and Guest always pass.
+on_session_creation = ["nirmaan_stack.integrations.login_gate.refuse_login"]
+auth_hooks = ["nirmaan_stack.integrations.login_gate.refuse_request"]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
