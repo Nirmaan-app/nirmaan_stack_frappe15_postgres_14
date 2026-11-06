@@ -2327,7 +2327,9 @@ class TestItemListSlice4(FrappeTestCase):
                           and extraction.config_is_eligible(self.cfgs[(disc, cat)], self.cfgs))
         # INVERTED A THIRD TIME by SLICE 12e-2 (owner option 1, 2026-10-10): Piping becomes an item-list category
         # whose rules RUN, and reaches extraction through the same generic arm -- EXACTLY three now.
-        self.assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping"])
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10; HVAC v60) by mechanical authority: BEFORE
+        # `assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping"])` -- VRF joins through the same generic arm
+        self.assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping", "hvac_vrf"])
         pip = self.cfgs[("HVAC", "hvac_piping")]
         self.assertEqual(pip.get("pipelines"), {})                        # the Insulation shape: no dead top-level entry
         # INVERTED by SLICE 12e-3a under mechanical authority (owner Q2, 2026-10-11: the model is asked "Insulated"
@@ -2346,8 +2348,10 @@ class TestItemListSlice4(FrappeTestCase):
         # `eligible` pin above is still exactly three), so the request is never sent; every other category still yields None.
         vrf = self.cfgs[("HVAC", "hvac_vrf")]
         self.assertIsNotNone(extraction.build_items_spec(vrf))
-        self.assertIs(vrf.get("calculator_only"), True)
-        self.assertFalse(extraction.config_is_eligible(vrf))
+        # INVERTED at VRF-4 (Q1 A; HVAC v60) by mechanical authority: BEFORE `assertIs(vrf.get("calculator_only"), True)` and
+        # `assertFalse(config_is_eligible(vrf))` -- the switch is gone and the request IS sent
+        self.assertNotIn("calculator_only", vrf)
+        self.assertTrue(extraction.config_is_eligible(vrf))
         for key in self.cfgs:
             if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping"), ("HVAC", "hvac_vrf")):
                 self.assertIsNone(extraction.build_items_spec(self.cfgs[key]), key)
@@ -3543,7 +3547,7 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v55.json"`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v56.json"`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v57.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v59.json"   # VRF-3b: v59 (BEFORE: v58, VRF-3a)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v60.json"   # VRF-4: v60 (BEFORE: v59, VRF-3b)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last

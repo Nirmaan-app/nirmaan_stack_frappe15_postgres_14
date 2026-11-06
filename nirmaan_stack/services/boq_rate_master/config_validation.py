@@ -211,19 +211,10 @@ _KNOWN_CONFIG_KEYS = {
     # historical assets v18..v28 do carry it and are therefore refused by this validator -- that is
     # the honest state of a retired key, and the tests pin it from both sides.
     #
-    # VRF-2a (owner 2026-11-03 Q1 A): `calculator_only` is RE-ADMITTED, TEMPORARILY, FOR hvac_vrf ONLY --
-    # "A temporary "calculator only" switch for VRF, removed at VRF-4 ... BoQ rows and Suggest stay off
-    # until VRF-4. Removing it becomes a required item in VRF-4." It sets aside 12d-2's "never a second
-    # on/off switch" for VRF alone until VRF-4. `_validate_calculator_only` below refuses it on any other
-    # category, by name, so the frozen v18..v28 Insulation files stay refused exactly as before. Readers:
-    # `extraction.config_is_eligible` (false with it) and `pricingSheetHelper.isEligibleConfig` (false
-    # with it unless the helper is the calculator's). temporary, owner 2026-11-03 Q1 A; removed at VRF-4.
-    "calculator_only",
+    # VRF-4 (owner Q1 A, 2026-11-03: "removed at VRF-4"; D-10 "VRF goes live on BoQ rows at VRF-4"): VRF-2a's temporary
+    # re-admission for hvac_vrf is REMOVED with the key -- the allowlist entry, `_CALCULATOR_ONLY_CATEGORIES` and
+    # `_validate_calculator_only` are gone, so the frozen v56..v59 hvac_vrf configs are refused by name as v18..v28 are.
 }
-
-# VRF-2a (owner 2026-11-03 Q1 A): the ONE category the temporary `calculator_only` key may sit on. Named here
-# deliberately -- the owner ruled the switch for VRF only -- and removed with the key at VRF-4.
-_CALCULATOR_ONLY_CATEGORIES = frozenset({"hvac_vrf"})
 
 _LIST_MODE = "item_list"
 _LIST_DEF_TYPES = ("choice", "number", "text")
@@ -1126,6 +1117,15 @@ _LOT_KEYS = {"units", "bar", "line"}
 # (Piping / Insulation in this discipline; Electrical's cable read only) at a size banded on the unit's capacity from the
 # Pricing Inputs. Shape: `_validate_extras`; the targets and the inputs: `extras_problems` (cross-category, PURE).
 _PRICING_KEYS = _PRICING_KEYS | {"extras"}
+# VRF-4 (owner 2026-11-06 q1 / q2; R-WS / D-5 "option D" / D-9; R-BRAND (a); BORROWED "option a"): `extras.from_model` (the
+# per-item includes and the copied words, read from the MODEL ITEM), `extras.lines.boq_note` (O-5), `extras.cable.
+# conductor_attr` / `armour_attr` (Electrical's own ids), `per_set.counted.from_sheet` (refnet unit counts added up from the
+# sheet), `defaults.<attr>.unlisted.from_attr` (the model's copied words), `working_standby` (the red bar on W+S words).
+_PRICING_KEYS = _PRICING_KEYS | {"working_standby"}
+_EXTRAS_OPTIONAL_KEYS = {"from_model"}
+_EXTRAS_OPTIONAL_LINES = {"boq_note"}
+_EXTRAS_FROM_MODEL_KEYS = {"includes", "yes", "copper_size", "insulation_thickness", "cable_spec", "comm_words", "length"}
+_WORKING_STANDBY_KEYS = {"attr", "words", "bar"}
 _EXTRAS_KEYS = {"roles", "band_unit", "row_class", "includes", "pipe_bands", "power_bands", "comm_input",
                 "copper_length_input", "cable_length_input", "copper", "insulation", "cable", "lines"}
 _EXTRAS_INCLUDE_IDS = ("copper", "insulation", "power", "comm")
@@ -1151,9 +1151,9 @@ def _validate_extras(ex, pr, fams):
     table rises and only its LAST band may be open (max null); every input / target / line is present. The targets and
     the Pricing Inputs are checked against the catalogue by `extras_problems`."""
     loc = "list_spec.pricing.extras"
-    if not isinstance(ex, dict) or set(ex) != _EXTRAS_KEYS:
+    if not isinstance(ex, dict) or not (_EXTRAS_KEYS <= set(ex) <= _EXTRAS_KEYS | _EXTRAS_OPTIONAL_KEYS):
         missing = sorted(_EXTRAS_KEYS - set(ex or {})) if isinstance(ex, dict) else []
-        extra = sorted(set(ex or {}) - _EXTRAS_KEYS) if isinstance(ex, dict) else []
+        extra = sorted(set(ex or {}) - _EXTRAS_KEYS - _EXTRAS_OPTIONAL_KEYS) if isinstance(ex, dict) else []
         _vthrow(f"{loc} needs exactly {', '.join(sorted(_EXTRAS_KEYS))} (missing: {', '.join(missing) or '-'}; unknown: {', '.join(extra) or '-'}).")
     roles = ex["roles"]
     if not isinstance(roles, dict) or not roles:
@@ -1209,16 +1209,26 @@ def _validate_extras(ex, pr, fams):
                     ("insulation", {"category", "family", "attrs", "thickness_attr", "size_attr"}),
                     ("cable", {"category", "discipline", "attrs", "cores_attr", "size_attr", "label"})):
         t = ex[k]
-        if not isinstance(t, dict) or set(t) != need:
-            _vthrow(f"{loc}.{k} needs exactly {', '.join(sorted(need))}.")
-        for kk in need - {"attrs"}:
+        # VRF-4 B2: the cable may name Electrical's own conductor / armour attribute ids (each one of its `attrs`)
+        opt = {"conductor_attr", "armour_attr"} if k == "cable" else set()
+        if not isinstance(t, dict) or not (need <= set(t) <= need | opt):
+            _vthrow(f"{loc}.{k} needs exactly {', '.join(sorted(need))}" + (f" (and optionally {', '.join(sorted(opt))})." if opt else "."))
+        for kk in (need - {"attrs"}) | (set(t) & opt):
             if not _nonempty_str(t[kk]):
                 _vthrow(f"{loc}.{k}.{kk} must be a non-empty string.")
+        for kk in set(t) & opt:
+            if not isinstance(t.get("attrs"), dict) or t[kk] not in t["attrs"]:
+                _vthrow(f"{loc}.{k}.{kk} '{t[kk]}' must be one of its attrs ({', '.join(sorted((t.get('attrs') or {}).keys()))}).")
         if "attrs" in need and (not isinstance(t["attrs"], dict) or not all(isinstance(v, str) for v in t["attrs"].values())):
             _vthrow(f"{loc}.{k}.attrs must map attribute ids to string values.")
     lines = ex["lines"]
-    if not isinstance(lines, dict) or set(lines) != _EXTRAS_LINES or not all(_nonempty_str(v) for v in lines.values()):
+    if (not isinstance(lines, dict) or not (_EXTRAS_LINES <= set(lines) <= _EXTRAS_LINES | _EXTRAS_OPTIONAL_LINES)
+            or not all(_nonempty_str(v) for v in lines.values())):
         _vthrow(f"{loc}.lines needs exactly {len(_EXTRAS_LINES)} non-empty sentences ({', '.join(sorted(_EXTRAS_LINES - set(lines or {}))) or 'unknown keys'}).")
+    if "boq_note" in lines and "{list}" not in lines["boq_note"]:
+        _vthrow(f"{loc}.lines.boq_note must name {{list}} (the includes the model read).")
+    if "from_model" in ex:
+        _validate_extras_from_model(ex["from_model"], f"{loc}.from_model")
     for k, phs in _EXTRAS_PLACEHOLDERS.items():
         for ph in phs:
             if ph not in lines[k]:
@@ -1310,6 +1320,78 @@ def _nonempty_str(v):
     return isinstance(v, str) and bool(v.strip())
 
 
+def _validate_extras_from_model(fm, loc):
+    """VRF-4 (owner "q1 ok") -- `extras.from_model`: each include maps to the per-item Yes / No question that reads it, `yes`
+    is the value meaning included, the copied-words ids are question ids, `comm_words` compiles. That each id is a declared
+    question with the right type is checked against the definitions by `_validate_vrf4_reads` (the definitions sit beside
+    `pricing`)."""
+    if not isinstance(fm, dict) or not ({"includes", "yes"} <= set(fm) <= _EXTRAS_FROM_MODEL_KEYS):
+        _vthrow(f"{loc} needs includes and yes (and optionally {', '.join(sorted(_EXTRAS_FROM_MODEL_KEYS - {'includes', 'yes'}))}).")
+    inc = fm["includes"]
+    if not isinstance(inc, dict) or not inc or set(inc) - set(_EXTRAS_INCLUDE_IDS) or not all(_nonempty_str(v) for v in inc.values()):
+        _vthrow(f"{loc}.includes must map include ids ({', '.join(_EXTRAS_INCLUDE_IDS)}) to question ids.")
+    if not _nonempty_str(fm["yes"]):
+        _vthrow(f"{loc}.yes must be the value that means included.")
+    for k in ("copper_size", "insulation_thickness", "cable_spec", "length", "comm_words"):
+        if k in fm and not _nonempty_str(fm[k]):
+            _vthrow(f"{loc}.{k} must be a non-empty string.")
+    if "comm_words" in fm:
+        try:
+            re.compile(fm["comm_words"])
+        except re.error as exc:
+            _vthrow(f"{loc}.comm_words is not a valid pattern ({exc}).")
+
+
+def _validate_working_standby(ws, loc):
+    """VRF-4 (R-WS, D-5 "option D", D-9) -- `working_standby`: the copied-words question, the patterns (each compiles) and
+    the bar (a title and a line naming {said} and {qty}). The question is checked against the definitions by
+    `_validate_vrf4_reads`."""
+    if not isinstance(ws, dict) or set(ws) != _WORKING_STANDBY_KEYS:
+        _vthrow(f"{loc} needs exactly attr, words and bar.")
+    if not _nonempty_str(ws["attr"]):
+        _vthrow(f"{loc}.attr must name the question that copies the working + standby words.")
+    if not isinstance(ws["words"], list) or not ws["words"] or not all(_nonempty_str(w) for w in ws["words"]):
+        _vthrow(f"{loc}.words must be a non-empty list of patterns.")
+    for w in ws["words"]:
+        try:
+            re.compile(w)
+        except re.error as exc:
+            _vthrow(f"{loc}.words: '{w}' is not a valid pattern ({exc}).")
+    bar = ws["bar"]
+    if not isinstance(bar, dict) or set(bar) != {"title", "line"} or not all(_nonempty_str(bar[k]) for k in bar):
+        _vthrow(f"{loc}.bar needs exactly a title and a line.")
+    for ph in ("{said}", "{qty}"):
+        if ph not in bar["line"]:
+            _vthrow(f"{loc}.bar.line must name {ph}.")
+
+
+def _validate_vrf4_reads(cfg, pr, by_id):
+    """VRF-4 -- every answer the pricer reads off a MODEL ITEM must be a declared question, or the reply parser drops it
+    (`extraction.parse_item_list` keeps declared item attributes only): the includes are Yes / No choices carrying `yes`,
+    the copied words are text questions, the brand's copy a text question, the W+S words a text question."""
+    def need(qid, where, kind, values=None):
+        d = by_id.get(qid)
+        if not d:
+            _vthrow(f"{where} reads '{qid}', which is not a question (list_spec.attribute_definitions): the model's answer would be dropped.")
+        if d.get("type") != kind:
+            _vthrow(f"{where} reads '{qid}', which must be a {kind} question (it is {d.get('type')}).")
+        if values is not None and not set(values) <= set(d.get("values") or []):
+            _vthrow(f"{where} reads '{qid}', whose values must include {', '.join(values)}.")
+    fm = ((pr.get("extras") or {}).get("from_model")) if isinstance(pr.get("extras"), dict) else None
+    if isinstance(fm, dict):
+        for inc, qid in (fm.get("includes") or {}).items():
+            need(qid, f"extras.from_model.includes.{inc}", "choice", [fm.get("yes")])
+        for k in ("copper_size", "insulation_thickness", "cable_spec", "length"):
+            if k in fm:
+                need(fm[k], f"extras.from_model.{k}", "text")
+    if isinstance(pr.get("working_standby"), dict):
+        need(pr["working_standby"]["attr"], "working_standby.attr", "text")
+    for attr, d in (pr.get("defaults") or {}).items():
+        ul = d.get("unlisted") if isinstance(d, dict) else None
+        if isinstance(ul, dict) and "from_attr" in ul:
+            need(ul["from_attr"], f"defaults.{attr}.unlisted.from_attr", "text")
+
+
 def _validate_per_set(ps, pr, fams):
     """VRF-3a K2 -- `list_spec.pricing.per_set`. Every spelling must sit in a unit class (so the row prices); `counted`
     names priced families, three typed fields (covers with options naming sides, one count per side) and the lines."""
@@ -1335,8 +1417,8 @@ def _validate_per_set(ps, pr, fams):
     if c is None:
         return
     cl = f"{loc}.counted"
-    if not isinstance(c, dict) or set(c) != _COUNTED_KEYS:
-        _vthrow(f"{cl} needs exactly {', '.join(sorted(_COUNTED_KEYS))}.")
+    if not isinstance(c, dict) or not (_COUNTED_KEYS <= set(c) <= _COUNTED_KEYS | {"from_sheet"}):
+        _vthrow(f"{cl} needs exactly {', '.join(sorted(_COUNTED_KEYS))} (and optionally from_sheet).")
     if not isinstance(c["families"], list) or not c["families"] or any(f not in fams for f in c["families"]):
         _vthrow(f"{cl}.families must be a non-empty list of families this category prices.")
     counts = c["counts"]
@@ -1371,6 +1453,21 @@ def _validate_per_set(ps, pr, fams):
         _vthrow(f"{cl}.lines.formula must name {{parts}} and {{E}}.")
     if "{p}" not in lines["rounded"]:
         _vthrow(f"{cl}.lines.rounded must name {{p}} (the pieces rounded up to).")
+    fs = c.get("from_sheet")
+    if fs is not None:
+        # VRF-4 (owner "q2 ok"): the unit counts added up from the sheet -- one family list per side of the counts, each a
+        # family this category prices; the note naming {n} / {word} / {rows}, and the line for a sheet with none
+        if not isinstance(fs, dict) or set(fs) != {"sides", "line", "none"}:
+            _vthrow(f"{cl}.from_sheet needs exactly sides, line and none.")
+        if not isinstance(fs["sides"], dict) or set(fs["sides"]) != sides:
+            _vthrow(f"{cl}.from_sheet.sides must name exactly the counts' sides ({', '.join(sorted(sides))}).")
+        for sd, fl in fs["sides"].items():
+            if not isinstance(fl, list) or not fl or any(f not in fams for f in fl):
+                _vthrow(f"{cl}.from_sheet.sides.{sd} must be a non-empty list of families this category prices.")
+        if not _nonempty_str(fs["line"]) or not all(ph in fs["line"] for ph in ("{n}", "{word}", "{rows}")):
+            _vthrow(f"{cl}.from_sheet.line must name {{n}}, {{word}} and {{rows}}.")
+        if not _nonempty_str(fs["none"]) or "{word}" not in fs["none"]:
+            _vthrow(f"{cl}.from_sheet.none must name {{word}}.")
 
 
 def _validate_lot_units(lu, pr):
@@ -2108,7 +2205,10 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     if la is not None:
         if not isinstance(la, str) or not la.strip():
             _vthrow("list_spec.pricing.label_attr must be a non-empty string.")
-        if la not in by_id and la != spec.get("family_attribute_id"):
+        # VRF-4 (owner 2026-11-06 q4: capacity_label is no longer ASKED of the model): a label the SKUs carry may also be one
+        # of the category's own top-level attribute definitions (the catalogue's columns) -- not every SKU column is a question
+        top_ids = {d.get("id") for d in (cfg.get("attribute_definitions") or []) if isinstance(d, dict)}
+        if la not in by_id and la not in top_ids and la != spec.get("family_attribute_id"):
             _vthrow(f"list_spec.pricing.label_attr '{la}' is not an item attribute of this category; "
                     "a ladder would skip every row and refuse everything.")
     # SLICE 12c FINISH (owner F4): the cladding values whose cost stays TYPED and editable. Every
@@ -2357,6 +2457,10 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # VRF-3b: `extras` -- PRESENCE, as every key above
     if "extras" in pr:
         _validate_extras(pr["extras"], pr, fams)
+    # VRF-4: `working_standby` -- PRESENCE, as every key above; then every answer the pricer reads is a declared question
+    if "working_standby" in pr:
+        _validate_working_standby(pr["working_standby"], "list_spec.pricing.working_standby")
+    _validate_vrf4_reads(None, pr, by_id)
     if "unstocked_materials" in pr:
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:
@@ -2455,8 +2559,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             ul = d["unlisted"]
             if "value" not in d:
                 _vthrow(f"{dloc}.unlisted needs a single value to price as (not by_family).")
-            if not isinstance(ul, dict) or set(ul) != {"several", "off_sheet"} or not all(
-                    isinstance(ul.get(k), str) and "{said}" in ul[k] for k in ("several", "off_sheet")):
+            if not isinstance(ul, dict) or not ({"several", "off_sheet"} <= set(ul) <= {"several", "off_sheet", "from_attr"}) or not all(
+                    isinstance(ul.get(k), str) and "{said}" in ul[k] for k in ("several", "off_sheet")) or (
+                    "from_attr" in ul and not _nonempty_str(ul["from_attr"])):
                 _vthrow(f"{dloc}.unlisted must be {{several, off_sheet}}, each a line carrying {{said}} (the row's words).")
         if "value" in d and d["value"] not in vals:
             _vthrow(f"{dloc}.value must be one of the attribute's values.")
@@ -2654,32 +2759,6 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
                         _vthrow(f"{where}: component_ref.ref key '{rk}' is not a SKU attribute.")
                     if isinstance(rv, str) and rv.startswith("@") and rv[1:] not in readable:
                         _vthrow(f"{where}: component_ref.ref '{rk}' reads '{rv}', which is not a SKU attribute.")
-
-
-def _validate_calculator_only(cfg):
-    """VRF-2a (owner 2026-11-03 Q1 A) -- the TEMPORARY calculator-only switch, removed at VRF-4. Absent => nothing
-    to check (byte-identical to before for every config). Present, it must be:
-      - exactly `true` -- an explicit `false` is a key doing nothing (FA7's rule);
-      - on a category the owner ruled it for (`_CALCULATOR_ONLY_CATEGORIES`: hvac_vrf only) -- anywhere else it is
-        refused WITH THE REASON, so 12d-2's "never a second on/off switch" still holds for every other category,
-        and the frozen v18..v28 Insulation files stay refused;
-      - beside an item-list pricing block (`list_spec.pricing.families`) -- without rules there is nothing for the
-        calculator to price, so the key would switch nothing on (FA7's rule)."""
-    if "calculator_only" not in cfg:
-        return
-    if cfg.get("calculator_only") is not True:
-        _vthrow("calculator_only must be true when present (an explicit false is a key doing nothing).")
-    cat = (cfg.get("category_id") or "").strip()
-    if cat not in _CALCULATOR_ONLY_CATEGORIES:
-        _vthrow(
-            f"calculator_only is not allowed on category '{cat}': it is a temporary switch for VRF only "
-            f"(owner 2026-11-03 Q1 A, removed at VRF-4); every other category has ONE on/off switch "
-            f"(SLICE 12d-2), its pricing rules."
-        )
-    fams = (((cfg.get("list_spec") or {}).get("pricing") or {}).get("families"))
-    if not isinstance(fams, dict) or not fams:
-        _vthrow("calculator_only needs an item-list pricing block (list_spec.pricing.families): without rules the "
-                "calculator has nothing to price.")
 
 
 def _validate_alias_of(cfg):
@@ -2976,7 +3055,6 @@ def _validate_config(cfg):
     _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
     _validate_column_order(cfg)       # SLICE 12c FINISH: the presentation order; a no-op without the key
     _validate_impact_examples(cfg)    # ELR-3a: the impact panel's worked examples; a no-op without the key
-    _validate_calculator_only(cfg)    # VRF-2a (Q1 A): the temporary switch, hvac_vrf only; a no-op without the key
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")

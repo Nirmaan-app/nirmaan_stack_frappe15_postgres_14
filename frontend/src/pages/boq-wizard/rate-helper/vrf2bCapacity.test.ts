@@ -454,7 +454,7 @@ describe("VRF-2b -- the Derivation lines (QR-3 A, U7)", () => {
 describe("VRF-2b -- the screen: option units (U2 A), the picker (U1), other forms unchanged (U8)", () => {
   const configs = new Map<string, RateCategoryConfig>(v56.category_configs.map((c) => [c.category_id, c]));
   configs.set(VRF, CFG);
-  const calc = makePricingSheetHelper({ configsByCategory: configs, items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
+  const calc = makePricingSheetHelper({ configsByCategory: configs, items: ITEMS, extractionByRow: new Map() });
   const run = (cat: string, unit: string, block: Record<string, unknown>) =>
     calc.compute(calculatorCtx("HVAC", cat), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [block] }), [ROW_UNIT_OVERRIDE_KEY]: unit }) as unknown as ItemListSuggestion;
   const field = (r: ItemListSuggestion, id: string) => r.itemList!.items[0].fields.find((f) => f.id === id)!;

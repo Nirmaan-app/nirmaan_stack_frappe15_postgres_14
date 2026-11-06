@@ -52,7 +52,7 @@ const CFG = withVrf3a(base57());
 const SPEC = itemListPricingSpec(CFG)!;
 const configsOf = (cfg: RateCategoryConfig) => new Map<string, RateCategoryConfig>(v57.category_configs.map((c) => [c.category_id, c.category_id === VRF ? cfg : c]));
 
-const calcOf = (cfg: RateCategoryConfig = CFG) => makePricingSheetHelper({ configsByCategory: configsOf(cfg), items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
+const calcOf = (cfg: RateCategoryConfig = CFG) => makePricingSheetHelper({ configsByCategory: configsOf(cfg), items: ITEMS, extractionByRow: new Map() });
 const CALC = calcOf();
 const runState = (state: ItemListEditState, unit = "Nos", calc = CALC): ItemListView =>
   (calc.compute(calculatorCtx("HVAC", VRF), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: unit }) as unknown as ItemListSuggestion).itemList!;

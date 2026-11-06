@@ -1363,7 +1363,7 @@ describe("VRF-2a (v56) -- R-39: every VRF Derivation-tab rule fires from the pan
   function vrun(c: VCase, cfgs: Map<string, RateCategoryConfig> = c.path === "calc" ? live : projected) {
     const ext = new Map<number, ExtractionRow>();
     if (c.path === "panel") ext.set(1, { excelRow: 1, description: "", attributes: {}, items: [{ attributes: vcells(c.model ?? {}) }] } as unknown as ExtractionRow);
-    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items56, extractionByRow: ext, ...(c.path === "calc" ? { calculatorSurface: true } : {}) });
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items56, extractionByRow: ext });
     const ctx: RateHelperRowContext & { unit?: string } = { excelRow: c.path === "calc" ? 0 : 1, description: "", nodeType: c.path === "calc" ? "" : "Line Item",
       category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] };
     if (c.path === "panel" && c.unit !== undefined) ctx.unit = c.unit;
@@ -1415,8 +1415,9 @@ describe("VRF-2a (v56) -- R-39: every VRF Derivation-tab rule fires from the pan
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
     if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
-    // never on a live BoQ row: the same panel case on the LIVE config (no flag) declines with today's text
-    if (c.path === "panel") expect(vrun(c, live).kind).toBe("none");
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE `expect(vrun(c, live).kind).toBe("none")` (the live
+    // frozen config, `calculator_only` on, declined on a BoQ row). The key is read by nothing now: the BoQ row prices exactly as the projection
+    if (c.path === "panel") expect(JSON.stringify(vrun(c, live))).toBe(JSON.stringify(vrun(c)));
   });
 });
 
@@ -1531,7 +1532,7 @@ describe("VRF-2b (v57) -- R-39: every VRF Derivation-tab rule fires from the pan
   function vrun(c: VCase, cfgs: Map<string, RateCategoryConfig> = c.path === "calc" ? live : projected) {
     const ext = new Map<number, ExtractionRow>();
     if (c.path === "panel") ext.set(1, { excelRow: 1, description: "", attributes: {}, items: [{ attributes: vcells(c.model ?? {}) }] } as unknown as ExtractionRow);
-    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items57, extractionByRow: ext, ...(c.path === "calc" ? { calculatorSurface: true } : {}) });
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items57, extractionByRow: ext });
     const ctx: RateHelperRowContext & { unit?: string } = { excelRow: c.path === "calc" ? 0 : 1, description: "", nodeType: c.path === "calc" ? "" : "Line Item",
       category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] };
     if (c.path === "panel" && c.unit !== undefined) ctx.unit = c.unit;
@@ -1583,8 +1584,9 @@ describe("VRF-2b (v57) -- R-39: every VRF Derivation-tab rule fires from the pan
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
     if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
-    // never on a live BoQ row: the same panel case on the LIVE config (no flag) declines with today's text
-    if (c.path === "panel") expect(vrun(c, live).kind).toBe("none");
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE `expect(vrun(c, live).kind).toBe("none")` (the live
+    // frozen config, `calculator_only` on, declined on a BoQ row). The key is read by nothing now: the BoQ row prices exactly as the projection
+    if (c.path === "panel") expect(JSON.stringify(vrun(c, live))).toBe(JSON.stringify(vrun(c)));
   });
 });
 
@@ -1710,7 +1712,7 @@ describe("VRF-3a (v58) -- R-39: every VRF Derivation-tab rule fires from the pan
     const model = Object.fromEntries(Object.entries(c.model ?? {}).filter(([k]) => !setKeys.includes(k)));
     const typedSet = Object.fromEntries(Object.entries(c.model ?? {}).filter(([k]) => setKeys.includes(k)));
     if (c.path === "panel") ext.set(1, { excelRow: 1, description: c.desc ?? "", attributes: {}, items: [{ attributes: vcells(model) }] } as unknown as ExtractionRow);
-    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items58, extractionByRow: ext, ...(c.path === "calc" ? { calculatorSurface: true } : {}) });
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items58, extractionByRow: ext });
     const ctx: RateHelperRowContext & { unit?: string; quantity?: number } = { excelRow: c.path === "calc" ? 0 : 1, description: c.desc ?? "", nodeType: c.path === "calc" ? "" : "Line Item",
       category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] };
     if (c.path === "panel" && c.unit !== undefined) ctx.unit = c.unit;
@@ -1782,7 +1784,9 @@ describe("VRF-3a (v58) -- R-39: every VRF Derivation-tab rule fires from the pan
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
     if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
-    if (c.path === "panel") expect(vrun(c, live).kind).toBe("none");
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE `expect(vrun(c, live).kind).toBe("none")` (the live
+    // frozen config, `calculator_only` on, declined on a BoQ row). The key is read by nothing now: the BoQ row prices exactly as the projection
+    if (c.path === "panel") expect(JSON.stringify(vrun(c, live))).toBe(JSON.stringify(vrun(c)));
   });
 });
 
@@ -1823,7 +1827,7 @@ describe("VRF-3b (v59) -- R-39: every VRF Derivation-tab rule v59 adds fires fro
     { id: "E5b-neg", rule: XT.removed, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "copper,insulation", re: ["line:copper_supply", "line:ins_supply"], not: ["removed:"], priced: true },
   ];
   function xrun(c: XCase) {
-    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items59, extractionByRow: new Map(), calculatorSurface: true });
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items59, extractionByRow: new Map() });
     const ctx = { excelRow: 0, description: "", nodeType: "", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] } as RateHelperRowContext;
     const attrs: Record<string, string> = { brand: "Blue Star", ...(c.cap ? { capacity: c.cap } : {}), ...(c.family === "Remote Controller" ? { remote_type: "Wired" } : {}) };
     const r = h.compute(ctx, {
@@ -1862,5 +1866,93 @@ describe("VRF-3b (v59) -- R-39: every VRF Derivation-tab rule v59 adds fires fro
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: xmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
     if (c.figures) expect([s.values.supply_rate, s.values.install_rate]).toEqual(c.figures);
+  });
+});
+
+/*
+ * VRF-4 (owner 2026-11-06 q1 / q2; R-WS / D-5 "option D" / D-9; D-10) -- R-39 ON v60: the one line v60 adds (working + standby) and
+ * the lines whose detail v60 changes (the includes read per item, the refnet count from the sheet, what a Lot holds) each fire
+ * from the PANEL's entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v60's titles = v59's 25 + 1.
+ */
+describe("VRF-4 (v60) -- R-39: every VRF Derivation-tab rule v60 adds or changes fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A60 = rd("rate_master_hvac_all_v60.json");
+  const A59 = rd("rate_master_hvac_all_v59.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items60 = [...asItems(A60), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A60.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    ws: "A row the BoQ says is working + standby is priced as ONE unit, under a red bar",
+    carry: "A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
+    counted: "A Refnet/Y-Joint on a Set row holds the pieces the system's unit counts give",
+    lot: "A row priced per Lot is not priced",
+  };
+  type Row = { items: Array<Record<string, string>>; unit?: string; qty?: number };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const WHOLE = "Whole system (indoor + outdoor)";
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "12 HP", ...more });
+  const VCASES: VCase[] = [
+    { id: "F1a", rule: VT.ws, kind: "pos", rows: { 36: { items: [OD({ working_standby_as_written: "2# (WORKING + STANDBY)" })], qty: 2 } }, at: 36,
+      re: ["standby:WORKING + STANDBY - THIS RATE IS FOR 1 UNIT ONLY.", "check that the quantity covers both", "ring:Unit Nos · Qty 2"], priced: true },
+    { id: "F1b-neg", rule: VT.ws, kind: "neg", rows: { 28: { items: [OD({ working_standby_as_written: "(Standby)" })] } }, at: 28, re: [], not: ["standby:"], priced: true },
+    { id: "F2a", rule: VT.carry, kind: "pos", rows: { 9: { items: [OD({ includes_copper: "Yes", includes_power: "Yes" })] } }, at: 9,
+      re: ["line:copper_supply", "line:power", "boqnote:The BoQ says this unit's price includes copper piping, power cable (read by the model)."], not: ["line:comm"], priced: true },
+    { id: "F2b-neg", rule: VT.carry, kind: "neg", rows: { 9: { items: [OD({ includes_copper: "None", includes_power: "No" })] } }, at: 9, re: [], not: ["line:", "boqnote:"], priced: true },
+    { id: "F3a", rule: VT.counted, kind: "pos", at: 115, rows: {
+      14: { items: [OD({ capacity: "20 HP" })], qty: 2 }, 20: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1 TR" }], qty: 10 },
+      115: { items: [{ item: "Refnet/Y-Joint", brand: "Blue Star", set_covers: WHOLE }], unit: "Set", qty: 10 } },
+      re: ["count:set_odu=2", "count:set_idu=10", "Counted from this sheet: 2 outdoor units (row 14 x 2)"], priced: true },
+    { id: "F3b-neg", rule: VT.counted, kind: "neg", at: 115, rows: { 115: { items: [{ item: "Refnet/Y-Joint", brand: "Blue Star", set_covers: WHOLE }], unit: "Set", qty: 10 } },
+      re: ["No outdoor unit was read on this sheet - type the count."], not: ["Counted from this sheet"], priced: false },
+    { id: "F4a", rule: VT.lot, kind: "pos", rows: { 138: { items: [OD()], unit: "Lot" } }, at: 138, re: ["bar:PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND."], priced: false },
+    { id: "F4b-neg", rule: VT.lot, kind: "neg", rows: { 138: { items: [OD()], unit: "Nos" } }, at: 138, re: [], not: ["bar:PRICED PER LOT"], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const ext = new Map<number, ExtractionRow>();
+    for (const [er, r] of Object.entries(c.rows)) {
+      ext.set(Number(er), { excelRow: Number(er), description: "", attributes: {}, category: VRF,
+        items: r.items.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) } as unknown as ExtractionRow);
+    }
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er, r]) => [Number(er), r.qty ?? 1]));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items60, extractionByRow: ext });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: [], ownNotes: [], unit: r.unit ?? "Nos", quantity: r.qty ?? 1, rowQuantities } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.standbyBar) out.push(`standby:${v.standbyBar.title}`, ...v.standbyBar.lines, `ring:${v.standbyBar.ring}`);
+    if (v.unitBar) out.push(`bar:${v.unitBar.title}`, ...v.unitBar.lines);
+    for (const b of v.items) {
+      for (const l of b.extras?.lines ?? []) out.push(`line:${l.id}`);
+      if (b.extras?.boqNote) out.push(`boqnote:${b.extras.boqNote}`);
+      for (const f of b.setCount?.fields ?? []) { out.push(`count:${f.id}=${f.value}`); if (f.note) out.push(f.note); }
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v60's VRF rules = v59's 25 (the v59 block and the v58 / v57 / v56 blocks cover them) + the working + standby line; each line this block names has a positive AND a negative case", () => {
+    const t60 = titles(A60);
+    expect(t60).toHaveLength(26);
+    expect(t60.slice(0, 25)).toEqual(titles(A59));
+    expect(t60[25]).toBe(VT.ws);
+    for (const t of Object.values(VT)) {
+      expect(t60).toContain(t);
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(8);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
   });
 });

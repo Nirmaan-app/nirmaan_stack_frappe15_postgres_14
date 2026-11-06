@@ -150,12 +150,19 @@ class TestVrf3bAssetV59(FrappeTestCase):
 
     def test_05_validates_not_eligible_requests_unchanged(self):
         stored = list(_stored(self.v59).values())
-        for c in stored:
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE every stored config validated as is; the frozen v59 hvac_vrf config is refused BY NAME now
+        for n, c in enumerate(stored):
+            if "calculator_only" in c:
+                with self.assertRaises(Exception) as cm:
+                    config_validation._validate_config(c)
+                self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+                stored[n] = c = dict(c); c.pop("calculator_only")
             config_validation._validate_config(c)
         self.assertEqual(config_validation.delegated_section_problems(stored, self.v59["items"]), [])
         self.assertEqual(config_validation.extras_problems(stored, self.v59["items"]), [])
         cfgs, cfgs58 = _stored(self.v59), _stored(self.v58)
-        self.assertFalse(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE `assertFalse(config_is_eligible(v59's VRF))` -- the key is read by nothing, so it reads eligible (as v58's)
+        self.assertTrue(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))
         el = lambda cf: sorted(k[1] for k, c in cf.items() if extraction.config_is_eligible(c, cf))
         self.assertEqual(el(cfgs), el(cfgs58))
         for k, c in cfgs.items():
@@ -167,15 +174,21 @@ class TestVrf3bAssetV59(FrappeTestCase):
     def test_06_v59_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V59))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 59)
-        self.assertEqual(nums, list(range(1, 60)))
+        # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `nums[-1] == 59` and `range(1, 60)`
+        self.assertEqual(nums[-1], 60)
+        self.assertEqual(nums, list(range(1, 61)))
         self.assertTrue(os.path.exists(_asset_path(V58)))
 
     def test_07_live_catalogue_is_v59(self):
         row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", CATEGORY))
         self.assertTrue(row)
         live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-        self.assertEqual(_norm(live), _norm(self.cfg))
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority (HVAC v60 loaded): BEFORE `assertEqual(_norm(live), _norm(self.cfg))` (live == v59). The live VRF config is
+        # v60's (test_vrf_v60 07 pins it whole): v59's extras stand inside it, the switch is gone
+        self.assertNotEqual(_norm(live), _norm(self.cfg))
+        self.assertNotIn("calculator_only", live)
+        self.assertEqual(_norm({k: v for k, v in live["list_spec"]["pricing"]["extras"].items() if k != "from_model"} | {"lines": None, "cable": None}),
+                         _norm({k: v for k, v in self.ex.items()} | {"lines": None, "cable": None}))
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
         self.assertEqual(n, 566)
         ids = {r[0] for r in frappe.db.sql('select attributes::json->>%s from "tabBoQ Rate Master Item" where active=1 and discipline=%s and kind=%s', ("item", "HVAC", INPUT_KIND))}

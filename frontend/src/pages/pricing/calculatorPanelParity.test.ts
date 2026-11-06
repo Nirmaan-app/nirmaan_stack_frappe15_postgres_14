@@ -1929,7 +1929,7 @@ describe("HVAC VRF (VRF-2a, v56) -- the calculator prices every VRF SKU at the s
     const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
     return [k, rest as RateCategoryConfig];
   }));
-  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items56, extractionByRow: new Map(), calculatorSurface: true });
+  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items56, extractionByRow: new Map() });
   const vc = (unit: string, a: Record<string, string>): ParityCase => ({ cat: VRF, unit, desc: "", attrs: {}, items: [a] });
   /** One case through both surfaces on the projected config, plus the two ties to what ships today. */
   const run = (c: ParityCase) => {
@@ -1978,7 +1978,9 @@ describe("HVAC VRF (VRF-2a, v56) -- the calculator prices every VRF SKU at the s
       if (r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON) declined++;
     }
     expect(bad).toEqual([]);
-    expect({ priced, equal, flagSame, declined }).toEqual({ priced: 150, equal: 150, flagSame: 150, declined: 150 });
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE the live (frozen, `calculator_only`) BoQ panel DECLINED
+    // every case (`declined` = the case count; "did not decline" was a defect). The key is read by nothing now: the BoQ panel declines none
+    expect({ priced, equal, flagSame, declined }).toEqual({ priced: 150, equal: 150, flagSame: 150, declined: 0 });
   }, 120000);
 
   it("the generated sweep: 13 families x 1 unit class x (filled, above the largest, between, nothing) = 46 cases, not one divergence", () => {
@@ -2040,7 +2042,8 @@ describe("HVAC VRF (VRF-2a, v56) -- the calculator prices every VRF SKU at the s
       if (r.divergences.length) bad.push(`${label}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
       if (JSON.stringify(figs(r.calculator)) !== JSON.stringify(want)) bad.push(`${label}: calculator ${JSON.stringify(figs(r.calculator))} vs ${JSON.stringify(want)}`);
       if (!r.flagSame) bad.push(`${label}: the live calculator differs from the projection`);
-      if (!(r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON)) bad.push(`${label}: the live BoQ panel did not decline`);
+      // INVERTED at VRF-4 (Q1 A; D-10) by mechanical authority: BEFORE a live BoQ panel that did NOT decline was the defect; now one that declines is
+      if (r.boq.kind === "none") bad.push(`${label}: the live BoQ panel declined`);
     }
     expect(bad).toEqual([]);
     for (const p of ["item-list priced", "item-list refused", "item refused", "default fired", "ladder size-up"]) expect([...reached]).toContain(p);
@@ -2142,7 +2145,7 @@ describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc fo
     const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
     return [k, rest as RateCategoryConfig];
   }));
-  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items57, extractionByRow: new Map(), calculatorSurface: true });
+  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items57, extractionByRow: new Map() });
   const vc = (unit: string, a: Record<string, string>): ParityCase => ({ cat: VRF, unit, desc: "", attrs: {}, items: [a] });
   const run = (c: ParityCase) => {
     const r = runParity(projected, items57, c, "full");
@@ -2190,7 +2193,9 @@ describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc fo
     }
     for (const [fam, unit, want] of MISC) tally(fam, run(vc(unit, { item: fam })), want);
     expect(bad).toEqual([]);
-    expect({ equal, parity, flagSame, declined }).toEqual({ equal: 154, parity: 154, flagSame: 154, declined: 154 });
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE the live (frozen, `calculator_only`) BoQ panel DECLINED
+    // every case (`declined` = the case count; "did not decline" was a defect). The key is read by nothing now: the BoQ panel declines none
+    expect({ equal, parity, flagSame, declined }).toEqual({ equal: 154, parity: 154, flagSame: 154, declined: 0 });
   }, 180000);
 
   it("the generated sweep (13 VRF families + the Misc four, each in its own unit): not one divergence", () => {
@@ -2240,7 +2245,8 @@ describe("HVAC VRF (VRF-2b, v57) -- HP / TR / kW read and converted, the Misc fo
       if (line && !lines(r.panel).includes(line)) bad.push(`${label}: the panel does not say '${line}'`);
       if (line === "" && /Pricing Inputs/.test(lines(r.panel)) && /16 HP|own unit/.test(label)) bad.push(`${label}: a conversion line where none is due`);
       if (!r.flagSame) bad.push(`${label}: the live calculator differs from the projection`);
-      if (!(r.boq.kind === "none" && (r.boq as { reason?: string }).reason === COMING_SOON_REASON)) bad.push(`${label}: the live BoQ panel did not decline`);
+      // INVERTED at VRF-4 (Q1 A; D-10) by mechanical authority: BEFORE a live BoQ panel that did NOT decline was the defect; now one that declines is
+      if (r.boq.kind === "none") bad.push(`${label}: the live BoQ panel declined`);
     }
     expect(bad).toEqual([]);
   }, 180000);
@@ -2345,7 +2351,7 @@ describe("HVAC VRF (VRF-3a, v58) -- the outdoor split, the stated split, Set / r
     const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
     return [k, rest as RateCategoryConfig];
   }));
-  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items58, extractionByRow: new Map(), calculatorSurface: true });
+  const calcFlag = makePricingSheetHelper({ configsByCategory: live, items: items58, extractionByRow: new Map() });
   const run = (c: ParityCase) => {
     const r = runParity(projected, items58, c, "full");
     const flag = calcFlag.compute(calculatorCtx("HVAC", VRF), r.feed.overrides);
@@ -2418,7 +2424,9 @@ describe("HVAC VRF (VRF-3a, v58) -- the outdoor split, the stated split, Set / r
       if (row.condition && row.how !== "W+S #") { if (v.split?.condition) conds++; else bad.push(`${row.id}: no D-3 note for '${row.condition}'`); }
     }
     expect(bad).toEqual([]);
-    expect({ helper, stated, ws, parity, declined, flagSame, conds }).toEqual({ helper: 47, stated: 15, ws: 3, parity: 65, declined: 65, flagSame: 65, conds: 7 });
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE the live (frozen, `calculator_only`) BoQ panel DECLINED
+    // every case (`declined` = the case count; "did not decline" was a defect). The key is read by nothing now: the BoQ panel declines none
+    expect({ helper, stated, ws, parity, declined, flagSame, conds }).toEqual({ helper: 47, stated: 15, ws: 3, parity: 65, declined: 0, flagSame: 65, conds: 7 });
   }, 240000);
 
   it("boards 1 / 2 / 4 / 5 on both surfaces: 54 -> 28 + 26; stated 18 + 18 + 24 with three brands -> Blue Star, 1,415,640 / 60,000; a module above the largest refuses; 43.2 TR -> 54 HP -> 28 + 26", () => {
@@ -2801,3 +2809,93 @@ describe("VRF-3b K3b (v59) -- the exhaustive extras sweep; panel = calculator on
   }, 600000);
 
 });
+
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-4 (owner PARITY "add the BoQ-row browser check from VRF-4 onward"; COVERAGE "we will need to ensure full coverage even in vrf 4
+// 3 layer test"; q1 / q2 / q3; BORROWED "option a"; R-WS) -- LAYER 1 ON v60 (the live asset, calculator_only GONE): the panel
+// (a BoQ row whose MODEL ITEM answers the v60 questions) = the calculator (the same values typed / ticked) on every case; the
+// count asserted. Cases: every VRF + Misc SKU; each include and all four per role; every R5 (d) stated size through the SOURCE's
+// resolver (copper next size up / no unit / above the largest / inch; insulation next size up / layers; cable words / unstocked);
+// a stated split; W+S words (the bar is the panel's alone -- its figures equal); the refnet counts (typed); brand copies.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("HVAC VRF (VRF-4, v60) -- the model's per-item answers on a BoQ row; panel = calculator on every case, the count asserted", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A60 = rd("rate_master_hvac_all_v60.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS60 = [...asItems(A60), ...asItems(E72)];
+  const CFG60 = new Map<string, RateCategoryConfig>([...A60.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const VRFCFG = CFG60.get("hvac_vrf") as unknown as { calculator_only?: unknown; list_spec: { pricing: { extras: { roles: Record<string, string> } } } };
+  const ROLES = VRFCFG.list_spec.pricing.extras.roles;
+  const run = (c: ParityCase) => runParity(CFG60, ITEMS60, c, "full");
+  const vc = (unit: string, item: Record<string, string>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const od = (cap: string, more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: cap, ...more });
+  const ALL = { includes_copper: "Yes", includes_insulation: "Yes", includes_power: "Yes", includes_comm: "Yes" };
+  const vrfSkus = A60.items.filter((it) => it.kind === "hvac_vrf_item" || it.kind === "hvac_misc_item");
+  const skuCases: Array<[string, ParityCase]> = vrfSkus.map((sku) => {
+    const a = sku.attributes as Record<string, unknown>;
+    const item: Record<string, string> = { item: String(a.item) };
+    if (sku.brand) item.brand = String(sku.brand);
+    for (const k of ["cooling", "discharge", "compressor", "way", "remote_type"]) if (a[k] !== undefined) item[k] = String(a[k]);
+    if (a.capacity !== undefined) item.capacity = `${String(a.capacity)} ${String(a.capacity_unit ?? "")}`.trim();
+    const unit = String(sku.unit ?? "Nos").toLowerCase().startsWith("kg") ? "Kg" : "Nos";
+    return [`SKU ${sku.item_uid} ${String(a.item)} ${item.capacity ?? ""}`, vc(unit, ROLES[String(a.item)] ? { ...item, ...ALL } : item)];
+  });
+  const R5 = ["1.125 inch", "12 mm", "15.8 mm", "14 mm", "15 mm", "7/8\"", "1-1/4\"", "54 mm", "1", "28.6", "41.3 mm OD"];
+  const named: Array<[string, ParityCase]> = [
+    ...(["copper", "insulation", "power", "comm"] as const).map((inc) => [`outdoor 10 HP includes_${inc} only`, vc("Nos", od("10 HP", { [`includes_${inc}`]: "Yes" }))] as [string, ParityCase]),
+    ["outdoor 24 HP all four", vc("Nos", od("24 HP", ALL))],
+    ["hi-wall 1.5 TR all four", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "1.5 TR", ...ALL })],
+    ["cassette 4 TR all four", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "4 TR", way: "FOUR-WAY", ...ALL })],
+    ["stated split 38HP (20+18) power", vc("Nos", od("38HP (20+18)", { includes_power: "Yes" }), { desc: "System-1 38HP (20+18)" })],
+    ...R5.map((s) => [`copper '${s}' from the BoQ`, vc("Nos", od("10 HP", { includes_copper: "Yes", extra_copper_size_as_written: s }))] as [string, ParityCase]),
+    ["copper pair '12.7 / 6.4'", vc("Nos", od("10 HP", { includes_copper: "Yes", extra_copper_size_as_written: "12.7 / 6.4" }))],
+    ...["20", "32", "19 mm"].map((t) => [`insulation thickness '${t}'`, vc("Nos", od("10 HP", { includes_copper: "Yes", includes_insulation: "Yes", extra_insulation_thickness_as_written: t }))] as [string, ParityCase]),
+    ...["25.4", "47.6"].map((cu) => [`insulation on copper ${cu}`, vc("Nos", od("10 HP", { includes_copper: "Yes", includes_insulation: "Yes", extra_copper_size_as_written: cu }))] as [string, ParityCase]),
+    ...["4 core x 10 sqmm", "2C x 1.5 Sqmm", "4C x 400", "control cable 2C x 1.5"].map((sp) => [`cable '${sp}'`, vc("Nos", od("10 HP", { includes_power: "Yes", includes_comm: "Yes", extra_cable_spec_as_written: sp }))] as [string, ParityCase]),
+    ["length 'up to 15 m'", vc("Nos", od("10 HP", { includes_copper: "Yes", includes_power: "Yes", extra_length_as_written: "up to 15 m" }))],
+    ["W+S words (1W+1S)", vc("Nos", od("12 HP", { working_standby_as_written: "1W+1S" }), { qty: 2 })],
+    ["standby only", vc("Nos", od("14 HP", { working_standby_as_written: "(Standby)" }))],
+    ["refnet Set typed counts", vc("Set", { item: "Refnet/Y-Joint", brand: "Blue Star", set_covers: "Whole system (indoor + outdoor)", set_odu: "3", set_idu: "24" }, { qty: 25 })],
+    ["brand copy 'Daikin / Toshiba'", vc("Nos", od("10 HP", { brand_as_written: "Daikin / Toshiba" }))],
+    ["brand copy 'Toshiba'", vc("Nos", { item: "Outdoor Unit", capacity: "10 HP", brand_as_written: "Toshiba" })],
+    ["Daikin 16 HP all four", vc("Nos", od("16 HP", { brand: "Daikin", ...ALL }))],
+    ["Lot", vc("Lot", od("10 HP", ALL))],
+    ["Set outdoor all four", vc("Set", od("10 HP", ALL))],
+  ];
+  const CASES = [...skuCases, ...named];
+
+  it("v60 is the switch-off: the live VRF config carries no calculator_only", () => {
+    expect(VRFCFG.calculator_only).toBeUndefined();
+  });
+
+  it("every case: 0 divergences except the NAMED wording-only ones (Piping's own BoQ vs typed sentence) -- the count asserted", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    const diverged = out.filter((o) => o.div.length);
+    // a divergence is allowed ONLY where both paths refuse in the source's own words and differ in nothing else
+    for (const o of diverged) {
+      for (const d of o.div) {
+        const norm = (x: unknown) => String(x).replace(/no number in '[^']*' for pipe size|Type one pipe size, in mm or inches|size [^ ]+ has no unit - price this row by hand|BoQ says|You typed/g, "<source sentence>");
+        expect({ name: o.name, what: d.what, panel: norm(d.panel) }).toEqual({ name: o.name, what: d.what, panel: norm(d.calculator) });
+      }
+    }
+    expect(diverged.map((o) => o.name)).toEqual(PARITY_V60_WORDING_ONLY);
+    expect(skuCases).toHaveLength(154);
+    expect(named).toHaveLength(38);
+    expect(CASES).toHaveLength(192);
+  }, 600000);
+
+  it("the figures the cert reads (C1 / C2 / C5 / C6 on both paths)", () => {
+    const t = (c: ParityCase) => { const v = (run(c).panel as ItemListSuggestion).itemList!; return [v.totals?.supply_rate, v.totals?.install_rate]; };
+    expect(t(vc("Nos", od("10 HP", ALL)))).toEqual([441210, 25960]);
+    const c5 = (run(vc("Nos", od("10 HP", { includes_copper: "Yes", extra_copper_size_as_written: "14 mm" }))).panel as ItemListSuggestion).itemList!;
+    expect(c5.items[0].extras?.lines[0].fields.find((f) => f.id === "size")?.value).toBe("15.9");
+    const c6 = (run(vc("Nos", od("10 HP", { includes_power: "Yes", extra_cable_spec_as_written: "4 core x 10 sqmm" }))).panel as ItemListSuggestion).itemList!;
+    expect(c6.items[0].extras?.lines[0].fields.find((f) => f.id === "spec")?.value).toBe("4C x 10");
+  });
+});
+
+/** VRF-4: the v60 parity cases whose ONLY difference is the source's own wording for a BoQ value vs a typed one (both refuse). */
+const PARITY_V60_WORDING_ONLY: string[] = [];

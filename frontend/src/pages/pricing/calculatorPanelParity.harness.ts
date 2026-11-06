@@ -54,6 +54,7 @@ import {
   type RowContextWithUnit,
 } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import {
+  boqExtrasOf,
   familyAttr,
   familyUnitClasses,
   fieldOptionsFromSkus,
@@ -119,6 +120,14 @@ function toCells(attrs: Record<string, string | number | null>): Cells {
   return out;
 }
 
+/** VRF-4 (owner "q1 ok"): the case's includes as the model answers them on a v60 item (`includes_<id>: Yes`) -- fed beside the
+ * row cell, so a config reading the item (v60) and one reading the row cell (v59) both see them. An item that states its own
+ * `includes_<id>` keeps it. */
+function includesPerItem(c: ParityCase): Record<string, string> {
+  if (typeof c.includes !== "string") return {};
+  return Object.fromEntries(c.includes.split(",").map((x) => x.trim()).filter((x) => x !== "").map((x) => [`includes_${x}`, "Yes"]));
+}
+
 /** The stored extraction row the PANEL path reads -- the shape `buildExtractionByRow` produces. */
 export function extractionRowFor(c: ParityCase): ExtractionRow {
   const row = {
@@ -126,7 +135,7 @@ export function extractionRowFor(c: ParityCase): ExtractionRow {
     description: c.desc,
     attributes: toCells({ ...c.attrs, ...(typeof c.includes === "string" ? { includes: c.includes } : {}) }),
   } as ExtractionRow & { items?: Array<{ attributes: Cells }> };
-  if (c.items) row.items = c.items.map((a) => ({ attributes: toCells(a) }));
+  if (c.items) row.items = c.items.map((a) => ({ attributes: toCells({ ...includesPerItem(c), ...a }) }));
   return row;
 }
 
@@ -334,6 +343,17 @@ export function feedFromPanel(
           if (!m || v === null || v === undefined || v === "") continue;
           (set[m[1]] ??= {})[m[2]] = String(v);
         }
+        // VRF-4 (owner "q1 ok"): what the model COPIED (`*_as_written`, v60) is typed as written too -- the same raw text the panel
+        // read through `boqExtrasOf`, so the calculator meets Piping's / Insulation's / Electrical's rules on the same words
+        const fm = itemListPricingSpec(config)?.extras?.from_model;
+        if (fm && c.items?.[i]) {
+          const said = boqExtrasOf({ attributes: Object.fromEntries(Object.entries(c.items[i]).map(([k, v]) => [k, { value: v }])) }, fm).values;
+          for (const [k, v] of Object.entries(said)) {
+            const m = /^(copper_supply|copper_return|ins_supply|ins_return|power|comm)_([a-z]+)$/.exec(k);
+            const shown = b.extras!.lines.find((l) => l.id === m?.[1])?.fields.find((f) => f.id === m?.[2]);
+            if (m && shown?.tag !== "picked") (set[m[1]] ??= {})[m[2]] = v;   // a pricer's own pick stays theirs
+          }
+        }
         const removed = b.extras!.removed.map((r) => r.id);
         return Object.keys(set).length || removed.length ? { extras: { ...(Object.keys(set).length ? { set } : {}), ...(removed.length ? { removed } : {}) } } : {};
       })() : {};
@@ -346,6 +366,12 @@ export function feedFromPanel(
     overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits });
     // VRF-3b: the include switches -- the panel's model flags, ticked in the calculator
     if (typeof c.includes === "string") overrides[EXTRAS_INCLUDES_KEY] = c.includes;
+    // VRF-4: a case stating per-item includes only (v60's model answers) ticks the calculator's row-level boxes with their union
+    else if (c.items?.some((a) => Object.keys(a).some((k) => /^includes_/.test(k)))) {
+      const on = new Set<string>();
+      for (const a of c.items ?? []) for (const [k, v] of Object.entries(a)) if (/^includes_/.test(k) && String(v).toLowerCase() === "yes") on.add(k.slice("includes_".length));
+      overrides[EXTRAS_INCLUDES_KEY] = [...on].join(",");
+    }
     // VRF-3a (QR-1 (a), U9): the row's quantity, typed into the calculator's own field where a counted item needs it
     if (view.items.some((b) => b.setCount)) overrides[ROW_QTY_OVERRIDE_KEY] = typeof c.qty === "number" ? String(c.qty) : "";
     const { unit, unitFeed } = unitForCalculator(config, view);

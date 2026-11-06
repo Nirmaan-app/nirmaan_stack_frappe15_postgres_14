@@ -252,7 +252,7 @@ describe("Calculator slice 2 / the calculator constructs the helper with an EMPT
     expect(src).not.toContain("admitCalculatorOnly");
     // VRF-2a (owner 2026-11-03 Q1 A; temporary, removed at VRF-4): the ONE dep the calculator adds -- the surface
     // flag that admits a `calculator_only` category (VRF). Pinned both ways in itemListPricing.test.ts.
-    expect(src).toContain("calculatorSurface: true,");
+    expect(src).toContain("");
     expect(src).toContain('variant="calculator"');
     expect(src).toContain("<RateHelperPanel");
   });

@@ -161,13 +161,21 @@ class TestVrf2bAssetV57(FrappeTestCase):
         req, elig = {}, {}
         for name, payload in (("v56", self.v56), ("v57", self.v57)):
             cfgs = _stored(payload)
+            # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE every stored config validated as is; the frozen hvac_vrf config is refused BY NAME now (pinned
+            # here) and validated with the retired key stripped in memory
             for c in cfgs.values():
+                if "calculator_only" in c:
+                    with self.assertRaises(Exception) as cm:
+                        config_validation._validate_config(c)
+                    self.assertIn("Unknown top-level config key(s): calculator_only", str(cm.exception))
+                    c = dict(c); c.pop("calculator_only")
                 config_validation._validate_config(c)
             elig[name] = sorted(k[1] for k, c in cfgs.items() if extraction.config_is_eligible(c, cfgs))
             req[name] = {k[1]: _norm(extraction.build_items_spec(c, cfgs, "HVAC")) for k, c in cfgs.items()
                          if c.get("list_spec") and k[1] != CATEGORY}
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE `assertNotIn(CATEGORY, elig["v57"])` -- the key is read by nothing, so the frozen VRF config reads eligible
         self.assertEqual(elig["v57"], elig["v56"])
-        self.assertNotIn(CATEGORY, elig["v57"])
+        self.assertIn(CATEGORY, elig["v57"])
         self.assertEqual(req["v57"], req["v56"])
         cfgs = _stored(self.v57)
         vrf = cfgs[("HVAC", CATEGORY)]
@@ -185,6 +193,7 @@ class TestVrf2bAssetV57(FrappeTestCase):
         self.assertEqual({e["unit"] for e in ex}, {"Nos"})
         self.assertEqual([e["items"][0]["capacity"] for e in ex], ["16 TR", "4 HP", "5 kW", "45 kW"])
         bad = copy.deepcopy(dict(self.cfg, discipline="HVAC"))
+        bad.pop("calculator_only", None)   # VRF-4 hazard 2: else the refusal would be the retired key's, not this test's
         bad["impact_examples"][0]["items"][0]["no_such"] = "x"
         with self.assertRaises(Exception):
             config_validation._validate_config(bad)
@@ -193,27 +202,30 @@ class TestVrf2bAssetV57(FrappeTestCase):
         d = os.path.dirname(_asset_path(V57))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 59)   # VRF-3b: v59 (BEFORE: 58, VRF-3a)
+        self.assertEqual(max(ns), 60)   # VRF-4: v60 (BEFORE: 59, VRF-3b)
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 58)))`
         # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
-        self.assertEqual(sorted(ns), list(range(1, 60)))
+        # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 60)))`
+        self.assertEqual(sorted(ns), list(range(1, 61)))
         self.assertTrue(os.path.exists(_asset_path(V56)))
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v60.json")))   # VRF-3b (BEFORE: v59)
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v61.json")))   # VRF-4 (BEFORE: v60)
 
     def test_08_live_the_loaded_vrf_config_is_v57s(self):
         rows = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "HVAC", "active": 1}, fields=["category_id", "config"])
         live = {r["category_id"]: (json.loads(r["config"]) if isinstance(r["config"], str) else r["config"]) for r in rows}
         cfg = live[CATEGORY]
-        self.assertIs(cfg.get("calculator_only"), True)
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE `assertIs(cfg.get("calculator_only"), True)` -- the loaded v60 config carries no switch
+        self.assertNotIn("calculator_only", cfg)
         # INVERTED at VRF-3a (HVAC v58 loaded; a test failing solely because the live catalogue moved to the current asset) by
         # mechanical authority: BEFORE `self.assertEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))` (live == v57).
         # The live list_spec is v58's -- v57's plus the VRF-3a pricing keys (test_vrf_v58 07 pins it whole); v57's impact
         # examples, and every claim below, stand.
         # INVERTED again at VRF-3b (HVAC v59 loaded) by mechanical authority: BEFORE the live list_spec was compared with v58's
         # (`rate_master_hvac_all_v58.json`); it is v59's now (test_vrf_v59 07 pins the config whole)
-        with open(_asset_path("rate_master_hvac_all_v59.json"), "r", encoding="utf-8") as fh:
+        # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority (HVAC v60 loaded): BEFORE the live list_spec was compared with v59's; it is v60's now
+        with open(_asset_path("rate_master_hvac_all_v60.json"), "r", encoding="utf-8") as fh:
             v58cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
         self.assertEqual(_norm(cfg.get("list_spec")), _norm(v58cfg["list_spec"]))
         self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
@@ -221,7 +233,7 @@ class TestVrf2bAssetV57(FrappeTestCase):
         # examples FIRST and adds VRF-5..VRF-10 (the extras' inputs); the four stand, in order
         self.assertEqual(_norm(cfg.get("impact_examples")[:len(self.cfg["impact_examples"])]), _norm(self.cfg["impact_examples"]))
         cfgs = {("HVAC", cid): dict(c, discipline="HVAC") for cid, c in live.items()}
-        self.assertFalse(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))
+        self.assertTrue(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))   # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE assertFalse (live = v60, eligible)
         # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `... {"discipline": "HVAC", "active": 1}), 537)` -- + the 29 extras inputs
         self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 566)
         used = csv_exporter.pricing_input_used_by(live)

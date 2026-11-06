@@ -442,17 +442,12 @@ def config_is_eligible(cfg, configs=None):
     target that is missing, or itself an alias (a chain), has no pipelines of its own and is NOT
     eligible. Without `configs` the plain test runs, so an alias on its own is never eligible.
 
-    VRF-2a (owner 2026-11-03 Q1 A; temporary, removed at VRF-4): a config carrying `calculator_only: true` on a
-    category the owner ruled it for (the validator's own `_CALCULATOR_ONLY_CATEGORIES`: hvac_vrf) is NOT eligible,
-    whatever its rules -- so `assemble_population` admits none of its rows and Suggest never asks the model about
-    them; only the calculator prices it (`pricingSheetHelper`'s calculator flag). On any other category the key is
-    ignored, exactly as the client ignores it: the frozen v18..v28 assets still carry FA7's retired key on
-    Insulation, and the validator refuses it there, so no served config can carry it off VRF."""
-    from nirmaan_stack.services.boq_rate_master.config_validation import _CALCULATOR_ONLY_CATEGORIES as _CO
+    VRF-4 (owner Q1 A "removed at VRF-4"; D-10): VRF-2a's temporary `calculator_only` clause is REMOVED -- the key is no
+    longer allowed anywhere (the validator refuses it by name), so no served config carries it."""
     if configs is not None and alias_target(cfg):
         _d, _c, target = resolve_alias(configs, cfg.get("discipline"), cfg.get("category_id"), cfg)
-        return has_runnable_pricing_rules(target) and bool(target.get("attribute_definitions")) and not (target.get("calculator_only") is True and target.get("category_id") in _CO)
-    return has_runnable_pricing_rules(cfg) and bool(cfg.get("attribute_definitions")) and not (cfg.get("calculator_only") is True and cfg.get("category_id") in _CO)
+        return has_runnable_pricing_rules(target) and bool(target.get("attribute_definitions"))
+    return has_runnable_pricing_rules(cfg) and bool(cfg.get("attribute_definitions"))
 
 
 def alias_target(cfg):

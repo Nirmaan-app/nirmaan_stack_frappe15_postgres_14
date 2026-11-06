@@ -114,8 +114,8 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       { category_id: "hvac_piping", label: "Piping" },
       // VRF-1 (2026-11-03, owner R-SRC / R-MISC): the VRF CATALOGUE -- 152 SKUs from the 2 Nov workbook's VRF sheet plus the
       // four Misc items VRF takes over as the SHARED kind `hvac_misc_item`, with a DATA-ONLY config (no pricing block), so it
-      // holds items (listed here) and never prices: a VRF BoQ row and the calculator keep the "coming soon" text until
-      // VRF-2 / VRF-4.
+      // holds items (listed here) and never prices: a VRF BoQ row and the calculator kept the "coming soon" text until
+      // VRF-2 (the calculator) / VRF-4 (BoQ rows, live from HVAC v60).
       { category_id: "hvac_vrf", label: "VRF" },
       // SLICE 12c (2026-10-03): HVAC's Pricing Inputs -- the seven numbers Insulation's cladding rule
       // reads. BORN CONNECTED, which is the whole point of minting them with the rule in one asset: an

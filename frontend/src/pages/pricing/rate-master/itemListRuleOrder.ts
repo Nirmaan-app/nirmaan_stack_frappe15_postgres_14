@@ -1223,12 +1223,13 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     if (cnt && Array.isArray(cnt.families) && Array.isArray(cnt.counts)) {
       const sides = cnt.counts.map((c: any) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
       add(`A ${list(cnt.families.map((f: unknown) => famWord(String(f))))} on a Set row holds the pieces the system's unit counts give`,
-          `${sides} -- what the row covers decides which; the BoQ quantity within ${Math.round(Number(cnt.tolerance?.share ?? 0) * 100)}% of that count (at least ${String(cnt.tolerance?.min ?? 1)}) -> 1 piece per Set; well below it -> the count shared over the Sets, rounded up, with a note; anything else, or a count missing, is not priced; pieces the pricer types win`);
+          `${sides} -- what the row covers decides which; the BoQ quantity within ${Math.round(Number(cnt.tolerance?.share ?? 0) * 100)}% of that count (at least ${String(cnt.tolerance?.min ?? 1)}) -> 1 piece per Set; well below it -> the count shared over the Sets, rounded up, with a note; anything else, or a count missing, is not priced; pieces the pricer types win${
+            cnt.from_sheet ? "; on a BoQ row the unit counts are added up from the sheet's VRF rows the model read (each unit x its row's quantity), named in a note, and can be changed" : ""}`);
     }
   }
   if (pr.lot_units && Array.isArray(pr.lot_units.units)) {
     add("A row priced per Lot is not priced",
-        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand; what a Lot holds is read at VRF-4`);
+        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand; ${pr.extras?.from_model ? "what the row says a Set or Lot holds is copied by the model for review only" : "what a Lot holds is read at VRF-4"}`);
   }
   // ── 13e. VRF-3b (owner O-5 / O-6 / B / SHEETS; 2026-11-05 11:30-14:56, boards 12-15): the extras a unit's price includes
   // -- ADDED LAST (a config without `extras` adds nothing)
@@ -1239,7 +1240,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       .map((b, n) => (b.max === null ? `above ${String(bands[n - 1]?.max ?? 0)} ${unitWord}` : n === 0 ? `up to ${String(b.max)} ${unitWord}` : `above ${String(bands[n - 1]?.max)} up to ${String(b.max)} ${unitWord}`))
       .join(", ");
     add("A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
-        `on ${roleFams("outdoor")} (outdoor) and ${roleFams("indoor")} (indoor) -- each split module its own unit; accessories never; ticked in the calculator ('This row's price includes'), read from the BoQ at VRF-4; insulation needs copper piping`);
+        `on ${roleFams("outdoor")} (outdoor) and ${roleFams("indoor")} (indoor) -- each split module its own unit; accessories never; ticked in the calculator ('This row's price includes'), ${ex.from_model ? "on a BoQ row read PER ITEM from the model's Yes / No answers (each split module takes its item's), with a note; the sizes, thickness, cable and length the row writes are used as written" : "read from the BoQ at VRF-4"}; insulation needs copper piping`);
     add("An extra's size comes from the Pricing Inputs table by the unit's size, after conversion",
         `pipes: indoor ${bandText(ex.pipe_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))}; outdoor ${bandText(ex.pipe_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Power cable: indoor ${bandText(ex.power_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))} (above that, no default - pick a spec); outdoor ${bandText(ex.power_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Communication cable: every unit. A size typed or written on the BoQ (mm or inch) is read and laddered by Piping's own rules (next size up; no unit or above the largest refuses, in Piping's words); the insulation is priced by Insulation's rules on the copper size as read; a cable spec by Electrical's own match`);
     add("Each extra is priced per metre by its own sheet's rules, then per Nos of the row",
@@ -1248,6 +1249,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         "that line is red with what it needs (pick a size, or fill the table); the row shows 'n of m items need a person' and is not priced; a size or spec its own sheet refuses is red the same way, with that sheet's sentence");
     add("A removed extra stays removed",
         "the x on an extra removes it (a copper line takes its insulation) and the helper never adds it back on its own; 'Put it back' restores it; the row prices without it");
+  }
+  // ── 13f. VRF-4 (owner R-WS / D-5 "option D" / D-9): working + standby -- ADDED LAST (a config without the key adds nothing)
+  if (pr.working_standby && typeof pr.working_standby === "object") {
+    add("A row the BoQ says is working + standby is priced as ONE unit, under a red bar",
+        "the model copies the row's words (W+S, 1W+1S, N+N, 2N+N, 'working + standby'); a solid red bar above the card says the rate is for one unit and to check that the BoQ quantity covers both, with the unit and quantity ringed; never on a standby-only row or a heading's mention; the price is never doubled");
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {

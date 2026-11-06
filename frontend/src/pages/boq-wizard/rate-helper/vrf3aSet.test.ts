@@ -79,7 +79,7 @@ function withVrf3aSet(cfg: Record<string, any>, drop: string[] = []): RateCatego
 const CFG = withVrf3aSet(base57());
 const SPEC = itemListPricingSpec(CFG)!;
 const configsOf = (cfg: RateCategoryConfig) => new Map<string, RateCategoryConfig>(v57.category_configs.map((c) => [c.category_id, c.category_id === VRF ? cfg : c]));
-const calcOf = (cfg: RateCategoryConfig = CFG) => makePricingSheetHelper({ configsByCategory: configsOf(cfg), items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
+const calcOf = (cfg: RateCategoryConfig = CFG) => makePricingSheetHelper({ configsByCategory: configsOf(cfg), items: ITEMS, extractionByRow: new Map() });
 const CALC = calcOf();
 const run = (blocks: Array<Record<string, unknown>>, unit: string, rowQty?: string, calc = CALC): ItemListView =>
   (calc.compute(calculatorCtx("HVAC", VRF), {
@@ -222,7 +222,7 @@ describe("VRF-3a LOT -- a whole-lot unit refuses with the red bar (owner LOT 'Re
     }
   });
   it("the panel's red bar (a BoQ row supplies the unit; the calculator cannot state Lot)", () => {
-    const helper = makePricingSheetHelper({ configsByCategory: configsOf(CFG), items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
+    const helper = makePricingSheetHelper({ configsByCategory: configsOf(CFG), items: ITEMS, extractionByRow: new Map() });
     const v = (helper.compute({ ...calculatorCtx("HVAC", VRF), unit: "Lot" } as any, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { capacity: "20" } }] }) }) as unknown as ItemListSuggestion).itemList!;
     expect(v.unitBar).toEqual({ tone: "red", title: "PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND.", lines: ["Unit \"Lot\" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. What a Lot holds is read at VRF-4. Price this row by hand."] });
     // INVERTED at VRF-3b (owner 01:15, U7) by mechanical authority: BEFORE `.not.toContain("Lot")` (the calculator could not

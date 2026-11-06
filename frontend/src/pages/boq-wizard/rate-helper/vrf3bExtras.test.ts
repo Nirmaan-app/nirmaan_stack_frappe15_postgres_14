@@ -45,7 +45,7 @@ const configsOf = (vrf: RateCategoryConfig, opts: { noElectrical?: boolean } = {
   ...(opts.noElectrical ? [] : e72.category_configs.map((c) => [c.category_id, c] as [string, RateCategoryConfig])),
 ]);
 const calcOf = (vrf = withExtras(), items = ITEMS, opts: { noElectrical?: boolean } = {}) =>
-  makePricingSheetHelper({ configsByCategory: configsOf(vrf, opts), items, extractionByRow: new Map(), calculatorSurface: true });
+  makePricingSheetHelper({ configsByCategory: configsOf(vrf, opts), items, extractionByRow: new Map() });
 const CALC = calcOf();
 const ALL = "copper,insulation,power,comm";
 const run = (blocks: Array<Record<string, unknown>>, inc = ALL, unit = "Nos", calc = CALC): ItemListView =>
@@ -226,8 +226,7 @@ describe("VRF-3b LENGTH / COUNT / TAGS (AC3)", () => {
   });
   it("'from the BoQ' (VRF-4's path, a fixture now): a BoQ row whose model flags the includes and states a copper size", () => {
     const panel = makePricingSheetHelper({
-      configsByCategory: configsOf(withExtras()), items: ITEMS, calculatorSurface: true,
-      extractionByRow: new Map([[7, { excelRow: 7, description: "10 HP ODU", attributes: { includes: { value: "copper", confidence: 1 } },
+      configsByCategory: configsOf(withExtras()), items: ITEMS, extractionByRow: new Map([[7, { excelRow: 7, description: "10 HP ODU", attributes: { includes: { value: "copper", confidence: 1 } },
         items: [{ attributes: { item: { value: "Outdoor Unit" }, brand: { value: "Blue Star" }, capacity: { value: "10" }, extra_copper_supply_size: { value: "28.6" } } }] } as never]]),
     });
     const v = (panel.compute({ excelRow: 7, description: "10 HP ODU", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], unit: "Nos" } as never) as unknown as ItemListSuggestion).itemList!;
@@ -507,7 +506,7 @@ describe("VRF-3b K2 UNDO (AC7, owner 14:20 'revert actions for each individual a
     expect(RHP_SRC).toContain('onClick={() => onEdit({ op: "undo_attr", index: i, id: f.id })}');
   });
   it("a refnet count the pricer typed is marked edited (its undo arrow); one read from the row is not", () => {
-    const helper = makePricingSheetHelper({ configsByCategory: configsOf(withExtras()), items: ITEMS, extractionByRow: new Map(), calculatorSurface: true });
+    const helper = makePricingSheetHelper({ configsByCategory: configsOf(withExtras()), items: ITEMS, extractionByRow: new Map() });
     const v = (helper.compute(calculatorCtx("HVAC", VRF), {
       [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Refnet/Y-Joint", attrs: { brand: "Blue Star", set_covers: "Whole system (indoor + outdoor)", set_odu: "3" } }] }),
       [ROW_UNIT_OVERRIDE_KEY]: "Set",
