@@ -147,6 +147,7 @@ __all__ = [
     "ROW_PARTIALLY_ALLOCATED",
     "ROW_SETTLED",
     "ROW_SKIPPED",
+    "ROW_INTERNAL_TRANSFER",
     "ROW_ERROR",
     "settleable_candidates",
     "ROW_STATUSES",
@@ -199,6 +200,8 @@ __all__ = [
     "SKIP_REASON_CARD_REFUND",
     "SKIP_REASON_CARD_REFUNDED_SPEND",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
+    "INTERNAL_TRANSFER_REFUSAL",
+    "internal_transfer_refusal",
     "SKIP_ORIGIN_SYSTEM",
     "SKIP_ORIGIN_MANUAL",
     "SKIP_ORIGINS",
@@ -219,6 +222,11 @@ ROW_PARTIALLY_ALLOCATED = "Partially Allocated"
 ROW_SETTLED = "Settled"
 ROW_SKIPPED = "Skipped"
 ROW_ERROR = "Error"
+# The company's own money moving between two of its own places (spec #1619, ADR-0044): a wallet top-up, the
+# bank's own ledger move, a card bill, Cashbook's own moves. FINAL, like Settled: the line has a record (its
+# `Internal Transfer`) and nobody owes it a decision. It is not Skipped -- Skipped means "nothing to record" --
+# and not Settled, so no Settled reader (tabs, ledgers, matcher) counts it.
+ROW_INTERNAL_TRANSFER = "Internal Transfer"
 
 # Who set a `Skipped` line aside (#1273). The doctype's `skip_origin` Select carries exactly these, in
 # this order; blank means the line is not Skipped.
@@ -244,6 +252,7 @@ ROW_STATUSES = (
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
+    ROW_INTERNAL_TRANSFER,
     ROW_SKIPPED,
     ROW_ERROR,
 )
@@ -254,7 +263,7 @@ ROW_STATUSES = (
 # terminal, because reporting it WAS the whole job. Under v3 the import settles, so a row that
 # found something and has not been confirmed is unfinished work -- `Matched` and `Mismatched` are
 # both OPEN. Only a row we wrote (`Settled`) or deliberately declined (`Skipped`) is done.
-TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED})
+TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER})
 
 # Open = a person still owes this row a decision. Everything that is not terminal.
 OPEN_ROW_STATUSES = frozenset({ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR})
@@ -297,7 +306,10 @@ ACTIVE_ROW_STATUSES = OPEN_ROW_STATUSES | {ROW_PARTIALLY_ALLOCATED}
 # `skipped_value` are unchanged -- the rows are excluded from the TOTALS, never hidden. That is the
 # same shape option B chose for failed transfers: the evidence survives, its effect on the figures
 # does not.
-SUMMARY_EXCLUDED_STATUSES = frozenset({ROW_SKIPPED})
+#
+# `Internal Transfer` leaves them too (#1620): these lines were Skipped until spec #1619, and the panel's
+# totals must not move because they got a status of their own. They have their own figure instead (#1625).
+SUMMARY_EXCLUDED_STATUSES = frozenset({ROW_SKIPPED, ROW_INTERNAL_TRANSFER})
 
 BATCH_DRAFT = "Draft"
 BATCH_IN_REVIEW = "In Review"
@@ -389,6 +401,13 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
     "Excluded by bank-statement rule '{category}'."
 )
 
+# A line the category table calls an Internal Transfer (#1621). `{category}` is the rule id, as in the skip
+# sentence above, so the rule that fired stays readable on the line.
+STAGED_NOTE_INTERNAL_TRANSFER = (
+    "Internal Transfer: our own money moving between our own accounts. "
+    "Recognised by bank-statement rule '{category}'."
+)
+
 # A Porter Statement order Porter cancelled (spec #1442, ADR-0032): staged Skipped and locked at upload,
 # beside its skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`). Porter's invoice never bills it.
 SKIP_REASON_PORTER_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
@@ -406,6 +425,19 @@ SKIP_REASON_CARD_REFUND = (
 SKIP_REASON_CARD_REFUNDED_SPEND = (
     "Card refund pair: this spend is cancelled by the merchant credit {partner}. Neither line becomes a record."
 )
+
+# What every hand action says about an `Internal Transfer` line (#1620): Skip, Unskip, Unreconcile, bulk
+# Unreconcile, Link, Allocate, Create and Confirm. `{action}` is the action as a past participle ("skipped").
+INTERNAL_TRANSFER_REFUSAL = (
+    "This line is an Internal Transfer (our own money moving between our own accounts), so it can't be "
+    "{action}. If it is not one, Send back to Mismatched first."
+)
+
+
+def internal_transfer_refusal(action: str) -> str:
+    """The refusal for an `Internal Transfer` line, naming the action refused."""
+    return INTERNAL_TRANSFER_REFUSAL.format(action=action)
+
 
 # The landing note for a source that stages straight to `Mismatched` (slice B3, owner ruling Q31).
 #
@@ -494,6 +526,7 @@ def derive_staged_row_outcome(
     excluded_category: str = "",
     no_settlement_path: bool = False,
     earlier_bank_status: str = "",
+    internal_transfer: bool = False,
 ) -> RowOutcome:
     """The outcome a row gets AT UPLOAD, before any matching has run.
 
@@ -543,6 +576,14 @@ def derive_staged_row_outcome(
     imported" instead of naming the ten rules, destroying the per-category counts that
     `bank_exclusions` says are what makes a new narration form noticeable.
     """
+    # `internal_transfer` (#1621, spec #1619): the caller's category table
+    # (`internal_transfers.bank_line_transfer`) says this recognised line is our own money moving between our
+    # own places. Same precedence as the skip it replaces -- first, ahead of both duplicate checks -- so a
+    # status-changed repeat of such a line is an Internal Transfer line too; the caller makes no second record.
+    if excluded_category and internal_transfer:
+        return RowOutcome(
+            ROW_INTERNAL_TRANSFER, STAGED_NOTE_INTERNAL_TRANSFER.format(category=excluded_category)
+        )
     if excluded_category:
         return RowOutcome(
             ROW_SKIPPED,

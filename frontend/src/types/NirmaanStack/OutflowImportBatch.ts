@@ -288,6 +288,19 @@ export interface OutflowImportRow {
      */
     settled_ledgers?: string[];
     /**
+     * The line's Internal Transfer record (#1621, spec #1619), read by `review.get_outflow_rows` from the record's
+     * unique `import_row`: its name, From, To and Detail, which rule made it (or "by hand"), and for a hand mark
+     * who, when and why (#1626). Blank on every other line.
+     */
+    internal_transfer?: string | null;
+    transfer_from?: string | null;
+    transfer_to?: string | null;
+    transfer_detail?: string | null;
+    transfer_made_by?: string | null;
+    transfer_marked_by?: string | null;
+    transfer_marked_at?: string | null;
+    transfer_mark_reason?: string | null;
+    /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
@@ -370,6 +383,8 @@ export interface OutflowRowsPage {
         /** The Skipped popup's Outflow / Inflow tabs: `skipped` narrowed to one direction. */
         skipped_outflow: number;
         skipped_inflow: number;
+        /** The Internal Transfers tab (#1621): every `Internal Transfer` line, both directions. */
+        internal_transfers: number;
     };
     /**
      * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH

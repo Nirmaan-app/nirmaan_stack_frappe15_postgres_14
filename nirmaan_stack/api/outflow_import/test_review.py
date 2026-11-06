@@ -33,6 +33,8 @@ from unittest import mock
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
+
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     _match_order,
@@ -323,6 +325,7 @@ class OutflowReviewFixture(unittest.TestCase):
     def _purge_fixtures(cls):
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         for name in cls.payments:
@@ -4308,6 +4311,7 @@ class TestTheHistoryCountFollowsTheDirectionSplit(unittest.TestCase):
         frappe.db.commit()
 
     def tearDown(self):
+        purge_internal_transfers(self.batch.name)
         frappe.db.delete(ROW_DOCTYPE, {"import_batch": self.batch.name})
         frappe.db.delete(BATCH_DOCTYPE, {"name": self.batch.name})
         frappe.db.commit()
@@ -5210,6 +5214,7 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
             r for r in self._bank_row_list()
             if r["name"] != already_paid
             and "bank-statement rule" not in (r["skip_reason"] or "")
+            and "bank-statement rule" not in (r["outcome_note"] or "")
         ]
         self.assertEqual(len(untouched), 14)
         self.assertEqual({r["row_status"] for r in untouched}, {ROW_MISMATCHED})
@@ -5221,14 +5226,16 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         self.assertEqual(note, STAGED_NOTE_NO_SETTLEMENT_PATH)
         self.assertNotIn("No approved payment", note)
 
-    def test_the_run_does_not_disturb_the_rows_the_exclusions_already_skipped(self):
+    def test_the_run_does_not_disturb_the_rows_the_exclusions_already_decided(self):
+        """⚠️ CHANGED AT #1621 (spec #1619): the fixture's five recognised lines are our own money moving
+        between our own places, so they are Internal Transfer lines now, not Skipped. The run leaves them so."""
         excluded = [
             r for r in self._bank_row_list()
-            if "bank-statement rule" in (r["skip_reason"] or "")
+            if "bank-statement rule" in (r["outcome_note"] or "")
         ]
         self.assertEqual(len(excluded), 5)
         for row in excluded:
-            self.assertEqual(row["row_status"], ROW_SKIPPED)
+            self.assertEqual(row["row_status"], "Internal Transfer")
 
     # --- the properties the run has always had ---------------------------------------------------
 

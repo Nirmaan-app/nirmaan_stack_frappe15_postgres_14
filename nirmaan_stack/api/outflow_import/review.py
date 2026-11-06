@@ -156,6 +156,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
     ROW_PENDING_MATCH,
+    ROW_INTERNAL_TRANSFER,
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
@@ -194,7 +195,8 @@ from nirmaan_stack.services.outflow_import.row_settlement import (
 # ends with `frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})`. A partially allocated row
 # reaching that line would have its settlement evidence deleted while the payments stayed Paid --
 # silently. Frozen does NOT mean finished here: the row is still ACTIVE and still needs a human.
-_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
+# `Internal Transfer` joins it at #1620: a final line with a record of its own, which the run must never re-derive.
+_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED, ROW_INTERNAL_TRANSFER)
 
 
 class StagedRow:
@@ -2588,6 +2590,9 @@ SCOPE_SKIPPED = "skipped"
 # so their counts ride `tab_counts` under the popup's own filters. Still no TAB on the page reaches them.
 SCOPE_SKIPPED_OUTFLOW = "skipped_outflow"
 SCOPE_SKIPPED_INFLOW = "skipped_inflow"
+# The Internal Transfers tab (#1621, spec #1619): our own money moving between our own places, both directions,
+# after the Settled tabs. Its own scope, so it has its own count under the screen's period and import filters.
+SCOPE_INTERNAL_TRANSFERS = "internal_transfers"
 
 # The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
 # the funnel, the tabs and the summary name a side identically.
@@ -2625,6 +2630,7 @@ _SCOPE_STATUSES = {
     SCOPE_SKIPPED: (ROW_SKIPPED,),
     SCOPE_SKIPPED_OUTFLOW: (ROW_SKIPPED,),
     SCOPE_SKIPPED_INFLOW: (ROW_SKIPPED,),
+    SCOPE_INTERNAL_TRANSFERS: (ROW_INTERNAL_TRANSFER,),
 }
 
 # The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
@@ -2803,6 +2809,16 @@ _FACET_COLUMNS = {
     # a stale bookmark carrying an `added_on` facet shows an unfiltered table instead of an error.
     # `get_outflow_facet_values("added_on")` now throws, which is correct -- nothing asks for it.
 }
+
+# A line's Internal Transfer record (#1621), for the Internal Transfers tab's From, To and Detail columns and the
+# hand mark's who / when / why (#1626). A LEFT JOIN on the record's UNIQUE `import_row`, so it can never multiply a
+# line; blank on every other line. Read by the page query and the export only -- `_row_filters` stays single-table.
+_INTERNAL_TRANSFER_JOIN = 'LEFT JOIN "tabInternal Transfer" it ON it.import_row = r.name'
+_INTERNAL_TRANSFER_COLUMNS = (
+    "it.name AS internal_transfer, it.from_place AS transfer_from, it.to_place AS transfer_to, "
+    "it.detail AS transfer_detail, it.made_by AS transfer_made_by, it.marked_by AS transfer_marked_by, "
+    "it.marked_at AS transfer_marked_at, it.mark_reason AS transfer_mark_reason"
+)
 
 # One page. Generous enough that a whole statement usually fits on one, capped so a client cannot
 # ask for the entire table and reinstate the problem this endpoint exists to solve.
@@ -3010,9 +3026,11 @@ def get_outflow_rows(
                {SETTLED_LEDGER_SQL} AS settled_ledgers,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
-               b.period_to         AS import_period_to
+               b.period_to         AS import_period_to,
+               {_INTERNAL_TRANSFER_COLUMNS}
         FROM "tabOutflow Import Row" r
         LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {_INTERNAL_TRANSFER_JOIN}
         {clause}
         ORDER BY {column} {direction}, r.name ASC
         LIMIT %s OFFSET %s
@@ -3155,7 +3173,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     params.extend(
         [
             tuple(sorted(CREATE_GATED_SOURCES)),
-            (ROW_SETTLED, ROW_SKIPPED),
+            (ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER),
             tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
             DIRECTION_CREDIT,
         ]
@@ -3579,9 +3597,11 @@ def export_outflow_rows(
                {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amounts,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
-               b.period_to         AS import_period_to
+               b.period_to         AS import_period_to,
+               {_INTERNAL_TRANSFER_COLUMNS}
         FROM "tabOutflow Import Row" r
         LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {_INTERNAL_TRANSFER_JOIN}
         {clause}
         ORDER BY {column} {direction}, r.name ASC
         """,

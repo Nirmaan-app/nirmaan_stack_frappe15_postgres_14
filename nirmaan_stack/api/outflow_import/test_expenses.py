@@ -19,6 +19,8 @@ from unittest.mock import patch
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
+
 from nirmaan_stack.api.outflow_import.expenses import (
     _guard_is_a_debit,
     _load_settleable_row,
@@ -126,6 +128,7 @@ class SettlementFixture(unittest.TestCase):
     def tearDownClass(cls):
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         # X1 moved the expense settle onto `doc.save()`, so each settlement now mints a Version row

@@ -48,6 +48,7 @@ import {
     type SummaryImport,
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
+    INTERNAL_TRANSFER_COLUMNS,
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
@@ -1041,6 +1042,7 @@ describe("tabs", () => {
             "partlyAllocatedOutflow",
             "matchedOutflow",
             "settledInflow",
+            "internalTransfers",
         ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
@@ -1049,6 +1051,7 @@ describe("tabs", () => {
             "Partly Allocated – Outflow",
             "Matched / Settled – Outflow",
             "Settled – Inflow",
+            "Internal Transfers",
         ]);
     });
 
@@ -1060,6 +1063,7 @@ describe("tabs", () => {
             "outflow",
             "outflow",
             "inflow",
+            null,
         ]);
     });
 
@@ -1078,7 +1082,30 @@ describe("tabs", () => {
             matchedOutflow: "matched_outflow",
             notMatchedInflow: "not_matched_inflow",
             settledInflow: "settled_inflow",
+            internalTransfers: "internal_transfers",
         });
+    });
+
+    it("keeps the Internal Transfers tab, which spans both directions, when the Inflow tabs hide (#1621)", () => {
+        expect(visibleTabs(false).map((t) => t.id)).toContain("internalTransfers");
+    });
+
+    it("shows the Internal Transfers tab with a Direction column and the record's From, To and Detail (#1621)", () => {
+        const ids = INTERNAL_TRANSFER_COLUMNS.map((c) => c.id);
+        expect(ids).toEqual(expect.arrayContaining(["transfer_direction", "transfer_from", "transfer_to", "transfer_detail"]));
+        expect(ids).not.toContain("settled_ledger");
+        const column = (id: string) => INTERNAL_TRANSFER_COLUMNS.find((c) => c.id === id)!;
+        const row = {
+            direction: "Credit",
+            transfer_from: "ICICI Bank Ledger",
+            transfer_to: "ICICI Current Account",
+            transfer_detail: "GL 01234 to 56789",
+        } as unknown as OutflowImportRow;
+        expect(column("transfer_direction").get(row)).toBe("In");
+        expect(column("transfer_from").get(row)).toBe("ICICI Bank Ledger");
+        expect(column("transfer_to").get(row)).toBe("ICICI Current Account");
+        expect(column("transfer_detail").get(row)).toBe("GL 01234 to 56789");
+        expect(column("transfer_direction").get({ direction: "Debit" } as unknown as OutflowImportRow)).toBe("Out");
     });
 
     it("maps every declared tab, with no gaps", () => {
@@ -1098,6 +1125,7 @@ describe("inflow tab visibility (#1264)", () => {
         skipped: 0,
         skipped_outflow: 0,
         skipped_inflow: 0,
+        internal_transfers: 0,
     });
 
     it("shows the Inflow tabs when the chosen source can carry a credit", () => {
@@ -1111,6 +1139,7 @@ describe("inflow tab visibility (#1264)", () => {
             "notMatchedOutflow",
             "partlyAllocatedOutflow",
             "matchedOutflow",
+            "internalTransfers",
         ]);
     });
 
@@ -3541,6 +3570,7 @@ describe("tabCountParts", () => {
         skipped: 47,
         skipped_outflow: 45,
         skipped_inflow: 2,
+        internal_transfers: 7,
     };
     const zero = {
         "Pending match run": 0,

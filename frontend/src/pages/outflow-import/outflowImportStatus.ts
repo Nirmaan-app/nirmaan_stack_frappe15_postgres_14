@@ -34,6 +34,11 @@ export const ROW_MISMATCHED = "Mismatched";
  */
 export const ROW_PARTIALLY_ALLOCATED = "Partially Allocated";
 export const ROW_SETTLED = "Settled";
+/**
+ * The company's own money moving between two of its own places (spec #1619, ADR-0044). Final, like Settled: the
+ * line has an Internal Transfer record and nobody owes it a decision. Not Skipped, and not Settled.
+ */
+export const ROW_INTERNAL_TRANSFER = "Internal Transfer";
 export const ROW_SKIPPED = "Skipped";
 export const ROW_ERROR = "Error";
 
@@ -43,6 +48,7 @@ export type RowStatus =
     | typeof ROW_MISMATCHED
     | typeof ROW_PARTIALLY_ALLOCATED
     | typeof ROW_SETTLED
+    | typeof ROW_INTERNAL_TRANSFER
     | typeof ROW_SKIPPED
     | typeof ROW_ERROR;
 
@@ -53,6 +59,7 @@ export const ROW_STATUSES: RowStatus[] = [
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
+    ROW_INTERNAL_TRANSFER,
     ROW_SKIPPED,
     ROW_ERROR,
 ];
@@ -63,7 +70,7 @@ export const ROW_STATUSES: RowStatus[] = [
  * ⚠️ NARROWER THAN v2, deliberately. A v2 finding was terminal because reporting it was the whole
  * job. v3 settles, so a row that found something and has not been confirmed is unfinished work.
  */
-export const TERMINAL_ROW_STATUSES: ReadonlySet<string> = new Set([ROW_SETTLED, ROW_SKIPPED]);
+export const TERMINAL_ROW_STATUSES: ReadonlySet<string> = new Set([ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER]);
 
 /** Someone still owes this row a decision. Everything that is not terminal. */
 export const OPEN_ROW_STATUSES: ReadonlySet<string> = new Set([
@@ -158,6 +165,7 @@ export const ROW_STATUS_TONE: Record<string, string> = {
     [ROW_MISMATCHED]: "bg-amber-50 text-amber-700",
     [ROW_PARTIALLY_ALLOCATED]: "bg-sky-50 text-sky-700",
     [ROW_SETTLED]: "bg-indigo-50 text-indigo-700",
+    [ROW_INTERNAL_TRANSFER]: "bg-violet-50 text-violet-700",
     [ROW_SKIPPED]: "bg-gray-100 text-gray-500",
     [ROW_ERROR]: "bg-red-50 text-red-700",
 };

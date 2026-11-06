@@ -67,6 +67,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
+    INTERNAL_TRANSFER_COLUMNS,
     OUTFLOW_COLUMNS,
     decidedRows,
     selectedMoneyOut,
@@ -1650,6 +1651,7 @@ export const OutflowMasterPage = () => {
                 <>
                     <OutflowRowsTable
                         rows={rows}
+                        columns={shownTab === "internalTransfers" ? INTERNAL_TRANSFER_COLUMNS : undefined}
                         loading={rowsLoading}
                         failed={table.failed}
                         onRetry={() => void mutateRows()}

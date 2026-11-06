@@ -157,6 +157,7 @@ class TestVocabulary(unittest.TestCase):
                 "Mismatched",
                 "Partially Allocated",
                 "Settled",
+                "Internal Transfer",
                 "Skipped",
                 "Error",
             ),
@@ -195,10 +196,11 @@ class TestVocabulary(unittest.TestCase):
             self.assertNotIn(retired, ROW_STATUSES)
         self.assertNotIn("Completed with exceptions", BATCH_STATUSES)
 
-    def test_only_settled_and_skipped_are_terminal(self):
+    def test_only_settled_internal_transfer_and_skipped_are_terminal(self):
         """NARROWER THAN v2 on purpose. v2 findings were terminal because reporting was the job;
-        v3 settles, so a row that found something and was not confirmed is unfinished work."""
-        self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED}))
+        v3 settles, so a row that found something and was not confirmed is unfinished work.
+        `Internal Transfer` joined at #1620: final like Settled."""
+        self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED, "Internal Transfer"}))
 
     # REPLACES test_open_and_terminal_partition_the_vocabulary -- INVERTED, not deleted.
     def test_open_and_terminal_no_longer_partition_the_vocabulary(self):
@@ -2247,7 +2249,7 @@ class TestSkippedLeavesTheStatementTotals(unittest.TestCase):
         self.assertEqual(summary["skipped_rows"], 9)
 
     def test_the_exclusion_is_a_NAMED_set_so_the_reason_is_greppable(self):
-        self.assertEqual(SUMMARY_EXCLUDED_STATUSES, frozenset({ROW_SKIPPED}))
+        self.assertEqual(SUMMARY_EXCLUDED_STATUSES, frozenset({ROW_SKIPPED, "Internal Transfer"}))
 
     def test_TERMINAL_ROW_STATUSES_STILL_CONTAINS_SKIPPED(self):
         """⚠️ THE GUARD AGAINST "FIXING" THIS BY NARROWING THE WRONG SET.
@@ -2259,7 +2261,7 @@ class TestSkippedLeavesTheStatementTotals(unittest.TestCase):
         a re-match may overwrite. The exclusion is LOCAL to `derive_import_summary`.
         """
         self.assertIn(ROW_SKIPPED, TERMINAL_ROW_STATUSES)
-        self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED}))
+        self.assertEqual(TERMINAL_ROW_STATUSES, frozenset({ROW_SETTLED, ROW_SKIPPED, "Internal Transfer"}))
         self.assertIsNot(SUMMARY_EXCLUDED_STATUSES, TERMINAL_ROW_STATUSES)
         self.assertTrue(RowOutcome(ROW_SKIPPED).is_terminal)
 
@@ -2680,3 +2682,68 @@ class TestSettledDirectionBlocks(unittest.TestCase):
             [SettledLedgerEntry("Project Payments", 1, Decimal("1"))]
         )
         self.assertEqual([b["direction"] for b in blocks], [SETTLED_BLOCK_PAID])
+
+
+class TestInternalTransferStatus(unittest.TestCase):
+    """#1620: `Internal Transfer` is a line status, final like Settled, and no open-work figure counts it."""
+
+    def test_it_is_a_status_and_it_is_final(self):
+        from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
+
+        self.assertEqual(ROW_INTERNAL_TRANSFER, "Internal Transfer")
+        self.assertIn("Internal Transfer", ROW_STATUSES)
+        self.assertIn("Internal Transfer", TERMINAL_ROW_STATUSES)
+        self.assertNotIn("Internal Transfer", OPEN_ROW_STATUSES)
+        self.assertNotIn("Internal Transfer", ACTIVE_ROW_STATUSES)
+
+    def test_a_batch_of_internal_transfers_and_settled_lines_is_completed(self):
+        self.assertEqual(derive_batch_status(["Internal Transfer", ROW_SETTLED]), BATCH_COMPLETED)
+        self.assertEqual(derive_batch_status(["Internal Transfer", ROW_MISMATCHED]), BATCH_PARTIALLY_SETTLED)
+
+    def test_the_summary_leaves_it_out_of_the_totals_and_still_open(self):
+        """The panel's Total paid out / received and Still open stay what they were while these lines were Skipped."""
+        without = derive_import_summary([StatusTally(ROW_MISMATCHED, 1, Decimal("100"))])
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_MISMATCHED, 1, Decimal("100")),
+                StatusTally("Internal Transfer", 3, Decimal("9000")),
+                StatusTally("Internal Transfer", 2, Decimal("500"), direction=ROW_DIRECTION_CREDIT),
+            ]
+        )
+        for key in ("total_rows", "total_value", "paid_value", "received_value", "open_rows", "open_value",
+                    "settled_rows", "skipped_rows", "decided_percent"):
+            self.assertEqual(summary[key], without[key], key)
+        self.assertEqual(summary["by_status"]["Internal Transfer"], {"count": 5, "value": Decimal("9500")})
+
+    def test_the_batch_counts_it_as_neither_settled_nor_skipped(self):
+        counters = derive_batch_counters(["Internal Transfer", ROW_SKIPPED, ROW_SETTLED])
+        self.assertEqual(counters["settled_rows"], 1)
+        self.assertEqual(counters["skipped_rows"], 1)
+        self.assertEqual(counters["total_rows"], 3)
+
+
+class TestStagedInternalTransfer(unittest.TestCase):
+    """#1621: a recognised line the category table calls internal lands on `Internal Transfer` at upload."""
+
+    def test_an_internal_category_lands_on_internal_transfer_and_names_the_rule(self):
+        outcome = derive_staged_row_outcome(_Row(), excluded_category="platform_cashfree", internal_transfer=True)
+        self.assertEqual(outcome.status, "Internal Transfer")
+        self.assertIn("platform_cashfree", outcome.note)
+        self.assertIsNone(outcome.skip_kind)
+        self.assertIsNone(outcome.skip_origin)
+
+    def test_it_still_outranks_both_duplicate_checks(self):
+        """A status-changed repeat of an internal line is still an Internal Transfer line."""
+        outcome = derive_staged_row_outcome(
+            _Row(),
+            already_imported_in="OFI-26-00003",
+            duplicate_in_file=True,
+            excluded_category="internal_gl_transfer",
+            internal_transfer=True,
+        )
+        self.assertEqual(outcome.status, "Internal Transfer")
+
+    def test_a_category_the_table_leaves_a_skip_is_skipped_as_today(self):
+        outcome = derive_staged_row_outcome(_Row(), excluded_category="bank_card_adjustment")
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIn("bank_card_adjustment", outcome.note)

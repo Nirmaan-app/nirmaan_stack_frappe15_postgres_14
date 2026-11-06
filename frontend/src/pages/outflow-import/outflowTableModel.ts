@@ -905,6 +905,25 @@ export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((
     column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
 );
 
+/** The record's direction, as the line states it: `In` for a credit, else `Out` (`internal_transfers.record_direction`). */
+const transferDirection = (row: Pick<OutflowImportRow, "direction">): string => (isCreditRow(row) ? "In" : "Out");
+
+/**
+ * The Internal Transfers tab's columns (#1621): the page's, with Ledger (an internal move settles nothing)
+ * REPLACED by a Direction column and the record's From, To and Detail. A separate list, like `SKIPPED_COLUMNS`,
+ * so no tab that never holds such a line grows four blank columns. No funnels: they are not server facets.
+ */
+const INTERNAL_TRANSFER_EXTRA_COLUMNS: OutflowColumn[] = [
+    { id: "transfer_direction", title: "Direction", get: transferDirection, filter: "none", width: "90px" },
+    { id: "transfer_from", title: "From", get: (r) => r.transfer_from ?? "", filter: "none", width: "170px" },
+    { id: "transfer_to", title: "To", get: (r) => r.transfer_to ?? "", filter: "none", width: "170px" },
+    { id: "transfer_detail", title: "Detail", get: (r) => r.transfer_detail ?? "", filter: "none", width: "150px" },
+];
+
+export const INTERNAL_TRANSFER_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
+    column.id === "settled_ledger" ? INTERNAL_TRANSFER_EXTRA_COLUMNS : [column]
+);
+
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
 ).map((c) => c.id);
@@ -930,7 +949,8 @@ export type OutflowTab =
     | "partlyAllocatedOutflow"
     | "matchedOutflow"
     | "notMatchedInflow"
-    | "settledInflow";
+    | "settledInflow"
+    | "internalTransfers";
 
 export type TransactionDirection = "outflow" | "inflow";
 
@@ -944,6 +964,9 @@ export const OUTFLOW_TABS: { id: OutflowTab; label: string; direction?: Transact
     { id: "partlyAllocatedOutflow", label: "Partly Allocated – Outflow", direction: "outflow" },
     { id: "matchedOutflow", label: "Matched / Settled – Outflow", direction: "outflow" },
     { id: "settledInflow", label: "Settled – Inflow", direction: "inflow" },
+    // Our own money moving between our own places (#1621, spec #1619): AFTER the Settled tabs so the working
+    // tabs stay first, and with no direction -- it lists money out and money in together.
+    { id: "internalTransfers", label: "Internal Transfers" },
 ];
 
 /** Where the screen opens: the outflow work, not the archive (owner ruling, carried across #1264). */
@@ -973,6 +996,7 @@ export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     matchedOutflow: "matched_outflow",
     notMatchedInflow: "not_matched_inflow",
     settledInflow: "settled_inflow",
+    internalTransfers: "internal_transfers",
 };
 
 /**
