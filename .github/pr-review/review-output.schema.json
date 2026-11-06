@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description", "previous", "findings"],
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "The full new PR description in the form of .github/pr-review/pr-template.md."
+    },
+    "previous": {
+      "type": "array",
+      "description": "One entry per open finding from the last review, saying whether the PR now fixes it.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^F[0-9]+$"},
+          "status": {"type": "string", "enum": ["fixed", "open"]}
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "New findings only. Never repeat a finding from the last review.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tier", "file", "line", "title", "why", "fix", "could_be_wrong_if"],
+        "properties": {
+          "tier": {"type": "string", "enum": ["must", "should", "pre"]},
+          "file": {"type": "string", "description": "Path from the repository root."},
+          "line": {"type": ["integer", "null"], "description": "Line number in the PR version of the file, or null."},
+          "title": {"type": "string", "description": "One sentence naming the problem."},
+          "why": {"type": "string", "description": "What goes wrong, for whom, and when."},
+          "fix": {"type": "string", "description": "The change that fixes it."},
+          "could_be_wrong_if": {"type": "string", "description": "The fact that would make this finding wrong."}
+        }
+      }
+    }
+  }
+}
