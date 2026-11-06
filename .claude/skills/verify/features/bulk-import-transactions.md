@@ -7,7 +7,8 @@ past imports by source and month.
 ## Sub-features
 
 - `bit-tabs` the line tabs, each with a count: `All`, `Not Matched – Outflow`, `Not Matched – Inflow`,
-  `Matched / Settled – Outflow`, `Skipped`, `Awaiting Bank Line`.
+  `Matched / Settled – Outflow`, `Skipped`, `Awaiting Bank Line`, and `Internal Transfers` after the Settled tabs
+  (spec #1619; see [Internal Transfers](./internal-transfers.md)).
 - `bit-filter` the column filters (`Filter Source`, `Filter Status`, `Filter Amount`, …) and the date range
   (`All time`).
 - `bit-import` `Import statement` opens the dialog `Import a bank statement` with a `Source` combobox.

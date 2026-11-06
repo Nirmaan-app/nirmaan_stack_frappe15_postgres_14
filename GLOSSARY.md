@@ -161,8 +161,37 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Skipped by hand (an imported bank line)** — a line an Admin or Accountant Lead set aside because it has nothing to link, with a typed reason; the Skipped list shows who and when. Every other skipped line is a **system skip** — money already recorded, a transfer the bank refused, a bank-statement exclusion rule, or a repeat of an earlier statement whose bank status has since changed (an exact repeat is not saved at all — see *Already imported*) — so the same money is never recorded twice. Whether a skipped line can later be brought back is decided by its **skip kind** — the reason it was skipped, shown as Skip Type — and not by who skipped it: a hand skip can come back, and so can a line skipped as already recorded or by a bank-statement rule; a line already imported, repeated in the same file, carrying no amount, or refused by the bank never can, and nor can any Cashbook line. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); what can be brought back amended 2026-09-17 by [Amendment C](docs/adr/0022-unreconcile-and-unskip.md).)
   *Avoid*: manual skip for a system skip a person merely confirmed.
 
-- **Bounced transfer (an imported bank line)** — money that left the bank and was sent back, so the statement shows the same money twice: the transfer going out, and the transfer coming back. The out line is **skipped by hand** with the reason "bounced"; the line coming back is a **system skip** under the bank rule *Failed payment bounced back*. Neither line is linked to any record, and no record's amount is raised to cover it — the money never stayed out, so nothing was spent. Different from a transfer **the bank refused** outright, which never left the account and so appears only once. (2026-09-18, [ADR-0027](docs/adr/0027-many-lines-one-expense.md).)
+- **Bounced transfer (an imported bank line)** — money that left the bank and was sent back, so the statement shows the same money twice: the transfer going out, and the transfer coming back. The out line is **skipped by hand** with the reason "bounced"; the line coming back is a **system skip** under the bank rule *Failed payment bounced back*. Neither line is linked to any record, and no record's amount is raised to cover it — the money never stayed out, so nothing was spent. Different from a transfer **the bank refused** outright, which never left the account and so appears only once. A bounced **wallet top-up** is different again: when the returning line names one of our wallets (by name or by its IFSC), both the top-up and its return are *Internal Transfers*, not skips. (2026-09-18, [ADR-0027](docs/adr/0027-many-lines-one-expense.md); wallet top-ups 2026-11-06, [ADR-0044](docs/adr/0044-an-internal-move-is-a-record-and-a-line-status.md).)
   *Avoid*: calling the pair a refused transfer — the bank refused nothing; the money left and came back.
+
+- **Internal Transfer** — the company's own money moving between two of its own places: a top-up from the bank to
+  the Cashfree, Cashbook or Porter wallet, unused wallet money coming back, the bank's own ledger move, the credit
+  card bill paid from the bank, Cashbook moving money between its virtual account and an employee's wallet. Each
+  such imported line is one **Internal Transfer record**, saying where the money came **From** and went **To** (one
+  of a fixed list of places: ICICI Current Account, ICICI Bank Ledger, Cashfree Wallet, Cashbook Virtual Account,
+  Cashbook Employee Wallet, Porter Wallet, ICICI Credit Card) and a short **detail** (the employee, the card's last four digits, the ledger
+  numbers). The rule that recognised the line fills From and To; an Admin or Accountant Lead may also *Mark as
+  Internal Transfer* by hand, with a reason, or *Send back to Mismatched* a line wrongly marked. It is not spend
+  or income, and it counts in no expense, inflow or payment figure. The two sides of one move (the bank statement
+  and the wallet statement) are two records, not linked. Fixed deposit placements and closures are **not**
+  Internal Transfers. (Owner, 2026-11-06, [ADR-0044](docs/adr/0044-an-internal-move-is-a-record-and-a-line-status.md).)
+  *Avoid*: contra, contra entry, self transfer. Not an *Internal Transfer Memo* (ITM), which moves materials
+  between projects.
+
+- **Internal Transfer (a line status)** — the status of an imported line that is an Internal Transfer. It is
+  final, like *Settled*: the match run never touches it, no open-work figure counts it, and it has its own tab,
+  *Internal Transfers*. It is not *Skipped* (Skipped means there is nothing to record) and not *Settled* (nothing
+  was paid or received). Every such line holds exactly one Internal Transfer record. A wallet move whose own line
+  does not say the money moved is never one: it is skipped as *Bank refused*, even when an earlier statement showed
+  the same move succeeding, whose line keeps its record. (Owner, 2026-11-06, [ADR-0044](docs/adr/0044-an-internal-move-is-a-record-and-a-line-status.md); refused repeats 2026-11-07.)
+
+- **Send back to Mismatched (an Internal Transfer line)** — undoing an Internal Transfer, by an Admin or Accountant
+  Lead with a typed reason: the line's Internal Transfer record is deleted and the line becomes an open
+  *Mismatched* line again, showing who sent it back, when and why. It takes no other line with it: every Internal
+  Transfer line holds its own record. Sending a line back is the only way a record is deleted. It is neither
+  *Unskip* (the line was never skipped) nor *Unreconcile* (no record was settled). (Owner, 2026-11-06; one line
+  only, 2026-11-07.)
+  *Avoid*: unmark, unskip an internal transfer.
 
 - **Unreconcile (an imported bank line)** — undoing a match on a settled bank line, with a typed reason, one record at a time or all at once (**Reverse all**, which changes nothing unless every record can be undone). Each record says first what will happen to it; a Project Payment goes back to *Reconciliation Pending* with its UTR and payment date cleared, and an existing Project Expense or Non-Project Expense goes back to *Reconciliation Pending* with its payment date, reference and "paid by" cleared — the status a bank line settles FROM, so the record can be matched to the right line without anyone pressing Mark as Done a second time; either is then free to match another line. A record the import itself created (a Project Inflow, a Non-Project Inflow, or a new expense) is deleted instead — unless someone edited it after the import made it — and a bank credit whose inflow was deleted can be recorded again. A **part payment** is joined back together — the leftover payment is deleted, the payment gets its full amount back and the PO's two payment terms become one — but only while the leftover is untouched; a leftover already paid by another transfer must have that transfer unreconciled first. The match record is kept, marked Reversed. A Reversed match record is history only: it never stops anyone deleting the record it names, which may then name a record that no longer exists. A live one always does, for everyone — the line must be unreconciled first, and the refusal names that line (owner, 2026-10-16). The line keeps its previous suggestion but is marked **Confirm by hand**: "Confirm all matched" leaves it out and refuses it, until a person settles it from the line itself. Unreconciling a Work Order payment **never changes its amount and never withholds tax** — see *TDS withheld*. Cashbook lines cannot be unreconciled yet. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); the revert target amended 2026-09-16 by [Amendment B](docs/adr/0022-unreconcile-and-unskip.md).)
 
@@ -203,7 +232,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Card spend** — a line of a Credit Card Statement that is money the card paid out (a line not marked CR). Each one is recorded as exactly one *Paid* **Non-Project** Expense (a card never pays for a project's work), with no vendor, and then waits for its invoice. (Owner, 2026-10-25.)
 
-- **Card payment (a statement credit)** — money paid *into* the card to settle its bill (auto-debit, UPI or any other payment received), or a cashback. It is not a spend and not a refund, so it is skipped by rule, with its reason shown. (Owner, 2026-10-25.)
+- **Card payment (a statement credit)** — money paid *into* the card to settle its bill (UPI or any other payment received, or an auto-debit return), or a cashback. It is not a spend and not a refund, so it is skipped by rule, with its reason shown. The bank's own auto-debit paying the card ("Autodebit Payment Recd.") is not a card payment but an *Internal Transfer* from the ICICI Current Account to the card. (Owner, 2026-10-25; auto-debit 2026-11-06, [ADR-0044](docs/adr/0044-an-internal-move-is-a-record-and-a-line-status.md).)
 
 - **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
 
@@ -221,6 +250,12 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported arrives with a later statement and is attached then. (Owner, 2026-11-02.)
 
 - **Paired wallet refund** — a refund on a Cashbook Statement that gives back the whole of a spend on the same statement. Both lines are skipped, each naming the other. (Owner, 2026-11-02.)
+
+- **Unknown Cashbook type** — the Skip Type of a Cashbook line whose Type the app does not know yet. Nothing is
+  recorded for it, and it stays skipped, like every skip the Cashbook import makes, until the app learns that Type.
+  A Cashbook move between the company's own balances that the wallet did not complete is not one of these: it is
+  skipped as refused by the bank. (Owner, 2026-11-07.)
+  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, no longer given).
 
 - **Unpaired wallet refund** — a refund that gives back only part of a spend, or a spend from an earlier statement. It is kept as an open line for someone to decide. (Owner, 2026-11-02.)
 

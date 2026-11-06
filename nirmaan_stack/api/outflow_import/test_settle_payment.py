@@ -30,6 +30,8 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import frappe
+
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
 import psycopg2.errors as pg_errors
 
 from nirmaan_stack.api.outflow_import import expenses
@@ -329,6 +331,7 @@ class PaymentSettlementFixture(unittest.TestCase):
             )
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]})
         for name in self.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         # ⚠️ A SPLIT CHILD IS NOT IN `self.payments`, AND IT DOES NOT CARRY THE `TEST-` PREFIX

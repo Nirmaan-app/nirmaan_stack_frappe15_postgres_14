@@ -48,6 +48,14 @@ import {
     confirmByHandNote,
     unreconcileAffordance,
 } from "../unreconcileView";
+import {
+    canMarkInternalTransfer,
+    canSendBack,
+    internalTransferRecordHref,
+    markedByHandLine,
+    transferAmountToneClass,
+} from "../internalTransferView";
+import type { InternalTransferAction } from "./InternalTransferDialog";
 import { MOVE_ORDER_LABEL, rectifyAffordance } from "../porterRectify";
 import { chequeOutcomeChip, type ChequeOutcomeTone } from "../chequeOutcomeView";
 
@@ -140,6 +148,8 @@ interface Props {
      * ⚠️ PASS A STABLE CALLBACK (`useCallback`). Every memoized row receives it.
      */
     onRectify?: (row: OutflowImportRow) => void;
+    /** #1626: Mark as Internal Transfer / Send back to Mismatched. Absent for a role that may not (the server re-checks). */
+    onInternalTransfer?: (row: OutflowImportRow, action: InternalTransferAction) => void;
 }
 
 export interface TableActionColumn {
@@ -183,6 +193,7 @@ export const OutflowRowsTable = ({
     actionColumn,
     onUnreconcile,
     onRectify,
+    onInternalTransfer,
     columns: columnSet = OUTFLOW_COLUMNS,
 }: Props) => {
     const columns = useMemo(
@@ -299,6 +310,7 @@ export const OutflowRowsTable = ({
                             actionColumn={actionColumn}
                             onUnreconcile={onUnreconcile}
                             onRectify={onRectify}
+                            onInternalTransfer={onInternalTransfer}
                         />
                     ))}
                     {showRows && !rows.length && (
@@ -600,6 +612,8 @@ interface RowProps {
     actionColumn?: TableActionColumn;
     onUnreconcile?: (row: OutflowImportRow) => void;
     onRectify?: (row: OutflowImportRow) => void;
+    /** #1626: Mark as Internal Transfer / Send back to Mismatched. Absent for a role that may not (the server re-checks). */
+    onInternalTransfer?: (row: OutflowImportRow, action: InternalTransferAction) => void;
 }
 
 const Row = memo(function Row({
@@ -617,6 +631,7 @@ const Row = memo(function Row({
     actionColumn,
     onUnreconcile,
     onRectify,
+    onInternalTransfer,
 }: RowProps) {
     return (
         <tr className={`border-t ${selected ? "bg-primary/5" : "hover:bg-muted/40"}`}>
@@ -659,6 +674,7 @@ const Row = memo(function Row({
                         onOpenDecision={onOpenDecision}
                         onUnreconcile={onUnreconcile}
                         onRectify={onRectify}
+                        onInternalTransfer={onInternalTransfer}
                     />
                 </td>
             ))}
@@ -676,6 +692,7 @@ const Cell = ({
     onOpenDecision,
     onUnreconcile,
     onRectify,
+    onInternalTransfer,
 }: {
     row: OutflowImportRow;
     column: OutflowColumn;
@@ -685,6 +702,8 @@ const Cell = ({
     onOpenDecision: (row: OutflowImportRow) => void;
     onUnreconcile?: (row: OutflowImportRow) => void;
     onRectify?: (row: OutflowImportRow) => void;
+    /** #1626: Mark as Internal Transfer / Send back to Mismatched. Absent for a role that may not (the server re-checks). */
+    onInternalTransfer?: (row: OutflowImportRow, action: InternalTransferAction) => void;
 }) => {
     switch (column.id) {
         case "added_on":
@@ -727,6 +746,14 @@ const Cell = ({
                     </div>
                 );
             }
+
+        case "transfer_amount":
+            // The Internal Transfers tab's Amount (#1623): the record's money, coloured by the record's direction.
+            return (
+                <span className={transferAmountToneClass(row)}>
+                    {formatToRoundedIndianRupee(row.transfer_amount ?? row.amount)}
+                </span>
+            );
 
         case "remarks": {
             // ⚠️ WRAPPED, NOT CLIPPED (see `wrapRemarks`). `truncate` cut the narration to one line
@@ -794,6 +821,7 @@ const Cell = ({
                     onOpenDecision={onOpenDecision}
                     onUnreconcile={onUnreconcile}
                     onRectify={onRectify}
+                    onInternalTransfer={onInternalTransfer}
                 />
             );
 
@@ -880,6 +908,7 @@ const OutcomeButton = ({
     onOpenDecision,
     onUnreconcile,
     onRectify,
+    onInternalTransfer,
 }: {
     row: OutflowImportRow;
     decided: boolean;
@@ -887,6 +916,8 @@ const OutcomeButton = ({
     onOpenDecision: (row: OutflowImportRow) => void;
     onUnreconcile?: (row: OutflowImportRow) => void;
     onRectify?: (row: OutflowImportRow) => void;
+    /** #1626: Mark as Internal Transfer / Send back to Mismatched. Absent for a role that may not (the server re-checks). */
+    onInternalTransfer?: (row: OutflowImportRow, action: InternalTransferAction) => void;
 }) => {
     // ⚠️ READ THE SET, never re-spell it. This was two string literals, the one place in the
     // client that duplicated the terminal vocabulary -- so a change to the module could not reach
@@ -905,6 +936,10 @@ const OutcomeButton = ({
         const undo = unreconcileAffordance(row, Boolean(onUnreconcile));
         // #1449: beside it on a Porter line, for the same roles (presence of the prop is the gate).
         const rectify = rectifyAffordance(row, Boolean(onRectify));
+        // #1626: who marked an Internal Transfer by hand, when and why; and its Send back button.
+        const markedByHand = markedByHandLine(row);
+        const recordHref = internalTransferRecordHref(row);
+        const sendBack = canSendBack(row);
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
                 {/* #1485: the Payment cheque this line cleared, above the line's own sentence. */}
@@ -925,6 +960,35 @@ const OutcomeButton = ({
                           <SettledRecordLine key={`${target.doctype}-${target.name}`} target={target} />
                       ))
                     : links.map((link) => <RecordLink key={`${link.href}-${link.label}`} link={link} />)}
+                {/* #1621: an Internal Transfer line links its record, as a Settled line links what it settled. */}
+                {recordHref && (
+                    <a
+                        href={recordHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate font-mono text-[11px] text-violet-700 hover:underline"
+                    >
+                        {row.internal_transfer}
+                    </a>
+                )}
+                {markedByHand && (
+                    <span className="block truncate text-[11px] text-muted-foreground/80" title={markedByHand}>
+                        {markedByHand}
+                    </span>
+                )}
+                {/* #1626: an Internal Transfer line goes back to Mismatched, whoever marked it. */}
+                {sendBack && onInternalTransfer && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-xs"
+                        onClick={() => onInternalTransfer(row, "sendBack")}
+                    >
+                        <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+                        Send back to Mismatched
+                    </Button>
+                )}
                 {(undo === "button" || rectify) && (
                     <div className="flex flex-wrap gap-1">
                         {undo === "button" && onUnreconcile && (
@@ -1035,6 +1099,16 @@ const OutcomeButton = ({
                         <RecordLink key={`${link.href}-${link.label}`} link={link} iconOnly />
                     ))}
             </div>
+            {/* #1626: an open ICICI, Cashfree or Cashbook line the rules missed. */}
+            {onInternalTransfer && canMarkInternalTransfer(row) && (
+                <button
+                    type="button"
+                    className="text-[11px] text-violet-700 underline-offset-2 hover:underline"
+                    onClick={() => onInternalTransfer(row, "mark")}
+                >
+                    Mark as Internal Transfer
+                </button>
+            )}
         </div>
     );
 };

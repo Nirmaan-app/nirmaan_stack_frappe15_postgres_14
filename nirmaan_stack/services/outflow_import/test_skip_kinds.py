@@ -42,6 +42,7 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_BY_EXCLUSION_CATEGORY,
     SKIP_KIND_BY_HAND,
     SKIP_KIND_CASHBOOK_INTERNAL,
+    SKIP_KIND_CASHBOOK_UNKNOWN_TYPE,
     SKIP_KIND_INFLOW_RECORDED,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
@@ -117,6 +118,8 @@ class TestVocabulary(unittest.TestCase):
                 "Card refund pair",
                 # #1594 (ADR-0015 Amendment B decision 7): a Cashbook refund and the spend it gives back in full.
                 "Paired wallet refund",
+                # Owner decision 4 (#1619, 2026-11-07): a Cashbook line of a Type the app does not know.
+                "Unknown Cashbook type",
             ),
         )
 
@@ -226,7 +229,7 @@ class TestTheCashbookPlanCarriesAKind(unittest.TestCase):
     def test_each_skip_reason_has_its_kind(self):
         self.assertEqual(
             self._reason_and_kind(_cashbook_row(kind="Wallet Load")),
-            (cashbook.SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL),
+            (cashbook.SKIP_UNKNOWN_TYPE.format(kind="Wallet Load"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE),
         )
         self.assertEqual(
             self._reason_and_kind(_cashbook_row(status_raw="FAILED")),

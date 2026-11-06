@@ -34,6 +34,7 @@ import { UnreconcileDialog } from "./components/UnreconcileDialog";
 import { BulkUnreconcileDialog } from "./components/BulkUnreconcileDialog";
 import { unreconcileButtonState } from "./bulkUnreconcileView";
 import { RectifyDialog } from "./components/RectifyDialog";
+import { InternalTransferDialog, type InternalTransferAction } from "./components/InternalTransferDialog";
 import { moveOrdersLabel, rectifyButtonState } from "./porterRectify";
 import { MOVE_URL_KEY } from "@/utils/porterExpense";
 import { selectionMode, settledTicksAllowed, tickKindOf, tickRules, type TickKind } from "./tickMode";
@@ -67,6 +68,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
+    INTERNAL_TRANSFER_COLUMNS,
     OUTFLOW_COLUMNS,
     decidedRows,
     selectedMoneyOut,
@@ -940,6 +942,20 @@ export const OutflowMasterPage = () => {
         setRectifyRows([row.name]);
     }, []);
 
+    /** #1626: Mark as Internal Transfer / Send back to Mismatched, from the line's row. Reference-stable. */
+    const [internalTransfer, setInternalTransfer] = useState<{
+        row: OutflowImportRow;
+        action: InternalTransferAction;
+    } | null>(null);
+    const handleOpenInternalTransfer = useCallback((row: OutflowImportRow, action: InternalTransferAction) => {
+        setReverseNotice(null);
+        setInternalTransfer({ row, action });
+    }, []);
+    const handleInternalTransferDone = useCallback(async () => {
+        setInternalTransfer(null);
+        await refreshAll();
+    }, [refreshAll]);
+
     /** A Rectify run's result box closed: the moved lines stay Settled, so the ticks go and the page refetches. */
     const handleRectified = useCallback(async () => {
         setRectifyRows(null);
@@ -1650,6 +1666,7 @@ export const OutflowMasterPage = () => {
                 <>
                     <OutflowRowsTable
                         rows={rows}
+                        columns={shownTab === "internalTransfers" ? INTERNAL_TRANSFER_COLUMNS : undefined}
                         loading={rowsLoading}
                         failed={table.failed}
                         onRetry={() => void mutateRows()}
@@ -1673,6 +1690,7 @@ export const OutflowMasterPage = () => {
                         onUnreconcile={canUndo ? handleOpenUnreconcile : undefined}
                         // #1449: the same gate; the button shows only on a Settled Porter line.
                         onRectify={canUndo ? handleOpenRectify : undefined}
+                        onInternalTransfer={canUndo ? handleOpenInternalTransfer : undefined}
                         // ⚠️ THE NOTICE IS CLEARED HERE, NOT ON A TIMER (review F9). Opening the
                         // next row is the moment the previous reversal stops being what the
                         // reviewer is looking at, so a sentence about it must not still be on
@@ -1770,6 +1788,17 @@ export const OutflowMasterPage = () => {
                     rows={rectifyRows}
                     onClose={() => setRectifyRows(null)}
                     onDone={handleRectified}
+                />
+            )}
+
+            {/* #1626: Admin and Accountant Lead only; the endpoints refuse anyone else. */}
+            {canUndo && internalTransfer && (
+                <InternalTransferDialog
+                    key={`${internalTransfer.row.name}:${internalTransfer.action}`}
+                    row={internalTransfer.row}
+                    action={internalTransfer.action}
+                    onClose={() => setInternalTransfer(null)}
+                    onDone={handleInternalTransferDone}
                 />
             )}
 

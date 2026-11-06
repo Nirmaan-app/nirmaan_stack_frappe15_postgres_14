@@ -139,6 +139,7 @@ from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
 from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
 from nirmaan_stack.services.outflow_import.status import (
     ORIGIN_ACCEPTED,
+    ROW_INTERNAL_TRANSFER,
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -150,6 +151,7 @@ from nirmaan_stack.services.outflow_import.status import (
     LINK_REFUSED_TXN_ID_TICKED_TWICE,
     SKIP_REASON_ALREADY_IMPORTED_AS,
     derive_recorded_money_verdict,
+    internal_transfer_refusal,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
     # `_guard_is_a_debit` is the exact NEGATION of the receipt side's rule, so it must read the
     # same predicate `status.derive_settled_direction_blocks` sorts settled rows with. A second
@@ -802,6 +804,8 @@ def _load_allocatable_row(row: str):
         )
     if doc.get("row_status") == ROW_SKIPPED:
         frappe.throw(SKIPPED_ROW_REFUSAL, title="Row skipped")
+    if doc.get("row_status") == ROW_INTERNAL_TRANSFER:
+        frappe.throw(internal_transfer_refusal("allocated"), title="Internal Transfer")
     return StagedRow(doc), doc
 
 
@@ -1266,6 +1270,11 @@ def _load_settleable_row(row: str, creating: bool = False):
         )
     if doc.get("row_status") == ROW_SKIPPED:
         frappe.throw(SKIPPED_ROW_REFUSAL, title="Row skipped")
+    if doc.get("row_status") == ROW_INTERNAL_TRANSFER:
+        frappe.throw(
+            internal_transfer_refusal("created into a record" if creating else "settled"),
+            title="Internal Transfer",
+        )
     return StagedRow(doc), doc
 
 

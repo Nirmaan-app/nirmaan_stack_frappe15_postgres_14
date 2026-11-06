@@ -2,7 +2,7 @@
 // upload, each with its reason.
 import { describe, expect, it } from "vitest";
 
-import { cardSkippedLines, cardWorkLines, cardSkippedSummary } from "./cardCreditsView";
+import { cardInternalTransferLines, cardSkippedLines, cardWorkLines, cardSkippedSummary } from "./cardCreditsView";
 import type { CardImportLine } from "./creditCardImport";
 
 const line = (over: Partial<CardImportLine>): CardImportLine => ({
@@ -60,5 +60,24 @@ describe("Review's lines", () => {
     it("says how many were skipped and why", () => {
         expect(cardSkippedSummary({ lines })).toBe("2 lines skipped: 1 Card payment received, 1 Card cashback");
         expect(cardSkippedSummary({ lines: [lines[0]] })).toBeNull();
+    });
+});
+
+describe("the auto-debit credit (#1624)", () => {
+    const withAutoDebit = [
+        ...lines,
+        line({
+            name: "E",
+            is_credit: true,
+            details: "Autodebit Payment Recd.",
+            row_status: "Internal Transfer",
+            outcome_note: "Internal Transfer from ICICI Current Account to ICICI Credit Card (Card ending 1111).",
+        }),
+    ];
+
+    it("is listed under Internal transfers, not as work and not as skipped", () => {
+        expect(cardInternalTransferLines({ lines: withAutoDebit }).map((l) => l.name)).toEqual(["E"]);
+        expect(cardWorkLines({ lines: withAutoDebit }).map((l) => l.name)).toEqual(["A", "C"]);
+        expect(cardSkippedLines({ lines: withAutoDebit }).map((l) => l.name)).toEqual(["B", "D"]);
     });
 });
