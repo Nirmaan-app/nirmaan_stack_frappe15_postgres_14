@@ -1122,10 +1122,12 @@ describe("tabs", () => {
             transfer_record_direction: "In",
             transfer_amount: 50000,
             transfer_made_by: "cashbook_bank_to_va",
+            transfer_made_by_label: "Rule: Cashbook Bank → VA",
         } as unknown as OutflowImportRow;
         expect(column("transfer_direction").get(topUp)).toBe("In");
         expect(column("transfer_amount").get(topUp)).toBe(50000);
-        expect(column("transfer_made_by").get(topUp)).toBe("cashbook_bank_to_va");
+        // Review finding (#1619): words, as the server words them, never the rule id.
+        expect(column("transfer_made_by").get(topUp)).toBe("Rule: Cashbook Bank → VA");
     });
 
     it("maps every declared tab, with no gaps", () => {

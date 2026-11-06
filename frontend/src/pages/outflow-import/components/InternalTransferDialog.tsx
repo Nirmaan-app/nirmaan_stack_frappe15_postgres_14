@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/InternalTransferDialog.tsx
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { Loader2 } from "lucide-react";
 
@@ -20,47 +20,43 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { describeFrappeError, isCreditRow } from "../outflowTableModel";
-import { otherEndChoices, ownPlace } from "../internalTransferView";
 
+/** Which hand action the dialog takes: `mark` an open line as an Internal Transfer, or `sendBack` an Internal
+ * Transfer line (and the other lines of its move) to Mismatched. */
 export type InternalTransferAction = "mark" | "sendBack";
 
 const ENDPOINT = "nirmaan_stack.api.outflow_import.internal_transfer_actions";
 
-/**
- * Mark as Internal Transfer, and Send back to Mismatched (#1626, spec #1619). Admin and Accountant Lead only: the
- * page passes the row only when the user may (`canUndoOutflow`), and the server checks again.
- *
- * Marking fills the line's own side from its source; the person chooses only the other end, and may add a detail.
- * Both need a typed reason. A refusal shows the server's sentence and changes nothing.
- */
-export const InternalTransferDialog = ({
-    row,
-    action,
-    onClose,
-    onDone,
-}: {
-    row: OutflowImportRow | null;
+interface InternalTransferDialogProps {
+    row: OutflowImportRow;
     action: InternalTransferAction;
     onClose: () => void;
     onDone: () => void;
-}) => {
+}
+
+/**
+ * Mark as Internal Transfer, and Send back to Mismatched (#1626, spec #1619). Admin and Accountant Lead only: the
+ * page mounts it only when the user may (`canUndoOutflow`), and the server checks again.
+ *
+ * Marking fills the line's own side from the server's offer (`row.hand_mark`); the person chooses only the other end,
+ * and the Detail starts as the offer's (a Cashbook line's wallet holder, owner decision 8a). Both need a typed
+ * reason. A refusal shows the server's sentence and changes nothing.
+ *
+ * ⚠️ ITS FORM STARTS FRESH EACH TIME IT OPENS because the page mounts it per open, keyed by row and action
+ * (frontend § React effects rule 4): no effect copies props into state.
+ */
+export const InternalTransferDialog = ({ row, action, onClose, onDone }: InternalTransferDialogProps) => {
+    const offer = row.hand_mark;
     const [otherEnd, setOtherEnd] = useState("");
-    const [detail, setDetail] = useState("");
+    const [detail, setDetail] = useState(offer?.detail ?? "");
     const [reason, setReason] = useState("");
     const [error, setError] = useState<string | null>(null);
     const { call, loading } = useFrappePostCall(
         `${ENDPOINT}.${action === "mark" ? "mark_internal_transfer" : "send_back_to_mismatched"}`
     );
 
-    useEffect(() => {
-        setOtherEnd("");
-        setDetail("");
-        setReason("");
-        setError(null);
-    }, [row?.name, action]);
-
-    if (!row) return null;
-    const own = ownPlace(row.source) ?? "";
+    const own = offer?.own_place ?? "";
+    const choices = offer?.other_ends ?? [];
     const incoming = isCreditRow(row);
     const marking = action === "mark";
     const ready = reason.trim() !== "" && (!marking || otherEnd !== "");
@@ -100,7 +96,7 @@ export const InternalTransferDialog = ({
                         <div className="grid grid-cols-[auto_1fr] items-center gap-2">
                             <Label htmlFor="it-from">From</Label>
                             {incoming ? (
-                                <PlaceSelect id="it-from" value={otherEnd} onChange={setOtherEnd} row={row} />
+                                <PlaceSelect id="it-from" value={otherEnd} onChange={setOtherEnd} choices={choices} />
                             ) : (
                                 <span id="it-from">{own}</span>
                             )}
@@ -108,7 +104,7 @@ export const InternalTransferDialog = ({
                             {incoming ? (
                                 <span id="it-to">{own}</span>
                             ) : (
-                                <PlaceSelect id="it-to" value={otherEnd} onChange={setOtherEnd} row={row} />
+                                <PlaceSelect id="it-to" value={otherEnd} onChange={setOtherEnd} choices={choices} />
                             )}
                             <Label htmlFor="it-detail">Detail</Label>
                             <Input
@@ -121,8 +117,9 @@ export const InternalTransferDialog = ({
                     </div>
                 ) : (
                     <p className="text-sm text-muted-foreground">
-                        Deletes this line's Internal Transfer record ({row.transfer_from ?? "—"} to{" "}
+                        Deletes this move's Internal Transfer record ({row.transfer_from ?? "—"} to{" "}
                         {row.transfer_to ?? "—"}) and reopens the line as Mismatched, to be worked like any other.
+                        Any repeat of the same move in another import goes back with it, with the same reason.
                     </p>
                 )}
 
@@ -156,18 +153,16 @@ export const InternalTransferDialog = ({
     );
 };
 
-/** A plain select over the places other than the line's own. Its placeholder stays selectable (the owner-locked rule). */
-const PlaceSelect = ({
-    id,
-    value,
-    onChange,
-    row,
-}: {
+interface PlaceSelectProps {
     id: string;
     value: string;
     onChange: (value: string) => void;
-    row: OutflowImportRow;
-}) => (
+    /** The places the server offers as the other end, in its order. */
+    choices: readonly string[];
+}
+
+/** A plain select over the places other than the line's own. Its placeholder stays selectable (the owner-locked rule). */
+const PlaceSelect = ({ id, value, onChange, choices }: PlaceSelectProps) => (
     <select
         id={id}
         value={value}
@@ -175,7 +170,7 @@ const PlaceSelect = ({
         className="h-9 rounded-md border border-input bg-background px-2 text-sm"
     >
         <option value="">Choose a place</option>
-        {otherEndChoices(row).map((place) => (
+        {choices.map((place) => (
             <option key={place} value={place}>
                 {place}
             </option>

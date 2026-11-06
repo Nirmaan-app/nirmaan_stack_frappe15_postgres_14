@@ -924,7 +924,7 @@ const INTERNAL_TRANSFER_EXTRA_COLUMNS: OutflowColumn[] = [
     { id: "transfer_to", title: "To", get: (r) => r.transfer_to ?? "", filter: "none", width: "170px" },
     { id: "transfer_detail", title: "Detail", get: (r) => r.transfer_detail ?? "", filter: "none", width: "150px" },
     // Which rule made the record, or "by hand" (spec #1619 story 38).
-    { id: "transfer_made_by", title: "Made by", get: (r) => r.transfer_made_by ?? "", filter: "none", width: "150px" },
+    { id: "transfer_made_by", title: "Made by", get: (r) => r.transfer_made_by_label ?? "", filter: "none", width: "150px" },
 ];
 
 /**

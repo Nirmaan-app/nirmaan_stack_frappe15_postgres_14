@@ -24,6 +24,7 @@ import {
     typeLabel,
 } from "../cashbookPreview";
 import { collectPaymentsOf } from "../cashbookCollect";
+import { internalTransfersHeading } from "../internalTransferView";
 import { CollectPaymentsReview } from "./CollectPaymentsReview";
 
 /**
@@ -60,6 +61,8 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const pairs = preview.pairs ?? [];
     const openLines = preview.open_lines ?? [];
     const pairsTitle = pairsHeading(pairs);
+    const internalLines = preview.internal_transfers ?? [];
+    const internalTitle = internalTransfersHeading(internalLines.length);
     const openTitle = openLinesHeading(openLines);
     const lateBills = preview.late_bills ?? [];
     const lateTitle = lateBillsHeading(lateBills);
@@ -191,6 +194,31 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                                     {formatToRoundedIndianRupee(line.amount)}
                                 </span>
                                 <span className="min-w-0 flex-1 truncate">{lateBillLabel(line)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1623, owner decision 7 (#1619): Cashbook's own moves, on their own, as the card Review lists them. */}
+            {internalTitle && (
+                <div className="rounded-md border bg-muted/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{internalTitle}</p>
+                    <div className="border-t">
+                        {internalLines.map((line) => (
+                            <div
+                                key={line.transfer_id || line.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {formatToRoundedIndianRupee(line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">
+                                        {[line.row_kind, line.transfer_id].filter(Boolean).join(" · ")}
+                                    </span>
+                                    <span className="block truncate text-muted-foreground">{line.reason}</span>
+                                </span>
                             </div>
                         ))}
                     </div>

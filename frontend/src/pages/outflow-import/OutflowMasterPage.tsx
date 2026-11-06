@@ -1794,6 +1794,7 @@ export const OutflowMasterPage = () => {
             {/* #1626: Admin and Accountant Lead only; the endpoints refuse anyone else. */}
             {canUndo && internalTransfer && (
                 <InternalTransferDialog
+                    key={`${internalTransfer.row.name}:${internalTransfer.action}`}
                     row={internalTransfer.row}
                     action={internalTransfer.action}
                     onClose={() => setInternalTransfer(null)}

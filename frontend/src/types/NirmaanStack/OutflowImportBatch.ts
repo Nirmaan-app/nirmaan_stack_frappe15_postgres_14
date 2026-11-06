@@ -131,6 +131,16 @@ export interface ChequeOutcome {
 }
 
 /** One staged transfer, as `get_batch_rows` returns it. */
+/** The server's hand-mark offer on an open line (#1626): its own side, the places to choose from, the Detail to start with. */
+export interface HandMarkOffer {
+    /** Where the line's own statement account is: the fixed From (money out) or To (money in). */
+    own_place: string;
+    /** Every other place, in the server's order. */
+    other_ends: string[];
+    /** On a Cashbook line, the wallet holder (owner decision 8a, #1619); else blank. The person may change it. */
+    detail: string;
+}
+
 export interface OutflowImportRow {
     name: string;
     transfer_id: string;
@@ -303,6 +313,14 @@ export interface OutflowImportRow {
     /** The record's money and direction (`In` / `Out`): a Cashbook top-up's line stages 0 and states no direction. */
     transfer_amount?: number | null;
     transfer_record_direction?: string | null;
+    /** Who made the record, in words: "Rule: Cashfree wallet top-up", "By hand" (`internal_transfers.made_by_words`). */
+    transfer_made_by_label?: string | null;
+    /**
+     * What Mark as Internal Transfer offers on this line, or null when it may not be marked
+     * (`internal_transfer_rules.hand_mark_offer`, review finding F1 of #1619). The screen keeps no copy of the
+     * places or the rule; the endpoint asks them again under the line's lock.
+     */
+    hand_mark?: HandMarkOffer | null;
     /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *

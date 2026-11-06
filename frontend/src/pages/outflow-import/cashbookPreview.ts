@@ -77,6 +77,11 @@ export interface CashbookPreviewResult {
     invoices?: InvoiceCounts;
     /** #1595: the Collect payments left open for a person to decide. Absent from a server that predates it. */
     collect_payments?: CollectPaymentLine[];
+    /**
+     * #1623, owner decision 7 (#1619): Cashbook's own moves, listed under their own "Internal transfers" heading,
+     * each with the money it moved and its From and To as `reason`. Not in `skipped`. Absent from an older server.
+     */
+    internal_transfers?: CashbookSkippedRow[];
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
     /** #1594: the lines that stay open on the main table (unpaired wallet refunds, wallet credits). */

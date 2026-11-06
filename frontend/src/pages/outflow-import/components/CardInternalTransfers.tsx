@@ -4,20 +4,24 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 
 import { cardInternalTransferLines } from "../cardCreditsView";
 import { cardDay, type CardImport } from "../creditCardImport";
+import { internalTransfersHeading } from "../internalTransferView";
+
+interface CardInternalTransfersProps {
+    card: CardImport;
+}
 
 /**
  * Review's "Internal transfers" list (#1624, spec #1619): the bank's auto-debit paying the card, each with its note
  * naming From, To and the card. Its own short list, so the skipped lines below mean only "set aside", as on the
  * main table, where these lines sit in the Internal Transfers tab.
  */
-export const CardInternalTransfers = ({ card }: { card: CardImport }) => {
+export const CardInternalTransfers = ({ card }: CardInternalTransfersProps) => {
     const lines = cardInternalTransferLines(card);
-    if (lines.length === 0) return null;
+    const heading = internalTransfersHeading(lines.length);
+    if (!heading) return null;
     return (
         <div className="space-y-2">
-            <div className="text-sm font-medium">
-                Internal transfers · {lines.length} {lines.length === 1 ? "line" : "lines"}
-            </div>
+            <div className="text-sm font-medium">{heading}</div>
             <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                     <thead className="bg-muted/50 text-xs text-muted-foreground">
