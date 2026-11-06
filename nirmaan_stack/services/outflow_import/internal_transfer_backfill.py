@@ -36,6 +36,8 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
 PLACED = "placed"
 LEFT = "left"
 UNPLACED = "unplaced"
+#: A Cashbook move the wallet did not complete: re-filed as Bank refused, as the import skips it (owner decision 3).
+REFUSED = "refused"
 
 #: A Cashbook line staged before the statement's Type was stored is placed by its Txn Id (spec #1619).
 CASHBOOK_KIND_BY_TXN_PREFIX = (
@@ -53,8 +55,9 @@ _BANK_KINDS_MOVED = frozenset(
 
 @dataclass(frozen=True)
 class Placement:
-    """`outcome` is PLACED (with `ends` and the `rule` its record names), LEFT (today's import keeps it skipped too)
-    or UNPLACED (a moved kind the rules do not read as internal: a person checks it). `why` is for the print."""
+    """`outcome` is PLACED (with `ends` and the `rule` its record names), LEFT (today's import keeps it skipped too),
+    REFUSED (a Cashbook move that did not succeed: Bank refused) or UNPLACED (a moved kind the rules do not read as
+    internal: a person checks it). `why` is for the print."""
 
     outcome: str
     ends: TransferEnds | None = None
@@ -114,6 +117,6 @@ def _cashbook(transfer_id: str, row_kind: str, status_raw: str, who_from: str, w
     if ends is None:
         return Placement(UNPLACED, why=f"no Type, and its Txn Id ({txn[:14] or 'blank'}) names no Cashbook move")
     if (status_raw or "").strip().upper() != "SUCCESS":
-        # As the import leaves it (#1623): no money moved, so there is nothing to record.
-        return Placement(LEFT, why="a Cashbook move the wallet says did not succeed")
+        # As the import skips it (owner decision 3, #1619): no money moved, so it is Bank refused, with no record.
+        return Placement(REFUSED, why="a Cashbook move the wallet says did not succeed")
     return Placement(PLACED, ends, CASHBOOK_INTERNAL_KINDS[kind])

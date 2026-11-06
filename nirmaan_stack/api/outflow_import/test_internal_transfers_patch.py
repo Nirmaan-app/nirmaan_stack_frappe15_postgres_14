@@ -61,11 +61,20 @@ class TestTheOldSkipsPatch(InternalTransferLineFixture):
                                **cb),
             "refund": self._old(cashbook, "Cashbook internal movement", transfer_id=f"REF-{tag}", **cb),
             "unplaceable": self._old(cashbook, "Cashbook internal movement", transfer_id=f"TESTUPI{tag}", **cb),
+            "failed_move": self._old(cashbook, "Cashbook internal movement", transfer_id=f"VALOAD-{tag}2",
+                                     status="FAILED", **cb),
             "autodebit": self._old(card, "Card payment received", source=CARD, direction="Credit",
                                    remarks="Autodebit Payment Recd."),
             "upi": self._old(card, "Card payment received", source=CARD, direction="Credit",
                              remarks="UPI Payment Received"),
         }
+
+    _original_kind = {
+        "bounced_vendor": "Failed payment bounced back",
+        "refund": "Cashbook internal movement", "upi": "Card payment received",
+        "failed_move": "Cashbook internal movement", "misread": "Porter wallet top-up",
+        "unplaceable": "Cashbook internal movement",
+    }
 
     def test_every_moved_kind_is_converted_and_every_other_skip_is_left(self):
         lines = self._seed()
@@ -89,6 +98,8 @@ class TestTheOldSkipsPatch(InternalTransferLineFixture):
             "typed": (IT, None, [("ICICI Current Account", "Cashbook Virtual Account", None, "cashbook_bank_to_va")]),
             "refund": ("Skipped", "Cashbook internal movement", []),
             "unplaceable": ("Skipped", "Cashbook internal movement", []),
+            # Owner decision 3 (#1619): a failed Cashbook move is Bank refused, in the patch as in the import.
+            "failed_move": ("Skipped", "Bank refused", []),
             "autodebit": (IT, None, [("ICICI Current Account", "ICICI Credit Card", None, "card_auto_debit")]),
             "upi": ("Skipped", "Card payment received", []),
         }
@@ -102,6 +113,18 @@ class TestTheOldSkipsPatch(InternalTransferLineFixture):
         self.assertEqual(unplaced[lines["misread"]][0], "Porter wallet top-up")
         self.assertIn("Txn Id", unplaced[lines["unplaceable"]][1])
         self.assertIn(lines["unplaceable"], report.text())
+        # Review finding (#1619): it prints every line it leaves too, one per line, with its kind and why -- the
+        # failed Cashbook moves it now re-files as Bank refused included.
+        text = report.text().splitlines()
+        # (A line of any other Skip Type, "already" here, is not read at all.)
+        for key in ("bounced_vendor", "refund", "upi", "failed_move", "misread", "unplaceable"):
+            with self.subTest(printed=key):
+                printed = [row for row in text if lines[key] in row]
+                self.assertEqual(len(printed), 1, printed)
+                self.assertIn(self._original_kind[key], printed[0])
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, lines["failed_move"], "skip_reason"), "Did not succeed at the wallet"
+        )
 
     def test_a_second_run_makes_no_second_record_and_changes_nothing(self):
         lines = self._seed()

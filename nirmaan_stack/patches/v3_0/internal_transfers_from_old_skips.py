@@ -9,11 +9,15 @@ WHAT IT DECIDES, AND WHERE
     the imports use: the bank rules re-read the line's text (the bounced-top-up test included), Cashbook lines go
     by their stored Type or, with none, by their Txn Id (`VALOAD-`, `BUSINESS_USER-`, `C2B-`), and a card payment
     only when its words are the bank's auto-debit. A Cashbook `REF-` line, a bounced vendor payment, a UPI card
-    payment and every other skip are LEFT as they are.
+    payment and every other skip are LEFT as they are. A Cashbook move the wallet did not complete is re-filed as
+    Bank refused, as the import files it (owner decision 3, #1619). No line is reopened here: the old Cashbook lines
+    wrongly skipped as own balances come back through the #1596 reopen rule on re-upload (owner decision 1).
 
 IT NEVER GUESSES
     A line of a moved kind today's rules do not read as internal is left Skipped and PRINTED, with its kind and why,
     for a person to check (spec #1619 story 45). #1628 decides those lines and only then retires the moved Skip Types.
+    Every line it reads and does not convert -- left, re-filed as Bank refused, or not placed -- is printed, one per
+    line, with its Skip Type and why.
 
 IDEMPOTENT
     Only Skipped lines are read; a converted line is `Internal Transfer` and never read again, and a line that
@@ -23,7 +27,7 @@ IDEMPOTENT
 WHAT IT CANNOT KNOW, STATED
     An old card auto-debit line kept no card heading, so its record names no card digits. An old Cashbook top-up
     staged its Debit (0) as its amount -- its money was in the statement's Credit column, never stored -- so its
-    record's amount is the line's, 0.
+    record's amount is the line's, 0, until a re-upload of that statement fills it (owner decision 2, #1619).
 
 RAW LINE UPDATE, NOT `doc.save` -- AND WHY SKIPPING THE LIFECYCLE IS CORRECT HERE (CODING_STANDARDS rule 1)
     `Outflow Import Row` has no `doc_events`; its controller validates two identity fields. Re-saving historical
@@ -43,10 +47,18 @@ from nirmaan_stack.api.outflow_import.internal_transfers import (
     move_already_recorded,
     record_for_line,
 )
-from nirmaan_stack.services.outflow_import.internal_transfer_backfill import LEFT, PLACED, UNPLACED, place_old_skip
+from nirmaan_stack.services.outflow_import.cashbook import SKIP_NOT_SUCCESSFUL
+from nirmaan_stack.services.outflow_import.internal_transfer_backfill import (
+    LEFT,
+    PLACED,
+    REFUSED,
+    UNPLACED,
+    place_old_skip,
+)
 from nirmaan_stack.services.outflow_import.internal_transfers import CARD_AUTO_DEBIT_RULE, transfer_sentence
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import (
+    SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_BY_EXCLUSION_CATEGORY,
     SKIP_KIND_CARD_PAYMENT,
     SKIP_KIND_CASHBOOK_INTERNAL,
@@ -75,20 +87,31 @@ _FIELDS = (
 
 @dataclass
 class Report:
+    """What the run did. Each list holds `(line, Skip Type it had, why)`, one entry per line, in the order read."""
+
     converted: int = 0
-    left: dict = field(default_factory=dict)
-    #: (line, kind, why) for every line of a moved kind that could not be placed.
+    #: Lines of a moved kind today's import keeps skipped too: left exactly as they are.
+    left: list = field(default_factory=list)
+    #: Cashbook moves the wallet did not complete: re-filed as Bank refused (owner decision 3, #1619).
+    refused: list = field(default_factory=list)
+    #: Lines of a moved kind that could not be placed: left Skipped for a person to check.
     unplaced: list = field(default_factory=list)
 
     def text(self) -> str:
+        """The summary, then every line it did not convert, one per line: `line | Skip Type | why`."""
         lines = [
             f"internal_transfers_from_old_skips: {self.converted} lines converted to Internal Transfers; "
-            f"{sum(self.left.values())} left as they are; {len(self.unplaced)} could not be placed."
+            f"{len(self.left)} left as they are; {len(self.refused)} re-filed as {SKIP_KIND_BANK_REFUSED}; "
+            f"{len(self.unplaced)} could not be placed."
         ]
-        lines += [f"  left: {count} -- {why}" for why, count in sorted(self.left.items())]
-        if self.unplaced:
-            lines.append("  could not place (line, Skip Type, why):")
-            lines += [f"    {line} | {kind} | {why}" for line, kind, why in self.unplaced]
+        for heading, entries in (
+            ("left as they are", self.left),
+            (f"re-filed as {SKIP_KIND_BANK_REFUSED}", self.refused),
+            ("could not place", self.unplaced),
+        ):
+            if entries:
+                lines.append(f"  {heading} (line | Skip Type | why):")
+                lines += [f"    {line} | {kind} | {why}" for line, kind, why in entries]
         return "\n".join(lines)
 
 
@@ -129,7 +152,12 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
             beneficiary_name=line.beneficiary_name or "",
         )
         if placement.outcome == LEFT:
-            report.left[placement.why] = report.left.get(placement.why, 0) + 1
+            report.left.append((line.name, line.skip_kind, placement.why))
+            continue
+        if placement.outcome == REFUSED:
+            _refuse(line)
+            touched.add(line.import_batch)
+            report.refused.append((line.name, line.skip_kind, placement.why))
             continue
         if placement.outcome == UNPLACED:
             report.unplaced.append((line.name, line.skip_kind, placement.why))
@@ -141,6 +169,17 @@ def convert_old_skips(rows: list[str] | None = None) -> Report:
     for batch in sorted(touched):
         refresh_batch_rollup(batch)
     return report
+
+
+def _refuse(line) -> None:
+    """A Cashbook move the wallet did not complete keeps its skip, re-filed as the import files it (owner decision 3,
+    #1619): Bank refused, with the import's sentence. ⚠️ RAW, AND SAFE, as `_convert` says."""
+    frappe.db.set_value(
+        ROW_DOCTYPE,
+        line.name,
+        {"skip_kind": SKIP_KIND_BANK_REFUSED, "skip_reason": SKIP_NOT_SUCCESSFUL},
+        update_modified=False,
+    )
 
 
 def _convert(line, placement) -> None:

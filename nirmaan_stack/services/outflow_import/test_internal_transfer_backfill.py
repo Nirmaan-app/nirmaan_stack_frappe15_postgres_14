@@ -8,6 +8,7 @@ import unittest
 from nirmaan_stack.services.outflow_import.internal_transfer_backfill import (
     LEFT,
     PLACED,
+    REFUSED,
     UNPLACED,
     place_old_skip,
 )
@@ -88,9 +89,10 @@ class TestCashbookLines(unittest.TestCase):
         self.assertEqual(placed.outcome, UNPLACED)
         self.assertIn("Txn Id", placed.why)
 
-    def test_a_move_the_wallet_says_failed_is_left_as_the_import_leaves_it(self):
+    def test_a_move_the_wallet_says_failed_is_bank_refused_as_the_import_skips_it(self):
+        """Owner decision 3 (#1619, 2026-11-07): in the import and in the patch."""
         placed = _cashbook("VALOAD-7654321", status="FAILED")
-        self.assertEqual(placed.outcome, LEFT)
+        self.assertEqual(placed.outcome, REFUSED)
         self.assertIn("did not succeed", placed.why)
 
 
