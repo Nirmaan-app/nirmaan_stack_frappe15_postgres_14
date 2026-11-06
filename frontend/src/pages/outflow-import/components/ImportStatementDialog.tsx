@@ -110,6 +110,7 @@ import {
 } from "../creditCardImport";
 import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
 import { cardImportKey, useCardImport } from "../useCardImport";
+import { recordsFilledText } from "../internalTransferView";
 import { CardImportReview } from "./CardImportReview";
 import { ImportDiscardButton } from "./ImportDiscardButton";
 import { PorterDiscardButton } from "./PorterDiscardButton";
@@ -1408,6 +1409,7 @@ export const ImportStatementDialog = ({
                             creating={cashbookBatch.creating}
                             repeatsNotSaved={cashbookBatch.repeats_not_saved}
                             lateBills={cashbookBatch.late_bills ?? 0}
+                            recordsFilled={cashbookBatch.records_filled ?? 0}
                             status={cashbookStatus}
                             running={isBusy === "match"}
                             resume={
@@ -1914,6 +1916,7 @@ const CashbookProgress = ({
     creating,
     repeatsNotSaved,
     lateBills,
+    recordsFilled,
     status,
     running,
     resume,
@@ -1922,6 +1925,8 @@ const CashbookProgress = ({
     repeatsNotSaved: number | undefined;
     /** #1593: how many existing Expenses the job gives a bill. */
     lateBills: number;
+    /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gave their amount. */
+    recordsFilled: number;
     status: CashbookStatus | null;
     running: boolean;
     /** The Resume button, when the job stopped part-way (#1589). */
@@ -1932,6 +1937,7 @@ const CashbookProgress = ({
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
     const lateText = lateBillsDoneText(lateBills, running);
+    const filledText = recordsFilledText(recordsFilled);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1959,6 +1965,7 @@ const CashbookProgress = ({
             {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
             {lateText && <p className="text-xs text-muted-foreground">{lateText}</p>}
+            {filledText && <p className="text-xs text-muted-foreground">{filledText}</p>}
             {/* #1591: each spend whose bills were not copied, with the server's reason. */}
             <CashbookBillsNotCopied status={status} />
             {!running && (

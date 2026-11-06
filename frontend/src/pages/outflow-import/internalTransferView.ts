@@ -50,3 +50,13 @@ export const transferAmountToneClass = (
 /** The line's Internal Transfer record in Desk, or `null` for a line with none (spec #1619 story 48). */
 export const internalTransferRecordHref = (row: Pick<OutflowImportRow, "internal_transfer">): string | null =>
     row.internal_transfer ? `/app/internal-transfer/${encodeURIComponent(row.internal_transfer)}` : null;
+
+const oldRecords = (n: number) => `${n} old Internal Transfer ${n === 1 ? "record" : "records"}`;
+
+/** The Cashbook preview's line about the ₹0 records this file fills (owner decision 2, #1619), or `null` for none. */
+export const recordsToFillText = (n: number): string | null =>
+    n > 0 ? `${oldRecords(n)} ${n === 1 ? "gets its" : "get their"} amount from this file` : null;
+
+/** The result after Create: how many ₹0 records this file filled, or `null` for none. */
+export const recordsFilledText = (n: number): string | null =>
+    n > 0 ? `${oldRecords(n)} got ${n === 1 ? "its" : "their"} amount from this file.` : null;

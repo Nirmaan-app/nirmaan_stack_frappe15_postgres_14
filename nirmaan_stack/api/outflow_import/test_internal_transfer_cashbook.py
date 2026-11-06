@@ -299,6 +299,20 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
         self.assertEqual(self._confirm(_xlsx(lines))["records_filled"], 1)
         self.assertEqual(float(self._record(old["name"])["amount"]), 700.0)
 
+    def test_the_preview_says_how_many_old_records_get_their_amount(self):
+        """Show the fill (#1619): the preview counts the ₹0 records this file fills, before anything is written."""
+        from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
+
+        tag = frappe.generate_hash(length=6).upper()
+        lines = [_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS",
+                       f"VALOAD-{tag}")]
+        old = self._lines(self._stage(lines))[0]
+        frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, {"import_row": old["name"]}, "amount", 0)
+        frappe.db.commit()
+        preview = _post(cb.preview_cashbook_statement, _xlsx(lines), "test-it-preview-fill.xlsx")
+        self.assertEqual((preview["records_to_fill"], preview["refused"]), (1, False))
+        self.assertEqual(float(self._record(old["name"])["amount"]), 0.0)
+
 
 class TestOnlyASuccessfulLineFillsARecord(CashbookStageCase):
     def test_a_repeat_the_wallet_now_calls_reversed_fills_nothing(self):

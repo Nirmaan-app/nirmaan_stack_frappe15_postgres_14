@@ -24,7 +24,7 @@ import {
     typeLabel,
 } from "../cashbookPreview";
 import { collectPaymentsOf } from "../cashbookCollect";
-import { internalTransfersHeading } from "../internalTransferView";
+import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
 import { CollectPaymentsReview } from "./CollectPaymentsReview";
 
 /**
@@ -63,6 +63,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const pairsTitle = pairsHeading(pairs);
     const internalLines = preview.internal_transfers ?? [];
     const internalTitle = internalTransfersHeading(internalLines.length);
+    const fillText = recordsToFillText(preview.records_to_fill ?? 0);
     const openTitle = openLinesHeading(openLines);
     const lateBills = preview.late_bills ?? [];
     const lateTitle = lateBillsHeading(lateBills);
@@ -100,6 +101,9 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
 
             {/* #1591: what becomes of the bills, said before Create. */}
             {invoices && <p className="text-sm text-muted-foreground">{invoices}</p>}
+
+            {/* Owner decision 2 (#1619): old ₹0 Internal Transfer records this file gives their amount. */}
+            {fillText && <p className="text-sm text-muted-foreground">{fillText}</p>}
 
             {/* Said once, plainly, because it is the thing a reader most needs to know before
                 clicking: this is the last screen, and the correction happens somewhere else. */}

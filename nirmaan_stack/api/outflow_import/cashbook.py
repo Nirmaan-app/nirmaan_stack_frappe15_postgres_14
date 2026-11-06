@@ -153,13 +153,8 @@ def preview_cashbook_statement():
     plan = _build_plan(parsed)
     late = _late_bills(parsed, plan)
     fills = zero_records_to_fill(parsed.rows)
-    return preview_payload(
-        parsed,
-        plan,
-        filename,
-        _assess(parsed, plan, filename, late, fills),
-        [_late_bill_preview(bill) for bill in late],
-    )
+    verdict = _assess(parsed, plan, filename, late, fills)
+    return preview_payload(parsed, plan, filename, verdict, [_late_bill_preview(b) for b in late], len(fills))
 
 
 @frappe.whitelist(methods=["POST"])

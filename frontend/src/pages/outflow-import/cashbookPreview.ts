@@ -44,6 +44,20 @@ export interface CashbookSkippedRow {
     row_kind?: string;
 }
 
+/** #1623, owner decision 7 (#1619): one of Cashbook's own moves, an Internal Transfer line on Create. */
+export interface CashbookInternalTransferLine {
+    row_number: number;
+    transfer_id: string;
+    /** The money the move moved (a top-up's line stores 0; its Credit is the money). */
+    amount: number;
+    remarks: string;
+    beneficiary_name?: string;
+    /** The statement's Type: Bank → VA, VA → Wallet or Wallet → VA. */
+    row_kind?: string;
+    /** Its From and To in words: "Internal Transfer from ICICI Current Account to Cashbook Virtual Account." */
+    reason: string;
+}
+
 /** #1594: a Paired wallet refund -- the refund and the spend it gives back in full. Both lines are skipped. */
 export interface CashbookRefundPair {
     refund: CashbookSkippedRow;
@@ -81,7 +95,9 @@ export interface CashbookPreviewResult {
      * #1623, owner decision 7 (#1619): Cashbook's own moves, listed under their own "Internal transfers" heading,
      * each with the money it moved and its From and To as `reason`. Not in `skipped`. Absent from an older server.
      */
-    internal_transfers?: CashbookSkippedRow[];
+    internal_transfers?: CashbookInternalTransferLine[];
+    /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gives their amount. */
+    records_to_fill?: number;
     /** #1594: the Paired wallet refunds; their lines are not in `skipped`. */
     pairs?: CashbookRefundPair[];
     /** #1594: the lines that stay open on the main table (unpaired wallet refunds, wallet credits). */
@@ -140,6 +156,8 @@ export interface CashbookConfirmResult {
     late_bills?: number;
     /** #1596: how many earlier lines this import re-opened. */
     reopened?: number;
+    /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gave their amount. */
+    records_filled?: number;
 }
 
 export interface CashbookStatus {

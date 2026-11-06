@@ -6,7 +6,14 @@ import { describe, expect, it } from "vitest";
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 
-import { canMarkInternalTransfer, canSendBack, internalTransfersHeading, markedByHandLine } from "./internalTransferView";
+import {
+    canMarkInternalTransfer,
+    canSendBack,
+    internalTransfersHeading,
+    markedByHandLine,
+    recordsFilledText,
+    recordsToFillText,
+} from "./internalTransferView";
 
 const row = (over: Partial<OutflowImportRow>): OutflowImportRow =>
     ({ name: "OFR-1", source: "ICICI Bank Statement", row_status: "Mismatched", direction: "Debit", ...over }) as OutflowImportRow;
@@ -46,5 +53,19 @@ describe("the Internal transfers heading (card Review and Cashbook preview)", ()
         expect(internalTransfersHeading(1)).toBe("Internal transfers · 1 line");
         expect(internalTransfersHeading(3)).toBe("Internal transfers · 3 lines");
         expect(internalTransfersHeading(0)).toBeNull();
+    });
+});
+
+describe("the re-upload fill, shown (owner decision 2, #1619)", () => {
+    it("the preview says how many old records get their amount from this file", () => {
+        expect(recordsToFillText(0)).toBeNull();
+        expect(recordsToFillText(1)).toBe("1 old Internal Transfer record gets its amount from this file");
+        expect(recordsToFillText(3)).toBe("3 old Internal Transfer records get their amount from this file");
+    });
+
+    it("the result after Create says how many were filled", () => {
+        expect(recordsFilledText(0)).toBeNull();
+        expect(recordsFilledText(1)).toBe("1 old Internal Transfer record got its amount from this file.");
+        expect(recordsFilledText(2)).toBe("2 old Internal Transfer records got their amount from this file.");
     });
 });
