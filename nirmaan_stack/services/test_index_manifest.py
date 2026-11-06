@@ -128,7 +128,7 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
         self.assertIn(("BoQ Committed Sheet Grid Row", ("parent",), False), calls)
         # a name passed as a module constant (asset_history.py PARENT_INDEX) resolves to its value
         self.assertEqual(calls[("Asset History", ("parent",), False)], "asset_history_parent_index")
-        self.assertEqual(len(_search_index_entries()), 101)
+        self.assertEqual(len(_search_index_entries()), 102)
 
     def test_a_name_that_is_no_literal_constant_is_refused_by_name(self):
         # Negative half of the resolver: a bare name with no top-level literal behind it is refused,
