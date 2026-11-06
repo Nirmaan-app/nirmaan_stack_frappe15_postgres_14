@@ -24,6 +24,7 @@ import { DepartmentSelect } from "@/components/common/DepartmentSelect";
 import { canEditDepartments } from "@/constants/departments";
 import { useDepartmentOptions } from "@/hooks/useDepartmentOptions";
 import { normalizeDepartment } from "@/utils/assetDepartment";
+import { getFrappeErrorText, isUniqueValueError } from "@/utils/frappeErrors";
 
 const UserFormSchema = z.object({
   first_name: z
@@ -157,13 +158,28 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
       refreshUsersList(); // the name may have changed
 
       toggleEditSheet();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      console.error("Updating user failed", error);
+      // Mobile number is the only unique field this form edits, so the database's duplicate-value refusal
+      // means another user already has it. Say so on the field itself, and keep the form open.
+      if (isUniqueValueError(error, "mobile_no")) {
+        form.setError(
+          "mobile_no",
+          { type: "server", message: "This mobile number is already used by another user." },
+          { shouldFocus: true },
+        );
+        toast({
+          title: "Mobile number already in use",
+          description: "Another user already has this mobile number. Enter a different one.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
-        title: "Error",
-        description: error?._debug_messages,
+        title: "Could not update the user",
+        description: getFrappeErrorText(error),
         variant: "destructive",
       });
-      console.log("error", error);
     }
   };
 
