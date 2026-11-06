@@ -50688,3 +50688,50 @@ Rate Master page lacked Electrical's cable data); fixed (f87bf702a), full de-sta
 
 **VRF-4 MUST remove `calculator_only` and `calculatorSurface: true`, and read the model's `includes` flags and `extra_<line>_<field>`
 values for BoQ rows.**
+
+## Slice VRF-R4 - read-only recon for VRF-4: the model questions, the switch-off, borrowed fields (2026-11-06) - DELIVERED
+
+Desktop session, 00:26-01:15, read-only, no commit (HEAD 948efa6de). Findings VRF-4 was written from: `includes` was a ROW cell that
+item-list extraction never fills, and an undeclared `extra_*` item key is dropped by `parse_item_list` -> per-ITEM Yes / No questions
+and the pricer reads the item (Q1); the switch-off is 23 lines with four hazards (frozen v56-v59 validation, two vacuous negative
+pins, `CURRENT_HVAC_ASSET`); VRF-3b's "closest" snap on typed / BoQ sizes diverged from the source's own resolver on 11 cases (14 mm
+-> 12.7 vs Piping's 15.9; insulation on 47.6 -> 41.28 vs 53.98); 1,400 non-test VRF rows on 96 sheets = 123 calls at batch 20; no
+W+S code (19 Tier A rows + 4 standby-only). QR-1 (a); the 10 copper-pipe rows (00352 r173-180, 00376 r62-63) go to the team to
+re-categorise. Report, Lists (22 sheets), payloads and screenshots: `Desktop\BoQ main lane\VRF-R4\`.
+
+## Slice VRF-4 - the model reads VRF rows; switch-off; borrowed fields by the source's rules; W+S bar; refnet counts (HVAC v60) - as built 2026-11-06
+
+Desktop session (the owner travelling; ANSWER 2), start tip 948efa6de. Tier 3 (asset v60) + Tier 2. Three code commits -- K1
+334f2d1ce (the pricer reads the model per item; W+S; refnet counts from the sheet), K2 e2d7570d3 (borrowed fields through Piping /
+Insulation / Electrical's own rules; VRF-side copies removed), K3 9a3914d60 (switch-off; v60 minted and LOADED, batch
+rmbulk-e0f46138c437; parity v60 192 cases 0 divergences; R-39 guard; stub) -- plus this docs commit. Rules: boq-rate-master.md
+"VRF-4".
+
+**Owner rulings carried:** Q1 A ("removed at VRF-4"); D-10; 2026-11-06 q1-q5 (q5: second opinion ON for the sample); R-WS / D-5
+option D / D-9; BORROWED "option a" + 09:50 (VRF's declared defaults always win). Mid-slice: **ANSWER 1** QR-1 = (c) (10:35):
+complete the 9 carry sheets with the real button (R8 adds the never-read rows: +132 VRF, +35 Piping as declared moves); the 18
+no-run sheets read only their sample rows via `_suggest_worker(only_rows)` and stay partial. **ANSWER 3** "go" (13:39) for the
+declared shape: 213 rows, 34 batch calls, 178 second opinions; HARD CAP 2,177,451 tokens / 102 attempts / 178 SO. **ANSWER 4**
+QR-2 = (a) (14:25): BOQ-26-00298 / HVAC BOQ r269 stays unread (the sheet's category gate is closed); for VRF-5 the owner allows
+the product's existing "Override the check" on a gate-closed sheet. ANSWER 1 / 3 / 4 echoed late (3 / 11 / 9 min; disclosed).
+
+**Paid run (13:56-14:55):** 212 of 213 rows read on 26 sheets; ACTUAL 1,204,126 tokens (batch 324,852 in / 110,412 out; second
+opinion 714,670 / 54,192), 33 batch attempts (0 failed), 177 second opinions -- all under the cap (taken from the capture files;
+the log ROLLED mid-sheet 3 and the run script's own line-slice under-booked that sheet; an independent all-generations watcher
+enforced the cap from then). Controls: 321 stored rows outside the list byte-identical; 184 new stored rows, all declared.
+Integrity: 212/212 blocks byte-equal to the logged payload, EA-7 212/212, 212/212 replied, 0 foreign ids, 0 answered-not-asked.
+Second opinion: 114 agree / 63 disagree (flags only). Panel over the stored answers: 158/212 priced (VRF 132/177); panel vs
+calculator: 15 unit-not-offered + 4 Piping rows unclassified (the parity harness carries no section items). Replay: 0 moves on
+the 18,106 old rows (D0 and K3, both harnesses). Archive: `Desktop\BoQ main lane\VRF-4\payload_archive\`; `2026-11-06_VRF-4_Rows.xlsx`.
+
+**Cert C1-C11:** all pass (C5's "thickness 20 on 22.2" is not typeable in the calculator -- a 13 / 19 / 25 choice -- and was shown
+by the served module in the live tab instead). Rows on the 17 partial sheets ran from stored answers + the calculator (ANSWER 1).
+
+**Open (for the owner / VRF-5):**
+- **`second_opinion` is TRUE on hvac_vrf (v60, q5) and MUST be switched off before any deploy.**
+- The 17 partial-run sheets show "Rate suggestions stopped early ... Resume run": Resume is a WHOLE-SHEET paid run.
+- Wording: the per-HP refusal's bar is titled "PRICED PER LOT"; the Lot / per-HP text still says "What a Lot holds is read at VRF-4".
+- VRF-5 reads whole sheets; sheets whose category gate is closed need the "Override the check" (owner 14:25): in the sample only
+  BOQ-26-00298 / HVAC BOQ.
+- The 10 copper-pipe rows to re-categorise; the R5 (e) 10 duplicate and 11 conversion copy not removed; `parseCableSpec` kept;
+  GAP 3 (Pricing Inputs save) and GAPs 4 / 5 named in the report.

@@ -2626,6 +2626,51 @@ model's include flags). Every key is optional: a config without `extras` is byte
   `validate_delegated_sections` with `only` = the categories being written (a corpus check never re-judges the others). Derivation 13e (5 lines).
 - **Not here:** the model reading "included" and go-live (VRF-4); the H2 merge.
 
+**VRF-4: THE MODEL READS VRF ROWS; THE SWITCH-OFF; BORROWED FIELDS THROUGH THE SOURCE'S OWN RULES; THE W+S BAR; REFNET COUNTS FROM THE SHEET (owner Q1 A "removed at VRF-4"; D-10; 2026-11-06 q1-q5; R-WS / D-5 option D / D-9; BORROWED "option a" + 09:50; HVAC v60).**
+v60 = v59 with only `hvac_vrf` changed: `calculator_only` removed (declared in the mint's `intentional_removals`), the 20 VRF-4
+questions, `second_opinion: true`, and the pricing keys below. Every key is optional: a config without them is byte-identical
+(the replay: 0 moves on the 18,106 old rows).
+- **`second_opinion` is TRUE on hvac_vrf (q5, for the sample) and MUST be switched off before any deploy.**
+- **The switch-off.** `config_validation`'s allowlist entry, `_CALCULATOR_ONLY_CATEGORIES` and `_validate_calculator_only`, and
+  `extraction.config_is_eligible`'s clauses are gone; `pricingSheetHelper.isEligibleConfig(config)` takes one argument
+  (`isCalculatorOnlyConfig`, `CALCULATOR_ONLY_CATEGORIES`, `Deps.calculatorSurface` are gone). VRF rows join Suggest and the BoQ
+  panel through the one predicate. The frozen v56-v59 `hvac_vrf` configs are refused by name, as 12d-2's retired keys are.
+- **Questions.** Per ITEM: `includes_copper` / `_insulation` / `_power` / `_comm` (Yes / No); the copies `extra_copper_size_as_written`,
+  `extra_insulation_thickness_as_written`, `extra_cable_spec_as_written`, `extra_length_as_written`, `working_standby_as_written`,
+  `brand_as_written`, `set_contents_as_written`; `set_covers`. `capacity_label` is NOT asked (the SKUs still carry it: `label_attr`
+  may name a catalogue attribute definition). `_validate_vrf4_reads`: every answer the pricer reads must be a declared question of
+  the right type -- `parse_item_list` drops an undeclared item key silently.
+- **Per-item reads (`extras.from_model`).** On a BoQ row the includes come from the MODEL ITEM (`boqExtrasOf`), never the row cell;
+  split modules inherit their item's flags; the calculator keeps its ticks. The copied words feed `extra_<line>_<field>`: a pair
+  "12.7 / 6.4" is supply / return (`splitAsWrittenPair`); "4C x 10" / "4 core x 10 sqmm" -> cores + sqmm (`readCableSpecWords`).
+  A line read from the BoQ is tagged "from the BoQ", under O-5's note (`extras.lines.boq_note`: "The BoQ says this unit's price
+  includes ... Each is priced below by its own sheet's rules.").
+- **Borrowed fields (K2).** A size or spec the BoQ states (or the pricer types) is priced by the SOURCE's own rules, never snapped
+  on the VRF side: copper -> Piping's `computeItemListOwn` as a typed entry (its rung and note, "14 mm -> priced as 15.9 mm (next
+  size up)", or its refusal "above the largest size on the sheet (47.6)"); insulation -> ONE Insulation call on the copper size AS
+  READ (mirrored, as Piping's section does), thickness as stated (next size up: 20 -> 25; layers); cable -> Electrical's own match
+  and its sentence ("no match for these attributes"), with no VRF stocked pre-check. "Closest" stays ONLY for the Pricing Inputs
+  defaults and the grid snap. VRF's declared defaults (the Pricing Inputs sizes / specs / 30 m; Nitrile, cladding No, 19 mm) always
+  win over any Piping / Insulation / Electrical default (owner 09:50).
+- **Working + standby (`working_standby`).** Only the model's `working_standby_as_written` (W+S, 1W+1S, N+N, 2N+N, "working +
+  standby") raises the solid red bar ABOVE the card ("WORKING + STANDBY - THIS RATE IS FOR 1 UNIT ONLY ...", D-9) with the unit and
+  quantity ringed; one unit is priced, never doubled; never on a standby-only row ("(Standby)") or a heading's mention.
+- **Refnet counts (`per_set.counted.from_sheet`).** On a per-Set refnet row the panel fills the outdoor / indoor counts from the
+  sheet's VRF unit rows (the model's item x the row's BoQ quantity; `sheetUnitCounts` over `ctx.rowQuantities`), with a note naming
+  the rows ("row 14 x 1, ... row 26 x 2"); editable; no rows -> blank with a note. A stated split row counts as ONE outdoor unit.
+  `set_covers` left blank refuses until the pricer picks what the row covers.
+- **Brands (`defaults.brand.unlisted.from_attr`).** Several makes, or one make the catalogue does not list, stand in for the choice
+  (priced at the default, the note quotes the row's makes); one listed make fills a blank; a listed choice is kept.
+- **Partial runs.** A scoped `_suggest_worker(only_rows)` run on a sheet with no complete run stays partial (active 0): the editor
+  does not adopt it, the product writes its "BoQ suggest run halted (partial saved)" Error Log record, and the sheet shows "Rate
+  suggestions stopped early ... Resume run" -- **Resume is a whole-sheet paid run.** The category gate lives in the endpoint
+  (`_guard_suggest_gate`), not in the worker.
+- **Derivation / panel (U7 / U8).** `itemListRuleOrder`: the W+S line, includes per item, refnet counts from the sheet, the Lot
+  detail, the source-rules sentence. The Pricing Input panel title shows the where-used count of an assembly-only input; "today 30"
+  reads "was 30"; the removal banner says "(and its insulation)".
+- **Not here:** reading what a Lot holds (the Lot / per-HP refusal text still says "read at VRF-4"; the per-HP bar is titled "PRICED
+  PER LOT"); the full-population run (VRF-5; owner 2026-11-06 14:25: it may use "Override the check" on a gate-closed sheet).
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
