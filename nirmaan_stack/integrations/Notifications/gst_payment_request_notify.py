@@ -53,19 +53,34 @@ def notify_request_decided(req) -> None:
     )
 
 
+DESCRIPTION_MAX = 140  # Nirmaan Notifications.description is a Data field
+
+
+def _fit(text: str, limit: int = DESCRIPTION_MAX) -> str:
+    """Cut text to the bell field's limit; the full reason stays on the request itself."""
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def _send(user, req, event: str, *, title: str, description: str, action_url: str) -> None:
-    if user.get("push_notification") == "true":
-        PrNotification(user, title, description, f"{frappe.utils.get_url()}/frontend/{action_url}")
-    row = frappe.new_doc("Nirmaan Notifications")
-    row.update({
-        "recipient": user.get("name"), "recipient_role": user.get("role_profile"),
-        "sender": frappe.session.user if frappe.session.user != "Administrator" else None,
-        "title": title, "description": description,
-        "document": "GST Payment Request", "docname": req.name, "project": req.project,
-        "seen": "false", "type": "info", "event_id": event, "action_url": action_url,
-    })
-    row.insert(ignore_permissions=True)
-    frappe.db.commit()
+    """Callers run this AFTER the decision commits, so a failure here must not reach the user as an error."""
+    description = _fit(description)
+    try:
+        if user.get("push_notification") == "true":
+            PrNotification(user, title, description, f"{frappe.utils.get_url()}/frontend/{action_url}")
+        row = frappe.new_doc("Nirmaan Notifications")
+        row.update({
+            "recipient": user.get("name"), "recipient_role": user.get("role_profile"),
+            "sender": frappe.session.user if frappe.session.user != "Administrator" else None,
+            "title": title, "description": description,
+            "document": "GST Payment Request", "docname": req.name, "project": req.project,
+            "seen": "false", "type": "info", "event_id": event, "action_url": action_url,
+        })
+        row.insert(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(title=f"GST request notification failed: {req.name}")
+        return
     frappe.publish_realtime(
         event=event,
         message={"title": title, "description": description, "project": req.project,

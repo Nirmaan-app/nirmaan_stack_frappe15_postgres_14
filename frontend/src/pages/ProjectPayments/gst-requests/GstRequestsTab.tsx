@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { Check, X } from "lucide-react";
+import { Check, MessageSquare, X } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
@@ -9,6 +9,7 @@ import { facetMeta } from "@/components/data-table/facetConfig";
 import { DataTable, SearchFieldOption } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { cn } from "@/lib/utils";
 import type { GSTPaymentRequestRow, GstRequestStatus } from "@/types/NirmaanStack/GSTPaymentRequest";
@@ -155,13 +156,28 @@ export default function GstRequestsTab({ canDecide, onDecided }: GstRequestsTabP
 			cell: ({ row }) => (
 				<div className="min-w-0">
 					{/* The short word here: the pill above already says which status is listed. */}
-					<span className={cn("inline-block rounded px-2 py-0.5 text-xs font-medium", GST_REQUEST_CHIP[row.original.status].className)}>
-						{row.original.status}
-					</span>
+					<div className="flex items-center gap-1.5">
+						<span className={cn("inline-block rounded px-2 py-0.5 text-xs font-medium", GST_REQUEST_CHIP[row.original.status].className)}>
+							{row.original.status}
+						</span>
+						{/* A rejection's reason sits behind an icon, as on TDS History, so a long one never stretches the row. */}
+						{row.original.status === "Rejected" && row.original.review_comment && (
+							<TooltipProvider>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<button type="button" className="cursor-help text-red-500 hover:text-red-700 dark:text-red-400"
+											aria-label={`Rejection reason: ${row.original.review_comment}`}>
+											<MessageSquare className="h-3.5 w-3.5" />
+										</button>
+									</TooltipTrigger>
+									<TooltipContent className="max-w-xs whitespace-normal break-words">
+										<p>{row.original.review_comment}</p>
+									</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
+						)}
+					</div>
 					{row.original.project_payment && <span className="block break-all font-mono text-[11px] text-muted-foreground">{row.original.project_payment}</span>}
-					{row.original.status === "Rejected" && row.original.review_comment && (
-						<span className="block break-words text-[11px] text-red-700 dark:text-red-400">{row.original.review_comment}</span>
-					)}
 				</div>
 			),
 			size: 100,

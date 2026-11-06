@@ -17,6 +17,9 @@ import { usePaymentSummary } from "../components/PaymentSummaryBlock";
 import { useGstRequestActions } from "../hooks/useGstPaymentRequests";
 import { GstFiguresBox } from "./GstFiguresBox";
 
+/** The longest rejection reason the box takes; typing stops there. The server refuses longer (`REJECT_REASON_MAX`). */
+const REJECT_REASON_MAX = 250;
+
 /** The request being decided, with the names its row already shows. */
 export interface GstDecisionTarget {
 	name: string;
@@ -98,8 +101,12 @@ export const GstDecisionDialog = ({ target, kind, onClose, onDone }: GstDecision
 				{!approving && (
 					<div className="space-y-1.5">
 						<Label htmlFor="gst-reject-reason">Reason</Label>
-						<Textarea id="gst-reject-reason" value={comment} onChange={(e) => setComment(e.target.value)}
+						<Textarea id="gst-reject-reason" value={comment} maxLength={REJECT_REASON_MAX}
+							onChange={(e) => setComment(e.target.value.slice(0, REJECT_REASON_MAX))}
 							placeholder="Tell the requester why" />
+						<p className={`text-right text-xs ${comment.length >= REJECT_REASON_MAX ? "text-red-600" : "text-muted-foreground"}`}>
+							{comment.length}/{REJECT_REASON_MAX}
+						</p>
 					</div>
 				)}
 

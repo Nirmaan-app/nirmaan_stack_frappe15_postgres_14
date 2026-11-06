@@ -39,6 +39,9 @@ WORK_ORDER = "Service Requests"
 
 AT_THE_SAME_MOMENT = "Someone else changed this Work Order's GST at the same moment. Refresh and try again."
 
+# The longest rejection reason taken; the Reject dialog stops typing at the same number.
+REJECT_REASON_MAX = 250
+
 
 def _lock_work_order(name: str):
     """The Work Order, locked and touched, so a second request or approval that waited on it is refused."""
@@ -204,12 +207,18 @@ def approve_gst_payment_request(name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def reject_gst_payment_request(name: str, comment: str) -> dict:
     """Reject a Pending request, with a reason. No payment is created, and its amount is free again."""
-    if not (comment or "").strip():
+    comment = (comment or "").strip()
+    if not comment:
         frappe.throw(_("A rejection needs a reason."), title=_("Comment required"))
+    if len(comment) > REJECT_REASON_MAX:
+        frappe.throw(
+            _("The reason can be at most {0} characters; this one has {1}.").format(REJECT_REASON_MAX, len(comment)),
+            title=_("Reason too long"),
+        )
     req = _load_pending(name)
     req.update({
         "status": gpr.REJECTED, "reviewed_by": frappe.session.user, "reviewed_on": now_datetime(),
-        "review_comment": comment.strip(),
+        "review_comment": comment,
     })
     req.flags[gpr.DECIDING_FLAG] = True
     req.save(ignore_permissions=True)
