@@ -63,8 +63,9 @@ CARD_STATEMENT_SOURCE = "ICICI Credit Card Statement"
 #: `skip_origin.own_import_refusal`. ⚠️ The same string is `api/outflow_import/cashbook.SOURCE`.
 CASHBOOK_SOURCE = "Cashbook"
 
-#: The payout gateway's statement, and the company current account's passbook. Spelled here for the readers that
-#: name one source (the hand mark's own side, #1626); the same strings as the parser's `SUPPORTED_SOURCES`.
+#: The payout gateway's statement, and the company current account's passbook. The ONE spelling: the parser's
+#: `SUPPORTED_SOURCES` is built from these, and the readers that name one source (the hand mark's own side, #1626)
+#: import them.
 CASHFREE_SOURCE = "Cashfree"
 ICICI_STATEMENT_SOURCE = "ICICI Bank Statement"
 

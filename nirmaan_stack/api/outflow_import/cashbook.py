@@ -77,9 +77,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
 )
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import.internal_transfers import (
-    fill_zero_records,
-    record_cashbook_move,
-    zero_records_to_fill,
+    fill_zero_records, record_cashbook_move, zero_records_to_fill
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import StagedRow
@@ -201,7 +199,6 @@ def confirm_cashbook_import():
         user=user,
         late_bill_jobs=[_late_bill_job(bill) for bill in late],
     )
-    # Owner decision 2 (#1619): a ₹0 record an old import left takes the money from this file.
     fill_zero_records(fills)
     # Raw (`set_value`): the File's own hooks run before insert only, and these pointer fields feed nothing of ours.
     frappe.db.set_value(

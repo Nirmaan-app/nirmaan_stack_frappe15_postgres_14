@@ -176,6 +176,8 @@ from nirmaan_stack.services.outflow_import.normalize import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     CARD_STATEMENT_SOURCE,
+    CASHFREE_SOURCE,
+    ICICI_STATEMENT_SOURCE,
     PORTER_STATEMENT_SOURCE,
     source_has_preamble,
 )
@@ -980,9 +982,9 @@ def _card_derive(raw: Callable[[str], str]) -> dict[str, str]:
 
 
 _ADAPTERS = {
-    "Cashfree": (_CASHFREE_COLUMNS, _CASHFREE_REQUIRED, None),
+    CASHFREE_SOURCE: (_CASHFREE_COLUMNS, _CASHFREE_REQUIRED, None),
     "Cashbook": (_CASHBOOK_COLUMNS, _CASHBOOK_REQUIRED, None),
-    "ICICI Bank Statement": (_ICICI_COLUMNS, _ICICI_REQUIRED, _icici_derive),
+    ICICI_STATEMENT_SOURCE: (_ICICI_COLUMNS, _ICICI_REQUIRED, _icici_derive),
     PORTER_STATEMENT_SOURCE: (_PORTER_COLUMNS, _PORTER_REQUIRED, _porter_derive),
     CARD_STATEMENT_SOURCE: (_CARD_COLUMNS, _CARD_REQUIRED, _card_derive),
 }
@@ -1199,7 +1201,7 @@ _DATETIME_FORMATS = (
 
 
 def parse_statement(
-    content: bytes, source: str = "Cashfree", header_row: int | None = None
+    content: bytes, source: str = CASHFREE_SOURCE, header_row: int | None = None
 ) -> ParseResult:
     """Parse an uploaded statement into rows plus the batch-level figures.
 

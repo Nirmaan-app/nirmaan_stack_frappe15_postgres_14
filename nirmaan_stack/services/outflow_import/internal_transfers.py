@@ -18,7 +18,12 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from nirmaan_stack.services.outflow_import.bank_exclusions import IFSC_CASHBOOK, IFSC_CASHFREE, IFSC_PORTER
+from nirmaan_stack.services.outflow_import.bank_exclusions import (
+    IFSC_CASHBOOK,
+    IFSC_CASHFREE,
+    IFSC_PORTER,
+    NEFT_RETURN_FAILED,
+)
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_EXCLUSION_CATEGORY
 
 PLACE_ICICI_CURRENT = "ICICI Current Account"
@@ -140,7 +145,7 @@ _BANK_CATEGORY_ENDS = {
     "credit_card_bill_payment": _to_card,
     "credit_facility_auto_debit": _to_card,
     # #1622: only when the return names one of our wallets; otherwise `None`, and the line keeps its skip.
-    "neft_return_failed": _bounced_top_up,
+    NEFT_RETURN_FAILED: _bounced_top_up,
 }
 
 #: The bank-exclusion categories whose lines may be Internal Transfers (spec #1619 Implementation Decisions).
@@ -248,7 +253,7 @@ def card_auto_debit_transfer(card_last_four: str) -> TransferEnds:
 # because only a bounce that names one of our wallets is an Internal Transfer.
 _RULE_WORDS = {
     **{category: SKIP_KIND_BY_EXCLUSION_CATEGORY[category] for category in INTERNAL_BANK_CATEGORIES},
-    "neft_return_failed": "Bounced wallet top-up",
+    NEFT_RETURN_FAILED: "Bounced wallet top-up",
     **{rule: f"Cashbook {kind}" for kind, rule in CASHBOOK_INTERNAL_KINDS.items()},
     CARD_AUTO_DEBIT_RULE: "Card auto-debit",
 }

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from nirmaan_stack.services.outflow_import.bank_exclusions import should_skip
+from nirmaan_stack.services.outflow_import.bank_exclusions import NEFT_RETURN_FAILED, should_skip
 from nirmaan_stack.services.outflow_import.card_credits import auto_debit_words
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CARD_AUTO_DEBIT_RULE,
@@ -96,7 +96,7 @@ def _bank(kind: str, remarks: str, direction: str) -> Placement:
     skip, category = should_skip(remarks, 1 if out else None, None if out else 1)
     ends = bank_line_transfer(category if skip else "", remarks)
     if kind == SKIP_KIND_FAILED_PAYMENT_RETURNED:
-        if ends and category == "neft_return_failed":
+        if ends and category == NEFT_RETURN_FAILED:
             return Placement(PLACED, ends, category)
         return Placement(LEFT, why="a returned payment that names none of our wallets")
     if not skip:

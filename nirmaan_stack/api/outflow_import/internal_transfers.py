@@ -15,10 +15,12 @@ from decimal import Decimal
 
 import frappe
 
+from nirmaan_stack.services.outflow_import.internal_transfer_rules import hand_mark_offer
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CASHBOOK_INTERNAL_KINDS,
     TransferEnds,
     cashbook_transfer_money,
+    made_by_words,
     record_direction,
 )
 from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES, CASHBOOK_SOURCE
@@ -155,3 +157,41 @@ def fill_zero_records(fills) -> None:
     """
     for record, money in fills:
         frappe.db.set_value(INTERNAL_TRANSFER_DOCTYPE, record, "amount", float(money), update_modified=False)
+
+
+# --- The record on a main-table row (`review.get_outflow_rows`, `review.export_outflow_rows`) -------------------
+
+# A line's Internal Transfer record (#1621), for the Internal Transfers tab's From, To and Detail columns and the
+# hand mark's who / when / why (#1626). A LEFT JOIN on the record's UNIQUE `import_row`, so it can never multiply a
+# line; blank on every other line. Read by the page query and the export only -- `_row_filters` stays single-table.
+INTERNAL_TRANSFER_JOIN = 'LEFT JOIN "tabInternal Transfer" it ON it.import_row = r.name'
+INTERNAL_TRANSFER_COLUMNS = (
+    "it.name AS internal_transfer, it.from_place AS transfer_from, it.to_place AS transfer_to, "
+    "it.detail AS transfer_detail, it.made_by AS transfer_made_by, it.marked_by AS transfer_marked_by, "
+    "it.marked_at AS transfer_marked_at, it.mark_reason AS transfer_mark_reason, "
+    "it.amount AS transfer_amount, it.direction AS transfer_record_direction"
+)
+
+
+def internal_transfer_fields(row) -> dict:
+    """The Internal Transfer record's figures on a page or export row (#1621, #1623): the record's money -- a Cashbook
+    top-up's line stages 0, its record holds what moved -- None on a line with no record; and who made it, in words
+    (`internal_transfers.made_by_words`, review finding #1619)."""
+    money = row.get("transfer_amount")
+    return {
+        "transfer_amount": float(money) if money is not None else None,
+        "transfer_made_by_label": made_by_words(row.get("transfer_made_by")),
+    }
+
+
+def hand_mark_of_row(row) -> dict | None:
+    """What the Mark dialog offers on a page row, or None when it may not be marked (#1626, review finding F1,
+    #1619): the screen keeps no copy of the places or the rule (`internal_transfer_rules.hand_mark_offer`)."""
+    return hand_mark_offer(
+        row_status=row.get("row_status"),
+        source=row.get("source"),
+        direction=row.get("direction"),
+        import_batch=row.get("import_batch"),
+        added_by_raw=row.get("added_by_raw"),
+        beneficiary_name=row.get("beneficiary_name"),
+    )
