@@ -19,6 +19,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     INTERNAL_TRANSFER_DOCTYPE,
     MADE_BY_HAND,
+    internal_transfer_lines_of_move,
     record_for_line,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
@@ -87,7 +88,8 @@ def mark_internal_transfer(row: str, other_end: str, reason: str, detail: str | 
 
 @frappe.whitelist(methods=["POST"])
 def send_back_to_mismatched(row: str, reason: str) -> dict:
-    """Send an Internal Transfer line back to Mismatched, with a reason: its record is deleted, the line reopens.
+    """Send an Internal Transfer line back to Mismatched, with a reason: the move's record is deleted, and the line
+    reopens together with every other Internal Transfer line of the same move (its status-changed repeats).
 
     URL: /api/method/nirmaan_stack.api.outflow_import.internal_transfer_actions.send_back_to_mismatched
     (POST `row`, `reason`)
@@ -104,15 +106,25 @@ def send_back_to_mismatched(row: str, reason: str) -> dict:
         refusal = send_back_refusal(line.row_status)
         if refusal:
             frappe.throw(refusal, title="Cannot send back")
-        # A status-changed repeat holds no record of its own; anything else holds exactly one.
-        for name in frappe.get_all(INTERNAL_TRANSFER_DOCTYPE, filters={"import_row": row}, pluck="name"):
+        # ⚠️ THE WHOLE MOVE GOES BACK (review finding, #1619): its record sits on one of its Internal Transfer lines
+        # and a status-changed repeat holds none, so sending back one alone would leave a line with no record.
+        # Only Internal Transfer lines are read, so no other line is touched.
+        lines = internal_transfer_lines_of_move(line, for_update=True)
+        for name in frappe.get_all(INTERNAL_TRANSFER_DOCTYPE, filters={"import_row": ["in", lines]}, pluck="name"):
             frappe.delete_doc(INTERNAL_TRANSFER_DOCTYPE, name, ignore_permissions=True, force=True)
         now = frappe.utils.now_datetime()
         note = SENT_BACK_NOTE.format(actor=actor, day=frappe.utils.formatdate(now), reason=reason)
-        _save_line(row, {"row_status": ROW_MISMATCHED, "outcome_note": note}, actor, now)
-        statuses = refresh_batch_rollup(line.import_batch)
+        for name in lines:
+            _save_line(name, {"row_status": ROW_MISMATCHED, "outcome_note": note}, actor, now)
+        batches = sorted(set(frappe.get_all(ROW_DOCTYPE, filters={"name": ["in", lines]}, pluck="import_batch")))
+        statuses = {batch: refresh_batch_rollup(batch) for batch in batches}
         frappe.db.commit()
-    return {"row": row, "status": ROW_MISMATCHED, "batch_status": derive_batch_status(statuses)}
+    return {
+        "row": row,
+        "rows": lines,
+        "status": ROW_MISMATCHED,
+        "batch_status": derive_batch_status(statuses[line.import_batch]),
+    }
 
 
 def _locked_line(row: str):

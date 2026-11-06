@@ -9,6 +9,8 @@ or deleted, and who, when and why kept.
 ⚠️ RUNS AGAINST THE LIVE SITE DATABASE. Every batch, row, record, user, Version and Comment is purged.
 """
 
+import unittest
+
 import frappe
 
 from nirmaan_stack.api.outflow_import.internal_transfer_actions import (
@@ -179,3 +181,46 @@ class TestSendBackToMismatched(ActionFixture):
         open_line = self._line(self._batch(), status="Mismatched")
         self._as(ADMIN)
         self._refused(lambda: send_back_to_mismatched(open_line, reason="x"), "not an Internal Transfer")
+
+    def _recorded_line(self, batch, **line):
+        from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
+        from nirmaan_stack.services.outflow_import.internal_transfers import TransferEnds
+
+        name = self._line(batch, **line)
+        record_for_line(frappe.get_doc(ROW_DOCTYPE, name), TransferEnds("ICICI Current Account", "Cashfree Wallet"),
+                        made_by="platform_cashfree")
+        frappe.db.commit()
+        return name
+
+    def test_the_repeats_of_the_move_go_back_together_with_the_same_reason(self):
+        """Review finding (#1619): every Internal Transfer line keeps exactly one record. Sending back the line that
+        holds it, or a status-changed repeat that holds none, sends back every Internal Transfer line of that move."""
+        for send_back_the in ("line with the record", "repeat"):
+            with self.subTest(send_back_the=send_back_the):
+                frappe.set_user("Administrator")
+                txn = f"it-{frappe.generate_hash(length=10)}"
+                first = self._recorded_line(self._batch(), transfer_id=txn)
+                repeat = self._line(self._batch(), transfer_id=txn, status_raw="REVERSED")
+                other_move = self._recorded_line(self._batch(), transfer_id=txn, amount=99.0)
+                not_internal = self._line(self._batch(), transfer_id=txn, status="Skipped", status_raw="FAILED")
+                self._as(ACCOUNTANT_LEAD)
+                send_back_to_mismatched(first if send_back_the == "line with the record" else repeat,
+                                        reason="A vendor payment after all")
+                frappe.set_user("Administrator")
+                for line in (first, repeat):
+                    row = frappe.db.get_value(ROW_DOCTYPE, line, ["row_status", "outcome_note"], as_dict=True)
+                    self.assertEqual(row.row_status, "Mismatched")
+                    self.assertIn("A vendor payment after all", row.outcome_note)
+                    self.assertIsNone(self._record(line))
+                self.assertEqual(self._status(other_move), "Internal Transfer")
+                self.assertIsNotNone(self._record(other_move))
+                self.assertEqual(self._status(not_internal), "Skipped")
+
+
+class TestOnlySendBackDeletesARecord(unittest.TestCase):
+    def test_no_role_holds_the_delete_right_on_the_doctype(self):
+        """Review finding (#1619): only Send back deletes a record, so no role -- System Manager included -- may
+        delete one in Desk."""
+        self.assertEqual(
+            [perm.role for perm in frappe.get_meta(INTERNAL_TRANSFER_DOCTYPE).permissions if perm.delete], []
+        )

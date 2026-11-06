@@ -178,19 +178,26 @@ def cashbook_raw_transfer(raw) -> TransferEnds | None:
     )
 
 
-def cashbook_internal_facts(raw, *, repeat: bool) -> dict:
-    """An internal Cashbook line's transfer facts, as `cashbook.PlannedRow` carries them (#1623): where the money
-    came from and went, the money moved (its Debit, or its Credit where the Debit is blank, as on a top-up), whether
-    the line makes the record (not a STATUS-CHANGED repeat: its earlier sighting already recorded the move), and the
-    rule id the record names."""
+def cashbook_transfer_money(raw) -> Decimal:
+    """The money a Cashbook move moved: its Debit, or its Credit where the Debit is blank (a top-up). The line's
+    own stored amount stays its Debit, its repeat identity (#1623)."""
     debit = getattr(raw, "amount", None) or Decimal("0")
     credit = getattr(raw, "credit_amount", None) or Decimal("0")
+    return debit if debit > 0 else credit
+
+
+def cashbook_internal_facts(raw) -> dict:
+    """An internal Cashbook line's transfer facts, as `cashbook.PlannedRow` carries them (#1623): where the money
+    came from and went, the money moved, its direction, whether THIS line says the money moved (only such a line
+    may make the record, and only when no other line of the same move holds one: a record only for money that
+    moved, one per move), and the rule id the record names."""
+    debit = getattr(raw, "amount", None) or Decimal("0")
     return {
         "transfer": cashbook_raw_transfer(raw),
-        "transfer_money": debit if debit > 0 else credit,
+        "transfer_money": cashbook_transfer_money(raw),
         # The column the statement filled: a Debit is money out of the statement's account, a Credit money in.
         "transfer_direction": TRANSFER_OUT if debit > 0 else TRANSFER_IN,
-        "records_transfer": not repeat,
+        "records_transfer": bool(getattr(raw, "is_success", False)),
         "transfer_rule": CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
     }
 

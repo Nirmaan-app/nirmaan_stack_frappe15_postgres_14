@@ -71,7 +71,8 @@ class TestACashbookImportRecordsItsOwnMoves(FrappeTestCase):
             [line["row_status"] for line in lines],
             ["Internal Transfer", "Internal Transfer", "Internal Transfer", "Skipped"],
         )
-        self.assertEqual(lines[3]["skip_kind"], "Cashbook internal movement")
+        # Owner decision 4 (#1619): a Type the app does not know has its own Skip Type.
+        self.assertEqual(lines[3]["skip_kind"], "Unknown Cashbook type")
         records = [self._record(line["name"]) for line in lines]
         self.assertEqual(
             [(r["from_place"], r["to_place"], r["detail"], float(r["amount"])) for r in records[:3]],
@@ -109,12 +110,24 @@ class TestACashbookImportRecordsItsOwnMoves(FrappeTestCase):
         self.assertIsNone(self._record(again[0]["name"]))
         self.assertIsNotNone(self._record(self._lines(first)[0]["name"]))
 
-    def test_a_failed_move_keeps_todays_skip(self):
+    def test_a_failed_move_is_skipped_as_bank_refused(self):
+        """Owner decision 3 (#1619, 2026-11-07)."""
         tag = frappe.generate_hash(length=6).upper()
         batch = self._stage([_line("01/08/2026", "VA → Wallet", "Virtual Account", "Test Employee A", "", "400",
                                    "FAILED", f"BUSINESS_USER-{tag}")])
         self.assertEqual([(l["row_status"], l["skip_kind"]) for l in self._lines(batch)],
-                         [("Skipped", "Cashbook internal movement")])
+                         [("Skipped", "Bank refused")])
+
+    def test_a_move_first_seen_not_successful_and_then_failed_again_gets_no_record(self):
+        """Review finding (#1619): a record only for money that moved."""
+        tag = frappe.generate_hash(length=6).upper()
+        txn = f"VALOAD-{tag}"
+        self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "FAILED", txn)])
+        second = self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
+                                    "REVERSED", txn)])
+        again = self._lines(second)
+        self.assertEqual([line["row_status"] for line in again], ["Skipped"])
+        self.assertIsNone(self._record(again[0]["name"]))
 
     def test_a_move_first_seen_failed_is_recorded_when_it_comes_back_successful(self):
         """Review finding: the earlier sighting was skipped (no money moved), so it holds no record; the repeat

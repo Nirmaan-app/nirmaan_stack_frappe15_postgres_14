@@ -167,8 +167,7 @@ def _convert(line, placement) -> None:
     )
     if frappe.db.exists(INTERNAL_TRANSFER_DOCTYPE, {"import_row": line.name}):
         return
-    remarks = line.remarks if (line.source or "").strip() == "ICICI Bank Statement" else None
-    if move_already_recorded(line.source, line.transfer_id, line.amount, line.direction, remarks):
+    if move_already_recorded(line):
         return
     # A Cashbook line states no direction: its stored amount is its Debit, so a line with one is money out, and a
     # top-up (its money in the Credit column, stored as 0) is money in -- as the import decides it (#1623).

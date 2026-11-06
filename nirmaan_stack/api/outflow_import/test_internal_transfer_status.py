@@ -70,8 +70,9 @@ class InternalTransferLineFixture(unittest.TestCase):
         self.batches.append(doc.name)
         return doc.name
 
-    def _line(self, batch, *, status=ROW_INTERNAL_TRANSFER, direction="Debit", amount=5100.0, source=ICICI) -> str:
-        transfer_id = f"it-{frappe.generate_hash(length=10)}"
+    def _line(self, batch, *, status=ROW_INTERNAL_TRANSFER, direction="Debit", amount=5100.0, source=ICICI,
+              transfer_id=None, status_raw="SUCCESS") -> str:
+        transfer_id = transfer_id or f"it-{frappe.generate_hash(length=10)}"
         row = frappe.new_doc(ROW_DOCTYPE)
         row.update(
             {
@@ -80,7 +81,7 @@ class InternalTransferLineFixture(unittest.TestCase):
                 "transfer_id": transfer_id,
                 "bank_reference_no": transfer_id,
                 "amount": amount,
-                "status_raw": "SUCCESS",
+                "status_raw": status_raw,
                 "direction": direction,
                 "row_status": status,
                 "remarks": "Made-up own move to a wallet",

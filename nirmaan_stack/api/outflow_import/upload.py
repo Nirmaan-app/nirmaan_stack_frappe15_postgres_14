@@ -653,7 +653,7 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str, plan: RepeatSp
         # ⚠️ A REPEAT MAKES NO SECOND RECORD (spec #1619): a status-changed repeat is still an Internal Transfer
         # line, and it is recorded only when no earlier line of the same move (its repeat identity) holds a record.
         if transfer is not None and not (
-            repeat and move_already_recorded(doc.source, doc.transfer_id, doc.amount, doc.direction, doc.remarks)
+            repeat and move_already_recorded(doc)
         ):
             record_for_line(doc, transfer, made_by=category)
 

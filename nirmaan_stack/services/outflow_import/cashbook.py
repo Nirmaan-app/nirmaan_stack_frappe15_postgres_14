@@ -87,14 +87,14 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     row_identity,
 )
-from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
+from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS, DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex
 from nirmaan_stack.services.outflow_import.repeats import KeptLine, RepeatSplit, split_repeats
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
-    SKIP_KIND_CASHBOOK_INTERNAL,
     SKIP_KIND_CASHBOOK_REFUND_PAIR,
+    SKIP_KIND_CASHBOOK_UNKNOWN_TYPE,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
     SKIP_KIND_REPEATED_IN_FILE,
@@ -140,6 +140,8 @@ ACTION_INTERNAL = "internal"
 SKIP_NOT_A_SPEND = "Moves money between our own balances, not a spend"
 SKIP_NOT_SUCCESSFUL = "Did not succeed at the wallet"
 SKIP_NO_AMOUNT = "No amount was debited"
+# Owner decision 4 (#1619): a Type the app does not know. Before it, such a line was filed as `SKIP_NOT_A_SPEND`.
+SKIP_UNKNOWN_TYPE = "A Cashbook Type this app does not know: {kind}"
 # ⚠️ NO LONGER WRITTEN (ADR-0031), KEPT BECAUSE STORED ROWS CARRY IT. An exact repeat -- same identity
 # AND same bank status -- is now left out of the plan and only counted, so nothing new reads this
 # sentence; but every Cashbook repeat staged before that does, and `skip_kind_backfill` reads a kind
@@ -361,7 +363,7 @@ def plan_statement(
             planned.append(PlannedRow(action=action, reason=reason, **base, **placement))
         elif action == ACTION_INTERNAL:
             line = split.kept[position]
-            facts = cashbook_internal_facts(line.row, repeat=bool(line.earlier or line.in_file))
+            facts = cashbook_internal_facts(line.row)
             planned.append(PlannedRow(action=action, reason=reason, **base, **facts))
         else:
             if action == ACTION_OPEN and base["row_kind"] in REFUND_ROW_KINDS:
@@ -387,7 +389,9 @@ def _decide(
       * a Wallet Spend creates, and a Collect Payment is an OPEN line (#1595), unless `_skip_reason` skips it;
       * a refund (Refund to Wallet, Credit Adjustment) and a Wallet Credit are OPEN lines, unless the same
         repeat / outcome / amount tests skip them. Pairing may then turn a refund and its spend into a skip;
-      * everything else -- Bank → VA, VA → Wallet, Wallet → VA -- moves money between our own balances, as before.
+      * Bank → VA, VA → Wallet and Wallet → VA are Cashbook's own moves: an Internal Transfer when money moved,
+        else a Bank refused skip (or a repeat's skip) (#1623; owner decision 3, #1619);
+      * any other Type is one the app does not know: an Unknown Cashbook type skip (owner decision 4, #1619).
 
     The reason of an open refund is filled in after pairing (`cashbook_refunds.unpaired_reason`); a wallet credit's is fixed.
     """
@@ -397,10 +401,15 @@ def _decide(
         reason, skip_kind = _skip_reason(line, amount, booked, moved=bool(getattr(raw, "is_success", False)))
         opened = (ACTION_CREATE, "", None) if kind == SPEND_ROW_KIND else (ACTION_OPEN, COLLECT_PAYMENT_NOTE, None)
         return (ACTION_SKIP, reason, skip_kind) if reason else opened
-    if kind in CASHBOOK_INTERNAL_KINDS and (line.earlier or line.in_file or bool(getattr(raw, "is_success", False))):
-        # #1623: Cashbook's own moves are Internal Transfers, a status-changed repeat included (it records nothing:
-        # see `_internal`). One the wallet says did not happen keeps today's skip: no money moved.
-        return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
+    if kind in CASHBOOK_INTERNAL_KINDS:
+        # #1623: Cashbook's own moves are Internal Transfers when money moved: this line says SUCCESS, or it is a
+        # status-changed repeat of a line that did (the move happened; the repeat itself records nothing).
+        moved = bool(getattr(raw, "is_success", False))
+        if moved or any(seen and seen.earlier_status == BANK_SUCCESS_STATUS for seen in (line.earlier, line.in_file)):
+            return ACTION_INTERNAL, transfer_sentence(cashbook_raw_transfer(raw)), None
+        # No money moved (owner decision 3, #1619): Bank refused, or the repeat sentence when it was seen before.
+        reason, skip_kind = _skip_reason(line, amount, None, moved=False)
+        return ACTION_SKIP, reason, skip_kind
     if kind in CREDIT_ROW_KINDS:
         if kind in REFUND_ROW_KINDS:
             moved = bank_status_key(getattr(raw, "status_raw", "")) in REFUND_MOVED_STATUSES
@@ -411,7 +420,8 @@ def _decide(
         if reason:
             return ACTION_SKIP, reason, skip_kind
         return ACTION_OPEN, OPEN_WALLET_CREDIT if kind == WALLET_CREDIT_ROW_KIND else "", None
-    return ACTION_SKIP, SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL
+    # Owner decision 4 (#1619): a Type the app does not know is never filed as one of our own moves.
+    return ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind=kind or "blank"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE
 
 
 def _skip_reason(

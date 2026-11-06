@@ -14,30 +14,55 @@ from __future__ import annotations
 import frappe
 
 from nirmaan_stack.services.outflow_import.internal_transfers import TransferEnds, record_direction
+from nirmaan_stack.services.outflow_import.sources import BANK_STATEMENT_SOURCES
+from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER
 
 INTERNAL_TRANSFER_DOCTYPE = "Internal Transfer"
 #: `made_by` on a record a person made (#1626); a rule's record carries its category id instead.
 MADE_BY_HAND = "by hand"
 
 
-def move_already_recorded(source, transfer_id, amount, direction, remarks=None) -> bool:
-    """Whether another line of the same move (the repeat identity: source, Txn Id, amount and direction, plus the
-    bank text on an ICICI statement, whose Txn Ids repeat across lines) already holds an Internal Transfer record.
+def _same_move(line) -> tuple[str, list]:
+    """The SQL test (on `r`) and its values for the lines of `line`'s move: its repeat identity -- source, Txn Id,
+    amount and direction, plus the bank text on a bank statement, whose Txn Ids repeat across lines."""
+    get = line.get if hasattr(line, "get") else lambda key: getattr(line, key, None)
+    source = (get("source") or "").strip()
+    clause = "r.source = %s AND r.transfer_id = %s AND r.amount = %s AND TRIM(COALESCE(r.direction, '')) = %s"
+    params = [source, get("transfer_id"), float(get("amount") or 0), (get("direction") or "").strip()]
+    if source in BANK_STATEMENT_SOURCES:
+        clause += " AND r.remarks = %s"
+        params.append(get("remarks"))
+    return clause, params
+
+
+def move_already_recorded(line) -> bool:
+    """Whether a line of the same move as `line` (an `Outflow Import Row` doc or dict; `_same_move`) already holds
+    an Internal Transfer record.
 
     A repeat of an internal line makes no second record (spec #1619) -- but only when its earlier sighting holds
     one: an earlier sighting the wallet said FAILED, or one sent back to Mismatched, recorded nothing.
     """
-    clause = " AND r.remarks = %s" if remarks is not None else ""
-    params = [source, transfer_id, float(amount or 0), (direction or "").strip()]
-    params += [remarks] if remarks is not None else []
+    clause, params = _same_move(line)
     return bool(
         frappe.db.sql(
             f"""SELECT 1 FROM "tabOutflow Import Row" r JOIN "tabInternal Transfer" it ON it.import_row = r.name
-                WHERE r.source = %s AND r.transfer_id = %s AND r.amount = %s
-                  AND TRIM(COALESCE(r.direction, '')) = %s{clause}
-                LIMIT 1""",
+                WHERE {clause} LIMIT 1""",
             tuple(params),
         )
+    )
+
+
+def internal_transfer_lines_of_move(line, *, for_update: bool = False) -> list[str]:
+    """Every Internal Transfer line of `line`'s move (`_same_move`), `line` itself included, by name.
+
+    Send back to Mismatched sends them back together (review finding, #1619): the move's record sits on one of them,
+    and a status-changed repeat left behind would be an Internal Transfer line with no record.
+    """
+    clause, params = _same_move(line)
+    return frappe.db.sql_list(
+        f"""SELECT r.name FROM "tabOutflow Import Row" r WHERE {clause} AND r.row_status = %s
+            ORDER BY r.name{" FOR UPDATE" if for_update else ""}""",
+        tuple(params + [ROW_INTERNAL_TRANSFER]),
     )
 
 

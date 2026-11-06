@@ -137,7 +137,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-06 21:49:06.044099",
+ "modified": "2026-11-07 00:28:05.688201",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Internal Transfer",
@@ -145,7 +145,6 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "delete": 1,
    "export": 1,
    "print": 1,
    "read": 1,

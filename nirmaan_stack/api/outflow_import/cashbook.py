@@ -950,10 +950,12 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
         doc.update({"import_batch": batch.name, **line_values(raw, planned)})
         doc.insert(ignore_permissions=True)
         # #1623: one of Cashbook's own moves gets its Internal Transfer record, with the money it moved (a top-up
-        # carries it in its Credit, so the line's own `amount` may be 0). A status-changed repeat records nothing.
-        if planned.action == ACTION_INTERNAL and (
-            planned.records_transfer
-            or not move_already_recorded(doc.source, doc.transfer_id, doc.amount, doc.direction)
+        # carries it in its Credit, so the line's own `amount` may be 0). Only a line that says the money moved
+        # makes it, and only when no line of the same move holds one: one record per move, and only for money moved.
+        if (
+            planned.action == ACTION_INTERNAL
+            and planned.records_transfer
+            and not move_already_recorded(doc)
         ):
             record_for_line(
                 doc,

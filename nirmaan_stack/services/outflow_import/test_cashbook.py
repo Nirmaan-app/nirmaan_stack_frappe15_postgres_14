@@ -23,6 +23,7 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     SKIP_NOT_SUCCESSFUL,
     SKIP_NO_AMOUNT,
     SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
+    SKIP_UNKNOWN_TYPE,
     CashbookPlan,
     pick_expense_type,
     plan_statement,
@@ -34,6 +35,7 @@ from nirmaan_stack.services.outflow_import.project_match import build_project_in
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_CASHBOOK_UNKNOWN_TYPE,
     SKIP_KIND_REPEATED_IN_FILE,
 )
 
@@ -146,9 +148,35 @@ class TestWhatIsNotImported(unittest.TestCase):
             ],
         )
 
-    def test_any_other_non_spend_type_keeps_todays_skip(self):
+    def test_a_type_the_app_does_not_know_is_skipped_as_unknown(self):
+        """Owner decision 4 (#1619, 2026-11-07): never again filed under "Cashbook internal movement"."""
         row = _plan([_row(kind="Something New", amount="0")]).rows[0]
-        self.assertEqual((row.action, row.reason), (ACTION_SKIP, SKIP_NOT_A_SPEND))
+        self.assertEqual(
+            (row.action, row.reason, row.skip_kind),
+            (ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind="Something New"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE),
+        )
+
+    def test_a_move_the_wallet_did_not_complete_is_bank_refused(self):
+        """Owner decision 3 (#1619, 2026-11-07): no money moved, so no Internal Transfer and no record."""
+        for kind in ("Bank → VA", "VA → Wallet", "Wallet → VA"):
+            row = _plan([_row(kind=kind, amount="0", credit="500", status="FAILED")]).rows[0]
+            self.assertEqual(
+                (row.action, row.reason, row.skip_kind), (ACTION_SKIP, SKIP_NOT_SUCCESSFUL, SKIP_KIND_BANK_REFUSED)
+            )
+
+    def test_a_move_seen_not_successful_twice_is_never_an_internal_transfer(self):
+        """Review finding (#1619): a record only for money that moved. FAILED then REVERSED moved nothing."""
+        raw = _row(transfer_id="VA8", kind="Bank → VA", amount="0", credit="900", status="REVERSED")
+        already = _sightings(("VA8", "0", date(2026, 8, 1), "OFI-26-00008", "FAILED"))
+        row = _plan([raw], already=already).rows[0]
+        self.assertEqual((row.action, row.skip_kind), (ACTION_SKIP, SKIP_KIND_ALREADY_IMPORTED))
+
+    def test_a_move_first_seen_failed_then_successful_records_the_move(self):
+        raw = _row(transfer_id="VA9", kind="Bank → VA", amount="0", credit="900", status="SUCCESS")
+        already = _sightings(("VA9", "0", date(2026, 8, 1), "OFI-26-00009", "FAILED"))
+        row = _plan([raw], already=already).rows[0]
+        self.assertEqual(row.action, ACTION_INTERNAL)
+        self.assertTrue(row.records_transfer)
 
     def test_a_status_changed_repeat_of_an_internal_line_is_internal_and_records_nothing(self):
         raw = _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED")
@@ -418,9 +446,15 @@ class TestWhatIsNotImported(unittest.TestCase):
 
         Reporting it as "did not succeed" sends somebody looking for a failed payment that never
         existed -- it was never a payment. Kind is asked first, deliberately.
+
+        CHANGED BY OWNER DECISION 3 (#1619, 2026-11-07): a failed Cashbook move IS one of our own moves now (an
+        Internal Transfer when it succeeds), so its not succeeding is the one fact worth saying: Bank refused. A
+        Type the app does not know is still asked first.
         """
         row = _plan([_row(kind="VA → Wallet", status="FAILED", amount="0")]).rows[0]
-        self.assertEqual(row.reason, SKIP_NOT_A_SPEND)
+        self.assertEqual(row.reason, SKIP_NOT_SUCCESSFUL)
+        row = _plan([_row(kind="Wallet Load", status="FAILED", amount="0")]).rows[0]
+        self.assertEqual(row.skip_kind, SKIP_KIND_CASHBOOK_UNKNOWN_TYPE)
 
 
 class TestWhichLedger(unittest.TestCase):
