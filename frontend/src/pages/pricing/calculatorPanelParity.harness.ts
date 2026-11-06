@@ -48,7 +48,9 @@ import {
   ROW_QTY_OVERRIDE_KEY,
   EXTRAS_INCLUDES_KEY,
   ROW_UNIT_OVERRIDE_KEY,
+  SCOPE_OVERRIDE_KEY,
   makePricingSheetHelper,
+  type ItemBlockView,
   type ItemListSuggestion,
   type ItemListView,
   type RowContextWithUnit,
@@ -257,6 +259,21 @@ function unitForCalculator(
   return { unit: view.unit, unitFeed: "unit belongs to no declared class" };
 }
 
+/** VRF-5 B2: ONE section block as the pricer would set it in the calculator -- the family and every field value, but not a size
+ * it mirrors from the pipe above (`mirrorTag`), which the calculator mirrors on its own. */
+function sectionEdit(sb: ItemBlockView | undefined): Record<string, unknown> {
+  if (!sb) return { base: null, family: null, attrs: {} };
+  const attrs: Record<string, string> = {};
+  const other: string[] = [];
+  for (const f of sb.fields) {
+    if (f.mirrorTag) continue;
+    const v = f.otherMode ? f.typedValue : f.value;
+    if (v !== "") attrs[f.id] = v;
+    if (f.otherMode) other.push(f.id);
+  }
+  return { base: null, family: sb.family, attrs, ...(sb.qtyMirrorTag ? {} : { qty: sb.qty }), ...(other.length ? { other } : {}) };
+}
+
 /**
  * THE FEED: the calculator overrides that say "the same final answers as the panel is showing".
  *
@@ -357,15 +374,36 @@ export function feedFromPanel(
         const removed = b.extras!.removed.map((r) => r.id);
         return Object.keys(set).length || removed.length ? { extras: { ...(Object.keys(set).length ? { set } : {}), ...(removed.length ? { removed } : {}) } } : {};
       })() : {};
+      // VRF-5 B2 (the VRF-4 review §2: 11 Piping rows priced on the panel, unpriced in the calculator): an ATTACHED section (a pipe's
+      // own insulation) is typed into the calculator as the same section edit -- its family and every field the pricer could set,
+      // but never the size it MIRRORS from the pipe (the calculator mirrors it too)
+      const sectionsFeed = b.sections?.length ? { sections: Object.fromEntries(b.sections.map((sv) => [sv.sectionId, sectionEdit(sv.view.items[0])])) } : {};
       if (b.familyControl?.otherMode) {
         other.push(famId);
-        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed };
+        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed, ...sectionsFeed };
       }
-      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...extrasFeed };
+      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...extrasFeed, ...sectionsFeed };
     });
-    overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits });
+    // VRF-5 B2: the INDEPENDENT sections (insulation that belongs to no pipe), each as the pricer would add it in the calculator
+    const indep: Record<string, unknown[]> = {};
+    for (const sv of view.sections?.independent ?? []) (indep[sv.sectionId] ??= []).push(sectionEdit(sv.view.items[0]));
+    overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits, ...(Object.keys(indep).length ? { sections: indep } : {}) });
+    // VRF-5 (owner R1 SAFEGUARD): on a config whose safeguard decides what is added, the calculator ticks exactly the extras the
+    // PANEL added (its lines: copper / insulation / power / comm and each accessory) -- the pricer sees those lines, never the
+    // model's raw answers (an inclusion the safeguard left out is not typed in)
+    const sg = spec?.extras?.safeguard;
+    if (sg && typeof c.includes !== "string") {
+      const on = new Set<string>();
+      for (const b of view.items) for (const l of b.extras?.lines ?? []) {
+        on.add(l.id.startsWith("acc_") ? l.id.slice(4) : l.id.startsWith("copper") ? "copper" : l.id.startsWith("ins_") ? "insulation" : l.id);
+      }
+      overrides[EXTRAS_INCLUDES_KEY] = [...on].join(",");
+    }
+    // VRF-5 (owner R4-R8): the row's scope, chosen in the calculator's "BoQ scope" box
+    if (view.scope?.value) overrides[SCOPE_OVERRIDE_KEY] = view.scope.value;
     // VRF-3b: the include switches -- the panel's model flags, ticked in the calculator
-    if (typeof c.includes === "string") overrides[EXTRAS_INCLUDES_KEY] = c.includes;
+    if (sg && typeof c.includes !== "string") { /* set above from the panel's lines */ }
+    else if (typeof c.includes === "string") overrides[EXTRAS_INCLUDES_KEY] = c.includes;
     // VRF-4: a case stating per-item includes only (v60's model answers) ticks the calculator's row-level boxes with their union
     else if (c.items?.some((a) => Object.keys(a).some((k) => /^includes_/.test(k)))) {
       const on = new Set<string>();

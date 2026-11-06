@@ -36,7 +36,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMaste
 import { mergeItemsByName } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import { isSuggestion, type ExtractionRow } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
-import { COMING_SOON_REASON, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, makePricingSheetHelper, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { COMING_SOON_REASON, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, decodeItemEdits, makePricingSheetHelper, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import {
   AWAITING_CORPUS_DIVERGENCES,
   AWAITING_SWEEP_DIVERGENCES,
@@ -2899,3 +2899,58 @@ describe("HVAC VRF (VRF-4, v60) -- the model's per-item answers on a BoQ row; pa
 
 /** VRF-4: the v60 parity cases whose ONLY difference is the source's own wording for a BoQ value vs a typed one (both refuse). */
 const PARITY_V60_WORDING_ONLY: string[] = [];
+
+describe("VRF-5 B2 -- the harness feeds a Piping row's insulation sections; on VRF the calculator keeps a picked unit and refuses like the panel", () => {
+  const v60 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v60.json", import.meta.url),
+  );
+  const cfg60 = new Map<string, RateCategoryConfig>(v60.category_configs.map((c) => [c.category_id, c]));
+  const items60: RateMasterItem[] = v60.items.map((it) => ({ ...it, discipline: v60.discipline } as RateMasterItem));
+  const PIP = "hvac_piping", NITRILE = "Nitrile Rubber Insulation", SEC = "insulation";
+  /** the stored row (pipe + its insulation answer, the section marker on the item), the panel, then the harness's OWN feed */
+  const viaHarness = (row: Array<Record<string, string>>) => {
+    const pc: ParityCase = { cat: PIP, unit: "mts", desc: "", attrs: {}, items: row.map(({ section: _s, ...a }) => a) };
+    const stored = extractionRowFor(pc) as ExtractionRow & { items: Array<{ attributes: unknown; section?: string }> };
+    row.forEach((a, i) => { if (a.section) stored.items[i].section = a.section; });
+    const panel = makePricingSheetHelper({ configsByCategory: cfg60, items: items60, extractionByRow: new Map([[stored.excelRow, stored]]) }).compute(panelCtx(pc));
+    const feed = feedFromPanel(panel, cfg60.get(PIP) ?? null, pc, "full");
+    const calc = calculatorHelper(cfg60, items60).compute(calculatorCtx("HVAC", PIP), feed.overrides);
+    return { panel, calc, feed, div: compareResults(panel, calc) };
+  };
+  it("an attached insulation section (00350 r126-129 shape): the feed carries it and the two paths agree, 0 divergences", () => {
+    const r = viaHarness([{ pipe_type: "MS", size_mm: "32" }, { section: SEC, item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }]);
+    const edits = decodeItemEdits(r.feed.overrides[ITEM_LIST_OVERRIDE_KEY], 0);
+    expect(edits.items[0].sections?.[SEC]?.family).toBe(NITRILE);
+    expect(edits.items[0].sections?.[SEC]?.attrs?.size_mm).toBeUndefined();     // the mirrored pipe size is never typed in
+    expect((r.panel as ItemListSuggestion).itemList?.rowPriced).toBe(true);
+    expect(r.div).toEqual([]);
+  });
+  it("a copper pipe with its insulation at a default thickness (00352 r75-77 shape): 0 divergences", () => {
+    const r = viaHarness([{ pipe_type: "Copper", size_mm: "12.7" }, { section: SEC, item: NITRILE, cladding: "No" }]);
+    expect(r.div).toEqual([]);
+  });
+  it("NEGATIVE: the section edit taken out of the feed -> the calculator prices the pipe alone and the paths DIVERGE (what the harness used to do)", () => {
+    const r = viaHarness([{ pipe_type: "MS", size_mm: "32" }, { section: SEC, item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }]);
+    const edits = decodeItemEdits(r.feed.overrides[ITEM_LIST_OVERRIDE_KEY], 0);
+    delete edits.items[0].sections;
+    const calc = calculatorHelper(cfg60, items60).compute(calculatorCtx("HVAC", PIP), { ...r.feed.overrides, [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edits) });
+    expect(compareResults(r.panel, calc).length).toBeGreaterThan(0);
+  });
+  it("VRF (F6, 00350 r135): the calculator keeps a picked 'Nos' for the Kg-only MS frame and refuses with the panel's sentence", () => {
+    const c = calculatorHelper(cfg60, items60).compute(calculatorCtx("HVAC", "hvac_vrf"), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "MS Angle Base Frame Structure", attrs: {} }] }), [ROW_UNIT_OVERRIDE_KEY]: "Nos" });
+    const v = (c as ItemListSuggestion).itemList!;
+    expect(v.unit).toBe("Nos");
+    expect(v.rowPriced).toBe(false);
+    expect(v.reason).toBe("MS Angle Base Frame Structure is not stocked per Nos (stocked per Kg) - price this row by hand");
+    expect(v.unitChoices).toContain("Nos");
+  });
+  it("NEGATIVE: Kg picked on VRF prices per Kg; a config without `extras` (Insulation) keeps 12c-S's rule -- a pick no longer offered is not honoured", () => {
+    const kg = (calculatorHelper(cfg60, items60).compute(calculatorCtx("HVAC", "hvac_vrf"), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "MS Angle Base Frame Structure", attrs: {} }] }), [ROW_UNIT_OVERRIDE_KEY]: "Kg" }) as ItemListSuggestion).itemList!;
+    expect(kg.rowPriced).toBe(true);
+    const ins = (calculatorHelper(cfg60, items60).compute(calculatorCtx("HVAC", "hvac_insulation"), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: NITRILE, attrs: {} }] }), [ROW_UNIT_OVERRIDE_KEY]: "sqm" }) as ItemListSuggestion).itemList!;
+    expect(ins.unit).toBe("mts");                      // Nitrile pipe insulation is stocked per Mts: the sqm pick is not honoured (12c-S)
+  });
+});

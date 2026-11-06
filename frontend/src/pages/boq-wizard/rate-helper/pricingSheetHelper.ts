@@ -3775,6 +3775,15 @@ function computeItemListOwn(
   // per metre while the row still carried a sq.m pick left the row refusing "no SKU per sq.m", with
   // a unit on screen the picker no longer lists. The first surviving choice stands instead.
   const picked = overrides?.[ROW_UNIT_OVERRIDE_KEY];
+  /**
+   * VRF-5 B2 (the VRF-4 review F6: "an MS stand on a Nos row gets the per-Kg rate (00350 r135, 00397 r172); the panel refuses
+   * correctly") -- ON A CONFIG WITH `extras` (VRF) a unit the pricer PICKED that is a unit of this category stays, even once the
+   * items chosen are not stocked in it: the item then refuses with the panel's own sentence ("MS Angle Base Frame Structure is
+   * not stocked per Nos (stocked per Kg)") instead of being priced silently per Kg. The pick stays in the list, so the screen
+   * shows the unit the row is priced in. Every other config keeps 12c-S's rule (a pick no longer offered is not honoured).
+   */
+  const keepPick = unitPickable && !!spec.extras && picked !== undefined && picked !== "" && !unitChoices.includes(picked) && unitClassOf(spec, picked) !== null;
+  if (keepPick) unitChoices.push(picked!);
   const unit = unitPickable
     ? ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? "")
     : ctx.unit!;
