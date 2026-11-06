@@ -10,6 +10,15 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_claude_md.py\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_log_polling.py\"; [ ! -f \"$f\" ] || python3 -I \"$f\""
+          }
+        ]
       }
     ],
     "Stop": [
