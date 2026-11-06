@@ -725,7 +725,11 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   incl. 18% GST; 10% TDS on the rent will be deducted)` (`templateVersion` 3, spec #1613; version 2 said
   "(10% TDS will be deducted)"), e.g. "Office rent for Oct 2026 – …"; a new site's form,
   `services/expense_types_seed.json`, pinned by
-  `test_request_forms.TestTheOfficeRentForm`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
+  `test_request_forms.TestTheOfficeRentForm`. An existing site gets version 3 from the one-time patch
+  `v3_0.office_rent_form_says_gst`, only where its live form is still, as JSON, the version-2 one the seed
+  shipped: a form an Admin edited, one already at version 3, and a site without Office Rent are left alone,
+  and requests already raised keep their frozen form (owner 2026-11-06). Pinned by
+  `test_office_rent_form_gst_patch`. The landlord's name and PAN are the TAX DEDUCTEE's, the one
   exemption to "no form names who gets paid" (`TAX_DEDUCTEE_FIELDS`); who gets paid is the landlord's
   account, through the Payee picker: Office Rent is *Required* (owner 2026-10-21, reversing the spec's
   "payee out of scope"), enforced like every *Required* type, on screen only (`payees.md`). A `month`

@@ -12,7 +12,7 @@
    DB: CEO Pending, still the bill.
 3. The CEO: the same, approves. DB: Approved at ₹1,08,000 with GST ₹18,000; one record: gross ₹1,00,000,
    10%, ₹10,000, 194-I.
-4. Accountant: the TDS register's row (gross ₹1,00,000, tax ₹10,000); the payments queue (the bill, "To be
+4. Accountant: the TDS register's row (gross ₹1,00,000, tax ₹10,000, Paid Amount ₹1,08,000); the payments queue (the bill, "To be
    paid ₹1,08,000"), Mark as Paid and Mark Reconciled (pays ₹1,08,000; DB: Paid, GST and record as split);
    the Expenses list's row and the request page; the Non-Project Expenses list (Reports > Projects >
    Payments Report (Non-Project), which lists Paid rows only). The register has no Section column on
@@ -158,6 +158,8 @@ record = after_ceo["record"] or {}
 expect({k: record.get(k) for k in ("gross_amount", "tds_percentage", "tds_amount", "tds_section")}
        == {"gross_amount": 100000, "tds_percentage": 10, "tds_amount": 10000, "tds_section": "194-I"},
        "05-ceo: one tax record, gross ₹1,00,000 (the rent), 10%, ₹10,000, 194-I")
+expect("(Amount incl. 18% GST; 10% TDS on the rent will be deducted)" in after_ceo["expense"]["description"],
+       "05-ceo: the Expense reads the version-3 form's sentence (incl. 18% GST)")
 
 
 # ── 4. Accountant: the TDS register, the payments queue, the expense lists, the request page ──────
@@ -176,7 +178,12 @@ with session(a.task, a.accountant, a.password) as (page, out):
     text = re.sub(r"\s+", " ", row.inner_text())
     expect("₹1,00,000.00" in text and "₹10,000.00" in text and "Walk Landlord" in text,
            "06: the TDS register's row: gross ₹1,00,000 (the rent), tax ₹10,000, the landlord")
+    expect("₹1,08,000.00" in text and "₹90,000.00" not in text,
+           "06: its Paid Amount is what left the bank, ₹1,08,000 (rent + GST − TDS), not ₹90,000")
     save(page, out, "06-accountant-tds-register")
+    register = db(out, "06-accountant-tds-register")
+    expect(register["record"]["gross_amount"] + register["expense"]["gst_amount"] - register["record"]["tds_amount"]
+           == 108000, "06: DB: the record's gross ₹1,00,000 + the Expense's GST ₹18,000 − tax ₹10,000 = ₹1,08,000")
 
     # The payments queue's Payment need to paid tab: the bill, "To be paid" what the landlord gets. Mark as
     # Paid, then Mark Reconciled with a receipt and a reference: the dialog pays the landlord ₹1,08,000.

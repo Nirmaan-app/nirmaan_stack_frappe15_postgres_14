@@ -403,7 +403,8 @@ def withheld_expense_bill_sql() -> str:
 	"""A derived table: one row per Non-Project Expense whose tax was withheld from its payee (Office Rent,
 	spec #1522), with `non_project_expense` and its full bill, `bill_amount`: the base rent the record keeps
 	as its gross plus the GST the Expense keeps (spec #1613; 0 on a rent split before GST existed). The
-	expense is stored at what the landlord gets, so this is the approval queue's "Req. Amount"."""
+	expense is stored at what the landlord gets, so this is the approval queue's "Req. Amount". Its frontend
+	twin is `utils/expenses/expenseTds.withheldBill` (the expense screens and the TDS register's Paid Amount)."""
 	return f"""
 		SELECT d.non_project_expense, d.gross_amount + COALESCE(e.gst_amount, 0) AS bill_amount
 		FROM "tab{TDS_DOCTYPE}" d

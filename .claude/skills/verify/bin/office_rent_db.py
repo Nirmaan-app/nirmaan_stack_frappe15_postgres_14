@@ -19,10 +19,10 @@ if request:
     req = request[0]
     answer["request"] = {"name": req.name, "amount": float(req.amount), "status": req.status}
     expense = frappe.db.get_value("Non Project Expenses", {"request_id": req.name},
-                                  ["name", "status", "amount", "gst_amount"], as_dict=True)
+                                  ["name", "status", "amount", "gst_amount", "description"], as_dict=True)
     if expense:
         answer["expense"] = {"name": expense.name, "status": expense.status, "amount": float(expense.amount),
-                             "gst_amount": float(expense.gst_amount or 0)}
+                             "gst_amount": float(expense.gst_amount or 0), "description": expense.description}
         record = frappe.db.get_value("Payment TDS Deduction", {"non_project_expense": expense.name},
                                      ["name", "gross_amount", "tds_percentage", "tds_amount", "tds_section"],
                                      as_dict=True)

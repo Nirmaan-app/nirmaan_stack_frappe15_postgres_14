@@ -17,7 +17,8 @@ reads the split on the Expenses list, the request page and the Non-Project Expen
 - `rent-split` after the approval that lands on Approved: Expense amount ₹1,08,000, `gst_amount` ₹18,000; one
   `Payment TDS Deduction`: gross ₹1,00,000, 10%, ₹10,000, 194-I, the landlord's name and PAN.
 - `rent-register` the TDS register (Reports > Payment) row: Gross Amount ₹1,00,000 (switch it on in the View
-  menu), TDS ₹10,000. The register has no Section column on screen.
+  menu), TDS ₹10,000, Paid Amount ₹1,08,000 (rent + the Expense's GST − tax: what left the bank). The register
+  has no Section column on screen.
 - `rent-pay` the payments queue reads the bill with "To be paid ₹1,08,000"; Mark Reconciled says "Pay ₹1,08,000 to"
   the landlord's account.
 - `rent-lists` the Expenses list's Amount cell, the request page ("Raised for ₹1,18,000") and the Non-Project
@@ -58,6 +59,7 @@ Preconditions:
 - A list row draws its breakdown after its own data: wait for `Landlord gets` in the row before reading it.
 - Tab names with a `/` (`Payment Done / Reconciliation Pending`) need the slash escaped in a Python regex.
 - The register's View menu trigger is a `div[aria-haspopup=menu]`, not a button.
-- The sentence on an existing site still reads "(10% TDS will be deducted)": Office Rent's form lives in each
-  site's DB, and only a new site's seed carries the GST sentence (spec #1613, owner to decide a patch).
+- Office Rent's form lives in each site's DB. An env cloned from a template older than the patch
+  `v3_0.office_rent_form_says_gst` reads "(10% TDS will be deducted)" until `DEVENV run <task> migrate`;
+  step 05 asserts the version-3 sentence on the Expense.
 - The Non-Project Expenses report lists Paid rows only; the standalone page's tab is hidden in Expenses.

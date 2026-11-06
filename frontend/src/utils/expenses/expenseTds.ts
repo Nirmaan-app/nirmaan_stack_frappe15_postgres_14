@@ -101,6 +101,15 @@ export const tdsPreviewLine = (split: ExpenseTdsSplit): string | null =>
 
 // ── What an expense screen shows (#1527, #1613) ─────────────────────────────────────────────────
 
+/**
+ * A withheld Office Rent's bill, from what is stored once it is split: the base rent its tax record keeps
+ * as its gross, plus the GST its Expense keeps (0 on a rent withheld before GST existed). The server's
+ * twin is `services/payment_tds.withheld_expense_bill_sql`; the expense screens and the TDS register both
+ * read this one.
+ */
+export const withheldBill = (base: number | string | null | undefined, gst: number | string | null | undefined): number =>
+    round2(parseNumber(base) + parseNumber(gst));
+
 /** A tax record as the expense APIs serve it, `withheld_tds` (`services/expense_tds.withheld_tds_of`):
  *  read past the record's own permission, so Admin, the CEO and HR see it. Null before approval. */
 export interface WithheldTds {
@@ -159,7 +168,7 @@ export const shownExpenseTds = ({
         const base = parseNumber(withheld.gross_amount);
         const gst = parseNumber(withheld.gst_amount);
         const tds = parseNumber(withheld.tds_amount);
-        const bill = round2(base + gst);
+        const bill = withheldBill(base, gst);
         return {
             bill,
             base,

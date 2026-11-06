@@ -260,8 +260,8 @@ figure — the company pays the tax on top:
   - **Company tax is labelled wherever a tax column lists it** (#1543): the WO payment table's TDS cell
     (`tdsPreview.tdsColumnNote`) and the Payment Voucher Uploads report say "Company Bears TDS" (`tdsPreview.COMPANY_BEARS_TDS_LABEL`, renamed
     with the action, owner 2026-10-27), as does the WO page's Amount Paid hover. The
-    TDS register's Net Paid is what the vendor got: gross − tax for `Vendor`, the whole gross for
-    `Company` (`deductionNetPaid`).
+    TDS register's Paid Amount is what the payee got: gross − tax for `Vendor`, the whole gross for
+    `Company` (`deductionNetPaid`); on an Office Rent row the gross is first the bill (rent + GST, below).
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
   its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
   read that checks read on the parent order (`get_work_order_tds`, `get_order_payment_tds`,
@@ -440,8 +440,16 @@ letter decides it (owner, 2026-10-16):
   carries the status only). Non-project totals sum the column; no total reads `gst_amount`.
 - ⚠️ **A RENT ROW'S `gross_amount` IS THE BASE RENT, NOT THE BILL** (from #1613). A reader wanting the
   bill adds the Expense's `gst_amount`: `payment_tds.withheld_expense_bill_sql` (the approval queue's Req.
-  Amount) and `expense_tds.withheld_tds_of` (the screens) do. A rent withheld before #1613 has GST 0, so
-  its bill reads as its gross, as before.
+  Amount) and `expense_tds.withheld_tds_of` (the screens) do, and on the frontend the one rule is
+  `utils/expenses/expenseTds.withheldBill` (the expense screens and the register). A rent withheld before
+  #1613 has GST 0, so its bill reads as its gross, as before.
+- **The register's Paid Amount on a rent row is what left the bank: rent + GST − tax** (₹1,08,000 on a
+  ₹1,18,000 bill; owner 2026-11-06). The list query joins the Expense's GST
+  (`non_project_expense.gst_amount as expense_gst_amount`), which every register reader (`PAYMENT_TDS_ACCESS`:
+  Admin, Accountant, Accountant Lead) already may read, so no permission widens; `deductionNetPaid` adds it
+  through `withheldBill`. Work Order and PO rows read gross − tax as before. Gross Amount stays the base rent
+  (the TDS return's figure). Pinned by `PaymentTDSDeductions/deductionNetPaid.test.ts` and the verify walk
+  `walk_office_rent.py` step 06.
 - **No backfill.** Office Rent expenses approved before #1525 have no record and never get one, and those
   approved before #1613 never get a GST; no patch writes any.
 - **Paying it:** `api/tds_challan/pay_tds` pays rent rows as it pays Work Order rows, under the same
