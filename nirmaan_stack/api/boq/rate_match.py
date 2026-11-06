@@ -25,6 +25,10 @@ pool.rebuild_pool on `long` (timeout 3600 s). It is not the cron target itself: 
 `default` queue with a 300 s timeout (frappe 15 scheduled_job_type.get_queue_name / background_jobs
 get_queues_timeout), and a pool build takes ~310 s. Frappe's cron reads the SYSTEM time zone (now_datetime ->
 System Settings time_zone): production must hold Asia/Kolkata for 06:00 to be IST.
+POOL ONLY AT 06:00 (DEV2-B8, owner 2026-11-06 12:41 / 12:42): the 06:00 job is the ONLY automatic build. A user's match
+run never builds the pool and never queues a rebuild (match_run.job_pool); production runs one worker for every queue
+and a build there takes ~20 minutes. The manual entry point stays: `bench --site <site> execute
+nirmaan_stack.services.boq_rate_match.pool.rebuild_pool`, after hours.
 
 THE WAIT ESTIMATE (owner 2026-11-03 11:11: "it should give total estinmate _ suggest rate + historical rates -- with
 splits -- give a safe number"): PACES below, measured in dev2 at p90; the dialog adds the two phases, each rounded UP
@@ -438,23 +442,5 @@ def daily_pool_rebuild():
     return True
 
 
-# DEV2-B6 S1: the job id every pool rebuild is queued under - the 06:00 job's own (above), so a stale run's request,
-# a second stale run and the 06:00 job never queue a twin while one is queued or running (frappe's deduplicate).
-POOL_REBUILD_JOB_ID = "boq_match_pool_daily_rebuild"
-
-
-def queue_pool_rebuild():
-    """THE ONE BACKGROUND REBUILD a user's match run asks for when it used a STALE cached pool (DEV2-B6 S1; the pool
-    rule in match_run.job_pool): pool.rebuild_pool on `long` with its own timeout, under POOL_REBUILD_JOB_ID.
-    -> True when this call queued it; False when a rebuild under that id is already queued or running (nothing
-    queued). Never raises: a failure to queue is logged and the run goes on with the pool it has."""
-    from frappe.utils.background_jobs import is_job_enqueued
-    try:
-        if is_job_enqueued(POOL_REBUILD_JOB_ID):
-            return False
-        frappe.enqueue("nirmaan_stack.services.boq_rate_match.pool.rebuild_pool", queue="long",
-                       timeout=POOL_REBUILD_TIMEOUT_SEC, job_id=POOL_REBUILD_JOB_ID, deduplicate=True)
-        return True
-    except Exception:  # noqa: BLE001 -- the run keeps the stale pool; the 06:00 job is the fallback
-        frappe.log_error(title="BoQ match pool rebuild not queued", message=frappe.get_traceback())
-        return False
+# DEV2-B8 S1: DEV2-B6's queue_pool_rebuild (the one background rebuild a STALE run queued) is REMOVED: a user's run
+# never queues a rebuild (POOL ONLY AT 06:00, above), and it had no other caller. The 06:00 job above is unchanged.

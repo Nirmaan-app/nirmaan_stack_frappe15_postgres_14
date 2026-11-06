@@ -68,12 +68,20 @@ def get_boq_ai_api_key():
 # point refuses with a plain message naming it. The numeric limits DO declare defaults in the doctype (calls at once
 # 50, reply caps 32000, ...); a Single whose stored row is missing reads the doctype's own default, because a migrate
 # adds the field without writing a value to tabSingles and a plain read would cast the gap to 0.
+#
+# SETTINGS DEFAULTS (DEV2-B8, owner 2026-11-06 12:42 "yes"; production's go-live: 8 Int fields were stored as "0"
+# because a Single that already holds a row loads a missing Int as blank and a form save writes it as 0, so the first
+# match run refused): a limit in MATCH_ZERO_IS_DEFAULT stored as 0 or empty reads as its doctype default. A READ-TIME
+# fallback (no patch), so it covers any site at any time; one log line names what it filled. Left alone, because 0 is
+# a meaningful value there: match_retry_wait_s (0 = retry without waiting; require_match_settings accepts it) and the
+# two switches (0 = off). The models and prices are never defaulted: a blank model still refuses, naming the field.
 
 MATCH_SWITCH_FIELDS = ("match_enabled", "match_cards_at_commit")
 MATCH_LIMIT_FIELDS = (
     "match_calls_at_once", "match_reply_max_tokens", "match_card_reply_max_tokens", "match_retry_wait_s",
     "match_burst_failures", "match_burst_window_s", "match_max_request_tokens", "match_lane_workers",
 )
+MATCH_ZERO_IS_DEFAULT = tuple(f for f in MATCH_LIMIT_FIELDS if f != "match_retry_wait_s")
 # NO COST CAP IN THE PRODUCT (owner 2026-11-02 23:23, amending R-H2AD: "that $5 limit was just for our purpose...a
 # guideline...it should not be a part of the code or setting"). Spend is still recorded per call (call_runner); $5 a
 # BoQ is a design guideline the slices measure and report, never a setting, a constant or a refusal.
@@ -97,16 +105,22 @@ class MatchSettingsIncomplete(frappe.ValidationError):
 
 def get_boq_match_settings():
     """The historical-matching fields, typed. A field with nothing stored reads the doctype's declared default
-    (none for the models and prices, so those read None). Never reads the API key. Raises on a read error: the
-    callers decide (the commit gate below fails closed, an entry point refuses)."""
+    (none for the models and prices, so those read None); a MATCH_ZERO_IS_DEFAULT limit stored as 0 does too
+    (DEV2-B8), logged in one line. Never reads the API key. Raises on a read error: the callers decide (the commit
+    gate below fails closed, an entry point refuses)."""
     meta = frappe.get_meta(SETTINGS_DOCTYPE)
     stored = frappe.db.get_singles_dict(SETTINGS_DOCTYPE)
-    out = {}
+    out, filled = {}, []
     for field in MATCH_FIELDS:
         df = meta.get_field(field)
         raw = stored.get(field)
         if raw is None or str(raw).strip() == "":
             raw = df.default if df else None
+            if field in MATCH_ZERO_IS_DEFAULT and raw is not None:
+                filled.append(f"{field} (empty)")
+        elif field in MATCH_ZERO_IS_DEFAULT and cint(raw) == 0 and df and df.default:
+            raw = df.default
+            filled.append(f"{field} (stored 0)")
         if raw is None or str(raw).strip() == "":
             out[field] = None
         elif df.fieldtype == "Check" or df.fieldtype == "Int":
@@ -117,6 +131,8 @@ def get_boq_match_settings():
             out[field] = str(raw).strip()
     out["match_enabled"] = bool(out["match_enabled"])
     out["match_cards_at_commit"] = bool(out["match_cards_at_commit"])
+    if filled:
+        frappe.logger("boq_rate_match").info("match settings: doctype default used for " + ", ".join(filled))
     return out
 
 

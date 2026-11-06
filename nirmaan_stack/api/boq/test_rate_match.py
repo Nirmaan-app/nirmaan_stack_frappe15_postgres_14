@@ -17,8 +17,9 @@ reached only through patched seams (nothing is written).
                    are the ACTIVE run's, in the stored (display) order
   the 06:00 entry  hooks cron "0 6 * * *" names daily_pool_rebuild; it enqueues pool.rebuild_pool on long with its own
                    timeout (a Cron job runs on default at 300 s)  /  the */5 list carries the match healer
-  the stale-pool rebuild (DEV2-B6 S1) queue_pool_rebuild queues pool.rebuild_pool on long under the 06:00 job's id
-                   /  one already queued or running -> nothing queued, False  /  a queue error never raises
+  no run-time rebuild (DEV2-B8 S1, POOL ONLY AT 06:00; B6's queue_pool_rebuild pins INVERTED, not deleted) the run
+                   path has no rebuild queue: queue_pool_rebuild is gone and match_run calls no enqueue, build or
+                   rebuild  /  the 06:00 job keeps its own deduplicated id  /  a broken queue cannot touch a run
 """
 import json
 from types import SimpleNamespace
@@ -351,29 +352,53 @@ class TestSchedulerEntries(FrappeTestCase):
 
 
 class TestQueuePoolRebuild(FrappeTestCase):
-    """DEV2-B6 S1: the one background rebuild a stale run asks for."""
+    """DEV2-B8 S1 (POOL ONLY AT 06:00): INVERTED from DEV2-B6's "the one background rebuild a stale run asks for".
+    The run path has no rebuild queue any more; the 06:00 job is the only automatic build."""
 
-    def test_it_queues_rebuild_pool_on_long_under_the_daily_jobs_id(self):
-        with patch("frappe.utils.background_jobs.is_job_enqueued", return_value=False), \
-                patch.object(frappe, "enqueue") as enq:
-            self.assertTrue(RM.queue_pool_rebuild())
+    def test_the_run_path_has_no_rebuild_queue_and_the_daily_job_keeps_its_id(self):
+        # INVERTED (was test_it_queues_rebuild_pool_on_long_under_the_daily_jobs_id)
+        self.assertFalse(hasattr(RM, "queue_pool_rebuild"))
+        self.assertFalse(hasattr(RM, "POOL_REBUILD_JOB_ID"))
+        with patch.object(frappe, "enqueue") as enq:
+            RM.daily_pool_rebuild()
         args, kw = enq.call_args
         self.assertEqual(args[0], "nirmaan_stack.services.boq_rate_match.pool.rebuild_pool")
         self.assertEqual((kw["queue"], kw["timeout"], kw["job_id"], kw["deduplicate"]),
-                         ("long", RM.POOL_REBUILD_TIMEOUT_SEC, RM.POOL_REBUILD_JOB_ID, True))
-        with patch.object(frappe, "enqueue") as enq2:
-            RM.daily_pool_rebuild()
-        self.assertEqual(enq2.call_args[1]["job_id"], RM.POOL_REBUILD_JOB_ID)   # the same id: never a twin
+                         ("long", RM.POOL_REBUILD_TIMEOUT_SEC, "boq_match_pool_daily_rebuild", True))
 
-    def test_one_already_queued_or_running_queues_nothing(self):
-        with patch("frappe.utils.background_jobs.is_job_enqueued", return_value=True), \
-                patch.object(frappe, "enqueue") as enq:
-            self.assertFalse(RM.queue_pool_rebuild())
+    def test_the_match_run_calls_no_enqueue_build_or_rebuild(self):
+        # INVERTED (was test_one_already_queued_or_running_queues_nothing): nothing in the run path can queue or build.
+        # Every name and attribute the module's CODE uses (docstrings and comments do not count).
+        import ast
+        import inspect
+        from nirmaan_stack.services.boq_rate_match import match_run as MR
+        used = set()
+        for node in ast.walk(ast.parse(inspect.getsource(MR))):
+            if isinstance(node, ast.Name):
+                used.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                used.add(node.attr)
+            elif isinstance(node, ast.alias):
+                used.add(node.name.split(".")[-1])
+        self.assertIn("load_pool", used)                     # the scan sees the pool calls the run does make
+        for name in ("enqueue", "enqueue_doc", "queue_pool_rebuild", "ensure_pool", "build_pool", "rebuild_pool",
+                     "save_pool", "FileLock", "Timeout"):
+            self.assertNotIn(name, used, name)
+
+    def test_a_broken_queue_cannot_touch_a_run(self):
+        # INVERTED (was test_a_queue_error_never_raises): with enqueue raising, a stale run's pool rule still answers
+        import os
+        import shutil
+        import tempfile
+        from nirmaan_stack.services.boq_rate_match import match_run as MR, pool as P
+        d = tempfile.mkdtemp(prefix="rm_pool_test_")
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "match_pool_v1.pkl")
+        P.save_pool(P.Pool({"format": P.POOL_FORMAT, "rows": [], "kept": set(), "sel": {}, "nxt": {},
+                            "pricing": {"stamp": {"code": "old"}}, "as_of": "x"}), path)
+        with patch.object(P, "_current_stamp", return_value={"code": "new"}), \
+                patch.object(frappe, "enqueue", side_effect=RuntimeError("redis down")) as enq:
+            pool, info = MR.job_pool(path=path)
+        self.assertIsNotNone(pool)
+        self.assertTrue(info["stale"].startswith("pool stale"))
         enq.assert_not_called()
-
-    def test_a_queue_error_never_raises(self):
-        with patch("frappe.utils.background_jobs.is_job_enqueued", return_value=False), \
-                patch.object(frappe, "enqueue", side_effect=RuntimeError("redis down")), \
-                patch.object(frappe, "log_error") as le:
-            self.assertFalse(RM.queue_pool_rebuild())
-        le.assert_called_once()
