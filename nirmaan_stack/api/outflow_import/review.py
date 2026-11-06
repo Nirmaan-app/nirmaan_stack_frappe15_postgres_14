@@ -4383,17 +4383,16 @@ def _internal_transfer_figure(where, params) -> dict:
     """The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
     and the money their records moved out and in.
 
-    ⚠️ UNDER THE SAME `_row_filters` WHERE AS EVERY OTHER FIGURE, so it follows the period and the imports. A
-    transfer the bank refused is left out, as from every summary figure (option B).
+    ⚠️ UNDER THE SAME `_row_filters` WHERE AS EVERY OTHER FIGURE, so it follows the period and the imports. It counts
+    every Internal Transfer line, as the tab does: each holds its record (owner decision 3, #1619), so a line a person
+    marked whatever its bank status counts too.
 
     ⚠️ THE MONEY IS THE RECORDS', NOT THE LINES'. A Cashbook top-up carries its money in the statement's Credit
-    column and stages its line at 0 (#1623); its record holds what moved. A status-changed repeat is a line with no
-    record: it counts as a line and adds no money, so one move is never summed twice. Out and In are the record's
-    direction, as the line stated it. These lines are already out of the totals and Still open
+    column and stages its line at 0 (#1623); its record holds what moved. Out and In are the record's direction, as
+    the line stated it. These lines are already out of the totals and Still open
     (`status.SUMMARY_EXCLUDED_STATUSES`); this is the only place their money is shown.
     """
-    failed_sql, failed_params = _failed_transfer_sql()
-    clause = " AND ".join([*where, "r.row_status = %s", f"NOT ({failed_sql})"])
+    clause = " AND ".join([*where, "r.row_status = %s"])
     figure = frappe.db.sql(
         f"""
         SELECT COUNT(*) AS rows,
@@ -4403,7 +4402,7 @@ def _internal_transfer_figure(where, params) -> dict:
         {_INTERNAL_TRANSFER_JOIN}
         WHERE {clause}
         """,
-        (TRANSFER_OUT, TRANSFER_IN) + tuple(params) + (ROW_INTERNAL_TRANSFER,) + failed_params,
+        (TRANSFER_OUT, TRANSFER_IN) + tuple(params) + (ROW_INTERNAL_TRANSFER,),
         as_dict=True,
     )[0]
     return {

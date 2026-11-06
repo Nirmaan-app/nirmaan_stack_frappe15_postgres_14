@@ -252,6 +252,21 @@ class TestTheRowCarriesWhatTheScreenShows(ActionFixture):
     def test_a_line_that_may_not_be_marked_carries_no_offer(self):
         self.assertIsNone(self._row(self._line(self._batch(), status="Settled"))["hand_mark"])
 
+    def test_the_tab_and_the_summary_chip_count_a_line_marked_by_hand_whatever_its_bank_status(self):
+        """Every Internal Transfer line holds one record (owner decision 3, #1619), so the chip counts what the tab
+        lists: a person's mark on a line the bank called FAILED (unskipped first) counts in both."""
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows, get_outflow_summary
+
+        batch = self._batch(source="Cashfree")
+        line = self._line(batch, status="Mismatched", source="Cashfree", status_raw="FAILED")
+        self._as(ADMIN)
+        mark_internal_transfer(line, other_end="ICICI Current Account", reason="The float came back")
+        frappe.set_user("Administrator")
+        tab = get_outflow_rows(scope="internal_transfers", batch=batch, limit=50)["rows"]
+        chip = get_outflow_summary(batch=batch)["totals"]
+        self.assertEqual((len(tab), chip["internal_transfer_rows"], chip["internal_transfer_out_value"]),
+                         (1, 1, 5100.0))
+
     def test_made_by_is_words(self):
         line = self._line(self._batch(), status="Mismatched")
         self._as(ADMIN)

@@ -78,9 +78,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import (
 from nirmaan_stack.api.outflow_import.cashbook_reopen import claim_reopens, reopen_lines, wrong_skips
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     fill_zero_records,
-    move_already_recorded,
-    record_for_line,
-    recorded_cashbook_moves,
+    record_cashbook_move,
     zero_records_to_fill,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -92,7 +90,7 @@ from nirmaan_stack.services.outflow_import.candidates import (
     load_project_aliases,
     prior_import_sightings,
 )
-from nirmaan_stack.services.outflow_import.cashbook import ACTION_INTERNAL, CashbookPlan, plan_statement
+from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
 from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
@@ -711,7 +709,6 @@ def _build_plan(parsed, not_reopening=frozenset()) -> CashbookPlan:
         wrong_skips=[
             skip for skip in wrong_skips(_statement_transfer_ids(parsed)) if skip.line not in not_reopening
         ],
-        recorded_moves=recorded_cashbook_moves(_statement_transfer_ids(parsed)),
     )
 
 
@@ -968,20 +965,10 @@ def _stage(parsed, plan: CashbookPlan, file_url: str, filename: str, user: str, 
         doc.update({"import_batch": batch.name, **line_values(raw, planned)})
         doc.insert(ignore_permissions=True)
         # #1623: one of Cashbook's own moves gets its Internal Transfer record, with the money it moved (a top-up
-        # carries it in its Credit, so the line's own `amount` may be 0). Only a line that says the money moved
-        # makes it, and only when no line of the same move holds one: one record per move, and only for money moved.
-        if (
-            planned.action == ACTION_INTERNAL
-            and planned.records_transfer
-            and not move_already_recorded(doc)
-        ):
-            record_for_line(
-                doc,
-                planned.transfer,
-                made_by=planned.transfer_rule,
-                amount=planned.transfer_money,
-                direction=planned.transfer_direction,
-            )
+        # carries it in its Credit, so the line's own `amount` may be 0). Only a line that says SUCCESS is one (owner
+        # decision 3, #1619), so each Internal Transfer line holds exactly one record.
+        if planned.move:
+            record_cashbook_move(doc, planned.move)
         if _copies_a_collect_bill(raw, planned):
             collect_lines.append(doc.name)
 

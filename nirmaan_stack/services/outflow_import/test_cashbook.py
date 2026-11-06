@@ -100,10 +100,10 @@ def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Sp
     )
 
 
-def _plan(rows, already=None, booked=None, recorded=frozenset()):
+def _plan(rows, already=None, booked=None):
     index = build_project_index(PROJECTS, aliases=ALIASES)
     return plan_statement(
-        rows, index, RULES, already_imported=already, already_booked=booked, recorded_moves=recorded
+        rows, index, RULES, already_imported=already, already_booked=booked
     )
 
 
@@ -126,11 +126,10 @@ class TestWhatIsNotImported(unittest.TestCase):
         row = _plan([_row(kind="VA → Wallet", amount="0", credit="10000", payee="Test Employee A")]).rows[0]
         self.assertEqual(row.action, ACTION_INTERNAL)
         self.assertEqual(
-            (row.transfer.from_place, row.transfer.to_place, row.transfer.detail),
+            (row.move.ends.from_place, row.move.ends.to_place, row.move.ends.detail),
             ("Cashbook Virtual Account", "Cashbook Employee Wallet", "Test Employee A"),
         )
-        self.assertEqual(row.transfer_money, Decimal("10000"))
-        self.assertTrue(row.records_transfer)
+        self.assertEqual(row.move.money, Decimal("10000"))
         self.assertIsNone(row.skip_kind)
 
     def test_a_bank_load_and_a_wallet_to_va_move_are_internal_transfers_too(self):
@@ -141,7 +140,7 @@ class TestWhatIsNotImported(unittest.TestCase):
         ])
         self.assertEqual([r.action for r in plan.rows], [ACTION_INTERNAL, ACTION_INTERNAL])
         self.assertEqual(
-            [(r.transfer.from_place, r.transfer.to_place, r.transfer.detail, r.transfer_money) for r in plan.rows],
+            [(r.move.ends.from_place, r.move.ends.to_place, r.move.ends.detail, r.move.money) for r in plan.rows],
             [
                 ("ICICI Current Account", "Cashbook Virtual Account", "", Decimal("50000")),
                 ("Cashbook Employee Wallet", "Cashbook Virtual Account", "Test Employee B", Decimal("300")),
@@ -164,34 +163,45 @@ class TestWhatIsNotImported(unittest.TestCase):
                 (row.action, row.reason, row.skip_kind), (ACTION_SKIP, SKIP_NOT_SUCCESSFUL, SKIP_KIND_BANK_REFUSED)
             )
 
-    def test_a_move_seen_not_successful_twice_is_never_an_internal_transfer(self):
-        """Review finding (#1619): a record only for money that moved. FAILED then REVERSED moved nothing."""
-        raw = _row(transfer_id="VA8", kind="Bank → VA", amount="0", credit="900", status="REVERSED")
-        already = _sightings(("VA8", "0", date(2026, 8, 1), "OFI-26-00008", "FAILED"))
-        row = _plan([raw], already=already).rows[0]
-        self.assertEqual((row.action, row.skip_kind), (ACTION_SKIP, SKIP_KIND_ALREADY_IMPORTED))
+    def test_a_not_successful_repeat_is_bank_refused_whatever_the_earlier_import_said(self):
+        """Owner decision 3, for repeats too (#1619): only a line that says SUCCESS is an Internal Transfer line. A
+        repeat that does not is Bank refused, and its sentence names the earlier sighting -- SUCCESS (its record
+        stays on that line) or not."""
+        for earlier in ("SUCCESS", "FAILED"):
+            with self.subTest(earlier=earlier):
+                raw = _row(transfer_id="VA8", kind="Bank → VA", amount="0", credit="900", status="REVERSED")
+                already = _sightings(("VA8", "0", date(2026, 8, 1), "OFI-26-00008", earlier))
+                row = _plan([raw], already=already).rows[0]
+                self.assertEqual(
+                    (row.action, row.skip_kind, row.reason),
+                    (
+                        ACTION_SKIP,
+                        SKIP_KIND_BANK_REFUSED,
+                        f"Did not succeed at the wallet. Already imported in batch OFI-26-00008, bank status changed "
+                        f"{earlier} → REVERSED.",
+                    ),
+                )
 
-    def test_a_move_first_seen_failed_then_successful_records_the_move(self):
+    def test_a_not_successful_line_after_its_successful_copy_in_the_same_file_is_bank_refused(self):
+        """An Internal Transfer line is never the basis of an in-file status change (`plan_statement`), so the later
+        line names no earlier sighting: it is plain Bank refused."""
+        plan = _plan([
+            _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="SUCCESS"),
+            _row(number=2, transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED"),
+        ])
+        self.assertEqual(
+            [(r.action, r.skip_kind, r.reason) for r in plan.rows],
+            [
+                (ACTION_INTERNAL, None, plan.rows[0].reason),
+                (ACTION_SKIP, SKIP_KIND_BANK_REFUSED, SKIP_NOT_SUCCESSFUL),
+            ],
+        )
+
+    def test_a_move_first_seen_failed_then_successful_is_an_internal_transfer(self):
         raw = _row(transfer_id="VA9", kind="Bank → VA", amount="0", credit="900", status="SUCCESS")
         already = _sightings(("VA9", "0", date(2026, 8, 1), "OFI-26-00009", "FAILED"))
         row = _plan([raw], already=already).rows[0]
         self.assertEqual(row.action, ACTION_INTERNAL)
-        self.assertTrue(row.records_transfer)
-
-    def test_a_status_changed_repeat_of_an_internal_line_is_internal_and_records_nothing(self):
-        raw = _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED")
-        already = _sightings(("VA7", "0", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
-        row = _plan([raw], already=already, recorded={"VA7"}).rows[0]
-        self.assertEqual(row.action, ACTION_INTERNAL)
-        self.assertFalse(row.records_transfer)
-
-    def test_a_failed_repeat_of_a_move_whose_record_was_sent_back_is_not_an_internal_transfer(self):
-        """Code review (#1619): every Internal Transfer line keeps exactly one record. The earlier SUCCESS line was
-        sent back, so the move holds no record, and this line moved no money: it keeps the repeat's skip."""
-        raw = _row(transfer_id="VA6", kind="VA → Wallet", amount="0", credit="900", status="REVERSED")
-        already = _sightings(("VA6", "0", date(2026, 8, 1), "OFI-26-00006", "SUCCESS"))
-        row = _plan([raw], already=already, recorded=frozenset()).rows[0]
-        self.assertEqual((row.action, row.skip_kind), (ACTION_SKIP, SKIP_KIND_ALREADY_IMPORTED))
 
     def test_a_spend_that_failed_at_the_wallet_is_skipped(self):
         row = _plan([_row(status="FAILED")]).rows[0]

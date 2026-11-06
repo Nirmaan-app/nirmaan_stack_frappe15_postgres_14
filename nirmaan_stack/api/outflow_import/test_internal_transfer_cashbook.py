@@ -102,16 +102,26 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
         self.assertEqual([(r["transfer_from"], r["transfer_to"]) for r in rows],
                          [("Cashbook Virtual Account", "Cashbook Employee Wallet")])
 
-    def test_a_status_changed_repeat_makes_no_second_record(self):
+    def test_a_move_seen_successful_and_later_reversed_keeps_its_record_on_the_first_line(self):
+        """Owner decision 3, for repeats too (#1619): the later line moved no money, so it is Bank refused, naming the
+        earlier import. The first line's record stays, as a wallet spend imported SUCCESS and later REVERSED keeps its
+        expense (an open question for the owner)."""
         tag = frappe.generate_hash(length=6).upper()
         txn = f"VALOAD-{tag}"
         first = self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
                                    "SUCCESS", txn)])
         second = self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
                                     "REVERSED", txn)])
-        again = self._lines(second)
-        self.assertEqual([line["row_status"] for line in again], ["Internal Transfer"])
-        self.assertIsNone(self._record(again[0]["name"]))
+        again = self._lines(second)[0]
+        self.assertEqual(
+            (again["row_status"], again["skip_kind"]), ("Skipped", "Bank refused")
+        )
+        self.assertEqual(
+            frappe.db.get_value("Outflow Import Row", again["name"], "skip_reason"),
+            f"Did not succeed at the wallet. Already imported in batch {first}, bank status changed SUCCESS → "
+            "REVERSED.",
+        )
+        self.assertIsNone(self._record(again["name"]))
         self.assertIsNotNone(self._record(self._lines(first)[0]["name"]))
 
     def test_a_failed_move_is_skipped_as_bank_refused(self):
@@ -130,7 +140,7 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
         second = self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700",
                                     "REVERSED", txn)])
         again = self._lines(second)
-        self.assertEqual([line["row_status"] for line in again], ["Skipped"])
+        self.assertEqual([(line["row_status"], line["skip_kind"]) for line in again], [("Skipped", "Bank refused")])
         self.assertIsNone(self._record(again[0]["name"]))
 
     def test_a_move_first_seen_failed_is_recorded_when_it_comes_back_successful(self):
@@ -148,8 +158,8 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
         self.assertIsNotNone(self._record(again["name"]))
 
     def test_a_failed_repeat_of_a_move_sent_back_to_mismatched_is_no_internal_transfer(self):
-        """Code review (#1619): every Internal Transfer line keeps exactly one record. The SUCCESS line was sent back,
-        so the move holds no record; a later REVERSED sighting moved no money and keeps the repeat's skip."""
+        """Every Internal Transfer line keeps exactly one record. The SUCCESS line was sent back; a later REVERSED
+        sighting moved no money: Bank refused, as every not-successful move is (owner decision 3, #1619)."""
         from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
 
         tag = frappe.generate_hash(length=6).upper()
@@ -159,7 +169,7 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
         send_back_to_mismatched(first["name"], reason="Not our own move")
         again = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "",
                                                "700", "REVERSED", txn)]))[0]
-        self.assertEqual((again["row_status"], again["skip_kind"]), ("Skipped", "Already imported"))
+        self.assertEqual((again["row_status"], again["skip_kind"]), ("Skipped", "Bank refused"))
         self.assertIsNone(self._record(again["name"]))
 
     def test_a_top_up_into_the_virtual_account_is_money_in_and_money_back_out_is_money_out(self):
@@ -171,6 +181,41 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
                   f"VALOAD-{tag}2"),
         ])
         self.assertEqual([self._record(l["name"])["direction"] for l in self._lines(batch)], ["In", "Out"])
+
+
+class TestEveryInternalTransferLineHoldsOneRecord(CashbookStageCase):
+    """Owner decision 3, for repeats too (#1619): only a line that says SUCCESS is an Internal Transfer line, and it
+    makes the record. So on a mixed statement the Internal Transfers tab, the summary chip and the records agree."""
+
+    def test_the_tab_count_the_chip_and_the_records_are_one_number(self):
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows, get_outflow_summary
+
+        tag = frappe.generate_hash(length=6).upper()
+        self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "SUCCESS",
+                           f"VALOAD-{tag}1")])
+        batch = self._stage([
+            # A repeat of the move above that the wallet now calls REVERSED, a new move, a failed move, a move the
+            # same file then calls REVERSED, a spend and a Type the app does not know.
+            _line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "700", "REVERSED", f"VALOAD-{tag}1"),
+            _line("02/08/2026", "VA → Wallet", "Virtual Account", "Test Employee A", "", "400", "SUCCESS",
+                  f"BUSINESS_USER-{tag}2"),
+            _line("02/08/2026", "Wallet → VA", "Test Employee B", "Virtual Account", "300", "", "FAILED",
+                  f"C2B-{tag}3"),
+            _line("03/08/2026", "VA → Wallet", "Virtual Account", "Test Employee A", "", "900", "SUCCESS",
+                  f"BUSINESS_USER-{tag}4"),
+            _line("03/08/2026", "VA → Wallet", "Virtual Account", "Test Employee A", "", "900", "REVERSED",
+                  f"BUSINESS_USER-{tag}4"),
+            _line("03/08/2026", "Wallet Spend", "Test Employee A", "A Test Shop", "120", "", "SUCCESS",
+                  f"OBO-{tag}5"),
+            _line("04/08/2026", "Something New", "Test Employee B", "Virtual Account", "", "10", "SUCCESS",
+                  f"VALOAD-{tag}6"),
+        ])
+        tab = get_outflow_rows(scope="internal_transfers", batch=batch, limit=50)
+        chip = get_outflow_summary(batch=batch)["totals"]["internal_transfer_rows"]
+        lines = [line["name"] for line in self._lines(batch)]
+        records = frappe.db.count(INTERNAL_TRANSFER_DOCTYPE, {"import_row": ["in", lines]})
+        self.assertEqual((len(tab["rows"]), chip, records), (2, 2, 2))
+        self.assertTrue(all(row["internal_transfer"] for row in tab["rows"]))
 
 
 def _xlsx(lines) -> bytes:

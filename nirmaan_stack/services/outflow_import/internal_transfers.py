@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.bank_exclusions import IFSC_CASHBOOK, IFSC_CASHFREE, IFSC_PORTER
-from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_EXCLUSION_CATEGORY
 
 PLACE_ICICI_CURRENT = "ICICI Current Account"
@@ -203,32 +202,26 @@ def cashbook_transfer_money(raw) -> Decimal:
     return debit if debit > 0 else credit
 
 
-def cashbook_move_happened(raw, earlier, in_file, recorded_moves) -> bool:
-    """Whether a Cashbook move's line is an Internal Transfer: money moved (#1623, #1619). This line says SUCCESS, or
-    it is a status-changed repeat of a line that did -- earlier in this file (`in_file`), or in an earlier import
-    (`earlier`) whose move still holds its record (its Txn Id in `recorded_moves`). A move sent back to Mismatched
-    holds none, so its later repeat keeps the repeat's skip: every Internal Transfer line has exactly one record."""
-    if getattr(raw, "is_success", False):
-        return True
-    if in_file and in_file.earlier_status == BANK_SUCCESS_STATUS:
-        return True
-    return bool(earlier and earlier.earlier_status == BANK_SUCCESS_STATUS
-                and (getattr(raw, "transfer_id", "") or "") in recorded_moves)
+@dataclass(frozen=True)
+class CashbookMove:
+    """One of Cashbook's own moves, as its Internal Transfer line's record states it (#1623): where the money came
+    from and went, the money moved, its direction, and the rule id the record names."""
+
+    ends: TransferEnds
+    money: Decimal
+    direction: str
+    rule: str
 
 
-def cashbook_internal_facts(raw) -> dict:
-    """An internal Cashbook line's transfer facts, as `cashbook.PlannedRow` carries them (#1623): where the money
-    came from and went, the money moved, its direction, whether THIS line says the money moved (only such a line
-    may make the record, and only when no other line of the same move holds one: a record only for money that
-    moved, one per move), and the rule id the record names."""
-    debit = getattr(raw, "amount", None) or Decimal("0")
-    return {
-        "transfer": cashbook_raw_transfer(raw),
-        "transfer_money": cashbook_transfer_money(raw),
-        "transfer_direction": cashbook_direction(debit),
-        "records_transfer": bool(getattr(raw, "is_success", False)),
-        "transfer_rule": CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
-    }
+def cashbook_move(raw) -> CashbookMove:
+    """The move a Cashbook line that says SUCCESS records (owner decision 3, #1619: only such a line is an Internal
+    Transfer line, so each one holds exactly one record)."""
+    return CashbookMove(
+        ends=cashbook_raw_transfer(raw),
+        money=cashbook_transfer_money(raw),
+        direction=cashbook_direction(getattr(raw, "amount", None)),
+        rule=CASHBOOK_INTERNAL_KINDS[(getattr(raw, "row_kind", "") or "").strip()],
+    )
 
 
 def transfer_sentence(ends: TransferEnds) -> str:
