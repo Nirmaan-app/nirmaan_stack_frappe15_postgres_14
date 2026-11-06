@@ -1,11 +1,11 @@
-import { TDS_BORNE_BY, type PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
+import { TDS_BORNE_BY } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import { withheldBill } from "@/utils/expenses/expenseTds";
+import type { PaymentTDSDeductionRow } from "./config/paymentTdsDeductions.config";
 
-/** A register row with the GST of the Office Rent expense it was withheld on, joined by the list query
- *  (`non_project_expense.gst_amount as expense_gst_amount`). Absent on a Work Order or PO row. */
-export type DeductionPaidRow = Pick<PaymentTDSDeduction, "gross_amount" | "tds_amount" | "borne_by" | "non_project_expense"> & {
-	expense_gst_amount?: number | null;
-};
+export type DeductionPaidRow = Pick<
+	PaymentTDSDeductionRow,
+	"gross_amount" | "tds_amount" | "borne_by" | "non_project_expense" | "expense_gst_amount"
+>;
 
 /**
  * The TDS register's Paid Amount: what the payee got on the deduction's payment (#1543, owner ruling Q31-A).

@@ -168,7 +168,7 @@ export const shownExpenseTds = ({
         const base = parseNumber(withheld.gross_amount);
         const gst = parseNumber(withheld.gst_amount);
         const tds = parseNumber(withheld.tds_amount);
-        const bill = withheldBill(base, gst);
+        const bill = withheldBill(withheld.gross_amount, withheld.gst_amount);
         return {
             bill,
             base,

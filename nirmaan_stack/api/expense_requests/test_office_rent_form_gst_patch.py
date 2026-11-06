@@ -60,6 +60,10 @@ class TestOfficeRentFormGstPatch(FrappeTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
+	def test_the_patch_knows_the_version_2_form_the_seed_shipped(self):
+		# The seed's form with version 2 and the old sentence: the only form the patch may replace.
+		self.assertEqual(json.loads(_form(2, V2_SENTENCE)), patch.V2_FORM)
+
 	def test_a_version_2_form_becomes_the_seeds_version_3_form(self):
 		_set_live(_form(2, V2_SENTENCE))
 

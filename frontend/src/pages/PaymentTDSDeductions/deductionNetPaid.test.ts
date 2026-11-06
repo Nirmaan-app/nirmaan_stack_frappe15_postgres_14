@@ -37,7 +37,7 @@ describe("the TDS register's Paid Amount on an Office Rent row: what left the ba
 
   it("leaves a Work Order row as it was: a GST it does not have is never added", () => {
     expect(
-      deductionNetPaid({ project_payment: "PAY-TEST", gross_amount: 10000, tds_amount: 200, borne_by: TDS_BORNE_BY.VENDOR })
+      deductionNetPaid({ non_project_expense: undefined, gross_amount: 10000, tds_amount: 200, borne_by: TDS_BORNE_BY.VENDOR })
     ).toBe(9800);
   });
 });
