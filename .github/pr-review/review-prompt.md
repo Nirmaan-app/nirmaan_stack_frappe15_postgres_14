@@ -66,6 +66,22 @@ The brief lists last run's open findings with their ids. For each one, return `{
 `fixed` when the current diff no longer has the problem, `open` when it still does. Never report one of them
 again as a new finding, even reworded.
 
+## A rerun
+
+When the brief has a "Changes since the last review" section, the last review already read the rest of the PR.
+Then:
+
+- Review only `.pr-review-run/new-changes.diff`: the PR's changes since the commit the last review covered. Use
+  `gh pr diff` and `pr-head/` only for context around those changes.
+- Mark each open finding `fixed` or `open` from the current code in `pr-head/`.
+- Report new findings only in the new changes. The one exception is a `must` anywhere in the PR.
+- Keep the current description and change only what the new changes alter.
+
+## Dismissed findings
+
+The owner dismissed the findings the brief lists under "Dismissed findings". Never report one of them again,
+even reworded or at another line.
+
 ## The description
 
 Write the full new PR description in the form of `.github/pr-review/pr-template.md` (Summary, Evidence, Merge

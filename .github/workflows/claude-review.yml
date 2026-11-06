@@ -1,8 +1,13 @@
 name: Claude review
 
-# The repo owner (abhishek0010) comments `/claude-review` on a PR. Claude rewrites the PR description in the /pr template (the
-# author's original stays, folded) and keeps one checklist comment that tags the author. It never pushes code
-# and never runs on its own. Needs the ANTHROPIC_API_KEY repo secret.
+# The repo owner (abhishek0010) comments a command on a PR:
+#   /claude-review                      Claude rewrites the PR description in the /pr template (the author's original
+#                                       stays, folded) and keeps one checklist comment that tags the author
+#   /claude-review dismiss F3 <reason>  rules a finding out
+#   /claude-decide                      the options: A merge into develop, B send back, C close, one recommended
+#   /claude-merge A|B|C                 carries the option out, then locks the PR (one more decision after a B)
+# Only /claude-review uses Claude, inside $2.50 per PR (scripts/pr_review.py BUDGET_USD); the rest cost nothing.
+# Claude never runs in a job that can write code. Needs the ANTHROPIC_API_KEY repo secret.
 #
 # issue_comment workflows run from the default branch, so the rules, prompts and scripts always come from it,
 # never from the PR under review.
@@ -13,25 +18,41 @@ on:
 
 permissions: {}
 
+# One command per PR at a time, so each reads the state the last one wrote. Only the owner's commands join the
+# group: anyone else's comment would otherwise replace his queued command.
+concurrency:
+  group: >-
+    ${{ (github.event.issue.pull_request && github.event.comment.user.id == 8597417 &&
+    (startsWith(github.event.comment.body, '/claude-review') || startsWith(github.event.comment.body, '/claude-decide') ||
+    startsWith(github.event.comment.body, '/claude-merge'))) && format('claude-review-{0}', github.event.issue.number) ||
+    github.run_id }}
+  cancel-in-progress: false
+
 jobs:
-  # Only the owner's account may start a run, which spends API credit. 8597417 is abhishek0010's GitHub user id;
-  # the id is used because a login can be renamed and later taken by someone else.
+  # Only the owner's account may start a run. 8597417 is abhishek0010's GitHub user id; the id is used because a
+  # login can be renamed and later taken by someone else.
   gate:
     if: >-
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/claude-review') &&
-      github.event.comment.user.id == 8597417
+      github.event.comment.user.id == 8597417 &&
+      (startsWith(github.event.comment.body, '/claude-review') ||
+      startsWith(github.event.comment.body, '/claude-decide') ||
+      startsWith(github.event.comment.body, '/claude-merge'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
+      issues: read
+      pull-requests: read
     outputs:
-      allowed: ${{ steps.permission.outputs.allowed }}
+      action: ${{ steps.route.outputs.action }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_BODY: ${{ github.event.comment.body }}
     steps:
       - name: Check the commenter can write to the repository
         id: permission
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" --jq .permission)
           case "$permission" in
@@ -41,18 +62,28 @@ jobs:
           echo "$GITHUB_ACTOR has $permission access, allowed=$allowed"
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
 
+      - name: Check out the scripts
+        if: steps.permission.outputs.allowed == 'true'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      # review starts the Claude job; refresh, dismiss, decide, merge and stop go to the act job.
+      - name: Route the command
+        id: route
+        if: steps.permission.outputs.allowed == 'true'
+        run: python3 scripts/pr_review.py route
+
   review:
     needs: gate
-    if: needs.gate.outputs.allowed == 'true'
+    if: needs.gate.outputs.action == 'review'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
       issues: write
     timeout-minutes: 30
-    concurrency:
-      group: claude-review-${{ github.event.issue.number }}
-      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PR_NUMBER: ${{ github.event.issue.number }}
@@ -97,9 +128,19 @@ jobs:
           prompt: Read .pr-review-run/brief.md and .github/pr-review/review-prompt.md and follow them.
           claude_args: >-
             --model claude-opus-5-5 --max-turns 60
+            --max-budget-usd ${{ steps.prepare.outputs.budget }}
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue view:*)"
             --disallowedTools "Edit,Write,NotebookEdit,Read(//proc/**)"
             --json-schema '${{ steps.prepare.outputs.review_schema }}'
+
+      # Runs after a failure or a timeout too, so every step that ran is paid for.
+      - name: Measure the review's cost
+        id: review_cost
+        if: always() && steps.review.outcome != 'skipped'
+        env:
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          STEP_CAP: ${{ steps.prepare.outputs.budget }}
+        run: python3 scripts/pr_review.py cost review
 
       - name: Number the new findings
         id: number
@@ -107,9 +148,10 @@ jobs:
           REVIEW_OUTPUT: ${{ steps.review.outputs.structured_output }}
         run: python3 scripts/pr_review.py number
 
+      # Skipped when less than MIN_STEP_USD is left; publish then says the new findings went unchecked.
       - name: Verify the new findings
         id: verify
-        if: steps.number.outputs.has_new == 'true'
+        if: steps.number.outputs.has_new == 'true' && steps.review_cost.outputs.next_cap != ''
         timeout-minutes: 10
         uses: anthropics/claude-code-action@c0949c50a78c1ec8ce2647db36629b870e715d0c # v1.0.268
         with:
@@ -118,9 +160,17 @@ jobs:
           prompt: Read .pr-review-run/verify-brief.md and .github/pr-review/verify-prompt.md and follow them.
           claude_args: >-
             --model claude-sonnet-5-5 --max-turns 40
+            --max-budget-usd ${{ steps.review_cost.outputs.next_cap }}
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*)"
             --disallowedTools "Edit,Write,NotebookEdit,Read(//proc/**)"
             --json-schema '${{ steps.prepare.outputs.verify_schema }}'
+
+      - name: Measure the verification's cost
+        if: always() && steps.verify.outcome != 'skipped'
+        env:
+          EXECUTION_FILE: ${{ steps.verify.outputs.execution_file }}
+          STEP_CAP: ${{ steps.review_cost.outputs.next_cap }}
+        run: python3 scripts/pr_review.py cost verify
 
       # The key is here only so the script can refuse text that holds it.
       - name: Publish the comment and the description
@@ -133,3 +183,31 @@ jobs:
       - name: Report a failed run
         if: failure() || cancelled()
         run: python3 scripts/pr_review.py fail
+
+  # No AI and no Anthropic secret: the only job that can merge, close or write code.
+  act:
+    needs: gate
+    if: needs.gate.outputs.action != '' && needs.gate.outputs.action != 'review'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      COMMENT_BODY: ${{ github.event.comment.body }}
+    steps:
+      - name: Acknowledge the command
+        run: gh api --method POST "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" -f content=eyes
+
+      - name: Check out the scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Carry out the command
+        run: python3 scripts/pr_review.py act
