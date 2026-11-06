@@ -1255,6 +1255,38 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("A row the BoQ says is working + standby is priced as ONE unit, under a red bar",
         "the model copies the row's words (W+S, 1W+1S, N+N, 2N+N, 'working + standby'); a solid red bar above the card says the rate is for one unit and to check that the BoQ quantity covers both, with the unit and quantity ringed; never on a standby-only row or a heading's mention; the price is never doubled");
   }
+  // ── 13g. VRF-5 (owner R1 18:14-18:21 + SAFEGUARD, F2, R2, R5, R4-R8; ANSWER 4-6, 9) -- ADDED LAST, each only where its key is
+  // in the config (a config without them adds nothing)
+  const ex5 = pr.extras && typeof pr.extras === "object" ? pr.extras : null;
+  if (ex5 && Array.isArray(ex5.accessories) && ex5.accessories.length) {
+    const accText = ex5.accessories.map((a: any) => `${String(a.label).toLowerCase()} (${(a.roles ?? []).join(" / ")} unit${a.electrical ? `, by ${String(a.electrical.label)}'s rules` : ""})`).join(", ");
+    add("A unit's price can include its accessories, each as its own line",
+        `${accText}; on a BoQ row read PER ITEM from the model's Yes / No answers, and an accessory the model lists as an item of its own on a unit row is folded into that line; the quantity is the BoQ's, else the Pricing Inputs default by the unit's band (outdoor) or per indoor unit; ticked in the calculator; a line that cannot price (no catalogue match, a default not set) shows why and never holds the row`);
+  }
+  if (ex5 && ex5.folded) {
+    add("Any other item listed with a unit is a note, not a line",
+        "on a row whose first item is an indoor / outdoor unit, a further item the model lists that is no extra (an item the catalogue does not identify, a controller) is one point in a note and is not priced");
+  }
+  if (ex5 && ex5.safeguard) {
+    add("Where the BoQ states an inclusion decides whether it is added",
+        "the row's own words -> added; only a heading or a note -> added UNLESS a line item of the SAME sheet in a category of the same discipline quotes that item on its own row (then not added, the note names the row); every heading / note case shows 'This row may include extras - please review' with what and why");
+  }
+  if (ex5 && ex5.lines && ex5.lines.cable_words_default) {
+    add("A cable the BoQ names without a size takes the default size",
+        "the Pricing Inputs spec for the unit's band; an armour or conductor word the BoQ states sets that attribute; a length it states is used per unit (a range '5-10 m' -> the higher figure); each value says whether it came from the BoQ or the default");
+  }
+  if (pr.defaults?.discharge?.below_smallest) {
+    add("Discharge not stated, below the smallest Top unit -> Side",
+        "an outdoor unit whose discharge the BoQ does not state, smaller than the smallest Top-discharge unit of its brand, is priced as Side discharge (next size up on Side), with a note naming that smallest Top size; a stated discharge always wins");
+  }
+  if (pr.defaults?.brand?.unlisted?.several_rule) {
+    add("Several makes stated -> Blue Star if it is one, else the first stocked make",
+        "Blue Star when it is one of the stated makes; else the first stated make the catalogue stocks for that item; else Blue Star with a note naming the makes; one make stated keeps the rule above");
+  }
+  if (ex5 && ex5.scope) {
+    add("Supply only / installation only, from the BoQ",
+        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
+  }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};

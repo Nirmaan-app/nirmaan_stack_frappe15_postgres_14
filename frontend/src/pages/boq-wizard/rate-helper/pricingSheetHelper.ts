@@ -109,12 +109,18 @@ import {
   boqExtrasOf,
   sheetUnitCounts,
   workingStandbyWords,
+  boqInclusionsOf,
+  ownRowQuotes,
+  readCableKindWords,
+  readLengthRange,
+  readQtyWords,
   type ExtraIncludeId,
   type ExtraLineId,
   type ExtrasSpec,
   type CountedPieces,
   type CountedSpec,
   type ExtractedListItem,
+  type AccessorySpec,
   type ItemFieldDef,
   type ItemListPricingSpec,
   type ItemPriceResult,
@@ -154,6 +160,10 @@ export function isRunForVersion(
   );
 }
 
+/** VRF-5 (owner R1 SAFEGUARD, ANSWER 9): every run row's CATEGORY, kept beside the map (never on the row objects, so each
+ * extraction row stays byte-identical) -- the own-row rule reads only rows of the asking row's discipline. */
+const ROW_CATEGORIES = new WeakMap<ReadonlyMap<number, ExtractionRow>, ReadonlyMap<number, string>>();
+
 /** Build the excel_row -> ExtractionRow map from a run's `results` payload. PURE. */
 export function buildExtractionByRow(
   results: Array<{
@@ -167,7 +177,9 @@ export function buildExtractionByRow(
   }>,
 ): Map<number, ExtractionRow> {
   const m = new Map<number, ExtractionRow>();
+  const cats = new Map<number, string>();
   for (const r of results ?? []) {
+    if (typeof r.category_id === "string" && r.category_id) cats.set(r.excel_row, r.category_id);
     const row: ExtractionRowWithItems = { excelRow: r.excel_row, description: r.description, attributes: r.attributes };
     // carried ONLY when present, so a non-list row's map entry is byte-identical to before
     if (Array.isArray(r.items)) {
@@ -176,6 +188,7 @@ export function buildExtractionByRow(
     }
     m.set(r.excel_row, row);
   }
+  ROW_CATEGORIES.set(m, cats);
   return m;
 }
 
@@ -1457,9 +1470,9 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const configOf = (id: string): RateCategoryConfig | null =>
         configsByCategory ? (configsByCategory.get(id) ?? null) : (config && config.category_id === id ? config : null);
       // VRF-3b: an extra cable line is priced by ELECTRICAL's own rules -- this same compute, on that category, read only
-      const cableRate: CableRate = (cableCategory, attrs) => {
+      const cableRate: CableRate = (cableCategory, attrs, unit) => {
         const r = compute({ excelRow: EXTRA_CABLE_ROW, description: "", nodeType: "", category: cableCategory, discipline: "Electrical",
-                            rateKinds: ctx.rateKinds, unit: "Mtr" } as RowContextWithUnit, attrs);
+                            rateKinds: ctx.rateKinds, unit: unit ?? "Mtr" } as RowContextWithUnit, attrs);
         if (r.kind === "suggestion" && typeof r.values.supply_rate === "number" && typeof r.values.install_rate === "number") {
           return { supply: r.values.supply_rate, install: r.values.install_rate };
         }
@@ -1472,7 +1485,23 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? { ...rowCtx, sheetUnits: sheetUnitCounts(fromSheet, [...extractionByRow.values()] as ExtractionRowWithItems[], ctx.excelRow, ctx.category,
                                                     rowCtx.rowQuantities, familyAttr(listSpec)) }
         : rowCtx;
-      return computeItemList(category, listSpec, items, onSheet, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      // VRF-5 (owner R1 SAFEGUARD): the sheet's quoting rows carry each row's model item 1 family, from the run this helper serves
+      // VRF-5 (owner ANSWER 9 "lets restrict on same sheet"; 18:50 "checks only rows which carry categories from the same
+      // discipline viz HVAC"): ONLY this sheet's rows whose category (the run's) belongs to the row's own discipline
+      const rowCats = ROW_CATEGORIES.get(extractionByRow);
+      const sameDiscipline = (row: number) => {
+        const cat = rowCats?.get(row);
+        const c = cat ? (configsByCategory?.get(cat) ?? (config && config.category_id === cat ? config : null)) : null;
+        return !!c && c.discipline === category.discipline;
+      };
+      const withLines = listSpec.extras?.safeguard && onSheet.sheetLines
+        ? { ...onSheet, sheetLines: onSheet.sheetLines.filter((l) => l.sheet === undefined && sameDiscipline(l.row)).map((l) => {
+            if (l.family1 !== undefined) return l;
+            const v = (extractionByRow.get(l.row) as ExtractionRowWithItems | undefined)?.items?.[0]?.attributes?.[familyAttr(listSpec)]?.value;
+            return { ...l, family1: typeof v === "string" && v !== "" ? v : null };
+          }) }
+        : onSheet;
+      return computeItemList(category, listSpec, items, withLines, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -2550,7 +2579,12 @@ export interface ItemBlockView {
   /** VRF-3b (U1-U5, boards 12 / 13): the extra lines this unit's price includes, drawn under it; the lines the pricer
    * removed ("You removed: ... [Put it back]"). Present only on an indoor / outdoor unit of a row with extras. */
   extras?: { lines: ExtraLineView[]; removed: Array<{ id: ExtraLineId; label: string }>; removedNote?: string;
-    /** VRF-4 (O-5): on a BoQ row, "the BoQ says this unit's price includes ..." (read by the model) */ boqNote?: string };
+    /** VRF-4 (O-5): on a BoQ row, "the BoQ says this unit's price includes ..." (read by the model) */ boqNote?: string;
+    /** VRF-5 (owner R1 SAFEGUARD, U1): "This row may include extras - please review" -- what / why, one point per inclusion
+     *  a heading or note states (added, or not added because the BoQ quotes it on its own row) */
+    review?: { title: string; points: string[] };
+    /** VRF-5 (owner R1, U1): further items the BoQ lists with the unit that are no extra -- one note point each, not priced */
+    notes?: { title: string; points: string[] } };
 }
 
 /** VRF-3b (U1 / U2 / U3 / U8): one field of an extra line. */
@@ -2602,6 +2636,9 @@ export interface ExtraLineView {
   /** the per-metre rate, kept where known even when the line cannot price (B: "unit rate kept where known") */
   perMetre?: { supply: number; install: number };
   figures: Partial<Record<RateKind, number>>;
+  /** VRF-5 (owner R1): an ACCESSORY line -- one that cannot price (no catalogue match, a default not set) is a note, never a
+   *  block: the row prices without it */
+  optional?: true;
 }
 
 /** The whole item-list view a suggestion carries for the panel. */
@@ -2662,6 +2699,9 @@ export interface ItemListView {
   extrasIncludes?: { title: string; options: Array<{ id: ExtraIncludeId; label: string; checked: boolean; disabled?: boolean; note?: string }> };
   /** VRF-3b (U4): on a row with extras every LINE counts for "n of m items need a person" -- each unit, each extra */
   lineCount?: { lines: number; bad: number };
+  /** VRF-5 (owner R4-R8, U5): the row's scope -- supply only (install 0 on every line) / installation only (supply 0, install x
+   *  (1 + the uplift)) -- with its note and, in the calculator, the "BoQ scope" choice. Absent on a supply + installation row. */
+  scope?: { value: string; note?: string; picker?: { title: string; options: string[]; value: string } };
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -3520,6 +3560,8 @@ interface OwnPassProbe {
   edits?: ItemListEditState;
   /** out: block index -> its priced layers (the first is the item's own result) */
   layers?: Map<number, ItemPriceResult[]>;
+  /** out: VRF-5 (owner R1) -- the further model items folded off a unit row (never priced as items, never a block) */
+  folded?: Array<{ base: number; family: string | null }>;
 }
 
 /** VRF-3a: a number as the split's lines say it (2 decimals at most). */
@@ -3648,6 +3690,34 @@ function splitViewOf(spec: ItemListPricingSpec, edits: ItemListEditState, layers
   };
 }
 
+/**
+ * VRF-5 (owner R1 18:14-18:21). PURE. The model items a unit row folds off: only on a config whose `extras` declares `folded`,
+ * only when the row's FIRST entry is a unit (`extras.roles`), and only an untouched MODEL entry after it (the pricer's own item,
+ * a changed family or a helper's split line is theirs) whose family is no unit role. Null when nothing folds.
+ */
+function foldedModelItems(spec: ItemListPricingSpec, edits: ItemListEditState, modelItems: ExtractedListItem[]):
+  { kept: ItemEdit[]; points: Array<{ base: number; family: string | null }> } | null {
+  const x = spec.extras;
+  if (!x?.folded || edits.items.length < 2) return null;
+  const fa = familyAttr(spec);
+  const famOf = (e: ItemEdit): string | null => {
+    if (e.family !== null) return e.family;
+    const v = e.base !== null ? modelItems[e.base]?.attributes?.[fa]?.value : null;
+    return typeof v === "string" && v.trim() !== "" ? v : null;
+  };
+  const first = famOf(edits.items[0]);
+  if (!first || !x.roles[first]) return null;
+  const kept: ItemEdit[] = [edits.items[0]];
+  const points: Array<{ base: number; family: string | null }> = [];
+  for (const e of edits.items.slice(1)) {
+    const fam = famOf(e);
+    const untouched = e.base !== null && e.family === null && !e.helper && Object.keys(e.attrs).length === 0 && e.qty === undefined;
+    if (untouched && !(fam && x.roles[fam])) points.push({ base: e.base!, family: fam });
+    else kept.push(e);
+  }
+  return points.length ? { kept, points } : null;
+}
+
 function computeItemListOwn(
   category: RateCategoryConfig,
   spec: ItemListPricingSpec,
@@ -3681,11 +3751,16 @@ function computeItemListOwn(
    * edit index on the panel: dropping only its view would hand the next block's edits to the wrong item.
    */
   const merge = applyFamilyMerge(spec, assembleItems(decoded, modelItems, familyAttr(spec)), [rowText, ownText, headingNoteText].join(" | "));
-  const edits: ItemListEditState = merge ? { ...decoded, items: merge.kept.map((i) => decoded.items[i]) } : decoded;
-  if (probe) probe.edits = edits;
+  const editsMerged: ItemListEditState = merge ? { ...decoded, items: merge.kept.map((i) => decoded.items[i]) } : decoded;
+  // VRF-5 (owner R1 18:14-18:21): on a row whose ITEM 1 is a unit, a further MODEL item of any other family (an accessory the
+  // BoQ says the unit's price includes, a "none of these", a family-less item) is folded off the row: never priced as an item,
+  // never blocking -- an accessory becomes the unit's own extra line (`withExtras`), anything else a note point
+  const folded = foldedModelItems(spec, editsMerged, modelItems);
+  const edits: ItemListEditState = folded ? { ...editsMerged, items: folded.kept } : editsMerged;
+  if (probe) { probe.edits = edits; if (folded) probe.folded = folded.points; }
   // VRF-3a (Q3): the helper may split only a row none of whose entries came from a split
   const anyHelper = edits.items.some((e) => e.helper);
-  const assembled0 = merge ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
+  const assembled0 = merge && !folded ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
   const assembled = spec.split && !anyHelper ? assembled0.map((a) => ({ ...a, splitAllowed: true as const })) : assembled0;
   // SLICE 12c-S (owner S2 / S10): the picker offers only the units the chosen items can be priced in.
   const chosenFamilies = assembled.map((a) => {
@@ -4014,7 +4089,9 @@ function computeItemListOwn(
   // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
   const unitBar = ((): ItemListView["unitBar"] => {
     if (isLotUnit(spec, unit) && spec.lot_units) {
-      return { tone: "red", title: spec.lot_units.bar, lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+      // VRF-5 (owner wording): a unit with its own bar title ("per HP") says so; every other lot unit keeps the one bar
+      const own = Object.entries(spec.lot_units.bar_by_unit ?? {}).find(([u]) => u.trim().toLowerCase() === unit.trim().toLowerCase())?.[1];
+      return { tone: "red", title: own ?? spec.lot_units.bar, lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
     }
     if (!perSetRow || !spec.per_set) return undefined;
     const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? String(rowQty) : "-";
@@ -4116,7 +4193,7 @@ function computeItemListOwn(
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 /** VRF-3b: Electrical's own per-metre cable rate for one spec (the helper's compute on that category), or why not. */
-export type CableRate = (category: string, attrs: Record<string, string>) => { supply: number; install: number } | { reason: string };
+export type CableRate = (category: string, attrs: Record<string, string>, unit?: string) => { supply: number; install: number } | { reason: string };
 
 const EXTRA_LINE_ORDER: ExtraLineId[] = ["copper_supply", "copper_return", "ins_supply", "ins_return", "power", "comm"];
 
@@ -4140,6 +4217,8 @@ function withExtras(
   cableRate: CableRate | undefined,
   own: ItemListSuggestion,
   probe: OwnPassProbe,
+  /** VRF-5 (owner R1): the row's own category -- a VRF accessory line is priced by VRF's own rules */
+  category?: RateCategoryConfig,
 ): ItemListSuggestion {
   const x: ExtrasSpec = spec.extras!;
   const view = own.itemList!;
@@ -4160,16 +4239,30 @@ function withExtras(
   const incSpec = new Map(x.includes.map((i) => [i.id, i]));
   const activeIn = (set: Set<ExtraIncludeId>, id: ExtraIncludeId) => set.has(id) && (!incSpec.get(id)?.needs || set.has(incSpec.get(id)!.needs!));
   const active = (id: ExtraIncludeId) => activeIn(on, id);
+  // VRF-5 (owner R1): the accessories -- the calculator's tick boxes beside the four; on a BoQ row the model's per-item answers,
+  // plus an accessory the model listed as an item of its own on the unit row (folded off it: every unit of its role carries it)
+  const accs = x.accessories ?? [];
+  const sg = x.safeguard;
+  const onAcc = new Set<string>(calculator ? String(overrides?.[EXTRAS_INCLUDES_KEY] ?? "").split(",").map((t) => t.trim()).filter((t) => accs.some((a) => a.id === t)) : []);
+  const inclOf = (i: number) => {
+    const e = edits0.items[i];
+    return boqInclusionsOf(e && e.base !== null ? modelItems0[e.base] : undefined, x.from_model, sg);
+  };
+  const foldedPts = probe.folded ?? [];
+  const foldedAcc = new Set<string>(foldedPts.map((p) => accs.find((a) => a.family && a.family === p.family)?.id).filter((t): t is string => !!t));
+  const accOnFor = (i: number): Set<string> => (perItem ? new Set([...inclOf(i).accessories, ...foldedAcc]) : onAcc);
   const includesView: ItemListView["extrasIncludes"] = calculator
-    ? { title: L.includes_title, options: x.includes.map((i) => {
+    ? { title: L.includes_title, options: [...x.includes.map((i) => {
         const blocked = !!i.needs && !on.has(i.needs);
         return { id: i.id, label: i.label, checked: on.has(i.id) && !blocked, ...(blocked ? { disabled: true, note: i.needs_line } : {}) };
-      }) }
+      }), ...accs.map((a) => ({ id: a.id as ExtraIncludeId, label: a.label, checked: onAcc.has(a.id) }))] }
     : undefined;
   const rowClassOk = !isLotUnit(spec, view.unit) && view.unitClass === x.row_class;
-  const anyOn = perItem ? view.items.some((_b, i) => [...onFor(i)].some((id) => activeIn(onFor(i), id))) : [...on].some((id) => active(id));
+  const anyAcc = view.items.some((b, i) => !!b.family && !!x.roles[b.family] && accs.some((a) => a.roles.includes(x.roles[b.family!]) && accOnFor(i).has(a.id)));
+  const anyOn = (perItem ? view.items.some((_b, i) => [...onFor(i)].some((id) => activeIn(onFor(i), id))) : [...on].some((id) => active(id)))
+    || anyAcc || (perItem && foldedPts.length > 0);
   if (!anyOn || !rowClassOk || view.items.length === 0) {
-    return includesView ? { ...own, itemList: { ...view, extrasIncludes: includesView } } : own;
+    return withScope(spec, items, ctx, ext, overrides, includesView ? { ...own, itemList: { ...view, extrasIncludes: includesView } } : own, probe);
   }
 
   const edits = probe.edits ?? view.editState;
@@ -4282,6 +4375,95 @@ function withExtras(
   const tagText = (t: ExtraFieldView["tag"]) => (t === "default" ? L.tag_default : t === "picked" ? L.tag_picked : t === "boq" ? L.tag_boq : t === "follows" ? L.tag_follows : undefined);
   const num = (s: string | undefined) => (s === undefined || s.trim() === "" ? null : Number(s.trim()));
 
+  // VRF-5 (owner R1 SAFEGUARD, P0 (b)): an inclusion the ROW's own text states is added; one a heading / note states is added
+  // UNLESS the BoQ quotes that item on a row of its own (`ownRowQuotes`), and either way the row says "please review"
+  const unitFams = new Set(Object.keys(x.roles));
+  const sheetLines = ctx.sheetLines ?? [];
+  const decide = (i: number, id: string, label: string): { add: boolean; point?: string } => {
+    if (!perItem || !sg) return { add: true };
+    const inc = inclOf(i);
+    const where = (inc.where[id] ?? "").trim();
+    if (where !== "" && where.toLowerCase() === sg.row_value.toLowerCase()) return { add: true };
+    const whereWord = where !== "" ? where.toLowerCase() : (sg.lines.where_unknown ?? "a heading or note");
+    const wording = inc.wording[id] ? (sg.lines.wording ?? " ({wording})").replace("{wording}", inc.wording[id].toLowerCase()) : "";
+    const quotes = ownRowQuotes(sg.own_row[id], sheetLines, ctx.excelRow, unitFams);
+    if (quotes.length) {
+      const rows = quotes.slice(0, 4).map((q) => `${q.sheet ? `${q.sheet} ` : ""}row ${q.row}`).join(", ") + (quotes.length > 4 ? ` and ${quotes.length - 4} more` : "");
+      return { add: false, point: sg.lines.excluded.replace("{label}", label).replace("{where}", whereWord).replace("{wording}", wording).replace("{rows}", rows) };
+    }
+    return { add: true, point: sg.lines.added.replace("{label}", label).replace("{where}", whereWord).replace("{wording}", wording) };
+  };
+  // VRF-5 (owner R1, ANSWER 4): ONE accessory line on one unit -- quantity (typed / the BoQ's / the default by band), the per-unit
+  // rate by the item's own rules, figures = quantity x rate, each rounded up to the rupee. Optional: never blocks the row.
+  const remoteWords = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
+  const accessoryLine = (acc: AccessorySpec, lineId: ExtraLineId, i: number, role: "indoor" | "outdoor", bandValue: number | null,
+                         typed: Record<string, string>, boqQty: string | undefined): ExtraLineView => {
+    lineNo++;
+    const heading = `Item ${lineNo} · ${L.heading_tail} · ${acc.electrical ? `from ${acc.electrical.label}` : (L.acc_from ?? "from VRF")}`;
+    const band = acc.bands ? extraBandOf(acc.bands[role] ?? [], bandValue) : null;
+    const bandRates = band ? pricingInputRates(items, band.input) : null;
+    const pos = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null);
+    const qDefault = acc.electrical ? 1 : (acc.input ? pos(pricingInputFactor(items, acc.input)) : pos(bandRates?.qty));
+    const qBoq = readQtyWords(boqQty);
+    const q = typed.qty !== undefined ? { raw: typed.qty, tag: "picked" as const } : qBoq !== null ? { raw: fmtMm(qBoq), tag: "boq" as const }
+      : { raw: qDefault !== null ? fmtMm(qDefault) : "", tag: qDefault !== null ? ("default" as const) : undefined };
+    const qty = num(q.raw);
+    let what = acc.title;
+    let aliasLine: string | undefined;
+    let rate: { supply: number; install: number } | { reason: string } | null = null;
+    let reason: string | undefined;
+    if (acc.electrical) {
+      const amp = pos(bandRates?.[acc.electrical.rating_key]);
+      if (amp === null) reason = (L.acc_default_needed ?? "default needed - set it in Pricing Inputs");
+      else {
+        what = acc.electrical.template.replace("{amp}", fmtMm(amp));
+        // VRF-5 (owner ANSWER 6): an isolator the BoQ names prices as the default MCCB, said in the working
+        const alias = acc.electrical.alias;
+        if (alias) { try { if (new RegExp(alias.words, "i").test(remoteWords)) aliasLine = alias.line.replace("{item}", what); } catch { /* a bad pattern never fires */ } }
+        rate = cableRate ? cableRate(acc.electrical.category, { ...(acc.electrical.fill ?? {}), [acc.electrical.item_attr]: what, [acc.electrical.qty_attr]: "1" }, "Nos")
+          : { reason: L.not_loaded.replace("{rules}", acc.electrical.label) };
+      }
+    } else if (acc.family && category) {
+      const fa = familyAttr(spec);
+      const sku = items.find((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === acc.family);
+      const unitWord = String(sku?.unit ?? acc.unit_word);
+      const attrs: Record<string, string> = {};
+      if (acc.choice) {
+        const hit = Object.entries(acc.choice.words).find(([, w]) => { try { return new RegExp(w, "i").test(remoteWords); } catch { return false; } });
+        attrs[acc.choice.attr] = typed[acc.choice.attr] ?? (hit ? hit[0] : acc.choice.default);
+        what = `${attrs[acc.choice.attr]} ${acc.title}`;
+      }
+      const r = computeItemListOwn(category, spec, items, { ...lineCtx(category.category_id), unit: unitWord } as RowContextWithUnit, undefined, false,
+        { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: acc.family, attrs }] }) }) as ItemListSuggestion;
+      const v = r.itemList;
+      rate = v?.rowPriced && typeof v.totals?.supply_rate === "number" && typeof v.totals?.install_rate === "number"
+        ? { supply: v.totals.supply_rate, install: v.totals.install_rate } : { reason: v?.reason ?? L.not_priced };
+    } else rate = { reason: L.not_loaded.replace("{rules}", acc.title) };
+    if (!reason && rate && "reason" in rate) reason = rate.reason;
+    if (!reason && (qty === null || !Number.isFinite(qty) || qty <= 0)) reason = (L.acc_default_needed ?? "default needed - set it in Pricing Inputs");
+    const per = rate && "supply" in rate ? rate : undefined;
+    const working: string[] = aliasLine ? [aliasLine] : [];
+    let figures: Partial<Record<RateKind, number>> = {};
+    if (!reason && per && qty !== null) {
+      const s2 = Math.ceil(qty * per.supply - 1e-9);
+      const i2 = Math.ceil(qty * per.install - 1e-9);
+      working.push((L.acc_working ?? "{what}: {q} {unit} x supply {s} / install {i} = {S} / {I}").replace("{what}", what).replace("{q}", fmtMm(qty))
+        .replace("{unit}", acc.unit_word).replace("{s}", String(per.supply)).replace("{i}", String(per.install)).replace("{S}", String(s2)).replace("{I}", String(i2)));
+      figures = { supply_rate: s2, install_rate: i2, combined_rate: s2 + i2 };
+    }
+    const fields: ExtraFieldView[] = [
+      { id: "item", label: L.acc_label_item ?? "Item", value: what, typedValue: "", readOnly: true, userEdited: false },
+      { id: "qty", label: (L.acc_label_qty ?? "Quantity per unit ({unit})").replace("{unit}", acc.unit_word), value: q.raw, typedValue: typed.qty ?? "", required: true,
+        ...(q.tag ? { tag: q.tag, tagText: tagText(q.tag) } : {}), userEdited: typed.qty !== undefined, ...(q.raw.trim() === "" ? { blank: true } : {}) },
+    ];
+    return { id: lineId, unitIndex: i, lineNo, heading, title: acc.title, fields, state: reason ? "blank" : "priced", ...(reason ? { reason } : {}), working,
+      ...(per ? { perMetre: per } : {}), figures, optional: true, ...(perItem ? { fromBoq: true as const, fromBoqText: L.tag_boq } : {}) };
+  };
+  // VRF-5 (owner R1): the further items folded off the unit row that are no accessory -- a note point each, never priced
+  const foldedNotes = x.folded ? foldedPts.filter((p) => !accs.some((a) => a.family && a.family === p.family)).map((p) =>
+    (p.family === null || /^none of these$/i.test(p.family) ? x.folded!.none_line : x.folded!.other_line).replace("{family}", p.family ?? "")) : [];
+  const firstUnit = view.items.findIndex((b) => !!b.family && !!x.roles[b.family]);
+
   let lineNo = 0;
   const lineViews: ExtraLineView[] = [];
   const blocks = view.items.map((b, i): ItemBlockView => {
@@ -4295,7 +4477,15 @@ function withExtras(
     const set = ex.set ?? {};
     // VRF-4: the model item this block came from (a split module, or a block whose family the pricer changed, keeps it)
     const modelItem = e && e.base !== null ? modelItems[e.base] : undefined;
-    const itemOn = onFor(i);
+    // VRF-5 (owner R1 SAFEGUARD): the four as the safeguard leaves them, with the review points it raised
+    const itemOn0 = onFor(i);
+    const reviewPts: string[] = [];
+    const itemOn = new Set([...itemOn0].filter((id) => {
+      if (!activeIn(itemOn0, id)) return true;
+      const d = decide(i, id, incSpec.get(id)?.label ?? id);
+      if (d.point) reviewPts.push(d.point);
+      return d.add;
+    })) as Set<ExtraIncludeId>;
     const boq = perItem ? boqOf(i).values : {};
     const said = (line: string, field: string): string | undefined => {
       const v = modelItem?.attributes?.[`extra_${line}_${field}`]?.value;
@@ -4459,21 +4649,27 @@ function withExtras(
       // the spec as a whole (a typed "4C x 16", the BoQ's words, else the Pricing Inputs default) seeds the cores and the size
       const sp = pick(id, "spec", def);
       const parsed = readCableSpecWords(sp.raw);
-      const seeded = (field: string, seed: string | undefined) => {
+      // VRF-5 (F2): the BoQ's words name the cable but no size -> the band's default spec (Pricing Inputs); an armour / conductor
+      // word the words state sets that attribute; a length they state is used (a range -> the higher figure). Never "Size needed"
+      // while a default exists. Gated on the config's words for it (v61), so an older config is byte-identical.
+      const wordsOnly = sp.tag === "boq" && parsed === null && L.cable_words_default !== undefined && def !== undefined;
+      const defParsed = wordsOnly ? readCableSpecWords(def!) : null;
+      const kindWords: { armour?: string; conductor?: string } = wordsOnly ? readCableKindWords(sp.raw) : {};
+      const seeded = (field: string, seed: string | undefined, seedTag?: ExtraFieldView["tag"]) => {
         const typed = set[id]?.[field];
         if (typed !== undefined) return { raw: typed, tag: "picked" as const, typed };
         const boq = said(id, field);
         if (boq !== undefined) return { raw: boq, tag: "boq" as const, typed: undefined };
-        return { raw: seed ?? "", tag: seed !== undefined ? sp.tag : undefined, typed: undefined };
+        return { raw: seed ?? "", tag: seed !== undefined ? (seedTag ?? sp.tag) : undefined, typed: undefined };
       };
       // K1b (owner ANSWER 2): conductor, armour, cores and size -- the choices Electrical's wiring_cabling stocks (read only);
       // VRF-4 B2: Electrical's own attribute ids come from the config (`cable.conductor_attr` / `armour_attr`)
       const M = x.cable.conductor_attr ?? "material";
       const A = x.cable.armour_attr ?? "insulation";
-      const mp = seeded("conductor", x.cable.attrs[M]);
-      const ap = seeded("armour", x.cable.attrs[A]);
-      const cp = seeded("cores", parsed ? String(parsed.cores) : undefined);
-      const zp = seeded("sqmm", parsed ? String(parsed.sqmm) : undefined);
+      const mp = wordsOnly ? seeded("conductor", kindWords.conductor ?? x.cable.attrs[M], kindWords.conductor ? "boq" : "default") : seeded("conductor", x.cable.attrs[M]);
+      const ap = wordsOnly ? seeded("armour", kindWords.armour ?? x.cable.attrs[A], kindWords.armour ? "boq" : "default") : seeded("armour", x.cable.attrs[A]);
+      const cp = defParsed ? seeded("cores", String(defParsed.cores), "default") : seeded("cores", parsed ? String(parsed.cores) : undefined);
+      const zp = defParsed ? seeded("sqmm", String(defParsed.sqmm), "default") : seeded("sqmm", parsed ? String(parsed.sqmm) : undefined);
       const conductorOptions = strsOf(cableSkus.map((it) => it.attributes?.[M])).sort();
       const armourOptions = strsOf(cableOf({ [M]: mp.raw }).map((it) => it.attributes?.[A])).sort();
       const coresOptions = numsOf(cableOf({ [M]: mp.raw, [A]: ap.raw }).map((it) => it.attributes?.[x.cable.cores_attr])).map(fmtMm);
@@ -4494,8 +4690,20 @@ function withExtras(
             : { reason: L.not_loaded.replace("{rules}", x.cable.label) })
         : null;
       if (!why && rate && "reason" in rate) why = rate.reason;
-      const lenF = lengthField(id, lengthDefault(x.cable_length_input));
+      // VRF-5 (F2): a length the cable's own words state, where nothing else stated one (a range -> the higher figure, noted)
+      const lenWords = sp.tag === "boq" && L.cable_words_default !== undefined && set[id]?.length === undefined && said(id, "length") === undefined
+        ? readLengthRange(sp.raw) : null;
+      const lenF0 = lengthField(id, lengthDefault(x.cable_length_input));
+      const lenF: ExtraFieldView = lenWords
+        ? { ...lenF0, value: lenWords.value, tag: "boq", tagText: tagText("boq"), blank: undefined,
+            ...(lenWords.range && L.length_range ? { note: L.length_range.replace("{a}", lenWords.range[0]).replace("{b}", lenWords.range[1]).replace("{v}", lenWords.value) } : {}) }
+        : lenF0;
       const cntF = countField(id);
+      // VRF-5 (F2, U2): which values came from the BoQ and which are the default
+      const fromBoqKinds = [kindWords.armour ? kindWords.armour.toLowerCase() : null, kindWords.conductor ? kindWords.conductor.toLowerCase() : null, lenWords ? `${lenWords.value} m` : null]
+        .filter((t): t is string => !!t);
+      const wordsNote = wordsOnly ? L.cable_words_default!.replace("{said}", sp.raw.trim()).replace("{spec}", def!)
+        .replace("{boq}", fromBoqKinds.length ? (L.cable_words_boq ?? "; from the BoQ: {list}").replace("{list}", fromBoqKinds.join(", ")) : "") : undefined;
       const tagOf = (q: { tag?: ExtraFieldView["tag"]; typed?: string }) => ({ ...(q.tag ? { tag: q.tag, tagText: tagText(q.tag) } : {}), userEdited: q.typed !== undefined });
       const opt = (opts: string[], v: string) => (v !== "" && !opts.includes(v) ? [...opts, v] : opts);
       const fields: ExtraFieldView[] = [
@@ -4503,27 +4711,46 @@ function withExtras(
         { id: "armour", label: L.label_armour, value: ap.raw, typedValue: "", options: opt(armourOptions, ap.raw), required: true, ...tagOf(ap), ...(ap.raw === "" ? { blank: true } : {}) },
         { id: "cores", label: L.label_cores, value: cp.raw === "" ? "" : fmtMm(cores), typedValue: "", options: opt(coresOptions, cp.raw === "" ? "" : fmtMm(cores)), required: true, ...tagOf(cp), ...(why ? { blank: true } : {}) },
         { id: "sqmm", label: L.label_sqmm, value: zp.raw === "" ? "" : fmtMm(sqmm), typedValue: "", options: opt(sqmmOptions, zp.raw === "" ? "" : fmtMm(sqmm)), required: true, ...tagOf(zp), ...(why ? { blank: true } : {}) },
-        { id: "spec", label: L.label_spec, value: !why ? value : "", typedValue: "", readOnly: true, userEdited: false, note: L.cable_note },
+        { id: "spec", label: L.label_spec, value: !why ? value : "", typedValue: "", readOnly: true, userEdited: false, note: wordsNote ?? L.cable_note },
         lenF, cntF,
       ];
       // the working names the conductor and the armour only where they are not the default (copper, unarmoured)
       const isDefaultKind = mp.raw === x.cable.attrs[M] && ap.raw === x.cable.attrs[A];
       mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, isDefaultKind ? value : `${value} ${mp.raw.toLowerCase()} ${ap.raw.toLowerCase()}`));
     }
+    // VRF-5 (owner R1, ANSWER 4, U10): the ACCESSORIES this unit's price includes -- each its own line under the unit, like the
+    // four: the quantity from the BoQ, else the Pricing Inputs default (by the unit's band), typed wins; priced by its own rules
+    // (a VRF family by VRF's, the MCCB by Electrical's, read only). A line that cannot price is a note: it never blocks the unit.
+    const accOn = accOnFor(i);
+    for (const acc of accs) {
+      if (!acc.roles.includes(role)) continue;
+      const lineId = `acc_${acc.id}` as ExtraLineId;
+      if (!accOn.has(acc.id) || removed.has(lineId)) continue;
+      const d = decide(i, acc.id, acc.label);
+      if (d.point) reviewPts.push(d.point);
+      if (!d.add) continue;
+      mine.push(accessoryLine(acc, lineId, i, role, bandValue, set[lineId] ?? {}, perItem ? inclOf(i).qty[acc.id] : undefined));
+    }
     lineViews.push(...mine);
     // VRF-4 U8 (owner 2026-11-06): a removed copper line names the insulation it took with it
     const takesIns = (id: ExtraLineId) => (id === "copper_supply" && want.includes("ins_supply")) || (id === "copper_return" && want.includes("ins_return"));
-    const removedList = want.filter((id) => removed.has(id)).map((id) => ({ id, label: takesIns(id) ? `${titleOf(id)} (and its insulation)` : titleOf(id) }));
+    const accRemoved = accs.filter((a) => a.roles.includes(role) && accOn.has(a.id) && removed.has(`acc_${a.id}` as ExtraLineId))
+      .map((a) => ({ id: `acc_${a.id}` as ExtraLineId, label: a.title }));
+    const removedList = [...want.filter((id) => removed.has(id)).map((id) => ({ id, label: takesIns(id) ? `${titleOf(id)} (and its insulation)` : titleOf(id) })), ...accRemoved];
     // VRF-4 (O-5 "...we can add a note"): on a BoQ row, what the BoQ says this unit's price includes, read by the model
     const incLabels = x.includes.filter((inc) => act(inc.id)).map((inc) => inc.label.toLowerCase());
     const boqNote = perItem && incLabels.length && L.boq_note ? L.boq_note.replace("{list}", incLabels.join(", ")) : undefined;
-    if (!want.length && !removedList.length) return { ...b, lineNo: unitNo };
-    return { ...b, lineNo: unitNo, extras: { lines: mine, removed: removedList, ...(removedList.length ? { removedNote: L.removed_note } : {}), ...(boqNote ? { boqNote } : {}) } };
+    const notePts = i === firstUnit ? foldedNotes : [];
+    if (!mine.length && !removedList.length && !reviewPts.length && !notePts.length) return { ...b, lineNo: unitNo };
+    return { ...b, lineNo: unitNo, extras: { lines: mine, removed: removedList, ...(removedList.length ? { removedNote: L.removed_note } : {}), ...(boqNote ? { boqNote } : {}),
+      ...(reviewPts.length && sg ? { review: { title: sg.lines.review_title, points: reviewPts } } : {}),
+      ...(notePts.length && x.folded ? { notes: { title: x.folded.title, points: notePts } } : {}) } };
   });
 
   // ── the row: every unit and every extra is a LINE; all or nothing (O-6 "n of m items need a person") ──
   const lines = blocks.length + lineViews.length;
-  const badExtras = lineViews.filter((l) => l.state !== "priced").length;
+  // VRF-5 (owner R1): an accessory line that cannot price never blocks the unit (it shows its reason as a note)
+  const badExtras = lineViews.filter((l) => l.state !== "priced" && !l.optional).length;
   const bad = blocks.filter((b) => b.state !== "priced").length + badExtras;
   const rowPriced = view.rowPriced && badExtras === 0;
   const values: Record<string, number> = {};
@@ -4533,7 +4760,7 @@ function withExtras(
     if (typeof view.totals?.install_rate === "number") values.install_rate = sum("install_rate");
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
   }
-  const reason = rowPriced ? undefined : (view.rowPriced ? lineViews.find((l) => l.state !== "priced")?.reason : view.reason);
+  const reason = rowPriced ? undefined : (view.rowPriced ? lineViews.find((l) => l.state !== "priced" && !l.optional)?.reason : view.reason);
   const { reason: _r, totals: _t, ...rest } = view;
   const nextView: ItemListView = {
     ...rest,
@@ -4546,13 +4773,102 @@ function withExtras(
   };
   const basis = rowPriced ? `${own.basis.replace(/ · \d+ items?$/, "")} · ${lines} item${lines === 1 ? "" : "s"}` : own.basis;
   const derivation = rowPriced ? [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`] : (reason ? [plainPricerText(reason, items)] : own.workings?.derivation ?? []);
-  return {
+  return withScope(spec, items, ctx, ext, overrides, {
     ...own,
     values,
     basis,
     workings: { ...(own.workings ?? { attributes: [], matchedRows: [] }), derivation, finalValues: { ...values } },
     itemList: nextView,
-  } as ItemListSuggestion;
+  } as ItemListSuggestion, probe);
+}
+
+/** VRF-5 (owner R4-R8): the row's scope override key in the calculator ("BoQ scope"); a BoQ row reads the model's answer. */
+export const SCOPE_OVERRIDE_KEY = "__scope__";
+
+/**
+ * VRF-5 (owner R4 "you can add"; R6 "for installation only use 1.5 times the installation rate as per catalog and declare the
+ * same in the note clearly"; R7 "1.5 is after applying any installtion markup or any other required markip"; R8 "model the 1.5
+ * multiplier as 50% installation only multiplier in the pricing input sheets"). The ROW's scope, applied LAST to every line of
+ * the row (each unit, each extra): supply only -> install 0; installation only -> supply 0 and install = the line's FINAL install
+ * (after every markup / rounding) x (1 + the Pricing Input uplift), rounded up to the rupee once, after the multiplier; a line
+ * with no install rate refuses with a note. A config without `extras.scope`, and a supply + installation row, are unchanged.
+ */
+function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+                   overrides: Record<string, string> | undefined, res: ItemListSuggestion, _probe?: OwnPassProbe): ItemListSuggestion {
+  const sc = spec.extras?.scope;
+  const view = res.itemList;
+  if (!sc || !view) return res;
+  const calculator = view.unitPickable || ctx.noRow === true;
+  let value = "";
+  if (calculator) value = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  else {
+    const id = spec.extras?.from_model?.scope;
+    for (const it of id ? (ext?.items ?? []) : []) {
+      const v = it.attributes?.[id!]?.value;
+      if (typeof v === "string" && v.trim() !== "" && v.trim() !== "None") { value = v.trim(); break; }
+    }
+  }
+  const picker = calculator ? { title: sc.title, options: sc.options, value: sc.options.includes(value) ? value : sc.options[0] } : undefined;
+  const L = sc.lines;
+  if (value !== sc.supply_only && value !== sc.install_only) {
+    return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
+  }
+  const supplyOnly = value === sc.supply_only;
+  const uplift = supplyOnly ? null : pricingInputFactor(items, sc.uplift_input);
+  const pct = uplift === null ? "" : `${fmtN(uplift * 100)}%`;
+  // the lines of the row, each with its own figures: the units (a block per unit) and every extra line that priced
+  type Ln = { title: string; f: Partial<Record<RateKind, number>> };
+  const lns: Ln[] = [];
+  view.items.forEach((b) => {
+    if (b.state === "priced") lns.push({ title: b.family ?? "item", f: b.figures });
+    for (const l of b.extras?.lines ?? []) if (l.state === "priced") lns.push({ title: l.title, f: l.figures });
+  });
+  const sumOf = (k: "supply_rate" | "install_rate") => lns.reduce((a, l) => a + (l.f[k] ?? 0), 0);
+  const perLine = view.rowPriced && typeof view.totals?.install_rate === "number" && sumOf("install_rate") === view.totals.install_rate
+    && sumOf("supply_rate") === view.totals.supply_rate;
+  const points: string[] = [];
+  let refuse: string | undefined;
+  const adj = (f: Partial<Record<RateKind, number>>, title: string): Partial<Record<RateKind, number>> => {
+    const s0 = f.supply_rate ?? 0;
+    const i0 = f.install_rate ?? 0;
+    if (supplyOnly) return { supply_rate: s0, install_rate: 0, combined_rate: s0 };
+    if (uplift === null) { refuse = L.uplift_missing; return f; }
+    if (!(i0 > 0)) { refuse ??= L.no_install.replace("{title}", title); return { supply_rate: 0, install_rate: 0, combined_rate: 0 }; }
+    const i1 = Math.ceil(i0 * (1 + uplift) - 1e-9);
+    points.push(L.install_only_line.replace("{title}", title).replace("{rate}", String(i0)).replace("{pct}", pct).replace("{figure}", String(i1)));
+    return { supply_rate: 0, install_rate: i1, combined_rate: i1 };
+  };
+  let items2 = view.items;
+  let totals: Partial<Record<RateKind, number>> | undefined;
+  if (view.rowPriced && view.totals) {
+    if (perLine) {
+      items2 = view.items.map((b) => ({
+        ...b,
+        ...(b.state === "priced" ? { figures: adj(b.figures, b.family ?? "item") } : {}),
+        ...(b.extras ? { extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" ? { ...l, figures: adj(l.figures, l.title) } : l)) } } : {}),
+      }));
+      const all = items2.flatMap((b) => [...(b.state === "priced" ? [b.figures] : []), ...(b.extras?.lines ?? []).filter((l) => l.state === "priced").map((l) => l.figures)]);
+      const sum = (k: RateKind) => all.reduce((a, f) => a + (f[k] ?? 0), 0);
+      totals = { supply_rate: sum("supply_rate"), install_rate: sum("install_rate"), combined_rate: sum("supply_rate") + sum("install_rate") };
+    } else {
+      totals = adj(view.totals, L.row_title ?? "the row");
+    }
+  }
+  const note = supplyOnly ? L.supply_only_note : L.install_only_note.replace("{pct}", pct || "-");
+  const scopeView = { value, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
+  if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
+  if (refuse) {
+    const { totals: _t, ...rest } = view;
+    return { ...res, values: {}, workings: { ...res.workings, derivation: [refuse], finalValues: {} },
+             itemList: { ...rest, rowPriced: false, reason: refuse, scope: scopeView } };
+  }
+  const values: Record<string, number> = { supply_rate: totals.supply_rate ?? 0, install_rate: totals.install_rate ?? 0, combined_rate: (totals.supply_rate ?? 0) + (totals.install_rate ?? 0) };
+  return {
+    ...res,
+    values,
+    workings: { ...res.workings, derivation: [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`], finalValues: { ...values } },
+    itemList: { ...view, items: items2, totals: { ...values } as Partial<Record<RateKind, number>>, scope: scopeView },
+  };
 }
 
 /** PURE. The size an item's number was READ as, for a section to mirror (owner D3b: "for pricing we consider
@@ -4590,7 +4906,7 @@ function computeItemList(
   if (declared.length === 0 && spec.extras) {
     const probe: OwnPassProbe = {};
     const own = computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides, probe) as ItemListSuggestion;
-    return own.itemList ? withExtras(spec, items, ctx, ext, overrides, configOf, cableRate, own, probe) : own;
+    return own.itemList ? withExtras(spec, items, ctx, ext, overrides, configOf, cableRate, own, probe, category) : own;
   }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);

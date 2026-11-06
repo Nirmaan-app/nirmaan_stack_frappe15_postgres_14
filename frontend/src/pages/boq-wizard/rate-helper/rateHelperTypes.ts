@@ -577,6 +577,13 @@ export interface RateHelperRowContext {
    * refnet) on a per-Set row of a config declaring `per_set.counted.from_sheet`. OPTIONAL: the calculator omits it.
    */
   rowQuantities?: Readonly<Record<number, number>>;
+  /**
+   * VRF-5 (owner R1 SAFEGUARD): the BoQ's quoting rows -- each line item of this sheet (its excel row and its text), built by
+   * `buildRowContext` beside `rowQuantities`; the helper adds each row's model item 1 family from the run. Read ONLY by the
+   * own-row safeguard of a config declaring `extras.safeguard`. OPTIONAL: the calculator omits it. `sheet` is set on a row
+   * of ANOTHER sheet of the same BoQ (absent = this sheet).
+   */
+  sheetLines?: ReadonlyArray<{ row: number; text: string; family1?: string | null; sheet?: string }>;
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

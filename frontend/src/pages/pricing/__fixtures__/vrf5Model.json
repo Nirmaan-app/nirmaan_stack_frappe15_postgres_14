@@ -1,0 +1,944 @@
+{
+ "_about": "VRF-5 (owner R1 / R2 / R4-R8 / R5 / ANSWER 4, 2026-11-06): the hvac_vrf keys the K1 tests and the v61 mint share. Read by vrf5Model.test.ts and scripts/_instruments/mint_hvac_v61_vrf5.py; test_vrf_v61 proves the asset equals it.",
+ "accessories": [
+  {
+   "id": "frame",
+   "label": "MS frame",
+   "title": "MS frame (base / stand)",
+   "roles": [
+    "outdoor"
+   ],
+   "family": "MS Angle Base Frame Structure",
+   "bands": {
+    "outdoor": [
+     {
+      "max": 8,
+      "input": "vrf_acc_frame_outdoor_upto_8hp"
+     },
+     {
+      "max": 14,
+      "input": "vrf_acc_frame_outdoor_8_to_14hp"
+     },
+     {
+      "max": null,
+      "input": "vrf_acc_frame_outdoor_above_14hp"
+     }
+    ]
+   },
+   "unit_word": "Kg"
+  },
+  {
+   "id": "gas",
+   "label": "Gas charge",
+   "title": "Extra gas charge R-410",
+   "roles": [
+    "outdoor"
+   ],
+   "family": "Refrigerant Gas Filling (R-410)",
+   "bands": {
+    "outdoor": [
+     {
+      "max": 8,
+      "input": "vrf_acc_gas_outdoor_upto_8hp"
+     },
+     {
+      "max": 14,
+      "input": "vrf_acc_gas_outdoor_8_to_14hp"
+     },
+     {
+      "max": null,
+      "input": "vrf_acc_gas_outdoor_above_14hp"
+     }
+    ]
+   },
+   "unit_word": "Kg"
+  },
+  {
+   "id": "mccb",
+   "label": "MCCB / isolator",
+   "title": "MCCB / isolator",
+   "roles": [
+    "outdoor"
+   ],
+   "electrical": {
+    "category": "db_switchgear",
+    "discipline": "Electrical",
+    "item_attr": "mcb1_item",
+    "qty_attr": "mcb1_qty",
+    "label": "Electrical",
+    "template": "{amp}A FP MCCB",
+    "rating_key": "amp",
+    "fill": {
+     "db_shell_item": "None",
+     "mcb2_item": "None",
+     "mcb3_item": "None",
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None",
+     "db_shell_qty": "0",
+     "mcb2_qty": "0",
+     "mcb3_qty": "0",
+     "mcb4_qty": "0",
+     "mcb5_qty": "0",
+     "enclosure_qty": "0"
+    },
+    "alias": {
+     "words": "\\bisolator\\b",
+     "line": "BoQ says isolator - priced as the default {item} (owner 2026-11-06)"
+    }
+   },
+   "bands": {
+    "outdoor": [
+     {
+      "max": 8,
+      "input": "vrf_acc_mccb_outdoor_upto_8hp"
+     },
+     {
+      "max": 14,
+      "input": "vrf_acc_mccb_outdoor_8_to_14hp"
+     },
+     {
+      "max": null,
+      "input": "vrf_acc_mccb_outdoor_above_14hp"
+     }
+    ]
+   },
+   "unit_word": "Nos"
+  },
+  {
+   "id": "drain_pump",
+   "label": "Drain pump",
+   "title": "Drain pump",
+   "roles": [
+    "indoor"
+   ],
+   "family": "Drain Pump",
+   "input": "vrf_acc_drain_pump_per_indoor",
+   "unit_word": "Nos"
+  },
+  {
+   "id": "remote",
+   "label": "Remote",
+   "title": "Remote controller",
+   "roles": [
+    "indoor"
+   ],
+   "family": "Remote Controller",
+   "choice": {
+    "attr": "remote_type",
+    "default": "Cordless",
+    "words": {
+     "Wired": "\\b(?:wired|corded|with\\s+wire)\\b"
+    }
+   },
+   "input": "vrf_acc_remote_per_indoor",
+   "unit_word": "Nos"
+  },
+  {
+   "id": "refnet",
+   "label": "Refnet",
+   "title": "Refnet / Y-joint",
+   "roles": [
+    "indoor"
+   ],
+   "family": "Refnet/Y-Joint",
+   "input": "vrf_acc_refnet_per_indoor",
+   "unit_word": "Nos"
+  }
+ ],
+ "safeguard": {
+  "where_suffix": "_where",
+  "wording_suffix": "_wording",
+  "qty_suffix": "_qty_as_written",
+  "row_value": "Row",
+  "own_row": {
+   "copper": {
+    "words": [
+     "\\bcopper\\b[^|]*\\b(?:pip|tub)",
+     "\\brefrigerant\\s+pip",
+     "\\bcu\\s+pip"
+    ]
+   },
+   "insulation": {
+    "words": [
+     "\\binsulation\\b",
+     "\\bnitrile\\b",
+     "\\belastomeric\\b"
+    ]
+   },
+   "power": {
+    "words": [
+     "\\bpower\\s+(?:supply\\s+)?cabl",
+     "\\barmou?red\\b[^|]*\\bcabl",
+     "\\b\\d+(?:\\.\\d+)?\\s*(?:c|cores?)\\s*[x*]\\s*\\d+(?:\\.\\d+)?\\s*(?:sq|mm)"
+    ],
+    "not_words": [
+     "\\bcommunication\\b",
+     "\\bcontrol\\s+cabl",
+     "\\btransmission\\b",
+     "\\bsignal\\b",
+     "\\bshielded\\b"
+    ]
+   },
+   "comm": {
+    "words": [
+     "\\bcommunication\\s+cabl",
+     "\\bcontrol\\s+cabl",
+     "\\btransmission\\s+cabl",
+     "\\bsignal\\s+cabl",
+     "\\bshielded\\b"
+    ]
+   },
+   "frame": {
+    "words": [
+     "\\b(?:ms|m\\.s\\.)\\b[^|]*\\b(?:frame|stand|base|structure)",
+     "\\bodu\\s+stand",
+     "\\bangle\\s+(?:frame|base)"
+    ],
+    "families": [
+     "MS Angle Base Frame Structure"
+    ]
+   },
+   "gas": {
+    "words": [
+     "\\brefrigerant\\s+(?:gas|charg)",
+     "\\bgas\\s+(?:charg|fill|top)",
+     "\\btopping\\s+up\\b",
+     "\\badditional\\s+(?:refrigerant\\s+)?charg"
+    ],
+    "families": [
+     "Refrigerant Gas Filling (R-410)"
+    ]
+   },
+   "drain_pump": {
+    "words": [
+     "\\bdrain\\s+pump"
+    ],
+    "families": [
+     "Drain Pump"
+    ]
+   },
+   "remote": {
+    "words": [
+     "\\bremote\\b"
+    ],
+    "not_words": [
+     "\\bcentral\\b",
+     "\\btouch\\b"
+    ],
+    "families": [
+     "Remote Controller"
+    ]
+   },
+   "refnet": {
+    "words": [
+     "\\brefnet",
+     "\\by[\\s-]*joint",
+     "\\bbranch\\s+(?:joint|kit)",
+     "\\bheader\\b"
+    ],
+    "families": [
+     "Refnet/Y-Joint"
+    ]
+   },
+   "mccb": {
+    "words": [
+     "\\bmccb\\b",
+     "\\bisolator\\b"
+    ]
+   }
+  },
+  "lines": {
+   "review_title": "This row may include extras - please review",
+   "added": "{label}: stated in {where}{wording} - added (the BoQ has no row of its own for it)",
+   "excluded": "{label}: stated in {where}{wording} - NOT added: the BoQ quotes it on its own row ({rows})",
+   "where_unknown": "a heading or note",
+   "wording": " ({wording} wording)"
+  }
+ },
+ "folded": {
+  "title": "Also listed with the unit (not priced as an extra)",
+  "none_line": "An item the catalogue does not identify (not identified in the catalogue)",
+  "other_line": "{family} (not priced as an extra on a unit row)"
+ },
+ "scope": {
+  "options": [
+   "Supply + installation",
+   "Supply only",
+   "Installation only"
+  ],
+  "supply_only": "Supply only",
+  "install_only": "Installation only",
+  "uplift_input": "vrf_install_only_uplift",
+  "title": "BoQ scope",
+  "lines": {
+   "supply_only_note": "BoQ says supply only - no installation: install 0 on every line of this row.",
+   "install_only_note": "BoQ says installation only - no supply. Each line is priced at its final install x (1 + {pct}), rounded up to the rupee:",
+   "install_only_line": "{title} {rate} x (1 + {pct}) = {figure}",
+   "no_install": "BoQ says installation only, but {title} has no installation rate - price this row by hand",
+   "uplift_missing": "BoQ says installation only, but the Pricing Input 'VRF - installation-only uplift' is not set - set it in Pricing Inputs",
+   "row_title": "the row"
+  }
+ },
+ "extras_words": {
+  "cable_words_default": "BoQ says \"{said}\" - no size stated: priced at the default {spec} for this unit (Pricing Inputs){boq}.",
+  "cable_words_boq": "; from the BoQ: {list}",
+  "length_range": "BoQ says {a}-{b} m -> {v} m (the higher figure)",
+  "acc_from": "from VRF",
+  "acc_default_needed": "default needed - set it in Pricing Inputs",
+  "acc_working": "{what}: {q} {unit} x supply {s} / install {i} = {S} / {I}",
+  "acc_label_item": "Item",
+  "acc_label_qty": "Quantity per unit ({unit})"
+ },
+ "defaults_add": {
+  "discharge": {
+   "below_smallest": {
+    "size_attr": "capacity",
+    "then": "Side",
+    "rule": "discharge not stated - priced as Side: the smallest Top unit is {n} {unit}"
+   }
+  },
+  "brand": {
+   "several_rule": {
+    "one_of": "several brands stated ({said}) - Blue Star is one of them: priced as Blue Star",
+    "first_stocked": "several brands stated ({said}) - Blue Star is not one of them: priced as {make}, the first stated make the catalogue stocks for this item",
+    "none_stocked": "none of the stated makes ({said}) is in the catalogue - priced as Blue Star"
+   }
+  }
+ },
+ "from_model_add": {
+  "accessory_includes": {
+   "frame": "includes_frame",
+   "gas": "includes_gas",
+   "drain_pump": "includes_drain_pump",
+   "remote": "includes_remote",
+   "refnet": "includes_refnet",
+   "mccb": "includes_mccb"
+  },
+  "scope": "scope"
+ },
+ "questions_add": [
+  {
+   "id": "includes_copper_where",
+   "label": "Where copper piping is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_copper' is Yes: 'Row' when THIS row's own text says the price includes the copper piping; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_copper_wording",
+   "label": "How copper piping is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_copper' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_insulation_where",
+   "label": "Where insulation is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_insulation' is Yes: 'Row' when THIS row's own text says the price includes the insulation; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_insulation_wording",
+   "label": "How insulation is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_insulation' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_power_where",
+   "label": "Where power cable is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_power' is Yes: 'Row' when THIS row's own text says the price includes the power cable; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_power_wording",
+   "label": "How power cable is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_power' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_comm_where",
+   "label": "Where communication cable is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_comm' is Yes: 'Row' when THIS row's own text says the price includes the communication cable; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_comm_wording",
+   "label": "How communication cable is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_comm' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_frame",
+   "label": "Includes MS frame / stand / base",
+   "type": "choice",
+   "values": [
+    "Yes",
+    "No"
+   ],
+   "allow_none": true,
+   "note": "Yes when this row's text, or a heading or note that describes this unit, says the unit's price includes its MS frame / stand / base. Answer it HERE on the unit item -- never list it as a separate item of this row, unless the row itself is that item. No when it says it is extra or by others. 'None' when it is silent."
+  },
+  {
+   "id": "includes_frame_where",
+   "label": "Where MS frame / stand / base is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_frame' is Yes: 'Row' when THIS row's own text says the price includes the MS frame / stand / base; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_frame_wording",
+   "label": "How MS frame / stand / base is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_frame' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_frame_qty_as_written",
+   "label": "MS frame / stand / base quantity as written",
+   "type": "text",
+   "note": "A quantity the BoQ states for this unit's MS frame / stand / base ('2 nos', '15 kg'), copied exactly as written. Leave it out when none is stated."
+  },
+  {
+   "id": "includes_gas",
+   "label": "Includes extra refrigerant gas charge",
+   "type": "choice",
+   "values": [
+    "Yes",
+    "No"
+   ],
+   "allow_none": true,
+   "note": "Yes when this row's text, or a heading or note that describes this unit, says the unit's price includes its extra refrigerant gas charge. Answer it HERE on the unit item -- never list it as a separate item of this row, unless the row itself is that item. No when it says it is extra or by others. 'None' when it is silent."
+  },
+  {
+   "id": "includes_gas_where",
+   "label": "Where extra refrigerant gas charge is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_gas' is Yes: 'Row' when THIS row's own text says the price includes the extra refrigerant gas charge; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_gas_wording",
+   "label": "How extra refrigerant gas charge is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_gas' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_gas_qty_as_written",
+   "label": "extra refrigerant gas charge quantity as written",
+   "type": "text",
+   "note": "A quantity the BoQ states for this unit's extra refrigerant gas charge ('2 nos', '15 kg'), copied exactly as written. Leave it out when none is stated."
+  },
+  {
+   "id": "includes_drain_pump",
+   "label": "Includes drain pump",
+   "type": "choice",
+   "values": [
+    "Yes",
+    "No"
+   ],
+   "allow_none": true,
+   "note": "Yes when this row's text, or a heading or note that describes this unit, says the unit's price includes its drain pump. Answer it HERE on the unit item -- never list it as a separate item of this row, unless the row itself is that item. No when it says it is extra or by others. 'None' when it is silent."
+  },
+  {
+   "id": "includes_drain_pump_where",
+   "label": "Where drain pump is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_drain_pump' is Yes: 'Row' when THIS row's own text says the price includes the drain pump; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_drain_pump_wording",
+   "label": "How drain pump is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_drain_pump' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_drain_pump_qty_as_written",
+   "label": "drain pump quantity as written",
+   "type": "text",
+   "note": "A quantity the BoQ states for this unit's drain pump ('2 nos', '15 kg'), copied exactly as written. Leave it out when none is stated."
+  },
+  {
+   "id": "includes_remote",
+   "label": "Includes remote controller",
+   "type": "choice",
+   "values": [
+    "Yes",
+    "No"
+   ],
+   "allow_none": true,
+   "note": "Yes when this row's text, or a heading or note that describes this unit, says the unit's price includes its remote controller. Answer it HERE on the unit item -- never list it as a separate item of this row, unless the row itself is that item. No when it says it is extra or by others. 'None' when it is silent."
+  },
+  {
+   "id": "includes_remote_where",
+   "label": "Where remote controller is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_remote' is Yes: 'Row' when THIS row's own text says the price includes the remote controller; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_remote_wording",
+   "label": "How remote controller is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_remote' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_remote_qty_as_written",
+   "label": "remote controller quantity as written",
+   "type": "text",
+   "note": "A quantity the BoQ states for this unit's remote controller ('2 nos', '15 kg'), copied exactly as written. Leave it out when none is stated."
+  },
+  {
+   "id": "includes_refnet",
+   "label": "Includes refnet / Y-joint",
+   "type": "choice",
+   "values": [
+    "Yes",
+    "No"
+   ],
+   "allow_none": true,
+   "note": "Yes when this row's text, or a heading or note that describes this unit, says the unit's price includes its refnet / Y-joint. Answer it HERE on the unit item -- never list it as a separate item of this row, unless the row itself is that item. No when it says it is extra or by others. 'None' when it is silent."
+  },
+  {
+   "id": "includes_refnet_where",
+   "label": "Where refnet / Y-joint is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_refnet' is Yes: 'Row' when THIS row's own text says the price includes the refnet / Y-joint; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_refnet_wording",
+   "label": "How refnet / Y-joint is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_refnet' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_refnet_qty_as_written",
+   "label": "refnet / Y-joint quantity as written",
+   "type": "text",
+   "note": "A quantity the BoQ states for this unit's refnet / Y-joint ('2 nos', '15 kg'), copied exactly as written. Leave it out when none is stated."
+  },
+  {
+   "id": "includes_mccb",
+   "label": "Includes MCCB / isolator",
+   "type": "choice",
+   "values": [
+    "Yes",
+    "No"
+   ],
+   "allow_none": true,
+   "note": "Yes when this row's text, or a heading or note that describes this unit, says the unit's price includes its MCCB / isolator. Answer it HERE on the unit item -- never list it as a separate item of this row, unless the row itself is that item. No when it says it is extra or by others. 'None' when it is silent."
+  },
+  {
+   "id": "includes_mccb_where",
+   "label": "Where MCCB / isolator is stated",
+   "type": "choice",
+   "values": [
+    "Row",
+    "Heading",
+    "Note"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_mccb' is Yes: 'Row' when THIS row's own text says the price includes the MCCB / isolator; 'Heading' when only a heading above says so; 'Note' when only a note says so. An inclusion stated in a heading applies to every unit row under it."
+  },
+  {
+   "id": "includes_mccb_wording",
+   "label": "How MCCB / isolator is worded",
+   "type": "choice",
+   "values": [
+    "Price",
+    "Scope"
+   ],
+   "allow_none": true,
+   "note": "Only when 'includes_mccb' is Yes: 'Price' when the words say the PRICE / rate includes it ('rate shall include', 'inclusive of'); 'Scope' when they describe the system's scope of work ('the system comprises', 'scope includes')."
+  },
+  {
+   "id": "includes_mccb_qty_as_written",
+   "label": "MCCB / isolator quantity as written",
+   "type": "text",
+   "note": "A quantity the BoQ states for this unit's MCCB / isolator ('2 nos', '15 kg'), copied exactly as written. Leave it out when none is stated."
+  },
+  {
+   "id": "scope",
+   "label": "BoQ scope",
+   "type": "choice",
+   "values": [
+    "Supply + installation",
+    "Supply only",
+    "Installation only"
+   ],
+   "allow_none": true,
+   "note": "The ROW's scope, the same answer on every item of the row: 'Supply only' when the row (or a heading over it) prices the supply alone ('Supply of ...', 'supply only'); 'Installation only' when it prices the installation alone ('Installation charges ...', 'installation only', 'labour'); 'Supply + installation' when it prices both ('supply, installation, testing and commissioning'). 'None' when it does not say."
+  }
+ ],
+ "item_note_add": " VRF-5: an accessory the BoQ says is part of a unit's price (frame / stand, gas charge, drain pump, remote, refnet / Y-joint, MCCB / isolator, AV pads and the like) is answered on the unit item (its includes_* questions), never listed as a separate item, unless the row itself is that item. A central controller described as BACnet / BMS compatible is the 'Touch Screen Central Controller' (the BACnet item only when the row itself is a BACnet integration item). A ducted / ceiling suspended ducted indoor unit is 'Ductable'. An inclusion stated in a heading applies to every unit row under it.",
+ "inputs": [
+  {
+   "item": "vrf_install_only_uplift",
+   "name": "VRF - installation-only uplift",
+   "unit": "share of the final install (0.5 = 50%)",
+   "factor": 0.5,
+   "remarks": "A VRF row the BoQ prices as INSTALLATION ONLY: each line's final install (after every markup and rounding) x (1 + this), rounded up to the rupee once; no supply (owner R6-R8 2026-11-06: \"1.5 times the installation rate ... model the 1.5 multiplier as 50% installation only multiplier\")."
+  },
+  {
+   "item": "vrf_acc_mccb_outdoor_upto_8hp_amp",
+   "name": "VRF accessory - MCCB / isolator rating (A, FP 4-pole) - outdoor unit up to 8 HP",
+   "unit": "A",
+   "factor": 40,
+   "remarks": "The default MCCB / isolator rating (A, FP 4-pole) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_mccb_outdoor_8_to_14hp_amp",
+   "name": "VRF accessory - MCCB / isolator rating (A, FP 4-pole) - outdoor unit above 8 up to 14 HP",
+   "unit": "A",
+   "factor": 40,
+   "remarks": "The default MCCB / isolator rating (A, FP 4-pole) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_mccb_outdoor_above_14hp_amp",
+   "name": "VRF accessory - MCCB / isolator rating (A, FP 4-pole) - outdoor unit above 14 HP",
+   "unit": "A",
+   "factor": 63,
+   "remarks": "The default MCCB / isolator rating (A, FP 4-pole) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_frame_outdoor_upto_8hp_qty",
+   "name": "VRF accessory - MS frame (Kg) - outdoor unit up to 8 HP",
+   "unit": "Kg per outdoor unit",
+   "factor": 30,
+   "remarks": "The default MS frame (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_frame_outdoor_8_to_14hp_qty",
+   "name": "VRF accessory - MS frame (Kg) - outdoor unit above 8 up to 14 HP",
+   "unit": "Kg per outdoor unit",
+   "factor": 45,
+   "remarks": "The default MS frame (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_frame_outdoor_above_14hp_qty",
+   "name": "VRF accessory - MS frame (Kg) - outdoor unit above 14 HP",
+   "unit": "Kg per outdoor unit",
+   "factor": 60,
+   "remarks": "The default MS frame (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_gas_outdoor_upto_8hp_qty",
+   "name": "VRF accessory - extra gas charge R-410 (Kg) - outdoor unit up to 8 HP",
+   "unit": "Kg per outdoor unit",
+   "factor": 3,
+   "remarks": "The default extra gas charge R-410 (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_gas_outdoor_8_to_14hp_qty",
+   "name": "VRF accessory - extra gas charge R-410 (Kg) - outdoor unit above 8 up to 14 HP",
+   "unit": "Kg per outdoor unit",
+   "factor": 5,
+   "remarks": "The default extra gas charge R-410 (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_gas_outdoor_above_14hp_qty",
+   "name": "VRF accessory - extra gas charge R-410 (Kg) - outdoor unit above 14 HP",
+   "unit": "Kg per outdoor unit",
+   "factor": 8,
+   "remarks": "The default extra gas charge R-410 (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_drain_pump_per_indoor",
+   "name": "VRF accessory - drain pump per indoor unit",
+   "unit": "Nos per indoor unit",
+   "factor": 1,
+   "remarks": "How many drain pumps one INDOOR unit carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_remote_per_indoor",
+   "name": "VRF accessory - remote controller per indoor unit",
+   "unit": "Nos per indoor unit",
+   "factor": 1,
+   "remarks": "How many remote controllers one INDOOR unit carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  },
+  {
+   "item": "vrf_acc_refnet_per_indoor",
+   "name": "VRF accessory - refnet / Y-joint per indoor unit",
+   "unit": "Nos per indoor unit",
+   "factor": 1,
+   "remarks": "How many refnet / Y-joints one INDOOR unit carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
+  }
+ ],
+ "impact_examples_add": [
+  {
+   "id": "VRF-11",
+   "name": "Outdoor Unit, Blue Star, 6 HP, with its MS frame, gas charge and MCCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mccb",
+   "inputs": [
+    "vrf_acc_frame_outdoor_upto_8hp_qty",
+    "vrf_acc_gas_outdoor_upto_8hp_qty",
+    "vrf_acc_mccb_outdoor_upto_8hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "6 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-12",
+   "name": "Outdoor Unit, Blue Star, 8 HP, with its MS frame, gas charge and MCCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mccb",
+   "inputs": [
+    "vrf_acc_frame_outdoor_upto_8hp_qty",
+    "vrf_acc_gas_outdoor_upto_8hp_qty",
+    "vrf_acc_mccb_outdoor_upto_8hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "8 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-13",
+   "name": "Outdoor Unit, Blue Star, 10 HP, with its MS frame, gas charge and MCCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mccb",
+   "inputs": [
+    "vrf_acc_frame_outdoor_8_to_14hp_qty",
+    "vrf_acc_gas_outdoor_8_to_14hp_qty",
+    "vrf_acc_mccb_outdoor_8_to_14hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "10 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-14",
+   "name": "Outdoor Unit, Blue Star, 14 HP, with its MS frame, gas charge and MCCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mccb",
+   "inputs": [
+    "vrf_acc_frame_outdoor_8_to_14hp_qty",
+    "vrf_acc_gas_outdoor_8_to_14hp_qty",
+    "vrf_acc_mccb_outdoor_8_to_14hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "14 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-15",
+   "name": "Outdoor Unit, Blue Star, 16 HP, with its MS frame, gas charge and MCCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mccb",
+   "inputs": [
+    "vrf_acc_frame_outdoor_above_14hp_qty",
+    "vrf_acc_gas_outdoor_above_14hp_qty",
+    "vrf_acc_mccb_outdoor_above_14hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "16 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-16",
+   "name": "Outdoor Unit, Blue Star, 20 HP, with its MS frame, gas charge and MCCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mccb",
+   "inputs": [
+    "vrf_acc_frame_outdoor_above_14hp_qty",
+    "vrf_acc_gas_outdoor_above_14hp_qty",
+    "vrf_acc_mccb_outdoor_above_14hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "20 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-17",
+   "name": "Cassette, Blue Star, 2 TR, with its drain pump, remote and refnet",
+   "unit": "Nos",
+   "includes": "drain_pump,remote,refnet",
+   "inputs": [
+    "vrf_acc_drain_pump_per_indoor",
+    "vrf_acc_remote_per_indoor",
+    "vrf_acc_refnet_per_indoor"
+   ],
+   "items": [
+    {
+     "item": "Cassette",
+     "brand": "Blue Star",
+     "capacity": "2 TR"
+    }
+   ]
+  },
+  {
+   "id": "VRF-18",
+   "name": "Hi-Wall, Blue Star, 1.5 TR, with its drain pump, remote and refnet",
+   "unit": "Nos",
+   "includes": "drain_pump,remote,refnet",
+   "inputs": [
+    "vrf_acc_drain_pump_per_indoor",
+    "vrf_acc_remote_per_indoor",
+    "vrf_acc_refnet_per_indoor"
+   ],
+   "items": [
+    {
+     "item": "Hi-Wall",
+     "brand": "Blue Star",
+     "capacity": "1.5 TR"
+    }
+   ]
+  },
+  {
+   "id": "VRF-19",
+   "name": "Outdoor Unit, Blue Star, 10 HP, installation only",
+   "unit": "Nos",
+   "inputs": [
+    "vrf_install_only_uplift"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "10 HP",
+     "scope": "Installation only"
+    }
+   ]
+  },
+  {
+   "id": "VRF-20",
+   "name": "Cassette, Blue Star, 2 TR, installation only",
+   "unit": "Nos",
+   "inputs": [
+    "vrf_install_only_uplift"
+   ],
+   "items": [
+    {
+     "item": "Cassette",
+     "brand": "Blue Star",
+     "capacity": "2 TR",
+     "scope": "Installation only"
+    }
+   ]
+  }
+ ],
+ "wording": {
+  "lot_bar_by_unit": {
+   "per HP": "PRICED PER HP - NOT PRICED. PRICE THIS ROW BY HAND."
+  },
+  "lot_line": "Unit \"{unit}\" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. A Lot, a job, a complete system or a price per HP is priced by hand."
+ }
+}

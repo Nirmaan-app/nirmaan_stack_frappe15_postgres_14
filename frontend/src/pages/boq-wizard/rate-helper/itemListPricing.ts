@@ -256,7 +256,15 @@ export interface DefaultSpec {
   unlisted?: { several: string; off_sheet: string;
     /** VRF-4 (R-BRAND (a) on a BoQ row): the model's COPIED words for this attribute ("brand_as_written"). Several makes,
      *  or one the attribute does not list, stand in for the choice; one listed make fills a choice the model left blank. */
-    from_attr?: string };
+    from_attr?: string;
+    /** VRF-5 (owner R5 / ANSWER 4 "2 ok"): SEVERAL makes stated -> the ruled default if it is one of them (`one_of`); else the
+     *  first stated make the catalogue stocks for the item (`first_stocked`); else the default (`none_stocked`). ABSENT =>
+     *  VRF-4's rule (several -> the default). `{said}` = the makes as written, `{make}` = the one priced. */
+    several_rule?: { one_of: string; first_stocked: string; none_stocked: string } };
+  /** VRF-5 (owner R2 "yes"): a default that gives way to `then` when the item's capacity is BELOW the smallest SKU carrying
+   *  the default (Outdoor Unit: discharge not stated + below the smallest Top unit of the brand -> Side). The line names that
+   *  smallest size (`{n}`, `{unit}`). A STATED value always wins. ABSENT => the default as before. */
+  below_smallest?: { size_attr: string; then: string; rule: string };
 }
 
 /**
@@ -651,7 +659,9 @@ export interface ItemListPricingSpec {
   per_set?: PerSetSpec;
   /** VRF-3a K2 (owner LOT "Refuse + review list", O-7): unit spellings that name a whole-lot price (Lot, LS, Job, per HP,
    * "complete system") -- the row refuses with `line` ({unit} as written) and the panel shows the red `bar`. */
-  lot_units?: { units: string[]; bar: string; line: string };
+  lot_units?: { units: string[]; bar: string; line: string;
+    /** VRF-5 (owner wording, brief B3): a unit's own bar title ("per HP" -> "PRICED PER HP ..."); absent = `bar` */
+    bar_by_unit?: Record<string, string> };
   /**
    * VRF-4 (owner R-WS / D-5 "option D" / D-9 "it should say check the quantity"; the list 2026-11-01 13:16 "give me th eexact
    * rows") -- WORKING + STANDBY. The model copies the row's words into `attr`; ONLY words matching one of `words` (regex,
@@ -769,7 +779,7 @@ export function isLotUnit(spec: ItemListPricingSpec, unit: string | null | undef
 export interface ExtraBand { max: number | null; input: string }
 /** The include switches, in the calculator's order. `needs`: the include this one cannot stand without. */
 export type ExtraIncludeId = "copper" | "insulation" | "power" | "comm";
-export type ExtraLineId = "copper_supply" | "copper_return" | "ins_supply" | "ins_return" | "power" | "comm";
+export type ExtraLineId = "copper_supply" | "copper_return" | "ins_supply" | "ins_return" | "power" | "comm" | `acc_${string}`;
 export interface ExtrasSpec {
   /** the unit families that carry extras, and which band table each reads (indoor / outdoor) */
   roles: Record<string, "indoor" | "outdoor">;
@@ -798,6 +808,66 @@ export interface ExtrasSpec {
    * fields (`boqExtrasOf`). A split module reads its source item's answers. ABSENT => the row's `includes` cell, as before.
    */
   from_model?: ExtrasFromModel;
+  /** VRF-5 (owner R1 18:14-18:21, ANSWER 4): the ACCESSORIES a unit's price can include, each its own line under the unit.
+   *  ABSENT => no accessory line anywhere (v60 and older are byte-identical). */
+  accessories?: AccessorySpec[];
+  /** VRF-5 (owner R1 SAFEGUARD): where the BoQ states an inclusion decides whether it is added. ABSENT => every include is
+   *  added as before. */
+  safeguard?: ExtrasSafeguard;
+  /** VRF-5 (owner R1): further model items on a unit row whose family is no accessory -- one note point each, never a block */
+  folded?: { title: string; none_line: string; other_line: string };
+  /** VRF-5 (owner R4-R8): the row's SCOPE -- the model's answer per item (`from_model.scope`; the row takes the first item that
+   *  answers), the calculator's "BoQ scope" choice. ABSENT => supply + installation everywhere, as before. */
+  scope?: ScopeSpec;
+}
+
+/** VRF-5: see `ExtrasSpec.scope`. `options` = the choice values in order (the first = supply + installation). */
+export interface ScopeSpec {
+  options: string[];
+  supply_only: string;
+  install_only: string;
+  /** the Pricing Input whose `factor` is the installation-only uplift (0.5 = 50%) */
+  uplift_input: string;
+  title: string;
+  lines: Record<string, string>;
+}
+
+/** VRF-5: one accessory line (see `ExtrasSpec.accessories`). */
+export interface AccessorySpec {
+  id: string;
+  label: string;
+  title: string;
+  /** the unit roles that carry it (frame / gas / MCCB per outdoor unit; drain pump / remote / refnet per indoor unit) */
+  roles: Array<"indoor" | "outdoor">;
+  /** the VRF family that prices it by VRF's own rules, in its SKU's own unit (Kg / Nos) */
+  family?: string;
+  /** a choice the line sets on its item: the default and the words (regex, case-insensitive) that pick another value */
+  choice?: { attr: string; default: string; words: Record<string, string> };
+  /** borrowed from Electrical (read only): the item text built from the band's rating, priced by Electrical's own rules */
+  electrical?: { category: string; discipline: string; item_attr: string; qty_attr: string; label: string; template: string; rating_key: string;
+    /** VRF-5 (owner ANSWER 6): words (regex) naming a device priced as this one ("isolator" -> the default MCCB), and the line saying so */
+    alias?: { words: string; line: string };
+    /** the target's OTHER answers, as its own model gives an empty slot ("None" / "0") -- sent with the item */
+    fill?: Record<string, string> };
+  /** the default quantity per unit: a band table on the unit's size (`<input>_<key>`; key `qty`, MCCB `amp`), or one flat input */
+  bands?: { indoor?: ExtraBand[]; outdoor?: ExtraBand[] };
+  input?: string;
+  /** the word of the quantity's unit ("Kg", "Nos") */
+  unit_word: string;
+}
+
+/** VRF-5: the R1 safeguard -- the model's answer of WHERE each inclusion is stated, and the own-row rule. */
+export interface ExtrasSafeguard {
+  /** the per-include question ids: `<includes question>` + suffix */
+  where_suffix: string;
+  wording_suffix: string;
+  qty_suffix: string;
+  /** the WHERE value that means the row's own text */
+  row_value: string;
+  /** per include id: the words (regex, case-insensitive) a row of its own quoting that item carries, and the VRF families
+   *  whose item-1 rows quote it */
+  own_row: Record<string, { words: string[]; not_words?: string[]; families?: string[] }>;
+  lines: Record<string, string>;
 }
 
 /** VRF-4: see `ExtrasSpec.from_model`. */
@@ -810,6 +880,35 @@ export interface ExtrasFromModel {
   /** a regex (case-insensitive): a cable spec whose words match is the COMMUNICATION cable; else the power cable */
   comm_words?: string;
   length?: string;
+  /** VRF-5 (owner R1): each ACCESSORY's Yes / No question (`accessories[].id` -> question id); absent = none asked */
+  accessory_includes?: Record<string, string>;
+  /** VRF-5 (owner R4-R8): the row's scope question (asked per item; the row takes the first item that answers) */
+  scope?: string;
+}
+
+/** VRF-5 (owner R1 SAFEGUARD). PURE. What a MODEL ITEM says about every inclusion beyond `boqExtrasOf`: the accessories it
+ * answered `yes` to, and for every include (the four and the accessories) WHERE the BoQ states it, the wording and the
+ * quantity as written (the `safeguard` suffixes on the include's question id). */
+export function boqInclusionsOf(item: ExtractedListItem | undefined, fm: ExtrasFromModel | undefined, sg: ExtrasSafeguard | undefined): {
+  accessories: Set<string>; where: Record<string, string>; wording: Record<string, string>; qty: Record<string, string>;
+} {
+  const out = { accessories: new Set<string>(), where: {} as Record<string, string>, wording: {} as Record<string, string>, qty: {} as Record<string, string> };
+  if (!item || !fm) return out;
+  const said = (id: string | undefined) => {
+    if (!id) return "";
+    const v = item.attributes?.[id]?.value;
+    return v === null || v === undefined || String(v).trim() === "None" ? "" : String(v).trim();
+  };
+  for (const [acc, q] of Object.entries(fm.accessory_includes ?? {})) if (said(q).toLowerCase() === fm.yes.toLowerCase()) out.accessories.add(acc);
+  if (sg) {
+    const all: Record<string, string> = { ...(fm.includes as Record<string, string>), ...(fm.accessory_includes ?? {}) };
+    for (const [id, q] of Object.entries(all)) {
+      const w = said(q + sg.where_suffix); if (w) out.where[id] = w;
+      const x = said(q + sg.wording_suffix); if (x) out.wording[id] = x;
+      const n = said(q + sg.qty_suffix); if (n) out.qty[id] = n;
+    }
+  }
+  return out;
 }
 
 /** VRF-3b. PURE. A Pricing Inputs TABLE ROW: every single-factor input whose id is `<prefix>_<key>`, as { key: factor }
@@ -912,6 +1011,65 @@ export function readCableSpecWords(text: string): { cores: number; sqmm: number 
 export function readLengthWords(text: string): string | null {
   const m = /(\d+(?:\.\d+)?)\s*(?:m|mtr|mtrs|meters?|metres?|rmt|r\.m\.?t?|rm|running\s+met(?:er|re)s?)\b/i.exec(String(text ?? ""));
   return m ? String(Number(m[1])) : null;
+}
+
+/** VRF-5 (F2, brief B1: "a range '5-10 m' = the higher figure, noted"). PURE. A length in metres as the BoQ writes it, with
+ * the range it came from: "about 5-10 Rmt" -> {value "10", range ["5", "10"]}; "up to 15 m" -> {value "15"}; null when no
+ * length in metres is written. */
+export function readLengthRange(text: string): { value: string; range?: [string, string] } | null {
+  const t = String(text ?? "");
+  const r = /(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*(?:m|mtr|mtrs|meters?|metres?|rmt|r\.m\.?t?|rm|running\s+met(?:er|re)s?)\b/i.exec(t);
+  if (r) {
+    const [a, b] = [Number(r[1]), Number(r[2])];
+    return { value: String(Math.max(a, b)), range: [String(a), String(b)] };
+  }
+  const one = readLengthWords(t);
+  return one === null ? null : { value: one };
+}
+
+/** VRF-5 (F2, brief B1: "a stated armour / conductor word sets that attribute"). PURE. The armour and conductor words a cable
+ * text states, as Electrical's own values: "armoured" -> ARMOURED ("unarmoured" -> UNARMOURED), "aluminium" -> ALUMINIUM,
+ * "copper" -> COPPER. Nothing stated -> absent. Whether Electrical stocks the result is Electrical's rule. */
+export function readCableKindWords(text: string): { armour?: string; conductor?: string } {
+  const t = String(text ?? "");
+  const out: { armour?: string; conductor?: string } = {};
+  if (/\bun-?armou?red\b/i.test(t)) out.armour = "UNARMOURED";
+  else if (/\barmou?red\b/i.test(t)) out.armour = "ARMOURED";
+  if (/\balumin(?:i)?um\b/i.test(t)) out.conductor = "ALUMINIUM";
+  else if (/\bcopper\b|\bcu\b/i.test(t)) out.conductor = "COPPER";
+  return out;
+}
+
+/** VRF-5 (owner R1 SAFEGUARD, P0 (b) matching rule). PURE. The rows of the BoQ that quote an included item ON THEIR OWN:
+ * another row whose text carries the include's `words`, or whose model item 1 is one of its `families` -- never the asking
+ * row and never a row whose item 1 is a unit (a unit row naming its inclusions is not a quote). Sorted by row. */
+export function ownRowQuotes(
+  rule: { words: string[]; not_words?: string[]; families?: string[] } | undefined,
+  rows: ReadonlyArray<{ row: number; text: string; family1?: string | null; sheet?: string }>,
+  ownRow: number,
+  unitFamilies: ReadonlySet<string>,
+): Array<{ row: number; sheet?: string; text: string }> {
+  if (!rule) return [];
+  const re = (ws: string[] | undefined) => (ws ?? []).map((w) => { try { return new RegExp(w, "i"); } catch { return null; } }).filter((x): x is RegExp => x !== null);
+  const res = re(rule.words);
+  const nots = re(rule.not_words);
+  const fams = new Set(rule.families ?? []);
+  const out: Array<{ row: number; sheet?: string; text: string }> = [];
+  for (const r of rows) {
+    if (r.row === ownRow && r.sheet === undefined) continue;
+    if (r.family1 && unitFamilies.has(r.family1)) continue;
+    if ((r.family1 && fams.has(r.family1)) || (res.some((x) => x.test(r.text)) && !nots.some((x) => x.test(r.text)))) out.push({ row: r.row, ...(r.sheet !== undefined ? { sheet: r.sheet } : {}), text: r.text });
+  }
+  return out.sort((a, b) => (a.sheet ?? "").localeCompare(b.sheet ?? "") || a.row - b.row);
+}
+
+/** VRF-5 (owner R1). PURE. A quantity as the BoQ writes it for an accessory ("2 nos", "15 kg", "2") -> the number; null when
+ * no number is written. */
+export function readQtyWords(text: unknown): number | null {
+  const m = /(\d+(?:\.\d+)?)/.exec(String(text ?? ""));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
@@ -4112,6 +4270,27 @@ function priceOneItem(
         const parts = [...new Set(said.split(/\s*(?:\/|,|&|\+|\band\b|\bor\b)\s*/i).map((x) => x.trim()).filter((x) => x !== "").map(norm))];
         const one = parts.length === 1 ? listedVals.find((x) => norm(x) === parts[0]) : undefined;
         const choiceListed = v !== null && v !== "None" && listedVals.includes(String(v));
+        const sr = spec.defaults?.[attr]?.unlisted?.several_rule;
+        if (parts.length >= 2 && sr) {
+          // VRF-5 (owner R5): the default if it is one of the stated makes; else the first stated make the catalogue stocks
+          // for THIS item (its family, its kind); else the default with the line naming the makes
+          const dv = ruledDefaultValue(spec, attr, family);
+          const stockedFor = (make: string) => projected.some((it) => kindIn(spec, it.kind) && it.attributes?.[familyAttr(spec)] === family
+            && norm(String((it as { brand?: unknown }).brand ?? it.attributes?.[attr] ?? "")) === norm(make));
+          const listedSaid = parts.map((p) => listedVals.find((x) => norm(x) === p)).filter((x): x is string => x !== undefined);
+          const first = listedSaid.find((m) => stockedFor(m));
+          if (dv !== undefined && parts.includes(norm(dv))) {
+            read[attr] = dv;
+            readDefaulted.push({ attr, value: dv, rule: sr.one_of.replace("{said}", said).replace("{make}", dv), asWritten: said });
+          } else if (first !== undefined) {
+            read[attr] = first;
+            readDefaulted.push({ attr, value: first, rule: sr.first_stocked.replace("{said}", said).replace("{make}", first), asWritten: said });
+          } else if (dv !== undefined) {
+            read[attr] = dv;
+            readDefaulted.push({ attr, value: dv, rule: sr.none_stocked.replace("{said}", said).replace("{make}", dv), asWritten: said });
+          }
+          if (dv !== undefined || first !== undefined) continue;
+        }
         if (parts.length >= 2) v = said;
         else if (one !== undefined) { if (!choiceListed) v = one; }
         else if (!choiceListed) v = said;
@@ -4159,6 +4338,27 @@ function priceOneItem(
       }
     }
     read[attr] = v;
+  }
+  // VRF-5 (owner R2 "yes"): a DEFAULTED value that gives way below the smallest SKU carrying it -- the brand (R5) and the other
+  // choices are already settled above, so "the smallest Top unit of the brand" is read on exactly the SKUs this item matches
+  for (const d of readDefaulted.slice()) {
+    const bs = spec.defaults?.[d.attr]?.below_smallest;
+    if (!bs || d.value === bs.then) continue;
+    const size = read[bs.size_attr];
+    if (typeof size !== "number" || !Number.isFinite(size)) continue;
+    const fa = familyAttr(spec);
+    const sizes = projected.filter((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === family
+      && String(it.attributes?.[d.attr] ?? "") === String(d.value)
+      && Object.entries(read).every(([k, v]) => k === d.attr || k === bs.size_attr || !(spec.choice_attrs ?? []).includes(k)
+        || String(k === "brand" ? ((it as { brand?: unknown }).brand ?? it.attributes?.[k] ?? "") : (it.attributes?.[k] ?? "")) === String(v)))
+      .map((it) => Number(it.attributes?.[bs.size_attr])).filter((n) => Number.isFinite(n));
+    if (!sizes.length) continue;
+    const smallest = Math.min(...sizes);
+    if (size >= smallest) continue;
+    read[d.attr] = bs.then;
+    const i = readDefaulted.indexOf(d);
+    const unitWord = String(projected.find((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === family)?.attributes?.capacity_unit ?? "");
+    readDefaulted.splice(i, 1, { attr: d.attr, value: bs.then, rule: bs.rule.replace("{n}", fmt(smallest)).replace("{unit}", unitWord).trim() });
   }
   // R13: a derived default ("supply air" -> with damper on the linear / plain grille), ONLY over a "None"
   for (const rule of spec.derive_when_none ?? []) {

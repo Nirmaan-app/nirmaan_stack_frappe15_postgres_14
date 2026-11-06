@@ -22,6 +22,7 @@ import {
   ROW_UNIT_OVERRIDE_KEY,
   ROW_QTY_OVERRIDE_KEY,
   EXTRAS_INCLUDES_KEY,
+  SCOPE_OVERRIDE_KEY,
   rowTotals,
   type ExtraFieldView,
   type ExtraLineView,
@@ -728,6 +729,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         onUnit={(u) => setAttr(helper.id, ROW_UNIT_OVERRIDE_KEY, u)}
                         onRowQty={(q) => setAttr(helper.id, ROW_QTY_OVERRIDE_KEY, q)}
                         onIncludes={(v) => setAttr(helper.id, EXTRAS_INCLUDES_KEY, v)}
+                        onScope={(v) => setAttr(helper.id, SCOPE_OVERRIDE_KEY, v)}
                       />
                     </div>
                   )}
@@ -1334,6 +1336,23 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
           <p className="text-[10px] leading-tight">{ex.boqNote}</p>
         </div>
       )}
+      {/* VRF-5 (owner R1 SAFEGUARD, U1): an inclusion a heading or note states -- "This row may include extras - please review" */}
+      {ex.review && (
+        <div className="ml-3 space-y-0.5 rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-testid="extra-review">
+          <div className="font-semibold">{ex.review.title}</div>
+          {ex.review.points.map((t, ti) => <div key={ti} data-testid="extra-review-point">&bull; {t}</div>)}
+        </div>
+      )}
+      {/* VRF-5 (owner R1, U1): items the BoQ lists with the unit that are no extra -- a note point each, not priced */}
+      {ex.notes && (
+        <div className={cn(NOTE_BOX_CLASS, "ml-3")} data-testid="extra-notes">
+          <Info className={NOTE_ICON_CLASS} aria-hidden />
+          <div className="text-[10px] leading-tight">
+            <div className="font-semibold">{ex.notes.title}</div>
+            {ex.notes.points.map((t, ti) => <div key={ti} data-testid="extra-notes-point">&bull; {t}</div>)}
+          </div>
+        </div>
+      )}
       {ex.lines.map((l) => (
         <div key={l.id} className="relative ml-3 space-y-1.5 rounded-md border border-l-4 border-l-sky-300 bg-muted/20 px-2 py-1.5 dark:border-l-sky-800" data-testid="extra-line" data-line={l.id}>
           <div className="flex items-start justify-between gap-1.5">
@@ -1366,7 +1385,8 @@ function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; 
           ) : (
             <div className="space-y-0.5">
               {l.working.map((w, wi) => <div key={wi} className="text-xs text-muted-foreground">{w}</div>)}
-              <div className="text-xs text-red-700 dark:text-red-400" data-testid="extra-line-refusal">Not priced &mdash; {l.reason}</div>
+              {/* VRF-5 (owner R1): an accessory that cannot price is a note -- the unit still prices without it */}
+              <div className={l.optional ? "text-xs text-amber-800 dark:text-amber-300" : "text-xs text-red-700 dark:text-red-400"} data-testid="extra-line-refusal">Not priced &mdash; {l.reason}</div>
             </div>
           )}
         </div>
@@ -1402,6 +1422,7 @@ function ItemListBlocks({
   onUnit,
   onRowQty,
   onIncludes,
+  onScope,
   section,
 }: {
   view: ItemListView;
@@ -1411,6 +1432,8 @@ function ItemListBlocks({
   onRowQty?: (qty: string) => void;
   /** VRF-3b (U6): the calculator's "This row's price includes" tick boxes (the ids ticked, comma-separated) */
   onIncludes?: (value: string) => void;
+  /** VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice */
+  onScope?: (value: string) => void;
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
@@ -1583,6 +1606,25 @@ function ItemListBlocks({
           {view.extrasIncludes.options.filter((o) => o.note).map((o) => (
             <p key={o.id} className="mt-0.5 text-[10px] text-muted-foreground" data-testid="extras-include-note">{o.note}</p>
           ))}
+        </div>
+      )}
+      {/* VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice; on a supply-only / installation-only row the note */}
+      {!section && view.scope?.picker && (
+        <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-scope-picker">
+          <span className="text-muted-foreground">{view.scope.picker.title}</span>
+          <select
+            className="h-7 rounded border bg-background px-1 text-xs"
+            value={view.scope.picker.value}
+            onChange={(e) => onScope?.(e.target.value)}
+            aria-label={view.scope.picker.title}
+          >
+            {view.scope.picker.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+      )}
+      {!section && view.scope?.note && (
+        <div className="rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] font-medium leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-testid="item-scope-note">
+          {view.scope.note}
         </div>
       )}
       {/* SLICE 12c-U (owner U2 / U3): the row stated no unit -- or "rate only" -- and was priced in

@@ -87,7 +87,26 @@ export function buildRowContext(
     ...(rows && typeof row.qty_total === "number" ? { quantity: row.qty_total } : {}),
     // VRF-4 (q2): every row's quantity, for a refnet's unit counts read from the sheet (one map per rows array)
     ...(rows ? { rowQuantities: rowQuantitiesOf(rows) } : {}),
+    ...(rows ? { sheetLines: sheetLinesOf(rows) } : {}),
   };
+}
+
+/**
+ * VRF-5 (owner R1 SAFEGUARD). PURE, memoised per rows array: every LINE ITEM of the sheet as the own-row rule reads it -- its
+ * excel row and its text (the description and its own row notes). A heading never quotes an item; a line item does.
+ */
+const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string }>>();
+export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string }> {
+  const hit = SHEET_LINES_CACHE.get(rows);
+  if (hit) return hit;
+  const out: Array<{ row: number; text: string }> = [];
+  for (const r of rows) {
+    if ((r.node_type ?? "").trim() !== "Line Item") continue;
+    const rn = (r as { row_notes?: unknown }).row_notes;
+    out.push({ row: r.source_row_number, text: [r.description ?? "", typeof rn === "string" ? rn : ""].filter((t) => t.trim() !== "").join(" | ") });
+  }
+  SHEET_LINES_CACHE.set(rows, out);
+  return out;
 }
 
 const ROW_QTY_CACHE = new WeakMap<readonly PricedRow[], Readonly<Record<number, number>>>();
