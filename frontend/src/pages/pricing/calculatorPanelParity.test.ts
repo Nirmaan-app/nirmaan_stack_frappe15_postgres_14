@@ -2954,3 +2954,94 @@ describe("VRF-5 B2 -- the harness feeds a Piping row's insulation sections; on V
     expect(ins.unit).toBe("mts");                      // Nitrile pipe insulation is stocked per Mts: the sqm pick is not honoured (12c-S)
   });
 });
+
+// VRF-5 (owner R1 + SAFEGUARD, F2, R2, R5, R4-R8; ANSWER 4-6, 9; QR-1.2 "ok with a": the calculator's accessory ticks + quantity and the
+// "BoQ scope" choice) -- LAYER 1 ON v61: the panel (a BoQ row whose MODEL ITEM answers the v61 questions) = the calculator (the same
+// values ticked / typed / chosen, through the harness's own feed) on every case; the count asserted. Cases: every VRF + Misc SKU;
+// every new path x scope x band x brand rule -- each accessory at each band (outdoor) / per indoor unit, its BoQ quantity, the MCCB and
+// an isolator, a folded "none of these", the cable words with no size (default band, armoured, a range), R2 (6 HP / 3 TR / a stated
+// Top), R5 (Blue Star stated / the first stocked / none stocked), scope (supply only / installation only) on a unit with its extras
+// and accessories.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("HVAC VRF (VRF-5, v61) -- accessories, the cable default, Side, several makes, scope; panel = calculator on every case, the count asserted", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A61 = rd("rate_master_hvac_all_v61.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS61 = [...asItems(A61), ...asItems(E72)];
+  const CFG61 = new Map<string, RateCategoryConfig>([...A61.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const VRFCFG = CFG61.get("hvac_vrf") as unknown as { list_spec: { pricing: { extras: { roles: Record<string, string> } } } };
+  const ROLES = VRFCFG.list_spec.pricing.extras.roles;
+  const run = (c: ParityCase) => runParity(CFG61, ITEMS61, c, "full");
+  const vc = (unit: string, item: Record<string, string>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const od = (cap: string, more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: cap, ...more });
+  const row = (ids: string[]) => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, "Row"]]));
+  const ALL4 = row(["copper", "insulation", "power", "comm"]);
+  const OUT3 = row(["frame", "gas", "mccb"]);
+  const IN3 = row(["drain_pump", "remote", "refnet"]);
+  const vrfSkus = A61.items.filter((it) => it.kind === "hvac_vrf_item" || it.kind === "hvac_misc_item");
+  const skuCases: Array<[string, ParityCase]> = vrfSkus.map((sku) => {
+    const a = sku.attributes as Record<string, unknown>;
+    const item: Record<string, string> = { item: String(a.item) };
+    if (sku.brand) item.brand = String(sku.brand);
+    for (const k of ["cooling", "discharge", "compressor", "way", "remote_type"]) if (a[k] !== undefined) item[k] = String(a[k]);
+    if (a.capacity !== undefined) item.capacity = `${String(a.capacity)} ${String(a.capacity_unit ?? "")}`.trim();
+    const unit = String(sku.unit ?? "Nos").toLowerCase().startsWith("kg") ? "Kg" : "Nos";
+    const role = ROLES[String(a.item)];
+    return [`SKU ${sku.item_uid} ${String(a.item)} ${item.capacity ?? ""}`, vc(unit, role ? { ...item, ...ALL4, ...(role === "outdoor" ? OUT3 : IN3) } : item)];
+  });
+  const named: Array<[string, ParityCase]> = [
+    ...["6 HP", "8 HP", "10 HP", "14 HP", "16 HP", "24 HP"].map((cap) => [`outdoor ${cap} frame + gas + MCCB (the band defaults)`, vc("Nos", od(cap, OUT3))] as [string, ParityCase]),
+    ["outdoor 10 HP gas '2.5 kg' + frame '20 kg' from the BoQ", vc("Nos", od("10 HP", { ...OUT3, includes_gas_qty_as_written: "2.5 kg", includes_frame_qty_as_written: "20 kg" }))],
+    ["outdoor 16 HP MCCB, row says isolator", vc("Nos", od("16 HP", row(["mccb"])), { desc: "16 HP ODU with isolator" })],
+    ["cassette 2 TR drain pump + remote + refnet", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "2 TR", way: "FOUR-WAY", ...IN3 })],
+    ["hi-wall 1.5 TR remote, row says wired", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "1.5 TR", ...row(["remote"]) }, { desc: "1.5 TR hi-wall with wired remote" })],
+    ["stated split 38HP (20+18) gas + frame folded from items", { cat: "hvac_vrf", unit: "Nos", desc: "System-1 38HP (20+18)", attrs: {}, items: [od("38HP (20+18)"), { item: "Refrigerant Gas Filling (R-410)" }, { item: "MS Angle Base Frame Structure" }] }],
+    ["outdoor 18 HP + 'none of these' folded", { cat: "hvac_vrf", unit: "Nos", desc: "", attrs: {}, items: [od("18 HP"), { item: "none of these" }] }],
+    ["power from words 'multicore copper cables about 5-10 Rmt' (18 HP)", vc("Nos", od("18 HP", { ...row(["power"]), extra_cable_spec_as_written: "multicore copper cables about 5-10 Rmt" }))],
+    ["power from words 'armoured copper conductor cabling' (8 HP)", vc("Nos", od("8 HP", { ...row(["power"]), extra_cable_spec_as_written: "armoured copper conductor cabling" }))],
+    ["comm from words 'control cabling' (indoor)", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "2 TR", way: "FOUR-WAY", ...row(["comm"]), extra_cable_spec_as_written: "control cabling" })],
+    ["R2 6 HP not stated -> Side", vc("Nos", od("6 HP"))],
+    ["R2 3 TR not stated -> Side", vc("Nos", od("3 TR"))],
+    ["R2 6 HP stated Top", vc("Nos", od("6 HP", { discharge: "Top" }))],
+    ["R5 'Mitsubshi Electric, Bluestar'", vc("Nos", od("10 HP", { brand: "None", brand_as_written: "Mitsubshi Electric, Bluestar" }))],
+    ["R5 'Toshiba / Daikin'", vc("Nos", od("16 HP", { brand: "None", brand_as_written: "Toshiba / Daikin" }))],
+    ["R5 'Toshiba / Hitachi'", vc("Nos", od("10 HP", { brand: "None", brand_as_written: "Toshiba / Hitachi" }))],
+    ["scope supply only: 10 HP all four + three accessories", vc("Nos", od("10 HP", { ...ALL4, ...OUT3, scope: "Supply only" }))],
+    ["scope installation only: 10 HP all four + three accessories", vc("Nos", od("10 HP", { ...ALL4, ...OUT3, scope: "Installation only" }))],
+    ["scope installation only: cassette 2 TR + its three", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "2 TR", way: "FOUR-WAY", ...IN3, scope: "Installation only" })],
+    ["scope supply only: hi-wall 1.5 TR", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "1.5 TR", scope: "Supply only" })],
+  ];
+  const CASES = [...skuCases, ...named];
+
+  it("every case: 0 divergences except the NAMED wording-only ones -- the count asserted", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    const diverged = out.filter((o) => o.div.length);
+    for (const o of diverged) {
+      for (const d of o.div) {
+        const norm = (x: unknown) => String(x).replace(/no number in '[^']*' for pipe size|Type one pipe size, in mm or inches|size [^ ]+ has no unit - price this row by hand|BoQ says|You typed/g, "<source sentence>");
+        expect({ name: o.name, what: d.what, panel: norm(d.panel) }).toEqual({ name: o.name, what: d.what, panel: norm(d.calculator) });
+      }
+    }
+    expect(diverged.map((o) => o.name)).toEqual(PARITY_V61_WORDING_ONLY);
+    expect(skuCases).toHaveLength(154);
+    expect(named).toHaveLength(25);
+    expect(CASES).toHaveLength(179);
+  }, 600000);
+
+  it("the figures the cert reads (C1 / C3 / C4 / C5 / C6 on both paths)", () => {
+    const v = (c: ParityCase) => (run(c).panel as ItemListSuggestion).itemList!;
+    const c1 = v(named.find(([n]) => n.startsWith("stated split"))![1]);
+    expect(c1.rowPriced).toBe(true);
+    expect(c1.items.every((b) => (b.extras?.lines ?? []).some((l) => l.id === "acc_gas"))).toBe(true);
+    const c4 = v(named.find(([n]) => n === "R2 6 HP not stated -> Side")![1]);
+    expect(c4.items[0].fields.find((f) => f.id === "discharge")?.value).toBe("Side");
+    const c6 = v(named.find(([n]) => n.startsWith("scope installation only: 10 HP"))![1]);
+    expect(c6.totals?.supply_rate).toBe(0);
+    expect(c6.scope?.note).toContain("x (1 + 50%)");
+  });
+});
+
+/** VRF-5: the v61 parity cases whose ONLY difference is the source's own wording for a BoQ value vs a typed one (both refuse). */
+const PARITY_V61_WORDING_ONLY: string[] = [];

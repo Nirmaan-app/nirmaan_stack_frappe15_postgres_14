@@ -4419,6 +4419,7 @@ function withExtras(
     const qty = num(q.raw);
     let what = acc.title;
     let aliasLine: string | undefined;
+    let choiceTag: ExtraFieldView["tag"];
     let rate: { supply: number; install: number } | { reason: string } | null = null;
     let reason: string | undefined;
     if (acc.electrical) {
@@ -4440,6 +4441,7 @@ function withExtras(
       if (acc.choice) {
         const hit = Object.entries(acc.choice.words).find(([, w]) => { try { return new RegExp(w, "i").test(remoteWords); } catch { return false; } });
         attrs[acc.choice.attr] = typed[acc.choice.attr] ?? (hit ? hit[0] : acc.choice.default);
+        choiceTag = typed[acc.choice.attr] !== undefined ? "picked" : hit ? "boq" : "default";
         what = `${attrs[acc.choice.attr]} ${acc.title}`;
       }
       const r = computeItemListOwn(category, spec, items, { ...lineCtx(category.category_id), unit: unitWord } as RowContextWithUnit, undefined, false,
@@ -4460,8 +4462,13 @@ function withExtras(
         .replace("{unit}", acc.unit_word).replace("{s}", String(per.supply)).replace("{i}", String(per.install)).replace("{S}", String(s2)).replace("{I}", String(i2)));
       figures = { supply_rate: s2, install_rate: i2, combined_rate: s2 + i2 };
     }
+    // VRF-5 (QR-1.2 "ok with a"): a choice the line sets (the remote's type) is a field the pricer can change, on both surfaces
+    const choiceField: ExtraFieldView[] = acc.choice ? [{ id: acc.choice.attr, label: acc.choice.attr === "remote_type" ? "Type" : acc.choice.attr,
+      value: (what.split(" ")[0] ?? ""), typedValue: "", options: [acc.choice.default, ...Object.keys(acc.choice.words)].filter((v, n, a) => a.indexOf(v) === n),
+      ...(choiceTag ? { tag: choiceTag, tagText: tagText(choiceTag) } : {}), userEdited: typed[acc.choice.attr] !== undefined }] : [];
     const fields: ExtraFieldView[] = [
       { id: "item", label: L.acc_label_item ?? "Item", value: what, typedValue: "", readOnly: true, userEdited: false },
+      ...choiceField,
       { id: "qty", label: (L.acc_label_qty ?? "Quantity per unit ({unit})").replace("{unit}", acc.unit_word), value: q.raw, typedValue: typed.qty ?? "", required: true,
         ...(q.tag ? { tag: q.tag, tagText: tagText(q.tag) } : {}), userEdited: typed.qty !== undefined, ...(q.raw.trim() === "" ? { blank: true } : {}) },
     ];
@@ -4661,7 +4668,7 @@ function withExtras(
       // VRF-5 (F2): the BoQ's words name the cable but no size -> the band's default spec (Pricing Inputs); an armour / conductor
       // word the words state sets that attribute; a length they state is used (a range -> the higher figure). Never "Size needed"
       // while a default exists. Gated on the config's words for it (v61), so an older config is byte-identical.
-      const wordsOnly = sp.tag === "boq" && parsed === null && L.cable_words_default !== undefined && def !== undefined;
+      const wordsOnly = (sp.tag === "boq" || sp.tag === "picked") && parsed === null && L.cable_words_default !== undefined && def !== undefined;
       const defParsed = wordsOnly ? readCableSpecWords(def!) : null;
       const kindWords: { armour?: string; conductor?: string } = wordsOnly ? readCableKindWords(sp.raw) : {};
       const seeded = (field: string, seed: string | undefined, seedTag?: ExtraFieldView["tag"]) => {
@@ -4700,7 +4707,7 @@ function withExtras(
         : null;
       if (!why && rate && "reason" in rate) why = rate.reason;
       // VRF-5 (F2): a length the cable's own words state, where nothing else stated one (a range -> the higher figure, noted)
-      const lenWords = sp.tag === "boq" && L.cable_words_default !== undefined && set[id]?.length === undefined && said(id, "length") === undefined
+      const lenWords = wordsOnly && set[id]?.length === undefined && said(id, "length") === undefined
         ? readLengthRange(sp.raw) : null;
       const lenF0 = lengthField(id, lengthDefault(x.cable_length_input));
       const lenF: ExtraFieldView = lenWords

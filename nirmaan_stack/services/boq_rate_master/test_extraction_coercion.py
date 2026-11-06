@@ -3547,7 +3547,7 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v55.json"`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v56.json"`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v57.json"`
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v60.json"   # VRF-4: v60 (BEFORE: v59, VRF-3b)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v61.json"   # VRF-5: v61 (BEFORE: v60, VRF-4)
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last

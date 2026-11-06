@@ -414,6 +414,22 @@ export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null
   }
   for (const c of ["cores", "sqmm"]) out.push({ input: `${String(ex.comm_input)}_${c}`, skus: all });
   for (const id of [ex.copper_length_input, ex.cable_length_input]) out.push({ input: String(id), skus: all });
+  // VRF-5 (owner ANSWER 4-6, U6): the accessories' defaults -- a band's cell reaches the units of its role in that band, a flat
+  // input every unit of its role -- and the installation-only uplift every unit (the twin of `accessory_input_ids`)
+  for (const a of Array.isArray(ex.accessories) ? (ex.accessories as unknown[]) : []) {
+    const acc = loose(a);
+    const key = typeof loose(acc.electrical).rating_key === "string" ? String(loose(acc.electrical).rating_key) : "qty";
+    for (const role of ["indoor", "outdoor"]) {
+      const bands = (loose(acc.bands)[role] as ExtrasBand[] | undefined) ?? [];
+      if (Array.isArray(bands)) bands.forEach((b, n) => out.push({ input: `${b.input}_${key}`, skus: inBand(role, bands, n) }));
+    }
+    if (typeof acc.input === "string" && acc.input) {
+      const roleSkus = ((acc.roles as string[] | undefined) ?? []).flatMap((r) => unitSkus(r)).map((it) => String(it.item_uid ?? "")).filter(Boolean);
+      out.push({ input: String(acc.input), skus: roleSkus });
+    }
+  }
+  const scope = loose(ex.scope);
+  if (typeof scope.uplift_input === "string" && scope.uplift_input) out.push({ input: String(scope.uplift_input), skus: all });
   return out.map((u) => ({ ...u, skus: [...new Set(u.skus)].sort() }));
 }
 
@@ -466,6 +482,9 @@ export interface ExtrasTables {
   pipes: Array<{ band: string; supply: number | null; ret: number | null; insulation: number | null }>;
   cables: Array<{ band: string; cores: number | null; sqmm: number | null; material: string; armour: string }>;
   lengths: Array<{ label: string; value: number | null }>;
+  /** VRF-5 (owner ANSWER 5): the accessory defaults (per outdoor band / per indoor unit) and the installation-only uplift */
+  accessories?: Array<{ label: string; value: number | null; unit: string }>;
+  uplift?: { label: string; value: number | null } | null;
 }
 export function extrasTablesOf(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): ExtrasTables | null {
   const ex = loose(pricingOf(cfg).extras);
@@ -498,7 +517,26 @@ export function extrasTablesOf(cfg: unknown, items: readonly RateMasterItem[] | 
     { label: "Copper length per pipe per Nos (m); insulation = copper", value: f(String(ex.copper_length_input ?? "")) },
     { label: "Cable length per Nos (m)", value: f(String(ex.cable_length_input ?? "")) },
   ];
-  return { pipes, cables, lengths };
+  // VRF-5 (owner ANSWER 5: "they should also be part of the pricing input sheet for HVAC") -- the accessories table
+  const accessories: NonNullable<ExtrasTables["accessories"]> = [];
+  for (const a of Array.isArray(ex.accessories) ? (ex.accessories as unknown[]) : []) {
+    const acc = loose(a);
+    const el = loose(acc.electrical);
+    const key = typeof el.rating_key === "string" ? String(el.rating_key) : "qty";
+    const what = String(acc.title ?? acc.label ?? acc.id ?? "");
+    const unit = key === "qty" ? String(acc.unit_word ?? "") : String(el.template ?? "").replace("{amp}", "").trim();   // "{amp}A FP MCCB" -> "A FP MCCB": the row reads "40 A FP MCCB"
+    for (const role of ["indoor", "outdoor"]) {
+      const bands = (loose(acc.bands)[role] as ExtrasBand[] | undefined) ?? [];
+      if (Array.isArray(bands)) bands.forEach((b, n) => accessories.push({ label: `${what} - ${bandWords(bands, n, role)}`, value: f(`${b.input}_${key}`), unit: key === "qty" ? `${String(acc.unit_word ?? "")} per unit` : unit }));
+    }
+    if (typeof acc.input === "string" && acc.input) {
+      accessories.push({ label: `${what} - per ${((acc.roles as string[] | undefined) ?? []).join(" / ")} unit`, value: f(String(acc.input)), unit: `${String(acc.unit_word ?? "")} per unit` });
+    }
+  }
+  const scope = loose(ex.scope);
+  const uplift = typeof scope.uplift_input === "string" && scope.uplift_input
+    ? { label: "Installation-only uplift (a row the BoQ prices as installation only)", value: f(String(scope.uplift_input)) } : null;
+  return { pipes, cables, lengths, ...(accessories.length ? { accessories } : {}), ...(uplift ? { uplift } : {}) };
 }
 
 export function computePricingInputReach(

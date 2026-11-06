@@ -132,10 +132,12 @@ export function priceExample(
   // VRF-4 (owner "q1 ok"): a config that reads the includes PER ITEM (`extras.from_model`) gets the example's includes on each
   // item as its Yes answers -- the same figures the row cell gave before v60
   const fromModel = (configs?.[category] as { list_spec?: { pricing?: { extras?: { from_model?: { includes?: Record<string, string>; yes?: string } } } } } | undefined)
-    ?.list_spec?.pricing?.extras?.from_model;
+    ?.list_spec?.pricing?.extras?.from_model as { includes?: Record<string, string>; yes?: string; accessory_includes?: Record<string, string> } | undefined;
   const perItem: Record<string, string> = {};
   if (fromModel?.includes && typeof example.includes === "string") {
     for (const id of example.includes.split(",").map((x) => x.trim())) if (fromModel.includes[id]) perItem[fromModel.includes[id]] = fromModel.yes ?? "Yes";
+    // VRF-5 (owner R1, ANSWER 5): an example's accessories are answered the same way (each its own line on the unit)
+    for (const id of example.includes.split(",").map((x) => x.trim())) if (fromModel.accessory_includes?.[id]) perItem[fromModel.accessory_includes[id]] = fromModel.yes ?? "Yes";
   }
   const listItems = Array.isArray(example.items) && example.items.length ? example.items.map((a) => ({ attributes: cells({ ...a, ...perItem }) })) : undefined;
   const helper = makePricingSheetHelper({

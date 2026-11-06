@@ -676,84 +676,84 @@
    "item": "vrf_acc_mccb_outdoor_upto_8hp_amp",
    "name": "VRF accessory - MCCB / isolator rating (A, FP 4-pole) - outdoor unit up to 8 HP",
    "unit": "A",
-   "factor": 40,
+   "factor": 40.0,
    "remarks": "The default MCCB / isolator rating (A, FP 4-pole) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_mccb_outdoor_8_to_14hp_amp",
    "name": "VRF accessory - MCCB / isolator rating (A, FP 4-pole) - outdoor unit above 8 up to 14 HP",
    "unit": "A",
-   "factor": 40,
+   "factor": 40.0,
    "remarks": "The default MCCB / isolator rating (A, FP 4-pole) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_mccb_outdoor_above_14hp_amp",
    "name": "VRF accessory - MCCB / isolator rating (A, FP 4-pole) - outdoor unit above 14 HP",
    "unit": "A",
-   "factor": 63,
+   "factor": 63.0,
    "remarks": "The default MCCB / isolator rating (A, FP 4-pole) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_frame_outdoor_upto_8hp_qty",
    "name": "VRF accessory - MS frame (Kg) - outdoor unit up to 8 HP",
    "unit": "Kg per outdoor unit",
-   "factor": 30,
+   "factor": 30.0,
    "remarks": "The default MS frame (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_frame_outdoor_8_to_14hp_qty",
    "name": "VRF accessory - MS frame (Kg) - outdoor unit above 8 up to 14 HP",
    "unit": "Kg per outdoor unit",
-   "factor": 45,
+   "factor": 45.0,
    "remarks": "The default MS frame (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_frame_outdoor_above_14hp_qty",
    "name": "VRF accessory - MS frame (Kg) - outdoor unit above 14 HP",
    "unit": "Kg per outdoor unit",
-   "factor": 60,
+   "factor": 60.0,
    "remarks": "The default MS frame (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_gas_outdoor_upto_8hp_qty",
    "name": "VRF accessory - extra gas charge R-410 (Kg) - outdoor unit up to 8 HP",
    "unit": "Kg per outdoor unit",
-   "factor": 3,
+   "factor": 3.0,
    "remarks": "The default extra gas charge R-410 (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_gas_outdoor_8_to_14hp_qty",
    "name": "VRF accessory - extra gas charge R-410 (Kg) - outdoor unit above 8 up to 14 HP",
    "unit": "Kg per outdoor unit",
-   "factor": 5,
+   "factor": 5.0,
    "remarks": "The default extra gas charge R-410 (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_gas_outdoor_above_14hp_qty",
    "name": "VRF accessory - extra gas charge R-410 (Kg) - outdoor unit above 14 HP",
    "unit": "Kg per outdoor unit",
-   "factor": 8,
+   "factor": 8.0,
    "remarks": "The default extra gas charge R-410 (Kg) one OUTDOOR unit of this band carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_drain_pump_per_indoor",
    "name": "VRF accessory - drain pump per indoor unit",
    "unit": "Nos per indoor unit",
-   "factor": 1,
+   "factor": 1.0,
    "remarks": "How many drain pumps one INDOOR unit carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_remote_per_indoor",
    "name": "VRF accessory - remote controller per indoor unit",
    "unit": "Nos per indoor unit",
-   "factor": 1,
+   "factor": 1.0,
    "remarks": "How many remote controllers one INDOOR unit carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   },
   {
    "item": "vrf_acc_refnet_per_indoor",
    "name": "VRF accessory - refnet / Y-joint per indoor unit",
    "unit": "Nos per indoor unit",
-   "factor": 1,
+   "factor": 1.0,
    "remarks": "How many refnet / Y-joints one INDOOR unit carries when the BoQ says its price includes it and states no quantity (VRF-5, owner R1). Owner ANSWER 4 / 5 / 6 (2026-11-06 18:35-18:41): \"use these recommendations for now....also these should be part of pricing inputs\"; MCCB 40 A FP / 40 A FP / 63 A FP."
   }
  ],

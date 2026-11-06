@@ -121,8 +121,13 @@ function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
   // cell, ids `vrf_extra_*`), which the served fixture predates too -- set aside with the rest; it still throws unless every one of
   // the 2 + 29 is present
   const extras = items.filter((it) => isVrf1(it) && it.kind === "hvac_pricing_input" && String(it.attributes?.item ?? "").startsWith("vrf_extra_")).length;
-  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") - extras !== 2 || extras !== 29) {
-    throw new Error("VRF's 150 + 4 + 2 items (v56) and the 29 extras inputs (v59) are not all in the stored asset");
+  // INVERTED at VRF-5 (HVAC v61; the standing authority: a test failing solely because it reads the current HVAC asset) by mechanical
+  // authority: BEFORE `n("hvac_pricing_input") - extras !== 2` and "... and the 29 extras inputs (v59) are not all in the stored asset".
+  // v61 adds 13 `shared_by: vrf` inputs (the accessory defaults `vrf_acc_*` and `vrf_install_only_uplift`, owner ANSWER 4-6), which the
+  // served fixture predates too -- set aside with the rest; it still throws unless every one of the 2 + 29 + 13 is present
+  const vrf5 = items.filter((it) => isVrf1(it) && it.kind === "hvac_pricing_input" && (String(it.attributes?.item ?? "").startsWith("vrf_acc_") || it.attributes?.item === "vrf_install_only_uplift")).length;
+  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") - extras - vrf5 !== 2 || extras !== 29 || vrf5 !== 13) {
+    throw new Error("VRF's 150 + 4 + 2 items (v56), the 29 extras inputs (v59) and the 13 VRF-5 inputs (v61) are not all in the stored asset");
   }
   return items.filter((it) => !isVrf1(it));
 }

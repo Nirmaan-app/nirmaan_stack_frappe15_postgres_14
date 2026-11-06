@@ -840,6 +840,19 @@ export function VrfExtrasTables({ configs, items }: { configs: Record<string, un
             <tr key={r.label}><td className="border px-2 py-1">{r.label}</td><td className={cell}>{n(r.value)}</td></tr>
           ))}</tbody>
         </table>
+        {/* VRF-5 (owner ANSWER 5, U6): the accessories a unit's price can include -- their defaults -- and the installation-only uplift */}
+        {t.accessories && (
+          <table className="border-collapse" data-testid="vrf-extras-accessories">
+            <thead><tr><th className={head}>Accessories</th><th className={head}>Default</th><th className={head}>Unit</th></tr></thead>
+            <tbody>{t.accessories.map((r) => (
+              <tr key={r.label}><td className="border px-2 py-1">{r.label}</td><td className={cell}>{n(r.value)}</td><td className="border px-2 py-1">{r.unit}</td></tr>
+            ))}
+            {t.uplift && (
+              <tr key="uplift" data-testid="vrf-extras-uplift"><td className="border px-2 py-1">{t.uplift.label}</td>
+                <td className={cell}>{t.uplift.value === null ? n(null) : `${Math.round(t.uplift.value * 100)}%`}</td><td className="border px-2 py-1">of the final install</td></tr>
+            )}</tbody>
+          </table>
+        )}
       </div>
     </div>
   );

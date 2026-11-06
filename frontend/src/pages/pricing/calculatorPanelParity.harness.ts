@@ -491,7 +491,7 @@ function itemFacts(s: HelperResult): { view: ItemListView; blocks: ItemBlockFact
       reason: b.reason ?? "",
       figures: figuresText(b.figures),
       qty: b.qty,
-      ...(b.extras ? { extras: JSON.stringify({ lines: b.extras.lines.map((l) => [l.id, l.state, l.reason ?? "", figuresText(l.figures), l.fields.map((f) => `${f.id}=${f.value}`).join(" ")]),
+      ...(b.extras && (b.extras.lines.length || b.extras.removed.length) ? { extras: JSON.stringify({ lines: b.extras.lines.map((l) => [l.id, l.state, l.reason ?? "", figuresText(l.figures), l.fields.map((f) => `${f.id}=${f.value}`).join(" ")]),
                                                  removed: b.extras.removed.map((r) => r.id) }) } : {}),
     })),
   };

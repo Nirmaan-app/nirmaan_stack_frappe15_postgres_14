@@ -26,7 +26,7 @@ import { isSuggestion } from "./rateHelperTypes";
 import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
 import {
-  ITEM_LIST_OVERRIDE_KEY, ROW_QTY_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, EXTRAS_INCLUDES_KEY, applyItemEdit, assembleItems, decodeItemEdits, makePricingSheetHelper,
+  ITEM_LIST_OVERRIDE_KEY, ROW_QTY_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, EXTRAS_INCLUDES_KEY, applyItemEdit, assembleItems, buildExtractionByRow, decodeItemEdits, makePricingSheetHelper,
   type ItemEditOp, type ItemListSuggestion,
 } from "./pricingSheetHelper";
 import { applyFamilyMerge, familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
@@ -1947,6 +1947,100 @@ describe("VRF-4 (v60) -- R-39: every VRF Derivation-tab rule v60 adds or changes
       expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
     }
     expect(VCASES).toHaveLength(8);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});
+
+/*
+ * VRF-5 (owner R1 18:14-18:21 + SAFEGUARD; F2; R2; R5; R4-R8; ANSWER 4-6, 9) -- R-39 ON v61: the seven lines v61 adds each fire from the
+ * PANEL's entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v61's titles = v60's 26 + 7.
+ */
+describe("VRF-5 (v61) -- R-39: every VRF Derivation-tab rule v61 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A61 = rd("rate_master_hvac_all_v61.json");
+  const A60 = rd("rate_master_hvac_all_v60.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items61 = [...asItems(A61), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A61.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    acc: "A unit's price can include its accessories, each as its own line",
+    folded: "Any other item listed with a unit is a note, not a line",
+    guard: "Where the BoQ states an inclusion decides whether it is added",
+    words: "A cable the BoQ names without a size takes the default size",
+    side: "Discharge not stated, below the smallest Top unit -> Side",
+    makes: "Several makes stated -> Blue Star if it is one, else the first stocked make",
+    scope: "Supply only / installation only, from the BoQ",
+  };
+  type Row = { items?: Array<Record<string, string>>; unit?: string; qty?: number; text?: string; category?: string };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const CAS = (more: Record<string, string> = {}) => ({ item: "Cassette", brand: "Blue Star", capacity: "2 TR", ...more });
+  const VCASES: VCase[] = [
+    { id: "G1a", rule: VT.acc, kind: "pos", rows: { 9: { items: [OD({ includes_frame: "Yes", includes_frame_where: "Row", includes_gas: "Yes", includes_gas_where: "Row" })] } }, at: 9,
+      re: ["line:acc_frame", "line:acc_gas"], priced: true },
+    { id: "G1b-neg", rule: VT.acc, kind: "neg", rows: { 9: { items: [OD({ includes_frame: "No", includes_gas: "None" })] } }, at: 9, re: [], not: ["line:acc_"], priced: true },
+    { id: "G2a", rule: VT.folded, kind: "pos", rows: { 12: { items: [OD(), { item: "none of these" }] } }, at: 12,
+      re: ["notes:An item the catalogue does not identify (not identified in the catalogue)"], priced: true },
+    { id: "G2b-neg", rule: VT.folded, kind: "neg", rows: { 12: { items: [{ item: "Remote Controller" }, { item: "none of these" }] } }, at: 12, re: [], not: ["notes:"], priced: false },
+    { id: "G3a", rule: VT.guard, kind: "pos", rows: { 24: { items: [CAS({ includes_refnet: "Yes", includes_refnet_where: "Heading" })] }, 134: { items: [{ item: "Refnet/Y-Joint" }], text: "Refnet joints" } }, at: 24,
+      re: ["review:This row may include extras - please review", "NOT added: the BoQ quotes it on its own row (row 134)"], not: ["line:acc_refnet"], priced: true },
+    { id: "G3b-neg", rule: VT.guard, kind: "neg", rows: { 24: { items: [CAS({ includes_refnet: "Yes", includes_refnet_where: "Row" })] }, 134: { items: [{ item: "Refnet/Y-Joint" }], text: "Refnet joints" } }, at: 24,
+      re: ["line:acc_refnet"], not: ["review:"], priced: true },
+    { id: "G4a", rule: VT.words, kind: "pos", rows: { 233: { items: [OD({ capacity: "18 HP", includes_power: "Yes", includes_power_where: "Row", extra_cable_spec_as_written: "multicore copper cables about 5-10 Rmt" })] } }, at: 233,
+      re: ["line:power", "spec:BoQ says \"multicore copper cables about 5-10 Rmt\" - no size stated"], not: ["Size needed"], priced: true },
+    { id: "G4b-neg", rule: VT.words, kind: "neg", rows: { 9: { items: [OD({ includes_power: "Yes", includes_power_where: "Row", extra_cable_spec_as_written: "4C x 10 sqmm" })] } }, at: 9,
+      re: ["line:power"], not: ["spec:BoQ says"], priced: true },
+    { id: "G5a", rule: VT.side, kind: "pos", rows: { 12: { items: [OD({ capacity: "6 HP" })] } }, at: 12, re: ["discharge:Side", /the smallest Top unit is 7 HP/], priced: true },
+    { id: "G5b-neg", rule: VT.side, kind: "neg", rows: { 12: { items: [OD({ capacity: "6 HP", discharge: "Top" })] } }, at: 12, re: ["discharge:Top"], not: [/smallest Top unit/], priced: true },
+    { id: "G6a", rule: VT.makes, kind: "pos", rows: { 9: { items: [OD({ brand: "None", brand_as_written: "Toshiba / Daikin" })] } }, at: 9, re: ["brand:Daikin", "the first stated make the catalogue stocks"], priced: true },
+    { id: "G6b-neg", rule: VT.makes, kind: "neg", rows: { 9: { items: [OD({ brand: "None", brand_as_written: "Daikin" })] } }, at: 9, re: [], not: [/several brands|none of the stated makes/], priced: true },
+    { id: "G7a", rule: VT.scope, kind: "pos", rows: { 147: { items: [CAS({ scope: "Supply only" })] } }, at: 147, re: ["scope:BoQ says supply only - no installation", "install:0"], priced: true },
+    { id: "G7b-neg", rule: VT.scope, kind: "neg", rows: { 147: { items: [CAS({ scope: "Supply + installation" })] } }, at: 147, re: [], not: ["scope:", "install:0"], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er, r]) => [Number(er), r.qty ?? 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "" }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items61, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: [], ownNotes: [], unit: r.unit ?? "Nos", quantity: r.qty ?? 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.scope?.note) out.push(`scope:${v.scope.note}`);
+    if (typeof v.totals?.install_rate === "number") out.push(`install:${v.totals.install_rate}`);
+    for (const b of v.items) {
+      for (const f of b.fields) { if (f.id === "discharge" || f.id === "brand") out.push(`${f.id}:${f.value}`); if (f.rule) out.push(f.rule); }
+      for (const l of b.extras?.lines ?? []) { out.push(`line:${l.id}`); for (const f of l.fields) if (f.id === "spec" && f.note) out.push(`spec:${f.note}`); if (l.reason) out.push(l.reason); }
+      if (b.extras?.review) out.push(`review:${b.extras.review.title}`, ...b.extras.review.points);
+      if (b.extras?.notes) out.push(...b.extras.notes.points.map((p) => `notes:${p}`));
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v61's VRF rules = v60's 26 + the seven VRF-5 lines; each line this block names has a positive AND a negative case", () => {
+    const t61 = titles(A61);
+    expect(t61).toHaveLength(33);
+    expect(t61.slice(0, 26)).toEqual(titles(A60));
+    expect(t61.slice(26)).toEqual([VT.acc, VT.folded, VT.guard, VT.words, VT.side, VT.makes, VT.scope]);
+    for (const t of Object.values(VT)) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(14);
   });
 
   it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
