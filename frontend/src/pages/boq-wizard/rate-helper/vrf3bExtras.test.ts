@@ -75,7 +75,10 @@ describe("VRF-3b C1 / C2 / C3 -- the lines from the defaults, each by its own ca
     expect(val(byId(v, "copper_supply"), "size")).toBe("22.2");
     expect(val(byId(v, "copper_return"), "size")).toBe("15.9");
     expect(val(byId(v, "ins_supply"), "thickness")).toBe("19");
-    expect(fieldOf(byId(v, "ins_supply"), "size").note).toBe("22.23 mm (follows the copper line)");
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE `.toBe("22.23 mm (follows the copper line)")` (VRF's closest size). Insulation's own note on the
+    // copper size as read (the section precedent); the size itself is unchanged
+    expect(fieldOf(byId(v, "ins_supply"), "size").note).toBe("Follows the copper line: 22.2 mm -> priced as 22.23 mm (the sheet's own spelling of this size)");
+    expect(val(byId(v, "ins_supply"), "size")).toBe("22.23");
     expect(val(byId(v, "power"), "spec")).toBe("4C x 10");
     expect(val(byId(v, "comm"), "spec")).toBe("2C x 1.5");
     for (const l of lines(v)) {
@@ -182,16 +185,25 @@ describe("VRF-3b SIZES (AC1 / AC3) -- the closest stocked size; a typed size (mm
     const t = run([{ ...ODU10, extras: { set: { copper_supply: { size: "1.125 inch" } } } }]);
     const ct = byId(t, "copper_supply");
     expect(val(ct, "size")).toBe("28.6");
-    expect(fieldOf(ct, "size").note).toBe("You typed 1.125 inch -> 28.6 mm, the closest Piping size (only it is used).");
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE `.toBe("You typed 1.125 inch -> 28.6 mm, the closest Piping size (only it is used).")`. Piping's own
+    // reader and note; the size priced is the same 28.6
+    expect(fieldOf(ct, "size").note).toMatch(/^You typed 1\.125 inch -> 28\.575 mm -> .*28\.6/);
+    expect(fieldOf(ct, "size").note).not.toMatch(/closest/);
     expect(fieldOf(ct, "size").otherMode).toBe(true);
     expect(fieldOf(byId(t, "ins_supply"), "size").value).toBe("28.58");
   });
   it("NEGATIVE: an unreadable typed size holds the line ('Size needed. ...'); an unstocked cable spec holds its line", () => {
     const v = run([{ ...ODU10, extras: { set: { copper_supply: { size: "big" }, power: { spec: "3C x 400" } } } }]);
-    expect(byId(v, "copper_supply").reason).toBe("Size needed. \"big\" is not a size. Pick a size, or fill the table.");
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE `.toBe("Size needed. \"big\" is not a size. Pick a size, or fill the table.")`. Piping's own refusal of a
+    // typed text with no size; the line still holds (negative half kept: blank, no figure)
+    expect(byId(v, "copper_supply").reason).toBe("Type one pipe size, in mm or inches");
+    expect(byId(v, "copper_supply").state).toBe("blank");
     expect(byId(v, "ins_supply").reason).toBe("Size needed. Its copper line has no size yet. Pick a size, or fill the table.");
     // K1b (owner ANSWER 2): the sentence names the conductor and the armour picked (BEFORE: "3C x 400 unarmoured copper cable ...")
-    expect(byId(v, "power").reason).toBe("3C x 400 copper unarmoured cable is not stocked - pick a spec.");
+    // INVERTED at VRF-4 K2 (owner BORROWED "option a") by mechanical authority: BEFORE `.toBe("3C x 400 copper unarmoured cable is
+    // not stocked - pick a spec.")` (VRF's stocked pre-check, deleted). Electrical's own match and sentence; the line still holds
+    expect(byId(v, "power").reason).toBe("no match for these attributes");
+    expect(byId(v, "power").state).toBe("blank");
     expect(v.rowPriced).toBe(false);
     expect(v.lineCount).toEqual({ lines: 7, bad: 3 });
   });
@@ -258,7 +270,9 @@ describe("VRF-3b REMOVE / PUT BACK (AC5, owner 12:23) -- the hidden tag; per mod
     expect(s1.items[0].extras).toEqual({ removed: ["copper_supply"] });
     const v = run(s1.items as never);
     expect(lines(v).map((l) => l.id)).toEqual(["copper_return", "ins_return", "power", "comm"]);
-    expect(v.items[0].extras?.removed).toEqual([{ id: "copper_supply", label: "Copper pipe - supply line" }]);
+    // INVERTED at VRF-4 (owner 2026-11-06 U8: the removal banner says "(and its insulation)") by mechanical authority: BEFORE
+    // `[{ id: "copper_supply", label: "Copper pipe - supply line" }]`; the insulation still goes with its copper line
+    expect(v.items[0].extras?.removed).toEqual([{ id: "copper_supply", label: "Copper pipe - supply line (and its insulation)" }]);
     expect(v.items[0].extras?.removedNote).toBe("The helper will not add removed extras back on its own. The row prices without them.");
     expect(v.rowPriced).toBe(true);
     expect(tot(v)).toEqual([441210 - 54420 - 7950, 25960 - 6600 - 420]);
@@ -421,8 +435,14 @@ describe("VRF-3b K1b (owner ANSWER 2, 15:31 + 16:07 'ok with b') -- every extra 
     const u = applyItemEdit({ items: [{ ...ODU10, extras: { set: { ins_supply: { cladding: "24G Aluminium" } } } } as never] }, { op: "extra_undo", index: 0, line: "ins_supply", field: "cladding" });
     expect(fig(byId(run(u.items as never, "copper,insulation"), "ins_supply"))).toEqual([7950, 420]);
     // NEGATIVE: a cladding the catalogue does not stock on that size holds the line by name
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE `expect(...reason).toBe("Aluminium Foil is not stocked for Nitrile Rubber Insulation on 22.23 mm - pick
+    // another.")` -- VRF's own exact cladding check (R5 (e) 7, deleted). Insulation's own rules price a foil cladding (its
+    // cladding rate), so the line prices; the NEGATIVE half is kept: a cladding Insulation cannot price holds the line
     const bad = run([{ ...ODU10, extras: { set: { ins_supply: { cladding: "Aluminium Foil" } } } }], "copper,insulation");
-    expect(byId(bad, "ins_supply").reason).toBe("Aluminium Foil is not stocked for Nitrile Rubber Insulation on 22.23 mm - pick another.");
+    expect(byId(bad, "ins_supply").state).toBe("priced");
+    expect(byId(bad, "ins_supply").figures.supply_rate!).toBeGreaterThan(7950);
+    const worse = run([{ ...ODU10, extras: { set: { ins_supply: { cladding: "Gold Leaf" } } } }], "copper,insulation");
+    expect(byId(worse, "ins_supply").state).toBe("blank");
   });
   it("cable: conductor, armour, cores and size list every value Electrical stocks (read only); an armoured or aluminium cable prices by Electrical's rules", () => {
     const v = run([ODU10], "power");
@@ -444,7 +464,10 @@ describe("VRF-3b K1b (owner ANSWER 2, 15:31 + 16:07 'ok with b') -- every extra 
     expect(byId(al, "power").working[0]).toContain("per metre by Electrical's rules");
     // NEGATIVE: a combination Electrical does not stock holds the line by name
     const no = run([{ ...ODU10, extras: { set: { power: { conductor: "ALUMINIUM", cores: "6", sqmm: "1.5" } } } }], "power");
-    expect(byId(no, "power").reason).toBe("6C x 1.5 aluminium unarmoured cable is not stocked - pick a spec.");
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE `.toBe("6C x 1.5 aluminium unarmoured cable is not stocked - pick a spec.")` -- VRF's own stocked
+    // pre-check (R5 (e) 5, deleted). Electrical's own match answers with its own sentence; the line still holds
+    expect(byId(no, "power").reason).toBe("no match for these attributes");
+    expect(byId(no, "power").state).toBe("blank");
   });
   it("the panel draws Change item on an extra line and the read-only spec with its own unit", () => {
     const RHP_SRC = readFileSync(new URL("./RateHelperPanel.tsx", import.meta.url), "utf8");

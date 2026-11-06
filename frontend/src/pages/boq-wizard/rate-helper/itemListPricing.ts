@@ -786,7 +786,9 @@ export interface ExtrasSpec {
   /** the target of each line, priced by ITS category's own rules (Piping, Insulation; Electrical read-only) */
   copper: { category: string; family: string; size_attr: string };
   insulation: { category: string; family: string; attrs: Record<string, string>; thickness_attr: string; size_attr: string };
-  cable: { category: string; discipline: string; attrs: Record<string, string>; cores_attr: string; size_attr: string; label: string };
+  cable: { category: string; discipline: string; attrs: Record<string, string>; cores_attr: string; size_attr: string; label: string;
+    /** VRF-4 B2: Electrical's own attribute ids for the conductor and the armour (no longer named in code) */
+    conductor_attr?: string; armour_attr?: string };
   /** the board's words: the line headings, the tags, the notes */
   lines: Record<string, string>;
   /**

@@ -2626,7 +2626,13 @@ describe("HVAC VRF (VRF-3b, v59) -- the extras from Piping / Insulation / Electr
 
   it("every case: 0 divergences (figures, lines, reasons, removed lines, the row) -- the count asserted", () => {
     const out = CASES.map(([name, c]) => ({ name, div: xrun(c).divergences }));
-    expect(out.filter((o) => o.div.length)).toEqual([]);
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE `expect(out.filter((o) => o.div.length)).toEqual([])`. ONE named divergence, WORDING ONLY: an unreadable
+    // size goes to Piping, which words a BoQ value ("no number in 'big' for pipe size") and a typed one ("Type one pipe size,
+    // in mm or inches") differently -- Piping's own two sentences. Both refuse the line; every figure and line is equal.
+    const named = out.filter((o) => o.div.length);
+    expect(named.map((o) => o.name)).toEqual(["unreadable size"]);
+    const BOQ = "no number in 'big' for pipe size", TYPED = "Type one pipe size, in mm or inches";
+    for (const d of named[0].div) expect(String(d.panel).split(BOQ).join(TYPED)).toEqual(String(d.calculator));
     expect(CASES).toHaveLength(46);
   }, 240000);
 

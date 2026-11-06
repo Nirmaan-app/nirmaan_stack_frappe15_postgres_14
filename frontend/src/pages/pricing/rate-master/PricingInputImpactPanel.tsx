@@ -278,6 +278,9 @@ export function PricingInputImpactPanel({
   }, [impact.rowsByCategory, q, categoryLabel]);
   const shown = groups.reduce((n, g) => n + g.rows.length, 0);
   const total = impact.rows.length;
+  // VRF-4 U8 (owner 2026-11-06): an input read by an ASSEMBLY (no SKU of its own -- VRF's extras and conversions) titles its
+  // where-used count, never "0 items" beside "Where used: 136 items"
+  const titleCount = total > 0 ? total : (reach?.assemblySkus ?? []).length;
 
   // VRF-3b (B2): a pipe-size cell of VRF's extras takes mm or inch and becomes the closest stocked Piping size
   const snapSizes = useMemo(() => extrasSnapSizes(allConfigs as never, allItems, String(attrs.item ?? "")), [allConfigs, allItems, attrs.item]);
@@ -346,7 +349,7 @@ export function PricingInputImpactPanel({
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">{String(attrs.name ?? attrs.item ?? "")}</p>
             <p className="text-[11px] text-muted-foreground">
-              {`${total} item${total === 1 ? "" : "s"} · ${Object.keys(impact.rowsByCategory).map(categoryLabel).join(" · ")}`}
+              {`${titleCount} item${titleCount === 1 ? "" : "s"} · ${Object.keys(impact.rowsByCategory).map(categoryLabel).join(" · ")}`}
             </p>
           </div>
         )}
@@ -382,7 +385,8 @@ export function PricingInputImpactPanel({
                   </span>
                 )}
                 <span className="text-[11px] text-muted-foreground">
-                  today {isPercentField(k) ? pctText(stored[k]) : fmt(stored[k] ?? 0)}
+                  {/* VRF-4 U8 (owner 2026-11-06): "was 30" (the stored value), not "today 30" */}
+                  was {isPercentField(k) ? pctText(stored[k]) : fmt(stored[k] ?? 0)}
                 </span>
               </label>
             ))}
