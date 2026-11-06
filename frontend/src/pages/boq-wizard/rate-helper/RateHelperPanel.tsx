@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard, COPY_CONFIRM_MS } from "@/lib/clipboard";
 import { resolveRateHelpers } from "./rateHelperRegistry";
+import { PreviouslyPricedCard } from "./PreviouslyPricedMatches";
 // SLICE 6: the item-list view a list-mode suggestion carries, its session-edit operations and the two override
 // keys the panel writes them under (the helper decodes them -- edits never leave the panel session).
 import {
@@ -609,7 +610,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
         // RM-3b empty state (embedded panel-as-default): a quiet placeholder until a row is picked.
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
           <div className="rounded-md border border-dashed bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
-            Click a suggestion badge or the sparkle on a rate cell to load that row.
+            Click the sparkle (Open rate suggestions) on a rate cell to load that row.
           </div>
         </div>
       )}
@@ -618,6 +619,11 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {evaluations.map(({ helper, result }) => {
           const isOpen = expanded === helper.id;
+          // DEV2-B5 S4: the "Previously priced" card -- a decline that CARRIES matches renders the match card (range,
+          // dots, key, pop-up); no value to Use and no badge (G4 (a)). Without `matches` the greyed card below is as before.
+          if (!isSuggestion(result) && result.matches) {
+            return <PreviouslyPricedCard key={helper.id} view={result.matches} />;
+          }
           if (!isSuggestion(result)) {
             return (
               <div
@@ -625,7 +631,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                 className="rounded-md border bg-muted/40 px-3 py-2 opacity-70"
               >
                 <div className="text-sm font-medium text-muted-foreground">{helper.label}</div>
-                <div className="text-xs text-muted-foreground">{result.reason}</div>
+                <div className="text-xs text-muted-foreground" title={result.detail}>{result.reason}</div>
               </div>
             );
           }

@@ -721,6 +721,14 @@ scheduler_events = {
 			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task",
 			# CU-A: a rate-suggestion run left `running` by a killed worker -> failed, "stale - worker gone".
 			"nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs",
+			# DEV2-B4: a match run left queued / running past its clocks -> halted, "stale - worker gone".
+			"nirmaan_stack.tasks.match_run_healer.heal_stale_match_runs",
+		],
+		# DEV2-B4 (owner 2026-11-02 21:41): the historical-match pool rebuilt every day at 06:00 in the SYSTEM time
+		# zone (Frappe's cron reads System Settings time_zone; production must hold Asia/Kolkata). It enqueues
+		# pool.rebuild_pool on `long` (a Cron job runs on `default` at 300 s; a build takes ~5 min).
+		"0 6 * * *": [
+			"nirmaan_stack.api.boq.rate_match.daily_pool_rebuild"
 		],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"

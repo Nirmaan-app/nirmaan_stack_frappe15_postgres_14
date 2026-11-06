@@ -1,0 +1,188 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BRMF-.YY.-.#####",
+ "creation": "2026-11-03 19:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "target_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "commit_version",
+  "match_section",
+  "match_boq",
+  "match_sheet_name",
+  "match_excel_row",
+  "match_run",
+  "feedback_section",
+  "action",
+  "reason",
+  "note",
+  "user",
+  "marked_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "target_section",
+   "fieldtype": "Section Break",
+   "label": "The Row Being Priced"
+  },
+  {
+   "description": "The workbook (BOQs) of the row being priced.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1
+  },
+  {
+   "description": "The committed sheet name, VERBATIM (#152 -- never stripped).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The Excel row being priced (source_row_number).",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "description": "The sheet's committed version the match run was made at (= the sheet's current version when marked).",
+   "fieldname": "commit_version",
+   "fieldtype": "Int",
+   "label": "Committed Version"
+  },
+  {
+   "fieldname": "match_section",
+   "fieldtype": "Section Break",
+   "label": "The Match"
+  },
+  {
+   "description": "The matched row's BoQ (the candidate key's first part).",
+   "fieldname": "match_boq",
+   "fieldtype": "Link",
+   "label": "Match BoQ",
+   "options": "BOQs",
+   "reqd": 1
+  },
+  {
+   "description": "The matched row's sheet name, VERBATIM.",
+   "fieldname": "match_sheet_name",
+   "fieldtype": "Data",
+   "label": "Match Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The matched row's Excel row.",
+   "fieldname": "match_excel_row",
+   "fieldtype": "Int",
+   "label": "Match Excel Row",
+   "reqd": 1
+  },
+  {
+   "description": "The BoQ Rate Match Run that showed this match.",
+   "fieldname": "match_run",
+   "fieldtype": "Link",
+   "label": "Match Run",
+   "options": "BoQ Rate Match Run",
+   "reqd": 1
+  },
+  {
+   "fieldname": "feedback_section",
+   "fieldtype": "Section Break",
+   "label": "Feedback"
+  },
+  {
+   "description": "not_a_match (the pricer says the matched row is not the same item) | undo (takes the latest not_a_match back). APPEND-ONLY: the latest row for (row, match) is the current flag; nothing is ever edited or deleted.",
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Action",
+   "options": "not_a_match\nundo",
+   "reqd": 1
+  },
+  {
+   "description": "Why it is not a match (optional; owner R-H2AI: captured to improve matching later).",
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "label": "Reason",
+   "options": "\nDifferent spec\nDifferent item\nDifferent unit\nDifferent scope\nOther"
+  },
+  {
+   "description": "The pricer's note (optional).",
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  },
+  {
+   "description": "Who marked or undid it (the session user).",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "When.",
+   "fieldname": "marked_at",
+   "fieldtype": "Datetime",
+   "label": "Marked At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-11-03 19:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Match Feedback",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

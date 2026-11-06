@@ -511,8 +511,11 @@ class TestTimedCheck(FrappeTestCase):
         # healer. This task is still there exactly once, and the healer is the ONLY other entry.
         five = events["cron"]["*/5 * * * *"]
         self.assertEqual(five.count(self._TASK), 1)
+        # DEV2-B4 (mechanical inversion, the HEALER ruling of the B4 brief): the match-run healer joins it; the two
+        # healers are still the ONLY other entries.
         self.assertEqual([m for m in five if m != self._TASK],
-                         ["nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs"])
+                         ["nirmaan_stack.tasks.suggest_run_healer.heal_stale_suggestion_runs",
+                          "nirmaan_stack.tasks.match_run_healer.heal_stale_match_runs"])
         every_entry = [
             method
             for group in events.values()
