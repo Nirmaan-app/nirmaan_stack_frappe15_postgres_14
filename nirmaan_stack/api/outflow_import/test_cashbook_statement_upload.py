@@ -9,8 +9,8 @@ by preview and by confirm, and a refused confirm saves nothing. An accepted stat
 are stored on each staged line.
 
 Endpoints are driven as `test_cashbook_import.TestRepeatsAreNotSaved` drives them: only the transport
-is faked. The upload's clock is `cb._utc_now`, set here, because the fixture's links (signed
-2026-10-30/31 for 7 days; earliest expiry 2026-11-06 09:00 UTC) expire in real time.
+is faked. The upload's clock is `cb._utc_now`, set here, because the fixture's links (V2 `Expires`;
+the earliest dies 2026-11-06 09:00 UTC) expire in real time.
 """
 
 from contextlib import nullcontext

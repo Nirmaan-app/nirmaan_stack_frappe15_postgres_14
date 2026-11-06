@@ -601,8 +601,10 @@ class TestCashbookXlsx(unittest.TestCase):
 # 17,446 spend), a full Credit Adjustment, a wallet credit and a Wallet → VA move. #1594 added one more: a
 # `Refund to Wallet` whose spend (`REF-OBO9000000000008EARLYR`) is not on the statement.
 #
-# Every link is signed 2026-10-31 11:12 UTC for 7 days, except the first link of the 4-link spend,
-# signed 2026-10-30 09:00 UTC: the file's earliest link expiry is 2026-11-06 09:00 UTC.
+# Every link is signed as the provider signs them (V2: `Expires`, the Unix second it dies) and dies
+# 2026-11-07 11:12 UTC (`Expires=1794049920`), except the first link of the 4-link spend, which dies
+# 2026-11-06 09:00 UTC (`Expires=1793955600`): the file's earliest link expiry.
+# `test_bill_links.TestFixtureLinksAreSignedLikeTheProvider` keeps every fixture's links in that shape.
 _STATEMENT = "cashbook_statement.xlsx"
 _LINK_HOST = "https://storage.googleapis.com/prod-payments-private/transaction-attachments/"
 
@@ -615,7 +617,7 @@ class TestCashbookStatementBillLinks(unittest.TestCase):
     def test_a_spend_with_one_bill_gets_its_one_link(self):
         (link,) = _by_transfer(_statement(), "OBO9100000000001WSPNDA").bill_links
         self.assertTrue(link.startswith(_LINK_HOST + "OBO9100000000001WSPNDA/1.jpeg?"))
-        self.assertIn("X-Goog-Date=20261031T111200Z", link)
+        self.assertIn("Expires=1794049920", link)
 
     def test_a_spend_with_four_bills_gets_all_four_links_in_order(self):
         links = _by_transfer(_statement(), "OBO9100000000002WSPNDB").bill_links
