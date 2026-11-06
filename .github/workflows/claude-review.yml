@@ -1,6 +1,6 @@
 name: Claude review
 
-# A maintainer comments `/claude-review` on a PR. Claude rewrites the PR description in the /pr template (the
+# The repo owner (abhishek0010) comments `/claude-review` on a PR. Claude rewrites the PR description in the /pr template (the
 # author's original stays, folded) and keeps one checklist comment that tags the author. It never pushes code
 # and never runs on its own. Needs the ANTHROPIC_API_KEY repo secret.
 #
@@ -14,13 +14,13 @@ on:
 permissions: {}
 
 jobs:
-  # MEMBER and COLLABORATOR include people with read access only. They must not be able to start a run, which
-  # spends API credit and can post the failure comment.
+  # Only the owner's account may start a run, which spends API credit. 8597417 is abhishek0010's GitHub user id;
+  # the id is used because a login can be renamed and later taken by someone else.
   gate:
     if: >-
       github.event.issue.pull_request &&
       startsWith(github.event.comment.body, '/claude-review') &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+      github.event.comment.user.id == 8597417
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
