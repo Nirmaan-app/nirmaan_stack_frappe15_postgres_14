@@ -67,9 +67,13 @@ def reject_bill(name: str, reason: str | None, user: str) -> None:
 def correct_latest_bill(expense_doctype: str, expense: str, invoice_no: str | None, invoice_date) -> None:
     """Put a corrected `invoice_no` and `invoice_date` on Expense `expense`'s latest bill, through the document
     layer (a Version is kept): an approver (`role_profiles.PAID_BILL_APPROVER_PROFILES`) editing only the number and
-    date on Payment Done, which lands no new bill (#1643). An Expense with no Expense bill is left alone. Does not
-    commit."""
-    name = frappe.db.get_value(BILL_DOCTYPE, {"expense_doctype": expense_doctype, "expense": expense, "is_latest": 1})
+    date on Payment Done, which lands no new bill (#1643). A Pending or Approved bill is corrected, whoever approved
+    it: a person's number wins over the reader's. A Rejected one is left as the record of its rejection, as is an
+    Expense with no Expense bill. Does not commit."""
+    name = frappe.db.get_value(
+        BILL_DOCTYPE,
+        {"expense_doctype": expense_doctype, "expense": expense, "is_latest": 1, "status": ("!=", REJECTED)},
+    )
     if not name:
         return
     bill = frappe.get_doc(BILL_DOCTYPE, name, for_update=True)
