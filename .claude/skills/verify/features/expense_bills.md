@@ -20,6 +20,12 @@ leaves the pill) and queues its reading; its new result comes back to the pill, 
 and does not. A bill left Checking by a reading that stopped (a worker killed mid-read: its claim is older than the
 15-minute job limit plus a 5-minute margin) shows on its pill as Not read, "The reading stopped.", and can be read again or decided.
 
+An open **Collect payment** keeps its bill on its line until someone decides it (#1642): that stored bill gets its
+Bill check at import, against the line's amount, and the result is kept on the line. The line's decide dialog
+(Bulk Import Transactions -> Not Matched – Outflow -> Choose) says **Invoice already available** and `Create
+expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismatched, Not read, Not checked) or
+`Checking`. Create a new expense makes the Expense bill from the kept result without reading again; Skip makes none.
+
 ## Sub-features
 
 - `bill-attach-card` Credit Card pill: the spend is listed, Attach invoice -> Upload Invoice dialog -> Save Invoice;
@@ -31,6 +37,14 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
   Accountant who confirmed the import; two or more links Not checked. Seen on the expense lists (`bill-lists`).
 - `bill-lists` Dashboard -> Non-Project Expenses / Project Expenses -> Paid: a Matched bill's Invoice Ref and Invoice
   Date on the spend's row; nothing for any other result.
+
+- `collect-bill` an open Collect payment's stored bill: DB `Outflow Import Row.bill_check` (Checking with a reading
+  queued as `expense_bills.line_check.check_collect_line`, or Not checked for two or more links), then the kept
+  result and `read_*` fields. The decide dialog's `collect-bill-note` (test id) shows `Invoice already available`,
+  `View bill` and `Create expense: <outcome>`. After Create: one Expense bill against the line, its file the line's
+  stored bill (the File stays on the line); Matched Approved by System, its number on the Expense, never claimed by
+  a reading; anything else Pending; a line still Checking gives a Checking bill whose reading is queued. Skip by
+  hand (Admin, Accountant Lead): no Expense bill.
 
 - `approval-pills` Pending Invoice Approvals -> `PO` / `WO` / `Cashbook` / `Credit Card`. Cashbook and Credit Card
   list each waiting bill: spend date, line amount, bill total read ("--" unless Matched or Mismatched), Bill check
@@ -93,7 +107,17 @@ the Accountant sees both rows Not read with no Read again and gets 403, presses 
 Lead, presses the card one twice more by hand (200, still Checking), runs one burst worker, and reads each row's new
 result beside its DB row. `--part read-again` runs only these steps (it needs the users of the steps above).
 
+`--part collect` (#1642): `BIN/collect_bills_seed.py <stamp> <accountant>` stages five made-up open Collect
+payments (copies of the fixture's ₹480 one) as the Accountant and runs their import with made-up downloads and a
+stand-in reader: M Matched, X Mismatched, N two links (Not checked), K left Checking, S Matched. The walk opens each
+line's Choose dialog as the Accountant, reads the note, creates M, X, N and K, reads each Expense bill
+(`BIN/collect_bills_db.py`), shows the Cashbook pill of Pending Invoice Approvals, and skips S as the Accountant Lead.
+
 ## Gotchas
+
+- **The Collect payment part is seeded, not live**, for the same reasons as the Cashbook part: the stored bills are
+  made-up files and the line readings a stand-in reader, so the dialog's Matched and Mismatched notes show seeded
+  results.
 
 - **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
   ends Not read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints
