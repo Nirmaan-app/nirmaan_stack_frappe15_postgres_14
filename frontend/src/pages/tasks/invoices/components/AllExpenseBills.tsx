@@ -3,10 +3,11 @@
  * pill, latest and history, with its Bill check and approval. Server mode: paged, filtered, sorted and searched by
  * `api/expenses/all_expense_bills.get_all_expense_bills`; the pill rides as the filter `["kind", "=", <pill>]`.
  */
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 import { BILL_HISTORY_OPTIONS } from "../utils/allInvoicesView";
 import type { AllExpenseBillRow } from "../utils/allInvoicesView";
@@ -32,7 +33,12 @@ const FACETS = {
 };
 
 export const AllExpenseBills: React.FC<{ kind: ExpenseBillKind }> = ({ kind }) => {
-    const columns = useMemo(() => getAllExpenseBillColumns(), []);
+    const { data: usersList } = useUsersList();
+    const userName = useCallback(
+        (id: string) => usersList?.find((user) => user.name === id)?.full_name || id,
+        [usersList],
+    );
+    const columns = useMemo(() => getAllExpenseBillColumns({ userName }), [userName]);
     const additionalFilters = useMemo(() => [["kind", "=", kind]], [kind]);
 
     const {

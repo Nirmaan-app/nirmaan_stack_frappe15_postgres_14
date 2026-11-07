@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     allInvoicesPillsFor,
     approvalText,
+    billDecision,
     isAllInvoicesPill,
     porterResultText,
     type AllExpenseBillRow,
@@ -19,6 +20,10 @@ const BILL: AllExpenseBillRow = {
     bill_check_reason: "The bill's total is ₹1,250.00; the statement line is ₹1,180.00.",
     approval: "Rejected",
     rejection_reason: "Bill of another shop",
+    approved_by: null,
+    approved_on: null,
+    rejected_by: "test-approver@example.com",
+    rejected_on: "2026-09-12 16:30:00",
     is_latest: 0,
     invoice_no: null,
     invoice_date: null,
@@ -56,6 +61,30 @@ describe("an expense bill's approval", () => {
 
     it("is the status alone otherwise", () => {
         expect(approvalText({ ...BILL, approval: "Auto-approved", rejection_reason: null })).toBe("Auto-approved");
+    });
+});
+
+describe("who decided an expense bill, and when", () => {
+    const APPROVED = {
+        ...BILL, approval: "Approved", rejection_reason: null, rejected_by: null, rejected_on: null,
+        approved_by: "test-approver@example.com", approved_on: "2026-09-13 09:15:00",
+    } as const;
+
+    it("is the approver on an Approved bill", () => {
+        expect(billDecision(APPROVED)).toEqual({ by: "test-approver@example.com", on: "2026-09-13 09:15:00" });
+    });
+
+    it("is the System on an Auto-approved bill", () => {
+        expect(billDecision({ ...APPROVED, approval: "Auto-approved", approved_by: "System" })?.by).toBe("System");
+    });
+
+    it("is whoever rejected a Rejected bill", () => {
+        expect(billDecision(BILL)).toEqual({ by: "test-approver@example.com", on: "2026-09-12 16:30:00" });
+    });
+
+    it("is nobody on a Pending bill, or a decision the bill does not record", () => {
+        expect(billDecision({ ...APPROVED, approval: "Pending" })).toBeNull();
+        expect(billDecision({ ...BILL, rejected_by: null, rejected_on: null })).toBeNull();
     });
 });
 

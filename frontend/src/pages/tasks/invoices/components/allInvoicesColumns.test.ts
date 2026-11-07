@@ -12,7 +12,8 @@ import { getAllExpenseBillColumns, getPorterInvoiceColumns } from "./allInvoices
 const BILL: AllExpenseBillRow = {
     name: "EB-2026-00001", expense: "NPE-0001", expense_doctype: "Non Project Expenses", payment_date: "2026-09-10",
     line_amount: 1180, read_total: 1250, bill_check: "Mismatched", bill_check_reason: "Totals differ.",
-    approval: "Rejected", rejection_reason: "Bill of another shop", is_latest: 0, invoice_no: null, invoice_date: null,
+    approval: "Rejected", rejection_reason: "Bill of another shop", approved_by: null, approved_on: null,
+    rejected_by: "test-approver@example.com", rejected_on: "2026-09-12 16:30:00", is_latest: 0, invoice_no: null, invoice_date: null,
     paid_by: "TEST HOLDER", project: null, project_name: null, uploaded_by: "walk-accountant@example.com",
     uploaded_by_name: "Walk Accountant", bill_file: "/private/files/bill.pdf", creation: "2026-09-11 10:00:00",
 };
@@ -35,12 +36,15 @@ const render = <T,>(columns: AnyColumn[], id: string, row: T): HTMLElement => {
     return el;
 };
 
+const NAMES: Record<string, string> = { "test-approver@example.com": "Test Approver" };
+const userName = (id: string) => NAMES[id] ?? id;
+
 describe("All Invoices -> Cashbook / Credit Card columns", () => {
-    const columns = getAllExpenseBillColumns() as AnyColumn[];
+    const columns = getAllExpenseBillColumns({ userName }) as AnyColumn[];
 
     it("show what the spec lists, each id a field the server sorts or filters by", () => {
         expect(columns.map(idOf)).toEqual([
-            "payment_date", "expense", "line_amount", "read_total", "invoice_no", "bill_check", "approval", "is_latest",
+            "payment_date", "expense", "line_amount", "read_total", "invoice_no", "bill_check", "approval", "decided", "is_latest",
             "paid_by", "project_name", "uploaded_by_name", "creation", "bill_file",
         ]);
     });
@@ -49,6 +53,19 @@ describe("All Invoices -> Cashbook / Credit Card columns", () => {
         expect(render(columns, "is_latest", BILL).textContent).toBe("Replaced");
         expect(render(columns, "approval", BILL).textContent).toContain("Bill of another shop");
         expect(render(columns, "bill_file", BILL).querySelector("a")?.getAttribute("href")).toContain("/private/files/bill.pdf");
+    });
+
+    it("say who decided a bill and on which day, by name", () => {
+        expect(render(columns, "decided", BILL).textContent).toBe("Test Approver12-Sep-2026");
+        const approved = { ...BILL, approval: "Auto-approved", approved_by: "System", approved_on: "2026-09-13 09:15:00" } as const;
+        expect(render(columns, "decided", approved).textContent).toBe("System13-Sep-2026");
+        const decided = columns.find((c) => idOf(c) === "decided")!;
+        expect(decided.meta?.exportValue?.(BILL as never)).toBe("Test Approver, 12-Sep-2026");
+    });
+
+    it("leave a Pending bill's decision blank", () => {
+        const pending = { ...BILL, approval: "Pending", rejected_by: null, rejected_on: null } as const;
+        expect(render(columns, "decided", pending).textContent).toBe("");
     });
 });
 

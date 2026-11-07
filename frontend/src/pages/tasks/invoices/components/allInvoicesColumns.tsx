@@ -12,7 +12,9 @@ import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { type AllExpenseBillRow, type PorterInvoiceListRow, approvalText, porterResultText } from "../utils/allInvoicesView";
+import {
+    type AllExpenseBillRow, type PorterInvoiceListRow, approvalText, billDecision, porterResultText,
+} from "../utils/allInvoicesView";
 import { billCheckText, readTotalText } from "../utils/expenseBillApprovalView";
 
 const money = (value: number | null) => (
@@ -30,7 +32,17 @@ const rightHeader = <TRow,>(title: string) => ({ column }: HeaderContext<TRow, u
     <div className="w-full flex justify-end"><DataTableColumnHeader column={column} title={title} /></div>
 );
 
-export const getAllExpenseBillColumns = (): ColumnDef<AllExpenseBillRow>[] => [
+interface AllExpenseBillColumnOptions {
+    /** A user's full name from their id; the list ships ids for who decided. */
+    userName: (id: string) => string;
+}
+
+const decisionText = (row: AllExpenseBillRow, userName: (id: string) => string): string => {
+    const decided = billDecision(row);
+    return decided ? `${userName(decided.by)}, ${formatDate(decided.on)}` : "";
+};
+
+export const getAllExpenseBillColumns = ({ userName }: AllExpenseBillColumnOptions): ColumnDef<AllExpenseBillRow>[] => [
     {
         accessorKey: "payment_date",
         size: 120,
@@ -106,6 +118,22 @@ export const getAllExpenseBillColumns = (): ColumnDef<AllExpenseBillRow>[] => [
             </div>
         ),
         meta: { exportHeaderName: "Approval", exportValue: (row: AllExpenseBillRow) => approvalText(row) },
+    },
+    {
+        id: "decided",
+        size: 150,
+        header: "Decided by / on",
+        cell: ({ row }) => {
+            const decided = billDecision(row.original);
+            return decided ? (
+                <div>
+                    <TruncatedText text={userName(decided.by)} className="max-w-full" />
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(decided.on)}</div>
+                </div>
+            ) : null;
+        },
+        enableSorting: false,
+        meta: { exportHeaderName: "Decided by / on", exportValue: (row: AllExpenseBillRow) => decisionText(row, userName) },
     },
     {
         // A bill a newer one replaced is history; the Expense's latest bill is the one that counts.
