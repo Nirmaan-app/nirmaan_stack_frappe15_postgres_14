@@ -18,6 +18,7 @@ writes re-read the Expense `FOR UPDATE` and save through the document layer.
 import frappe
 
 from nirmaan_stack.services.card_invoices import CashbookExpenseFacts
+from nirmaan_stack.services.expense_bills.approval import last_rejection_sql
 from nirmaan_stack.services.expense_invoices import (
     require_profile,
     require_upload_access,
@@ -35,7 +36,7 @@ EXPENSE_DOCTYPES = (PROJECT_EXPENSE, NON_PROJECT_EXPENSE)
 _QUEUE_SQL = """
     SELECT e.name, e.payment_date, e.amount, e.type AS expense_type, e.description, e.cashbook_batch,
            {project} AS project, {project_name} AS project_name, {payment_by} AS payment_by,
-           r.added_by_raw, r.remarks
+           r.added_by_raw, r.remarks, {last_bill_rejected} AS last_bill_rejected
     FROM "tab{doctype}" e
     {project_join}
     LEFT JOIN "tabOutflow Row Match" m
@@ -57,6 +58,7 @@ def _queue_rows(doctype: str) -> list[dict]:
         }
     else:
         parts = {"project": "NULL", "project_name": "NULL", "payment_by": "NULL", "project_join": ""}
+    parts["last_bill_rejected"] = last_rejection_sql("e", "%(doctype)s")
     return frappe.db.sql(_QUEUE_SQL.format(doctype=doctype, **parts), {"doctype": doctype}, as_dict=True)
 
 
@@ -66,7 +68,8 @@ def get_cashbook_invoice_queue() -> list[dict]:
 
     Each row: `name`, `doctype` (the ledger), `payment_date`, `amount`, `expense_type`, `paid_by` (the wallet
     holder: the statement's `From`), `remark` (the statement's remark, else the Expense's description),
-    `project` and `project_name` (None on a Non-Project spend) and `cashbook_batch`.
+    `project` and `project_name` (None on a Non-Project spend), `cashbook_batch` and `last_bill_rejected` (the reason
+    its latest Expense bill was rejected, else None).
     """
     require_upload_access()
     rows, seen = [], set()
