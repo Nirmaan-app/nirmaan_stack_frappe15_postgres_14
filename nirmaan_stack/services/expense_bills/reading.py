@@ -205,11 +205,7 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     its Expense is left alone."""
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
     auto_approve = verdict.auto_approves and doc.status == PENDING
-    if isinstance(reading.read, BillRead):
-        doc.read_total = reading.read.total
-        doc.read_invoice_no = (reading.read.invoice_no or "").strip() or None
-        doc.read_invoice_date = reading.read.invoice_date
-    doc.reader_output = frappe.as_json(reading.output) if reading.output else None
+    doc.update(read_fields(reading))
     doc.bill_check = verdict.result
     doc.bill_check_reason = verdict.reason or None
     doc.invoice_no = verdict.invoice_no or None
@@ -223,6 +219,20 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     doc.save(ignore_permissions=True)
     if auto_approve and doc.is_latest:
         _fill_expense(doc, verdict)
+
+
+def read_fields(reading: Reading) -> dict:
+    """What the reader found, as the fields an Expense bill keeps it in (`read_total`, `read_invoice_no`,
+    `read_invoice_date`, `reader_output`), the same names a Collect payment line keeps it in (#1642,
+    `line_check`). A failed reading gives only its (empty) output."""
+    fields = {"reader_output": frappe.as_json(reading.output) if reading.output else None}
+    if isinstance(reading.read, BillRead):
+        fields.update(
+            read_total=reading.read.total,
+            read_invoice_no=(reading.read.invoice_no or "").strip() or None,
+            read_invoice_date=reading.read.invoice_date,
+        )
+    return fields
 
 
 def _fill_expense(bill, verdict: BillVerdict) -> None:

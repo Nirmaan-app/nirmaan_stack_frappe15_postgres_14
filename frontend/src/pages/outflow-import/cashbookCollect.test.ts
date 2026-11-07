@@ -2,6 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
+
 import { CollectPaymentLine, collectBillOutcome, collectPaymentsHeading, collectPaymentsOf } from "./cashbookCollect";
 
 const line = (transfer_id: string, amount: number): CollectPaymentLine => ({
@@ -40,7 +42,7 @@ describe("collectPaymentsOf", () => {
 });
 
 describe("collectBillOutcome (#1642)", () => {
-    const row = (stored_bill: string | null, bill_check: string | null) => ({
+    const row = (stored_bill: string | null, bill_check: BillCheck | null) => ({
         source: "Cashbook",
         row_kind: "Collect Payment",
         row_status: "Mismatched",
@@ -60,14 +62,15 @@ describe("collectBillOutcome (#1642)", () => {
         expect(collectBillOutcome(row("/private/files/b.jpeg", "Matched"))).toEqual({
             heading: "Invoice already available",
             outcome: "Will be auto-approved",
+            fileUrl: "/private/files/b.jpeg",
         });
     });
 
-    it.each(["Mismatched", "Not read", "Not checked"])("a %s bill will go to Pending Approval", (check) => {
+    it.each<BillCheck>(["Mismatched", "Not read", "Not checked"])("a %s bill will go to Pending Approval", (check) => {
         expect(collectBillOutcome(row("/private/files/b.jpeg", check))?.outcome).toBe("Will go to Pending Approval");
     });
 
-    it.each(["Checking", null])("a bill still being read (%s) says Checking", (check) => {
+    it.each<BillCheck | null>(["Checking", null])("a bill still being read (%s) says Checking", (check) => {
         expect(collectBillOutcome(row("/private/files/b.jpeg", check))?.outcome).toBe("Checking");
     });
 });

@@ -4,6 +4,8 @@
 // `CollectPaymentsReview` renders it; `cashbookCollect.test.ts` pins it. Also what the decide screen says about an
 // open Collect payment's stored bill (#1642, `collectBillOutcome`).
 
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
+
 import { isOpenCollectPaymentLine } from "./outflowImportStatus";
 
 /** A Collect payment the import leaves open for a person to decide (preview `collect_payments`). */
@@ -36,7 +38,11 @@ export interface CollectBillOutcome {
     heading: "Invoice already available";
     /** What Create will lead to, from the Bill check kept on the line (`expense_bills.line_check`). */
     outcome: "Will be auto-approved" | "Will go to Pending Approval" | "Checking";
+    /** The stored bill, for its link. */
+    fileUrl: string;
 }
+
+const WAITS_FOR_A_PERSON: ReadonlySet<BillCheck> = new Set(["Mismatched", "Not read", "Not checked"]);
 
 /**
  * The bill an open Collect payment already holds, and what Create will lead to: Matched is auto-approved;
@@ -48,13 +54,11 @@ export const collectBillOutcome = (row: {
     source?: string | null;
     row_kind?: string | null;
     stored_bill?: string | null;
-    bill_check?: string | null;
+    bill_check?: BillCheck | null;
 }): CollectBillOutcome | null => {
     if (!isOpenCollectPaymentLine(row) || !row.stored_bill) return null;
-    const heading = "Invoice already available";
-    if (row.bill_check === "Matched") return { heading, outcome: "Will be auto-approved" };
-    if (row.bill_check === "Mismatched" || row.bill_check === "Not read" || row.bill_check === "Not checked") {
-        return { heading, outcome: "Will go to Pending Approval" };
-    }
-    return { heading, outcome: "Checking" };
+    const known = { heading: "Invoice already available", fileUrl: row.stored_bill } as const;
+    if (row.bill_check === "Matched") return { ...known, outcome: "Will be auto-approved" };
+    if (row.bill_check && WAITS_FOR_A_PERSON.has(row.bill_check)) return { ...known, outcome: "Will go to Pending Approval" };
+    return { ...known, outcome: "Checking" };
 };

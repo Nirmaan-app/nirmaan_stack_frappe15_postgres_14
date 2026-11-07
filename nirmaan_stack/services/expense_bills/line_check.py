@@ -60,20 +60,18 @@ def check_collect_line(line: str) -> None:
         return
     read = reading.read_or_fail(claimed.stored_bill, f"Collect payment {line}")
     verdict = check_bill(read.read, Decimal(str(claimed.amount or 0)).quantize(Decimal("0.01")))
-    values = {"bill_check": verdict.result, "bill_check_reason": verdict.reason or None}
-    if isinstance(read.read, BillRead):
-        values.update(
-            read_total=read.read.total,
-            read_invoice_no=(read.read.invoice_no or "").strip() or None,
-            read_invoice_date=read.read.invoice_date,
-        )
-    values["reader_output"] = frappe.as_json(read.output) if read.output else None
     try:
-        _write(line, values)
+        _write(line, {"bill_check": verdict.result, "bill_check_reason": verdict.reason or None, **reading.read_fields(read)})
     except Exception as exc:
         frappe.db.rollback()
+        frappe.local.message_log = []
         frappe.log_error(title=f"Collect payment {line}: the Bill check could not be saved", message=frappe.get_traceback())
-        _write(line, {"bill_check": NOT_READ, "bill_check_reason": f"The Bill check could not be saved ({type(exc).__name__})."})
+        # A claimed line must not stay Checking: no job reads it again.
+        try:
+            _write(line, {"bill_check": NOT_READ, "bill_check_reason": f"The Bill check could not be saved ({type(exc).__name__})."})
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(title=f"Collect payment {line}: left Checking", message=frappe.get_traceback())
 
 
 def _claim(line: str) -> frappe._dict | None:
@@ -98,24 +96,23 @@ def _write(line: str, values: dict) -> None:
     frappe.db.commit()
 
 
-def kept_reading(line) -> reading.Reading | None:
-    """The reading kept on `line` (a row with the fields above), for Create to hand to `receive_bill`: None while
-    it is still Checking (or from before #1642), so the Expense bill is read instead. A Not checked line gives
-    None too: its bill count alone decides it."""
-    result = line.get("bill_check")
-    if result == NOT_READ:
-        return reading.Reading(ReadFailed(line.get("bill_check_reason") or "The bill was not read."))
-    if result in (MATCHED, MISMATCHED):
-        read_date = line.get("read_invoice_date")
+KEPT = ("bill_check", "bill_check_reason", "read_total", "read_invoice_no", "read_invoice_date", "reader_output")
+
+
+def kept_reading(line: str) -> reading.Reading | None:
+    """The reading kept on Collect payment line `line`, for Create to hand to `receive_bill`: None while it is still
+    Checking (or from before #1642), so the Expense bill is read instead. A Not checked line gives None too: its
+    bill count alone decides it."""
+    kept = frappe.db.get_value(LINE_DOCTYPE, line, KEPT, as_dict=True) or frappe._dict()
+    if kept.bill_check == NOT_READ:
+        return reading.Reading(ReadFailed(kept.bill_check_reason or "The bill was not read."))
+    if kept.bill_check in (MATCHED, MISMATCHED):
         return reading.Reading(
             BillRead(
-                total=Decimal(str(line.get("read_total"))).quantize(Decimal("0.01"))
-                if line.get("read_total") is not None
-                else None,
-                invoice_no=line.get("read_invoice_no") or "",
-                invoice_date=getdate(read_date) if read_date else None,
+                total=None if kept.read_total is None else Decimal(str(kept.read_total)).quantize(Decimal("0.01")),
+                invoice_no=kept.read_invoice_no or "",
+                invoice_date=getdate(kept.read_invoice_date) if kept.read_invoice_date else None,
             ),
-            frappe.parse_json(line.get("reader_output")) if line.get("reader_output") else None,
+            frappe.parse_json(kept.reader_output) if kept.reader_output else None,
         )
     return None
-

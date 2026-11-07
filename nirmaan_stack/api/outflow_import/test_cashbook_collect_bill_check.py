@@ -17,9 +17,11 @@ from unittest.mock import patch
 
 import frappe
 
+from nirmaan_stack.api.expenses.test_expense_bill_approval import keeping_versions
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, readings_queued
 from nirmaan_stack.api.outflow_import.expenses import create_expense
 from nirmaan_stack.api.outflow_import.review import get_outflow_rows, skip_row
+from nirmaan_stack.api.outflow_import.unreconcile import plan_of_line
 from nirmaan_stack.api.outflow_import.test_cashbook_collect_payments import COLLECT_WITH_LINK, CollectPaymentCase
 from nirmaan_stack.services.expense_bills import line_check, reading
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
@@ -166,3 +168,19 @@ class TestTheMainTableCarriesTheKeptCheck(CollectPaymentCase):
         page = get_outflow_rows(scope="not_matched_outflow", batch=self.batch, limit=500)
         (row,) = [row for row in page["rows"] if row["name"] == line.name]
         self.assertEqual((row["stored_bill"], row["bill_check"]), (line.stored_bill, "Matched"))
+
+
+class TestAMatchedCreateCanStillBeUndone(CollectPaymentCase):
+    def test_the_matched_number_and_date_are_no_edit_after_the_match_so_unreconcile_still_deletes_the_expense(self):
+        self._run()
+        line = self._line(COLLECT_WITH_LINK)
+        run_line_reading(line.name, FakeReader(BillRead(total=LINE_AMOUNT, invoice_no="SHOP-9")))
+        line = self._line(COLLECT_WITH_LINK)
+
+        with keeping_versions(), patch.object(reading, "read_bill", FakeReader(BillRead(total=Decimal("1")))):
+            create_expense(row=line.name, doctype=line.suggested_doctype, expense_type=line.suggested_expense_type)
+        [match] = self._expenses_of(COLLECT_WITH_LINK)
+        self.assertEqual(frappe.db.get_value(match.target_doctype, match.target_name, "invoice_ref"), "SHOP-9")
+
+        (leg,) = plan_of_line(line.name)["legs"]
+        self.assertEqual((leg["verdict"], leg["reason"]), ("delete_created", None))

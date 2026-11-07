@@ -21,9 +21,11 @@ from __future__ import annotations
 import frappe
 
 from nirmaan_stack.api.outflow_import.cashbook_bills import links_of
+from nirmaan_stack.services.expense_bills.bill_check import check_bill
 from nirmaan_stack.services.expense_bills.line_check import kept_reading
 from nirmaan_stack.services.expense_bills.receive import receive_bill
-from nirmaan_stack.services.outflow_import.settle import outflow_import_write
+from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, outflow_import_write
 from nirmaan_stack.services.outflow_import.sources import CASHBOOK_SOURCE
 
 
@@ -37,7 +39,29 @@ def statement_line_create_extras(doc, source: str | None) -> dict:
     """
     if not _staged_by_cashbook_import(doc, source):
         return {}
-    return {"cashbook_batch": doc["import_batch"]}
+    extras: dict = {"cashbook_batch": doc["import_batch"]}
+    matched = _matched_number_and_date(doc)
+    if matched:
+        extras["invoice"] = matched
+    return extras
+
+
+def _matched_number_and_date(doc) -> ExpenseInvoice | None:
+    """A Matched stored bill's number and date, for the Expense's insert (#1642).
+
+    ⚠️ ON THE INSERT, NOT SAVED AFTER IT. The bill is filed after the settlement is recorded
+    (`file_stored_bill`), and a save then that fills them would be a Version after the match, which Unreconcile
+    reads as a person's edit and refuses to delete the Expense. Written here, the filing finds them already set
+    and saves nothing new."""
+    if not doc.get("stored_bill") or _bill_count(doc["name"]) > 1:
+        return None
+    kept = kept_reading(doc["name"])
+    if kept is None:
+        return None
+    verdict = check_bill(kept.read, normalize_amount(doc.get("amount")))
+    if not verdict.auto_approves:
+        return None
+    return ExpenseInvoice(number=verdict.invoice_no, date=verdict.invoice_date)
 
 
 def file_stored_bill(doc, source: str | None, result, actor: str) -> None:
@@ -51,25 +75,23 @@ def file_stored_bill(doc, source: str | None, result, actor: str) -> None:
     """
     if not (_staged_by_cashbook_import(doc, source) and doc.get("stored_bill")):
         return
-    line = frappe.db.get_value(
-        "Outflow Import Row",
-        doc["name"],
-        ["name", "stored_bill", "bill_links", "bill_check", "bill_check_reason", "read_total", "read_invoice_no",
-         "read_invoice_date", "reader_output"],
-        as_dict=True,
-    )
     expense = frappe.get_doc(result.doctype, result.name, for_update=True)
     with outflow_import_write():
         receive_bill(
             expense,
-            line.stored_bill,
+            doc["stored_bill"],
             expense.invoice_ref,
             expense.invoice_date,
             actor,
-            bill_count=max(len(links_of(line)), 1),
-            kept=kept_reading(line),
+            bill_count=_bill_count(doc["name"]),
+            kept=kept_reading(doc["name"]),
             file_stays=True,
         )
+
+
+def _bill_count(line: str) -> int:
+    """How many bills the line's stored file holds: one per bill link (two or more were merged into one PDF)."""
+    return max(len(links_of(frappe.db.get_value("Outflow Import Row", line, ["bill_links"], as_dict=True))), 1)
 
 
 def _staged_by_cashbook_import(doc, source: str | None) -> bool:

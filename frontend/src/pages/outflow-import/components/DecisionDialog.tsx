@@ -2258,6 +2258,25 @@ const RecordVerdict = ({
     );
 };
 
+/** "Invoice already available" on an open Collect payment with a stored bill, and what Create will lead to
+ * (`cashbookCollect.collectBillOutcome`, #1642). Nothing on any other line. */
+const CollectBillNote = ({ row }: { row: OutflowImportRow }) => {
+    const bill = collectBillOutcome(row);
+    if (!bill) return null;
+    return (
+        <div
+            data-testid="collect-bill-note"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm"
+        >
+            <span className="font-medium">{bill.heading}</span>
+            <a href={bill.fileUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                View bill
+            </a>
+            <span className="text-muted-foreground">Create expense: {bill.outcome}</span>
+        </div>
+    );
+};
+
 /**
  * The whole new-expense form, in place.
  *
@@ -2268,25 +2287,6 @@ const RecordVerdict = ({
  * ⚠️ Amount, payment date and reference are READ-ONLY from the bank row: the statement is the
  * source of truth for all three.
  */
-/** "Invoice already available" on an open Collect payment with a stored bill, and what Create will lead to
- * (`cashbookCollect.collectBillOutcome`, #1642). Nothing on any other line. */
-const CollectBillNote = ({ row }: { row: OutflowImportRow }) => {
-    const bill = collectBillOutcome(row);
-    if (!bill || !row.stored_bill) return null;
-    return (
-        <div
-            data-testid="collect-bill-note"
-            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm"
-        >
-            <span className="font-medium">{bill.heading}</span>
-            <a href={row.stored_bill} target="_blank" rel="noreferrer" className="text-primary underline">
-                View bill
-            </a>
-            <span className="text-muted-foreground">Create expense: {bill.outcome}</span>
-        </div>
-    );
-};
-
 const NewExpenseForm = ({
     row,
     decision,

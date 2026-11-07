@@ -48,8 +48,9 @@ def receive_bill(
     number and date filled where empty), and no reading is queued.
 
     `file_stays` keeps the file's one `File` where it is (a Collect payment's stays on its line, #1642): the URL is
-    written after the save, raw, so Frappe's attach-on-save hook mints no second `File` sharing its stored object
-    (an undo deletes an Expense with every File attached to it, and the cloud app deletes the object by its key).
+    written after the save, raw, so Frappe's attach-on-save hook mints no `File` on the Expense sharing its stored
+    object (an undo deletes an Expense with every File attached to it, and the cloud app deletes the object by its
+    key). The Expense bill's own `bill_file` row is minted as for every Expense bill (#1639).
     """
     url = file_url.strip()
     if not file_stays:
