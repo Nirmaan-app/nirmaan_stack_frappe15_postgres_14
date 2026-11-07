@@ -15,6 +15,7 @@ import {
 import { InvoiceDataDialog } from "@/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
+import { TruncatedText } from "@/components/common/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Check, X, Info, RefreshCw, Sparkles } from 'lucide-react';
@@ -500,7 +501,7 @@ const getCommonColumns = (
             cell: ({ row }) => {
                 const userId = row.original.uploaded_by;
                 if (!userId) return <span className="text-gray-400 italic">—</span>;
-                return <div className="font-medium">{getUserName?.(userId) || userId}</div>;
+                return <TruncatedText text={getUserName?.(userId) || userId} className="max-w-[9rem] font-medium" />;
             },
             size: 150,
             enableColumnFilter: true,
