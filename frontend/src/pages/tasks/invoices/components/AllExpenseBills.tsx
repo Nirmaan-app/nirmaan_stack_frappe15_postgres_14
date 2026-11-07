@@ -36,7 +36,11 @@ const FACETS = {
     is_latest: { title: "Bill", options: BILL_HISTORY_OPTIONS },
 };
 
-export const AllExpenseBills: React.FC<{ kind: ExpenseBillKind }> = ({ kind }) => {
+interface AllExpenseBillsProps {
+    kind: ExpenseBillKind;
+}
+
+export const AllExpenseBills: React.FC<AllExpenseBillsProps> = ({ kind }) => {
     const { data: usersList } = useUsersList();
     const userName = useCallback(
         (id: string) => usersList?.find((user) => user.name === id)?.full_name || id,

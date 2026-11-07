@@ -6,7 +6,12 @@ import React from "react";
 
 import { lastBillRejectedText } from "../utils/expenseBillApprovalView";
 
-export const LastBillRejected: React.FC<{ reason?: string | null }> = ({ reason }) => {
+interface LastBillRejectedProps {
+    /** The latest bill's rejection reason; nothing shows without one. */
+    reason?: string | null;
+}
+
+export const LastBillRejected: React.FC<LastBillRejectedProps> = ({ reason }) => {
     const text = lastBillRejectedText(reason);
     return text ? <div className="text-xs text-destructive whitespace-normal" data-testid="last-bill-rejected">{text}</div> : null;
 };

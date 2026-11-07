@@ -2260,7 +2260,11 @@ const RecordVerdict = ({
 
 /** "Invoice already available" on an open Collect payment with a stored bill, and what Create will lead to
  * (`cashbookCollect.collectBillOutcome`, #1642). Nothing on any other line. */
-const CollectBillNote = ({ row }: { row: OutflowImportRow }) => {
+interface CollectBillNoteProps {
+    row: OutflowImportRow;
+}
+
+const CollectBillNote = ({ row }: CollectBillNoteProps) => {
     const bill = collectBillOutcome(row);
     if (!bill) return null;
     return (
