@@ -67,3 +67,18 @@ class TestReplacingACardSpendsBill(ReplaceOnPaymentDone, CardBillCase):
         # The previous bill stays as history, no longer the latest.
         self.assertEqual(frappe.db.get_value(BILL, first, "is_latest"), 0)
         self.assertEqual(frappe.db.get_value(NPE, self.spend, ["invoice_attachment", "invoice_ref"]), (url, "TYPED-77"))
+
+    def test_its_bill_check_runs_and_a_matched_result_never_replaces_the_number_and_date_they_typed(self):
+        lead = self.users.make(ACCOUNTANT_LEAD)
+        self._replace(lead, NPE, self.spend)
+        name = bills_of(NPE, self.spend)[-1].name
+        self.assertEqual(readings_queued(self.jobs), [("long", name)])
+
+        run_reading(name, FakeReader(BillRead(Decimal("1180.00"), "READ-9", date(2026, 9, 9))))
+
+        bill = frappe.get_doc(BILL, name)
+        self.assertEqual((bill.bill_check, bill.read_invoice_no, str(bill.read_invoice_date)), ("Matched", "READ-9", "2026-09-09"))
+        self.assertEqual((bill.status, bill.approved_by, bill.auto_approved), ("Approved", lead, 0))
+        self.assertEqual((bill.invoice_no, str(bill.invoice_date)), ("TYPED-77", TYPED_DATE))
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, ["invoice_ref", "invoice_date"]),
+                         ("TYPED-77", frappe.utils.getdate(TYPED_DATE)))

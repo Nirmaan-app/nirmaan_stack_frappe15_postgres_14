@@ -15,7 +15,9 @@ started while the first still reads) finds it claimed and does nothing, so one b
 
 A Matched bill is auto-approved (`approved_by` "System", as an auto-approved Vendor Invoice) and fills the
 Expense's `invoice_ref` and `invoice_date` where they are empty -- only while it is still the Expense's latest bill.
-Every other result stays Pending and writes nothing to the Expense.
+Every other result stays Pending and writes nothing to the Expense. A bill a person approved before it was read
+(an approver's replace on Payment Done, #1643) keeps its approval and the number and date they typed; the result is
+recorded beside them.
 """
 
 from __future__ import annotations
@@ -178,8 +180,10 @@ def _record(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     doc.reader_output = frappe.as_json(reading.output) if reading.output else None
     doc.bill_check = verdict.result
     doc.bill_check_reason = verdict.reason or None
-    doc.invoice_no = verdict.invoice_no or None
-    doc.invoice_date = verdict.invoice_date
+    if doc.status == PENDING:
+        # A bill a person already decided keeps the number and date they gave it (#1643).
+        doc.invoice_no = verdict.invoice_no or None
+        doc.invoice_date = verdict.invoice_date
     doc.invoice_amount = verdict.total
     if auto_approve:
         doc.status = APPROVED
