@@ -58,7 +58,8 @@ bill(seeded["npe_matched"], bill_check="Matched", read_total=1000, status="Appro
 bill(seeded["npe_rejected"], latest=0, bill_check="Matched", read_total=1000, status="Approved", auto_approved=1,
      approved_by="System", approved_on=now_datetime())
 bill(seeded["npe_rejected"], bill_check="Not read", bill_check_reason="The reader failed (ClientError).",
-     status="Rejected", rejection_reason="Walk: wrong shop")
+     status="Rejected", rejection_reason="Walk: wrong shop", rejected_by="walk-accountant@example.com",
+     rejected_on=now_datetime())
 bill(seeded["pe_checking"], bill_check="Checking", status="Pending")
 bill(seeded["pe_notchecked"], bill_check="Not checked", status="Approved", approved_by="walk-accountant@example.com",
      approved_on=now_datetime())

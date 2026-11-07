@@ -18,25 +18,38 @@ The server refuses both to anyone else.
 A Not read bill can be **read again** (#1645) by Admin and Accountant Lead: Read again puts it back to Checking (it
 leaves the pill) and queues its reading; its new result comes back to the pill, or a Matched one is auto-approved
 and does not. A bill left Checking by a reading that stopped (a worker killed mid-read: its claim is older than the
-15-minute job limit plus a 5-minute margin) shows on its pill as Not read, "The reading stopped.", and can be read again or decided.
+15-minute job limit plus a 5-minute margin) shows on its pill, on All Invoices and on the expense lists as Not read,
+"The reading stopped.", and can be read again or decided. Read again also reaches a bill a person approved on
+Payment Done (Pending or Approved by a person; never Rejected, replaced, or one with a result): the reading records
+its result beside their approval and never changes it or what they typed.
+
+A number and date typed when a bill is attached (or replaced) are the Expense bill's own from the start; a Matched
+reading fills only what is still empty, on the bill and on the Expense alike.
 
 A paid wallet spend's or card spend's bill replaced on Project Payment & Expense -> Payment Done / Reconciliation
 Done (Edit Inv / Upload Inv, #1643) is a new Expense bill too: an Admin's or Accountant Lead's is **Approved at once
 in their name** (not auto-approved) with the number and date they typed; its Bill check still runs and is recorded,
 and never replaces that number or date. The previous bill stays as history, no longer latest. Anyone else's
 (Accountant, HR) waits like an attached one. Editing only the number or date lands no new bill. Any other paid
-Expense (hand-keyed, Porter, ...) gets no Expense bill.
+Expense (hand-keyed, Porter, ...) gets no Expense bill. An Admin's or Accountant Lead's edit of only the number and
+date corrects the latest Expense bill's own number and date too (a Version on the bill); an Accountant's or HR's
+edit changes the Expense only.
 
 An open **Collect payment** keeps its bill on its line until someone decides it (#1642): that stored bill gets its
 Bill check at import, against the line's amount, and the result is kept on the line. The line's decide dialog
 (Bulk Import Transactions -> Not Matched – Outflow -> Choose) says **Invoice already available** and `Create
 expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismatched, Not read, Not checked) or
-`Checking`. Create a new expense makes the Expense bill from the kept result without reading again; Skip makes none.
+`Checking`. A line left Checking by a reading that stopped (claim older than 20 minutes) ships `bill_check` Not
+read, so the dialog says Pending Approval and Create makes a Not read bill, "The reading stopped."; a line stored
+before #1642 ships no `bill_check` (the dialog's "Will be read on Create"). Create a new expense makes the Expense
+bill from the kept result without reading again; Skip makes none.
 
 ## Sub-features
 
 - `bill-attach-card` Credit Card pill: the spend is listed, Attach invoice -> Upload Invoice dialog -> Save Invoice;
-  the spend leaves the list. DB: one `Expense Bill`, Checking, Pending, latest, against the card statement line.
+  the spend leaves the list. DB: one `Expense Bill`, Checking, Pending, latest, against the card statement line,
+  with the typed number and date as its `invoice_no` / `invoice_date`; its `bill_file` is the Expense's file URL
+  (a plain Data field: no File row of the bill's own, so no "Error Attaching File" log either).
 - `bill-attach-cashbook` Cashbook pill: the same for a wallet spend, against its Cashbook line.
 - `bill-reading` the reading runs on the env's `long` queue (`expense_bills.reading.check_expense_bill`). DB: Bill
   check Matched / Mismatched / Not read with its reason; Matched is Approved, `auto_approved`, by System.
@@ -58,8 +71,10 @@ expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismat
 - `approve` Approve -> dialog with `#expense_bill_invoice_no` and `#expense_bill_invoice_date` prefilled -> Approve;
   the row leaves. DB: Approved, `approved_by` the person, `approved_on`; number and date on the bill and the Expense;
   a Version on both.
-- `reject` Reject -> `#expense_bill_reject_reason` -> Reject; the row leaves. DB: Rejected with the reason; the
-  Expense's `invoice_attachment`, `invoice_ref`, `invoice_date` cleared; a Version on both. Pending Invoices Upload
+- `reject` Reject -> `#expense_bill_reject_reason` -> Reject; the row leaves. DB: Rejected with the reason,
+  `rejected_by` the person, `rejected_on`; the Expense's `invoice_attachment`, `invoice_ref`, `invoice_date` cleared;
+  a Version on both. All Invoices' Cashbook / Credit Card rows and the pending queue's rows carry `approved_by`,
+  `approved_on`, `rejected_by`, `rejected_on` (story 35). Pending Invoices Upload
   -> Cashbook / Credit Card then lists the spend with "Last bill rejected: <reason>" under its remark or details;
   No invoice (Admin, Accountant Lead) still works on it.
 - `read-again` Cashbook / Credit Card -> a Not read row's `Read again` (Admin, Accountant Lead only; an Accountant

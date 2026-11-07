@@ -41,7 +41,8 @@ def bill(doctype: str, expense: str, amount: float, slug: str, line: str, latest
 seeded = {
     "card_old": bill(NPE, card, 1180, "card-old", card_line, latest=0, bill_check="Mismatched", read_total=1250,
                      bill_check_reason="The bill's total is ₹1,250.00; the statement line is ₹1,180.00.",
-                     status="Rejected", rejection_reason="Walk: another shop"),
+                     status="Rejected", rejection_reason="Walk: another shop",
+                     rejected_by="walk-accountant@example.com", rejected_on=now_datetime()),
     "card_latest": bill(NPE, card, 1180, "card", card_line, bill_check="Matched", read_total=1180, invoice_no=f"WAI-{stamp}",
                         invoice_date=nowdate(), status="Approved", auto_approved=1, approved_by="System",
                         approved_on=now_datetime()),
