@@ -51,7 +51,29 @@ line = frappe.get_doc({"doctype": "Outflow Import Row", "import_batch": batch, "
 frappe.get_doc({"doctype": "Outflow Row Match", "import_row": line, "import_batch": batch, "transfer_id": f"WALKB{stamp}",
                 "target_doctype": NPE, "target_name": spend, "target_amount": 1180, "match_kind": "Settled",
                 "match_basis": "card statement", "created_by_import": 1}).insert(ignore_permissions=True)
-pdf = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n"
+
+
+def one_page_pdf(text: str) -> bytes:
+    """A readable one-page PDF with one line of text (the upload hook refuses a damaged one)."""
+    stream = f"BT /F1 14 Tf 1 0 0 1 60 760 Tm ({text}) Tj ET"
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    body, offsets = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n", []
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(body))
+        body += f"{i} 0 obj\n{obj}\nendobj\n"
+    xref = len(body)
+    body += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n" + "".join(f"{o:010d} 00000 n \n" for o in offsets)
+    body += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
+    return body.encode("latin-1")
+
+
+pdf = one_page_pdf(f"Walk Bakery {stamp} - Grand Total Rs 1,250.00")
 file_url = save_file(f"walk-bakery-{stamp}.pdf", pdf, NPE, spend, is_private=1).file_url
 frappe.db.set_value(NPE, spend, "invoice_attachment", file_url, update_modified=False)
 bill = frappe.get_doc({"doctype": "Expense Bill", "expense_doctype": NPE, "expense": spend, "is_latest": 1,
