@@ -3,7 +3,7 @@
  * bills waiting for a person, on the shared DataTable in client mode (search, column filters, sorting, Export).
  *
  * Approve opens a form with the invoice number and date the row offers (the bill's own, else what the Accountant
- * typed on the Expense) for a person to correct; Reject asks for a reason. The server checks who may decide
+ * typed on the Expense) for a person to correct; Reject asks for a reason (`ExpenseBillDecisionDialogs`). The server checks who may decide
  * (`api/expenses/expense_bill_approval`); this screen is mounted only for the same approvers. Read again shows on a
  * Not read bill for Admin and Accountant Lead only (#1645).
  * The list, the two writes and the dialogs' state are `useExpenseBillApprovals`.
@@ -11,22 +11,15 @@
 import React, { useEffect, useMemo } from "react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
-import {
-    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { canReadExpenseBillAgain } from "@/constants/roles";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import { formatDate } from "@/utils/FormatDate";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { useExpenseBillApprovals } from "../hooks/useExpenseBillApprovals";
-import { type ExpenseBillKind, type PendingExpenseBillRow, billCheckText } from "../utils/expenseBillApprovalView";
+import type { ExpenseBillKind, PendingExpenseBillRow } from "../utils/expenseBillApprovalView";
+import { ApproveBillDialog, RejectBillDialog } from "./ExpenseBillDecisionDialogs";
 import { getExpenseBillApprovalColumns } from "./expenseBillApprovalColumns";
 
 const SEARCHABLE_FIELDS = [
@@ -42,8 +35,7 @@ interface ExpenseBillApprovalsProps {
 
 export const ExpenseBillApprovals: React.FC<ExpenseBillApprovalsProps> = ({ kind }) => {
     const {
-        rows, error, isLoading, approvingBill, setApprovingBill, rejectingBill, setRejectingBill, approveRow, rejectRow,
-        invoiceNo, setInvoiceNo, invoiceDate, setInvoiceDate, reason, setReason, approving, rejecting,
+        rows, error, isLoading, setApprovingBill, setRejectingBill, approveRow, rejectRow, approving, rejecting,
         onApprove, onReject, submitApprove, submitReject, onReadAgain, readingAgainBill,
     } = useExpenseBillApprovals(kind);
     const { role, user_id } = useUserData();
@@ -121,53 +113,24 @@ export const ExpenseBillApprovals: React.FC<ExpenseBillApprovalsProps> = ({ kind
                 showRowSelection={false}
             />
 
-            <Dialog open={!!approvingBill} onOpenChange={(open) => { if (!open && !approving) setApprovingBill(null); }}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Approve bill</DialogTitle>
-                        <DialogDescription>
-                            {approveRow ? `${approveRow.expense}, spent ${formatDate(approveRow.payment_date)}. ${billCheckText(approveRow)}` : approvingBill}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex flex-col gap-3">
-                        <div className="flex flex-col gap-1">
-                            <Label htmlFor="expense_bill_invoice_no">Invoice number</Label>
-                            <Input id="expense_bill_invoice_no" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <Label htmlFor="expense_bill_invoice_date">Invoice date</Label>
-                            <Input id="expense_bill_invoice_date" type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">Correct them if the bill says otherwise. They are copied onto the expense.</p>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setApprovingBill(null)} disabled={approving}>Cancel</Button>
-                        <Button onClick={submitApprove} disabled={approving}>{approving ? "Approving..." : "Approve"}</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            <Dialog open={!!rejectingBill} onOpenChange={(open) => { if (!open && !rejecting) setRejectingBill(null); }}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Reject bill</DialogTitle>
-                        <DialogDescription>
-                            {rejectRow ? `${rejectRow.expense}: ` : ""}the bill comes off the expense, which waits in Pending
-                            Invoices Upload for a new one, showing your reason.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="expense_bill_reject_reason">Reason <sup className="text-destructive">*</sup></Label>
-                        <Textarea id="expense_bill_reject_reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setRejectingBill(null)} disabled={rejecting}>Cancel</Button>
-                        <Button variant="destructive" onClick={submitReject} disabled={rejecting || !reason.trim()}>
-                            {rejecting ? "Rejecting..." : "Reject"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            {approveRow && (
+                <ApproveBillDialog
+                    key={approveRow.name}
+                    row={approveRow}
+                    submitting={approving}
+                    onSubmit={submitApprove}
+                    onClose={() => setApprovingBill(null)}
+                />
+            )}
+            {rejectRow && (
+                <RejectBillDialog
+                    key={rejectRow.name}
+                    row={rejectRow}
+                    submitting={rejecting}
+                    onSubmit={submitReject}
+                    onClose={() => setRejectingBill(null)}
+                />
+            )}
         </div>
     );
 };

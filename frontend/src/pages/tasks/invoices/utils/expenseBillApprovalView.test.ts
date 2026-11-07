@@ -6,12 +6,14 @@ import {
     type PendingExpenseBillRow,
     BILL_APPROVAL_FILTER_OPTIONS,
     BILL_CHECK_FILTER_OPTIONS,
+    approveBillSchema,
     approveFormDefaults,
     expenseListBillCheck,
     expenseListBillCheckText,
     billCheckText,
     lastBillRejectedText,
     readTotalText,
+    rejectBillSchema,
 } from "./expenseBillApprovalView";
 
 const ROW: PendingExpenseBillRow = {
@@ -52,6 +54,34 @@ describe("the approve form", () => {
 
     it("starts blank when the row offers none", () => {
         expect(approveFormDefaults({ ...ROW, invoice_no: null, invoice_date: null })).toEqual({ invoice_no: "", invoice_date: "" });
+    });
+});
+
+describe("the approve form's checks", () => {
+    const schema = approveBillSchema("2026-09-15");
+    const errorsOf = (values: { invoice_no: string; invoice_date: string }) => {
+        const parsed = schema.safeParse(values);
+        return parsed.success ? {} : parsed.error.flatten().fieldErrors;
+    };
+
+    it("takes a number and a date up to today, the number trimmed", () => {
+        expect(schema.parse({ invoice_no: "  INV-9 ", invoice_date: "2026-09-15" })).toEqual({ invoice_no: "INV-9", invoice_date: "2026-09-15" });
+    });
+
+    it("takes neither: both are optional", () => {
+        expect(schema.parse({ invoice_no: "", invoice_date: "" })).toEqual({ invoice_no: "", invoice_date: "" });
+    });
+
+    it("refuses a date after today, or one that is not a date", () => {
+        expect(errorsOf({ invoice_no: "", invoice_date: "2026-09-16" }).invoice_date).toEqual(["The invoice date cannot be after today."]);
+        expect(errorsOf({ invoice_no: "", invoice_date: "15/09/2026" }).invoice_date).toEqual(["Give the date as a calendar date."]);
+    });
+});
+
+describe("the reject form's check", () => {
+    it("needs a reason, and trims it", () => {
+        expect(rejectBillSchema.safeParse({ reason: "   " }).success).toBe(false);
+        expect(rejectBillSchema.parse({ reason: " Bill of another shop " })).toEqual({ reason: "Bill of another shop" });
     });
 });
 

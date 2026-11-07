@@ -11,7 +11,9 @@ import { useToast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { useReadExpenseBillAgain } from "./useReadExpenseBillAgain";
-import { type ExpenseBillKind, type PendingExpenseBillRow, approveFormDefaults } from "../utils/expenseBillApprovalView";
+import {
+    type ApproveBillValues, type ExpenseBillKind, type PendingExpenseBillRow, type RejectBillValues,
+} from "../utils/expenseBillApprovalView";
 
 const API = "nirmaan_stack.api.expenses.expense_bill_approval";
 
@@ -28,52 +30,39 @@ export const useExpenseBillApprovals = (kind: ExpenseBillKind) => {
 
     const [approvingBill, setApprovingBill] = useState<string | null>(null);
     const [rejectingBill, setRejectingBill] = useState<string | null>(null);
-    const [invoiceNo, setInvoiceNo] = useState("");
-    const [invoiceDate, setInvoiceDate] = useState("");
-    const [reason, setReason] = useState("");
 
     const approveRow = rows.find((r) => r.name === approvingBill) ?? null;
     const rejectRow = rows.find((r) => r.name === rejectingBill) ?? null;
 
-    const onApprove = useCallback((row: PendingExpenseBillRow) => {
-        const defaults = approveFormDefaults(row);
-        setInvoiceNo(defaults.invoice_no);
-        setInvoiceDate(defaults.invoice_date);
-        setApprovingBill(row.name);
-    }, []);
+    const onApprove = useCallback((row: PendingExpenseBillRow) => setApprovingBill(row.name), []);
+    const onReject = useCallback((row: PendingExpenseBillRow) => setRejectingBill(row.name), []);
 
-    const onReject = useCallback((row: PendingExpenseBillRow) => {
-        setReason("");
-        setRejectingBill(row.name);
-    }, []);
-
-    const submitApprove = useCallback(async () => {
+    const submitApprove = useCallback(async ({ invoice_no, invoice_date }: ApproveBillValues) => {
         if (!approvingBill) return;
         try {
-            await approveCall({ bill: approvingBill, invoice_no: invoiceNo.trim() || null, invoice_date: invoiceDate || null });
+            await approveCall({ bill: approvingBill, invoice_no: invoice_no || null, invoice_date: invoice_date || null });
             toast({ title: "Bill approved", description: approvingBill, variant: "success" });
             setApprovingBill(null);
             mutate();
         } catch (e) {
             toast({ title: "Could not approve the bill", description: getFrappeError(e), variant: "destructive" });
         }
-    }, [approveCall, approvingBill, invoiceDate, invoiceNo, mutate, toast]);
+    }, [approveCall, approvingBill, mutate, toast]);
 
-    const submitReject = useCallback(async () => {
-        if (!rejectingBill || !reason.trim()) return;
+    const submitReject = useCallback(async ({ reason }: RejectBillValues) => {
+        if (!rejectingBill) return;
         try {
-            await rejectCall({ bill: rejectingBill, reason: reason.trim() });
+            await rejectCall({ bill: rejectingBill, reason });
             toast({ title: "Bill rejected", description: `${rejectingBill}: the spend waits in Pending Invoices Upload again.`, variant: "success" });
             setRejectingBill(null);
             mutate();
         } catch (e) {
             toast({ title: "Could not reject the bill", description: getFrappeError(e), variant: "destructive" });
         }
-    }, [mutate, reason, rejectCall, rejectingBill, toast]);
+    }, [mutate, rejectCall, rejectingBill, toast]);
 
     return {
-        rows, error, isLoading, approvingBill, setApprovingBill, rejectingBill, setRejectingBill, approveRow, rejectRow,
-        invoiceNo, setInvoiceNo, invoiceDate, setInvoiceDate, reason, setReason, approving, rejecting,
+        rows, error, isLoading, setApprovingBill, setRejectingBill, approveRow, rejectRow, approving, rejecting,
         onApprove, onReject, submitApprove, submitReject, onReadAgain, readingAgainBill,
     };
 };

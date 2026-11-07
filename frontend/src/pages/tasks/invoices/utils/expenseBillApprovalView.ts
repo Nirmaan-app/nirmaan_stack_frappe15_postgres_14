@@ -6,6 +6,8 @@
  * (`api/expenses/expense_bill_approval.get_pending_expense_bills`): Pending, the Expense's latest bill, its Bill check
  * done (Matched bills are auto-approved and never wait).
  */
+import { z } from "zod";
+
 import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
@@ -54,6 +56,23 @@ export const approveFormDefaults = (row: Pick<PendingExpenseBillRow, "invoice_no
     invoice_no: row.invoice_no ?? "",
     invoice_date: row.invoice_date ?? "",
 });
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The approve form: the number and date are optional; a date is a calendar date no later than `today` (yyyy-mm-dd). */
+export const approveBillSchema = (today: string) => z.object({
+    invoice_no: z.string().trim(),
+    invoice_date: z.string()
+        .refine((v) => v === "" || (ISO_DATE.test(v) && !Number.isNaN(Date.parse(v))), "Give the date as a calendar date.")
+        .refine((v) => !ISO_DATE.test(v) || v <= today, "The invoice date cannot be after today."),
+});
+export type ApproveBillValues = z.infer<ReturnType<typeof approveBillSchema>>;
+
+/** The reject form: a reason is required. */
+export const rejectBillSchema = z.object({
+    reason: z.string().trim().min(1, "Say why the bill is rejected."),
+});
+export type RejectBillValues = z.infer<typeof rejectBillSchema>;
 
 /** The line a spend back in Pending Invoices Upload shows when its latest bill was rejected; null otherwise. */
 export const lastBillRejectedText = (reason: string | null | undefined): string | null =>
