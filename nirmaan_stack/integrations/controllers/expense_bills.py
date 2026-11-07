@@ -13,4 +13,5 @@ from nirmaan_stack.services.expense_bills.receive import retire_bills
 
 
 def on_trash(doc, method=None):
+    """Retire Expense `doc`'s bills to history as it is deleted."""
     retire_bills(doc.doctype, doc.name)

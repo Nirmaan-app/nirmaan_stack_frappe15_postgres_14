@@ -22,7 +22,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, paise
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, money
 from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
@@ -132,5 +132,5 @@ def statement_line_of(doctype: str, expense: str, expense_amount) -> tuple[str |
     """
     lines = [line for line in list_expense_lines(doctype, expense) if line.line_amount is not None]
     if lines:
-        return lines[-1].import_row, paise(lines[-1].line_amount)
-    return None, paise(expense_amount)
+        return lines[-1].import_row, money(lines[-1].line_amount)
+    return None, money(expense_amount)

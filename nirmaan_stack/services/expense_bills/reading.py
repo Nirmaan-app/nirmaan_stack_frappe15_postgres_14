@@ -37,7 +37,7 @@ from nirmaan_stack.services.expense_bills.bill_check import (
     BillVerdict,
     ReadFailed,
     check_bill,
-    paise,
+    money,
 )
 
 _JOB = "nirmaan_stack.services.expense_bills.reading.check_expense_bill"
@@ -155,7 +155,7 @@ def check_expense_bill(bill: str) -> None:
     if claimed is None:
         return
     reading = read_or_fail(claimed.bill_file, f"Expense bill {bill}")
-    verdict = check_bill(reading.read, paise(claimed.line_amount))
+    verdict = check_bill(reading.read, money(claimed.line_amount))
     try:
         record_check(bill, reading, verdict)
         frappe.db.commit()

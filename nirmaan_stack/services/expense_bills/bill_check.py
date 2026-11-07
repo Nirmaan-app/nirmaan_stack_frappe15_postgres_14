@@ -30,9 +30,9 @@ NOT_CHECKED = "Not checked"
 TOLERANCE = Decimal("1")
 
 
-def paise(value) -> Decimal:
-    """`value` (a Currency column, a float, a string; None as 0) as a Decimal of whole paise, the one shape every
-    amount takes before it meets `check_bill`."""
+def money(value) -> Decimal:
+    """`value` as a Decimal in rupees, to the paisa (a Currency column, a float, a string; None as 0): the one
+    shape every amount takes before it meets `check_bill`."""
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
 
 

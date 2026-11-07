@@ -34,7 +34,7 @@ from nirmaan_stack.services.expense_bills.bill_check import (
     BillRead,
     ReadFailed,
     check_bill,
-    paise,
+    money,
 )
 from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED
 
@@ -47,7 +47,7 @@ def start_check(line: str, line_amount, bill_count: int) -> dict:
     bills (never read, its total the line amount), else Checking with its reading queued once the caller commits.
     The caller writes them with the stored bill, under the line's lock."""
     if bill_count > 1:
-        verdict = check_bill(ReadFailed(""), paise(line_amount), bill_count)
+        verdict = check_bill(ReadFailed(""), money(line_amount), bill_count)
         return {"bill_check": verdict.result, "bill_check_reason": verdict.reason}
     reading.queue_after_commit(_JOB, f"collect-bill-check-{line}", LINE_DOCTYPE, line, line=line)
     return {"bill_check": CHECKING, "bill_check_reason": None}
@@ -62,7 +62,7 @@ def check_collect_line(line: str) -> None:
     if claimed is None:
         return
     read = reading.read_or_fail(claimed.stored_bill, f"Collect payment {line}")
-    verdict = check_bill(read.read, paise(claimed.amount))
+    verdict = check_bill(read.read, money(claimed.amount))
     try:
         _write(line, {"bill_check": verdict.result, "bill_check_reason": verdict.reason or None, **reading.read_fields(read)})
     except Exception as exc:
@@ -101,7 +101,7 @@ def kept_reading(line: str) -> reading.Reading | None:
     if kept.bill_check in (MATCHED, MISMATCHED):
         return reading.Reading(
             BillRead(
-                total=None if kept.read_total is None else paise(kept.read_total),
+                total=None if kept.read_total is None else money(kept.read_total),
                 invoice_no=kept.read_invoice_no or "",
                 invoice_date=getdate(kept.read_invoice_date) if kept.read_invoice_date else None,
             ),
