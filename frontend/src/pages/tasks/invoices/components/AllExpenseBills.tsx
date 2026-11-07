@@ -2,13 +2,17 @@
  * All Invoices -> Cashbook / Credit Card (#1646, spec #1637, GLOSSARY *Expense bills*): every Expense bill of the
  * pill, latest and history, with its Bill check and approval. Server mode: paged, filtered, sorted and searched by
  * `api/expenses/all_expense_bills.get_all_expense_bills`; the pill rides as the filter `["kind", "=", <pill>]`.
+ * Read again shows on a latest Not read bill that was not rejected, for whoever may read it again (`offersReadAgain`).
  */
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
+import { canReadExpenseBillAgain } from "@/constants/roles";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUserData } from "@/hooks/useUserData";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
+import { useReadExpenseBillAgain } from "../hooks/useReadExpenseBillAgain";
 import { BILL_HISTORY_OPTIONS } from "../utils/allInvoicesView";
 import type { AllExpenseBillRow } from "../utils/allInvoicesView";
 import { BILL_APPROVAL_STATUSES, BILL_CHECK_RESULTS, type ExpenseBillKind } from "../utils/expenseBillApprovalView";
@@ -38,12 +42,22 @@ export const AllExpenseBills: React.FC<{ kind: ExpenseBillKind }> = ({ kind }) =
         (id: string) => usersList?.find((user) => user.name === id)?.full_name || id,
         [usersList],
     );
-    const columns = useMemo(() => getAllExpenseBillColumns({ userName }), [userName]);
+    const { role, user_id } = useUserData();
+    const canReadAgain = canReadExpenseBillAgain(role, user_id);
+    // The table's refetch exists only after the table, which takes these columns.
+    const refetchRef = useRef<() => void>(() => undefined);
+    const refetchList = useCallback(() => refetchRef.current(), []);
+    const { onReadAgain, readingAgainBill } = useReadExpenseBillAgain(refetchList);
+
+    const columns = useMemo(
+        () => getAllExpenseBillColumns({ userName, readAgain: canReadAgain ? { onReadAgain, readingAgainBill } : undefined }),
+        [userName, canReadAgain, onReadAgain, readingAgainBill],
+    );
     const additionalFilters = useMemo(() => [["kind", "=", kind]], [kind]);
 
     const {
         table, totalCount, isLoading, error, searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        exportAllRows, isExporting,
+        exportAllRows, isExporting, refetch,
     } = useServerDataTable<AllExpenseBillRow>({
         doctype: "Expense Bill",
         columns,
@@ -55,6 +69,7 @@ export const AllExpenseBills: React.FC<{ kind: ExpenseBillKind }> = ({ kind }) =
         defaultSort: "creation desc",
         enableRowSelection: false,
     });
+    refetchRef.current = refetch;
 
     return (
         <DataTable<AllExpenseBillRow>

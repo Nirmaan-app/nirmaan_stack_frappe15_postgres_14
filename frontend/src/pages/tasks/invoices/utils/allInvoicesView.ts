@@ -82,6 +82,11 @@ export const billDecision = (row: BillDecisionFields): { by: string; on: string 
     return by && on ? { by, on } : null;
 };
 
+/** Read again reaches an Expense's latest bill whose Bill check is Not read, unless it was rejected (GLOSSARY
+ *  *Read again*); the server checks it too (`read_expense_bill_again`). */
+export const offersReadAgain = (row: Pick<AllExpenseBillRow, "bill_check" | "is_latest" | "approval">): boolean =>
+    row.bill_check === "Not read" && !!row.is_latest && row.approval !== "Rejected";
+
 /** Latest bill of its Expense, or one a newer bill replaced. */
 export const BILL_HISTORY_OPTIONS = [
     { label: "Latest", value: "1" },

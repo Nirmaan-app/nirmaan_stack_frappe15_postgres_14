@@ -8,12 +8,13 @@ import type { ColumnDef, HeaderContext } from "@tanstack/react-table";
 
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
-    type AllExpenseBillRow, type PorterInvoiceListRow, approvalText, billDecision, porterResultText,
+    type AllExpenseBillRow, type PorterInvoiceListRow, approvalText, billDecision, offersReadAgain, porterResultText,
 } from "../utils/allInvoicesView";
 import { billCheckText, readTotalText } from "../utils/expenseBillApprovalView";
 
@@ -35,6 +36,12 @@ const rightHeader = <TRow,>(title: string) => ({ column }: HeaderContext<TRow, u
 interface AllExpenseBillColumnOptions {
     /** A user's full name from their id; the list ships ids for who decided. */
     userName: (id: string) => string;
+    /** Given to whoever may read a bill again (`canReadExpenseBillAgain`); the server checks it too. */
+    readAgain?: {
+        onReadAgain: (row: AllExpenseBillRow) => void;
+        /** The bill whose Read again is being sent, if any. */
+        readingAgainBill: string | null;
+    };
 }
 
 const decisionText = (row: AllExpenseBillRow, userName: (id: string) => string): string => {
@@ -42,7 +49,27 @@ const decisionText = (row: AllExpenseBillRow, userName: (id: string) => string):
     return decided ? `${userName(decided.by)}, ${formatDate(decided.on)}` : "";
 };
 
-export const getAllExpenseBillColumns = ({ userName }: AllExpenseBillColumnOptions): ColumnDef<AllExpenseBillRow>[] => [
+const readAgainColumn = ({ onReadAgain, readingAgainBill }: NonNullable<AllExpenseBillColumnOptions["readAgain"]>): ColumnDef<AllExpenseBillRow> => ({
+    id: "actions",
+    size: 110,
+    header: () => <div className="text-right">Actions</div>,
+    cell: ({ row }) => offersReadAgain(row.original) && (
+        <div className="flex justify-end">
+            <Button
+                size="sm"
+                variant="secondary"
+                disabled={readingAgainBill === row.original.name}
+                onClick={() => onReadAgain(row.original)}
+            >
+                Read again
+            </Button>
+        </div>
+    ),
+    enableSorting: false,
+    meta: { excludeFromExport: true },
+});
+
+export const getAllExpenseBillColumns = ({ userName, readAgain }: AllExpenseBillColumnOptions): ColumnDef<AllExpenseBillRow>[] => [
     {
         accessorKey: "payment_date",
         size: 120,
@@ -182,6 +209,7 @@ export const getAllExpenseBillColumns = ({ userName }: AllExpenseBillColumnOptio
         enableSorting: false,
         meta: { exportHeaderName: "File", exportValue: (row: AllExpenseBillRow) => row.bill_file },
     },
+    ...(readAgain ? [readAgainColumn(readAgain)] : []),
 ];
 
 export const getPorterInvoiceColumns = (): ColumnDef<PorterInvoiceListRow>[] => [

@@ -10,6 +10,7 @@ import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
+import { useReadExpenseBillAgain } from "./useReadExpenseBillAgain";
 import { type ExpenseBillKind, type PendingExpenseBillRow, approveFormDefaults } from "../utils/expenseBillApprovalView";
 
 const API = "nirmaan_stack.api.expenses.expense_bill_approval";
@@ -23,8 +24,7 @@ export const useExpenseBillApprovals = (kind: ExpenseBillKind) => {
 
     const { call: approveCall, loading: approving } = useFrappePostCall(`${API}.approve_expense_bill`);
     const { call: rejectCall, loading: rejecting } = useFrappePostCall(`${API}.reject_expense_bill`);
-    const { call: readAgainCall } = useFrappePostCall(`${API}.read_expense_bill_again`);
-    const [readingAgainBill, setReadingAgainBill] = useState<string | null>(null);
+    const { onReadAgain, readingAgainBill } = useReadExpenseBillAgain(mutate);
 
     const [approvingBill, setApprovingBill] = useState<string | null>(null);
     const [rejectingBill, setRejectingBill] = useState<string | null>(null);
@@ -70,19 +70,6 @@ export const useExpenseBillApprovals = (kind: ExpenseBillKind) => {
             toast({ title: "Could not reject the bill", description: getFrappeError(e), variant: "destructive" });
         }
     }, [mutate, reason, rejectCall, rejectingBill, toast]);
-
-    const onReadAgain = useCallback(async (row: PendingExpenseBillRow) => {
-        setReadingAgainBill(row.name);
-        try {
-            await readAgainCall({ bill: row.name });
-            toast({ title: "Reading the bill again", description: `${row.name} is Checking; its new result shows here once read.`, variant: "success" });
-            mutate();
-        } catch (e) {
-            toast({ title: "Could not read the bill again", description: getFrappeError(e), variant: "destructive" });
-        } finally {
-            setReadingAgainBill(null);
-        }
-    }, [mutate, readAgainCall, toast]);
 
     return {
         rows, error, isLoading, approvingBill, setApprovingBill, rejectingBill, setRejectingBill, approveRow, rejectRow,

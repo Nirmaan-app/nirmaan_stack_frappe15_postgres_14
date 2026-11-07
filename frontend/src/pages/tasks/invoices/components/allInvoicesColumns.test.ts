@@ -69,6 +69,41 @@ describe("All Invoices -> Cashbook / Credit Card columns", () => {
     });
 });
 
+describe("Read again on All Invoices -> Cashbook / Credit Card", () => {
+    const NOT_READ = {
+        ...BILL, bill_check: "Not read", bill_check_reason: "The reading stopped.", read_total: null, is_latest: 1,
+        approval: "Approved", rejection_reason: null, rejected_by: null, rejected_on: null,
+        approved_by: "test-approver@example.com", approved_on: "2026-09-13 09:15:00",
+    } as const;
+
+    const actionsFor = (row: AllExpenseBillRow) => {
+        const read: string[] = [];
+        const columns = getAllExpenseBillColumns({
+            userName, readAgain: { onReadAgain: (bill) => read.push(bill.name), readingAgainBill: null },
+        }) as AnyColumn[];
+        const buttons = [...render(columns, "actions", row).querySelectorAll("button")];
+        return { labels: buttons.map((b) => b.textContent), click: () => act(() => buttons[0].click()), read };
+    };
+
+    it("shows on the latest bill that was not read, approved by a person or pending, and reads that bill", () => {
+        const approved = actionsFor(NOT_READ);
+        expect(approved.labels).toEqual(["Read again"]);
+        approved.click();
+        expect(approved.read).toEqual(["EB-2026-00001"]);
+        expect(actionsFor({ ...NOT_READ, approval: "Pending", approved_by: null, approved_on: null }).labels).toEqual(["Read again"]);
+    });
+
+    it("is absent on a rejected bill, a replaced bill, or a bill that was read", () => {
+        expect(actionsFor({ ...NOT_READ, approval: "Rejected", rejected_by: "x@example.com", rejected_on: "2026-09-14" }).labels).toEqual([]);
+        expect(actionsFor({ ...NOT_READ, is_latest: 0 }).labels).toEqual([]);
+        expect(actionsFor({ ...NOT_READ, bill_check: "Mismatched", read_total: 1250 }).labels).toEqual([]);
+    });
+
+    it("has no column for someone who may not read a bill again", () => {
+        expect((getAllExpenseBillColumns({ userName }) as AnyColumn[]).map(idOf)).not.toContain("actions");
+    });
+});
+
 describe("All Invoices -> Porter columns", () => {
     const columns = getPorterInvoiceColumns() as AnyColumn[];
 
