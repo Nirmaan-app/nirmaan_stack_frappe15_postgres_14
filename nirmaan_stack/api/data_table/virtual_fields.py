@@ -30,3 +30,20 @@ def fill_virtual_fields(doctype: str, rows: list[dict], asked: list[str]) -> Non
         found = values.get(row["name"], {})
         for field in asked:
             row[field] = found.get(field)
+
+
+#: A `name` value no row has: the narrowing of a virtual filter that matches nothing.
+_NO_MATCH = "NoMatchFound_Virtual_Filter"
+
+
+def virtual_filter(doctype: str, field: str, operator: str, value) -> list | None:
+    """The `name` narrowing that stands for a filter on a virtual field, or None when `field` is not one.
+    A virtual field takes `in` (a facet's choices) or `=`."""
+    if field not in VIRTUAL_FIELDS.get(doctype, frozenset()):
+        return None
+    if operator == "=":
+        value = [value]
+    elif operator != "in" or not isinstance(value, list):
+        raise ValueError(f"The {field} filter takes 'in' or '=', not {operator!r}.")
+    names = bill_list.expenses_whose_latest_bill(doctype, field, value)
+    return [doctype, "name", "in", names] if names else [doctype, "name", "=", _NO_MATCH]

@@ -40,3 +40,32 @@ def latest_bill_checks(doctype: str, expenses: list[str]) -> dict[str, dict]:
         as_dict=True,
     )
     return {r.expense: {"bill_check": r.bill_check, "bill_approval": r.bill_approval} for r in rows}
+
+
+#: The "no Expense bill" choice of a filter: the data table's "not set" facet value (`facets.NOT_SET_FACET_VALUE`).
+NO_BILL = "__NOT_SET__"
+
+
+def expenses_whose_latest_bill(doctype: str, field: str, values: list[str]) -> list[str]:
+    """The `doctype` Expenses whose latest bill shows one of `values` in `field` (a key of SHOWN), with those that
+    have no Expense bill when `values` holds NO_BILL."""
+    if doctype not in EXPENSE_DOCTYPES or field not in SHOWN:
+        raise ValueError(f"{doctype} has no list field {field}")
+    shown = [v for v in values if v != NO_BILL]
+    names: list[str] = []
+    if shown:
+        names += frappe.db.sql(
+            f"""SELECT b.expense FROM "tab{BILL_DOCTYPE}" b
+                WHERE b.expense_doctype = %(doctype)s AND b.is_latest = 1 AND ({SHOWN[field]}) IN %(values)s""",
+            {"doctype": doctype, "values": tuple(shown), "stopped_before": stopped_before()},
+            pluck=True,
+        )
+    if NO_BILL in values:
+        names += frappe.db.sql(
+            f"""SELECT e.name FROM "tab{doctype}" e
+                WHERE NOT EXISTS (SELECT 1 FROM "tab{BILL_DOCTYPE}" b
+                                  WHERE b.expense_doctype = %(doctype)s AND b.expense = e.name)""",
+            {"doctype": doctype},
+            pluck=True,
+        )
+    return names
