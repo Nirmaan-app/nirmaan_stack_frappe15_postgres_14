@@ -44,6 +44,7 @@ import frappe
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.cashbook_lines import BATCH_DOCTYPE, ROW_DOCTYPE, lock_line_if
+from nirmaan_stack.services.expense_bills.line_check import start_check
 from nirmaan_stack.services.expense_bills.receive import receive_bill
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.bill_links import expired_link_reason
@@ -160,7 +161,7 @@ def store_collect_bills(batch: str) -> None:
             line.name,
             line.transfer_id,
             links_of(line),
-            attach=lambda saved, name=line.name: _set_stored_bill(name, saved),
+            attach=lambda saved, line=line: _set_stored_bill(line, saved),
             failure=("Cashbook import: could not copy a Collect payment's bill", line.name),
         ):
             continue  # a transient refusal: still owed, for Resume (code review R3)
@@ -186,7 +187,7 @@ def waiting_collect_lines(batch: str) -> list:
         return []
     return frappe.db.sql(
         """
-        SELECT name, transfer_id, bill_links FROM "tabOutflow Import Row"
+        SELECT name, transfer_id, bill_links, amount FROM "tabOutflow Import Row"
         WHERE name IN %(owed)s
           AND row_kind = %(kind)s AND row_status = %(open)s AND bill_links IS NOT NULL
           AND COALESCE(stored_bill, '') = '' AND COALESCE(bill_problem, '') = ''
@@ -207,21 +208,27 @@ def _collect_lines(batch: str, undone_only: bool = False) -> list[str]:
     ]
 
 
-def _set_stored_bill(row_name: str, saved) -> bool:
-    """Lock the line and set `saved` as its stored bill, only while it is still an open line with none. Returns
-    whether it did; the caller discards the File when it did not (a person Created or Skipped it meanwhile, and
-    an Expense created without the bill simply waits for its invoice in the Cashbook tab)."""
-    line = lock_line_if(
+def _set_stored_bill(line, saved) -> bool:
+    """Lock the line and set `saved` as its stored bill, with its Bill check started (#1642,
+    `expense_bills.line_check.start_check`: Checking with its reading queued, or Not checked for several bills),
+    only while it is still an open line with none. Returns whether it did; the caller discards the File when it did
+    not (a person Created or Skipped it meanwhile, and an Expense created without the bill simply waits for its
+    invoice in the Cashbook tab)."""
+    row_name = line.name
+    locked = lock_line_if(
         row_name,
         lambda row: row.row_status == ROW_MISMATCHED and not row.stored_bill,
         columns="row_status, stored_bill",
     )
-    if line is None:
+    if locked is None:
         return False
     _attach_file(saved, ROW_DOCTYPE, row_name, "stored_bill")
-    # Raw: no doc_events on the line, and this field has no reader that a hook would owe a recompute.
+    check = start_check(row_name, line.amount, len(links_of(line)))
+    # Raw: no doc_events on the line, and these fields have no reader that a hook would owe a recompute.
     frappe.db.sql(
-        """UPDATE "tabOutflow Import Row" SET stored_bill = %s WHERE name = %s""", (saved.file_url, row_name)
+        """UPDATE "tabOutflow Import Row" SET stored_bill = %s, bill_check = %s, bill_check_reason = %s
+           WHERE name = %s""",
+        (saved.file_url, check["bill_check"], check["bill_check_reason"], row_name),
     )
     frappe.db.commit()
     return True

@@ -75,26 +75,34 @@ def queue_reading(bill: str, job_id: str | None = None) -> None:
     the bill is saved; were it to raise there, the caller would take the commit for failed (the Cashbook import
     then deletes the bill file it just attached). So a refusal is caught: the bill ends Not read with the reason,
     for a person to read again, and the error is logged."""
-    frappe.db.after_commit.add(lambda: _enqueue_reading(bill, job_id or reading_job_id(bill)))
+    queue_after_commit(_JOB, job_id or reading_job_id(bill), BILL_DOCTYPE, bill, bill=bill)
 
 
-def _enqueue_reading(bill: str, job_id: str) -> None:
+def queue_after_commit(job: str, job_id: str, doctype: str, name: str, **kwargs) -> None:
+    """Queue a reading `job` on the `long` queue once the caller's transaction commits, de-duplicated by `job_id`.
+    A queue that refuses leaves record `doctype` `name` (an Expense bill, or a Collect payment line, #1642) Not read
+    with `NOT_QUEUED`, and the error logged."""
+    frappe.db.after_commit.add(lambda: _enqueue(job, job_id, doctype, name, kwargs))
+
+
+def _enqueue(job: str, job_id: str, doctype: str, name: str, kwargs: dict) -> None:
     try:
         frappe.enqueue(
-            _JOB,
+            job,
             queue="long",
             timeout=JOB_TIMEOUT_SECONDS,
             job_id=job_id,
             deduplicate=True,
-            bill=bill,
+            **kwargs,
         )
     except Exception:
         # Runs inside the caller's commit, after its data landed: nothing here may raise into it.
         try:
-            frappe.log_error(title=f"Expense bill {bill}: its reading could not be queued", message=frappe.get_traceback())
-            # Raw: `Expense Bill` has no doc_events; a bill no job will read must not stay Checking.
+            frappe.log_error(title=f"{doctype} {name}: its reading could not be queued", message=frappe.get_traceback())
+            # Raw: neither `Expense Bill` nor `Outflow Import Row` has doc_events; a bill no job will read must not
+            # stay Checking.
             frappe.db.set_value(
-                BILL_DOCTYPE, bill, {"bill_check": NOT_READ, "bill_check_reason": NOT_QUEUED}, update_modified=False
+                doctype, name, {"bill_check": NOT_READ, "bill_check_reason": NOT_QUEUED}, update_modified=False
             )
             frappe.db.commit()
         except Exception:
@@ -142,16 +150,10 @@ def check_expense_bill(bill: str) -> None:
     claimed = _claim(bill)
     if claimed is None:
         return
-    try:
-        reading = read_bill(claimed.bill_file)
-    except Exception as exc:
-        # A claimed bill must end with a result: one left Checking is never read again.
-        frappe.db.rollback()
-        frappe.log_error(title=f"Expense bill {bill}: the reader raised", message=frappe.get_traceback())
-        reading = Reading(ReadFailed(_failure_reason(exc)))
+    reading = read_or_fail(claimed.bill_file, f"Expense bill {bill}")
     verdict = check_bill(reading.read, Decimal(str(claimed.line_amount or 0)).quantize(Decimal("0.01")))
     try:
-        _record(bill, reading, verdict)
+        record_check(bill, reading, verdict)
         frappe.db.commit()
     except Exception as exc:
         frappe.db.rollback()
@@ -165,6 +167,17 @@ def check_expense_bill(bill: str) -> None:
             update_modified=False,
         )
         frappe.db.commit()
+
+
+def read_or_fail(file_url: str, what: str) -> Reading:
+    """`read_bill`, with a reader that raises taken as Not read (its reason kept, the error logged under `what`):
+    a claimed bill must end with a result, since one left Checking is never read again."""
+    try:
+        return read_bill(file_url)
+    except Exception as exc:
+        frappe.db.rollback()
+        frappe.log_error(title=f"{what}: the reader raised", message=frappe.get_traceback())
+        return Reading(ReadFailed(_failure_reason(exc)))
 
 
 def _claim(bill: str) -> frappe._dict | None:
@@ -184,7 +197,7 @@ def _claim(bill: str) -> frappe._dict | None:
     return rows[0]
 
 
-def _record(bill: str, reading: Reading, verdict: BillVerdict) -> None:
+def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     """The verdict on the bill (through the document layer, so a Version is kept), and a Matched one's number and
     date on its Expense where empty.
 
