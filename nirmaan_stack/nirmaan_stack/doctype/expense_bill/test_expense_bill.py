@@ -51,5 +51,5 @@ class TestOnlyTheServicesWriteAnExpenseBill(FrappeTestCase):
                    WHERE table_name = %s AND column_name = 'bill_file'""",
                 (f"tab{BILL_DOCTYPE}",),
             ),
-            (("text",),),
+            [("text",)],
         )
