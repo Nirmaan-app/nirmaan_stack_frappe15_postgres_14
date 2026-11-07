@@ -55,6 +55,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { BILL_APPROVAL_COLUMN_HIDDEN, EXPENSE_BILL_CHECK_FIELDS } from "@/components/common/expenseBillCheckColumns";
 
 interface ProjectExpensesListProps {
   projectId?: string; // Optional: To filter by a specific project
@@ -380,7 +381,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     fetchFields: [
       ...DEFAULT_PE_FIELDS_TO_FETCH,
       "type.expense_name as expense_type_name",
+      // The latest Expense bill's Bill check and approval, filled in by the list endpoint (#1640).
+      ...EXPENSE_BILL_CHECK_FIELDS,
     ], // Ensure display name is fetched
+    initialState: { columnVisibility: BILL_APPROVAL_COLUMN_HIDDEN },
     searchableFields: PE_SEARCHABLE_FIELDS,
     urlSyncKey: peListUrlSyncKey(projectId, effectiveStatusTab),
     // Project scope + active status tab

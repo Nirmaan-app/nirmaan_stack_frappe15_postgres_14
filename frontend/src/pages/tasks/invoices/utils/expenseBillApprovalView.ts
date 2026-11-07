@@ -6,6 +6,7 @@
  * bills waiting for a person (`api/expenses/expense_bill_approval.get_pending_expense_bills`): Pending, the
  * Expense's latest bill, its Bill check done (Matched bills are auto-approved and never wait).
  */
+import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 /** The pills of Pending Approval. PO and WO carry the Vendor Invoices `document_type` they show. */
@@ -36,7 +37,8 @@ export interface PendingExpenseBillRow {
     line_amount: number;
     /** The bill's total (incl. GST) the reader found; null unless the bill was compared (Matched / Mismatched). */
     read_total: number | null;
-    bill_check: "Matched" | "Mismatched" | "Not read" | "Not checked";
+    /** A waiting bill's Bill check is done: every result but Checking. */
+    bill_check: Exclude<BillCheckResult, "Checking">;
     bill_check_reason: string | null;
     /** The number and date to approve with: the bill's own, else what was typed on the Expense. */
     invoice_no: string | null;
@@ -68,3 +70,41 @@ export const approveFormDefaults = (row: Pick<PendingExpenseBillRow, "invoice_no
 /** The line a spend back in Pending Invoices Upload shows when its latest bill was rejected; null otherwise. */
 export const lastBillRejectedText = (reason: string | null | undefined): string | null =>
     reason ? `Last bill rejected: ${reason}` : null;
+
+/** A Bill check result (GLOSSARY *Bill check*); Checking while the reading runs. */
+export const BILL_CHECK_RESULTS = ["Checking", "Matched", "Mismatched", "Not read", "Not checked"] as const;
+export type BillCheckResult = (typeof BILL_CHECK_RESULTS)[number];
+
+/** An Expense bill's approval as the lists show it: a Matched bill the system approved is Auto-approved. */
+export const BILL_APPROVAL_STATUSES = ["Auto-approved", "Pending", "Approved", "Rejected"] as const;
+export type BillApprovalStatus = (typeof BILL_APPROVAL_STATUSES)[number];
+
+/**
+ * The Project Expenses and Non-Project Expenses lists (#1640): an Expense's Bill check is its latest Expense bill's,
+ * as the list endpoint fills it (`services/expense_bills/bill_list.py`); null on an Expense with no Expense bill
+ * (its bill came before launch, or it has none).
+ */
+export interface ExpenseListBillCheckFields {
+    bill_check?: BillCheckResult | null;
+    bill_approval?: BillApprovalStatus | null;
+}
+
+/** The cell of an Expense with no Expense bill. */
+export const NO_EXPENSE_BILL_TEXT = "—";
+
+export const expenseListBillCheck = (
+    row: ExpenseListBillCheckFields,
+): { result: BillCheckResult; approval: BillApprovalStatus } | null =>
+    row.bill_check && row.bill_approval ? { result: row.bill_check, approval: row.bill_approval } : null;
+
+/** The Bill check as one line of text (the export, a hover title). */
+export const expenseListBillCheckText = (row: ExpenseListBillCheckFields): string => {
+    const shown = expenseListBillCheck(row);
+    return shown ? `${shown.result} · ${shown.approval}` : NO_EXPENSE_BILL_TEXT;
+};
+
+/** The "no Expense bill" choice: the data table's "not set" value, which the list endpoint reads as no bill. */
+const NO_BILL_OPTION = { label: `${NO_EXPENSE_BILL_TEXT} (no bill)`, value: NOT_SET_FACET_VALUE };
+
+export const BILL_CHECK_FILTER_OPTIONS = [...BILL_CHECK_RESULTS.map((v) => ({ label: v, value: v })), NO_BILL_OPTION];
+export const BILL_APPROVAL_FILTER_OPTIONS = [...BILL_APPROVAL_STATUSES.map((v) => ({ label: v, value: v })), NO_BILL_OPTION];

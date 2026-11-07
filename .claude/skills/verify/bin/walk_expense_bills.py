@@ -44,6 +44,10 @@ Accountant sees no Read again and is refused; the Accountant Lead presses it on 
 a second press reads once, a one-shot worker reads them, and each row's new result shows. `--part read-again` runs
 only these steps.
 
+Then the Bill check column of the expense lists (#1640), steps 15-18, with `expense_bill_list_seed.py <stamp>`:
+made-up Paid spends "WalkBC <stamp> ..." whose latest bills are seeded in each state. They are `bill_check_part`'s
+docstring. `--part bill-check` runs only these steps (they need only the Accountant).
+
 `--shots DIR` also keeps one half-size screenshot per acceptance criterion there.
 
 Every step asserts the screen's text and its DB row; a miss raises, saves `FAIL.*` and exits 1. When the env's
@@ -92,8 +96,8 @@ ap.add_argument("--accountant", default="walk-accountant@example.com")
 ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
 ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
-ap.add_argument("--part", choices=("all", "read-again", "cashbook"), default="all",
-                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); each with its own seed")
+ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check"), default="all",
+                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); each with its own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -411,6 +415,141 @@ def walk_cashbook(page, out) -> None:
 
 
 # One evidence folder for every session of this walk.
+
+LIST_API = "nirmaan_stack.api.data-table.get_list_with_count_enhanced"
+
+
+def bill_check_part() -> None:
+    """Steps 15-18: the Bill check column and its two filters on the Paid and All tabs of both expense lists (#1640),
+    as the Accountant, over seeded spends (the env's reader gives only Not read, so every other state is seeded).
+
+    15. Dashboard -> Non-Project Expenses -> Paid, searched "WalkBC <stamp>": each spend's Bill check cell shows its
+        latest bill's result and approval (Mismatched / Pending, Matched / Auto-approved, Not read / Rejected -- an
+        older Matched bill under it does not count) and the spend with no Expense bill shows "—". DB: each latest bill.
+    16. The header's Bill check filter -> Mismatched: only that spend is left; the list request carries the filter
+        (the server pages it). Cleared, then the Approval filter -> Rejected: only the rejected spend.
+    17. -> All: the column shows there too, the same cells.
+    18. Dashboard -> Project Expenses -> Paid: Checking / Pending, Not checked / Approved, "—"; the Bill check filter ->
+        "— (no bill)": only the spend with none. -> All: the Approval filter -> Approved: only the Not checked one.
+    """
+    seeded = json.loads(next(l for l in script("expense_bill_list_seed.py", STAMP).splitlines()
+                             if l.startswith("EXPENSE_BILL_LIST_SEED ")).removeprefix("EXPENSE_BILL_LIST_SEED "))
+    print(f"seeded for the Bill check column: {seeded}")
+    search = f"WalkBC {STAMP}"
+
+    with session(a.task, a.accountant, a.password) as (page, out):
+        stdout = script("expense_bill_list_db.py", *(f"{s['doctype']}:{s['name']}" for s in seeded.values()))
+        bills = json.loads(next(l for l in stdout.splitlines() if l.startswith("EXPENSE_BILL_LIST_DB "))
+                           .removeprefix("EXPENSE_BILL_LIST_DB "))
+        (out / "15-db.json").write_text(json.dumps(bills, indent=2))
+        list_requests: list[str] = []
+        page.on("request", lambda r: list_requests.append(r.post_data or "") if LIST_API in r.url else None)
+
+        def latest(slug: str) -> tuple | None:
+            rows = [b for b in bills[seeded[slug]["name"]] if b["is_latest"]]
+            return (rows[0]["bill_check"], rows[0]["status"], rows[0]["auto_approved"]) if rows else None
+
+        def open_tab(card: str, tab: str) -> None:
+            sidebar(page, "Dashboard")
+            page.get_by_text(card, exact=True).first.click()
+            page.wait_for_load_state("networkidle")
+            page.get_by_role("button", name=re.compile(rf"^{tab} \d+$")).click()
+            page.wait_for_load_state("networkidle")
+            page.get_by_placeholder(re.compile("search", re.I)).first.fill(search)
+            page.get_by_role("row").filter(has_text=search).first.wait_for(timeout=30_000)
+            page.wait_for_load_state("networkidle")
+
+        def cells() -> dict[str, str]:
+            """{description slug: the row's Bill check cell text} of the rows on screen."""
+            header = [h.inner_text().strip() for h in page.get_by_role("columnheader").all()]
+            col = next(i for i, h in enumerate(header) if h.startswith("Bill check"))
+            shown = {}
+            for row in page.get_by_role("row").filter(has_text=search).all():
+                texts = [c.inner_text().strip() for c in row.get_by_role("cell").all()]
+                slug = next(t for t in texts if t.startswith(search)).removeprefix(search).strip()
+                shown[slug] = " ".join(texts[col].split())
+            return shown
+
+        def expect_rows(want: dict[str, str], what: str) -> None:
+            page.wait_for_timeout(800)
+            page.wait_for_load_state("networkidle")
+            got = cells()
+            expect(got == want, f"{what}: {got}")
+
+        def pick(line: str, option: str) -> None:
+            """Open the header's `line` filter ("Bill check" or "Approval") and toggle `option`."""
+            header = page.get_by_role("columnheader").filter(has_text="Bill check")
+            index = 0 if line == "Bill check" else 1
+            header.locator('[aria-haspopup="dialog"]').nth(index).click()
+            page.get_by_role("option", name=option, exact=True).click()
+            page.keyboard.press("Escape")
+            page.wait_for_load_state("networkidle")
+
+        def filtered_request(field: str, value: str) -> None:
+            """A list request since the last clear sent `[field, "in", [... value ...]]` with a page limit."""
+            def carries(body: str) -> bool:
+                try:
+                    payload = json.loads(body)
+                    filters = payload.get("filters")
+                    filters = json.loads(filters) if isinstance(filters, str) else filters or []
+                except ValueError:
+                    return False
+                return bool(payload.get("limit_page_length")) and any(
+                    isinstance(f, list) and f[:2] == [field, "in"] and value in f[2] for f in filters)
+            expect(any(carries(r) for r in list_requests),
+                   f"the list request sends the {field} filter ({value}) with its page: filtered on the server")
+
+        # 15. Non-Project Expenses -> Paid.
+        expect(latest("npe_mismatched") == ("Mismatched", "Pending", 0), "DB: mismatched spend's latest bill")
+        expect(latest("npe_matched") == ("Matched", "Approved", 1), "DB: matched spend's latest bill, auto-approved")
+        expect(latest("npe_rejected") == ("Not read", "Rejected", 0), "DB: rejected spend's latest bill")
+        expect(len(bills[seeded["npe_rejected"]["name"]]) == 2, "DB: the rejected spend also has an older bill")
+        expect(latest("npe_none") is None, "DB: no Expense bill on the 'none' spend")
+        open_tab("Non-Project Expenses", "Paid")
+        npe = {"mismatched": "Mismatched Pending", "matched": "Matched Auto-approved",
+               "rejected": "Not read Rejected", "none": "—"}
+        expect_rows(npe, "15. Non-Project Paid: each spend's Bill check")
+        shot(page, out, "15-npe-paid-column", "1-bill-check-column")
+        shot(page, out, "15b-npe-paid-no-bill", "3-no-bill-dash")
+
+        # 16. The two filters.
+        list_requests.clear()
+        pick("Bill check", "Mismatched")
+        expect_rows({"mismatched": "Mismatched Pending"}, "16. Bill check filter Mismatched")
+        filtered_request("bill_check", "Mismatched")
+        shot(page, out, "16-npe-filter-result", "2-filter-result")
+        pick("Bill check", "Mismatched")  # off again
+        expect_rows(npe, "16. Bill check filter cleared")
+        list_requests.clear()
+        pick("Approval", "Rejected")
+        expect_rows({"rejected": "Not read Rejected"}, "16. Approval filter Rejected")
+        filtered_request("bill_approval", "Rejected")
+        shot(page, out, "16b-npe-filter-approval", "2-filter-approval")
+
+        # 17. -> All.
+        open_tab("Non-Project Expenses", "All")
+        expect_rows(npe, "17. Non-Project All: each spend's Bill check")
+        shot(page, out, "17-npe-all-column", "1-bill-check-column-all")
+
+        # 18. Project Expenses.
+        expect(latest("pe_checking") == ("Checking", "Pending", 0), "DB: checking spend's latest bill")
+        expect(latest("pe_notchecked") == ("Not checked", "Approved", 0), "DB: not-checked spend's latest bill")
+        expect(latest("pe_none") is None, "DB: no Expense bill on the project 'none' spend")
+        open_tab("Project Expenses", "Paid")
+        pe = {"checking": "Checking Pending", "notchecked": "Not checked Approved", "none": "—"}
+        expect_rows(pe, "18. Project Paid: each spend's Bill check")
+        shot(page, out, "18-pe-paid-column", "1-bill-check-column-project")
+        list_requests.clear()
+        pick("Bill check", "— (no bill)")
+        expect_rows({"none": "—"}, "18. Bill check filter '— (no bill)'")
+        filtered_request("bill_check", "__NOT_SET__")
+        shot(page, out, "18b-pe-filter-no-bill", "2-filter-no-bill")
+        open_tab("Project Expenses", "All")
+        expect_rows(pe, "18. Project All: each spend's Bill check")
+        pick("Approval", "Approved")
+        expect_rows({"notchecked": "Not checked Approved"}, "18. Approval filter Approved on All")
+        shot(page, out, "18c-pe-all-filter-approval", "2-filter-approval-project-all")
+
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 if a.part == "read-again":
@@ -419,6 +558,9 @@ if a.part == "read-again":
 if a.part == "cashbook":
     with session(a.task, a.accountant, a.password) as (page, out):
         walk_cashbook(page, out)
+    sys.exit(0)
+if a.part == "bill-check":
+    bill_check_part()
     sys.exit(0)
 spends = seed()
 print(f"seeded: {spends}")
@@ -621,3 +763,5 @@ read_again_part()
 
 with session(a.task, a.accountant, a.password) as (page, out):
     walk_cashbook(page, out)
+
+bill_check_part()

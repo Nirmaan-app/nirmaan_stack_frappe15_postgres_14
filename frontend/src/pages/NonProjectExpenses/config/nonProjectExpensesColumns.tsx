@@ -17,6 +17,7 @@
 
 import { useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
+import { getExpenseBillCheckColumns } from "@/components/common/expenseBillCheckColumns";
 import {
   FileText,
   CheckCircle2,
@@ -555,6 +556,9 @@ export const getNonProjectExpenseColumns = ({
     // Inv. Attach only on tabs where Invoice Ref is NOT the clickable link (Requested/Approved);
     // on Paid/All the clickable Invoice Ref already opens the invoice attachment.
     ...(!invoiceRefClickable ? [invoiceAttachColumn] : []),
+    // The latest Expense bill's Bill check and approval, with its two filters (#1640): the standalone Paid and All
+    // tabs only, not the read-only embedded / report view.
+    ...(invoiceRefClickable && !disableActions ? getExpenseBillCheckColumns<NonProjectExpenses>() : []),
     ...(statusTab === "Paid" || statusTab === "All"
       ? [paymentDateColumn, paymentRefColumn, paymentAttachColumn]
       : []),
