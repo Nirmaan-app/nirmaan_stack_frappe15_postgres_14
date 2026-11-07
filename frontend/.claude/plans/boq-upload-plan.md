@@ -50735,3 +50735,50 @@ by the served module in the live tab instead). Rows on the 17 partial sheets ran
   BOQ-26-00298 / HVAC BOQ.
 - The 10 copper-pipe rows to re-categorise; the R5 (e) 10 duplicate and 11 conversion copy not removed; `parseCableSpec` kept;
   GAP 3 (Pricing Inputs save) and GAPs 4 / 5 named in the report.
+
+## Slice VRF-5 - fixes from the VRF-4 review (accessories as lines + the own-row safeguard, cable default, Side, brands, scope) (HVAC v61), then the full VRF run - as built 2026-11-06 / 07
+
+Desktop session (the owner travelling 2026-11-06 from 19:53; ANSWER 10), start tip b92a85b8a. Tier 3 (asset v61) + Tier 2. Three code
+commits -- K1 ed69b87ea (accessories as the unit's own lines + the safeguard, F2 cable default, R2 Side, R5 several makes, scope;
+vrf5Model 39 tests), K2 edf1511c7 (the calculator keeps a picked unit on VRF and refuses like the panel; the parity harness feeds
+Piping sections, the panel's extras and the scope), K3 59f3775e0 (v61 minted and LOADED; config checks; the Accessories table; parity
+v61 179 cases 0 divergences; R-39 v61; stub 96 sheets 0 drops; AMENDED with the QR-2 fix, was bbabf58c4) -- plus this docs commit.
+Rules: boq-rate-master.md "VRF-5".
+
+**Owner rulings carried:** R1 (prompt r2: accessories PRICED as lines, quantity from the BoQ else a Pricing Inputs default; the
+SAFEGUARD); ANSWER 4 / 6 defaults (MCCB 40 / 40 / 63 A FP from Electrical, an isolator as the default MCCB; MS frame 30 / 45 / 60 Kg;
+gas 3 / 5 / 8 Kg; 1 per indoor unit); ANSWER 5 (defaults + uplift = HVAC Pricing Inputs rows, an Accessories table); ANSWER 9 (the
+safeguard reads the SAME sheet, HVAC categories only; cross-sheet = open item); QR-1.2 a (calculator ticks + quantity + BoQ scope);
+QR-1.3 (no-capacity install-only rows refuse); R2 "yes"; R5 "2 ok"; R4-R8 scope + the 50% uplift; ANSWER 2 (the 20 amount formulas
+declared on 10 sheets; override on the 9 category-closed sheets); G2 whole sheets; ANSWER 3 (every run ends complete + active;
+second opinion VRF rows only); ANSWER 11 (QR-2 a, PAID-READY "go", one process); ANSWER 12 (QR-3 "resume").
+
+**Asset loads:** v61 loaded 2026-11-06 20:5x (snapshot BRMS-26-01851, batch rmbulk-99a908dbdec4) and re-loaded 21:4x data-identical
+except 12 integer input factors made floats so a Pricing Inputs CSV round trip reads 58 / 58 unchanged (BRMS-26-01887,
+rmbulk-d768cf437dcd). B6 replay after the load: 18,290 rows, 62 moved - all hvac_vrf, each by a declared rule (R1 folding 58, Lot
+wording 3, R2 Side 1), 0 non-VRF moves.
+
+**The paid run (one process, whole sheets):** 96 sheets / 5,098 rows (VRF 1,400), 9 category overrides, 20 amount formulas declared
+first. Stopped 2026-11-07 01:37 on an EXTERNAL cause (Anthropic "credit balance is too low", HTTP 400) after 12 sheets + a partial;
+the owner topped up (ANSWER 12), the desktop rebooted 12:51, and the run resumed 15:44 (one check call first) and ended 21:43:18
+"stopped None". 96 / 96 sheets complete + active (the Terrace partial completed by the product's own resume). Spend 22,505,409 tokens
+/ 566 batch attempts (2 refused at the credit stop) / 1,400 second opinions of the cap 34,742,640 / 903 / 2,240. Controls: every
+stored row outside the declared list byte-identical (segment 1: 249 runs, 0 changed; segment 2: 262 runs, 1 changed = the declared
+Terrace resume); 96 new runs, all on plan sheets, all complete + active. Replay after the run (re-baseline): 23,239 rows, ac7
+1ceddfa3ab7dc471 / ac7v2 e11d32ee97602433; the 17,276 rows outside the plan sheets 0 moved.
+
+**Payload integrity (5,098 rows):** blocks byte-equal 5,098, ROWS sections equal 5,098, EA-7 PASS 5,098, replied 5,098, 0 foreign
+ids; 564 batch + 2 refused records; 4 specs. Rows workbook: SKU id + name resolved for 3,904 items (25 unresolved); hand check 52 / 59
+readings agree (3 are capacity format only). Parity (5,098 rows): hvac_vrf 0 figure divergences over 1,400 rows (13 wording only).
+
+**Cert C1-C11:** all pass, the live calculator on C8 (a frame on a picked Nos unit refuses like the panel).
+
+**Open (for the owner):**
+- **`second_opinion` is TRUE on hvac_vrf (v61) and MUST be switched off before any deploy.**
+- Cross-sheet safeguard (00049 Hi-Side vs Lowside, 00012): the safeguard reads the same sheet only (ANSWER 9).
+- Model readings: 00350 r14 (the isolator stated in notes r12 / r13 was not answered, so no MCCB line); 00352 r36 (heading "full
+  charge of R-410a" not read as an extra gas charge).
+- Calculator vs panel outside VRF (the harness feeds the BoQ's two-value thickness / size, the calculator asks for one): hvac_piping
+  137, hvac_insulation 29, hvac_adp 22 figure divergences + wording-only ones - a calculator-feed limit, no code of those categories
+  changed in VRF-5.
+- With the default (unpicked) unit the calculator switches an MS frame to Kg and prices it (K2 keeps only a PICKED unit).

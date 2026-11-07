@@ -2671,6 +2671,56 @@ questions, `second_opinion: true`, and the pricing keys below. Every key is opti
 - **Not here:** reading what a Lot holds (the Lot / per-HP refusal text still says "read at VRF-4"; the per-HP bar is titled "PRICED
   PER LOT"); the full-population run (VRF-5; owner 2026-11-06 14:25: it may use "Override the check" on a gate-closed sheet).
 
+**VRF-5: ACCESSORIES ARE THE UNIT'S OWN LINES (+ THE OWN-ROW SAFEGUARD); THE CABLE-WORDS DEFAULT; SIDE BELOW THE SMALLEST TOP UNIT; SEVERAL MAKES; SUPPLY-ONLY / INSTALLATION-ONLY (owner 2026-11-06: R1 18:14-18:21 + SAFEGUARD, ANSWER 4-6 / 9; R2 "yes"; R4-R8; R5 "2 ok"; F2; HVAC v61).**
+v61 = v60 with only `hvac_vrf` changed plus 13 new `hvac_pricing_input` items. Every new key is optional: a config without it is
+byte-identical (v60 and older unchanged; the replay: 0 moves on the old rows).
+- **`second_opinion` stays TRUE on hvac_vrf and MUST be switched off before any deploy.**
+- **Accessories (`extras.accessories`, R1).** MS frame / gas charge R-410 / MCCB per OUTDOOR unit; drain pump / remote / refnet per INDOOR
+  unit -- each its own OPTIONAL line under the unit (like the four extras; each split module its own unit). Quantity: typed > the BoQ's
+  (`includes_<id>_qty_as_written`, tag "from the BoQ") > the Pricing Inputs default (amber): frame `vrf_acc_frame_outdoor_<band>_qty`
+  30 / 45 / 60 Kg, gas `vrf_acc_gas_outdoor_<band>_qty` 3 / 5 / 8 Kg (bands = the cable bands: <= 8 / > 8-14 / > 14 HP after conversion),
+  `vrf_acc_<id>_per_indoor` 1. A VRF family prices by VRF's own rules in its SKU's unit (Kg / Nos), figures = ceil(qty x per-unit rate);
+  the remote is Cordless unless the row says wired / corded (a field the pricer can change). The MCCB is BORROWED from Electrical's
+  db_switchgear by its own composite rules (`electrical.template` "{amp}A FP MCCB", the rating `vrf_acc_mccb_outdoor_<band>_amp` 40 / 40
+  / 63; the other slots answered "None" / "0" via `electrical.fill`); an isolator the row names prices as the default MCCB, said in the
+  working (`electrical.alias`). **A line that cannot price (no catalogue match, a default 0 / unset: "default needed - set it in
+  Pricing Inputs") is a note: it never blocks the unit** (`ExtraLineView.optional`; `badExtras` skips it).
+- **Folding (R1).** On a row whose ITEM 1 is a unit (`extras.roles`), every further UNTOUCHED MODEL item whose family is no unit role is
+  folded off the row before pricing (`foldedModelItems`): an accessory family becomes that accessory included on every unit of its role;
+  anything else ("none of these", a family-less item, a controller) is one point in the `extras.folded` note. A row whose ITEM 1 is the
+  accessory prices as before; the pricer's own item / a changed family / a split line is never folded.
+- **The SAFEGUARD (`extras.safeguard`; ANSWER 9 "lets restrict on same sheet").** For EVERY extra (the four + the accessories) the model
+  answers WHERE the inclusion is stated (`<includes q>_where`: Row / Heading / Note) and its wording (Price / Scope). Row -> added, no
+  review. Heading / note (or no answer) -> added UNLESS a line item of the SAME SHEET whose run category belongs to the row's own
+  discipline (HVAC) quotes that item on its own row (`ownRowQuotes`: the include's `words` / `not_words`, or its `families` as the
+  row's model item 1; never the asking row, never a unit row) -> not added, the point names the row(s). Either heading case shows
+  "This row may include extras - please review" with what / why. Rows of an Electrical (or any other discipline's) category never
+  count; another sheet's rows never count (an open item: 00049 Hi-Side vs Lowside, 00012). The run's row categories ride beside the
+  extraction map (`ROW_CATEGORIES`), never on the row objects.
+- **F2 (`extras.lines.cable_words_default`).** A cable the BoQ (or the pricer) names in words with no size takes the band's default spec;
+  a stated armour / conductor word sets that attribute (`readCableKindWords`); a stated length is used (`readLengthRange`: "5-10 m" ->
+  10, noted); the spec's note says which came from the BoQ and which is the default. Never "Size needed" while a default exists.
+- **R2 (`defaults.discharge.below_smallest`).** Discharge NOT stated + the outdoor unit's capacity below the smallest Top SKU of its
+  brand and variant (read after R5 settles the brand) -> Side (the ladder picks the next size up on Side), the line naming that
+  smallest Top size. A stated discharge always wins.
+- **R5 (`defaults.brand.unlisted.several_rule`).** Several makes stated -> Blue Star if it is one of them; else the first stated make the
+  catalogue STOCKS FOR THAT ITEM (its family and kind); else Blue Star with "none of the stated makes (...) is in the catalogue". One
+  make stated keeps the VRF-4 rule.
+- **Scope (`extras.scope`, R4-R8).** Asked per item (`scope`; the list mode asks no row-level question), the row takes the first item that
+  answers; the calculator has the "BoQ scope" choice (`SCOPE_OVERRIDE_KEY`). Applied LAST to every line of the row (`withScope`): supply
+  only -> install 0; installation only -> supply 0, install = the line's FINAL install (after every markup / rounding) x (1 +
+  `vrf_install_only_uplift`, 0.5), rounded up to the rupee once per line, the working in the note; a line with no install rate or the
+  uplift unset refuses the row. Rows that state no capacity ("Installation Charges - VRF Indoor - Cassette") refuse "no capacity
+  stated" (owner QR-1.3).
+- **The calculator (K2).** On a config with `extras` a unit the pricer picked that is a unit of the category is kept even when the item
+  is not stocked in it, so it refuses with the panel's sentence (an MS frame on a Nos row); every other config keeps 12c-S's rule.
+- **Pricing Inputs (U6).** The 13 inputs are read by hvac_vrf (`config_validation.accessory_input_ids` -> the used-by walk; TS twin in
+  `extrasUses`), shown in the Accessories table of the VRF defaults (`extrasTablesOf` / `VrfExtrasTables`) with the uplift as a
+  percentage, each with two worked examples (`impact_examples` VRF-11..20).
+- **Derivation:** seven lines (accessories, folded, safeguard, cable words, Side, several makes, scope). The per-HP refusal bar reads
+  "PRICED PER HP" (`lot_units.bar_by_unit`); the "read at VRF-4" text is gone. F5 (an automatic split's note) did not reproduce: the
+  note already exists.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
