@@ -27,6 +27,12 @@ ENTRY_POINT = {
     "nirmaan_stack/services/expense_bills/receive.py": "receive_bill: records the Expense bill and queues its reading",
 }
 
+#: Writers that only CLEAR a wallet spend's or card spend's bill: no bill lands, so none is recorded or read.
+CLEARS = {
+    "nirmaan_stack/services/expense_bills/approval.py": "reject_bill: the Expense waits for a new bill; its Expense "
+    "bill keeps the file (#1644)",
+}
+
 #: Writers of a wallet spend's or card spend's bill that do not yet go through the entry point. Each later ticket
 #: of spec #1637 moves its writer and removes its line here.
 LATER_TICKETS = {
@@ -57,7 +63,7 @@ OTHER_RECORDS = {
     "nirmaan_stack/services/reimbursements/convert.py": "a Reimbursement's Expense (spec #1637: out of scope)",
 }
 
-KNOWN = {**ENTRY_POINT, **LATER_TICKETS, **HAND_EDITS, **OTHER_RECORDS}
+KNOWN = {**ENTRY_POINT, **CLEARS, **LATER_TICKETS, **HAND_EDITS, **OTHER_RECORDS}
 
 _WRITE_CALLS = {"set_value", "db_set", "save_file"}
 _FIELD_KEYWORDS = {"df", "fieldname", "attached_to_field"}

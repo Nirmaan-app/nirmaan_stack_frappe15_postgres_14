@@ -15,9 +15,18 @@ from unittest.mock import patch
 import frappe
 
 from nirmaan_stack.api.expenses.card_invoices import mark_card_no_invoice
-from nirmaan_stack.api.expenses.expense_bill_approval import approve_expense_bill, reject_expense_bill
-from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, run_reading
-from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER
+from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice, get_cashbook_invoice_queue
+from nirmaan_stack.api.expenses.expense_bill_approval import (
+    approve_expense_bill,
+    get_pending_expense_bills,
+    reject_expense_bill,
+)
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs, purge_expense_bills
+from nirmaan_stack.api.expenses.test_cashbook_invoices import PE, CashbookInvoiceCase
+from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
+from nirmaan_stack.api.outflow_import.test_cashbook_late_bills import LATE, LateBillsCase
+from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER, _Users
+from nirmaan_stack.api.tds.test_submit import _cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
@@ -145,3 +154,107 @@ class TestReject(WaitingCardBillCase):
         self.assertEqual(frappe.db.get_value(BILL, self.bill, ["status", "is_latest"]), ("Rejected", 0))
         self.assertEqual(frappe.db.get_value(BILL, new, ["bill_check", "is_latest"]), ("Checking", 1))
         self.assertNotIn(self.spend, self._queue())
+
+
+class TestTheCreditCardPill(WaitingCardBillCase):
+    def _listed(self, user=None) -> dict:
+        rows = self._as(user or self.users.make(ACCOUNTANT), get_pending_expense_bills, "card")
+        return {r["bill"]: r for r in rows}
+
+    def test_a_waiting_card_bill_is_listed_with_what_an_approver_decides_on(self):
+        row = self._listed()[self.bill]
+
+        self.assertEqual((row["expense"], row["expense_doctype"]), (self.spend, NPE))
+        self.assertEqual(str(row["payment_date"]), "2026-09-10")
+        self.assertEqual((float(row["line_amount"]), float(row["read_total"])), (1180.0, 1250.0))
+        self.assertEqual(row["bill_check"], "Mismatched")
+        self.assertEqual(row["bill_check_reason"], "The bill's total is ₹1,250.00; the statement line is ₹1,180.00.")
+        self.assertEqual(row["paid_by"], self.holder)
+        self.assertIsNone(row["project"])
+        self.assertTrue(row["uploaded_by"])
+        self.assertEqual(row["bill_file"], frappe.db.get_value(BILL, self.bill, "bill_file"))
+
+    def test_a_mismatched_bill_offers_the_number_and_date_the_accountant_typed(self):
+        # A Mismatched bill fills nothing on itself; the approve form starts from what was typed on the Expense.
+        frappe.db.set_value(NPE, self.spend, {"invoice_ref": "TYPED-3", "invoice_date": "2026-09-04"})
+        frappe.db.commit()
+
+        row = self._listed()[self.bill]
+
+        self.assertEqual((row["invoice_no"], str(row["invoice_date"])), ("TYPED-3", "2026-09-04"))
+
+    def test_bills_still_being_read_or_already_decided_are_not_listed(self):
+        self._as(self.users.make(ACCOUNTANT), reject_expense_bill, self.bill, reason="Blurred photo")
+        _, checking = self._attach()
+
+        listed = self._listed()
+
+        self.assertNotIn(self.bill, listed)
+        self.assertNotIn(checking, listed)
+
+    def test_someone_outside_admin_and_the_accountant_profiles_cannot_list(self):
+        with self.assertRaises(frappe.PermissionError):
+            self._listed(self.users.make(OUTSIDER))
+
+
+class TestTheCashbookPill(CashbookInvoiceCase):
+    def setUp(self):
+        super().setUp()
+        self.accountant = self.users.make(ACCOUNTANT)
+        self._as(self.accountant, attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"))
+        self.bill = bills_of(PE, self.pe)[-1].name
+        run_reading(self.bill, FakeReader(ReadFailed("The reader timed out.")))
+
+    def test_a_waiting_wallet_bill_is_listed_with_its_wallet_holder_and_project(self):
+        rows = {r["bill"]: r for r in self._as(self.accountant, get_pending_expense_bills, "cashbook")}
+
+        row = rows[self.bill]
+        self.assertEqual((row["expense"], row["expense_doctype"]), (self.pe, PE))
+        self.assertEqual((row["bill_check"], row["bill_check_reason"]), ("Not read", "The reader timed out."))
+        self.assertIsNone(row["read_total"])
+        self.assertEqual(row["paid_by"], self.lines[self.pe].added_by_raw.strip())
+        self.assertEqual(row["project"], self.project)
+        self.assertEqual(row["project_name"], frappe.db.get_value("Projects", self.project, "project_name"))
+        self.assertEqual(row["uploaded_by"], self.accountant)
+        # A wallet bill is not on the Credit Card pill.
+        self.assertNotIn(self.bill, {r["bill"] for r in self._as(self.accountant, get_pending_expense_bills, "card")})
+
+    def test_a_rejected_wallet_spend_waits_in_the_cashbook_tab_with_the_reason(self):
+        self._as(self.accountant, reject_expense_bill, self.bill, reason="Partial bill")
+
+        self.assertEqual(self._queue()[self.pe]["last_bill_rejected"], "Partial bill")
+
+
+class TestALateBillAfterARejection(LateBillsCase):
+    def setUp(self):
+        super().setUp()
+        self.users = _Users()
+        self.addCleanup(self.users.purge)
+        self.jobs = capture_jobs(self)
+
+    def test_a_later_cashbook_statements_late_bill_refills_a_rejected_expense(self):
+        waiting = self._first_upload()
+        self.addCleanup(purge_expense_bills, [waiting.name])  # before the batch purge removes the Expense
+        accountant = self.users.make(ACCOUNTANT)
+        frappe.set_user("Administrator")
+        _as(accountant, attach_cashbook_invoice, waiting.name, waiting.doctype, _cloud_url("wrong-shop.pdf"))
+        bill = bills_of(waiting.doctype, waiting.name)[-1].name
+        run_reading(bill, FakeReader(BillRead(Decimal("99999.00"))))
+        _as(accountant, reject_expense_bill, bill, reason="Bill of another shop")
+        self.assertIn(waiting.name, {row["name"] for row in get_cashbook_invoice_queue()})
+
+        self._upload(self._second_file())
+
+        after = self._expense(LATE)
+        self.assertEqual(after.name, waiting.name)
+        self.assertTrue(after.invoice_attachment)
+        self.assertNotEqual(after.invoice_attachment, _cloud_url("wrong-shop.pdf"))
+        self.assertNotIn(after.name, {row["name"] for row in get_cashbook_invoice_queue()})
+
+
+def _as(user, fn, *args, **kwargs):
+    frappe.set_user(user)
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        frappe.set_user("Administrator")

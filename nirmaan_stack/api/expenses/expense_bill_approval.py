@@ -4,7 +4,8 @@
 """Expense bill approval: Vendor Invoice Recon -> Pending Approval -> Cashbook / Credit Card (#1644, spec #1637,
 GLOSSARY *Expense bill approval*, ADR-0045).
 
-URLs: /api/method/nirmaan_stack.api.expenses.expense_bill_approval.<approve_expense_bill | reject_expense_bill>
+URLs: /api/method/nirmaan_stack.api.expenses.expense_bill_approval.<get_pending_expense_bills | approve_expense_bill |
+reject_expense_bill>
 
 Gate: the Vendor Invoice approvers (`role_profiles.INVOICE_APPROVAL_PROFILES`: Admin, Accountant, Accountant Lead),
 checked here on the server, not only by the screen.
@@ -12,13 +13,84 @@ checked here on the server, not only by the screen.
 
 import frappe
 
+from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.approval import approve_bill, reject_bill
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING, MATCHED, MISMATCHED
 from nirmaan_stack.services.expense_invoices import require_profile
 from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES
 
 
+PROJECT_EXPENSE = "Project Expenses"
+NON_PROJECT_EXPENSE = "Non Project Expenses"
+
+#: The two pills, and what puts a spend on each: the Cashbook import's marker, or a card statement.
+KINDS = {
+    "cashbook": ((PROJECT_EXPENSE, NON_PROJECT_EXPENSE), "COALESCE(e.cashbook_batch, '') != ''"),
+    "card": ((NON_PROJECT_EXPENSE,), "COALESCE(e.credit_card_statement, '') != ''"),
+}
+
+# `read_total` is a Currency column, 0 when nothing was read: only a compared bill shows one.
+# A waiting bill: Pending, its Expense's latest, its Bill check done. The number and date offered are the bill's
+# own, else what was typed on the Expense (a Mismatched or Not read bill fills none of its own).
+_PENDING_SQL = f"""
+    SELECT b.name AS bill, b.expense, b.expense_doctype, e.payment_date, b.line_amount,
+           CASE WHEN b.bill_check IN ('{MATCHED}', '{MISMATCHED}') THEN b.read_total END AS read_total,
+           b.bill_check, b.bill_check_reason,
+           COALESCE(NULLIF(b.invoice_no, ''), e.invoice_ref) AS invoice_no,
+           COALESCE(b.invoice_date, e.invoice_date) AS invoice_date,
+           {{paid_by}} AS paid_by, {{project}} AS project, {{project_name}} AS project_name,
+           b.uploaded_by, u.full_name AS uploaded_by_name, b.bill_file, b.creation
+    FROM "tab{BILL_DOCTYPE}" b
+    JOIN "tab{{doctype}}" e ON e.name = b.expense
+    LEFT JOIN "tabOutflow Import Row" r ON r.name = b.statement_line
+    LEFT JOIN "tabUser" u ON u.name = b.uploaded_by
+    {{joins}}
+    WHERE b.expense_doctype = %(doctype)s AND b.is_latest = 1
+      AND b.status = '{PENDING}' AND b.bill_check != '{CHECKING}'
+      AND {{kind}}
+"""
+
+
+def _pending_rows(kind: str, doctype: str) -> list[dict]:
+    if kind == "card":
+        parts = {
+            "paid_by": "s.holder",
+            "joins": 'LEFT JOIN "tabCredit Card Statement" s ON s.name = e.credit_card_statement',
+        }
+    else:
+        # Who paid is the wallet holder on the statement line; else the Project Expense's own Paid by.
+        payment_by = "e.payment_by" if doctype == PROJECT_EXPENSE else "NULL"
+        parts = {"paid_by": f"COALESCE(NULLIF(BTRIM(r.added_by_raw), ''), {payment_by})", "joins": ""}
+    if doctype == PROJECT_EXPENSE:
+        parts.update(project="e.projects", project_name="p.project_name")
+        parts["joins"] += ' LEFT JOIN "tabProjects" p ON p.name = e.projects'
+    else:
+        parts.update(project="NULL", project_name="NULL")
+    sql = _PENDING_SQL.format(doctype=doctype, kind=KINDS[kind][1], **parts)
+    return frappe.db.sql(sql, {"doctype": doctype}, as_dict=True)
+
+
 def _require_approver() -> str:
     return require_profile(INVOICE_APPROVAL_PROFILES, "Only an Admin or an Accountant can approve or reject an expense bill.")
+
+
+@frappe.whitelist()
+def get_pending_expense_bills(kind: str) -> list[dict]:
+    """The expense bills waiting for a person on pill `kind` ("cashbook" or "card"), newest bill first.
+
+    Each row: `bill`, `expense`, `expense_doctype`, `payment_date` (the spend date), `line_amount`, `read_total`
+    (None unless the bill was compared: Matched or Mismatched), `bill_check` and `bill_check_reason`, `invoice_no` and `invoice_date` (to approve
+    with), `paid_by` (the wallet holder or the card holder), `project` and `project_name` (None on a Non-Project
+    spend), `uploaded_by` and `uploaded_by_name` (who attached it), `bill_file`.
+    """
+    _require_approver()
+    if kind not in KINDS:
+        frappe.throw(f"'{kind}' is not a Pending Approval pill of expense bills.")
+    rows = [row for doctype in KINDS[kind][0] for row in _pending_rows(kind, doctype)]
+    rows.sort(key=lambda r: (r["creation"], r["bill"]), reverse=True)
+    for row in rows:
+        del row["creation"]
+    return rows
 
 
 @frappe.whitelist(methods=["POST"])
