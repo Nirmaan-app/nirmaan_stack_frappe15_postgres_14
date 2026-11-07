@@ -451,6 +451,17 @@ export const canMarkCardNoInvoice = (
   (!!role && CARD_NO_INVOICE_PROFILES.includes(role));
 
 /**
+ * May press Read again on an expense bill whose Bill check is Not read (#1645, spec #1637): Admin and Accountant
+ * Lead. Mirrors `role_profiles.READ_AGAIN_PROFILES`, the enforcement boundary (pinned by
+ * `cardInvoiceAccessParity.test.ts`); this only decides whether the button renders.
+ */
+export const READ_AGAIN_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+
+/** True when `role` (a role PROFILE) may read an expense bill again. */
+export const canReadExpenseBillAgain = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && READ_AGAIN_PROFILES.includes(role));
+
+/**
  * `/upload-boq` and its hub / revision / sheet children.
  *
  * PMO Executive and Billing Executive are both INCLUDED (owner request). This line used to read

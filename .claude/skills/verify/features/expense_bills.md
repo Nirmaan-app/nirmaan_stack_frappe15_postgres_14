@@ -13,6 +13,11 @@ Accountant Lead approve it, correcting its number and date, which are mirrored o
 reason: the Expense loses its bill and waits again in Pending Invoices Upload, showing "Last bill rejected: <reason>".
 The server refuses both to anyone else.
 
+A Not read bill can be **read again** (#1645) by Admin and Accountant Lead: Read again puts it back to Checking (it
+leaves the pill) and queues its reading; its new result comes back to the pill, or a Matched one is auto-approved
+and does not. A bill left Checking by a reading that stopped (a worker killed mid-read: its claim is older than the
+15-minute job limit plus a 5-minute margin) shows on its pill as Not read, "The reading stopped.", and can be read again or decided.
+
 ## Sub-features
 
 - `bill-attach-card` Credit Card pill: the spend is listed, Attach invoice -> Upload Invoice dialog -> Save Invoice;
@@ -34,6 +39,12 @@ The server refuses both to anyone else.
   Expense's `invoice_attachment`, `invoice_ref`, `invoice_date` cleared; a Version on both. Pending Invoices Upload
   -> Cashbook / Credit Card then lists the spend with "Last bill rejected: <reason>" under its remark or details;
   No invoice (Admin, Accountant Lead) still works on it.
+- `read-again` Cashbook / Credit Card -> a Not read row's `Read again` (Admin, Accountant Lead only; an Accountant
+  sees no button and the endpoint `read_expense_bill_again` answers 403) -> the row leaves. DB: Checking,
+  `read_claimed_at` cleared, the reading queued on `long`; a second press is answered 200 and changes nothing. After
+  the reading: the row's new result (Not read with its reason, Mismatched), or gone (Matched, auto-approved).
+- `reading-stopped` a bill Checking with `read_claimed_at` older than 20 minutes shows as Not read, "The reading
+  stopped."; Read again and Approve / Reject reach it (a decision records it Not read with that reason).
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.
 
@@ -66,7 +77,14 @@ date, and the made-up users `walk-accountant-lead@example.com` and `walk-pmo@exa
 `--password`). The walk approves the seeded bill with a corrected number and date, rejects the wallet bill of step 3,
 sees it back in Pending Invoices Upload with its reason, marks it No invoice as the Accountant Lead, and checks the
 PMO has no tab and gets 403 from the reject endpoint (`BIN/expense_bill_approval_db.py` reads each state).
-`--shots DIR` keeps one half-size screenshot per acceptance criterion of #1644.
+`--shots DIR` keeps one half-size screenshot per acceptance criterion.
+
+Then Read again (#1645), steps 11-14: `BIN/expense_bills_seed.py R<stamp>` makes two more made-up spends and
+`BIN/expense_bill_read_again_seed.py <stamp> <card> <wallet>` puts a Not read bill on the card spend and a bill whose
+reading stopped on the wallet spend (wallet holder "Walk Reread Holder <stamp>"; both seeded states). The walk checks
+the Accountant sees both rows Not read with no Read again and gets 403, presses Read again on both as the Accountant
+Lead, presses the card one twice more by hand (200, still Checking), runs one burst worker, and reads each row's new
+result beside its DB row. `--part read-again` runs only these steps (it needs the users of the steps above).
 
 ## Gotchas
 
@@ -79,5 +97,8 @@ PMO has no tab and gets 403 from the reject endpoint (`BIN/expense_bill_approval
   marker and a Settled match).
 - **Frappe keeps no Version under tests** (`ignore_version` defaults to `in_test`): a test that asserts one patches
   `frappe.flags.in_test` off around the save (`test_expense_bill_approval.keeping_versions`). The walk reads real ones.
+- **Read again's Matched path cannot be walked on an env** (its reader key is refused): the walk prints NOT WALKED
+  and `test_expense_bill_read_again` proves it through the reader seam.
+- **The approval table scrolls sideways**: scroll a row's buttons into view before a screenshot that shows them.
 - **The env DB has no Pending WO Vendor Invoice** (2026-10-28 data), so the WO pill is walked empty.
 - The expense lists open on a tab other than Paid; the seeded spends are Paid.

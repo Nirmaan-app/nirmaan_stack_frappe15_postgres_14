@@ -5,10 +5,11 @@
 GLOSSARY *Expense bill approval*, ADR-0045).
 
 URLs: /api/method/nirmaan_stack.api.expenses.expense_bill_approval.<get_pending_expense_bills | approve_expense_bill |
-reject_expense_bill>
+reject_expense_bill | read_expense_bill_again>
 
 Gate: the Vendor Invoice approvers (`role_profiles.INVOICE_APPROVAL_PROFILES`: Admin, Accountant, Accountant Lead),
-checked here on the server, not only by the screen.
+checked here on the server, not only by the screen. Read again (#1645): Admin and Accountant Lead
+(`role_profiles.READ_AGAIN_PROFILES`).
 """
 
 from typing import NamedTuple
@@ -19,9 +20,10 @@ from nirmaan_stack.api.expenses.cashbook_invoices import EXPENSE_DOCTYPES, NON_P
 
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.approval import approve_bill, reject_bill
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING, MATCHED, MISMATCHED
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING, MATCHED, MISMATCHED, NOT_READ
+from nirmaan_stack.services.expense_bills.reading import READING_STOPPED, read_again, stopped_before
 from nirmaan_stack.services.expense_invoices import require_profile
-from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES
+from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES, READ_AGAIN_PROFILES
 
 
 class Pill(NamedTuple):
@@ -38,12 +40,15 @@ KINDS = {
 }
 
 # `read_total` is a Currency column, 0 when nothing was read: only a compared bill shows one.
-# A waiting bill: Pending, its Expense's latest, its Bill check done. The number and date offered are the bill's
+# A waiting bill: Pending, its Expense's latest, its Bill check done -- or its reading stopped (claimed longer ago
+# than the job limit), shown as Not read so Read again can reach it (#1645). The number and date offered are the bill's
 # own, else what was typed on the Expense (a Mismatched or Not read bill fills none of its own).
 _PENDING_SQL = f"""
     SELECT b.name, b.expense, b.expense_doctype, e.payment_date, b.line_amount,
            CASE WHEN b.bill_check IN ('{MATCHED}', '{MISMATCHED}') THEN b.read_total END AS read_total,
-           b.bill_check, b.bill_check_reason,
+           CASE WHEN b.bill_check = '{CHECKING}' THEN '{NOT_READ}' ELSE b.bill_check END AS bill_check,
+           CASE WHEN b.bill_check = '{CHECKING}' THEN '{READING_STOPPED}' ELSE b.bill_check_reason END
+               AS bill_check_reason,
            COALESCE(NULLIF(b.invoice_no, ''), e.invoice_ref) AS invoice_no,
            COALESCE(b.invoice_date, e.invoice_date) AS invoice_date,
            {{paid_by}} AS paid_by, {{project}} AS project, {{project_name}} AS project_name,
@@ -54,7 +59,8 @@ _PENDING_SQL = f"""
     LEFT JOIN "tabUser" u ON u.name = b.uploaded_by
     {{joins}}
     WHERE b.expense_doctype = %(doctype)s AND b.is_latest = 1
-      AND b.status = '{PENDING}' AND b.bill_check != '{CHECKING}'
+      AND b.status = '{PENDING}'
+      AND (b.bill_check != '{CHECKING}' OR b.read_claimed_at < %(stopped_before)s)
       AND {{kind}}
 """
 
@@ -75,7 +81,7 @@ def _pending_rows(kind: str, doctype: str) -> list[dict]:
     else:
         parts.update(project="NULL", project_name="NULL")
     sql = _PENDING_SQL.format(doctype=doctype, kind=KINDS[kind].condition, **parts)
-    return frappe.db.sql(sql, {"doctype": doctype}, as_dict=True)
+    return frappe.db.sql(sql, {"doctype": doctype, "stopped_before": stopped_before()}, as_dict=True)
 
 
 def _require_approver() -> str:
@@ -125,5 +131,18 @@ def reject_expense_bill(bill: str, reason: str) -> dict:
     """
     _require_approver()
     reject_bill(bill, reason)
+    frappe.db.commit()
+    return {"name": bill}
+
+
+@frappe.whitelist(methods=["POST"])
+def read_expense_bill_again(bill: str) -> dict:
+    """Read again Expense bill `bill`, whose Bill check is Not read: it goes back to Checking and its reading is
+    queued. Admin and Accountant Lead only.
+
+    Example: `{"bill": "EB-2026-00042"}` -> `{"name": "EB-2026-00042"}`.
+    """
+    require_profile(READ_AGAIN_PROFILES, "Only an Admin or an Accountant Lead can read a bill again.")
+    read_again(bill)
     frappe.db.commit()
     return {"name": bill}

@@ -4,7 +4,8 @@
  *
  * Approve opens a form with the invoice number and date the row offers (the bill's own, else what the Accountant
  * typed on the Expense) for a person to correct; Reject asks for a reason. The server checks who may decide
- * (`api/expenses/expense_bill_approval`); this screen is mounted only for the same approvers.
+ * (`api/expenses/expense_bill_approval`); this screen is mounted only for the same approvers. Read again shows on a
+ * Not read bill for Admin and Accountant Lead only (#1645).
  * The list, the two writes and the dialogs' state are `useExpenseBillApprovals`.
  */
 import React, { useEffect, useMemo } from "react";
@@ -18,7 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { canReadExpenseBillAgain } from "@/constants/roles";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -41,10 +44,15 @@ export const ExpenseBillApprovals: React.FC<ExpenseBillApprovalsProps> = ({ kind
     const {
         rows, error, isLoading, approvingBill, setApprovingBill, rejectingBill, setRejectingBill, approveRow, rejectRow,
         invoiceNo, setInvoiceNo, invoiceDate, setInvoiceDate, reason, setReason, approving, rejecting,
-        onApprove, onReject, submitApprove, submitReject,
+        onApprove, onReject, submitApprove, submitReject, onReadAgain, readingAgainBill,
     } = useExpenseBillApprovals(kind);
+    const { role, user_id } = useUserData();
+    const canReadAgain = canReadExpenseBillAgain(role, user_id);
 
-    const columns = useMemo(() => getExpenseBillApprovalColumns({ onApprove, onReject }), [onApprove, onReject]);
+    const columns = useMemo(
+        () => getExpenseBillApprovalColumns({ onApprove, onReject, onReadAgain, canReadAgain, readingAgainBill }),
+        [onApprove, onReject, onReadAgain, canReadAgain, readingAgainBill],
+    );
 
     const {
         table, searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField, exportAllRows, isExporting,

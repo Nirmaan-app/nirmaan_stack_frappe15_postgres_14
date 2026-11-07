@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { CARD_NO_INVOICE_PROFILES, PENDING_INVOICE_UPLOAD_PROFILES } from "./roles";
+import { CARD_NO_INVOICE_PROFILES, PENDING_INVOICE_UPLOAD_PROFILES, READ_AGAIN_PROFILES } from "./roles";
 
 const roleProfilesSource = readFileSync(
   fileURLToPath(new URL("../../../nirmaan_stack/services/role_profiles.py", import.meta.url)),
@@ -53,6 +53,12 @@ describe("card invoice access parity -- the screen shows exactly what the server
     const python = new Set(pythonProfiles(roleProfilesSource, "CARD_NO_INVOICE_PROFILES"));
     expect(python).toEqual(new Set(["Nirmaan Admin Profile", "Nirmaan Accountant Lead Profile"]));
     expect(python).toEqual(new Set(CARD_NO_INVOICE_PROFILES));
+  });
+
+  it("★ READ_AGAIN_PROFILES (Read again on a Not read expense bill, #1645) is the same set on both sides", () => {
+    const python = new Set(pythonProfiles(roleProfilesSource, "READ_AGAIN_PROFILES"));
+    expect(python).toEqual(new Set(["Nirmaan Admin Profile", "Nirmaan Accountant Lead Profile"]));
+    expect(python).toEqual(new Set(READ_AGAIN_PROFILES));
   });
 
   it("★ PENDING_INVOICE_UPLOAD_PROFILES is the same set on both sides", () => {

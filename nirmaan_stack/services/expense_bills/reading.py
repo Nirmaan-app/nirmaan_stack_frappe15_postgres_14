@@ -21,10 +21,11 @@ Every other result stays Pending and writes nothing to the Expense.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 import frappe
-from frappe.utils import getdate, now_datetime
+from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, SYSTEM_APPROVER
 from nirmaan_stack.services.expense_bills.bill_check import (
@@ -43,6 +44,13 @@ JOB_TIMEOUT_SECONDS = 15 * 60
 
 READING_OFF = "Reading is switched off in Document AI Settings."
 
+#: A bill claimed longer ago than this is still Checking only because its worker was killed (the job limit, plus a
+#: margin for a job still saving its result and for clocks a little apart): it shows as Not read with this reason,
+#: and Read again reaches it (#1645).
+STOPPED_AFTER_SECONDS = JOB_TIMEOUT_SECONDS + 5 * 60
+
+READING_STOPPED = "The reading stopped."
+
 
 @dataclass(frozen=True)
 class Reading:
@@ -58,18 +66,53 @@ def reading_job_id(bill: str) -> str:
     return f"expense-bill-check-{bill}"
 
 
-def queue_reading(bill: str) -> None:
+def queue_reading(bill: str, job_id: str | None = None) -> None:
     """Queue `bill`'s reading on the `long` queue, once the caller's transaction commits (so the job finds the
-    bill), de-duplicated by its job id."""
+    bill), de-duplicated by its job id (`reading_job_id`, unless `job_id` is given)."""
     frappe.enqueue(
         _JOB,
         queue="long",
         timeout=JOB_TIMEOUT_SECONDS,
-        job_id=reading_job_id(bill),
+        job_id=job_id or reading_job_id(bill),
         deduplicate=True,
         enqueue_after_commit=True,
         bill=bill,
     )
+
+
+def stopped_before() -> datetime:
+    """A Checking bill claimed before this moment is one whose reading stopped: no job can still be reading it."""
+    return add_to_date(now_datetime(), seconds=-STOPPED_AFTER_SECONDS)
+
+
+def reading_stopped(bill_check: str, read_claimed_at: datetime | str | None) -> bool:
+    """True for a bill left Checking by a reading that stopped (claimed before `stopped_before`)."""
+    return bill_check == CHECKING and bool(read_claimed_at) and get_datetime(read_claimed_at) < stopped_before()
+
+
+def read_again(bill: str) -> None:
+    """Read again (#1645): put bill `bill` (Pending, its Expense's latest), Not read or left Checking by a reading
+    that stopped, back to Checking, unclaimed, and queue its reading. A bill Checking for any other reason is left
+    alone, so pressing twice reads it once. Does not commit; the reading is queued once the caller's transaction
+    commits.
+
+    The reading is queued under a job id of its own: a worker killed outright can leave the stopped reading's job
+    registered as started under the bill's usual id, and a duplicate of it would be dropped. The claim, not the job
+    id, is what reads the bill once."""
+    doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
+    if doc.status != PENDING:
+        frappe.throw(f"Expense bill {bill} is already {doc.status}; only a waiting bill can be read again.")
+    if not doc.is_latest:
+        frappe.throw(f"Expense bill {bill} is no longer the latest bill of {doc.expense}.")
+    if doc.bill_check == CHECKING and not reading_stopped(doc.bill_check, doc.read_claimed_at):
+        return  # pressed twice: the first press's reading is queued or running
+    if doc.bill_check not in (NOT_READ, CHECKING):
+        frappe.throw(f"Expense bill {bill} is {doc.bill_check}; only a Not read bill can be read again.")
+    doc.bill_check = CHECKING
+    doc.bill_check_reason = None
+    doc.read_claimed_at = None
+    doc.save(ignore_permissions=True)
+    queue_reading(bill, job_id=f"{reading_job_id(bill)}-again-{frappe.generate_hash(length=8)}")
 
 
 def check_expense_bill(bill: str) -> None:

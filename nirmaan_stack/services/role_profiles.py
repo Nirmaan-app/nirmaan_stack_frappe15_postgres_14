@@ -114,6 +114,11 @@ PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PRO
 # `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
 CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# May press Read again on an Expense bill whose Bill check is Not read (#1645, spec #1637): Admin and Accountant
+# Lead. ENFORCEMENT boundary of `api/expenses/expense_bill_approval.read_expense_bill_again`; mirrored by
+# `canReadExpenseBillAgain` in `constants/roles.ts`.
+READ_AGAIN_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
 # Also hold / release an Approved payment (owner, 2026-09-22; `services/payment_hold.py`).
