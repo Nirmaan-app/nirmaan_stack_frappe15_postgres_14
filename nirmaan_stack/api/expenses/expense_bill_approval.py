@@ -32,7 +32,8 @@ _PENDING_SQL = f"""SELECT q.* FROM ({{rows}}) q
 _PENDING_COLUMNS = (
     "name", "expense", "expense_doctype", "payment_date", "line_amount", "read_total", "bill_check",
     "bill_check_reason", "invoice_no", "invoice_date", "paid_by", "project", "project_name", "uploaded_by",
-    "uploaded_by_name", "bill_file", "approved_by", "approved_on", "rejected_by", "rejected_on",
+    "uploaded_by_name", "bill_file", "approved_by", "approved_by_name", "approved_on", "rejected_by", "rejected_by_name",
+    "rejected_on",
 )
 
 
@@ -48,7 +49,8 @@ def get_pending_expense_bills(kind: str) -> list[dict]:
     (None unless the bill was compared: Matched or Mismatched), `bill_check` and `bill_check_reason`, `invoice_no` and `invoice_date` (to approve
     with), `paid_by` (the wallet holder or the card holder), `project` and `project_name` (None on a Non-Project
     spend), `uploaded_by` and `uploaded_by_name` (who attached it), `bill_file`, and the decision record
-    `approved_by`, `approved_on`, `rejected_by`, `rejected_on` (all None on a waiting bill).
+    `approved_by`, `approved_by_name`, `approved_on`, `rejected_by`, `rejected_by_name`, `rejected_on` (all None on
+    a waiting bill).
 
     Example: `{"kind": "card"}` -> `[{"name": "EB-2026-00042", "expense": "NPE-0042", "bill_check": "Mismatched",
     "bill_check_reason": "The bill's total is ₹1,250.00; the statement line is ₹1,180.00.", "line_amount": 1180.0,

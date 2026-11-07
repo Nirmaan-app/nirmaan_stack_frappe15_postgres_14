@@ -12,8 +12,8 @@ import { getAllExpenseBillColumns, getPorterInvoiceColumns } from "./allInvoices
 const BILL: AllExpenseBillRow = {
     name: "EB-2026-00001", expense: "NPE-0001", expense_doctype: "Non Project Expenses", payment_date: "2026-09-10",
     line_amount: 1180, read_total: 1250, bill_check: "Mismatched", bill_check_reason: "Totals differ.",
-    approval: "Rejected", rejection_reason: "Bill of another shop", approved_by: null, approved_on: null,
-    rejected_by: "test-approver@example.com", rejected_on: "2026-09-12 16:30:00", is_latest: 0, invoice_no: null, invoice_date: null,
+    approval: "Rejected", rejection_reason: "Bill of another shop", approved_by: null, approved_by_name: null,
+    approved_on: null, rejected_by: "test-approver@example.com", rejected_by_name: "Test Approver", rejected_on: "2026-09-12 16:30:00", is_latest: 0, invoice_no: null, invoice_date: null,
     paid_by: "TEST HOLDER", project: null, project_name: null, uploaded_by: "walk-accountant@example.com",
     uploaded_by_name: "Walk Accountant", bill_file: "/private/files/bill.pdf", creation: "2026-09-11 10:00:00",
 };
@@ -36,11 +36,8 @@ const render = <T,>(columns: AnyColumn[], id: string, row: T): HTMLElement => {
     return el;
 };
 
-const NAMES: Record<string, string> = { "test-approver@example.com": "Test Approver" };
-const userName = (id: string) => NAMES[id] ?? id;
-
 describe("All Invoices -> Cashbook / Credit Card columns", () => {
-    const columns = getAllExpenseBillColumns({ userName }) as AnyColumn[];
+    const columns = getAllExpenseBillColumns({}) as AnyColumn[];
 
     it("show what the spec lists, each id a field the server sorts or filters by", () => {
         expect(columns.map(idOf)).toEqual([
@@ -72,14 +69,14 @@ describe("All Invoices -> Cashbook / Credit Card columns", () => {
 describe("Read again on All Invoices -> Cashbook / Credit Card", () => {
     const NOT_READ = {
         ...BILL, bill_check: "Not read", bill_check_reason: "The reading stopped.", read_total: null, is_latest: 1,
-        approval: "Approved", rejection_reason: null, rejected_by: null, rejected_on: null,
-        approved_by: "test-approver@example.com", approved_on: "2026-09-13 09:15:00",
+        approval: "Approved", rejection_reason: null, rejected_by: null, rejected_by_name: null, rejected_on: null,
+        approved_by: "test-approver@example.com", approved_by_name: "Test Approver", approved_on: "2026-09-13 09:15:00",
     } as const;
 
     const actionsFor = (row: AllExpenseBillRow) => {
         const read: string[] = [];
         const columns = getAllExpenseBillColumns({
-            userName, readAgain: { onReadAgain: (bill) => read.push(bill.name), readingAgainBill: null },
+            readAgain: { onReadAgain: (bill) => read.push(bill.name), readingAgainBill: null },
         }) as AnyColumn[];
         const buttons = [...render(columns, "actions", row).querySelectorAll("button")];
         return { labels: buttons.map((b) => b.textContent), click: () => act(() => buttons[0].click()), read };
@@ -90,17 +87,17 @@ describe("Read again on All Invoices -> Cashbook / Credit Card", () => {
         expect(approved.labels).toEqual(["Read again"]);
         approved.click();
         expect(approved.read).toEqual(["EB-2026-00001"]);
-        expect(actionsFor({ ...NOT_READ, approval: "Pending", approved_by: null, approved_on: null }).labels).toEqual(["Read again"]);
+        expect(actionsFor({ ...NOT_READ, approval: "Pending", approved_by: null, approved_by_name: null, approved_on: null }).labels).toEqual(["Read again"]);
     });
 
     it("is absent on a rejected bill, a replaced bill, or a bill that was read", () => {
-        expect(actionsFor({ ...NOT_READ, approval: "Rejected", rejected_by: "x@example.com", rejected_on: "2026-09-14" }).labels).toEqual([]);
+        expect(actionsFor({ ...NOT_READ, approval: "Rejected", rejected_by: "x@example.com", rejected_by_name: null, rejected_on: "2026-09-14" }).labels).toEqual([]);
         expect(actionsFor({ ...NOT_READ, is_latest: 0 }).labels).toEqual([]);
         expect(actionsFor({ ...NOT_READ, bill_check: "Mismatched", read_total: 1250 }).labels).toEqual([]);
     });
 
     it("has no column for someone who may not read a bill again", () => {
-        expect((getAllExpenseBillColumns({ userName }) as AnyColumn[]).map(idOf)).not.toContain("actions");
+        expect((getAllExpenseBillColumns({}) as AnyColumn[]).map(idOf)).not.toContain("actions");
     });
 });
 

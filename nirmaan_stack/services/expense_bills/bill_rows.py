@@ -47,7 +47,8 @@ _ROWS_SQL = f"""
            {LIST_FIELD_SQL["bill_check"]} AS bill_check,
            CASE WHEN {STOPPED_SQL} THEN '{READING_STOPPED}' ELSE b.bill_check_reason END AS bill_check_reason,
            {LIST_FIELD_SQL["bill_approval"]} AS approval,
-           b.approved_by, b.approved_on, b.rejected_by, b.rejected_on,
+           b.approved_by, ua.full_name AS approved_by_name, b.approved_on,
+           b.rejected_by, ur.full_name AS rejected_by_name, b.rejected_on,
            b.rejection_reason, b.is_latest,
            COALESCE(NULLIF(b.invoice_no, ''), CASE WHEN b.is_latest = 1 THEN e.invoice_ref END) AS invoice_no,
            COALESCE(b.invoice_date, CASE WHEN b.is_latest = 1 THEN e.invoice_date END) AS invoice_date,
@@ -57,6 +58,8 @@ _ROWS_SQL = f"""
     JOIN "tab{{doctype}}" e ON e.name = b.expense
     LEFT JOIN "tabOutflow Import Row" r ON r.name = b.statement_line
     LEFT JOIN "tabUser" u ON u.name = b.uploaded_by
+    LEFT JOIN "tabUser" ua ON ua.name = b.approved_by
+    LEFT JOIN "tabUser" ur ON ur.name = b.rejected_by
     {{joins}}
     WHERE b.expense_doctype = '{{doctype}}' AND {{kind}}
 """
@@ -65,9 +68,9 @@ _ROWS_SQL = f"""
 def bill_rows_sql(kind: str) -> tuple[str, dict]:
     """(the SQL of every Expense bill on pill `kind`, its parameters). Its columns are the module docstring's, plus
     `name`, `expense`, `expense_doctype`, `payment_date` (the spend date), `line_amount`, `bill_check_reason`,
-    `approved_by`, `approved_on`, `rejected_by`, `rejected_on` (who decided it and when; "System" on an auto-approved
-    one), `rejection_reason`, `is_latest`, `project`, `project_name`, `uploaded_by`, `uploaded_by_name`,
-    `bill_file`, `creation`. The ledger names are this module's constants, never input."""
+    `approved_by`, `approved_by_name`, `approved_on`, `rejected_by`, `rejected_by_name`, `rejected_on` (who decided it,
+    their full name and when; "System", with no name, on an auto-approved one), `rejection_reason`, `is_latest`,
+    `project`, `project_name`, `uploaded_by`, `uploaded_by_name`, `bill_file`, `creation`. The ledger names are this module's constants, never input."""
     if kind not in KINDS:
         raise ValueError(f"'{kind}' is not a pill of expense bills.")
     parts = [_ledger_rows_sql(kind, doctype) for doctype in KINDS[kind].ledgers]

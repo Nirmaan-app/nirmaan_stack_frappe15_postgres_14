@@ -21,8 +21,6 @@ import {
 } from "./ExpenseBillCells";
 
 interface AllExpenseBillColumnOptions {
-    /** A user's full name from their id; the list ships ids for who decided. */
-    userName: (id: string) => string;
     /** Given to whoever may read a bill again (`canReadExpenseBillAgain`); the server checks it too. */
     readAgain?: {
         onReadAgain: (row: AllExpenseBillRow) => void;
@@ -31,9 +29,9 @@ interface AllExpenseBillColumnOptions {
     };
 }
 
-const decisionText = (row: AllExpenseBillRow, userName: (id: string) => string): string => {
+const decisionText = (row: AllExpenseBillRow): string => {
     const decided = billDecision(row);
-    return decided ? `${userName(decided.by)}, ${formatDate(decided.on)}` : "";
+    return decided ? `${decided.by}, ${formatDate(decided.on)}` : "";
 };
 
 const readAgainColumn = ({ onReadAgain, readingAgainBill }: NonNullable<AllExpenseBillColumnOptions["readAgain"]>): ColumnDef<AllExpenseBillRow> => ({
@@ -56,7 +54,7 @@ const readAgainColumn = ({ onReadAgain, readingAgainBill }: NonNullable<AllExpen
     meta: { excludeFromExport: true },
 });
 
-export const getAllExpenseBillColumns = ({ userName, readAgain }: AllExpenseBillColumnOptions): ColumnDef<AllExpenseBillRow>[] => [
+export const getAllExpenseBillColumns = ({ readAgain }: AllExpenseBillColumnOptions): ColumnDef<AllExpenseBillRow>[] => [
     {
         accessorKey: "payment_date",
         size: 120,
@@ -125,13 +123,13 @@ export const getAllExpenseBillColumns = ({ userName, readAgain }: AllExpenseBill
             const decided = billDecision(row.original);
             return decided ? (
                 <div>
-                    <TruncatedText text={userName(decided.by)} className="max-w-full" />
+                    <TruncatedText text={decided.by} className="max-w-full" />
                     <div className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(decided.on)}</div>
                 </div>
             ) : null;
         },
         enableSorting: false,
-        meta: { exportHeaderName: "Decided by / on", exportValue: (row: AllExpenseBillRow) => decisionText(row, userName) },
+        meta: { exportHeaderName: "Decided by / on", exportValue: decisionText },
     },
     {
         // A bill a newer one replaced is history; the Expense's latest bill is the one that counts.

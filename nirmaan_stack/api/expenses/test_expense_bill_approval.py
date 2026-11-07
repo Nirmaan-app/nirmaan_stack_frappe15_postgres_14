@@ -179,7 +179,9 @@ class TestTheCreditCardPill(WaitingCardBillCase):
         self.assertEqual(row["bill_file"], frappe.db.get_value(BILL, self.bill, "bill_file"))
         # A waiting bill carries its (empty) decision record too, as All Invoices' rows do (story 35).
         self.assertEqual(
-            (row["approved_by"], row["approved_on"], row["rejected_by"], row["rejected_on"]), (None, None, None, None)
+            (row["approved_by"], row["approved_by_name"], row["approved_on"], row["rejected_by"], row["rejected_by_name"],
+             row["rejected_on"]),
+            (None, None, None, None, None, None),
         )
 
     def test_a_mismatched_bill_offers_the_number_and_date_the_accountant_typed(self):

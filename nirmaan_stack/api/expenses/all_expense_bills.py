@@ -45,8 +45,9 @@ def get_all_expense_bills(
 
     Each row: `name` (the Expense bill), `expense`, `expense_doctype`, `payment_date` (the spend date), `line_amount`,
     `read_total` (None unless compared), `bill_check` and `bill_check_reason`, `approval` (Auto-approved / Pending /
-    Approved / Rejected) with `approved_by`, `approved_on`, `rejected_by`, `rejected_on` (who decided it and when;
-    "System" on an auto-approved one) and `rejection_reason`, `is_latest`, `invoice_no` and `invoice_date`,
+    Approved / Rejected) with `approved_by`, `approved_by_name`, `approved_on`, `rejected_by`, `rejected_by_name`,
+    `rejected_on` (who decided it, their full name and when; "System", with no name, on an auto-approved one) and
+    `rejection_reason`, `is_latest`, `invoice_no` and `invoice_date`,
     `paid_by`, `project` and `project_name`, `uploaded_by` and `uploaded_by_name` (who attached it), `bill_file`,
     `creation`.
 

@@ -4,13 +4,12 @@
  * `api/expenses/all_expense_bills.get_all_expense_bills`; the pill rides as the filter `["kind", "=", <pill>]`.
  * Read again shows on a latest Not read bill that was not rejected, for whoever may read it again (`offersReadAgain`).
  */
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { canReadExpenseBillAgain } from "@/constants/roles";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 import { useReadExpenseBillAgain } from "../hooks/useReadExpenseBillAgain";
 import { BILL_HISTORY_OPTIONS } from "../utils/allInvoicesView";
@@ -41,11 +40,6 @@ interface AllExpenseBillsProps {
 }
 
 export const AllExpenseBills: React.FC<AllExpenseBillsProps> = ({ kind }) => {
-    const { data: usersList } = useUsersList();
-    const userName = useCallback(
-        (id: string) => usersList?.find((user) => user.name === id)?.full_name || id,
-        [usersList],
-    );
     const { role, user_id } = useUserData();
     const canReadAgain = canReadExpenseBillAgain(role, user_id);
     // The table's refetch exists only after the table, which takes these columns.
@@ -54,8 +48,8 @@ export const AllExpenseBills: React.FC<AllExpenseBillsProps> = ({ kind }) => {
     const { onReadAgain, readingAgainBill } = useReadExpenseBillAgain(refetchList);
 
     const columns = useMemo(
-        () => getAllExpenseBillColumns({ userName, readAgain: canReadAgain ? { onReadAgain, readingAgainBill } : undefined }),
-        [userName, canReadAgain, onReadAgain, readingAgainBill],
+        () => getAllExpenseBillColumns({ readAgain: canReadAgain ? { onReadAgain, readingAgainBill } : undefined }),
+        [canReadAgain, onReadAgain, readingAgainBill],
     );
     const additionalFilters = useMemo(() => [["kind", "=", kind]], [kind]);
 
@@ -73,7 +67,9 @@ export const AllExpenseBills: React.FC<AllExpenseBillsProps> = ({ kind }) => {
         defaultSort: "creation desc",
         enableRowSelection: false,
     });
-    refetchRef.current = refetch;
+    useEffect(() => {
+        refetchRef.current = refetch;
+    }, [refetch]);
 
     return (
         <DataTable<AllExpenseBillRow>

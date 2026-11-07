@@ -24,11 +24,14 @@ export interface AllExpenseBillRow {
     bill_check_reason: string | null;
     approval: BillApprovalStatus;
     rejection_reason: string | null;
-    /** Who approved the bill (a user id; "System" on an Auto-approved bill) and when. */
+    /** Who approved the bill (a user id; "System" on an Auto-approved bill), their full name (null for "System"),
+     *  and when. */
     approved_by: string | null;
+    approved_by_name: string | null;
     approved_on: string | null;
-    /** Who rejected the bill (a user id) and when. */
+    /** Who rejected the bill (a user id), their full name, and when. */
     rejected_by: string | null;
+    rejected_by_name: string | null;
     rejected_on: string | null;
     /** 1 on the Expense's latest bill, 0 on one a newer bill replaced. */
     is_latest: 0 | 1;
@@ -48,14 +51,17 @@ export interface AllExpenseBillRow {
 export const approvalText = (row: Pick<AllExpenseBillRow, "approval" | "rejection_reason">): string =>
     row.approval === "Rejected" && row.rejection_reason ? `Rejected: ${row.rejection_reason}` : row.approval;
 
-type BillDecisionFields = Pick<AllExpenseBillRow, "approval" | "approved_by" | "approved_on" | "rejected_by" | "rejected_on">;
+type BillDecisionFields = Pick<
+    AllExpenseBillRow,
+    "approval" | "approved_by" | "approved_by_name" | "approved_on" | "rejected_by" | "rejected_by_name" | "rejected_on"
+>;
 
-/** Who decided the bill and when: the approver of an Approved or Auto-approved bill, whoever rejected a Rejected one;
- *  null on a Pending bill, or a decided one that records no decider. */
+/** Who decided the bill (their name, else their id: "System") and when: the approver of an Approved or Auto-approved
+ *  bill, whoever rejected a Rejected one; null on a Pending bill, or a decided one that records no decider. */
 export const billDecision = (row: BillDecisionFields): { by: string; on: string } | null => {
-    const [by, on] = row.approval === "Rejected" ? [row.rejected_by, row.rejected_on]
+    const [by, on] = row.approval === "Rejected" ? [row.rejected_by_name ?? row.rejected_by, row.rejected_on]
         : row.approval === "Pending" ? [null, null]
-        : [row.approved_by, row.approved_on];
+        : [row.approved_by_name ?? row.approved_by, row.approved_on];
     return by && on ? { by, on } : null;
 };
 
