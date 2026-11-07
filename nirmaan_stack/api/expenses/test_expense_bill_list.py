@@ -189,3 +189,19 @@ class TestTheProjectExpensesList(CashbookInvoiceCase):
         self.assertEqual(
             [(r["name"], r["bill_check"], r["bill_approval"]) for r in result["data"]], [(self.pe, "Not read", "Pending")]
         )
+
+
+class TestTheNoBillChoiceAlone(CardSpendOnTheListCase):
+    def test_no_bill_alone_lists_only_the_expenses_with_no_expense_bill(self):
+        with_bill = self.spend
+        self._attach()
+        without = self._expense(self.statement, serno="70000000004", amount=300)
+
+        page = self._list(["bill_approval", "in", [NO_BILL]])
+
+        self.assertEqual((set(page["rows"]), page["total"]), ({without}, 1))
+        self.assertNotIn(with_bill, page["rows"])
+
+    def test_a_filter_the_column_does_not_offer_is_refused(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._list(["bill_check", "!=", "Matched"])

@@ -37,7 +37,8 @@ export interface PendingExpenseBillRow {
     line_amount: number;
     /** The bill's total (incl. GST) the reader found; null unless the bill was compared (Matched / Mismatched). */
     read_total: number | null;
-    bill_check: "Matched" | "Mismatched" | "Not read" | "Not checked";
+    /** A waiting bill's Bill check is done: every result but Checking. */
+    bill_check: Exclude<BillCheckResult, "Checking">;
     bill_check_reason: string | null;
     /** The number and date to approve with: the bill's own, else what was typed on the Expense. */
     invoice_no: string | null;
