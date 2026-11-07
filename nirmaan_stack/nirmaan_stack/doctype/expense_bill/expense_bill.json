@@ -1,0 +1,271 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "EB-.YYYY.-.#####",
+ "creation": "2026-11-07 15:32:59.673104",
+ "description": "The bill of a wallet spend or a card spend, with its Bill check and approval (GLOSSARY Expense bills, ADR-0045).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "expense_doctype",
+  "expense",
+  "is_latest",
+  "bill_file",
+  "uploaded_by",
+  "cb_invoice",
+  "invoice_no",
+  "invoice_date",
+  "invoice_amount",
+  "sb_check",
+  "bill_check",
+  "bill_check_reason",
+  "read_claimed_at",
+  "statement_line",
+  "line_amount",
+  "cb_read",
+  "read_total",
+  "read_invoice_no",
+  "read_invoice_date",
+  "reader_output",
+  "sb_approval",
+  "status",
+  "auto_approved",
+  "cb_approval",
+  "approved_by",
+  "approved_on",
+  "rejection_reason",
+  "rejected_by",
+  "rejected_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "expense_doctype",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Expense Doctype",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expense",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Expense",
+   "options": "expense_doctype",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "1",
+   "description": "1 on the bill that counts for its Expense; a replaced bill keeps 0 as history.",
+   "fieldname": "is_latest",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Latest"
+  },
+  {
+   "fieldname": "bill_file",
+   "fieldtype": "Data",
+   "label": "Bill File",
+   "reqd": 1
+  },
+  {
+   "fieldname": "uploaded_by",
+   "fieldtype": "Data",
+   "label": "Uploaded By"
+  },
+  {
+   "fieldname": "cb_invoice",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoice_no",
+   "fieldtype": "Data",
+   "label": "Invoice No"
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date"
+  },
+  {
+   "fieldname": "invoice_amount",
+   "fieldtype": "Currency",
+   "label": "Invoice Amount"
+  },
+  {
+   "fieldname": "sb_check",
+   "fieldtype": "Section Break",
+   "label": "Bill Check"
+  },
+  {
+   "default": "Checking",
+   "fieldname": "bill_check",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bill Check",
+   "options": "Checking\nMatched\nMismatched\nNot read\nNot checked",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "bill_check_reason",
+   "fieldtype": "Small Text",
+   "label": "Bill Check Reason",
+   "read_only": 1
+  },
+  {
+   "description": "Set when a reading job claims this Checking bill, so a second job does not read it again.",
+   "fieldname": "read_claimed_at",
+   "fieldtype": "Datetime",
+   "label": "Reading Claimed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "statement_line",
+   "fieldtype": "Link",
+   "label": "Statement Line",
+   "options": "Outflow Import Row",
+   "read_only": 1
+  },
+  {
+   "fieldname": "line_amount",
+   "fieldtype": "Currency",
+   "label": "Line Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_read",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "read_total",
+   "fieldtype": "Currency",
+   "label": "Read Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_invoice_no",
+   "fieldtype": "Data",
+   "label": "Read Invoice No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_invoice_date",
+   "fieldtype": "Date",
+   "label": "Read Invoice Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reader_output",
+   "fieldtype": "JSON",
+   "label": "Reader Output",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_approval",
+   "fieldtype": "Section Break",
+   "label": "Approval"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nApproved\nRejected",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "1 if the Bill check ended Matched and the system approved it; approved_by is 'System' on such rows.",
+   "fieldname": "auto_approved",
+   "fieldtype": "Check",
+   "label": "Auto Approved",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "label": "Approved By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Rejection Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_by",
+   "fieldtype": "Data",
+   "label": "Rejected By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_on",
+   "fieldtype": "Datetime",
+   "label": "Rejected On",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-07 19:10:42.428107",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Expense Bill",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "expense",
+ "track_changes": 1
+}

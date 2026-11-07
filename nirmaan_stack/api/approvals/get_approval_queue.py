@@ -40,6 +40,7 @@ from nirmaan_stack.services.payment_tds import counted_deductions_sql, requested
 
 from nirmaan_stack.services.cheque_payments import in_cheque_tracker_sql
 from nirmaan_stack.services.expense_tds import withheld_tds_by_expense
+from nirmaan_stack.services.expense_bills.bill_list import EXPENSE_DOCTYPES, latest_bill_checks
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -643,6 +644,19 @@ def get_approval_queue(
     withheld = withheld_tds_by_expense((r.get("doctype"), r["name"]) for r in rows)
     for r in rows:
         r["withheld_tds"] = withheld.get((r.get("doctype"), r["name"]))
+
+    # All Payments' Bill check (#1640 rule, shown here by #1648): an Expense row carries its latest Expense bill's
+    # Bill check and approval (`bill_list.latest_bill_checks`, the expense lists' own reading); None on an Expense
+    # with no Expense bill and on every PO / WO payment row, whose invoices are Vendor Invoices. One query per
+    # expense ledger on the page.
+    checks = {
+        doctype: latest_bill_checks(doctype, [r["name"] for r in rows if r.get("doctype") == doctype])
+        for doctype in EXPENSE_DOCTYPES
+    }
+    for r in rows:
+        check = checks.get(r.get("doctype"), {}).get(r["name"], {})
+        r["bill_check"] = check.get("bill_check")
+        r["bill_approval"] = check.get("bill_approval")
 
     for r in rows:
         # Derived SERVER-side, from the same cast amount the routing will use, so

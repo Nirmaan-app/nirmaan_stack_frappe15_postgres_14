@@ -13,5 +13,7 @@ the old one.
 The owner's goal is one place for every invoice: PO, WO, Cashbook, Credit Card and Porter. The new record
 therefore uses the Vendor Invoice's field names and statuses (`invoice_no`, `invoice_date`, `invoice_amount`,
 `uploaded_by`, `status` Pending / Approved / Rejected, `approved_by`, `approved_on`, `rejection_reason`,
-`auto_approved`), so that joining them later moves rows and redesigns nothing. A reader who finds two invoice
+`auto_approved`), so that joining them later moves rows and redesigns nothing. Two fields are the expense
+bill's own, with no Vendor Invoice counterpart: `rejected_by` and `rejected_on`, since a Vendor Invoice records
+no rejecter and the spec asks that every decision be traceable (story 35). A reader who finds two invoice
 records side by side should know it is a step on that road, not the end of it.

@@ -6,7 +6,8 @@
 
 Three kinds of copy, one downloader path (`download_and_save_bills`) and one step-3 frame (`store_or_discard`):
 
-  * **a created line's bills** (`copy_created_line_bills`, #1591) become its new Expense's invoice;
+  * **a created line's bills** (`copy_created_line_bills`, #1591) become its new Expense's invoice, an Expense bill
+    with its Bill check (`expense_bills.receive_bill`, #1641; 2 or more links merged are Not checked);
   * **a late bill** (`attach_late_bills`, #1593): a repeat line's bills reach the existing Expense still waiting
     for one;
   * **an open Collect payment's bills** (`store_collect_bills`, #1595) are kept on its line (`stored_bill`) for
@@ -43,6 +44,8 @@ import frappe
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.cashbook_lines import BATCH_DOCTYPE, ROW_DOCTYPE, lock_line_if
+from nirmaan_stack.services.expense_bills.line_check import start_check
+from nirmaan_stack.services.expense_bills.receive import receive_bill
 from nirmaan_stack.services.outflow_import.bill_download import BillFile, BillRefused, download_bill
 from nirmaan_stack.services.outflow_import.bill_links import expired_link_reason
 from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_KIND
@@ -105,7 +108,7 @@ def not_copied(count: int, clause: str) -> str:
 # --- a created line (#1591) ------------------------------------------------------------------------------
 
 
-def copy_created_line_bills(row_name: str) -> None:
+def copy_created_line_bills(row_name: str, actor: str) -> None:
     """Copy a just-created line's bills onto its Expense as the invoice, after the line's commit. Never raises.
 
     Step 3 (`_attach_invoice`) locks the Expense and attaches the File only while it still has no invoice and no
@@ -117,17 +120,18 @@ def copy_created_line_bills(row_name: str) -> None:
         ["transfer_id", "suggested_doctype", "suggested_name", "bill_links"],
         as_dict=True,
     )
+    links = links_of(line)
     dealt_with = _copy_onto(
         row_name,
         line.transfer_id,
-        links_of(line),
-        attach=lambda saved: _attach_invoice(line.suggested_doctype, line.suggested_name, saved),
+        links,
+        attach=lambda saved: _attach_invoice(line.suggested_doctype, line.suggested_name, saved, actor, len(links)),
         failure=("Cashbook import: could not copy a bill", f"{row_name} / {line.suggested_name}"),
     )
     if not dealt_with:
         # Nothing retries a created line's copy (its Expense waits in Pending Invoices Upload), so even a transient
         # refusal is named in the summary; should that write be refused again, only the Error Log records it.
-        problem = not_copied(len(links_of(line)), BILLS_NOT_STORED)
+        problem = not_copied(len(links), BILLS_NOT_STORED)
         if not _record_bill_problem(row_name, problem):
             frappe.log_error(
                 title=PROBLEM_NOT_RECORDED,
@@ -157,7 +161,7 @@ def store_collect_bills(batch: str) -> None:
             line.name,
             line.transfer_id,
             links_of(line),
-            attach=lambda saved, name=line.name: _set_stored_bill(name, saved),
+            attach=lambda saved, line=line: _set_stored_bill(line, saved),
             failure=("Cashbook import: could not copy a Collect payment's bill", line.name),
         ):
             continue  # a transient refusal: still owed, for Resume (code review R3)
@@ -183,7 +187,7 @@ def waiting_collect_lines(batch: str) -> list:
         return []
     return frappe.db.sql(
         """
-        SELECT name, transfer_id, bill_links FROM "tabOutflow Import Row"
+        SELECT name, transfer_id, bill_links, amount FROM "tabOutflow Import Row"
         WHERE name IN %(owed)s
           AND row_kind = %(kind)s AND row_status = %(open)s AND bill_links IS NOT NULL
           AND COALESCE(stored_bill, '') = '' AND COALESCE(bill_problem, '') = ''
@@ -204,21 +208,27 @@ def _collect_lines(batch: str, undone_only: bool = False) -> list[str]:
     ]
 
 
-def _set_stored_bill(row_name: str, saved) -> bool:
-    """Lock the line and set `saved` as its stored bill, only while it is still an open line with none. Returns
-    whether it did; the caller discards the File when it did not (a person Created or Skipped it meanwhile, and
-    an Expense created without the bill simply waits for its invoice in the Cashbook tab)."""
-    line = lock_line_if(
+def _set_stored_bill(line, saved) -> bool:
+    """Lock the line and set `saved` as its stored bill, with its Bill check started (#1642,
+    `expense_bills.line_check.start_check`: Checking with its reading queued, or Not checked for several bills),
+    only while it is still an open line with none. Returns whether it did; the caller discards the File when it did
+    not (a person Created or Skipped it meanwhile, and an Expense created without the bill simply waits for its
+    invoice in the Cashbook tab)."""
+    row_name = line.name
+    locked = lock_line_if(
         row_name,
         lambda row: row.row_status == ROW_MISMATCHED and not row.stored_bill,
         columns="row_status, stored_bill",
     )
-    if line is None:
+    if locked is None:
         return False
     _attach_file(saved, ROW_DOCTYPE, row_name, "stored_bill")
-    # Raw: no doc_events on the line, and this field has no reader that a hook would owe a recompute.
+    check = start_check(row_name, line.amount, len(links_of(line)))
+    # Raw: no doc_events on the line, and these fields have no reader that a hook would owe a recompute.
     frappe.db.sql(
-        """UPDATE "tabOutflow Import Row" SET stored_bill = %s WHERE name = %s""", (saved.file_url, row_name)
+        """UPDATE "tabOutflow Import Row" SET stored_bill = %s, bill_check = %s, bill_check_reason = %s
+           WHERE name = %s""",
+        (saved.file_url, check["bill_check"], check["bill_check_reason"], row_name),
     )
     frappe.db.commit()
     return True
@@ -227,7 +237,7 @@ def _set_stored_bill(row_name: str, saved) -> bool:
 # --- a late bill (#1593) ----------------------------------------------------------------------------------
 
 
-def attach_late_bills(batch: str) -> None:
+def attach_late_bills(batch: str, actor: str) -> None:
     """Attach each late bill of `batch` not yet done (#1593, spec #1585 "A late attach uses the same step 3"):
     `_store_and_attach` downloads outside any transaction, then locks the Expense and re-checks `invoice_attachment`
     and `no_invoice_by` before attaching. An Expense a person gave an invoice or a No invoice mark since confirm is
@@ -242,7 +252,7 @@ def attach_late_bills(batch: str) -> None:
         if bill.get("done"):
             continue
         try:
-            problem = _store_and_attach(bill["doctype"], bill["expense"], bill["transfer_id"], bill["links"])
+            problem = _store_and_attach(bill["doctype"], bill["expense"], bill["transfer_id"], bill["links"], actor)
         except Exception as exc:
             frappe.db.rollback()
             if is_retried_by_resume(exc):
@@ -323,13 +333,13 @@ def bills_not_copied(batch: str) -> list[dict]:
     ]
 
 
-def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[str]) -> str | None:
+def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[str], actor: str) -> str | None:
     """Steps 2 and 3 for one Expense. Returns the `bill_problem` sentence, or `None` when nothing went wrong (the
     bills were attached, or a person had already set the invoice or No invoice)."""
     saved, problem = download_and_save_bills(transfer_id, links)
     if saved is None:
         return problem
-    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved))
+    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved, actor, len(links)))
     return None
 
 
@@ -431,18 +441,18 @@ def store_or_discard(saved, attach) -> None:
         frappe.db.commit()
 
 
-def _attach_invoice(doctype: str, expense: str, saved) -> bool:
-    """Step 3: lock the Expense, re-check it still waits for an invoice, and only then attach `saved` as
-    its `invoice_attachment`. Returns whether it attached; the caller commits or discards. The Credit Card
-    queue's attach (`api/expenses/card_invoices.attach_card_invoice`) is the model: `FOR UPDATE`, then a
-    save through the document layer, so `doc_events` run and `track_changes` keeps a Version."""
+def _attach_invoice(doctype: str, expense: str, saved, actor: str, bill_count: int) -> bool:
+    """Step 3: lock the Expense, re-check it still waits for an invoice, and only then file `saved` as its bill
+    through the one entry point (`expense_bills.receive_bill`, #1641): an Expense bill attached by `actor`, the one
+    who confirmed the import, its reading queued once this commits; `saved` merged from `bill_count` > 1 links is
+    recorded Not checked and never read. Returns whether it attached (and then
+    commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already typed on the Expense is kept."""
     doc = frappe.get_doc(doctype, expense, for_update=True)
     if doc.invoice_attachment or _marked_no_invoice(doc):
         return False
     # The File first, so Frappe's attach-on-save hook finds it and mints no second one.
     _attach_file(saved, doctype, expense, "invoice_attachment")
-    doc.invoice_attachment = saved.file_url
-    doc.save(ignore_permissions=True)
+    receive_bill(doc, saved.file_url, doc.invoice_ref, doc.invoice_date, actor, bill_count)
     frappe.db.commit()
     return True
 

@@ -55,3 +55,21 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   the Skipped popup without the moved lines, Mark as Internal Transfer and Send back to Mismatched (one line), Made by
   in words, the Cashbook preview's and the card Review's Internal transfers lists, and the preview's sentence on the
   old ₹0 records it fills. Walked end to end by `BIN/walk_internal_transfers.py`.
+- [Vendor Invoice Recon](./vendor_invoice_recon.md): the Pending Invoice Approvals and All Invoices tabs, and their
+  "Invoice Added By" column; the PO and WO Invoices 2B Recon tabs, and their "Invoice Uploaded By" column (full
+  name or email, cut with "…", whole text on hover). Walked by `BIN/walk_vendor_invoice_recon.py`.
+- [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
+  becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
+  the Invoice Ref and Date on the expense lists; the bills a Cashbook import copies, late bills too, get the same
+  check, and two or more bill links are Not checked; any other result waits in Pending Invoice Approvals -> Cashbook
+  or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
+  a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; a paid spend's bill
+  an Admin or Accountant Lead replaces on Payment Done is approved at once in their name; the Project and
+  Non-Project Expenses lists show each spend's Bill check and approval on Paid and All, with a filter on each;
+  Project Payments -> All Payments shows each Expense row's Invoice and Bill check (PO / WO rows empty); an open
+  Collect payment's stored bill is checked at import, its decide dialog says "Invoice already available" and what
+  Create leads to, and Create moves the kept check to the Expense bill. Vendor Invoice Recon -> All Invoices has
+  PO / WO / Cashbook / Credit Card / Porter pills: every Expense bill, latest and history, and every Porter Invoice
+  with its Validate result.
+  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check`,
+  `--part paid-replace`, `--part all-payments`, `--part collect` or `--part all-invoices` for one part alone).

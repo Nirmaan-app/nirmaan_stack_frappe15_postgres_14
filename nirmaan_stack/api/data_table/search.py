@@ -20,6 +20,7 @@ from .utils import (
 )
 from .aggregations import get_aggregates, get_group_by_results
 from .token_search import rank_parents_by_token_score, tokenize
+from .virtual_fields import fill_virtual_fields, split_virtual_fields
 
 # Size of the relevance-ranked "head" of the result list. The first N parents
 # (taken in modified-desc order, the order the SQL filter returned) get
@@ -111,6 +112,8 @@ def get_list_with_count_enhanced_impl(
             pass # Keep it extremely safe
 
         if "name" not in parsed_select_fields_str_list: parsed_select_fields_str_list.insert(0, "name")
+        # A virtual field (`virtual_fields.py`) is no column: read without it, filled in on the page below.
+        parsed_select_fields_str_list, asked_virtual_fields = split_virtual_fields(doctype, parsed_select_fields_str_list)
         
         raw_base_filters_list = _parse_filters_input(filters, doctype)
         processed_base_filters = _process_filters_for_query(raw_base_filters_list, doctype)
@@ -144,6 +147,7 @@ def get_list_with_count_enhanced_impl(
             "v_api": "5.2", # Bumped: ranking + OR-union semantics changed in this PR; invalidates pre-deploy cache entries.
             "doctype": doctype, 
             "fields": json.dumps(sorted(parsed_select_fields_str_list)),
+            "virtual_fields": asked_virtual_fields,
             "filters": json.dumps(processed_base_filters),
             # The `name in` narrowing split out above (a JSON-facet filter becomes one) is NOT in
             # `processed_base_filters` any more, so it must be keyed here -- without it a filtered
@@ -531,6 +535,7 @@ def get_list_with_count_enhanced_impl(
                 )
                 data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
         
+        fill_virtual_fields(doctype, data, asked_virtual_fields)
         final_result = {
             "data": data,
             "total_count": total_records,

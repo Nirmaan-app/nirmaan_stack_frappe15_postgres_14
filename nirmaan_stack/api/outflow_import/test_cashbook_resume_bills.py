@@ -216,7 +216,7 @@ class TestATransientRefusalLeavesTheCopyForResume(CollectPaymentCase):
 class TestATransientRefusalLeavesTheLateBillForResume(LateBillsCase):
     def test_a_late_bill_refused_by_a_concurrent_writer_is_retried_by_resume(self):
         waiting = self._first_upload()
-        refused = _refused_once(bills._attach_invoice, only=lambda doctype, expense, saved: expense == waiting.name)
+        refused = _refused_once(bills._attach_invoice, only=lambda doctype, expense, *rest: expense == waiting.name)
         with patch.object(bills, "_attach_invoice", refused):
             self._upload(self._second_file())
         batch = frappe.get_all(

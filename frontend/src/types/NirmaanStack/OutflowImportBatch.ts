@@ -1,3 +1,4 @@
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 /**
  * Bulk Import Outflow -- the uploaded bank statement batch.
  *
@@ -352,6 +353,13 @@ export interface OutflowImportRow {
      * (`outflowImportStatus.isCollectPaymentLine`). Blank on every other source and on older Cashbook lines.
      */
     row_kind?: string | null;
+    /**
+     * An open Collect payment's bill, copied at import (#1595), and its Bill check kept on the line (#1642:
+     * Checking / Matched / Mismatched / Not read / Not checked). The decide screen says "Invoice already available"
+     * and what Create will lead to (`cashbookCollect.collectBillOutcome`). Blank on every other line.
+     */
+    stored_bill?: string | null;
+    bill_check?: BillCheck | null;
     /**
      * Cashbook Statement only: on a line skipped as a Paired wallet refund, the other line's Txn Id (the spend
      * the refund gives back, or the refund that gives back this spend), stored at staging (#1602). The Skipped

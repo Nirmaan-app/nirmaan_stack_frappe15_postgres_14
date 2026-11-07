@@ -1,5 +1,6 @@
 /**
- * Table for displaying vendor invoice history (all statuses).
+ * Table for displaying vendor invoice history (all statuses): All Invoices -> PO or WO (#1646), one document type
+ * each.
  *
  * Updated to use Vendor Invoices doctype.
  */
@@ -28,9 +29,15 @@ import { useFacetValues } from "@/hooks/useFacetValues";
 import { invoiceRowClassName } from "../utils/invoiceRowStyle";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
-const URL_SYNC_KEY = "inv_history";
+/** PO keeps the url key of the one table it was before the pills, so its old links keep their filters. */
+const URL_SYNC_KEYS = { "Procurement Orders": "inv_history", "Service Requests": "inv_history_wo" } as const;
 
-export const TaskHistoryTable: React.FC = () => {
+interface TaskHistoryTableProps {
+    /** The Vendor Invoices `document_type` this table lists: its All Invoices pill (PO or WO, #1646). */
+    documentType: "Procurement Orders" | "Service Requests";
+}
+
+export const TaskHistoryTable: React.FC<TaskHistoryTableProps> = ({ documentType }) => {
     const { role, user_id } = useUserData();
 
     // Same aging rule as the Pending table (one shared pure definition, so the
@@ -100,8 +107,8 @@ export const TaskHistoryTable: React.FC = () => {
     );
 
     const staticFilters = useMemo(
-        () => getVendorInvoiceStaticFilters("", role, user_id),
-        [role, user_id]
+        () => getVendorInvoiceStaticFilters("", role, user_id).concat([["document_type", "=", documentType]]),
+        [role, user_id, documentType]
     );
 
     const fetchFields = useMemo(() => [
@@ -170,7 +177,7 @@ export const TaskHistoryTable: React.FC = () => {
         columns: columns,
         fetchFields: fetchFields,
         searchableFields: searchableFields,
-        urlSyncKey: URL_SYNC_KEY,
+        urlSyncKey: URL_SYNC_KEYS[documentType],
         defaultSort: "modified desc",
         additionalFilters: staticFilters,
         enableRowSelection: false,

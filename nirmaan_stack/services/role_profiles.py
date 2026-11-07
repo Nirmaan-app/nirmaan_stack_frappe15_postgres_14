@@ -114,6 +114,11 @@ PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PRO
 # `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
 CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+# May press Read again on an Expense bill whose Bill check is Not read (#1645, spec #1637): Admin and Accountant
+# Lead. ENFORCEMENT boundary of `api/expenses/expense_bill_approval.read_expense_bill_again`; mirrored by
+# `canReadExpenseBillAgain` in `constants/roles.ts`.
+READ_AGAIN_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
 # Also hold / release an Approved payment (owner, 2026-09-22; `services/payment_hold.py`).
@@ -170,6 +175,11 @@ USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFIL
 # Mirrored client-side by `PAID_INVOICE_PROFILES` in
 # `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` -- keep the two lists in sync.
 PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# Of those, the ones whose new bill on a paid wallet spend or card spend is approved at once in their name (#1643,
+# spec #1637, GLOSSARY *Expense bill approval*): Admin and Accountant Lead. Anyone else's new bill there waits like
+# any other (auto-approved when Matched). Enforced in `expense_decision.save_paid_invoice`; no screen reads it.
+PAID_BILL_APPROVER_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;

@@ -59,7 +59,7 @@ from typing import NamedTuple
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.cashbook_collect import statement_line_create_extras
+from nirmaan_stack.api.outflow_import.cashbook_collect import file_stored_bill, statement_line_create_extras
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
     require_outflow_undo_access,
@@ -1163,10 +1163,13 @@ def create_expense(
             # Everywhere else `None`, and `create_expense_from_row` keeps the actor.
             payment_by=_statement_spender(doc),
             # #1595: a line staged by the Cashbook Statement import (an open Collect payment, a reopened spend)
-            # gives the Expense the Cashbook marker, and the line's stored bill as its invoice.
+            # gives the Expense the Cashbook marker; its stored bill is filed below (#1642).
             **statement_line_create_extras(doc, _batch_source(doc["import_batch"])),
         )
         record_settlement(staged, doc, result, actor)
+        # #1642: a Collect payment's stored bill, with the Bill check kept on its line. After the settlement, so
+        # its Expense bill finds the line.
+        file_stored_bill(doc, _batch_source(doc["import_batch"]), result, actor)
         # ⚠️ INSIDE THE SAVEPOINT -- see `settle_row`'s call site for why, including why `result`
         # rides along (review F2: the `Recorded`/`Settled` verb and the X1 amount correction).
         refresh_row_allocation(staged.name, actor, result)
