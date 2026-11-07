@@ -22,6 +22,7 @@ from frappe.tests.utils import FrappeTestCase
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
@@ -87,6 +88,8 @@ def _fake_bills(overrides: dict | None = None):
 class CashbookBillsCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
+        # #1641: a copied bill queues its reading; the queue is shared with the main bench.
+        self.jobs = capture_jobs(self)
         self.suffix = "T" + frappe.generate_hash(length=6).upper()
         parsed = parse_statement(STATEMENT.read_bytes(), source="Cashbook")
         self.parsed = dataclasses.replace(

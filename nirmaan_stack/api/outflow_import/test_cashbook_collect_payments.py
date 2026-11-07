@@ -19,6 +19,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_queue
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
@@ -41,6 +42,8 @@ class CollectPaymentCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
+        # #1641: a copied bill queues its reading; the queue is shared with the main bench.
+        self.jobs = capture_jobs(self)
         self.suffix = "C" + frappe.generate_hash(length=6).upper()
         parsed = parse_statement(STATEMENT.read_bytes(), source="Cashbook")
         self.parsed = dataclasses.replace(

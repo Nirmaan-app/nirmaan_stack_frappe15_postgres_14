@@ -17,6 +17,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_queue
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
@@ -34,6 +35,8 @@ class LateBillsCase(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+        # #1641: a copied bill queues its reading; the queue is shared with the main bench.
+        self.jobs = capture_jobs(self)
         lines = FIXTURE.read_text().splitlines()
         self.header, self.data, self.footer = lines[0], lines[1:12], lines[12:]
         link = next(part for part in self.data[0].split('"') if part.startswith("https://"))

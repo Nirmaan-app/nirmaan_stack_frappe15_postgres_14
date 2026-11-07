@@ -59,12 +59,16 @@ FIXTURE = (
 
 
 def _purge(batch: str) -> None:
-    """Expenses first, then the link records, then the import's own rows."""
-    for target in frappe.db.sql(
+    """Expenses first (with their Expense bills, #1641), then the link records, then the import's own rows."""
+    from nirmaan_stack.api.expenses.expense_bill_fixture import purge_expense_bills
+
+    targets = frappe.db.sql(
         """SELECT target_doctype, target_name FROM "tabOutflow Row Match" WHERE import_batch = %s""",
         (batch,),
         as_dict=True,
-    ):
+    )
+    purge_expense_bills([target.target_name for target in targets])
+    for target in targets:
         frappe.db.sql(
             f"""DELETE FROM "tab{target.target_doctype}" WHERE name = %s""", (target.target_name,)
         )

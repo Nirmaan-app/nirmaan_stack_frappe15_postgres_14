@@ -386,12 +386,12 @@ def _cashbook_worker(
             continue
         if written:
             frappe.db.commit()
-            copy_created_line_bills(row_name)
+            copy_created_line_bills(row_name, actor)
         else:
             # Another run or a person took the line: nothing of ours to keep, and nothing to mark.
             frappe.db.rollback()
 
-    attach_late_bills(batch)
+    attach_late_bills(batch, actor)
 
     # #1595: each open Collect payment's bills are copied onto its line now, while the links still work.
     store_collect_bills(batch)
