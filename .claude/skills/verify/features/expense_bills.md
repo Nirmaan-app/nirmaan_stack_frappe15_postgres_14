@@ -86,6 +86,17 @@ expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismat
   Expense bill), after Payment Source. A PO / WO payment row leaves both cells empty. No filter on either.
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.
+- `all-invoices` (#1646) Vendor Invoice Recon -> `All Invoices` -> pills `PO` / `WO` / `Cashbook` / `Credit Card` /
+  `Porter`. PO and WO are the Vendor Invoices table it was before, narrowed by `document_type` (PO keeps the url key
+  `inv_history`). Cashbook and Credit Card list every Expense bill of the pill, latest and history (a `Bill` column:
+  Latest / Replaced), with spend date, expense, line amount, bill total read, invoice no. / date, Bill check,
+  Approval (a rejected bill's reason under it), Paid by, Project, Invoice Added By, Attached on and the file. Porter
+  lists one row per Porter Invoice: invoice no., date, Validate result with its message, city, trips, total, import,
+  and `Open` for its PDF (none until the PDF arrived). All three are server-mode tables
+  (`api/expenses/all_expense_bills.get_all_expense_bills` with the filter `["kind","=",<pill>]`,
+  `api/invoices/all_porter_invoices.get_all_porter_invoices`): funnels `Bill check` / `Approval` / `Bill`, and
+  `Validate result`, page, search and sort on the server. Shown to Admin, Accountant and Accountant Lead; anyone
+  else sees PO and WO only, and the endpoints answer 403.
 
 ## How to get to it (user POV)
 
@@ -99,6 +110,8 @@ expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismat
   (#1648); the search box (PO / SR / Description) finds a row.
 - Accountant: sidebar `Bulk Import Transactions` -> `Not Matched – Outflow` -> an open Collect payment's `Choose`
   (#1642); the search box (remarks) finds the line.
+- Accountant (or Accountant Lead, Admin): sidebar `Vendor Invoice Recon` -> `All Invoices` -> pill `PO`, `WO`,
+  `Cashbook`, `Credit Card` or `Porter` (#1646).
 
 ## Driving it with drive.py
 
@@ -162,6 +175,14 @@ S Matched. The walk opens each line's Choose dialog as the Accountant, reads the
 each Expense bill (`BIN/collect_bills_db.py`), shows the Cashbook pill of Pending Invoice Approvals, and skips S as
 the Accountant Lead.
 
+Then All Invoices (#1646), steps 28-32: `BIN/expense_bills_seed.py A<stamp>` makes a card spend and a wallet spend,
+and `BIN/all_invoices_seed.py A<stamp> <card> <wallet>` gives the card spend a Rejected Mismatched bill under a Matched
+auto-approved one and the wallet spend a Not read bill (seeded states), and makes a Porter Invoice "WALKPRTA<stamp>"
+with Validate result Error and no PDF. The walk reads every pill as the Accountant: PO's and WO's server counts against
+the DB (`BIN/all_invoices_db.py`), the card spend's two rows, the wallet row, the Porter row, a funnel on each kind
+(the list request must carry it) and the next page (a request with `limit_start` past the first page).
+`--part all-invoices` runs only these steps (they need only the Accountant).
+
 ## Gotchas
 
 - **A file link points at `localhost:8000` under vite.** `SITEURL` is `http://localhost:8000` in vite's dev mode (the
@@ -193,5 +214,12 @@ the Accountant Lead.
   ends "Bill not copied: the bills could not be stored."
 - **Payment Done's tab name has a slash** (`Payment Done / Reconciliation Done 19464`): escape it in a role-name
   regex (`r"^Payment Done \/ Reconciliation Done"`). Its search reads the description.
-- **No screen lists an Expense's bill history yet** (the All Invoices pills are a later ticket of spec #1637): the
-  previous bill staying as history is read from the DB.
+- **Payment Done's replace is walked from the DB for history:** the previous bill staying as history is read from
+  the DB there; Vendor Invoice Recon -> All Invoices (steps 28-32) lists every bill, latest and history.
+- **A Porter PDF does not open on an env.** The real ones are in the production bucket
+  (`frappe_gcp_attachment.controller.generate_file?key=...`), which every env is cut off from. The walk checks the
+  `Open` link is the row's own `invoice_file` and prints NOT WALKED for the PDF itself.
+- **File links name `localhost:8000` in dev** (`SITEURL` is the main bench in vite's development mode), as every file
+  link in the app: open the path on the env's host.
+- **The server-mode table drops a filter set while a fetch is loading** (`useServerDataTable.fetchData` returns
+  early on `isLoading`): after typing a search, wait for it to settle before using a funnel.

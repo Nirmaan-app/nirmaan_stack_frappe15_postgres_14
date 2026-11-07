@@ -22,9 +22,11 @@ AUTO_APPROVED = "Auto-approved"
 #: The two list fields, each the SQL that gives it from the latest bill `b`. The stopped-reading rule is
 #: `reading.reading_stopped`'s, spelled in SQL so the lists can filter on it (as Pending Approval's query does);
 #: `test_expense_bill_list.test_a_bill_whose_reading_stopped_shows_not_read` holds the two together.
+#: True on a bill `b` whose reading stopped; the query passes `stopped_before` (`reading.stopped_before()`).
+STOPPED_SQL = f"(b.bill_check = '{CHECKING}' AND b.read_claimed_at < %(stopped_before)s)"
+
 LIST_FIELD_SQL = {
-    "bill_check": f"""CASE WHEN b.bill_check = '{CHECKING}' AND b.read_claimed_at < %(stopped_before)s
-                         THEN '{NOT_READ}' ELSE b.bill_check END""",
+    "bill_check": f"CASE WHEN {STOPPED_SQL} THEN '{NOT_READ}' ELSE b.bill_check END",
     "bill_approval": f"""CASE WHEN b.status = '{APPROVED}' AND b.auto_approved = 1
                             THEN '{AUTO_APPROVED}' ELSE b.status END""",
 }

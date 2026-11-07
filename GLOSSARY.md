@@ -275,6 +275,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   An Expense's Bill check and approval are those of its latest Expense bill. An Expense with no Expense bill (its bill came before launch, or it has none) has neither, shown as "—". Where an approval is shown, an auto-approved bill reads **Auto-approved**, apart from one a person approved. (#1640.)
   A PO or WO *payment* has no Bill check and shows no single bill, not even "—": one payment can cover many Vendor Invoices. (#1648.)
 
+- **All Invoices** — Vendor Invoice Recon's list of every bill the company holds, one pill per kind: **PO** and **WO** (Vendor Invoices), **Cashbook** and **Credit Card** (Expense bills of wallet spends and card spends), and **Porter** (Porter Invoices, one row per invoice however many orders it bills). An Expense bill there is **Latest** (its Expense's latest bill, the one that counts) or **Replaced** (history). Porter Invoices show their own Validate result, never a Bill check or an approval. Admin and the Accountant profiles see every pill; anyone else who sees All Invoices sees PO and WO only. (#1646.)
+  *Avoid*: invoice history, task history (its old names).
+
 - **Read again** — an Admin or Accountant Lead sends a Not read expense bill back to its Bill check: the bill is Checking again until the new result, which is treated as any first result (Matched is auto-approved; anything else waits in Pending Approval). A Bill check whose reading **stopped** part-way (it never came back) counts as Not read, with that as its reason, so it can be read again or decided. (#1645.)
   *Avoid*: retry, re-validate, re-run.
 

@@ -55,7 +55,7 @@ export interface PendingExpenseBillRow {
 }
 
 /** The Bill check as one sentence: the result, then its reason when it has one. */
-export const billCheckText = (row: Pick<PendingExpenseBillRow, "bill_check" | "bill_check_reason">): string =>
+export const billCheckText = (row: { bill_check: BillCheckResult; bill_check_reason: string | null }): string =>
     row.bill_check_reason ? `${row.bill_check}: ${row.bill_check_reason}` : row.bill_check;
 
 /** The total read, or a dash when the bill was not compared. */
