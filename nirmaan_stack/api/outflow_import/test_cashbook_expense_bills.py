@@ -16,11 +16,18 @@ from unittest.mock import patch
 
 import frappe
 
-from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, readings_queued, run_reading
+from nirmaan_stack.api.expenses.test_expense_bills import (
+    READING_JOB,
+    FakeReader,
+    bills_of,
+    readings_queued,
+    run_reading,
+)
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import FOUR_LINKS, ONE_LINK, CashbookBillsCase, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_late_bills import LATE, LateBillsCase
+from nirmaan_stack.services.expense_bills import reading
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 
 
@@ -44,6 +51,42 @@ class TestACopiedBillIsChecked(CashbookBillsCase):
         (bill,) = bills_of(expense.doctype, expense.name)
         self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Matched", "Approved", 1))
         self.assertEqual(frappe.db.get_value(expense.doctype, expense.name, "invoice_ref"), "WALLET-1")
+
+
+class TestAReadingFailureNeverFailsTheImport(CashbookBillsCase):
+    def test_a_reading_the_queue_refuses_leaves_every_line_created_the_bill_kept_and_the_bill_not_read(self):
+        def queue_down(method, **kwargs):
+            if method == READING_JOB:
+                raise ConnectionError("the queue is down")
+            self.jobs.append((method, kwargs))
+
+        with patch.object(frappe, "enqueue", side_effect=queue_down):
+            self._run()
+
+        status = cb.get_cashbook_status(self.batch)
+        self.assertEqual((status["failed"], status["pending"], status["bills_not_copied"]), (0, 0, []))
+        expense = self._expense(ONE_LINK)
+        self.assertTrue(frappe.db.exists("File", {"file_url": expense.invoice_attachment}))
+        (bill,) = bills_of(expense.doctype, expense.name)
+        self.assertEqual((bill.bill_check, bill.status), ("Not read", "Pending"))
+        self.assertEqual(bill.bill_check_reason, "The reading could not be queued.")
+
+    def test_a_reader_that_raises_leaves_the_bill_not_read_and_its_expense_with_its_bill(self):
+        self._run()
+        expense = self._expense(ONE_LINK)
+        (bill,) = bills_of(expense.doctype, expense.name)
+
+        def broken(file_url):
+            raise RuntimeError("the reader fell over")
+
+        with patch.object(reading, "read_bill", broken):
+            reading.check_expense_bill(bill=bill.name)
+
+        (bill,) = bills_of(expense.doctype, expense.name)
+        self.assertEqual(bill.bill_check, "Not read")
+        self.assertEqual(frappe.db.get_value(expense.doctype, expense.name, "invoice_attachment"), bill.bill_file)
+        status = cb.get_cashbook_status(self.batch)
+        self.assertEqual((status["failed"], status["pending"]), (0, 0))
 
 
 class TestALateBillIsChecked(LateBillsCase):
