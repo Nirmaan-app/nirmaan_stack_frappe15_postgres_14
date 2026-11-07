@@ -9,7 +9,7 @@ bill as Checking -- the previous one of that Expense stays as history, no longer
 (GLOSSARY *Bill check*: a Bill check never stops a bill from being attached).
 
 Every code path that writes `invoice_attachment` on a wallet spend or a card spend must come through here;
-`api/expenses/test_expense_bill_writers.py` proves it, and names the writers later tickets of spec #1637 move.
+`services/expense_bills/test_bill_writers.py` proves it, and names the writers later tickets of spec #1637 move.
 """
 
 from __future__ import annotations
