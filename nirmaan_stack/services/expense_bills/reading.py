@@ -29,7 +29,7 @@ from decimal import Decimal, InvalidOperation
 import frappe
 from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
-from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, SYSTEM_APPROVER
+from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, REJECTED, SYSTEM_APPROVER
 from nirmaan_stack.services.expense_bills.bill_check import (
     CHECKING,
     NOT_READ,
@@ -122,17 +122,18 @@ def reading_stopped(bill_check: str, read_claimed_at: datetime | str | None) -> 
 
 
 def read_again(bill: str) -> None:
-    """Read again (#1645): put bill `bill` (Pending, its Expense's latest), Not read or left Checking by a reading
-    that stopped, back to Checking, unclaimed, and queue its reading. A bill Checking for any other reason is left
-    alone, so pressing twice reads it once. Does not commit; the reading is queued once the caller's transaction
-    commits.
+    """Read again (#1645): put bill `bill` (its Expense's latest; Pending, or Approved by a person before it was
+    read, #1643), Not read or left Checking by a reading that stopped, back to Checking, unclaimed, and queue its
+    reading. A bill Checking for any other reason is left alone, so pressing twice reads it once. A Rejected bill,
+    and one with a result (a bill the system approved is Matched), are refused. Does not commit; the reading is
+    queued once the caller's transaction commits.
 
     The reading is queued under a job id of its own: a worker killed outright can leave the stopped reading's job
     registered as started under the bill's usual id, and a duplicate of it would be dropped. The claim, not the job
     id, is what reads the bill once."""
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
-    if doc.status != PENDING:
-        frappe.throw(f"Expense bill {bill} is already {doc.status}; only a waiting bill can be read again.")
+    if doc.status == REJECTED:
+        frappe.throw(f"Expense bill {bill} is already {doc.status}; a rejected bill is not read again.")
     if not doc.is_latest:
         frappe.throw(f"Expense bill {bill} is no longer the latest bill of {doc.expense}.")
     if doc.bill_check == CHECKING and not reading_stopped(doc.bill_check, doc.read_claimed_at):

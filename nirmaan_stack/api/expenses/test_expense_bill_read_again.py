@@ -20,10 +20,21 @@ from nirmaan_stack.api.expenses.expense_bill_approval import (
     get_pending_expense_bills,
     read_expense_bill_again,
 )
-from nirmaan_stack.api.expenses.test_expense_bills import READING_JOB, CardBillCase, FakeReader, readings_queued, run_reading
+from nirmaan_stack.api.expenses.test_all_expense_bills import _list
+from nirmaan_stack.api.expenses.test_expense_bills import (
+    NPE,
+    READING_JOB,
+    CardBillCase,
+    FakeReader,
+    bills_of,
+    readings_queued,
+    run_reading,
+)
+from nirmaan_stack.api.expenses.test_paid_expense_bill import TYPED_DATE, ReplaceOnPaymentDone
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
+from nirmaan_stack.services.expense_bills.bill_list import latest_bill_checks
 from nirmaan_stack.services.expense_bills.reading import reading_job_id
 
 
@@ -68,9 +79,8 @@ class TestReadAgain(NotReadCardBillCase):
         self.assertEqual(frappe.db.get_value(BILL, self.bill, "bill_check"), "Mismatched")
         self.assertEqual(readings_queued(self.jobs), [])
 
-    def test_a_decided_or_replaced_bill_cannot_be_read_again(self):
-        for field, value, state in (("status", "Approved", "Approved"), ("status", "Rejected", "Rejected"),
-                                    ("is_latest", 0, "no longer the latest")):
+    def test_a_rejected_or_replaced_bill_cannot_be_read_again(self):
+        for field, value, state in (("status", "Rejected", "Rejected"), ("is_latest", 0, "no longer the latest")):
             with self.subTest(state):
                 frappe.db.set_value(BILL, self.bill, {"status": "Pending", "is_latest": 1, field: value})
                 frappe.db.commit()
@@ -81,6 +91,16 @@ class TestReadAgain(NotReadCardBillCase):
                 self.assertIn(state, str(refused.exception))
                 self.assertEqual(frappe.db.get_value(BILL, self.bill, "bill_check"), "Not read")
                 self.assertEqual(readings_queued(self.jobs), [])
+
+    def test_a_bill_the_system_approved_cannot_be_read_again(self):
+        frappe.db.set_value(BILL, self.bill, {"status": "Approved", "auto_approved": 1, "bill_check": "Matched"})
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self._as(self.users.make(ACCOUNTANT_LEAD), read_expense_bill_again, self.bill)
+
+        self.assertIn("Matched", str(refused.exception))
+        self.assertEqual(readings_queued(self.jobs), [])
 
     def test_pressing_twice_reads_the_bill_once(self):
         lead = self.users.make(ACCOUNTANT_LEAD)
@@ -118,6 +138,45 @@ class TestReadAgain(NotReadCardBillCase):
 
                 self.assertEqual(self._listed()[self.bill]["bill_check"], result)
                 self.assertEqual(frappe.db.get_value(BILL, self.bill, "status"), "Pending")
+
+
+class TestABillAPersonApproved(ReplaceOnPaymentDone, CardBillCase):
+    """An Accountant Lead's replace on Payment Done (#1643): Approved in their name before it is read."""
+
+    def setUp(self):
+        super().setUp()
+        self.lead = self.users.make(ACCOUNTANT_LEAD)
+        self._replace(self.lead, NPE, self.spend)
+        self.bill = bills_of(NPE, self.spend)[-1].name
+        run_reading(self.bill, FakeReader(ReadFailed("The reader timed out.")))
+        self.jobs.clear()
+
+    def test_read_again_reaches_it_and_the_reading_never_changes_their_approval_or_what_they_typed(self):
+        self._as(self.lead, read_expense_bill_again, self.bill)
+
+        self.assertEqual(frappe.db.get_value(BILL, self.bill, "bill_check"), "Checking")
+        self.assertEqual(readings_queued(self.jobs), [("long", self.bill)])
+        run_reading(self.bill, FakeReader(BillRead(Decimal("1180.00"), "READ-9", date(2026, 9, 9))))
+        bill = frappe.get_doc(BILL, self.bill)
+        self.assertEqual((bill.bill_check, bill.read_invoice_no), ("Matched", "READ-9"))
+        self.assertEqual((bill.status, bill.approved_by, bill.auto_approved), ("Approved", self.lead, 0))
+        self.assertEqual((bill.invoice_no, str(bill.invoice_date)), ("TYPED-77", TYPED_DATE))
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_ref"), "TYPED-77")
+
+    def test_when_its_reading_stopped_it_shows_not_read_on_all_invoices_and_on_the_expense_list(self):
+        # Raw: no doc_events on the bill; a worker killed mid-read leaves exactly this.
+        frappe.db.set_value(BILL, self.bill, {"bill_check": "Checking", "bill_check_reason": None,
+                                              "read_claimed_at": add_to_date(now_datetime(), minutes=-25)})
+        frappe.db.commit()
+
+        rows = {r["name"]: r for r in self._as(self.users.make(ACCOUNTANT), _list, "card")["data"]}
+        self.assertEqual(
+            (rows[self.bill]["bill_check"], rows[self.bill]["bill_check_reason"], rows[self.bill]["approval"]),
+            ("Not read", "The reading stopped.", "Approved"),
+        )
+        self.assertEqual(latest_bill_checks(NPE, [self.spend])[self.spend], {"bill_check": "Not read", "bill_approval": "Approved"})
+        self._as(self.lead, read_expense_bill_again, self.bill)
+        self.assertEqual(frappe.db.get_value(BILL, self.bill, ["bill_check", "read_claimed_at"]), ("Checking", None))
 
 
 class TestAReadingThatStopped(NotReadCardBillCase):

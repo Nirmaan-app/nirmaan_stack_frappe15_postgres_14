@@ -94,8 +94,9 @@ def reject_expense_bill(bill: str, reason: str) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def read_expense_bill_again(bill: str) -> dict:
-    """Read again Expense bill `bill`, whose Bill check is Not read: it goes back to Checking and its reading is
-    queued. Admin and Accountant Lead only.
+    """Read again Expense bill `bill`, whose Bill check is Not read (Pending, or approved by a person on Payment
+    Done; never a Rejected or replaced one): it goes back to Checking and its reading is queued. Admin and
+    Accountant Lead only.
 
     Example: `{"bill": "EB-2026-00042"}` -> `{"name": "EB-2026-00042"}`.
     """
