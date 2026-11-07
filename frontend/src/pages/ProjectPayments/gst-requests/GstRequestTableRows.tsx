@@ -1,4 +1,5 @@
 import { TableCell, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { GSTPaymentRequestRow } from "@/types/NirmaanStack/GSTPaymentRequest";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -9,6 +10,11 @@ import { GstRequestDeleteButton } from "./GstRequestDeleteButton";
 /** The requests a payments table shows: those with no payment, waiting or rejected. Once approved, the payment's own row takes over. */
 export const requestsWithoutPayment = (rows: GSTPaymentRequestRow[]) =>
 	rows.filter((r) => r.status === "Pending" || r.status === "Rejected");
+
+/** How much of a rejection's reason the one-line row shows; the whole reason is on hover. */
+const REASON_PREVIEW_CHARS = 50;
+const previewOf = (text: string) =>
+	text.length <= REASON_PREVIEW_CHARS ? text : `${text.slice(0, REASON_PREVIEW_CHARS).trimEnd()}…`;
 
 /**
  * A Work Order's GST requests with no payment (waiting, or rejected), one short line each in its Transaction
@@ -29,7 +35,16 @@ export const GstRequestTableRows = ({ rows, onDeleted }: { rows: GSTPaymentReque
 					</span>
 					<span className="ml-2 text-muted-foreground">Raised by {row.raised_by_name} · {formatDate(row.creation)}</span>
 					{row.status === "Rejected" && row.review_comment && (
-						<span className="ml-2 text-red-700 dark:text-red-400" title={row.review_comment}>· {row.review_comment}</span>
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="ml-2 cursor-help text-red-700 dark:text-red-400" tabIndex={0}>· {previewOf(row.review_comment)}</span>
+								</TooltipTrigger>
+								<TooltipContent className="max-w-xs whitespace-normal break-words">
+									<p>{row.review_comment}</p>
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
 					)}
 				</TableCell>
 				<TableCell className="text-end"><GstRequestDeleteButton row={row} onDeleted={onDeleted} /></TableCell>

@@ -40,3 +40,10 @@ export const generatedInvoiceDeleteNote = (
   const record = generated.find((g) => g.vendor_invoice === vendorInvoice);
   return record ? `This also deletes generated invoice ${record.invoice_no}.` : undefined;
 };
+
+/**
+ * The generated invoices the Work Order's Generated Invoices table lists: all but the Approved ones, which
+ * already show as their Vendor Invoice. The signed-upload lock and delete note still read the full list.
+ */
+export const visibleGeneratedInvoices = <T extends { status: string }>(generated: T[]): T[] =>
+  generated.filter((g) => g.status !== "Approved");

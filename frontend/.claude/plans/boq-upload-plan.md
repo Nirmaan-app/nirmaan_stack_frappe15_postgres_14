@@ -50955,3 +50955,65 @@ Owner rulings and answers this slice:
 - The fill-in runs on production after go-live (checklist v4 section 7), with one re-run about a week later.
 - Production may hold more training BoQs created since the dev copy. The deployer lists them for the owner before 3.5b.
 - The host `test_run_tests_parallel.py` failure from DEV2-B4 C2 (the plan lists tasks.test_match_run_healer) stands.
+
+## Slice DEV2-B8 - go-live fixes for the rate-history helper (production feedback 2026-11-06): the pool rebuilt only at 06:00, match settings stored as 0 read their defaults, the wait counts rows that need a new card, checklist v5 - as built 2026-11-06
+
+Desktop session `devb8` on dev2, delegated by the laptop. Historical matching went LIVE on production on 2026-11-06
+(release 2.11.55, develop -> main). Step U first: dev2 fast-forwarded to `038f12b4a` (Abhishek's develop merge into the
+branch, 286 commits), one dev2 migrate (develop's 9 patches), and the full suites on the released code. Then three
+commits, nothing deployed, no model call:
+- C1 `56eb8f6b7`: the pool rule and the settings fallback (`match_run.py`, `ai_settings.py`, `rate_match.py`, their tests,
+  `test_match_run_pool` new, the plan entries).
+- C2 `b15ca0b9d`: the wait estimate (`rate_match.py` paces / `match_estimate_minutes` / `count_rows_without_card`,
+  `RateSuggestProgressModal.tsx`, `SheetPricingPage.tsx`, `test_match_estimate` new, 7 vitest cases).
+- C3 is this entry + `boq-rate-master.md`. Checklist v5 is in the slice folder.
+
+Report, ledger, checklist v5: `2026-11-06_DEV2-B8_Report.md` / `_Ledger.md` / `H2_GoLive_Checklist_2026-11-06_v5.md`
+(`Historical Rate Suggest\DEV2-B8\`).
+
+Owner rulings this slice (2026-11-06):
+- B8-1 (~13:05, option B): first bring dev2 up to `038f12b4a` (step U), then the fixes.
+- POOL ONLY AT 06:00 (12:41 / 12:42): a user's match run never builds or queues a pool rebuild; the 06:00 job is the
+  only automatic build; with no pool file every row says "pool not ready" and the run ends cleanly.
+- SETTINGS DEFAULTS (12:42): a match setting stored as 0 / empty uses its doctype default; no patch.
+- WAIT ESTIMATE (12:42): the confirm box's matching part counts the rows that need a new spec card.
+- CHECKLIST v5 (12:42) and TEST BoQs (12:36: "test 4 BOQ Ankita", "TEST BOQ" are test BoQs).
+
+### 1. Step U (the released code on dev2)
+- ff 969b1e19f -> 038f12b4a; migrate rc 0: 9 patches, 5 indexes (index manifest), 2 tables dropped / 2 created, no
+  BoQ table written; the H2 doctypes and the 16 match settings unchanged.
+- Replay at 038f12b4a: 18,106 rows, 0 prices moved; 506 rows differ only in the working-line wording (money to 2
+  decimals, ELR-4c `f7ff7385b`). New replay baseline ac7 93028e29... / ac7v2 28d25f5a....
+- FULL suites at 038f12b4a: Python 105 modules / 4,780 tests OK; vitest 164 files / 6,517 OK; tsc 0 new.
+
+### 2. Built
+- `match_run.job_pool(path)`: never builds, never queues; stale -> used and noted; no usable file -> (None, info
+  with `not_ready`). `run_match` with no pool: no card / judge call, every row `no verdict` + "pool not ready: ...",
+  COMPLETE. `_store` shared by both paths. `rate_match.queue_pool_rebuild` removed (no other caller).
+- `ai_settings.MATCH_ZERO_IS_DEFAULT` (the 7 Int limits except `match_retry_wait_s`): stored 0 / empty -> the doctype
+  default, one log line; read-time.
+- `PACES.estimate_match_*` (49 / 0.40 / 2.0), `match_estimate_minutes`, `match_estimate_coverage`,
+  `count_rows_without_card` (read-only, `cards.plan_sheet`); the client's `matchWaitEstimate(rows, paces,
+  rowsWithoutCard)` (null = every row, the safe side) and `suggestReadRows`; the page asks in `openSuggestConfirm`.
+  The running modal's time left is unchanged (65 + 0.45).
+
+### 3. Proved
+- P0: 10 of the 16 match fields have a doctype default (8 Int + 2 Check); the fallback covers the 7 Ints other than
+  `match_retry_wait_s` (0 = retry without waiting). A Single holding any row loads a missing Int as blank and a form
+  save writes "0" (frappe v15 `load_from_db` / `get_valid_dict` / `update_single`) - production's failure.
+- The fit (17 runs: 16 dev2 + production's BRMR-26-00002): 16 / 17 = 94.1 % covered; the watched run 157.4 s -> 3 min
+  >= 143 s (full estimate 8 min). B4's 65 + 0.45 under-ran it (2 min).
+- Cert on dev2.localhost:8180: BOQ-26-00344 -> "about 8 minutes in all: about 5 to suggest rates and about 3 to match"
+  (the call: 81 rows -> 38 without card); BOQ-26-00328, 3 carded rows ticked -> "about 3 ... about 2 ... about 1"
+  (3 -> 0). Cancel only. The login was a dev2 session created for the dev-login user, not the password typed.
+- Vacuity 8 / 8 red then green: no queue on stale, no build on missing, the no-pool run path, the settings fallback,
+  the per-card term and the safe side (Python and TypeScript).
+- Suites: C1 targeted 26 modules / 1,262 OK; C2 tsc 0 new, vitest related 5 / 58, Python targeted 7 / 887. T3 after
+  b15ca0b9d: Python 107 modules / 4,809 OK (before 105 / 4,780); vitest 164 / 6,524 (before 6,517); tsc 0 new.
+- D2: only the suites' known writes + the cert's one session; no Suggest / match run, no card; replay D2 = D0.
+
+### 4. Open
+- Deploy the fix release (checklist v5 section 8): until then 2.11.55 queues a daytime rebuild on a stale pool.
+- The estimate over-estimates sheets where every row needs a card (parallel card waves); the running modal's time left
+  is still 65 + 0.45 a row.
+- Production pool build speed (price-driving fields 877.5 s) is not addressed.

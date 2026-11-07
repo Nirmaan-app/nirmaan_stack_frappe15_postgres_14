@@ -27,9 +27,11 @@ Rules:
   (`next_ra_number`).
 * A record is **deleted** only in the app: a Voided one by Admin (`generated_invoices.delete_generated_invoice`),
   or any one together with the Vendor Invoice its signed upload created. Desk and REST are refused.
-* The **amount** may not pass `billable_left`: the smaller of the Work Order's amount and its Amount
-  Paid (incl. TDS), less what is already billed or waiting -- Approved and Pending Vendor Invoices,
-  and generated invoices not yet uploaded (status Generated; a Signed one is its Pending invoice).
+* The **amount** lies in `billable_range` (owner, 2026-11-06, ADR-0040 Amdt C): at least the Amount Paid
+  (incl. TDS) not yet billed, so every paid rupee gets an invoice; at most what is left of the Work
+  Order's amount, so an invoice may run ahead of payment. Both less what is already billed or waiting --
+  Approved and Pending Vendor Invoices, and generated invoices not yet uploaded (status Generated; a
+  Signed one is its Pending invoice).
 * The user enters only the amount; the type follows from it. An invoice that brings what is billed to
   the Work Order's amount, to within ₹10, is the **FINAL** (`is_final`); any other is an RA. At most
   one FINAL (not Voided), and nothing is generated after it.
@@ -77,7 +79,7 @@ FIXED_FIELDS = ("work_order", "project", "vendor", "ra_number", "invoice_type", 
 MOVE_FIELDS = ("void_reason", "vendor_invoice", "signed_attachment")
 
 #: Rupees of Amount Due still counted as fully paid: the Work Order payment request cap's tolerance
-#: (`services/work_order_payment_limit.TOLERANCE`), so a WO paid to that cap can take its FINAL. Also how
+#: (`services/work_order_payment_limit.TOLERANCE`), so a WO paid to that cap reads as fully paid. Also how
 #: far short of the Work Order's amount the invoices may stop and the last one still be the FINAL.
 FULLY_PAID_TOLERANCE = 10
 
@@ -114,11 +116,19 @@ def invoice_number(invoice_date, project, work_order, invoice_type, ra_number, f
     return f"{number}-RA-{cint(ra_number)}"
 
 
-def billable_left(total_amount, amount_paid, billed) -> float:
-    """The most a new generated invoice may bill: min(Work Order amount, Amount Paid incl. TDS) less
-    `billed` (Approved and Pending Vendor Invoices plus generated invoices not yet uploaded), never
-    below 0."""
-    return max(0.0, round(min(flt(total_amount), flt(amount_paid)) - flt(billed), 2))
+def billable_range(total_amount, amount_paid, billed) -> tuple[float, float]:
+    """(least, most) a new generated invoice may bill, each less `billed` (Approved and Pending Vendor
+    Invoices plus generated invoices not yet uploaded) and never below 0 (owner, 2026-11-06, ADR-0040 Amdt C).
+
+    least: the Amount Paid (incl. TDS, up to the Work Order's amount) not yet billed, so no paid rupee is
+    left without an invoice. 0 once the invoices have caught up with or run ahead of payment.
+    most: what is left of the Work Order's amount, so an invoice may bill ahead of payment.
+
+    least <= most always, since the paid figure is capped at the Work Order's amount."""
+    total = flt(total_amount)
+    least = max(0.0, round(min(total, flt(amount_paid)) - flt(billed), 2))
+    most = max(0.0, round(total - flt(billed), 2))
+    return least, most
 
 
 def is_fully_paid(total_amount, amount_paid) -> bool:
@@ -127,9 +137,9 @@ def is_fully_paid(total_amount, amount_paid) -> bool:
 
 
 def is_final(total_amount, billed, amount) -> bool:
-    """An invoice of `amount` is the FINAL: with what is already billed (`billed`, as `billable_left`
-    counts it) it reaches the Work Order's amount, to within ₹10. Since `amount` may not pass
-    `billable_left`, only a fully paid Work Order can take one."""
+    """An invoice of `amount` is the FINAL: with what is already billed (`billed`, as `billable_range`
+    counts it) it reaches the Work Order's amount, to within ₹10. A Work Order not yet fully paid may take
+    it too, since an invoice may bill ahead of payment (ADR-0040 Amdt C)."""
     return flt(billed) + flt(amount) >= flt(total_amount) - FULLY_PAID_TOLERANCE
 
 

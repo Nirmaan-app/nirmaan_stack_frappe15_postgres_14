@@ -444,3 +444,21 @@ def linked_totals_join(doctype: str, alias: str) -> str:
             WHERE target_doctype = '{doctype}' AND match_kind = '{MATCH_SETTLED}'
             GROUP BY target_name
         ) l ON l.target_name = {alias}.name"""
+
+
+def last_source_join(doctype: str, alias: str) -> str:
+    """A `LEFT JOIN` giving each record aliased `alias` its `s.source`: the statement (Cashfree, Cashbook,
+    ICICI Bank Statement, Porter Statement, ICICI Credit Card Statement) of the live `Settled` slip linked
+    LAST (`matched_at`). Live slips only, as `linked_totals_join`, so an unlinked (Reversed) line never names
+    a source. A record no live slip reaches gets NULL. One row per target (`DISTINCT ON`), so the join can
+    never duplicate a record.
+
+    `doctype` and `alias` are fixed names from the calling module, never a request's string.
+    """
+    return f"""
+        LEFT JOIN (
+            SELECT DISTINCT ON (target_name) target_name, source
+            FROM "tab{_MATCH_DOCTYPE}"
+            WHERE target_doctype = '{doctype}' AND match_kind = '{MATCH_SETTLED}'
+            ORDER BY target_name, matched_at DESC NULLS LAST, creation DESC
+        ) s ON s.target_name = {alias}.name"""

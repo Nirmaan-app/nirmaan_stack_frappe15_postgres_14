@@ -12,6 +12,10 @@ assertion and never changed (CODING_STANDARDS: single-doctype state). The API ke
              a complete set is returned, with the kind's own reply cap (defaults 32000 both since DEV2-B3; a stored judge cap is the judge's only)
   gate       commit gate ON only when BOTH switches are on; fails closed on a read error
   untouched  get_boq_ai_settings returns exactly its old keys; the existing `model` field keeps its default
+  zero       (DEV2-B8 SETTINGS DEFAULTS, owner 2026-11-06 12:42) every Int limit stored as "0" (production's go-live
+             Single) -> a run's settings equal the doctype defaults, one log line naming each filled field  /  a typed
+             value wins  /  a blank model still refuses, naming it  /  retry wait 0 stays 0 (a meaningful value)  /
+             a negative limit still refuses  /  prices are never defaulted
 """
 from unittest.mock import patch
 
@@ -75,8 +79,12 @@ class TestLaneWorkers(FrappeTestCase):
         with _stored({"match_lane_workers": "3"}):
             self.assertEqual(s.match_lane_workers(), 3)
 
-    def test_zero_refuses_naming_the_field(self):
+    def test_zero_reads_the_default_and_below_zero_refuses_naming_the_field(self):
+        # INVERTED (DEV2-B8 SETTINGS DEFAULTS): a stored 0 reads the doctype default 2 (was: refused). The negative
+        # half is kept: a value below 0 still refuses, naming the field.
         with _stored({"match_lane_workers": "0"}):
+            self.assertEqual(s.match_lane_workers(), 2)
+        with _stored({"match_lane_workers": "-1"}):
             with self.assertRaises(s.MatchSettingsIncomplete) as ctx:
                 s.match_lane_workers()
         self.assertIn("Lane workers (processes)", str(ctx.exception))
@@ -96,13 +104,21 @@ class TestMatchRefusal(FrappeTestCase):
                 s.require_match_settings("judge")
         self.assertIn("Judge model price out", str(ctx.exception))
 
-    def test_a_zero_limit_refuses(self):
+    def test_a_zero_limit_reads_the_default_and_a_negative_one_refuses(self):
+        # INVERTED (DEV2-B8 SETTINGS DEFAULTS): calls at once stored 0 -> the default 50 (was: refused). Negative half
+        # kept: below 0 still refuses.
         with _stored(dict(_COMPLETE, match_calls_at_once="0")):
+            self.assertEqual(s.require_match_settings("card")["calls_at_once"], 50)
+        with _stored(dict(_COMPLETE, match_calls_at_once="-3")):
             with self.assertRaises(s.MatchSettingsIncomplete):
                 s.require_match_settings("card")
 
-    def test_a_zero_size_guard_refuses(self):
+    def test_a_zero_size_guard_reads_the_default_and_a_negative_one_refuses(self):
+        # INVERTED (DEV2-B8 SETTINGS DEFAULTS): the size guard stored 0 -> the default 100000 (was: refused). Negative
+        # half kept: below 0 still refuses, naming the field.
         with _stored(dict(_COMPLETE, match_max_request_tokens="0")):
+            self.assertEqual(s.require_match_settings("judge")["max_request_tokens"], 100000)
+        with _stored(dict(_COMPLETE, match_max_request_tokens="-1")):
             with self.assertRaises(s.MatchSettingsIncomplete) as ctx:
                 s.require_match_settings("judge")
         self.assertIn("Largest request", str(ctx.exception))
@@ -125,6 +141,80 @@ class TestMatchRefusal(FrappeTestCase):
         self.assertEqual((card["reply_max_tokens"], judge["reply_max_tokens"]), (32000, 2048))
         self.assertEqual((card["calls_at_once"], card["retry_wait_s"], card["burst_failures"],
                           card["burst_window_s"], card["max_request_tokens"]), (50, 5, 10, 60, 100000))
+
+
+_DEFAULTS = {"match_calls_at_once": 50, "match_reply_max_tokens": 32000, "match_card_reply_max_tokens": 32000,
+             "match_burst_failures": 10, "match_burst_window_s": 60, "match_max_request_tokens": 100000,
+             "match_lane_workers": 2}
+# Production's Single at go-live (2026-11-06): models and prices typed, every Int limit saved as "0".
+_ALL_ZERO = dict(_COMPLETE, match_enabled="1", match_retry_wait_s="0",
+                 **{f: "0" for f in _DEFAULTS})
+
+
+class TestZeroIsDefault(FrappeTestCase):
+    """DEV2-B8 SETTINGS DEFAULTS: a limit stored as 0 / empty must not break a run."""
+
+    def _read(self, d):
+        with _stored(d), patch.object(frappe, "logger") as lg:
+            got = s.get_boq_match_settings()
+            card = s.require_match_settings("card")
+            judge = s.require_match_settings("judge")
+            lanes = s.match_lane_workers()
+        lines = [c.args[0] for c in lg.return_value.info.call_args_list]
+        return got, card, judge, lanes, lines
+
+    def test_the_fallback_set_is_every_int_limit_but_the_retry_wait(self):
+        self.assertEqual(set(s.MATCH_ZERO_IS_DEFAULT), set(_DEFAULTS))
+        meta = frappe.get_meta(s.SETTINGS_DOCTYPE)
+        self.assertEqual({f: int(meta.get_field(f).default) for f in s.MATCH_ZERO_IS_DEFAULT}, _DEFAULTS)
+        self.assertNotIn("match_retry_wait_s", s.MATCH_ZERO_IS_DEFAULT)
+
+    def test_an_all_zero_single_runs_with_the_defaults_and_logs_one_line(self):
+        got, card, judge, lanes, lines = self._read(_ALL_ZERO)
+        self.assertEqual({f: got[f] for f in _DEFAULTS}, _DEFAULTS)
+        self.assertEqual((card["calls_at_once"], card["reply_max_tokens"], card["burst_failures"],
+                          card["burst_window_s"], card["max_request_tokens"]), (50, 32000, 10, 60, 100000))
+        self.assertEqual(judge["reply_max_tokens"], 32000)
+        self.assertEqual(lanes, 2)
+        # one line per read, naming every filled field (4 reads above: the getter, two refusals, the lane workers)
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(all(ln.startswith("match settings: doctype default used for ") for ln in lines))
+        for f in _DEFAULTS:
+            self.assertIn(f"{f} (stored 0)", lines[0])
+        self.assertNotIn("match_retry_wait_s", lines[0])
+
+    def test_empty_is_filled_and_named_as_empty(self):
+        got, _c, _j, _l, lines = self._read(dict(_ALL_ZERO, match_calls_at_once="", match_lane_workers=None))
+        self.assertEqual((got["match_calls_at_once"], got["match_lane_workers"]), (50, 2))
+        self.assertIn("match_calls_at_once (empty)", lines[0])
+
+    def test_a_typed_value_wins_and_nothing_is_logged_for_it(self):
+        got, card, _j, lanes, lines = self._read(dict(_ALL_ZERO, match_calls_at_once="7", match_lane_workers="3"))
+        self.assertEqual((got["match_calls_at_once"], card["calls_at_once"], lanes), (7, 7, 3))
+        self.assertNotIn("match_calls_at_once", lines[0])
+        self.assertNotIn("match_lane_workers", lines[0])
+
+    def test_a_fully_typed_single_logs_nothing(self):
+        typed = dict(_COMPLETE, match_retry_wait_s="5", **{f: str(v) for f, v in _DEFAULTS.items()})
+        _g, _c, _j, _l, lines = self._read(typed)
+        self.assertEqual(lines, [])
+
+    def test_retry_wait_zero_stays_zero(self):
+        got, card, _j, _l, _lines = self._read(_ALL_ZERO)
+        self.assertEqual((got["match_retry_wait_s"], card["retry_wait_s"]), (0, 0))
+
+    def test_a_blank_model_still_refuses_naming_it(self):
+        with _stored(dict(_ALL_ZERO, match_judge_model="")), patch.object(frappe, "logger"):
+            with self.assertRaises(s.MatchSettingsIncomplete) as ctx:
+                s.require_match_settings("judge")
+        self.assertIn("Judge model is empty", str(ctx.exception))
+
+    def test_prices_are_never_defaulted(self):
+        with _stored(dict(_ALL_ZERO, match_card_price_in=None)), patch.object(frappe, "logger"):
+            self.assertIsNone(s.get_boq_match_settings()["match_card_price_in"])
+            with self.assertRaises(s.MatchSettingsIncomplete) as ctx:
+                s.require_match_settings("card")
+        self.assertIn("is empty", str(ctx.exception))
 
 
 class TestCommitGate(FrappeTestCase):

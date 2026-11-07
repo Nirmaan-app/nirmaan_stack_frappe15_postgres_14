@@ -207,7 +207,7 @@
 
    {# --- NOTES --- #}
 {% set _notes = doc.notes %}
-{% if _notes is string %}{% set _notes = frappe.parse_json(_notes) %}{% endif %}
+{% if _notes is string %}{% set _notes = json.loads(_notes) %}{% endif %}
 {% set note_list = (_notes.get('list') if _notes is mapping else _notes) or [] %}
 {% if note_list %}
 <div style="margin-top:15px; page-break-inside:avoid; font-size:9.5px;">

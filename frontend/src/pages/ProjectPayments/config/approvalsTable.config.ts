@@ -59,7 +59,14 @@ export type ApprovalColumnId =
   | "actions" | "source" | "against" | "requested_on"
   | "vendor" | "paid_to" | "project" | "amount" | "tier" | "raised_by"
   | "approved_on" | "paid_on" | "utr_ref" | "proof" | "payment_by"
-  | "reconciled_on" | "status" | "project_value" | "cashflow_gap";
+  | "reconciled_on" | "status" | "project_value" | "cashflow_gap" | "payment_source";
+
+/**
+ * The Payment Source column's value for a row no live bank line reaches (owner, 2026-11-06). The server sends
+ * this word rather than a blank so the filter can offer and count it; the cell draws it as "—".
+ * Mirrors `PAYMENT_SOURCE_NONE` in `api/approvals/get_approval_queue.py`.
+ */
+export const PAYMENT_SOURCE_NONE = "Unknown";
 
 /** One row of the union endpoint. Every field is NORMALIZED — no cell branches on ledger. */
 export interface ApprovalQueueRow {
@@ -99,6 +106,12 @@ export interface ApprovalQueueRow {
   approved_on: string | null;
   paid_on: string | null;
   utr_ref: string;
+  /**
+   * The statement this row was reconciled from (owner, 2026-11-06): Cashfree, Cashbook, ICICI Bank Statement,
+   * Porter Statement or ICICI Credit Card Statement -- the one whose bank line was linked LAST -- or
+   * `PAYMENT_SOURCE_NONE`. Its own lines only: a split payment's unpaid balance reads "Unknown".
+   */
+  payment_source: string;
   proof: string;
   has_proof: boolean;
   payment_by: string;
@@ -206,6 +219,9 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // "Payment Done / Reconciliation Pending" — `payment_by` earns its place here:
   // 99.5% filled on project expenses and homeless otherwise. Paid to (spec story 56/60): the account
   // the money went into, read-only, beside the vendor.
+  // `payment_source` (owner, 2026-11-06) is on Payment Done, Payment Raised By Me and All Payments -- after
+  // UTR / Ref where the tab has it, else after Paid on -- and NOT here (owner, same day): nothing on this tab
+  // is fully reconciled yet.
   [PP_TABS.RECONCILIATION_PENDING]: [
     "actions", "source", "against", "vendor", "paid_to", "project",
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
@@ -218,7 +234,7 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // Paid to, read-only, as on Reconciliation Pending.
   [PP_TABS.PAYMENTS_DONE]: [
     "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on",
-    "utr_ref", "proof", "payment_by",
+    "utr_ref", "payment_source", "proof", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
   // only ones where it varies. No bulk action is valid across a mixed selection;
@@ -228,7 +244,7 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "requested_on", "raised_by",
   ],
   [PP_TABS.ALL_PAYMENTS]: [
-    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source", "status",
     "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
@@ -238,7 +254,7 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
   // AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
-    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source", "status",
     "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.

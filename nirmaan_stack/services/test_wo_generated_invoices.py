@@ -62,13 +62,32 @@ class TestInvoiceNumber(unittest.TestCase):
         )
 
 
-class TestBillableLeft(unittest.TestCase):
-    def test_is_the_smaller_of_amount_and_paid_less_what_is_billed(self):
-        self.assertEqual(gi.billable_left(100_000, 60_000, 25_000), 35_000)
-        self.assertEqual(gi.billable_left(100_000, 120_000, 25_000), 75_000)
+class TestBillableRange(unittest.TestCase):
+    """(least, most): at least what is paid and not yet billed, at most what is left of the WO (ADR-0040 Amdt C)."""
+
+    def test_least_is_the_paid_not_yet_billed_and_most_the_work_order_left(self):
+        self.assertEqual(gi.billable_range(100_000, 60_000, 25_000), (35_000, 75_000))
+
+    def test_the_first_invoice_covers_at_least_the_paid_and_may_run_to_the_whole_work_order(self):
+        self.assertEqual(gi.billable_range(10_000, 3_000, 0), (3_000, 10_000))
+
+    def test_an_invoice_ahead_of_payment_leaves_nothing_owed_until_payment_passes_it(self):
+        """WO 10,000, RA-1 of 7,000 billed when 3,000 was paid: at 7,000 paid nothing is owed, at 9,000 the gap is."""
+        self.assertEqual(gi.billable_range(10_000, 7_000, 7_000), (0, 3_000))
+        self.assertEqual(gi.billable_range(10_000, 9_000, 7_000), (2_000, 3_000))
+        self.assertEqual(gi.billable_range(10_000, 10_000, 9_000), (1_000, 1_000))
+
+    def test_paid_beyond_the_work_order_counts_only_up_to_it(self):
+        self.assertEqual(gi.billable_range(100_000, 120_000, 25_000), (75_000, 75_000))
 
     def test_never_goes_below_nothing(self):
-        self.assertEqual(gi.billable_left(100_000, 20_000, 25_000), 0)
+        self.assertEqual(gi.billable_range(100_000, 20_000, 25_000), (0, 75_000))
+        self.assertEqual(gi.billable_range(6_000, 5_000, 7_000), (0, 0))  # WO amended below what is billed
+
+    def test_least_is_never_above_most(self):
+        for total, paid, billed in ((100_000, 0, 0), (100_000, 100_000, 0), (100_000, 150_000, 100_000), (50, 49.99, 0.01)):
+            least, most = gi.billable_range(total, paid, billed)
+            self.assertLessEqual(least, most, (total, paid, billed))
 
 
 class TestIsFinal(unittest.TestCase):

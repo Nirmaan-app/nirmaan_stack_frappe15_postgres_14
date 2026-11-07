@@ -219,6 +219,7 @@ import {
 import {
   RateSuggestProgressModal,
   confirmEstimateLine,
+  suggestReadRows,
   type MatchPaces,
   type MatchPhaseState,
   type SuggestModalSummary,
@@ -3250,11 +3251,31 @@ const SheetPricingPage = () => {
     () => suggestConfirmCopy(selectedCount, eligibleRows.size, neverReadLabels),
     [selectedCount, eligibleRows, neverReadLabels],
   );
+  // DEV2-B8 S2 (WAIT ESTIMATE, owner 2026-11-06 12:42): how many of the rows the press will read have no valid spec
+  // card. Asked when the confirm box opens (in its handler); null until it answers, or when it fails -> the estimate
+  // counts every row as needing a card (the safe side).
+  const [confirmNoCard, setConfirmNoCard] = useState<number | null>(null);
+  const noCardAskRef = useRef(0);
+  const { call: countNoCardCall } = useFrappePostCall("nirmaan_stack.api.boq.rate_match.count_rows_without_card");
+  const openSuggestConfirm = useCallback(() => {
+    setConfirmNoCard(null);
+    setSuggestConfirmOpen(true);
+    if (!matchEnabled || !boqId || !sheetName) return;
+    const ask = ++noCardAskRef.current;
+    const rowsToRead = suggestReadRows(selectedRows, activeRunData?.message?.never_read_rows ?? [], eligibleRows);
+    countNoCardCall({ boq: boqId, sheet_name: sheetName, excel_rows: JSON.stringify(rowsToRead) })
+      .then((r: { message?: { rows_without_card?: number } }) => {
+        const n = r?.message?.rows_without_card;
+        if (ask === noCardAskRef.current && typeof n === "number") setConfirmNoCard(n);
+      })
+      .catch(() => { /* the safe side: confirmNoCard stays null = every row needs a card */ });
+  }, [matchEnabled, boqId, sheetName, selectedRows, activeRunData, eligibleRows, countNoCardCall]);
   // DEV2-B4: the ONE estimate line (total + split) when matching is ON; "" -> the dialog is exactly as before. The rows
   // are the ones the run will read: the ticked rows plus the never-read ones, or the whole eligible set.
   const confirmEstimate = useMemo(
-    () => confirmEstimateLine(matchEnabled, selectedCount > 0 ? selectedCount + neverReadLabels.length : eligibleRows.size, matchPaces),
-    [matchEnabled, selectedCount, neverReadLabels, eligibleRows, matchPaces],
+    () => confirmEstimateLine(matchEnabled, selectedCount > 0 ? selectedCount + neverReadLabels.length : eligibleRows.size,
+      matchPaces, confirmNoCard),
+    [matchEnabled, selectedCount, neverReadLabels, eligibleRows, matchPaces, confirmNoCard],
   );
 
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
@@ -4565,7 +4586,7 @@ const SheetPricingPage = () => {
               variant="outline"
               className="gap-1.5"
               disabled={suggestRatesDisabled}
-              onClick={() => setSuggestConfirmOpen(true)}
+              onClick={openSuggestConfirm}
               title={
                 suggestRatesReason ??
                 (selectedCount > 0
