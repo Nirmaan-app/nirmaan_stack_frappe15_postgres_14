@@ -19,7 +19,7 @@ import frappe
 
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, readings_queued
 from nirmaan_stack.api.outflow_import.expenses import create_expense
-from nirmaan_stack.api.outflow_import.review import skip_row
+from nirmaan_stack.api.outflow_import.review import get_outflow_rows, skip_row
 from nirmaan_stack.api.outflow_import.test_cashbook_collect_payments import COLLECT_WITH_LINK, CollectPaymentCase
 from nirmaan_stack.services.expense_bills import line_check, reading
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
@@ -155,3 +155,14 @@ class TestOnlyCreateMakesAnExpenseBill(CollectPaymentCase):
         self.assertEqual(self._line(COLLECT_WITH_LINK).row_status, "Skipped")
         self.assertEqual(frappe.db.count("Expense Bill"), before)
         self.assertEqual(frappe.db.count("Expense Bill", {"statement_line": line.name}), 0)
+
+
+class TestTheMainTableCarriesTheKeptCheck(CollectPaymentCase):
+    def test_an_open_collect_payment_row_ships_its_stored_bill_and_bill_check(self):
+        self._run()
+        line = self._line(COLLECT_WITH_LINK)
+        run_line_reading(line.name, FakeReader(BillRead(total=LINE_AMOUNT)))
+
+        page = get_outflow_rows(scope="not_matched_outflow", batch=self.batch, limit=500)
+        (row,) = [row for row in page["rows"] if row["name"] == line.name]
+        self.assertEqual((row["stored_bill"], row["bill_check"]), (line.stored_bill, "Matched"))

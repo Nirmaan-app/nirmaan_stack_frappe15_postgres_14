@@ -2991,6 +2991,9 @@ def get_outflow_rows(
                -- Cashbook Statement only: a Paired wallet refund's other line, by Txn Id (#1602). The Skipped
                -- popup shows "Paired with <it>" under the tag.
                r.cashbook_refund_partner,
+               -- An open Collect payment's stored bill and its Bill check (#1642): the decide screen says
+               -- "Invoice already available" and what Create will lead to.
+               r.stored_bill, r.bill_check,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,
