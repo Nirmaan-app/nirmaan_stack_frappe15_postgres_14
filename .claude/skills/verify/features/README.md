@@ -55,3 +55,6 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   the Skipped popup without the moved lines, Mark as Internal Transfer and Send back to Mismatched (one line), Made by
   in words, the Cashbook preview's and the card Review's Internal transfers lists, and the preview's sentence on the
   old ₹0 records it fills. Walked end to end by `BIN/walk_internal_transfers.py`.
+- [Vendor Invoice Recon](./vendor_invoice_recon.md): the Pending Invoice Approvals and All Invoices tabs, and their
+  "Invoice Added By" column (full name or email, cut with "…", whole text on hover). Walked by
+  `BIN/walk_vendor_invoice_recon.py`.

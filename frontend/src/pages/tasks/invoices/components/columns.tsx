@@ -501,7 +501,7 @@ const getCommonColumns = (
             cell: ({ row }) => {
                 const userId = row.original.uploaded_by;
                 if (!userId) return <span className="text-gray-400 italic">—</span>;
-                return <TruncatedText text={getUserName?.(userId) || userId} className="max-w-[9rem] font-medium" />;
+                return <TruncatedText text={getUserName?.(userId) || userId} className="max-w-full font-medium" />;
             },
             size: 150,
             enableColumnFilter: true,
