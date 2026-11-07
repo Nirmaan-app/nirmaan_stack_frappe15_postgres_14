@@ -44,3 +44,21 @@ class TestACopiedBillIsChecked(CashbookBillsCase):
         (bill,) = bills_of(expense.doctype, expense.name)
         self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Matched", "Approved", 1))
         self.assertEqual(frappe.db.get_value(expense.doctype, expense.name, "invoice_ref"), "WALLET-1")
+
+
+class TestASpendWithSeveralBillsIsNotChecked(CashbookBillsCase):
+    def test_four_bill_links_make_a_pending_not_checked_bill_whose_total_is_the_line_amount_and_nothing_is_read(self):
+        self._run()
+        expense = self._expense(FOUR_LINKS)
+
+        (bill,) = bills_of(expense.doctype, expense.name)
+        self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Not checked", "Pending", 0))
+        self.assertEqual(Decimal(str(bill.invoice_amount)), _line_amount(expense))
+        self.assertEqual((bill.invoice_no, bill.invoice_date), (None, None))
+        self.assertEqual(bill.bill_file, expense.invoice_attachment)
+        self.assertEqual(readings_queued(self.jobs).count(("long", bill.name)), 0)
+        # Even a reading job run for it by mistake reads nothing: it is not Checking.
+        reader = FakeReader(BillRead(total=Decimal("1")))
+        run_reading(bill.name, reader)
+        self.assertEqual(reader.files, [])
+        self.assertEqual(bills_of(expense.doctype, expense.name)[0].bill_check, "Not checked")

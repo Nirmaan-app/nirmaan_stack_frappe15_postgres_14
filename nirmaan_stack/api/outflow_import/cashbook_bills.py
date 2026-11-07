@@ -122,7 +122,9 @@ def copy_created_line_bills(row_name: str, actor: str) -> None:
         row_name,
         line.transfer_id,
         links_of(line),
-        attach=lambda saved: _attach_invoice(line.suggested_doctype, line.suggested_name, saved, actor),
+        attach=lambda saved: _attach_invoice(
+            line.suggested_doctype, line.suggested_name, saved, actor, len(links_of(line))
+        ),
         failure=("Cashbook import: could not copy a bill", f"{row_name} / {line.suggested_name}"),
     )
     if not dealt_with:
@@ -330,7 +332,7 @@ def _store_and_attach(doctype: str, expense: str, transfer_id: str, links: list[
     saved, problem = download_and_save_bills(transfer_id, links)
     if saved is None:
         return problem
-    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved, actor))
+    store_or_discard(saved, lambda: _attach_invoice(doctype, expense, saved, actor, len(links)))
     return None
 
 
@@ -432,17 +434,18 @@ def store_or_discard(saved, attach) -> None:
         frappe.db.commit()
 
 
-def _attach_invoice(doctype: str, expense: str, saved, actor: str) -> bool:
+def _attach_invoice(doctype: str, expense: str, saved, actor: str, bill_count: int) -> bool:
     """Step 3: lock the Expense, re-check it still waits for an invoice, and only then file `saved` as its bill
     through the one entry point (`expense_bills.receive_bill`, #1641): an Expense bill attached by `actor`, the one
-    who confirmed the import, its reading queued once this commits. Returns whether it attached; the caller
+    who confirmed the import, its reading queued once this commits; `saved` merged from `bill_count` > 1 links is
+    recorded Not checked and never read. Returns whether it attached; the caller
     commits or discards. A number or date a person already typed on the Expense is kept."""
     doc = frappe.get_doc(doctype, expense, for_update=True)
     if doc.invoice_attachment or _marked_no_invoice(doc):
         return False
     # The File first, so Frappe's attach-on-save hook finds it and mints no second one.
     _attach_file(saved, doctype, expense, "invoice_attachment")
-    receive_bill(doc, saved.file_url, doc.invoice_ref, doc.invoice_date, actor)
+    receive_bill(doc, saved.file_url, doc.invoice_ref, doc.invoice_date, actor, bill_count)
     frappe.db.commit()
     return True
 

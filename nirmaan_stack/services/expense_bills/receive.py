@@ -5,7 +5,8 @@
 
 `receive_bill` mirrors the file (and any number and date a person typed) onto the Expense, records the Expense
 bill as Checking -- the previous one of that Expense stays as history, no longer latest -- and queues its reading
-(`expense_bills.reading`) for after the commit. It never refuses a bill and never waits for the reading
+(`expense_bills.reading`) for after the commit. A file merged from several bills (the Cashbook import's, #1641) is
+recorded Not checked at once, its total the line amount, and is never read. It never refuses a bill and never waits for the reading
 (GLOSSARY *Bill check*: a Bill check never stops a bill from being attached).
 
 Every code path that writes `invoice_attachment` on a wallet spend or a card spend must come through here;
@@ -19,15 +20,21 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill
 from nirmaan_stack.services.expense_bills.reading import queue_reading
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
-def receive_bill(doc, file_url: str, invoice_ref: str | None, invoice_date: str | None, user: str) -> str:
+def receive_bill(
+    doc, file_url: str, invoice_ref: str | None, invoice_date: str | None, user: str, bill_count: int = 1
+) -> str:
     """File `file_url` as Expense `doc`'s bill (`doc` read `FOR UPDATE` by the caller) and record it; returns the
     Expense bill's name. Saves `doc` through the document layer (its `doc_events` run). Never commits: the caller
-    does, and the reading is queued only once that commit lands."""
+    does, and the reading is queued only once that commit lands.
+
+    `bill_count` is how many bills the file holds. Two or more (one PDF merged from a line's bill links) give the
+    verdict's Not checked straight away: its total is the line amount, no number or date, Pending, and no reading
+    is queued (a merged file gives one guessed total, spec #1637 story 6)."""
     doc.invoice_attachment = file_url.strip()
     doc.invoice_ref = (invoice_ref or "").strip() or None
     doc.invoice_date = invoice_date or None
@@ -40,6 +47,10 @@ def receive_bill(doc, file_url: str, invoice_ref: str | None, invoice_date: str 
             WHERE expense_doctype = %s AND expense = %s AND is_latest = 1""",
         (doc.doctype, doc.name),
     )
+    check = {"bill_check": CHECKING}
+    if bill_count > 1:
+        verdict = check_bill(ReadFailed("A merged file is not read."), line_amount, bill_count)
+        check = {"bill_check": verdict.result, "bill_check_reason": verdict.reason, "invoice_amount": float(verdict.total)}
     bill = frappe.get_doc(
         {
             "doctype": BILL_DOCTYPE,
@@ -48,13 +59,14 @@ def receive_bill(doc, file_url: str, invoice_ref: str | None, invoice_date: str 
             "is_latest": 1,
             "bill_file": doc.invoice_attachment,
             "uploaded_by": user,
-            "bill_check": CHECKING,
             "status": PENDING,
             "statement_line": line,
             "line_amount": float(line_amount),
+            **check,
         }
     ).insert(ignore_permissions=True)
-    queue_reading(bill.name)
+    if bill.bill_check == CHECKING:
+        queue_reading(bill.name)
     return bill.name
 
 
