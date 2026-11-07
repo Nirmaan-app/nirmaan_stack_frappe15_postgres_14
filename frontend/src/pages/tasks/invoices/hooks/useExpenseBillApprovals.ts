@@ -1,7 +1,7 @@
 /**
  * Pending Approval -> Cashbook / Credit Card (#1644): the list of Expense bills waiting for a person, Approve and
- * Reject, and their dialogs' state; Read again on a Not read bill (#1645), which takes it off the list while it is
- * Checking. The dialogs hold the bill's name, never a row snapshot, and read the live row
+ * Reject, and which bill each dialog decides; Read again on a Not read bill (#1645), which takes it off the list while
+ * it is Checking. The dialogs hold the bill's name, never a row snapshot, and read the live row
  * from the refetched list (frontend/CODING_STANDARDS § Fetching or mutating data).
  */
 import { useCallback, useMemo, useState } from "react";
@@ -10,10 +10,10 @@ import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import { useReadExpenseBillAgain } from "./useReadExpenseBillAgain";
 import {
     type ApproveBillValues, type ExpenseBillKind, type PendingExpenseBillRow, type RejectBillValues,
 } from "../utils/expenseBillApprovalView";
+import { useReadExpenseBillAgain } from "./useReadExpenseBillAgain";
 
 const API = "nirmaan_stack.api.expenses.expense_bill_approval";
 

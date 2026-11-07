@@ -3,10 +3,10 @@
  * bills waiting for a person, on the shared DataTable in client mode (search, column filters, sorting, Export).
  *
  * Approve opens a form with the invoice number and date the row offers (the bill's own, else what the Accountant
- * typed on the Expense) for a person to correct; Reject asks for a reason (`ExpenseBillDecisionDialogs`). The server checks who may decide
- * (`api/expenses/expense_bill_approval`); this screen is mounted only for the same approvers. Read again shows on a
- * Not read bill for Admin and Accountant Lead only (#1645).
- * The list, the two writes and the dialogs' state are `useExpenseBillApprovals`.
+ * typed on the Expense) for a person to correct; Reject asks for a reason (`ExpenseBillDecisionDialogs`). The server
+ * checks who may decide (`api/expenses/expense_bill_approval`); this screen is mounted only for the same approvers.
+ * Read again shows on a Not read bill for Admin and Accountant Lead only (#1645).
+ * The list, the two writes and which bill is being decided are `useExpenseBillApprovals`.
  */
 import React, { useEffect, useMemo } from "react";
 
