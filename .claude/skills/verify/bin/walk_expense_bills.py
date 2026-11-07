@@ -34,7 +34,13 @@ read Mismatched (seeded: the env's reader cannot give one), and two made-up user
 10. As the PMO (outside the approvers): Vendor Invoice Recon shows no Pending Invoice Approvals tab, and a direct
    call of the reject endpoint is refused (403). DB: the bill is still Pending.
 
-`--shots DIR` also keeps one half-size screenshot per acceptance criterion of #1644 there.
+Then Read again (#1645), with `expense_bill_read_again_seed.py`: a made-up Not read card bill and a made-up wallet
+bill whose reading stopped (Checking, claimed 20 minutes ago). Steps 11-14 are `read_again_part`'s docstring: the
+Accountant sees no Read again and is refused; the Accountant Lead presses it on both rows, they leave as Checking,
+a second press reads once, a one-shot worker reads them, and each row's new result shows. `--part read-again` runs
+only these steps.
+
+`--shots DIR` also keeps one half-size screenshot per acceptance criterion there.
 
 Every step asserts the screen's text and its DB row; a miss raises, saves `FAIL.*` and exits 1. When the env's
 reader is unavailable (no valid key, no network: the bill's reason says so), step 3 asserts the Not read path
@@ -70,7 +76,9 @@ ap.add_argument("--password", required=True)
 ap.add_argument("--accountant", default="walk-accountant@example.com")
 ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
-ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion of #1644 here")
+ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
+ap.add_argument("--part", choices=("all", "read-again"), default="all",
+                help="read-again: only steps 11-14 (#1645), with their own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -91,7 +99,11 @@ def script(name: str, *args: str) -> str:
 
 
 def seed() -> dict:
-    line = next(l for l in script("expense_bills_seed.py", STAMP).splitlines() if l.startswith("EXPENSE_BILLS_SEED "))
+    return seed_as(STAMP)
+
+
+def seed_as(stamp: str) -> dict:
+    line = next(l for l in script("expense_bills_seed.py", stamp).splitlines() if l.startswith("EXPENSE_BILLS_SEED "))
     return json.loads(line.removeprefix("EXPENSE_BILLS_SEED "))
 
 
@@ -207,9 +219,144 @@ def gone(page, search: str, what: str) -> None:
     expect(page.get_by_role("row").filter(has_text=search).count() == 0, what)
 
 
+READ_AGAIN_API = "/api/method/nirmaan_stack.api.expenses.expense_bill_approval.read_expense_bill_again"
+
+
+def press_read_again_by_hand(page, bill: str) -> list:
+    """POST Read again for `bill` from the page's own session, as the button does: [status, body]."""
+    return page.evaluate(
+        """async ([url, bill]) => {
+            const r = await fetch(url, {
+                method: 'POST', headers: {'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': window.csrf_token},
+                body: JSON.stringify({bill})});
+            return [r.status, await r.text()];
+        }""",
+        [READ_AGAIN_API, bill],
+    )
+
+
+def approvals_pill(page, label: str) -> None:
+    sidebar(page, "Vendor Invoice Recon")
+    page.get_by_role("button", name="Pending Invoice Approvals").click()
+    page.wait_for_load_state("networkidle")
+    pill(page, label)
+
+
+def read_again_part() -> None:
+    """Steps 11-14: Read again (#1645) on a seeded Not read card bill and a seeded wallet bill whose reading stopped.
+
+    11. As the Accountant: Pending Invoice Approvals -> Credit Card and -> Cashbook list both rows Not read (the
+        wallet one "The reading stopped.") with no Read again; the endpoint answers 403 and the bill is unchanged.
+    12. As the Accountant Lead: Credit Card -> the row's Read again; the row leaves. DB: Checking, unclaimed. A
+        second press (two POSTs from the page) is answered 200 and leaves it Checking: one reading. Cashbook -> the
+        stopped row's Read again; it leaves. DB: Checking, unclaimed.
+    13. A one-shot worker on the env's `long` queue reads both again.
+    14. Back on both pills: each row's new result, the same as its DB row. The env's reader is refused, so the
+        result is Not read with the reader's reason; Matched (auto-approved, leaves) is NOT WALKED here and is
+        proven by `test_expense_bill_read_again`.
+    """
+    spends = seed_as(f"R{STAMP}")
+    ra = json.loads(next(l for l in script("expense_bill_read_again_seed.py", STAMP, spends["card"], spends["wallet"])
+                         .splitlines() if l.startswith("EXPENSE_BILL_READ_AGAIN_SEED "))
+                    .removeprefix("EXPENSE_BILL_READ_AGAIN_SEED "))
+    print(f"seeded for Read again: {ra}")
+    card_bill, wallet_bill = ra["card_bill"], ra["wallet_bill"]
+    subprocess.run([DEVENV, "run", a.task, "set-password", a.lead, a.password], capture_output=True, check=True)
+
+    # 11. The Accountant sees both rows, and no Read again.
+    with session(a.task, a.accountant, a.password) as (page, out):
+        approvals_pill(page, "Credit Card")
+        row = find_row(page, ra["card_holder"])
+        expect("Not read" in row.inner_text(), "Accountant, Credit Card: the bill is Not read")
+        expect(row.get_by_role("button", name="Read again").count() == 0, "Accountant, Credit Card: no Read again")
+        expect(row.get_by_role("button", name="Approve").count() == 1, "Accountant, Credit Card: Approve still shows")
+        row.get_by_role("button", name="Approve").scroll_into_view_if_needed()  # the table scrolls sideways
+        shot(page, out, "19-accountant-no-read-again", "1a-accountant-no-read-again")
+        pill(page, "Cashbook")
+        row = find_row(page, ra["wallet_holder"])
+        cells = row.inner_text()
+        expect("Not read" in cells and "The reading stopped." in cells,
+               "Accountant, Cashbook: the stopped reading shows Not read, 'The reading stopped.'")
+        expect(row.get_by_role("button", name="Read again").count() == 0, "Accountant, Cashbook: no Read again")
+        save(page, out, "20-accountant-cashbook-stopped")
+        status = press_read_again_by_hand(page, card_bill)
+        (out / "21-accountant-read-again.txt").write_text(json.dumps(status))
+        expect(status[0] == 403, f"Accountant: the Read again endpoint refuses ({status[0]})")
+        after = approval_db(out, "21-after-accountant", card_bill)[card_bill]["bill"]
+        expect(after["bill_check"] == "Not read", "DB: the Accountant's call changed nothing (still Not read)")
+        print(f"evidence: {out}")
+
+    # 12. The Accountant Lead presses Read again on both.
+    with session(a.task, a.lead, a.password) as (page, out):
+        approvals_pill(page, "Credit Card")
+        row = find_row(page, ra["card_holder"])
+        button = row.get_by_role("button", name="Read again")
+        expect(button.count() == 1, "Accountant Lead, Credit Card: Read again on the Not read row")
+        button.scroll_into_view_if_needed()
+        shot(page, out, "22-lead-read-again-card", "1b-lead-read-again-on-not-read")
+        button.click()
+        gone(page, ra["card_holder"], "Credit Card: the bill left the list while it is Checking")
+        shot(page, out, "23-lead-after-read-again", "2a-read-again-checking")
+        after = approval_db(out, "23-after-read-again", card_bill)[card_bill]["bill"]
+        expect((after["bill_check"], after["bill_check_reason"], after["read_claimed_at"]) == ("Checking", None, None),
+               "DB: the card bill is Checking, unclaimed")
+        twice = [press_read_again_by_hand(page, card_bill)[0] for _ in range(2)]
+        (out / "24-second-press.txt").write_text(json.dumps(twice))
+        expect(twice == [200, 200], f"a second press is answered without an error ({twice})")
+        after = approval_db(out, "24-after-second-press", card_bill)[card_bill]["bill"]
+        expect((after["bill_check"], after["read_claimed_at"]) == ("Checking", None), "DB: still Checking, unclaimed")
+
+        pill(page, "Cashbook")
+        row = find_row(page, ra["wallet_holder"])
+        expect("The reading stopped." in row.inner_text(), "Accountant Lead, Cashbook: 'The reading stopped.'")
+        button = row.get_by_role("button", name="Read again")
+        expect(button.count() == 1, "Accountant Lead, Cashbook: Read again on the stopped row")
+        save(page, out, "25-lead-read-again-cashbook")
+        button.click()
+        gone(page, ra["wallet_holder"], "Cashbook: the bill left the list while it is Checking")
+        after = approval_db(out, "26-after-read-again-wallet", wallet_bill)[wallet_bill]["bill"]
+        expect((after["bill_check"], after["read_claimed_at"]) == ("Checking", None),
+               "DB: the wallet bill is Checking, its old claim cleared")
+
+        # 13. The readings.
+        worker = subprocess.run([DEVENV, "run", a.task, "worker", "--queue", "long", "--burst"],
+                                capture_output=True, text=True)
+        (out / "27-worker.txt").write_text(worker.stdout + worker.stderr)
+        state = approval_db(out, "27-after-reading", card_bill, wallet_bill)
+
+        # 14. Each row's new result.
+        for label, holder, name, crit in (("Credit Card", ra["card_holder"], card_bill, "3-new-result-card"),
+                                          ("Cashbook", ra["wallet_holder"], wallet_bill, None)):
+            got = state[name]["bill"]
+            expect(got["read_claimed_at"] is not None, f"DB: {name} was claimed by a reading")
+            page.reload()
+            page.wait_for_load_state("networkidle")
+            pill(page, label)
+            if got["bill_check"] == "Matched":
+                expect(got["status"] == "Approved", f"DB: {name} Matched and auto-approved")
+                page.get_by_placeholder(re.compile("search", re.I)).first.fill(holder)
+                page.wait_for_timeout(1000)
+                expect(page.get_by_role("row").filter(has_text=holder).count() == 0, f"{label}: Matched bill is gone")
+                shot(page, out, f"28-{label.lower().replace(' ', '-')}-new-result", crit)
+                continue
+            expect(got["status"] == "Pending", f"DB: {name} {got['bill_check']} stays Pending")
+            row = find_row(page, holder)
+            cells = row.inner_text()
+            row.get_by_role("button", name="Approve").scroll_into_view_if_needed()
+            expect(got["bill_check"] in cells and (got["bill_check_reason"] or "") in cells,
+                   f"{label}: the new result shows: {got['bill_check']}: {got['bill_check_reason']}")
+            shot(page, out, f"28-{label.lower().replace(' ', '-')}-new-result", crit)
+            if READER_DOWN.match(got["bill_check_reason"] or ""):
+                print(f"NOT WALKED: {name} Matched -- the env's reader is unavailable: {got['bill_check_reason']}")
+        print(f"evidence: {out}")
+
+
 # One evidence folder for every session of this walk.
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
+if a.part == "read-again":
+    read_again_part()
+    sys.exit(0)
 spends = seed()
 print(f"seeded: {spends}")
 approval = json.loads(next(l for l in script("expense_bill_approval_seed.py", STAMP).splitlines()
@@ -406,3 +553,5 @@ with session(a.task, a.outsider, a.password) as (page, out):
     after = approval_db(out, "18-after-outsider", card_bill["name"])[card_bill["name"]]
     expect(after["bill"]["status"] == card_bill["status"], f"DB: the bill is still {card_bill['status']}")
     print(f"evidence: {out}")
+
+read_again_part()

@@ -15,6 +15,7 @@ import frappe
 answer = {}
 for name in sys.argv[1:]:
     bill = frappe.db.get_value("Expense Bill", name, ["name", "expense_doctype", "expense", "status", "bill_check",
+                                                      "bill_check_reason", "read_claimed_at",
                                                       "approved_by", "approved_on", "rejection_reason", "invoice_no",
                                                       "invoice_date", "is_latest"], as_dict=True)
     expense = frappe.db.get_value(bill.expense_doctype, bill.expense,
