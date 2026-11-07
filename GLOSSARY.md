@@ -263,6 +263,16 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
 
+## Expense bills
+
+- **Expense bill** — the bill attached to a wallet spend or a card spend, kept as its own record with its own approval. A replaced or rejected bill stays as history; only the latest one counts. Expense bills are kept apart from *Vendor Invoices* for now and are meant to join them in one place later (ADR-0045). (Owner, 2026-11-07.)
+  *Avoid*: expense invoice, wallet invoice, card invoice.
+
+- **Bill check** — the reading of an expense bill to see whether its total (incl. GST) equals the amount on the statement line that recorded the spend. Its result is **Matched** (within ₹1), **Mismatched**, **Not read** (the bill could not be read; the reason is kept), or **Not checked** (the spend carries several bills, so its total is taken as the line amount). While the reading runs, the bill is **Checking**. A Bill check never stops a bill from being attached. The bill's number and date are taken from the bill only when it is Matched, and never over what a person typed. (Owner, 2026-11-07.)
+  *Avoid*: invoice validation, autofill (that is the Vendor Invoice upload's form filling), AI check.
+
+- **Expense bill approval** — an expense bill is *Pending*, *Approved* or *Rejected*, as a Vendor Invoice is. A Matched bill is approved by the system when its Bill check ends (**auto-approved**); any other result waits in Pending Approval for Admin or an Accountant. A bill an Admin or Accountant Lead puts on a paid Expense from Payment Done is approved in that person's name. A rejected bill keeps its reason, and its Expense waits for a new bill again. (Owner, 2026-11-07.)
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.
