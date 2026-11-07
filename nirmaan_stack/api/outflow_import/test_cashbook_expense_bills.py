@@ -118,6 +118,48 @@ class TestALateBillIsChecked(LateBillsCase):
         self.assertIn(("long", bill.name), readings_queued(self.jobs))
 
 
+class _WorkerKilled(BaseException):
+    """The worker died: not an `Exception`, so no error path of the job sees it."""
+
+
+class TestResumeNeverReadsACheckedBillAgain(LateBillsCase):
+    def test_a_job_killed_after_the_late_bill_was_filed_is_resumed_without_a_second_bill_or_reading(self):
+        waiting = self._first_upload()
+        attach_then_die = bills._store_and_attach
+
+        def killed_after_attaching(*args):
+            attach_then_die(*args)
+            raise _WorkerKilled
+
+        with patch.object(bills, "_store_and_attach", side_effect=killed_after_attaching), self.assertRaises(
+            _WorkerKilled
+        ):
+            self._upload(self._second_file())
+        frappe.db.rollback()
+        batch = frappe.get_all(
+            "Outflow Import Batch", filters={"source": "Cashbook"}, order_by="creation desc", limit=1, pluck="name"
+        )[0]
+        self.batches.append(batch)
+
+        (bill,) = bills_of(waiting.doctype, waiting.name)
+        reader = FakeReader(BillRead(total=_line_amount(frappe.get_doc(waiting.doctype, waiting.name))))
+        run_reading(bill.name, reader)
+        self.assertEqual(bills_of(waiting.doctype, waiting.name)[0].bill_check, "Matched")
+        self.assertEqual(cb.get_cashbook_status(batch)["bills_waiting"], 1)  # the job died before marking it done
+
+        queued_before = len(readings_queued(self.jobs))
+        with patch.object(bills, "fetch_bill", _fake_bills()):
+            cb.resume_cashbook_import(batch)
+            cb._cashbook_worker(batch, "Administrator")
+        run_reading(bill.name, reader)  # the reading job, should it run again, finds the bill already checked
+
+        (after,) = bills_of(waiting.doctype, waiting.name)
+        self.assertEqual((after.name, after.bill_check, after.status), (bill.name, "Matched", "Approved"))
+        self.assertEqual(len(reader.files), 1)
+        self.assertEqual(len(readings_queued(self.jobs)), queued_before)
+        self.assertEqual(cb.get_cashbook_status(batch)["bills_waiting"], 0)
+
+
 class TestASpendWithSeveralBillsIsNotChecked(CashbookBillsCase):
     def test_four_bill_links_make_a_pending_not_checked_bill_whose_total_is_the_line_amount_and_nothing_is_read(self):
         self._run()
