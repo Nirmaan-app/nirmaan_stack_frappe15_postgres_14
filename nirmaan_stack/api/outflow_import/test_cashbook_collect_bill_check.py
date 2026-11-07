@@ -174,7 +174,7 @@ class TestTheMainTableCarriesTheKeptCheck(CollectPaymentCase):
 
 class TestALineWhoseReadingStopped(CollectPaymentCase):
     """A worker killed mid-read leaves the line Checking with its claim set (story 20): the line must not say
-    Checking forever."""
+    Checking forever, and it has no result to carry, so Create reads the Expense bill afresh (spec #1637 review)."""
 
     def _stopped_line(self):
         self._run()
@@ -189,21 +189,23 @@ class TestALineWhoseReadingStopped(CollectPaymentCase):
         (row,) = [row for row in page["rows"] if row["name"] == line.name]
         return row
 
-    def test_the_main_table_ships_it_as_not_read(self):
+    def test_the_main_table_ships_it_with_no_bill_check_so_the_dialog_says_it_will_be_read_on_create(self):
         line = self._stopped_line()
 
-        self.assertEqual(self._row(line)["bill_check"], "Not read")
+        self.assertIsNone(self._row(line)["bill_check"])
 
-    def test_create_makes_a_not_read_expense_bill_that_waits_for_a_person_and_is_not_read_again(self):
+    def test_create_makes_a_checking_expense_bill_and_queues_a_fresh_reading_of_it(self):
         line = self._stopped_line()
-        queued_before = list(self.jobs)
 
         create_expense(row=line.name, doctype=line.suggested_doctype, expense_type=line.suggested_expense_type)
 
         [match] = self._expenses_of(COLLECT_WITH_LINK)
         (bill,) = bills_of(match.target_doctype, match.target_name)
-        self.assertEqual((bill.bill_check, bill.bill_check_reason, bill.status), ("Not read", "The reading stopped.", "Pending"))
-        self.assertEqual(readings_queued(self.jobs), readings_queued(queued_before))
+        self.assertEqual(
+            (bill.bill_check, bill.bill_check_reason, bill.read_claimed_at, bill.status),
+            ("Checking", None, None, "Pending"),
+        )
+        self.assertIn(("long", bill.name), readings_queued(self.jobs))
 
     def test_a_line_stored_before_the_bill_check_ships_no_result(self):
         self._run()
