@@ -12,7 +12,6 @@ import {
     expenseListBillCheckText,
     billCheckText,
     lastBillRejectedText,
-    readTotalText,
     rejectBillSchema,
 } from "./expenseBillApprovalView";
 
@@ -41,10 +40,6 @@ describe("a waiting expense bill's cells", () => {
         expect(billCheckText({ ...ROW, bill_check: "Not checked", bill_check_reason: null })).toBe("Not checked");
     });
 
-    it("show a dash for the total read when none was compared", () => {
-        expect(readTotalText({ ...ROW, read_total: null })).toBe("--");
-        expect(readTotalText(ROW)).toBe("₹1,250");
-    });
 });
 
 describe("the approve form", () => {

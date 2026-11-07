@@ -8,15 +8,17 @@
  */
 import { ColumnDef } from "@tanstack/react-table";
 
+import {
+    BillCheckResultCell, FileLinkCell, InvoiceNoDateCell, MoneyCell, invoiceNoDateText, rightAlignedHeader,
+} from "@/components/common/expenseBillCells";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
-import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
-import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 
-import { type PendingExpenseBillRow, billCheckText, readTotalText } from "../utils/expenseBillApprovalView";
+import { type PendingExpenseBillRow, billCheckText } from "../utils/expenseBillApprovalView";
 
 interface ExpenseBillApprovalColumnOptions {
     onApprove: (row: PendingExpenseBillRow) => void;
@@ -27,10 +29,6 @@ interface ExpenseBillApprovalColumnOptions {
     /** The bill whose Read again is being sent, if any. */
     readingAgainBill?: string | null;
 }
-
-const money = (value: number | null) => (
-    <div className="text-right whitespace-nowrap tabular-nums">{value === null ? "--" : formatToRoundedIndianRupee(value)}</div>
-);
 
 export const getExpenseBillApprovalColumns = ({
     onApprove, onReject, onReadAgain, canReadAgain, readingAgainBill = null,
@@ -47,10 +45,8 @@ export const getExpenseBillApprovalColumns = ({
     {
         accessorKey: "line_amount",
         size: 125,
-        header: ({ column }) => (
-            <div className="w-full flex justify-end"><DataTableColumnHeader column={column} title="Line amount" /></div>
-        ),
-        cell: ({ row }) => money(row.original.line_amount),
+        header: rightAlignedHeader<PendingExpenseBillRow>("Line amount"),
+        cell: ({ row }) => <MoneyCell value={row.original.line_amount} />,
         enableGlobalFilter: false,
         meta: {
             exportHeaderName: "Line amount",
@@ -62,7 +58,7 @@ export const getExpenseBillApprovalColumns = ({
         accessorKey: "read_total",
         size: 115,
         header: () => <div className="text-right">Bill total read</div>,
-        cell: ({ row }) => <div className="text-right whitespace-nowrap tabular-nums">{readTotalText(row.original)}</div>,
+        cell: ({ row }) => <MoneyCell value={row.original.read_total} />,
         enableSorting: false,
         enableGlobalFilter: false,
         meta: {
@@ -75,14 +71,7 @@ export const getExpenseBillApprovalColumns = ({
         accessorKey: "bill_check",
         size: 180,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Bill check" />,
-        cell: ({ row }) => (
-            <div>
-                <div className="font-medium">{row.original.bill_check}</div>
-                {row.original.bill_check_reason && (
-                    <TruncatedText text={row.original.bill_check_reason} className="max-w-full text-xs text-muted-foreground" />
-                )}
-            </div>
-        ),
+        cell: ({ row }) => <BillCheckResultCell row={row.original} />,
         filterFn: facetedFilterFn,
         meta: { exportHeaderName: "Bill check", exportValue: (row: PendingExpenseBillRow) => billCheckText(row) },
     },
@@ -91,18 +80,9 @@ export const getExpenseBillApprovalColumns = ({
         size: 140,
         accessorFn: (row) => row.invoice_no ?? "",
         header: "Invoice no. / date",
-        cell: ({ row }) => (
-            <div className="whitespace-nowrap">
-                <div>{row.original.invoice_no || "--"}</div>
-                <div className="text-xs text-muted-foreground">{row.original.invoice_date ? formatDate(row.original.invoice_date) : "--"}</div>
-            </div>
-        ),
+        cell: ({ row }) => <InvoiceNoDateCell row={row.original} />,
         enableSorting: false,
-        meta: {
-            exportHeaderName: "Invoice no. / date",
-            exportValue: (row: PendingExpenseBillRow) =>
-                [row.invoice_no ?? "", row.invoice_date ? formatDate(row.invoice_date) : ""].filter(Boolean).join(" / "),
-        },
+        meta: { exportHeaderName: "Invoice no. / date", exportValue: invoiceNoDateText },
     },
     {
         id: "paid_by",
@@ -139,16 +119,7 @@ export const getExpenseBillApprovalColumns = ({
         id: "bill_file",
         size: 70,
         header: "Bill",
-        cell: ({ row }) => (
-            <a
-                href={`${SITEURL}${row.original.bill_file}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-600 hover:underline"
-            >
-                View
-            </a>
-        ),
+        cell: ({ row }) => <FileLinkCell file={row.original.bill_file} />,
         enableSorting: false,
         enableGlobalFilter: false,
         meta: { exportHeaderName: "Bill", exportValue: (row: PendingExpenseBillRow) => row.bill_file },

@@ -4,34 +4,21 @@
  *
  * Every column sets `size`: the shared table is `table-fixed` and gives an unsized column 150px.
  */
-import type { ColumnDef, HeaderContext } from "@tanstack/react-table";
+import type { ColumnDef } from "@tanstack/react-table";
 
+import {
+    BillCheckResultCell, FileLinkCell, InvoiceNoDateCell, MoneyCell, invoiceNoDateText, rightAlignedHeader,
+} from "@/components/common/expenseBillCells";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
-import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
-import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport } from "@/utils/FormatPrice";
 
 import {
     type AllExpenseBillRow, type PorterInvoiceListRow, approvalText, billDecision, offersReadAgain, porterResultText,
 } from "../utils/allInvoicesView";
-import { billCheckText, readTotalText } from "../utils/expenseBillApprovalView";
-
-const money = (value: number | null) => (
-    <div className="text-right whitespace-nowrap tabular-nums">{value === null || value === undefined ? "--" : formatToRoundedIndianRupee(value)}</div>
-);
-
-const fileLink = (file: string | null, label = "View") =>
-    file ? (
-        <a href={`${SITEURL}${file}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{label}</a>
-    ) : (
-        <span className="text-muted-foreground">--</span>
-    );
-
-const rightHeader = <TRow,>(title: string) => ({ column }: HeaderContext<TRow, unknown>) => (
-    <div className="w-full flex justify-end"><DataTableColumnHeader column={column} title={title} /></div>
-);
+import { billCheckText } from "../utils/expenseBillApprovalView";
 
 interface AllExpenseBillColumnOptions {
     /** A user's full name from their id; the list ships ids for who decided. */
@@ -87,15 +74,15 @@ export const getAllExpenseBillColumns = ({ userName, readAgain }: AllExpenseBill
     {
         accessorKey: "line_amount",
         size: 120,
-        header: rightHeader<AllExpenseBillRow>("Line amount"),
-        cell: ({ row }) => money(row.original.line_amount),
+        header: rightAlignedHeader<AllExpenseBillRow>("Line amount"),
+        cell: ({ row }) => <MoneyCell value={row.original.line_amount} />,
         meta: { exportHeaderName: "Line amount", exportValue: (row: AllExpenseBillRow) => formatForReport(row.line_amount), isNumeric: true },
     },
     {
         accessorKey: "read_total",
         size: 120,
-        header: rightHeader<AllExpenseBillRow>("Bill total read"),
-        cell: ({ row }) => <div className="text-right whitespace-nowrap tabular-nums">{readTotalText(row.original)}</div>,
+        header: rightAlignedHeader<AllExpenseBillRow>("Bill total read"),
+        cell: ({ row }) => <MoneyCell value={row.original.read_total} />,
         meta: {
             exportHeaderName: "Bill total read",
             exportValue: (row: AllExpenseBillRow) => (row.read_total === null ? "" : formatForReport(row.read_total)),
@@ -106,30 +93,14 @@ export const getAllExpenseBillColumns = ({ userName, readAgain }: AllExpenseBill
         accessorKey: "invoice_no",
         size: 140,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice no. / date" />,
-        cell: ({ row }) => (
-            <div className="whitespace-nowrap">
-                <TruncatedText text={row.original.invoice_no || "--"} className="max-w-full" />
-                <div className="text-xs text-muted-foreground">{row.original.invoice_date ? formatDate(row.original.invoice_date) : "--"}</div>
-            </div>
-        ),
-        meta: {
-            exportHeaderName: "Invoice no. / date",
-            exportValue: (row: AllExpenseBillRow) =>
-                [row.invoice_no ?? "", row.invoice_date ? formatDate(row.invoice_date) : ""].filter(Boolean).join(" / "),
-        },
+        cell: ({ row }) => <InvoiceNoDateCell row={row.original} />,
+        meta: { exportHeaderName: "Invoice no. / date", exportValue: invoiceNoDateText },
     },
     {
         accessorKey: "bill_check",
         size: 170,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Bill check" />,
-        cell: ({ row }) => (
-            <div>
-                <div className="font-medium">{row.original.bill_check}</div>
-                {row.original.bill_check_reason && (
-                    <TruncatedText text={row.original.bill_check_reason} className="max-w-full text-xs text-muted-foreground" />
-                )}
-            </div>
-        ),
+        cell: ({ row }) => <BillCheckResultCell row={row.original} />,
         meta: { exportHeaderName: "Bill check", exportValue: (row: AllExpenseBillRow) => billCheckText(row) },
     },
     {
@@ -205,7 +176,7 @@ export const getAllExpenseBillColumns = ({ userName, readAgain }: AllExpenseBill
         id: "bill_file",
         size: 65,
         header: "File",
-        cell: ({ row }) => fileLink(row.original.bill_file),
+        cell: ({ row }) => <FileLinkCell file={row.original.bill_file} />,
         enableSorting: false,
         meta: { exportHeaderName: "File", exportValue: (row: AllExpenseBillRow) => row.bill_file },
     },
@@ -254,15 +225,15 @@ export const getPorterInvoiceColumns = (): ColumnDef<PorterInvoiceListRow>[] => 
     {
         accessorKey: "completed_orders",
         size: 90,
-        header: rightHeader<PorterInvoiceListRow>("Trips"),
+        header: rightAlignedHeader<PorterInvoiceListRow>("Trips"),
         cell: ({ row }) => <div className="text-right tabular-nums">{row.original.completed_orders ?? "--"}</div>,
         meta: { exportHeaderName: "Trips", isNumeric: true },
     },
     {
         accessorKey: "invoice_total",
         size: 130,
-        header: rightHeader<PorterInvoiceListRow>("Total (incl. GST)"),
-        cell: ({ row }) => money(row.original.invoice_total),
+        header: rightAlignedHeader<PorterInvoiceListRow>("Total (incl. GST)"),
+        cell: ({ row }) => <MoneyCell value={row.original.invoice_total} />,
         meta: {
             exportHeaderName: "Total (incl. GST)",
             exportValue: (row: PorterInvoiceListRow) => formatForReport(row.invoice_total),
@@ -287,7 +258,7 @@ export const getPorterInvoiceColumns = (): ColumnDef<PorterInvoiceListRow>[] => 
         id: "invoice_file",
         size: 65,
         header: "PDF",
-        cell: ({ row }) => fileLink(row.original.invoice_file, "Open"),
+        cell: ({ row }) => <FileLinkCell file={row.original.invoice_file} label="Open" />,
         enableSorting: false,
         meta: { exportHeaderName: "PDF", exportValue: (row: PorterInvoiceListRow) => row.invoice_file ?? "" },
     },

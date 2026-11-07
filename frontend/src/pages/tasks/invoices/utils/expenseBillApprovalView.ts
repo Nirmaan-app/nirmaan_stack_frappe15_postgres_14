@@ -9,7 +9,6 @@
 import { z } from "zod";
 
 import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 
 /** The two pills of expense bills; the value the list endpoint takes as `kind`. */
@@ -46,10 +45,6 @@ export interface PendingExpenseBillRow {
 /** The Bill check as one sentence: the result, then its reason when it has one. */
 export const billCheckText = (row: { bill_check: BillCheckResult; bill_check_reason: string | null }): string =>
     row.bill_check_reason ? `${row.bill_check}: ${row.bill_check_reason}` : row.bill_check;
-
-/** The total read, or a dash when the bill was not compared. */
-export const readTotalText = (row: Pick<PendingExpenseBillRow, "read_total">): string =>
-    row.read_total === null || row.read_total === undefined ? "--" : formatToRoundedIndianRupee(row.read_total);
 
 /** What the approve form starts from; a person corrects it before approving. */
 export const approveFormDefaults = (row: Pick<PendingExpenseBillRow, "invoice_no" | "invoice_date">) => ({
