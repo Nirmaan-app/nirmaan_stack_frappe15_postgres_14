@@ -45,6 +45,19 @@ const APPROVAL_TONE: Record<BillApprovalStatus, string> = {
     Rejected: "text-red-700",
 };
 
+/** An Expense's Bill check: its latest bill's result over its approval, or "—" when it has no Expense bill. Also
+ *  drawn by Project Payments -> All Payments (#1648). */
+export const ExpenseBillCheckCell = ({ row }: { row: ExpenseListBillCheckFields }) => {
+    const shown = expenseListBillCheck(row);
+    if (!shown) return <div className="text-muted-foreground">{NO_EXPENSE_BILL_TEXT}</div>;
+    return (
+        <div className="flex flex-col whitespace-nowrap">
+            <span className={cn("font-medium", RESULT_TONE[shown.result])}>{shown.result}</span>
+            <span className={cn("text-xs", APPROVAL_TONE[shown.approval])}>{shown.approval}</span>
+        </div>
+    );
+};
+
 /** A list row with the two fields the list endpoint fills (the doctype types do not carry them). */
 const billCheckOf = (row: object): ExpenseListBillCheckFields => row as ExpenseListBillCheckFields;
 
@@ -69,16 +82,7 @@ export const getExpenseBillCheckColumns = <T extends object>(): ColumnDef<T>[] =
                 </div>
             </div>
         ),
-        cell: ({ row }) => {
-            const shown = expenseListBillCheck(billCheckOf(row.original));
-            if (!shown) return <div className="text-muted-foreground">{NO_EXPENSE_BILL_TEXT}</div>;
-            return (
-                <div className="flex flex-col whitespace-nowrap">
-                    <span className={cn("font-medium", RESULT_TONE[shown.result])}>{shown.result}</span>
-                    <span className={cn("text-xs", APPROVAL_TONE[shown.approval])}>{shown.approval}</span>
-                </div>
-            );
-        },
+        cell: ({ row }) => <ExpenseBillCheckCell row={billCheckOf(row.original)} />,
         enableSorting: false,
         meta: {
             exportHeaderName: "Bill check",

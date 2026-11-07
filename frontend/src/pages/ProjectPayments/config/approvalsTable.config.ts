@@ -11,6 +11,7 @@ import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { RECONCILIATION_PENDING_LEAVES_OUT } from "@/utils/cheques/chequeTabs";
 import type { PaidTo } from "@/utils/payees/paidTo";
 import type { WithheldTds } from "@/utils/expenses/expenseTds";
+import type { ExpenseListBillCheckFields } from "@/pages/tasks/invoices/utils/expenseBillApprovalView";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -59,7 +60,8 @@ export type ApprovalColumnId =
   | "actions" | "source" | "against" | "requested_on"
   | "vendor" | "paid_to" | "project" | "amount" | "tier" | "raised_by"
   | "approved_on" | "paid_on" | "utr_ref" | "proof" | "payment_by"
-  | "reconciled_on" | "status" | "project_value" | "cashflow_gap" | "payment_source";
+  | "reconciled_on" | "status" | "project_value" | "cashflow_gap" | "payment_source"
+  | "invoice" | "bill_check";
 
 /**
  * The Payment Source column's value for a row no live bank line reaches (owner, 2026-11-06). The server sends
@@ -175,6 +177,10 @@ export interface ApprovalQueueRow {
    *  invoices are Vendor Invoices. Drives the Paid tab's Upload Invoice action. */
   invoice: string;
   has_invoice: boolean;
+  /** An Expense's latest Expense bill's Bill check and approval (`services/expense_bills/bill_list.py`); null on an
+   *  Expense with no Expense bill and on every PO / WO payment. Shown by All Payments (#1648). */
+  bill_check: ExpenseListBillCheckFields["bill_check"];
+  bill_approval: ExpenseListBillCheckFields["bill_approval"];
   /** Who the row is paid to: its own pay-to account, copied when it was raised (ADR-0033, #1438).
    *  Read by the server's Payee module (`services/payees/paid_to`). */
   paid_to?: PaidTo;
@@ -243,9 +249,11 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
     "requested_on", "raised_by",
   ],
+  // `invoice` and `bill_check` (#1648, spec #1637): an Expense's latest bill and its Bill check, on this tab only.
+  // Blank on a PO / WO payment row: one payment can cover many invoices.
   [PP_TABS.ALL_PAYMENTS]: [
-    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source", "status",
-    "requested_on", "raised_by",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source",
+    "invoice", "bill_check", "status", "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
   // the expense Edit pencil (2026-09-21), and a Paid expense's Upload / Edit Inv for Admin, Accounts and HR

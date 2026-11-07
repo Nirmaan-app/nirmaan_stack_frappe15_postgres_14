@@ -36,6 +36,8 @@ import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { cn } from "@/lib/utils";
 import { paidToCell, paidToExportText, rowEligibility } from "@/utils/payees/paidTo";
+import { ExpenseBillCheckCell } from "@/components/common/expenseBillCheckColumns";
+import { expenseListBillCheckText } from "@/pages/tasks/invoices/utils/expenseBillApprovalView";
 
 import {
   APPROVAL_STATUS,
@@ -841,6 +843,39 @@ const REGISTRY: Record<
         </a>
       ) : <Blank />,
     meta: { exportHeaderName: "Proof", exportValue: (r: ApprovalQueueRow) => (r.has_proof ? "yes" : "") },
+  }),
+
+  // All Payments only (#1648, spec #1637): an Expense's latest bill (the Expense's `invoice_attachment`, its latest
+  // Expense bill's mirror) and that bill's Bill check. A PO / WO payment row leaves both empty, not "—": one
+  // payment can cover many invoices, and "—" in Bill check means an Expense with no Expense bill.
+  invoice: () => ({
+    id: "invoice",
+    header: "Invoice",
+    size: 70,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const r = row.original;
+      if (r.source === "Vendor Payment") return null;
+      return r.has_invoice ? (
+        <a href={`${SITEURL}${r.invoice}`} target="_blank" rel="noreferrer"
+          aria-label="Open invoice" title="Open invoice" className="text-primary">
+          <Paperclip className="h-3.5 w-3.5" />
+        </a>
+      ) : <Blank />;
+    },
+    meta: { exportHeaderName: "Invoice", exportValue: (r: ApprovalQueueRow) => r.invoice || "" },
+  }),
+
+  bill_check: () => ({
+    id: "bill_check",
+    header: "Bill check",
+    size: 130,
+    enableSorting: false,
+    cell: ({ row }) => (row.original.source === "Vendor Payment" ? null : <ExpenseBillCheckCell row={row.original} />),
+    meta: {
+      exportHeaderName: "Bill check",
+      exportValue: (r: ApprovalQueueRow) => (r.source === "Vendor Payment" ? "" : expenseListBillCheckText(r)),
+    },
   }),
 
   // Project Expenses only — 99.5% filled, and that ledger's stand-in for Vendor.
