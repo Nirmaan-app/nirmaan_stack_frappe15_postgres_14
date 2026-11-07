@@ -84,18 +84,15 @@ def _write(line: str, values: dict) -> None:
     frappe.db.commit()
 
 
-KEPT = ("bill_check", "bill_check_reason", "read_claimed_at", "read_total", "read_invoice_no", "read_invoice_date",
-        "reader_output")
+KEPT = ("bill_check", "bill_check_reason", "read_total", "read_invoice_no", "read_invoice_date", "reader_output")
 
 
 def kept_reading(line: str) -> reading.Reading | None:
     """The reading kept on Collect payment line `line`, for Create to hand to `receive_bill`: None while it is still
-    Checking (or from before #1642), so the Expense bill is read instead. A line left Checking by a reading that
-    stopped (`reading.reading_stopped`) is Not read for that reason, as the main table shows it. A Not checked line
-    gives None too: its bill count alone decides it."""
+    Checking (or from before #1642), and for a line left Checking by a reading that stopped (`reading.reading_stopped`),
+    which has no result either, so the Expense bill is read instead. A Not checked line gives None too: its bill
+    count alone decides it."""
     kept = frappe.db.get_value(LINE_DOCTYPE, line, KEPT, as_dict=True) or frappe._dict()
-    if reading.reading_stopped(kept.bill_check, kept.read_claimed_at):
-        return reading.Reading(ReadFailed(reading.READING_STOPPED))
     if kept.bill_check == NOT_READ:
         return reading.Reading(ReadFailed(kept.bill_check_reason or "The bill was not read."))
     if kept.bill_check in (MATCHED, MISMATCHED):

@@ -39,10 +39,10 @@ An open **Collect payment** keeps its bill on its line until someone decides it 
 Bill check at import, against the line's amount, and the result is kept on the line. The line's decide dialog
 (Bulk Import Transactions -> Not Matched – Outflow -> Choose) says **Invoice already available** and `Create
 expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismatched, Not read, Not checked) or
-`Checking`. A line left Checking by a reading that stopped (claim older than 20 minutes) ships `bill_check` Not
-read, so the dialog says Pending Approval and Create makes a Not read bill, "The reading stopped."; a line stored
-before #1642 ships no `bill_check` (the dialog's "Will be read on Create"). Create a new expense makes the Expense
-bill from the kept result without reading again; Skip makes none.
+`Checking`. A line left Checking by a reading that stopped (claim older than 20 minutes) has no result, so it ships
+no `bill_check`, as a line stored before #1642 does (the dialog's "Will be read on Create"), and Create makes a
+Checking Expense bill with a fresh reading queued. Create a new expense makes the Expense bill from a finished
+result without reading again; Skip makes none.
 
 ## Sub-features
 
