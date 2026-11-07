@@ -1,7 +1,8 @@
 /**
  * Columns of Pending Approval -> Cashbook / Credit Card (#1644): one row per Expense bill waiting for a person, with
  * what the approver decides on -- spend date, line amount, bill total read, Bill check, invoice number and date, who
- * paid, project, who attached it and the bill file -- then Approve and Reject.
+ * paid, project, who attached it and the bill file -- then Approve and Reject, and Read again on a Not read bill
+ * for whoever may read it again (#1645).
  *
  * Every column sets `size`: the shared table is `table-fixed` and gives an unsized column 150px.
  */
@@ -20,6 +21,11 @@ import { type PendingExpenseBillRow, billCheckText, readTotalText } from "../uti
 interface ExpenseBillApprovalColumnOptions {
     onApprove: (row: PendingExpenseBillRow) => void;
     onReject: (row: PendingExpenseBillRow) => void;
+    onReadAgain: (row: PendingExpenseBillRow) => void;
+    /** Admin and Accountant Lead (`canReadExpenseBillAgain`); the server checks it too. */
+    canReadAgain: boolean;
+    /** The bill whose Read again is being sent, if any. */
+    readingAgainBill?: string | null;
 }
 
 const money = (value: number | null) => (
@@ -27,7 +33,7 @@ const money = (value: number | null) => (
 );
 
 export const getExpenseBillApprovalColumns = ({
-    onApprove, onReject,
+    onApprove, onReject, onReadAgain, canReadAgain, readingAgainBill = null,
 }: ExpenseBillApprovalColumnOptions): ColumnDef<PendingExpenseBillRow>[] => [
     {
         accessorKey: "payment_date",
@@ -149,10 +155,20 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         id: "actions",
-        size: 170,
+        size: 260,
         header: () => <div className="text-right">Actions</div>,
         cell: ({ row }) => (
             <div className="flex justify-end gap-2 whitespace-nowrap">
+                {canReadAgain && row.original.bill_check === "Not read" && (
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={readingAgainBill === row.original.name}
+                        onClick={() => onReadAgain(row.original)}
+                    >
+                        Read again
+                    </Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => onApprove(row.original)}>Approve</Button>
                 <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onReject(row.original)}>Reject</Button>
             </div>

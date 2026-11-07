@@ -1,6 +1,7 @@
 /**
  * Pending Approval -> Cashbook / Credit Card (#1644): the list of Expense bills waiting for a person, Approve and
- * Reject, and their dialogs' state. The dialogs hold the bill's name, never a row snapshot, and read the live row
+ * Reject, and their dialogs' state; Read again on a Not read bill (#1645), which takes it off the list while it is
+ * Checking. The dialogs hold the bill's name, never a row snapshot, and read the live row
  * from the refetched list (frontend/CODING_STANDARDS § Fetching or mutating data).
  */
 import { useCallback, useMemo, useState } from "react";
@@ -22,6 +23,8 @@ export const useExpenseBillApprovals = (kind: ExpenseBillKind) => {
 
     const { call: approveCall, loading: approving } = useFrappePostCall(`${API}.approve_expense_bill`);
     const { call: rejectCall, loading: rejecting } = useFrappePostCall(`${API}.reject_expense_bill`);
+    const { call: readAgainCall } = useFrappePostCall(`${API}.read_expense_bill_again`);
+    const [readingAgainBill, setReadingAgainBill] = useState<string | null>(null);
 
     const [approvingBill, setApprovingBill] = useState<string | null>(null);
     const [rejectingBill, setRejectingBill] = useState<string | null>(null);
@@ -68,9 +71,22 @@ export const useExpenseBillApprovals = (kind: ExpenseBillKind) => {
         }
     }, [mutate, reason, rejectCall, rejectingBill, toast]);
 
+    const onReadAgain = useCallback(async (row: PendingExpenseBillRow) => {
+        setReadingAgainBill(row.name);
+        try {
+            await readAgainCall({ bill: row.name });
+            toast({ title: "Reading the bill again", description: `${row.name} is Checking; its new result shows here once read.`, variant: "success" });
+            mutate();
+        } catch (e) {
+            toast({ title: "Could not read the bill again", description: getFrappeError(e), variant: "destructive" });
+        } finally {
+            setReadingAgainBill(null);
+        }
+    }, [mutate, readAgainCall, toast]);
+
     return {
         rows, error, isLoading, approvingBill, setApprovingBill, rejectingBill, setRejectingBill, approveRow, rejectRow,
         invoiceNo, setInvoiceNo, invoiceDate, setInvoiceDate, reason, setReason, approving, rejecting,
-        onApprove, onReject, submitApprove, submitReject,
+        onApprove, onReject, submitApprove, submitReject, onReadAgain, readingAgainBill,
     };
 };
