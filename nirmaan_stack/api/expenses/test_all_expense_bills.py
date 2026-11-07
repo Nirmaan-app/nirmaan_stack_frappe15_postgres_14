@@ -60,6 +60,13 @@ class TestTheCreditCardPill(CardBillsCase):
         self.assertEqual((float(first["line_amount"]), float(first["read_total"])), (1180.0, 1250.0))
         self.assertEqual((first["bill_check"], first["approval"], first["is_latest"]), ("Mismatched", "Rejected", 0))
         self.assertEqual(first["rejection_reason"], "Bill of another shop")
+        # Who decided each bill and when (story 35): the person who rejected, the System that approved.
+        self.assertEqual(first["rejected_by"], self.accountant)
+        self.assertTrue(first["rejected_on"])
+        self.assertEqual((first["approved_by"], first["approved_on"]), (None, None))
+        self.assertEqual(second["approved_by"], "System")
+        self.assertTrue(second["approved_on"])
+        self.assertEqual((second["rejected_by"], second["rejected_on"]), (None, None))
         self.assertIsNone(first["invoice_no"])
         self.assertEqual(first["uploaded_by"], frappe.db.get_value(BILL, self.first, "uploaded_by"))
         self.assertTrue(first["uploaded_by_name"])

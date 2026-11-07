@@ -45,8 +45,10 @@ def get_all_expense_bills(
 
     Each row: `name` (the Expense bill), `expense`, `expense_doctype`, `payment_date` (the spend date), `line_amount`,
     `read_total` (None unless compared), `bill_check` and `bill_check_reason`, `approval` (Auto-approved / Pending /
-    Approved / Rejected) and `rejection_reason`, `is_latest`, `invoice_no` and `invoice_date`, `paid_by`, `project`
-    and `project_name`, `uploaded_by` and `uploaded_by_name` (who attached it), `bill_file`, `creation`.
+    Approved / Rejected) with `approved_by`, `approved_on`, `rejected_by`, `rejected_on` (who decided it and when;
+    "System" on an auto-approved one) and `rejection_reason`, `is_latest`, `invoice_no` and `invoice_date`,
+    `paid_by`, `project` and `project_name`, `uploaded_by` and `uploaded_by_name` (who attached it), `bill_file`,
+    `creation`.
 
     Example: `filters=[["kind","=","card"],["bill_check","in",["Mismatched"]]]` ->
     `{"data": [{"name": "EB-2026-00042", "bill_check": "Mismatched", ...}], "total_count": 1, ...}`.

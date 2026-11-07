@@ -45,15 +45,18 @@ def approve_bill(name: str, invoice_no: str | None, invoice_date: str | None, us
     expense.save(ignore_permissions=True)
 
 
-def reject_bill(name: str, reason: str | None) -> None:
-    """Reject waiting bill `name` for the typed `reason`; its Expense waits for a new bill again. Who rejected it and
-    when are the Version the save keeps (the Vendor Invoice fields ADR-0045 reuses have no rejected-by)."""
+def reject_bill(name: str, reason: str | None, user: str) -> None:
+    """Reject waiting bill `name` as `user` for the typed `reason`, recorded with who and when (`rejected_by`,
+    `rejected_on`: fields of the bill's own, since a Vendor Invoice keeps no rejecter; story 35); its Expense waits
+    for a new bill again."""
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED)
     bill, expense = _lock_waiting(name)
     bill.status = REJECTED
     bill.rejection_reason = reason
+    bill.rejected_by = user
+    bill.rejected_on = now_datetime()
     bill.save(ignore_permissions=True)
     expense.invoice_attachment = None
     expense.invoice_ref = None

@@ -126,9 +126,10 @@ class TestReject(WaitingCardBillCase):
             self._as(accountant, reject_expense_bill, self.bill, reason=" Bill of another shop ")
 
         self.assertEqual(
-            frappe.db.get_value(BILL, self.bill, ["status", "rejection_reason", "is_latest"]),
-            ("Rejected", "Bill of another shop", 1),
+            frappe.db.get_value(BILL, self.bill, ["status", "rejection_reason", "is_latest", "rejected_by"]),
+            ("Rejected", "Bill of another shop", 1, accountant),
         )
+        self.assertTrue(frappe.db.get_value(BILL, self.bill, "rejected_on"))
         self.assertEqual(
             frappe.db.get_value(NPE, self.spend, ["invoice_attachment", "invoice_ref", "invoice_date"]),
             (None, None, None),
@@ -174,6 +175,10 @@ class TestTheCreditCardPill(WaitingCardBillCase):
         self.assertIsNone(row["project"])
         self.assertTrue(row["uploaded_by"])
         self.assertEqual(row["bill_file"], frappe.db.get_value(BILL, self.bill, "bill_file"))
+        # A waiting bill carries its (empty) decision record too, as All Invoices' rows do (story 35).
+        self.assertEqual(
+            (row["approved_by"], row["approved_on"], row["rejected_by"], row["rejected_on"]), (None, None, None, None)
+        )
 
     def test_a_mismatched_bill_offers_the_number_and_date_the_accountant_typed(self):
         # A Mismatched bill fills nothing on itself; the approve form starts from what was typed on the Expense.
