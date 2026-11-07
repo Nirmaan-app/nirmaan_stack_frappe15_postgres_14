@@ -5,10 +5,11 @@
 GLOSSARY *Expense bill approval*, ADR-0045).
 
 URLs: /api/method/nirmaan_stack.api.expenses.expense_bill_approval.<get_pending_expense_bills | approve_expense_bill |
-reject_expense_bill>
+reject_expense_bill | read_expense_bill_again>
 
 Gate: the Vendor Invoice approvers (`role_profiles.INVOICE_APPROVAL_PROFILES`: Admin, Accountant, Accountant Lead),
-checked here on the server, not only by the screen.
+checked here on the server, not only by the screen. Read again (#1645): Admin and Accountant Lead
+(`role_profiles.READ_AGAIN_PROFILES`).
 """
 
 from typing import NamedTuple
@@ -20,8 +21,9 @@ from nirmaan_stack.api.expenses.cashbook_invoices import EXPENSE_DOCTYPES, NON_P
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.approval import approve_bill, reject_bill
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, MATCHED, MISMATCHED
+from nirmaan_stack.services.expense_bills.reading import read_again
 from nirmaan_stack.services.expense_invoices import require_profile
-from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES
+from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES, READ_AGAIN_PROFILES
 
 
 class Pill(NamedTuple):
@@ -125,5 +127,18 @@ def reject_expense_bill(bill: str, reason: str) -> dict:
     """
     _require_approver()
     reject_bill(bill, reason)
+    frappe.db.commit()
+    return {"name": bill}
+
+
+@frappe.whitelist(methods=["POST"])
+def read_expense_bill_again(bill: str) -> dict:
+    """Read again Expense bill `bill`, whose Bill check is Not read: it goes back to Checking and its reading is
+    queued. Admin and Accountant Lead only.
+
+    Example: `{"bill": "EB-2026-00042"}` -> `{"name": "EB-2026-00042"}`.
+    """
+    require_profile(READ_AGAIN_PROFILES, "Only an Admin or an Accountant Lead can read a bill again.")
+    read_again(bill)
     frappe.db.commit()
     return {"name": bill}

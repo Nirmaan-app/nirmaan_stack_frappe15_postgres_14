@@ -72,6 +72,17 @@ def queue_reading(bill: str) -> None:
     )
 
 
+def read_again(bill: str) -> None:
+    """Read again (#1645): put Not read bill `bill` back to Checking, unclaimed, and queue its reading. Does not
+    commit; the reading is queued once the caller's transaction commits."""
+    doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
+    doc.bill_check = CHECKING
+    doc.bill_check_reason = None
+    doc.read_claimed_at = None
+    doc.save(ignore_permissions=True)
+    queue_reading(bill)
+
+
 def check_expense_bill(bill: str) -> None:
     """THE JOB: read one Checking Expense bill and record its Bill check. Does nothing for a bill another job
     claimed or one already decided."""
