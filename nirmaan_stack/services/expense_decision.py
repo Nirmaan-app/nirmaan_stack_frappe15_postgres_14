@@ -62,12 +62,14 @@ from nirmaan_stack.services.expense_statuses import (
     EXPENSE_REJECTED,
     EXPENSE_REQUESTED,
 )
+from nirmaan_stack.services.expense_bills.receive import gets_expense_bill, receive_bill
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
     ADMIN_PROFILE,
+    PAID_BILL_APPROVER_PROFILES,
     PAYMENT_SETTLE_PROFILES,
     has_role_profile,
 )
@@ -335,11 +337,15 @@ def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None
     if (doc.status or "").strip() != EXPENSE_PAID:
         frappe.throw(_("{0} is {1}; its invoice is added here only once it is Paid.").format(
             name, doc.status or "blank"))
-    new_file = None
-    if values["invoice_attachment"] != (doc.invoice_attachment or ""):
-        new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user)
-    doc.update(values)
-    doc.save(ignore_permissions=True)
+    replaced = values["invoice_attachment"] != (doc.invoice_attachment or "")
+    new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user) if replaced else None
+    if replaced and gets_expense_bill(doc):
+        # A new bill on a wallet spend or card spend is an Expense bill (#1643); an approver's is approved at once.
+        receive_bill(doc, values["invoice_attachment"], values["invoice_ref"], values["invoice_date"], user,
+                     approve=has_role_profile(user, PAID_BILL_APPROVER_PROFILES))
+    else:
+        doc.update(values)
+        doc.save(ignore_permissions=True)
     if new_file:
         # Files the upload under the expense, as an upload made against it would have been. A plain write:
         # it moves no bytes, and a File's own hooks have nothing to do for a link.

@@ -176,6 +176,11 @@ USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFIL
 # `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` -- keep the two lists in sync.
 PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
+# Of those, the ones whose new bill on a paid wallet spend or card spend is approved at once in their name (#1643,
+# spec #1637, GLOSSARY *Expense bill approval*): Admin and Accountant Lead. Anyone else's new bill there waits like
+# any other (auto-approved when Matched). Enforced in `expense_decision.save_paid_invoice`; no screen reads it.
+PAID_BILL_APPROVER_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
 # `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
