@@ -57,9 +57,11 @@ def split_filters(filters, own: set[str]) -> tuple[dict, list]:
     if isinstance(filters, dict):
         filters = [[k, "=", v] for k, v in filters.items()]
     mine, rest = {}, []
+    if not isinstance(filters, list):
+        frappe.throw(_("Filters must be a list of [field, operator, value]."))
     for f in filters:
         if not isinstance(f, (list, tuple)) or len(f) < 3:
-            continue
+            frappe.throw(_("Unsupported filter: {0}").format(f))
         field, op, value = f[-3], str(f[-2]).strip(), f[-1]
         if field in own:
             if op != "=":

@@ -86,3 +86,9 @@ class TestThePorterPill(FrappeTestCase):
     def test_someone_outside_admin_and_the_accountant_profiles_cannot_list(self):
         with self.assertRaises(frappe.PermissionError):
             self._page(user=self.outsider)
+
+    def test_a_filter_the_list_cannot_apply_is_refused_not_ignored(self):
+        # Ignoring it would show more rows than were asked for.
+        for bad in (["validation_status"], ["fare_total", "in", [1000]], ["validation_status", "like", "%Pass%"]):
+            with self.assertRaises(frappe.ValidationError, msg=bad):
+                self._page([bad])

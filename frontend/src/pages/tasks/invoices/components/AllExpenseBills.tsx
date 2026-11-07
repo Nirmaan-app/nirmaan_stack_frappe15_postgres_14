@@ -23,6 +23,8 @@ const SEARCHABLE_FIELDS = [
     { value: "uploaded_by_name", label: "Invoice Added By", placeholder: "Search by who attached it..." },
 ];
 
+// Fixed value lists, so the pre-fetched facet path, not `meta.facet`: a self-fetching facet reads a doctype, and these
+// lists are a SQL query (frontend/CODING_STANDARDS § Building a table).
 const FACETS = {
     bill_check: { title: "Bill check", options: BILL_CHECK_RESULTS.map((v) => ({ label: v, value: v })) },
     approval: { title: "Approval", options: BILL_APPROVAL_STATUSES.map((v) => ({ label: v, value: v })) },

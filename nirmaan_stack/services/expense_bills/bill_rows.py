@@ -10,7 +10,7 @@ history, with:
 
 * `bill_check`: a bill whose reading stopped shows Not read, with `reading.READING_STOPPED` as its reason (#1645);
 * `approval`: the bill's status, and Auto-approved for a Matched bill the system approved (`bill_list`);
-* `read_total`: only on a compared bill (Matched or Mismatched); `read_total` is 0 on any other;
+* `read_total`: only on a compared bill (Matched or Mismatched), else NULL (the column holds 0 when nothing was read);
 * `invoice_no` / `invoice_date`: the bill's own; on the latest bill, else the ones typed on the Expense, which
   mirrors its latest bill;
 * `paid_by`: the card holder, or the wallet holder on the statement line (else a Project Expense's own Paid by).
@@ -21,12 +21,11 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING, MATCHED, MISMATCHED, NOT_READ
-from nirmaan_stack.services.expense_bills.bill_list import LIST_FIELD_SQL
+from nirmaan_stack.services.expense_bills.bill_check import MATCHED, MISMATCHED
+from nirmaan_stack.services.expense_bills.bill_list import EXPENSE_DOCTYPES, LIST_FIELD_SQL, STOPPED_SQL
 from nirmaan_stack.services.expense_bills.reading import READING_STOPPED, stopped_before
 
-PROJECT_EXPENSE = "Project Expenses"
-NON_PROJECT_EXPENSE = "Non Project Expenses"
+PROJECT_EXPENSE, NON_PROJECT_EXPENSE = EXPENSE_DOCTYPES
 
 
 class Pill(NamedTuple):
@@ -42,13 +41,11 @@ KINDS = {
     "card": Pill((NON_PROJECT_EXPENSE,), "COALESCE(e.credit_card_statement, '') != ''"),
 }
 
-_STOPPED = f"(b.bill_check = '{CHECKING}' AND b.read_claimed_at < %(stopped_before)s)"
-
 _ROWS_SQL = f"""
     SELECT b.name, b.expense, b.expense_doctype, e.payment_date, b.line_amount,
            CASE WHEN b.bill_check IN ('{MATCHED}', '{MISMATCHED}') THEN b.read_total END AS read_total,
-           CASE WHEN {_STOPPED} THEN '{NOT_READ}' ELSE b.bill_check END AS bill_check,
-           CASE WHEN {_STOPPED} THEN '{READING_STOPPED}' ELSE b.bill_check_reason END AS bill_check_reason,
+           {LIST_FIELD_SQL["bill_check"]} AS bill_check,
+           CASE WHEN {STOPPED_SQL} THEN '{READING_STOPPED}' ELSE b.bill_check_reason END AS bill_check_reason,
            {LIST_FIELD_SQL["bill_approval"]} AS approval,
            b.rejection_reason, b.is_latest,
            COALESCE(NULLIF(b.invoice_no, ''), CASE WHEN b.is_latest = 1 THEN e.invoice_ref END) AS invoice_no,
