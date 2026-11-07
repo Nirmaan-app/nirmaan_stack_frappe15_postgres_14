@@ -13,7 +13,7 @@ import json
 import frappe
 
 from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_queue
-from nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses import FROM_DATE, LEDGERS, _to_mark
+from nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses import FROM_DATE, LEDGERS, expenses_to_mark
 
 frappe.set_user("Administrator")
 queue = get_cashbook_invoice_queue()
@@ -25,7 +25,7 @@ answer = {
     "marked_before_from_date": {},
 }
 for doctype in LEDGERS:
-    rows = _to_mark(doctype, None)
+    rows = expenses_to_mark(doctype)
     answer["to_mark"][doctype] = len(rows)
     answer["to_wait"][doctype] = sum(1 for r in rows if r.waits)
     answer["marked_before_from_date"][doctype] = frappe.db.sql(

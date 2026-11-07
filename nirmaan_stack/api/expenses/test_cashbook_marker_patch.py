@@ -63,6 +63,8 @@ class CashbookMarkerPatchCase(unittest.TestCase):
             }
         ).insert(ignore_permissions=True)
         if values:
+            # A raw write on a fixture: it sets the state a past import or a person left (a marker, a bill, a
+            # No invoice mark); no hook of the Expense derives anything from these fields.
             frappe.db.set_value(doctype, doc.name, values, update_modified=False)
         self.expenses[doctype].append(doc.name)
         frappe.db.commit()
@@ -157,6 +159,7 @@ class TestEveryOtherExpenseIsUntouched(CashbookMarkerPatchCase):
                 self.assertIsNone(self._marker(name))
         self.assertIsNone(self._marker(cashfree_spend, PE))
         self.assertEqual(report.marked, {PE: 0, NPE: 0})
+        self.assertEqual(self._run().marked, {PE: 0, NPE: 0})
 
 
 class TestAMarkerIsKeptAndASecondRunChangesNothing(CashbookMarkerPatchCase):
@@ -203,6 +206,12 @@ class TestItPrintsWhatItMarkedAndWhatWaits(CashbookMarkerPatchCase):
         listed = {r["name"] for r in get_cashbook_invoice_queue()}
         self.assertTrue({waits_pe, waits_npe} <= listed)
         self.assertFalse({billed, no_bill} & listed)
+
+        again = self._run()
+
+        self.assertEqual((again.marked, again.waiting), ({PE: 0, NPE: 0}, {PE: 0, NPE: 0}))
+        self.assertEqual({r["name"] for r in get_cashbook_invoice_queue()} & set(self.expenses[PE] + self.expenses[NPE]),
+                         {waits_pe, waits_npe})
 
 
 class TestTwoImportCreatedMatchesStopIt(CashbookMarkerPatchCase):

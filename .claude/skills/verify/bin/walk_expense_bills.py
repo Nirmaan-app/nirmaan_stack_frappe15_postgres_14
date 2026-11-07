@@ -1162,6 +1162,7 @@ def marker_patch_part() -> None:
         for doctype in (PE, NPE):
             expect(after["queue"][doctype] == before["queue"][doctype] + before["to_wait"][doctype],
                    f"{doctype}: the queue grew by exactly the Expenses that now wait")
+        # 2026-04-01 is the patch's FROM_DATE (the walk runs on the host, which cannot import the patch).
         if fresh and not sum(before["queue"].values()):
             expect(after["queue_oldest"] >= "2026-04-01", f"the oldest waiting spend is {after['queue_oldest']}")
         page.reload()

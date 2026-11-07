@@ -55,17 +55,21 @@ _SELECTION = """
 
 @dataclass
 class MarkReport:
+    """What one run did, per ledger: how many Expenses it marked, and how many of those now wait in the queue."""
+
     marked: dict[str, int] = field(default_factory=lambda: dict.fromkeys(LEDGERS, 0))
     waiting: dict[str, int] = field(default_factory=lambda: dict.fromkeys(LEDGERS, 0))
 
     def text(self) -> str:
+        """The lines the patch prints, one per ledger."""
         return "\n".join(
             f"{doctype}: marked {self.marked[doctype]}, of them waiting in the Cashbook queue {self.waiting[doctype]}"
             for doctype in LEDGERS
         )
 
 
-def _params(doctype: str, names) -> tuple[str, dict]:
+def _scope_and_params(doctype: str, names: list[str] | None) -> tuple[str, dict]:
+    """The WHERE clause that limits the selection to `names` (none when None), and the query's parameters."""
     params = {"doctype": doctype, "source": CASHBOOK_SOURCE, "from_date": FROM_DATE}
     if names is None:
         return "", params
@@ -73,8 +77,11 @@ def _params(doctype: str, names) -> tuple[str, dict]:
     return "AND e.name IN %(names)s", params
 
 
-def _to_mark(doctype: str, names) -> list[dict]:
-    scope, params = _params(doctype, names)
+def expenses_to_mark(doctype: str, names: list[str] | None = None) -> list[dict]:
+    """Each Expense of ledger `doctype` the patch would mark now (within `names` when given): its `name`, the
+    `batch` of its import-created Cashbook match, how many such `matches` it has, and whether it `waits` (no
+    invoice, not marked No invoice)."""
+    scope, params = _scope_and_params(doctype, names)
     return frappe.db.sql(
         f"""SELECT e.name, MIN(m.import_batch) AS batch, COUNT(*) AS matches,
                    (COALESCE(MAX(e.invoice_attachment), '') = '' AND COALESCE(MAX(e.no_invoice_by), '') = '') AS waits
@@ -89,7 +96,10 @@ def mark_cashbook_expenses(expenses: dict[str, list[str]] | None = None) -> Mark
     """Set the Cashbook marker on every Expense the selection above reads, and return the counts.
 
     `expenses` ({ledger: [names]}) scopes the run to those Expenses (a test's own); None reads the whole site."""
-    found = {doctype: _to_mark(doctype, None if expenses is None else expenses.get(doctype, [])) for doctype in LEDGERS}
+    found = {
+        doctype: expenses_to_mark(doctype, None if expenses is None else expenses.get(doctype, []))
+        for doctype in LEDGERS
+    }
     doubled = [f"{doctype} {row.name}" for doctype, rows in found.items() for row in rows if row.matches > 1]
     if doubled:
         frappe.throw(
@@ -103,16 +113,20 @@ def mark_cashbook_expenses(expenses: dict[str, list[str]] | None = None) -> Mark
             # field and no Expense hook reads `cashbook_batch`. It is read only when a list is built or a bill is
             # filed (the Cashbook queue, the Expense bills pill, `expense_bills.receive`), each of which reads it
             # fresh. A save would also stamp `modified` and a Version on each historical Expense.
-            frappe.db.sql(
+            changed = frappe.db.sql(
                 f"""UPDATE "tab{doctype}" SET cashbook_batch = %s
-                    WHERE name = %s AND COALESCE(cashbook_batch, '') = ''""",
+                    WHERE name = %s AND COALESCE(cashbook_batch, '') = ''
+                    RETURNING name""",
                 (row.batch, row.name),
             )
+            if not changed:  # marked since it was read: counted by whoever marked it
+                continue
             report.marked[doctype] += 1
             report.waiting[doctype] += 1 if row.waits else 0
     return report
 
 
 def execute():
+    """The patch: mark the whole site, and print the counts."""
     report = mark_cashbook_expenses()
     print(report.text())
