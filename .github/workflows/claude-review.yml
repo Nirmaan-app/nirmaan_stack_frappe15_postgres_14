@@ -133,13 +133,15 @@ jobs:
             --disallowedTools "Edit,Write,NotebookEdit,Read(//proc/**)"
             --json-schema '${{ steps.prepare.outputs.review_schema }}'
 
-      # Runs after a failure or a timeout too, so every step that ran is paid for.
+      # Runs after a failure or a timeout too, so every step that ran is paid for and its error reaches the
+      # comment. The key is here only so the script can redact it from that error.
       - name: Measure the review's cost
         id: review_cost
         if: always() && steps.review.outcome != 'skipped'
         env:
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
           STEP_CAP: ${{ steps.prepare.outputs.budget }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python3 scripts/pr_review.py cost review
 
       - name: Number the new findings
@@ -170,9 +172,10 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.verify.outputs.execution_file }}
           STEP_CAP: ${{ steps.review_cost.outputs.next_cap }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python3 scripts/pr_review.py cost verify
 
-      # The key is here only so the script can refuse text that holds it.
+      # The key is here only so the script can refuse text that holds it; likewise in the failure report.
       - name: Publish the comment and the description
         env:
           REVIEW_OUTPUT: ${{ steps.review.outputs.structured_output }}
@@ -182,6 +185,8 @@ jobs:
 
       - name: Report a failed run
         if: failure() || cancelled()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python3 scripts/pr_review.py fail
 
   # No AI and no Anthropic secret: the only job that can merge, close or write code.
