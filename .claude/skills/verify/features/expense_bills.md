@@ -68,10 +68,10 @@ bill from the kept result without reading again; Skip makes none.
   list each waiting bill: spend date, line amount, bill total read ("--" unless Matched or Mismatched), Bill check
   with its reason, invoice number and date (the bill's own, else the ones typed on the Expense), Paid by (wallet or
   card holder), Project, Invoice Added By, a `View` link to the file, `Approve` and `Reject`.
-- `approve` Approve -> dialog with `#expense_bill_invoice_no` and `#expense_bill_invoice_date` prefilled -> Approve;
+- `approve` Approve -> dialog with the fields labelled `Invoice number` and `Invoice date` prefilled -> Approve;
   the row leaves. DB: Approved, `approved_by` the person, `approved_on`; number and date on the bill and the Expense;
   a Version on both.
-- `reject` Reject -> `#expense_bill_reject_reason` -> Reject; the row leaves. DB: Rejected with the reason,
+- `reject` Reject -> the field labelled `Reason` -> Reject; the row leaves. DB: Rejected with the reason,
   `rejected_by` the person, `rejected_on`; the Expense's `invoice_attachment`, `invoice_ref`, `invoice_date` cleared;
   a Version on both. All Invoices' Cashbook / Credit Card rows and the pending queue's rows carry `approved_by`,
   `approved_on`, `rejected_by`, `rejected_on` (story 35). Pending Invoices Upload

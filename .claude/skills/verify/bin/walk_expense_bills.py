@@ -1217,14 +1217,15 @@ with session(a.task, a.accountant, a.password) as (page, out):
            "Credit Card row links the bill file")
     shot(page, out, "10-credit-card-pill", "2-credit-card-list")
     row.get_by_role("button", name="Approve").click()
-    number = page.locator("#expense_bill_invoice_no")
+    form = page.get_by_role("dialog")
+    number, date = form.get_by_label("Invoice number"), form.get_by_label("Invoice date")
     number.wait_for()
     expect(number.input_value() == f"TYPED-{STAMP}", "Approve form offers the number the Accountant typed")
-    expect(page.locator("#expense_bill_invoice_date").input_value() == approval["typed_date"],
+    expect(date.input_value() == approval["typed_date"],
            "Approve form offers the date the Accountant typed")
     corrected_date = (TODAY - datetime.timedelta(days=2)).isoformat()
     number.fill(f"BK-FIX-{STAMP}")
-    page.locator("#expense_bill_invoice_date").fill(corrected_date)
+    date.fill(corrected_date)
     shot(page, out, "11-approve-corrected", "3-approve-corrected")
     page.get_by_role("dialog").get_by_role("button", name="Approve").click()
     gone(page, approval["holder"], "Credit Card: the approved bill left the list")
@@ -1244,13 +1245,18 @@ with session(a.task, a.accountant, a.password) as (page, out):
     # 7. Cashbook: the wallet bill rejected with a reason.
     reason = f"Walk wrong shop {STAMP}"
     pill(page, "Cashbook")
-    row = find_row(page, "Walk Wallet Holder")
+    # Every run's wallet spend has the holder "Walk Wallet Holder": an earlier run that stopped before this step left
+    # its bill waiting too, so this run's row is the one whose View link opens this run's bill file.
+    page.get_by_placeholder(re.compile("search", re.I)).first.fill("Walk Wallet Holder")
+    row = page.get_by_role("row").filter(has=page.locator(f'a[href*="{wallet_pdf.name}"]'))
+    row.first.wait_for(timeout=30_000)
+    expect(row.count() == 1, f"one Cashbook row for this run's bill {wallet_pdf.name}")
     expect(before[wallet_bill]["bill"]["bill_check"] in row.inner_text(), "Cashbook row shows the wallet bill's Bill check")
     row.get_by_role("button", name="Reject").click()
-    page.locator("#expense_bill_reject_reason").fill(reason)
+    page.get_by_role("dialog").get_by_label("Reason").fill(reason)
     shot(page, out, "13-reject-reason", "4a-reject-reason")
     page.get_by_role("dialog").get_by_role("button", name="Reject").click()
-    gone(page, "Walk Wallet Holder", "Cashbook: the rejected bill left the list")
+    row.wait_for(state="detached", timeout=30_000)  # Cashbook: the rejected bill left the list
     after = approval_db(out, "14-after-reject", wallet_bill)[wallet_bill]
     expect((after["bill"]["status"], after["bill"]["rejection_reason"]) == ("Rejected", reason),
            "DB: the wallet bill is Rejected with the reason")
