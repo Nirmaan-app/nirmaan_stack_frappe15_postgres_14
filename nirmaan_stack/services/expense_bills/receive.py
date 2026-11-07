@@ -113,8 +113,8 @@ def receive_bill(
 
 def retire_bills(doctype: str, expense: str) -> None:
     """Every Expense bill of Expense `expense` becomes history (`is_latest` 0): a new bill is landing, or the
-    Expense is being deleted (an Unreconcile's undo; `integrations/controllers/expense_bills.on_trash`). A deleted
-    Expense's bills are never deleted, and every queue and list joins the Expense, so they leave them all."""
+    Expense is being deleted (an Unreconcile's undo, or any other delete; `integrations/controllers/expense_bills.on_trash`).
+    A deleted Expense's bills are never deleted, and every queue and list joins the Expense, so they leave them all."""
     # Raw: `Expense Bill` has no doc_events, and `is_latest` is a history marker nothing is derived from.
     frappe.db.sql(
         f"""UPDATE "tab{BILL_DOCTYPE}" SET is_latest = 0
