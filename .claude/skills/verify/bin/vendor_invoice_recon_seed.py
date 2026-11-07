@@ -8,8 +8,8 @@
 
     devenv.sh script <task> .claude/skills/verify/bin/vendor_invoice_recon_seed.py
 
-Prints one JSON line: {"long_name": <invoice>, "email": <invoice>}. Idempotent: a second run picks the invoices it
-seeded before. Writes to the env DB only (its own commit). `uploaded_by` feeds no derived field, so a plain
+Prints one JSON line: {"long_name": <invoice>, "email": <invoice>} and the made-up users it used, which the walk
+reads instead of its own copy. Idempotent: a second run picks the invoices it seeded before. Writes to the env DB only (its own commit). `uploaded_by` feeds no derived field, so a plain
 `set_value` is enough.
 """
 
@@ -31,7 +31,8 @@ def ensure_user(email: str, first: str, last: str, profile: str | None, roles: t
         user.insert(ignore_permissions=True)
     if roles:
         frappe.get_doc("User", email).add_roles(*roles)
-    # `Nirmaan Users` is created by User `after_insert`; the app's gates read its role profile.
+    # `Nirmaan Users` is created by User `after_insert`; the app's gates read its role profile, and the column reads
+    # its full name. Skipping its `on_update` is fine: that only fills asset departments, which no walk reads.
     values = {"full_name": f"{first} {last}".strip()}
     if profile:
         values["role_profile"] = profile
@@ -57,4 +58,5 @@ for key, uploader in (("long_name", LONG_USER), ("email", NO_NAME_EMAIL)):
         frappe.db.set_value("Vendor Invoices", picked[key], "uploaded_by", uploader, update_modified=False)
 
 frappe.db.commit()
-print(json.dumps(picked))
+print(json.dumps({**picked, "accountant": ACCOUNTANT, "long_user": LONG_USER, "long_text": LONG_NAME,
+                  "no_name_email": NO_NAME_EMAIL}))

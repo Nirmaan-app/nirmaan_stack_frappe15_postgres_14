@@ -29,9 +29,6 @@ from playwright.sync_api import Page
 
 ROOT = Path(__file__).resolve().parents[4]
 BIN = ROOT / ".claude/skills/verify/bin"
-ACCOUNTANT = "walk-accountant@example.com"
-LONG_NAME = "Walkerton Fairweather-Longbottom Montgomery"
-NO_NAME_EMAIL = "walk-no-name-uploader.for-recon@example-builders.test"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--task", required=True)
@@ -53,10 +50,11 @@ def env_script(name: str, *args: str) -> str:
 
 
 picked = json.loads(env_script("vendor_invoice_recon_seed.py"))
+ACCOUNTANT, LONG_NAME, NO_NAME_EMAIL = picked["accountant"], picked["long_text"], picked["no_name_email"]
 db = json.loads(env_script("vendor_invoice_recon_db.py", picked["long_name"], picked["email"]))
 CASES = [(db[picked["long_name"]], LONG_NAME, "full-name"), (db[picked["email"]], NO_NAME_EMAIL, "email")]
 
-expect(db[picked["long_name"]]["uploaded_by"] == "walk-long-name@example.com"
+expect(db[picked["long_name"]]["uploaded_by"] == picked["long_user"]
        and db[picked["long_name"]]["full_name"] == LONG_NAME, f"DB: {picked['long_name']} uploaded by {LONG_NAME}")
 expect(db[picked["email"]]["uploaded_by"] == NO_NAME_EMAIL and db[picked["email"]]["full_name"] is None,
        f"DB: {picked['email']} uploaded by {NO_NAME_EMAIL}, who has no Nirmaan Users name")

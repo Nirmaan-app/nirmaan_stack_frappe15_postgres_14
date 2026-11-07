@@ -13,7 +13,7 @@ the whole text in a tooltip on hover (#1647).
   `PO Invoices 2B Recon`, and the open one is in the URL (`?tab=pending`, `?tab=history`).
 - `added-by-cut` "Invoice Added By" shows the full name, or the email, on one line with an ellipsis, inside its own
   150 px cell, on both tables.
-- `added-by-hover` a hover over a cut value opens a tooltip with the whole text. A value that fits opens none.
+- `added-by-hover` a hover over a cut value opens a tooltip with the whole text.
 
 ## How to get to it (user POV)
 
