@@ -62,5 +62,7 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
   the Invoice Ref and Date on the expense lists; any other result waits in Pending Invoice Approvals -> Cashbook or
   -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
-  a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead.
-  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again` for Read again alone).
+  a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; a paid spend's bill
+  an Admin or Accountant Lead replaces on Payment Done is approved at once in their name.
+  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again` for Read again alone, `--part paid-replace`
+  for the Payment Done replace alone).

@@ -40,6 +40,11 @@ Accountant sees no Read again and is refused; the Accountant Lead presses it on 
 a second press reads once, a one-shot worker reads them, and each row's new result shows. `--part read-again` runs
 only these steps.
 
+Then Payment Done's replace (#1643), steps 15-18 (`paid_replace_part`'s docstring): as the Accountant Lead, a paid
+card spend's and wallet spend's bill replaced from Payment Done / Reconciliation Done is approved at once in their
+name, the first bill stays as history, the Bill check runs and leaves the typed number and date, and a hand-keyed
+spend's new bill makes no Expense bill. `--part paid-replace` runs only these steps.
+
 `--shots DIR` also keeps one half-size screenshot per acceptance criterion there.
 
 Every step asserts the screen's text and its DB row; a miss raises, saves `FAIL.*` and exits 1. When the env's
@@ -77,8 +82,8 @@ ap.add_argument("--accountant", default="walk-accountant@example.com")
 ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
 ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
-ap.add_argument("--part", choices=("all", "read-again"), default="all",
-                help="read-again: only steps 11-14 (#1645), with their own seed")
+ap.add_argument("--part", choices=("all", "read-again", "paid-replace"), default="all",
+                help="read-again: only steps 11-14 (#1645); paid-replace: only steps 15-18 (#1643); each with its own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -352,10 +357,125 @@ def read_again_part() -> None:
 
 
 # One evidence folder for every session of this walk.
+def replace_on_payment_done(page, search: str, pdf: Path, ref: str, day: str, out: Path, step: str, button: str):
+    """Project Payment & Expense -> Payment Done / Reconciliation Done -> the spend's `button` (Edit Inv or Upload
+    Inv) -> a new file, number and date -> Save Invoice; the dialog closes."""
+    sidebar(page, "Project Payment & Expense")
+    page.get_by_role("button", name=re.compile(r"^Payment Done \/ Reconciliation Done")).click()
+    page.wait_for_load_state("networkidle")
+    row = find_row(page, search)
+    row.get_by_role("button", name=button).click()
+    dialog = page.get_by_role("alertdialog")
+    dialog.get_by_role("button", name="Save Invoice").wait_for()
+    page.locator('input[type="file"]').last.set_input_files(str(pdf))
+    page.locator("#invoice_ref_update_id").fill(ref)
+    page.locator("#invoice_date_update_id").fill(day)
+    page.wait_for_timeout(500)
+    save(page, out, f"{step}a-dialog")
+    dialog.get_by_role("button", name="Save Invoice").click()
+    dialog.wait_for(state="hidden", timeout=60_000)
+    page.wait_for_load_state("networkidle")
+
+
+def paid_db(out: Path, name: str, *pairs: str) -> dict:
+    stdout = script("expense_bills_db.py", *pairs)
+    answer = json.loads(next(l for l in stdout.splitlines() if l.startswith("EXPENSE_BILLS_DB ")).removeprefix(
+        "EXPENSE_BILLS_DB "))
+    (out / f"{name}.db.json").write_text(json.dumps(answer, indent=2))
+    return answer
+
+
+def paid_replace_part() -> None:
+    """Steps 15-18: replacing a paid spend's bill on Payment Done (#1643), as the Accountant Lead.
+
+    `expense_bills_seed.py P<stamp>` makes a made-up card spend and wallet spend; `expense_bill_paid_seed.py` gives
+    each a first bill (Not read, Pending: a seeded state) and makes a hand-keyed Paid spend with no statement.
+
+    15. Project Payment & Expense -> Payment Done / Reconciliation Done -> the card spend's Edit Inv -> a new file,
+        number LEAD-C<stamp> and a date -> Save Invoice. DB: a second Expense bill, Approved by the Accountant Lead,
+        not auto-approved, Checking, latest, with the typed number and date; the first one stays, no longer latest.
+    16. The same for the wallet spend.
+    17. A one-shot worker on the env's `long` queue runs both Bill checks. DB: each has a result (the env's reader
+        is refused, so Not read with its reason; Matched is proven by `test_paid_expense_bill`), is still Approved by
+        the Accountant Lead, and the typed number and date stand on the bill and the spend. Edit Inv shows them.
+    18. The hand-keyed spend's Upload Inv -> a file, number, date -> Save Invoice. DB: the file is on the spend and
+        it has no Expense bill.
+    """
+    spends = seed_as(f"P{STAMP}")
+    seeded = json.loads(next(l for l in script("expense_bill_paid_seed.py", STAMP, spends["card"], spends["wallet"])
+                             .splitlines() if l.startswith("EXPENSE_BILL_PAID_SEED ")).removeprefix(
+                                 "EXPENSE_BILL_PAID_SEED "))
+    print(f"seeded for Payment Done: {spends} {seeded}")
+    subprocess.run([DEVENV, "run", a.task, "set-password", a.lead, a.password], capture_output=True, check=True)
+    day = (TODAY - datetime.timedelta(days=2)).isoformat()
+    targets = (("card", NPE, f"Walk card spend P{STAMP}", f"LEAD-C{STAMP}", "1-card-approved-at-once"),
+               ("wallet", PE, f"Walk site tea P{STAMP}", f"LEAD-W{STAMP}", "1-wallet-approved-at-once"))
+    pairs = [NPE, spends["card"], PE, spends["wallet"]]
+
+    with session(a.task, a.lead, a.password) as (page, out):
+        for i, (kind, doctype, search, ref, criterion) in enumerate(targets):
+            step = str(15 + i)
+            pdf = bill_pdf(out / f"walk-replace-{kind}-{STAMP}.pdf", ref, "1,180.00", f"Walk Replace {kind} {STAMP}")
+            replace_on_payment_done(page, search, pdf, ref, day, out, step, "Edit Inv")
+            shot(page, out, f"{step}b-saved", criterion)
+            state = paid_db(out, f"{step}c-after-replace", *pairs)[spends[kind]]
+            first, new = state["bills"][0], state["bills"][-1]
+            expect(len(state["bills"]) == 2 and first["name"] == seeded["first"][spends[kind]],
+                   f"DB {kind}: the first bill stays, and a second one was made")
+            expect(first["is_latest"] == 0 and new["is_latest"] == 1, f"DB {kind}: the first bill is no longer latest")
+            expect((new["status"], new["approved_by"], new["auto_approved"]) == ("Approved", a.lead, 0),
+                   f"DB {kind}: the new bill is Approved by the Accountant Lead, not auto-approved")
+            expect(new["bill_check"] == "Checking", f"DB {kind}: its Bill check is queued (Checking)")
+            expect((new["invoice_no"], new["invoice_date"]) == (ref, day), f"DB {kind}: the bill carries {ref}, {day}")
+            expect(state["expense"]["invoice_ref"] == ref and state["expense"]["invoice_attachment"] == new["bill_file"],
+                   f"DB {kind}: the spend carries the new file and {ref}")
+
+        # 17. The Bill checks.
+        worker = subprocess.run([DEVENV, "run", a.task, "worker", "--queue", "long", "--burst"],
+                                capture_output=True, text=True)
+        (out / "17-worker.txt").write_text(worker.stdout + worker.stderr)
+        state = paid_db(out, "17-after-reading", *pairs)
+        for kind, _, search, ref, _ in targets:
+            new, expense = state[spends[kind]]["bills"][-1], state[spends[kind]]["expense"]
+            expect(new["bill_check"] in ("Matched", "Mismatched", "Not read"),
+                   f"DB {kind}: its Bill check is recorded ({new['bill_check']}: {new['bill_check_reason']})")
+            if new["bill_check"] == "Not read" and READER_DOWN.match(new["bill_check_reason"] or ""):
+                print(f"NOT WALKED {kind}: Matched over a typed number (the env's reader is refused); "
+                      "proven by test_paid_expense_bill")
+            expect((new["status"], new["approved_by"], new["auto_approved"]) == ("Approved", a.lead, 0),
+                   f"DB {kind}: still Approved by the Accountant Lead after its Bill check")
+            expect((new["invoice_no"], new["invoice_date"]) == (ref, day)
+                   and (expense["invoice_ref"], expense["invoice_date"]) == (ref, day),
+                   f"DB {kind}: the typed {ref} and {day} stand on the bill and the spend")
+        row = find_row(page, f"Walk card spend P{STAMP}")
+        row.get_by_role("button", name="Edit Inv").click()
+        dialog = page.get_by_role("alertdialog")
+        dialog.get_by_role("button", name="Save Invoice").wait_for()
+        page.wait_for_timeout(1000)
+        shown = page.locator("#invoice_ref_update_id").input_value()
+        expect(shown == f"LEAD-C{STAMP}", f"Edit Inv shows the typed number after the Bill check ({shown})")
+        shot(page, out, "17b-after-check", "2-typed-number-stands")
+        dialog.get_by_role("button", name="Cancel").click()
+
+        # 18. A spend that is no wallet or card spend.
+        hand = f"Walk hand-keyed spend {STAMP}"
+        pdf = bill_pdf(out / f"walk-hand-{STAMP}.pdf", f"HAND-{STAMP}", "640.00", "Walk Hand Shop")
+        replace_on_payment_done(page, hand, pdf, f"HAND-{STAMP}", day, out, "18", "Upload Inv")
+        shot(page, out, "18b-saved", "4-hand-keyed-no-expense-bill")
+        state = paid_db(out, "18c-after-upload", NPE, seeded["hand_keyed"])[seeded["hand_keyed"]]
+        expect(state["expense"]["invoice_ref"] == f"HAND-{STAMP}" and bool(state["expense"]["invoice_attachment"]),
+               "DB hand-keyed: the file and number are on the spend")
+        expect(state["bills"] == [], "DB hand-keyed: no Expense bill")
+        print(f"evidence: {out}")
+
+
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 if a.part == "read-again":
     read_again_part()
+    sys.exit(0)
+if a.part == "paid-replace":
+    paid_replace_part()
     sys.exit(0)
 spends = seed()
 print(f"seeded: {spends}")
@@ -555,3 +675,4 @@ with session(a.task, a.outsider, a.password) as (page, out):
     print(f"evidence: {out}")
 
 read_again_part()
+paid_replace_part()
