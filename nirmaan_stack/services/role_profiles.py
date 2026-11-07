@@ -354,8 +354,8 @@ def can_action_invoice_approvals(user: str) -> bool:
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
 
 
-# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). Purchase Order invoices keep
-# their old rules. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
+# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). A Purchase Order invoice's approve
+# and reject take INVOICE_APPROVAL_PROFILES (#1638); its other rules are the old ones. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
 # (`integrations/controllers/vendor_invoices.guard_work_order_invoice`, rule in
 # `services/work_order_invoice_access.py`), so Desk and the API obey it as the screens do.
 #

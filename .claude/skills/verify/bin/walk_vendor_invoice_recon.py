@@ -237,14 +237,18 @@ def decisions_part() -> None:
             page.wait_for_load_state("networkidle")
             return inv, page.get_by_role("row").filter(has_text=inv["invoice_no"]).first
 
+        def left_queue(invoice_no: str, button: str) -> None:
+            rows = page.get_by_role("row").filter(has_text=invoice_no)
+            rows.first.wait_for(state="detached", timeout=30_000)
+            expect(rows.count() == 0, f"Accountant: invoice {invoice_no} left the Pending queue after {button}")
+
         inv, row = row_of("approve")
         row.locator("button.text-green-600").click()
-        dialog = page.get_by_role("dialog")
-        dialog.get_by_text("Confirm Approval").wait_for(timeout=10_000)
+        dialog = page.get_by_role("alertdialog", name="Confirm Approval")
+        dialog.wait_for(timeout=10_000)
         expect(inv["invoice_no"] in dialog.inner_text(), f"Confirm Approval names invoice {inv['invoice_no']}")
         dialog.get_by_role("button", name="Approve", exact=True).click()
-        page.get_by_role("row").filter(has_text=inv["invoice_no"]).first.wait_for(state="detached", timeout=30_000)
-        expect(True, f"Accountant: invoice {inv['invoice_no']} left the Pending queue after Approve")
+        left_queue(inv["invoice_no"], "Approve")
         shot(page, out, "1-accountant-approves")
         after = decision_db(out, "01-after-approve", seeded["approve"])[seeded["approve"]]
         expect(after["status"] == "Approved", f"DB: {inv['invoice_no']} is Approved")
@@ -252,12 +256,11 @@ def decisions_part() -> None:
 
         inv, row = row_of("reject")
         row.locator("button.text-red-600").click()
-        dialog = page.get_by_role("dialog")
-        dialog.get_by_text("Reject Invoice").first.wait_for(timeout=10_000)
+        dialog = page.locator("[role=dialog], [role=alertdialog]").filter(has_text="Reject Invoice")
+        dialog.wait_for(timeout=10_000)
         dialog.get_by_role("textbox").fill("Walk #1638: wrong bill")
         dialog.get_by_role("button", name="Reject", exact=True).click()
-        page.get_by_role("row").filter(has_text=inv["invoice_no"]).first.wait_for(state="detached", timeout=30_000)
-        expect(True, f"Accountant: invoice {inv['invoice_no']} left the Pending queue after Reject")
+        left_queue(inv["invoice_no"], "Reject")
         shot(page, out, "1-accountant-rejects")
         after = decision_db(out, "02-after-reject", seeded["reject"])[seeded["reject"]]
         expect(after["status"] == "Rejected", f"DB: {inv['invoice_no']} is Rejected")
