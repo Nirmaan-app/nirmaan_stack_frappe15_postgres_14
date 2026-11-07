@@ -95,6 +95,10 @@ with session(a.task, ACCOUNTANT, a.password) as (page, out):
     page.wait_for_url(re.compile(r"tab=pending(&|$)"))
     page.wait_for_load_state("networkidle")
     for row_db, shown, slug in CASES:
+        # Pending Approval is split into pills by document type (#1644): open the invoice's own.
+        is_po = row_db["document_type"] == "Procurement Orders"
+        page.get_by_role("button", name="PO" if is_po else "WO", exact=True).click()
+        page.wait_for_load_state("networkidle")
         check_cell(page, out, "Pending Invoice Approvals", row_db, shown, slug)
 
     page.get_by_role("button", name="All Invoices", exact=True).click()

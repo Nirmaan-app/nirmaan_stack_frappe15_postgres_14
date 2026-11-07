@@ -31,7 +31,7 @@ export const getExpenseBillApprovalColumns = ({
 }: ExpenseBillApprovalColumnOptions): ColumnDef<PendingExpenseBillRow>[] => [
     {
         accessorKey: "payment_date",
-        size: 115,
+        size: 130,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Spend date" />,
         cell: ({ row }) => <div className="whitespace-nowrap">{formatDate(row.original.payment_date)}</div>,
         filterFn: dateFilterFn,
@@ -40,7 +40,7 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         accessorKey: "line_amount",
-        size: 115,
+        size: 125,
         header: ({ column }) => (
             <div className="w-full flex justify-end"><DataTableColumnHeader column={column} title="Line amount" /></div>
         ),
@@ -67,7 +67,7 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         accessorKey: "bill_check",
-        size: 200,
+        size: 180,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Bill check" />,
         cell: ({ row }) => (
             <div>
@@ -100,7 +100,7 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         id: "paid_by",
-        size: 140,
+        size: 130,
         accessorFn: (row) => row.paid_by ?? "",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Paid by" />,
         cell: ({ row }) => <TruncatedText text={row.original.paid_by || "--"} className="max-w-full" />,
@@ -110,7 +110,7 @@ export const getExpenseBillApprovalColumns = ({
     {
         // Blank for a Non-Project spend.
         id: "project",
-        size: 160,
+        size: 140,
         accessorFn: (row) => row.project_name || row.project || "",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
         cell: ({ row }) => <TruncatedText text={row.original.project_name || row.original.project || ""} className="max-w-full" />,
@@ -119,7 +119,7 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         id: "uploaded_by",
-        size: 150,
+        size: 140,
         accessorFn: (row) => row.uploaded_by_name || row.uploaded_by || "",
         header: "Invoice Added By",
         cell: ({ row }) => <TruncatedText text={row.original.uploaded_by_name || row.original.uploaded_by || "--"} className="max-w-full font-medium" />,
@@ -131,7 +131,7 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         id: "bill_file",
-        size: 80,
+        size: 70,
         header: "Bill",
         cell: ({ row }) => (
             <a
@@ -149,7 +149,7 @@ export const getExpenseBillApprovalColumns = ({
     },
     {
         id: "actions",
-        size: 190,
+        size: 170,
         header: () => <div className="text-right">Actions</div>,
         cell: ({ row }) => (
             <div className="flex justify-end gap-2 whitespace-nowrap">

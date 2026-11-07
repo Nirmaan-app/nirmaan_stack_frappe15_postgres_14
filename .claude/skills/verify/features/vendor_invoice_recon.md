@@ -11,6 +11,9 @@ the whole text in a tooltip on hover (#1647).
 - `recon-tabs` the page opens on Pending Invoice Approvals (for a user who may action it); the tabs are buttons
   `Pending Invoice Approvals`, `All Invoices`, `Pending Invoices Upload`, `WO Invoices 2B Recon`,
   `PO Invoices 2B Recon`, and the open one is in the URL (`?tab=pending`, `?tab=history`).
+- `pending-pills` Pending Invoice Approvals is split into pills `PO` / `WO` / `Cashbook` / `Credit Card` (#1644;
+  `?approval_tab=po|wo|cashbook|card`, PO first). PO and WO are the Vendor Invoices table narrowed to its document
+  type; Cashbook and Credit Card are the Expense bills waiting for a person ([Expense bills](./expense_bills.md)).
 - `added-by-cut` "Invoice Added By" shows the full name, or the email, on one line with an ellipsis, inside its own
   150 px cell, on both tables.
 - `added-by-hover` a hover over a cut value opens a tooltip with the whole text.
