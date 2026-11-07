@@ -68,8 +68,8 @@ class CashbookMarkerPatchCase(unittest.TestCase):
         frappe.db.commit()
         return doc.name
 
-    def _match(self, batch, expense, doctype=NPE, *, created=1, kind="Settled", source=CASHBOOK) -> str:
-        transfer_id = frappe.db.get_value(doctype, expense, "payment_ref")
+    def _match(self, batch, expense, doctype=NPE, *, created=1, kind="Settled", source=CASHBOOK, transfer_id=None):
+        transfer_id = transfer_id or frappe.db.get_value(doctype, expense, "payment_ref")
         line = frappe.new_doc(ROW_DOCTYPE)
         line.update(
             {
@@ -133,3 +133,91 @@ class TestThisYearsCashbookExpensesAreMarked(CashbookMarkerPatchCase):
         self.assertEqual(listed[pe]["doctype"], PE)
         # The queue reads who paid from the import line the marker names.
         self.assertEqual(listed[npe]["paid_by"], "Test Wallet Holder")
+
+
+class TestEveryOtherExpenseIsUntouched(CashbookMarkerPatchCase):
+    def test_last_year_hand_keyed_a_link_a_reversed_match_and_other_sources_keep_no_marker(self):
+        cashbook, card, cashfree = self._batch(), self._batch(CARD), self._batch("Cashfree")
+        last_year = self._expense(date=LAST_YEAR)
+        self._match(cashbook, last_year)
+        hand_keyed = self._expense()
+        linked = self._expense()
+        self._match(cashbook, linked, created=0)
+        reversed_ = self._expense()
+        self._match(cashbook, reversed_, kind="Reversed")
+        card_spend = self._expense()
+        self._match(card, card_spend, source=CARD)
+        cashfree_spend = self._expense(PE)
+        self._match(cashfree, cashfree_spend, PE, source="Cashfree")
+
+        report = self._run()
+
+        for name in (last_year, hand_keyed, linked, reversed_, card_spend):
+            with self.subTest(expense=name):
+                self.assertIsNone(self._marker(name))
+        self.assertIsNone(self._marker(cashfree_spend, PE))
+        self.assertEqual(report.marked, {PE: 0, NPE: 0})
+
+
+class TestAMarkerIsKeptAndASecondRunChangesNothing(CashbookMarkerPatchCase):
+    def test_an_expense_with_a_marker_keeps_it(self):
+        old, other = self._batch(), self._batch()
+        expense = self._expense(cashbook_batch=other)
+        self._match(old, expense)
+
+        report = self._run()
+
+        self.assertEqual(self._marker(expense), other)
+        self.assertEqual(report.marked[NPE], 0)
+
+    def test_a_second_run_marks_nothing(self):
+        batch = self._batch()
+        expense = self._expense()
+        self._match(batch, expense)
+        self.assertEqual(self._run().marked[NPE], 1)
+
+        again = self._run()
+
+        self.assertEqual(again.marked, {PE: 0, NPE: 0})
+        self.assertEqual(self._marker(expense), batch)
+
+
+class TestItPrintsWhatItMarkedAndWhatWaits(CashbookMarkerPatchCase):
+    def test_counts_per_ledger_and_the_ones_with_a_bill_or_no_invoice_do_not_wait(self):
+        batch = self._batch()
+        waits_pe, waits_npe = self._expense(PE), self._expense(NPE)
+        billed = self._expense(NPE, invoice_attachment="/private/files/test-made-up-bill.pdf")
+        no_bill = self._expense(NPE, no_invoice_by="Administrator")
+        for name, doctype in ((waits_pe, PE), (waits_npe, NPE), (billed, NPE), (no_bill, NPE)):
+            self._match(batch, name, doctype)
+
+        report = self._run()
+
+        self.assertEqual(report.marked, {PE: 1, NPE: 3})
+        self.assertEqual(report.waiting, {PE: 1, NPE: 1})
+        self.assertEqual(
+            report.text(),
+            "Project Expenses: marked 1, of them waiting in the Cashbook queue 1\n"
+            "Non Project Expenses: marked 3, of them waiting in the Cashbook queue 1",
+        )
+        listed = {r["name"] for r in get_cashbook_invoice_queue()}
+        self.assertTrue({waits_pe, waits_npe} <= listed)
+        self.assertFalse({billed, no_bill} & listed)
+
+
+class TestTwoImportCreatedMatchesStopIt(CashbookMarkerPatchCase):
+    def test_an_expense_two_cashbook_lines_created_is_named_and_nothing_is_marked(self):
+        first, second = self._batch(), self._batch()
+        fine = self._expense()
+        self._match(first, fine)
+        doubled = self._expense()
+        self._match(first, doubled)
+        # The index allows one import-created Expense per Txn Id, so only a second Txn Id can make this.
+        self._match(second, doubled, transfer_id=f"TESTTXN{frappe.generate_hash(length=10)}")
+
+        with self.assertRaisesRegex(frappe.ValidationError, doubled):
+            self._run()
+
+        frappe.db.rollback()
+        self.assertIsNone(self._marker(fine))
+        self.assertIsNone(self._marker(doubled))
