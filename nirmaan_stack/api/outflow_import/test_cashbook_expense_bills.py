@@ -46,6 +46,35 @@ class TestACopiedBillIsChecked(CashbookBillsCase):
         self.assertEqual(frappe.db.get_value(expense.doctype, expense.name, "invoice_ref"), "WALLET-1")
 
 
+class TestALateBillIsChecked(LateBillsCase):
+    def test_a_late_bill_gets_a_checking_expense_bill_whose_reading_then_mismatches(self):
+        waiting = self._first_upload()
+        self.assertEqual(bills_of(waiting.doctype, waiting.name), [])
+        self._upload(self._second_file())
+
+        expense = frappe.get_doc(waiting.doctype, waiting.name)
+        (bill,) = bills_of(expense.doctype, expense.name)
+        self.assertEqual((bill.bill_check, bill.status), ("Checking", "Pending"))
+        self.assertEqual(bill.bill_file, expense.invoice_attachment)
+        self.assertEqual(bill.uploaded_by, "Administrator")
+        self.assertIn(("long", bill.name), readings_queued(self.jobs))
+
+        run_reading(bill.name, FakeReader(BillRead(total=_line_amount(expense) + 50, invoice_no="LATE-1")))
+        (bill,) = bills_of(expense.doctype, expense.name)
+        self.assertEqual((bill.bill_check, bill.status, bill.auto_approved), ("Mismatched", "Pending", 0))
+        self.assertFalse(frappe.db.get_value(expense.doctype, expense.name, "invoice_ref"))
+
+    def test_a_late_bill_for_an_expense_from_before_the_cashbook_marker_is_recorded_like_any_other(self):
+        waiting = self._first_upload()
+        frappe.db.set_value(waiting.doctype, waiting.name, "cashbook_batch", None)
+        frappe.db.commit()
+        self._upload(self._second_file())
+
+        (bill,) = bills_of(waiting.doctype, waiting.name)
+        self.assertEqual((bill.bill_check, bill.status), ("Checking", "Pending"))
+        self.assertIn(("long", bill.name), readings_queued(self.jobs))
+
+
 class TestASpendWithSeveralBillsIsNotChecked(CashbookBillsCase):
     def test_four_bill_links_make_a_pending_not_checked_bill_whose_total_is_the_line_amount_and_nothing_is_read(self):
         self._run()
