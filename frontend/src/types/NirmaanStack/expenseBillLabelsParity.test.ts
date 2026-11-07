@@ -7,10 +7,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { BILL_APPROVAL_STATUSES, BILL_CHECK_RESULTS } from "./expenseBillApprovalView";
+import { BILL_APPROVAL_STATUSES, BILL_CHECK_RESULTS } from "@/pages/tasks/invoices/utils/expenseBillApprovalView";
 
 const serverFile = (path: string) =>
-    readFileSync(fileURLToPath(new URL(`../../../../../../nirmaan_stack/${path}`, import.meta.url)), "utf8");
+    readFileSync(fileURLToPath(new URL(`../../../../nirmaan_stack/${path}`, import.meta.url)), "utf8");
 
 const doctype = JSON.parse(serverFile("nirmaan_stack/doctype/expense_bill/expense_bill.json")) as {
     fields: { fieldname: string; options?: string }[];
