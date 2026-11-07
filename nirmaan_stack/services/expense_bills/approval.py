@@ -5,7 +5,7 @@
 approval*). The endpoints are `api/expenses/expense_bill_approval.py`; they check who may decide.
 
 A bill waits while it is Pending, is its Expense's latest bill and has a Bill check result (Checking bills are
-still being read). Both decisions read the bill and its Expense `FOR UPDATE`, refuse any other state by name, and
+still being read), or its reading stopped (`reading.reading_stopped`; decided as Not read, #1645). Both decisions read the bill and its Expense `FOR UPDATE`, refuse any other state by name, and
 save both through the document layer (`doc_events` run, `track_changes` keeps a Version). Neither commits.
 
 * Approve: the number and date (a person's correction, else the bill's own, else what the Accountant typed on the
@@ -21,7 +21,8 @@ from frappe.utils import getdate, now_datetime, nowdate
 
 from nirmaan_stack.services.card_invoices import FUTURE_INVOICE_DATE
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, REJECTED
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING, NOT_READ
+from nirmaan_stack.services.expense_bills.reading import READING_STOPPED, reading_stopped
 
 REASON_REQUIRED = "Type the reason this bill is rejected."
 
@@ -81,6 +82,10 @@ def _lock_waiting(name: str):
     bill = frappe.get_doc(BILL_DOCTYPE, name, for_update=True)
     if bill.status != PENDING:
         frappe.throw(f"Expense bill {name} is already {bill.status}.")
+    if reading_stopped(bill.bill_check, bill.read_claimed_at):
+        # Pending Approval shows it Not read (#1645); the decision keeps why it was not read.
+        bill.bill_check = NOT_READ
+        bill.bill_check_reason = READING_STOPPED
     if bill.bill_check == CHECKING:
         frappe.throw(f"Expense bill {name} is still being read; decide it once its Bill check is done.")
     if not bill.is_latest:

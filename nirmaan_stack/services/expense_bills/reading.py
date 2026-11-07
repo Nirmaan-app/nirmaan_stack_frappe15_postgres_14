@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 import frappe
-from frappe.utils import getdate, now_datetime
+from frappe.utils import add_to_date, get_datetime, getdate, now_datetime
 
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, SYSTEM_APPROVER
 from nirmaan_stack.services.expense_bills.bill_check import (
@@ -42,6 +42,10 @@ _JOB = "nirmaan_stack.services.expense_bills.reading.check_expense_bill"
 JOB_TIMEOUT_SECONDS = 15 * 60
 
 READING_OFF = "Reading is switched off in Document AI Settings."
+
+#: A bill claimed longer ago than the job limit is still Checking only because its worker was killed: it shows as
+#: Not read with this reason, and Read again reaches it (#1645).
+READING_STOPPED = "The reading stopped."
 
 
 @dataclass(frozen=True)
@@ -72,10 +76,25 @@ def queue_reading(bill: str) -> None:
     )
 
 
+def stopped_before():
+    """A Checking bill claimed before this moment is one whose reading stopped: no job can still be reading it."""
+    return add_to_date(now_datetime(), seconds=-JOB_TIMEOUT_SECONDS)
+
+
+def reading_stopped(bill_check: str, read_claimed_at) -> bool:
+    """True for a bill left Checking by a reading that stopped (its claim is older than the job limit)."""
+    return bill_check == CHECKING and bool(read_claimed_at) and get_datetime(read_claimed_at) < stopped_before()
+
+
 def read_again(bill: str) -> None:
-    """Read again (#1645): put Not read bill `bill` back to Checking, unclaimed, and queue its reading. Does not
-    commit; the reading is queued once the caller's transaction commits."""
+    """Read again (#1645): put bill `bill`, Not read or left Checking by a reading that stopped, back to Checking,
+    unclaimed, and queue its reading. A bill Checking for any other reason is left alone, so pressing twice reads
+    it once. Does not commit; the reading is queued once the caller's transaction commits."""
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
+    if doc.bill_check == CHECKING and not reading_stopped(doc.bill_check, doc.read_claimed_at):
+        return  # pressed twice: the first press's reading is queued or running
+    if doc.bill_check not in (NOT_READ, CHECKING):
+        frappe.throw(f"Expense bill {bill} is {doc.bill_check}; only a Not read bill can be read again.")
     doc.bill_check = CHECKING
     doc.bill_check_reason = None
     doc.read_claimed_at = None
