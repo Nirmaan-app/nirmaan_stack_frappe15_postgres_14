@@ -59,6 +59,7 @@ def spend(doctype: str, slug: str) -> dict:
                            "attached_to_doctype": doctype, "attached_to_name": name,
                            "content": pdf(f"WalkAP {stamp} {slug}")}).insert(
         ignore_permissions=True)
+    # `set_value` skips the Expense's doc_events on purpose: the walk's Expense bills are seeded, not received.
     frappe.db.set_value(doctype, name, "invoice_attachment", file.file_url, update_modified=False)
     return {"doctype": doctype, "name": name, "invoice": file.file_url}
 
@@ -72,6 +73,7 @@ def bill(expense: dict, **state) -> str:
 
 def payment(slug: str, document_type: str) -> dict:
     name = f"WALKAP-{stamp}-{slug}"
+    # Raw on purpose: a bare Paid payment row is all All Payments reads; validate would demand a real PO / WO.
     frappe.db.sql(
         """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner, docstatus, idx,
                amount, status, document_type, document_name, payment_date)

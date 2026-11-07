@@ -16,11 +16,12 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
+from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
 from nirmaan_stack.api.expenses.test_expense_bill_list import CardSpendOnTheListCase
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, run_reading
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.tds.test_submit import _cloud_url
-from nirmaan_stack.services.expense_bills.bill_check import BillRead
+from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
 PAYMENTS = "Project Payments"
 
@@ -29,6 +30,8 @@ class TestAllPaymentsBillCheck(CardSpendOnTheListCase):
     def setUp(self):
         super().setUp()
         self.payment = f"PAY-TEST-BILL-{frappe.generate_hash(length=8)}"
+        # Raw on purpose: a bare Paid PO payment row is all the queue reads; `Project Payments`' validate would
+        # demand a real PO, and no derived figure depends on this row.
         frappe.db.sql(
             """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner, docstatus, idx,
                    amount, status, document_type, document_name)
@@ -72,7 +75,8 @@ class TestAllPaymentsBillCheck(CardSpendOnTheListCase):
         self.assertEqual((row["invoice"], row["bill_check"], row["bill_approval"]), ("", None, None))
 
     def test_an_expense_with_a_bill_but_no_expense_bill_keeps_its_file_and_shows_no_bill_check(self):
-        # A bill attached before launch: on the Expense, with no Expense bill record.
+        # A bill attached before launch: on the Expense, with no Expense bill record. `set_value` skips the
+        # Expense's doc_events on purpose: it is the state such an Expense was left in, with nothing to recompute.
         frappe.db.set_value("Non Project Expenses", self.spend, "invoice_attachment", _cloud_url("old.pdf"))
         frappe.db.commit()
 
@@ -80,3 +84,14 @@ class TestAllPaymentsBillCheck(CardSpendOnTheListCase):
 
         self.assertEqual(row["invoice"], _cloud_url("old.pdf"))
         self.assertEqual((row["bill_check"], row["bill_approval"]), (None, None))
+
+    def test_a_rejected_bill_leaves_no_invoice_and_shows_rejected(self):
+        _, bill = self._attach()
+        run_reading(bill, FakeReader(ReadFailed("The reader timed out.")))
+        self._as(self.accountant, reject_expense_bill, bill, reason="Wrong shop")
+
+        row = self._rows()[self.spend]
+
+        # The Expense waits for a new bill: nothing to open, and its Bill check says why.
+        self.assertEqual(row["invoice"], "")
+        self.assertEqual((row["bill_check"], row["bill_approval"]), ("Not read", "Rejected"))

@@ -47,7 +47,11 @@ const APPROVAL_TONE: Record<BillApprovalStatus, string> = {
 
 /** An Expense's Bill check: its latest bill's result over its approval, or "—" when it has no Expense bill. Also
  *  drawn by Project Payments -> All Payments (#1648). */
-export const ExpenseBillCheckCell = ({ row }: { row: ExpenseListBillCheckFields }) => {
+interface ExpenseBillCheckCellProps {
+    row: ExpenseListBillCheckFields;
+}
+
+export const ExpenseBillCheckCell = ({ row }: ExpenseBillCheckCellProps) => {
     const shown = expenseListBillCheck(row);
     if (!shown) return <div className="text-muted-foreground">{NO_EXPENSE_BILL_TEXT}</div>;
     return (

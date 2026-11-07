@@ -149,6 +149,9 @@ const TierChip = ({ tier }: { tier: ApprovalQueueRow["tier"] }) => (
 );
 
 /** A blank is the TRUE value for a non-project expense — never "N/A", never 0. */
+/** A PO / WO payment shows no single bill and no Bill check: one payment can cover many invoices (#1648). */
+const hasNoSingleBill = (r: ApprovalQueueRow): boolean => r.source === "Vendor Payment";
+
 const Blank = () => <span className="text-muted-foreground">—</span>;
 
 const dateCol = (
@@ -855,7 +858,7 @@ const REGISTRY: Record<
     enableSorting: false,
     cell: ({ row }) => {
       const r = row.original;
-      if (r.source === "Vendor Payment") return null;
+      if (hasNoSingleBill(r)) return null;
       return r.has_invoice ? (
         <a href={`${SITEURL}${r.invoice}`} target="_blank" rel="noreferrer"
           aria-label="Open invoice" title="Open invoice" className="text-primary">
@@ -871,10 +874,10 @@ const REGISTRY: Record<
     header: "Bill check",
     size: 130,
     enableSorting: false,
-    cell: ({ row }) => (row.original.source === "Vendor Payment" ? null : <ExpenseBillCheckCell row={row.original} />),
+    cell: ({ row }) => (hasNoSingleBill(row.original) ? null : <ExpenseBillCheckCell row={row.original} />),
     meta: {
       exportHeaderName: "Bill check",
-      exportValue: (r: ApprovalQueueRow) => (r.source === "Vendor Payment" ? "" : expenseListBillCheckText(r)),
+      exportValue: (r: ApprovalQueueRow) => (hasNoSingleBill(r) ? "" : expenseListBillCheckText(r)),
     },
   }),
 
