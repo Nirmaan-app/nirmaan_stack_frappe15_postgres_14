@@ -64,6 +64,20 @@ def reject_bill(name: str, reason: str | None, user: str) -> None:
     expense.save(ignore_permissions=True)
 
 
+def correct_latest_bill(expense_doctype: str, expense: str, invoice_no: str | None, invoice_date) -> None:
+    """Put a corrected `invoice_no` and `invoice_date` on Expense `expense`'s latest bill, through the document
+    layer (a Version is kept): an approver (`role_profiles.PAID_BILL_APPROVER_PROFILES`) editing only the number and
+    date on Payment Done, which lands no new bill (#1643). An Expense with no Expense bill is left alone. Does not
+    commit."""
+    name = frappe.db.get_value(BILL_DOCTYPE, {"expense_doctype": expense_doctype, "expense": expense, "is_latest": 1})
+    if not name:
+        return
+    bill = frappe.get_doc(BILL_DOCTYPE, name, for_update=True)
+    bill.invoice_no = (invoice_no or "").strip() or None
+    bill.invoice_date = getdate(invoice_date) if invoice_date else None
+    bill.save(ignore_permissions=True)
+
+
 def last_rejection_sql(alias: str, doctype_sql: str) -> str:
     """A SQL expression: the rejection reason of Expense `alias`'s latest bill when that bill is Rejected, else
     NULL. `doctype_sql` is the SQL that names the Expense's doctype. The Pending Invoices Upload queues show it as

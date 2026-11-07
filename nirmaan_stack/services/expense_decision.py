@@ -54,6 +54,8 @@ from nirmaan_stack.services.approval_tiers import (
 )
 from nirmaan_stack.services.caller_transaction import EXPENSE_DECIDING
 from nirmaan_stack.services.ceo_hold.core import CEO_HOLD_STATUS
+from nirmaan_stack.services.expense_bills.approval import correct_latest_bill
+from nirmaan_stack.services.expense_bills.receive import is_wallet_or_card_spend, receive_bill
 from nirmaan_stack.services.expense_statuses import (
     EXPENSE_APPROVED,
     EXPENSE_CEO_PENDING,
@@ -62,7 +64,6 @@ from nirmaan_stack.services.expense_statuses import (
     EXPENSE_REJECTED,
     EXPENSE_REQUESTED,
 )
-from nirmaan_stack.services.expense_bills.receive import is_wallet_or_card_spend, receive_bill
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.role_profiles import (
@@ -326,7 +327,8 @@ def save_paid_invoice(
 
     A new file on a wallet spend or card spend goes through `expense_bills.receive_bill` as an Expense bill: approved
     at once in `user`'s name when they hold `PAID_BILL_APPROVER_PROFILES`, else waiting like any other (#1643). A
-    changed number or date with the same file lands no new bill. Never commits."""
+    changed number or date with the same file lands no new bill; from those same profiles it corrects the latest
+    bill's own number and date too (`expense_bills.approval.correct_latest_bill`). Never commits."""
     if doctype not in EXPENSE_DOCTYPES:
         frappe.throw(_("{0} is not an expense ledger.").format(doctype))
     values = {
@@ -349,13 +351,16 @@ def save_paid_invoice(
             name, doc.status or "blank"))
     replaced = values["invoice_attachment"] != (doc.invoice_attachment or "")
     new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user) if replaced else None
+    bill_approver = is_wallet_or_card_spend(doc) and has_role_profile(user, PAID_BILL_APPROVER_PROFILES)
     if replaced and is_wallet_or_card_spend(doc):
         # A new bill on a wallet spend or card spend is an Expense bill (#1643); an approver's is approved at once.
         receive_bill(doc, values["invoice_attachment"], values["invoice_ref"], values["invoice_date"], user,
-                     approve=has_role_profile(user, PAID_BILL_APPROVER_PROFILES))
+                     approve=bill_approver)
     else:
         doc.update(values)
         doc.save(ignore_permissions=True)
+        if bill_approver:
+            correct_latest_bill(doctype, name, values["invoice_ref"], values["invoice_date"])
     if new_file:
         # Files the upload under the expense, as an upload made against it would have been. A plain write:
         # it moves no bytes, and a File's own hooks have nothing to do for a link.

@@ -14,11 +14,12 @@ from datetime import date
 from decimal import Decimal
 
 import frappe
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, getdate, nowdate
 
 from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice
 from nirmaan_stack.api.expenses.paid_invoice import set_paid_expense_invoice
 from nirmaan_stack.api.expenses.test_cashbook_invoices import NPE, PE, CashbookInvoiceCase
+from nirmaan_stack.api.expenses.test_expense_bill_approval import keeping_versions
 from nirmaan_stack.api.expenses.test_expense_bills import CardBillCase, FakeReader, bills_of, readings_queued, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN
 from nirmaan_stack.api.tds.test_submit import _cloud_url
@@ -101,15 +102,33 @@ class TestReplacingACardSpendsBill(ReplaceOnPaymentDone, CardBillCase):
         self.assertEqual((new.status, new.approved_by, new.bill_check, new.uploaded_by),
                          ("Pending", None, "Checking", accountant))
 
-    def test_editing_only_the_number_and_date_lands_no_new_bill(self):
-        _, first = self._attach()
+    def test_an_approvers_edit_of_only_the_number_and_date_lands_no_new_bill_and_corrects_the_latest_one(self):
+        _, first = self._attach(invoice_ref="TYPED-77", invoice_date=TYPED_DATE)
         lead = self.users.make(ACCOUNTANT_LEAD)
         kept = frappe.db.get_value(NPE, self.spend, "invoice_attachment")
+        corrected = add_days(nowdate(), -2)
 
-        self._as(lead, set_paid_expense_invoice, NPE, self.spend, kept, "TYPED-78", TYPED_DATE)
+        with keeping_versions():
+            self._as(lead, set_paid_expense_invoice, NPE, self.spend, kept, "TYPED-78", corrected)
 
         self.assertEqual([b.name for b in bills_of(NPE, self.spend)], [first])
         self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_ref"), "TYPED-78")
+        # The same profiles whose new bill is approved at once correct the bill itself, through the document layer.
+        self.assertEqual(
+            frappe.db.get_value(BILL, first, ["invoice_no", "invoice_date", "status"]),
+            ("TYPED-78", getdate(corrected), "Pending"),
+        )
+        self.assertTrue(frappe.db.exists("Version", {"ref_doctype": BILL, "docname": first, "owner": lead}))
+
+    def test_an_accountants_edit_of_only_the_number_and_date_leaves_the_bill_as_it_was(self):
+        _, first = self._attach(invoice_ref="TYPED-77", invoice_date=TYPED_DATE)
+        accountant = self.users.make(ACCOUNTANT)
+        kept = frappe.db.get_value(NPE, self.spend, "invoice_attachment")
+
+        self._as(accountant, set_paid_expense_invoice, NPE, self.spend, kept, "TYPED-78", TYPED_DATE)
+
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_ref"), "TYPED-78")
+        self.assertEqual(frappe.db.get_value(BILL, first, ["invoice_no", "invoice_date"]), ("TYPED-77", getdate(TYPED_DATE)))
 
 
 class TestReplacingAWalletSpendsBill(ReplaceOnPaymentDone, CashbookInvoiceCase):
