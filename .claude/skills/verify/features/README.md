@@ -65,6 +65,7 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
   a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; a paid spend's bill
   an Admin or Accountant Lead replaces on Payment Done is approved at once in their name; the Project and
-  Non-Project Expenses lists show each spend's Bill check and approval on Paid and All, with a filter on each.
-  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check` or
-  `--part paid-replace` for one part alone).
+  Non-Project Expenses lists show each spend's Bill check and approval on Paid and All, with a filter on each;
+  Project Payments -> All Payments shows each Expense row's Invoice and Bill check (PO / WO rows empty).
+  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check`,
+  `--part paid-replace` or `--part all-payments` for one part alone).

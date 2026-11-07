@@ -68,6 +68,10 @@ Expense (hand-keyed, Porter, ...) gets no Expense bill.
   `#invoice_date_update_id` -> `Save Invoice`. DB: a new `Expense Bill`, Approved, `approved_by` the person,
   `auto_approved` 0, Checking, latest, `invoice_no` / `invoice_date` typed; the old one `is_latest` 0. After the
   reading: a result, still Approved, the typed number and date on the bill and the spend. A hand-keyed spend: none.
+- `all-payments` (#1648) Project Payment & Expense -> `All Payments` (this tab only): an `Invoice` column (a
+  paperclip link to the Expense's bill, its `invoice_attachment`; "—" when it has none) and a `Bill check` column
+  (the latest Expense bill's result over its approval, the cell the expense lists draw; "—" when the Expense has no
+  Expense bill), after Payment Source. A PO / WO payment row leaves both cells empty. No filter on either.
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.
 
@@ -79,6 +83,8 @@ Expense (hand-keyed, Porter, ...) gets no Expense bill.
   `Cashbook` or `Credit Card` -> the row's `Approve` or `Reject`.
 - Accountant: sidebar `Dashboard` -> card `Non-Project Expenses` or `Project Expenses` -> tab `Paid`.
 - Accountant: the same -> tab `Paid` or `All` -> the `Bill check` column's header funnels (#1640).
+- Accountant: sidebar `Project Payment & Expense` -> tab `All Payments` -> the `Invoice` and `Bill check` columns
+  (#1648); the search box (PO / SR / Description) finds a row.
 
 ## Driving it with drive.py
 
@@ -93,7 +99,8 @@ Preconditions:
 `python3 BIN/walk_expense_bills.py --task <task> --password <pw>` seeds its own made-up card spend and wallet spend
 (`BIN/expense_bills_seed.py <stamp>`), writes two made-up PDF bills (₹1,180 for Matched, ₹2,500 for Mismatched),
 attaches them in both pills, runs the readings and reads both lists, asserting each screen and its DB row
-(`BIN/expense_bills_db.py`). It exits 1 on any miss. `--part attach` walks only that; `--part cashbook` walks only
+(`BIN/expense_bills_db.py`). It exits 1 on any miss. These steps have no `--part` of their own: the default
+`--part all` walks them and every part below. `--part cashbook` walks only
 the Cashbook import (`bill-cashbook-import`): `BIN/cashbook_bills_seed.py <stamp> <accountant>` confirms two made-up
 Cashbook imports as the Accountant through the real endpoint and runs their job, then the walk asserts each spend's
 Expense bill and its row on the expense list.
@@ -127,8 +134,18 @@ Accountant Lead. The walk replaces both bills as the Accountant Lead, runs one b
 left the approval and the typed number and date alone, and uploads a bill on the hand-keyed spend (no Expense bill).
 Matched over a typed number is NOT WALKED (the reader key is refused); `test_paid_expense_bill` proves it.
 
+Then All Payments (#1648), step 23: `BIN/all_payments_bill_seed.py <stamp>` makes made-up Paid records
+"WalkAP-<stamp> ..." -- a Mismatched / Pending and a Matched / Auto-approved Expense (seeded states), an Expense with
+a bill but no Expense bill, and a PO and a WO payment -- each Expense with its own private PDF. The walk searches
+All Payments for them, checks each Invoice link names its own file and that the file opens (200) for the Accountant,
+each Bill check cell, and that the PO / WO rows' two cells are empty, beside the DB read (`23-db.db.json`).
+`--part all-payments` runs only this step (it needs only the Accountant).
+
 ## Gotchas
 
+- **A file link points at `localhost:8000` under vite.** `SITEURL` is `http://localhost:8000` in vite's dev mode (the
+  main bench, never an env) and the page's own origin in production. The walk checks the link's path and opens it
+  on the env's origin; never follow the link as it stands.
 - **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
   ends Not read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints
   NOT WALKED for Matched and Mismatched. Never add a key to an env.

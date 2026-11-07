@@ -5,7 +5,7 @@
     devenv.sh script <task> .claude/skills/verify/bin/office_rent_seed.py      # once per env: the free Accountant
     devenv.sh run <task> set-password walk-accountant@example.com <pw>   # the walk gives its other two users <pw>
     python3 .claude/skills/verify/bin/walk_expense_bills.py --task <task> --password <pw> [--accountant <email>]
-        [--part read-again|cashbook|bill-check|paid-replace|all]      # default all
+        [--part read-again|cashbook|bill-check|paid-replace|all-payments|all]      # default all
 
 Part `attach` (#1639):
 
@@ -52,6 +52,11 @@ Then Payment Done's replace (#1643), steps 19-22 (`paid_replace_part`'s docstrin
 card spend's and wallet spend's bill replaced from Payment Done / Reconciliation Done is approved at once in their
 name, the first bill stays as history, the Bill check runs and leaves the typed number and date, and a hand-keyed
 spend's new bill makes no Expense bill. `--part paid-replace` runs only these steps.
+
+Then Project Payments -> All Payments (#1648), step 23, with `all_payments_bill_seed.py <stamp>`: made-up Paid
+records "WalkAP-<stamp> ..." (two Expenses with seeded Expense bills, one Expense whose bill has no Expense bill, a PO
+payment and a WO payment). It is `all_payments_part`'s docstring. `--part all-payments` runs only this step (it needs
+only the Accountant).
 
 `--shots DIR` also keeps one half-size screenshot per acceptance criterion there.
 
@@ -101,8 +106,9 @@ ap.add_argument("--accountant", default="walk-accountant@example.com")
 ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
 ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
-ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check", "paid-replace"), default="all",
-                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); paid-replace: only steps 19-22 (#1643); each with its own seed")
+ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check", "paid-replace", "all-payments"),
+                default="all",
+                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); paid-replace: only steps 19-22 (#1643); all-payments: only step 23 (#1648); each with its own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -659,6 +665,76 @@ def bill_check_part() -> None:
         expect_rows({"notchecked": "Not checked Approved"}, "18. Approval filter Approved on All")
         shot(page, out, "18c-pe-all-filter-approval", "2-filter-approval-project-all")
 
+def all_payments_part() -> None:
+    """Step 23: Project Payments -> All Payments shows each Expense's bill and Bill check (#1648), as the Accountant,
+    over seeded records (the env's reader gives only Not read, so the results are seeded).
+
+    23. Sidebar "Project Payment & Expense" -> tab "All Payments", searched "WalkAP-<stamp>" (PO / SR / Description):
+        - the Mismatched and the Matched Expense rows show an Invoice link to their own bill, which opens (200), and a
+          Bill check of "Mismatched Pending" / "Matched Auto-approved";
+        - the Expense with a bill but no Expense bill shows its Invoice link (it opens) and "—" for Bill check;
+        - the PO and WO payment rows leave both cells empty.
+        DB: each Expense's `invoice_attachment` and its Expense bills (`expense_bills_db.py`).
+    """
+    seeded = json.loads(next(l for l in script("all_payments_bill_seed.py", STAMP).splitlines()
+                             if l.startswith("ALL_PAYMENTS_BILL_SEED ")).removeprefix("ALL_PAYMENTS_BILL_SEED "))
+    print(f"seeded for All Payments: {seeded}")
+    search = f"WalkAP-{STAMP}"
+
+    with session(a.task, a.accountant, a.password) as (page, out):
+        state = db_of(out, "23-db", [x for k in ("mismatched", "matched", "nobill")
+                                     for x in (seeded[k]["doctype"], seeded[k]["name"])])
+        for slug, want in (("mismatched", ("Mismatched", "Pending", 0)), ("matched", ("Matched", "Approved", 1))):
+            [bill] = state[seeded[slug]["name"]]["bills"]
+            expect((bill["bill_check"], bill["status"], bill["auto_approved"]) == want, f"DB: {slug}'s latest bill {want}")
+        expect(state[seeded["nobill"]["name"]]["bills"] == [], "DB: the 'nobill' Expense has no Expense bill")
+        for slug in ("mismatched", "matched", "nobill"):
+            expect(state[seeded[slug]["name"]]["expense"]["invoice_attachment"] == seeded[slug]["invoice"],
+                   f"DB: {slug}'s bill file is on the Expense")
+
+        sidebar(page, "Project Payment & Expense")
+        page.get_by_role("button", name=re.compile(r"^All Payments\s*\d*$")).click()
+        page.wait_for_load_state("networkidle")
+        page.get_by_placeholder(re.compile("search", re.I)).first.fill(search)
+        page.get_by_role("row").filter(has_text=search).first.wait_for(timeout=30_000)
+        page.wait_for_timeout(800)
+        page.wait_for_load_state("networkidle")
+
+        header = [h.inner_text().strip() for h in page.get_by_role("columnheader").all()]
+        inv_col = header.index("Invoice")
+        check_col = next(i for i, h in enumerate(header) if h.startswith("Bill check"))
+        shown = {}
+        for row in page.get_by_role("row").filter(has_text=search).all():
+            cells = row.get_by_role("cell").all()
+            against = next(c.inner_text() for c in cells if search in c.inner_text())
+            slug = against[against.index(search) + len(search):].split()[0].strip("- ").lower()
+            link = cells[inv_col].locator("a")
+            href = link.first.get_attribute("href") if link.count() else None
+            shown[slug] = {"invoice_text": cells[inv_col].inner_text().strip(), "href": href,
+                           "bill_check": " ".join(cells[check_col].inner_text().split())}
+        (out / "23-cells.json").write_text(json.dumps(shown, indent=2))
+        expect(set(shown) == {"mismatched", "matched", "nobill", "po", "wo"}, f"23.the five seeded rows: {sorted(shown)}")
+
+        for slug, check in (("mismatched", "Mismatched Pending"), ("matched", "Matched Auto-approved"), ("nobill", "—")):
+            href = shown[slug]["href"] or ""
+            expect(href.endswith(seeded[slug]["invoice"]), f"23.{slug}: Invoice links its own bill ({href})")
+            # In vite's dev mode `SITEURL` is http://localhost:8000 (the main bench, not this env), so the file is
+            # opened at the same path on the env's own origin, as production's `SITEURL` (the page's origin) would.
+            origin = re.match(r"^https?://[^/]+", page.url).group(0)
+            status = page.request.get(origin + re.sub(r"^https?://[^/]+", "", href)).status
+            expect(status == 200, f"23.{slug}: the bill opens for the Accountant ({status})")
+            expect(shown[slug]["bill_check"] == check, f"23.{slug}: Bill check '{shown[slug]['bill_check']}'")
+        for slug in ("po", "wo"):
+            expect(shown[slug] == {"invoice_text": "", "href": None, "bill_check": ""},
+                   f"23.{slug.upper()} payment: Invoice and Bill check both empty")
+
+        page.get_by_role("columnheader").nth(check_col).scroll_into_view_if_needed()
+        shot(page, out, "23-all-payments", "1-expense-invoice-and-bill-check")
+        shot(page, out, "23b-all-payments-po-wo", "2-po-wo-rows-empty")
+        shot(page, out, "23c-all-payments-no-bill", "3-no-expense-bill-dash")
+        shot(page, out, "23d-walked-as-accountant", "4-walked-as-accountant")
+
+
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 if a.part == "read-again":
@@ -673,6 +749,9 @@ if a.part == "bill-check":
     sys.exit(0)
 if a.part == "paid-replace":
     paid_replace_part()
+    sys.exit(0)
+if a.part == "all-payments":
+    all_payments_part()
     sys.exit(0)
 spends = seed()
 print(f"seeded: {spends}")
@@ -879,4 +958,6 @@ with session(a.task, a.accountant, a.password) as (page, out):
 bill_check_part()
 
 paid_replace_part()
+
+all_payments_part()
 
