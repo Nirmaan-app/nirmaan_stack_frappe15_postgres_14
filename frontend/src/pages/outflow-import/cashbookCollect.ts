@@ -33,21 +33,28 @@ export const collectPaymentsHeading = (lines: CollectPaymentLine[]): string | nu
         : `${n} shop-requested payments to check. They are not recorded: they stay open on the main table for Create expense or Skip by hand.`;
 };
 
+/** What Create will lead to for a stored bill, from the Bill check kept on its line (`expense_bills.line_check`). */
+const OUTCOME_OF_CHECK = {
+    Matched: "Will be auto-approved",
+    Mismatched: "Will go to Pending Approval",
+    "Not read": "Will go to Pending Approval",
+    "Not checked": "Will go to Pending Approval",
+    Checking: "Checking",
+} as const satisfies Record<BillCheck, string>;
+
 /** What the decide screen says about an open Collect payment's stored bill (#1642, spec #1637 story 20). */
 export interface CollectBillOutcome {
     heading: "Invoice already available";
-    /** What Create will lead to, from the Bill check kept on the line (`expense_bills.line_check`). */
-    outcome: "Will be auto-approved" | "Will go to Pending Approval" | "Checking";
+    /** A line stored before #1642 kept no Bill check; Create reads its bill. */
+    outcome: (typeof OUTCOME_OF_CHECK)[BillCheck] | "Will be read on Create";
     /** The stored bill, for its link. */
     fileUrl: string;
 }
 
-const WAITS_FOR_A_PERSON: ReadonlySet<BillCheck> = new Set(["Mismatched", "Not read", "Not checked"]);
-
 /**
  * The bill an open Collect payment already holds, and what Create will lead to: Matched is auto-approved;
- * Mismatched, Not read and Not checked go to Pending Approval; a bill still being read (or kept from before
- * #1642, which Create reads) is Checking. Null with no stored bill, or on any other line.
+ * Mismatched, Not read and Not checked go to Pending Approval; a bill still being read is Checking; a bill kept
+ * with no Bill check (stored before #1642) is read on Create. Null with no stored bill, or on any other line.
  */
 export const collectBillOutcome = (row: {
     row_status: string;
@@ -57,8 +64,9 @@ export const collectBillOutcome = (row: {
     bill_check?: BillCheck | null;
 }): CollectBillOutcome | null => {
     if (!isOpenCollectPaymentLine(row) || !row.stored_bill) return null;
-    const known = { heading: "Invoice already available", fileUrl: row.stored_bill } as const;
-    if (row.bill_check === "Matched") return { ...known, outcome: "Will be auto-approved" };
-    if (row.bill_check && WAITS_FOR_A_PERSON.has(row.bill_check)) return { ...known, outcome: "Will go to Pending Approval" };
-    return { ...known, outcome: "Checking" };
+    return {
+        heading: "Invoice already available",
+        outcome: row.bill_check ? OUTCOME_OF_CHECK[row.bill_check] : "Will be read on Create",
+        fileUrl: row.stored_bill,
+    };
 };

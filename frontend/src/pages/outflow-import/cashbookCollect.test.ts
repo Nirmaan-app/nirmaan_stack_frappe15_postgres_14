@@ -70,7 +70,13 @@ describe("collectBillOutcome (#1642)", () => {
         expect(collectBillOutcome(row("/private/files/b.jpeg", check))?.outcome).toBe("Will go to Pending Approval");
     });
 
-    it.each<BillCheck | null>(["Checking", null])("a bill still being read (%s) says Checking", (check) => {
-        expect(collectBillOutcome(row("/private/files/b.jpeg", check))?.outcome).toBe("Checking");
+    it("a bill still being read says Checking", () => {
+        expect(collectBillOutcome(row("/private/files/b.jpeg", "Checking"))?.outcome).toBe("Checking");
+    });
+
+    it("a bill stored before its line kept a Bill check will be read on Create", () => {
+        expect(collectBillOutcome(row("/private/files/b.jpeg", null))?.outcome).toBe("Will be read on Create");
+        const { bill_check: _, ...noCheck } = row("/private/files/b.jpeg", null);
+        expect(collectBillOutcome(noCheck)?.outcome).toBe("Will be read on Create");
     });
 });
