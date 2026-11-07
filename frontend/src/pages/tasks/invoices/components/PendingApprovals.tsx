@@ -46,6 +46,8 @@ export const PendingApprovals: React.FC = () => {
         setTab((current) => (current === value ? current : value));
     }, []);
 
+    const current = PENDING_APPROVAL_PILLS.find((p) => p.key === tab) ?? PENDING_APPROVAL_PILLS[0];
+
     return (
         <div className="flex flex-col gap-3">
             <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
@@ -70,9 +72,9 @@ export const PendingApprovals: React.FC = () => {
 
             <Suspense fallback={<LoadingFallback />}>
                 {/* Keyed, so a switch between PO and WO mounts the table afresh with its own filter. */}
-                {tab === "po" ? <PendingTasksTable key="po" documentType="Procurement Orders" />
-                    : tab === "wo" ? <PendingTasksTable key="wo" documentType="Service Requests" />
-                    : <ExpenseBillApprovals key={tab} kind={tab} />}
+                {current.kind === "expense"
+                    ? <ExpenseBillApprovals key={current.key} kind={current.key} />
+                    : <PendingTasksTable key={current.key} documentType={current.documentType} />}
             </Suspense>
         </div>
     );

@@ -44,8 +44,9 @@ def approve_bill(name: str, invoice_no: str | None, invoice_date: str | None, us
     expense.save(ignore_permissions=True)
 
 
-def reject_bill(name: str, reason: str | None, user: str) -> None:
-    """Reject waiting bill `name` as `user` for the typed `reason`; its Expense waits for a new bill again."""
+def reject_bill(name: str, reason: str | None) -> None:
+    """Reject waiting bill `name` for the typed `reason`; its Expense waits for a new bill again. Who rejected it and
+    when are the Version the save keeps (the Vendor Invoice fields ADR-0045 reuses have no rejected-by)."""
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED)
@@ -69,7 +70,14 @@ def last_rejection_sql(alias: str, doctype_sql: str) -> str:
 
 
 def _lock_waiting(name: str):
-    """The bill and its Expense, both `FOR UPDATE`; refused unless the bill still waits for a person."""
+    """The bill and its Expense, both `FOR UPDATE`; refused unless the bill still waits for a person.
+
+    The Expense is locked first, as `receive_bill`'s callers do before they touch its bills: a decision and a new
+    bill landing on the same Expense then queue up instead of deadlocking."""
+    expense_doctype, expense_name = frappe.db.get_value(BILL_DOCTYPE, name, ["expense_doctype", "expense"]) or (None, None)
+    if not expense_doctype:
+        frappe.throw(f"Expense bill {name} not found.", frappe.DoesNotExistError)
+    expense = frappe.get_doc(expense_doctype, expense_name, for_update=True)
     bill = frappe.get_doc(BILL_DOCTYPE, name, for_update=True)
     if bill.status != PENDING:
         frappe.throw(f"Expense bill {name} is already {bill.status}.")
@@ -77,5 +85,4 @@ def _lock_waiting(name: str):
         frappe.throw(f"Expense bill {name} is still being read; decide it once its Bill check is done.")
     if not bill.is_latest:
         frappe.throw(f"Expense bill {name} is no longer the latest bill of {bill.expense}.")
-    expense = frappe.get_doc(bill.expense_doctype, bill.expense, for_update=True)
     return bill, expense

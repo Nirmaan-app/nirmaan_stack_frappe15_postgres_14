@@ -70,8 +70,9 @@ class TestApprove(WaitingCardBillCase):
         self.assertEqual(
             frappe.db.get_value(NPE, self.spend, ["invoice_ref", "invoice_date"]), ("INV-9A", date(2026, 9, 8))
         )
-        # Saved through the document layer: a Version of the decision is kept.
+        # Saved through the document layer: a Version of the decision is kept on the bill and on the spend.
         self.assertTrue(frappe.db.exists("Version", {"ref_doctype": BILL, "docname": self.bill, "owner": accountant}))
+        self.assertTrue(frappe.db.exists("Version", {"ref_doctype": NPE, "docname": self.spend, "owner": accountant}))
 
     def test_approving_with_no_correction_keeps_the_number_and_date_the_accountant_typed(self):
         # A Not read bill fills nothing: its own number and date are empty, the Expense's typed ones stand.

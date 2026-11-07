@@ -5,10 +5,9 @@
  * Approve opens a form with the invoice number and date the row offers (the bill's own, else what the Accountant
  * typed on the Expense) for a person to correct; Reject asks for a reason. The server checks who may decide
  * (`api/expenses/expense_bill_approval`); this screen is mounted only for the same approvers.
- * The dialogs hold the bill's name, never a row snapshot (frontend/CODING_STANDARDS § Fetching or mutating data).
+ * The list, the two writes and the dialogs' state are `useExpenseBillApprovals`.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import React, { useEffect, useMemo } from "react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import {
@@ -19,20 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/use-toast";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import { getFrappeError } from "@/utils/frappeErrors";
 
-import {
-    type ExpenseBillKind,
-    type PendingExpenseBillRow,
-    approveFormDefaults,
-    billCheckText,
-} from "../utils/expenseBillApprovalView";
+import { useExpenseBillApprovals } from "../hooks/useExpenseBillApprovals";
+import { type ExpenseBillKind, type PendingExpenseBillRow, billCheckText } from "../utils/expenseBillApprovalView";
 import { getExpenseBillApprovalColumns } from "./expenseBillApprovalColumns";
-
-const API = "nirmaan_stack.api.expenses.expense_bill_approval";
 
 const SEARCHABLE_FIELDS = [
     { value: "paid_by", label: "Paid by", placeholder: "Search by who paid, project or invoice no...", default: true },
@@ -46,59 +38,11 @@ interface ExpenseBillApprovalsProps {
 }
 
 export const ExpenseBillApprovals: React.FC<ExpenseBillApprovalsProps> = ({ kind }) => {
-    const { toast } = useToast();
-    const { data, error, isLoading, mutate } = useFrappeGetCall<{ message: PendingExpenseBillRow[] }>(
-        `${API}.get_pending_expense_bills`, { kind }, `pending-expense-bills-${kind}`,
-    );
-    const rows = useMemo(() => data?.message ?? [], [data]);
-
-    const { call: approveCall, loading: approving } = useFrappePostCall(`${API}.approve_expense_bill`);
-    const { call: rejectCall, loading: rejecting } = useFrappePostCall(`${API}.reject_expense_bill`);
-
-    const [approvingBill, setApprovingBill] = useState<string | null>(null);
-    const [rejectingBill, setRejectingBill] = useState<string | null>(null);
-    const [invoiceNo, setInvoiceNo] = useState("");
-    const [invoiceDate, setInvoiceDate] = useState("");
-    const [reason, setReason] = useState("");
-
-    const approveRow = rows.find((r) => r.name === approvingBill) ?? null;
-    const rejectRow = rows.find((r) => r.name === rejectingBill) ?? null;
-
-    const onApprove = useCallback((row: PendingExpenseBillRow) => {
-        const defaults = approveFormDefaults(row);
-        setInvoiceNo(defaults.invoice_no);
-        setInvoiceDate(defaults.invoice_date);
-        setApprovingBill(row.name);
-    }, []);
-
-    const onReject = useCallback((row: PendingExpenseBillRow) => {
-        setReason("");
-        setRejectingBill(row.name);
-    }, []);
-
-    const submitApprove = useCallback(async () => {
-        if (!approvingBill) return;
-        try {
-            await approveCall({ bill: approvingBill, invoice_no: invoiceNo.trim() || null, invoice_date: invoiceDate || null });
-            toast({ title: "Bill approved", description: approvingBill, variant: "success" });
-            setApprovingBill(null);
-            mutate();
-        } catch (e) {
-            toast({ title: "Could not approve the bill", description: getFrappeError(e), variant: "destructive" });
-        }
-    }, [approveCall, approvingBill, invoiceDate, invoiceNo, mutate, toast]);
-
-    const submitReject = useCallback(async () => {
-        if (!rejectingBill || !reason.trim()) return;
-        try {
-            await rejectCall({ bill: rejectingBill, reason: reason.trim() });
-            toast({ title: "Bill rejected", description: `${rejectingBill}: the spend waits in Pending Invoices Upload again.`, variant: "success" });
-            setRejectingBill(null);
-            mutate();
-        } catch (e) {
-            toast({ title: "Could not reject the bill", description: getFrappeError(e), variant: "destructive" });
-        }
-    }, [mutate, reason, rejectCall, rejectingBill, toast]);
+    const {
+        rows, error, isLoading, approvingBill, setApprovingBill, rejectingBill, setRejectingBill, approveRow, rejectRow,
+        invoiceNo, setInvoiceNo, invoiceDate, setInvoiceDate, reason, setReason, approving, rejecting,
+        onApprove, onReject, submitApprove, submitReject,
+    } = useExpenseBillApprovals(kind);
 
     const columns = useMemo(() => getExpenseBillApprovalColumns({ onApprove, onReject }), [onApprove, onReject]);
 
@@ -127,6 +71,8 @@ export const ExpenseBillApprovals: React.FC<ExpenseBillApprovalsProps> = ({ kind
         }
     }, [filteredRowCount]); // never `table`: it is a new object every render (CODING_STANDARDS § React effects)
 
+    // Facets from the rows, not `meta.facet`: a client-mode table over an API list with no single doctype to read
+    // facets from, as the Cashbook and Credit Card upload tabs (frontend/CODING_STANDARDS § Building a table).
     const facetOptions = useMemo(() => ({
         bill_check: { title: "Bill check", options: optionsOf(rows.map((r) => r.bill_check)) },
         paid_by: { title: "Paid by", options: optionsOf(rows.map((r) => r.paid_by)) },

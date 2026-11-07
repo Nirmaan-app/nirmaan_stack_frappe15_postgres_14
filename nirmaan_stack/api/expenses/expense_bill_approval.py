@@ -11,7 +11,11 @@ Gate: the Vendor Invoice approvers (`role_profiles.INVOICE_APPROVAL_PROFILES`: A
 checked here on the server, not only by the screen.
 """
 
+from typing import NamedTuple
+
 import frappe
+
+from nirmaan_stack.api.expenses.cashbook_invoices import EXPENSE_DOCTYPES, NON_PROJECT_EXPENSE, PROJECT_EXPENSE
 
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.approval import approve_bill, reject_bill
@@ -20,13 +24,17 @@ from nirmaan_stack.services.expense_invoices import require_profile
 from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES
 
 
-PROJECT_EXPENSE = "Project Expenses"
-NON_PROJECT_EXPENSE = "Non Project Expenses"
+class Pill(NamedTuple):
+    """One pill of expense bills: the ledgers its spends are on, and the SQL condition that puts a spend on it."""
 
-#: The two pills, and what puts a spend on each: the Cashbook import's marker, or a card statement.
+    ledgers: tuple[str, ...]
+    condition: str
+
+
+#: The two pills: the Cashbook import's marker, or a card statement.
 KINDS = {
-    "cashbook": ((PROJECT_EXPENSE, NON_PROJECT_EXPENSE), "COALESCE(e.cashbook_batch, '') != ''"),
-    "card": ((NON_PROJECT_EXPENSE,), "COALESCE(e.credit_card_statement, '') != ''"),
+    "cashbook": Pill(EXPENSE_DOCTYPES, "COALESCE(e.cashbook_batch, '') != ''"),
+    "card": Pill((NON_PROJECT_EXPENSE,), "COALESCE(e.credit_card_statement, '') != ''"),
 }
 
 # `read_total` is a Currency column, 0 when nothing was read: only a compared bill shows one.
@@ -66,7 +74,7 @@ def _pending_rows(kind: str, doctype: str) -> list[dict]:
         parts["joins"] += ' LEFT JOIN "tabProjects" p ON p.name = e.projects'
     else:
         parts.update(project="NULL", project_name="NULL")
-    sql = _PENDING_SQL.format(doctype=doctype, kind=KINDS[kind][1], **parts)
+    sql = _PENDING_SQL.format(doctype=doctype, kind=KINDS[kind].condition, **parts)
     return frappe.db.sql(sql, {"doctype": doctype}, as_dict=True)
 
 
@@ -86,7 +94,7 @@ def get_pending_expense_bills(kind: str) -> list[dict]:
     _require_approver()
     if kind not in KINDS:
         frappe.throw(f"'{kind}' is not a Pending Approval pill of expense bills.")
-    rows = [row for doctype in KINDS[kind][0] for row in _pending_rows(kind, doctype)]
+    rows = [row for doctype in KINDS[kind].ledgers for row in _pending_rows(kind, doctype)]
     rows.sort(key=lambda r: (r["creation"], r["name"]), reverse=True)
     for row in rows:
         del row["creation"]
@@ -115,7 +123,7 @@ def reject_expense_bill(bill: str, reason: str) -> dict:
 
     Example: `{"bill": "EB-2026-00042", "reason": "Bill of another shop"}` -> `{"name": "EB-2026-00042"}`.
     """
-    user = _require_approver()
-    reject_bill(bill, reason, user)
+    _require_approver()
+    reject_bill(bill, reason)
     frappe.db.commit()
     return {"name": bill}

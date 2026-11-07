@@ -10,10 +10,10 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 /** The pills of Pending Approval. PO and WO carry the Vendor Invoices `document_type` they show. */
 export const PENDING_APPROVAL_PILLS = [
-    { key: "po", label: "PO", documentType: "Procurement Orders" },
-    { key: "wo", label: "WO", documentType: "Service Requests" },
-    { key: "cashbook", label: "Cashbook" },
-    { key: "card", label: "Credit Card" },
+    { key: "po", label: "PO", kind: "vendor", documentType: "Procurement Orders" },
+    { key: "wo", label: "WO", kind: "vendor", documentType: "Service Requests" },
+    { key: "cashbook", label: "Cashbook", kind: "expense" },
+    { key: "card", label: "Credit Card", kind: "expense" },
 ] as const;
 
 export type PendingApprovalPill = (typeof PENDING_APPROVAL_PILLS)[number]["key"];
