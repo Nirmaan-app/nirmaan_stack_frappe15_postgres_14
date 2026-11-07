@@ -43,6 +43,8 @@ Matched and Mismatched.
 Evidence: `$VERIFY_OUT`, else ~/claude-artifacts/verify/<task>/<UTC time>/.
 """
 
+from __future__ import annotations
+
 import argparse
 import datetime
 import json
