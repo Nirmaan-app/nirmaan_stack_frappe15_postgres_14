@@ -210,9 +210,11 @@ the DB (`BIN/all_invoices_db.py`), the card spend's two rows, the wallet row, th
   results.
 - **An env's reader may have no valid key.** Then Google answers 401 "API key not valid", every reading ends Not
   read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints NOT WALKED for
-  Matched and Mismatched. With a working key (the owner sets it; 2026-11-07, env eb-walk) the attach steps read
-  the made-up PDFs for real: the ₹1,180 bill Matched and auto-approved, the ₹2,500 one Mismatched. Never add a key
-  to an env yourself.
+  Matched and Mismatched. With a working key the attach steps read the made-up PDFs for real: the ₹1,180 bill
+  Matched and auto-approved, the ₹2,500 one Mismatched. Never add a key to an env yourself.
+- **Every run's wallet spend has the holder "Walk Wallet Holder".** A run that stopped before its reject step leaves
+  its Mismatched bill waiting on the Cashbook pill, so the reject step picks this run's row by its View link (the
+  run's own bill file name), not by the holder.
 - **A text-only PDF is refused by the reader.** Frappe hands back a local file that decodes as text as a str; the
   walk's PDFs carry the binary marker line every real PDF has.
 - **No Cashbook spend waits in the 2026-10-28 data**, so the seed makes one (a Project Expense with the Cashbook
