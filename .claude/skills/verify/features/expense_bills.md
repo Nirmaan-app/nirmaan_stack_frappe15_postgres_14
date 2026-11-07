@@ -105,7 +105,9 @@ bill from the kept result without reading again; Skip makes none.
   `Porter`. PO and WO are the Vendor Invoices table it was before, narrowed by `document_type` (PO keeps the url key
   `inv_history`). Cashbook and Credit Card list every Expense bill of the pill, latest and history (a `Bill` column:
   Latest / Replaced), with spend date, expense, line amount, bill total read, invoice no. / date, Bill check,
-  Approval (a rejected bill's reason under it), Paid by, Project, Invoice Added By, Attached on and the file. Porter
+  Approval (a rejected bill's reason under it), Decided by / on (who approved or rejected it and when; "System" on
+  an auto-approved one), Paid by, Project, Invoice Added By, Attached on and the file, and `Read again` on a latest
+  Not read bill that was not rejected (Admin and Accountant Lead only). Porter
   lists one row per Porter Invoice: invoice no., date, Validate result with its message, city, trips, total, import,
   and `Open` for its PDF (none until the PDF arrived). All three are server-mode tables
   (`api/expenses/all_expense_bills.get_all_expense_bills` with the filter `["kind","=",<pill>]`,
