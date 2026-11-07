@@ -55,3 +55,6 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   the Skipped popup without the moved lines, Mark as Internal Transfer and Send back to Mismatched (one line), Made by
   in words, the Cashbook preview's and the card Review's Internal transfers lists, and the preview's sentence on the
   old ₹0 records it fills. Walked end to end by `BIN/walk_internal_transfers.py`.
+- [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
+  becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
+  the Invoice Ref and Date on the expense lists. Walked end to end by `BIN/walk_expense_bills.py`.
