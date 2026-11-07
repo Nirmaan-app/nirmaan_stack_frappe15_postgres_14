@@ -312,7 +312,9 @@ def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:
     doc.save(ignore_permissions=True)
 
 
-def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None:
+def save_paid_invoice(
+    doctype: str, name: str, invoice_attachment: str, invoice_ref: str, invoice_date: str, user: str
+) -> None:
     """The Payment Done tab's Upload / Edit Inv (owner, 2026-10-31): a carve-out from `edit_access` like
     `save_raiser_invoice`, for `role_profiles.PAID_INVOICE_PROFILES` (`api/expenses/paid_invoice` checks who).
     On a Paid Expense it writes `INVOICE_FIELDS` and nothing else, so it saves elevated; all three are
@@ -320,10 +322,18 @@ def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None
 
     The file is the one already on the expense, or one `user` just uploaded unattached (an HR user may not
     write the expense, so cannot upload against it), which is then filed under the expense. Any other File
-    URL is refused, so this cannot put another record's file on an expense. Never commits."""
+    URL is refused, so this cannot put another record's file on an expense.
+
+    A new file on a wallet spend or card spend goes through `expense_bills.receive_bill` as an Expense bill: approved
+    at once in `user`'s name when they hold `PAID_BILL_APPROVER_PROFILES`, else waiting like any other (#1643). A
+    changed number or date with the same file lands no new bill. Never commits."""
     if doctype not in EXPENSE_DOCTYPES:
         frappe.throw(_("{0} is not an expense ledger.").format(doctype))
-    values = {f: (invoice.get(f) or "").strip() for f in INVOICE_FIELDS}
+    values = {
+        "invoice_attachment": (invoice_attachment or "").strip(),
+        "invoice_ref": (invoice_ref or "").strip(),
+        "invoice_date": (invoice_date or "").strip(),
+    }
     if not values["invoice_attachment"]:
         frappe.throw(_("Attach the invoice file."), title=_("Invoice file required"))
     if not values["invoice_ref"]:

@@ -38,8 +38,13 @@ CLEARS = {
 LATER_TICKETS = {
     "nirmaan_stack/api/outflow_import/cashbook_bills.py": "Cashbook import's bill copy and late bill (#1637 ticket 2)",
     "nirmaan_stack/services/outflow_import/settle.py": "Collect payment Create's raw set_value (#1637 ticket 2)",
-    "nirmaan_stack/api/expenses/paid_invoice.py": "Payment Done replace, the endpoint (#1637 ticket 3)",
-    "nirmaan_stack/services/expense_decision.py": "Payment Done replace, save_paid_invoice (#1637 ticket 3)",
+}
+
+#: Writers that send a wallet spend's or card spend's new bill through the entry point and write every other
+#: Expense's bill themselves.
+ROUTES = {
+    "nirmaan_stack/services/expense_decision.py": "save_paid_invoice, Payment Done's replace (#1643); Mark as Paid and "
+    "the raiser's invoice, on Expenses no statement made",
 }
 
 #: Hand edits of any Expense through the REST API. They can replace the bill of a wallet spend or card spend, and
@@ -63,7 +68,7 @@ OTHER_RECORDS = {
     "nirmaan_stack/services/reimbursements/convert.py": "a Reimbursement's Expense (spec #1637: out of scope)",
 }
 
-KNOWN = {**ENTRY_POINT, **CLEARS, **LATER_TICKETS, **HAND_EDITS, **OTHER_RECORDS}
+KNOWN = {**ENTRY_POINT, **CLEARS, **ROUTES, **LATER_TICKETS, **HAND_EDITS, **OTHER_RECORDS}
 
 _WRITE_CALLS = {"set_value", "db_set", "save_file"}
 _FIELD_KEYWORDS = {"df", "fieldname", "attached_to_field"}
@@ -151,6 +156,11 @@ class TestEveryBillWriterGoesThroughTheEntryPoint(unittest.TestCase):
                 self.assertIn("save_invoice", calls(tab))
         self.assertIn("receive_bill", calls("nirmaan_stack/services/expense_invoices.py"))
         self.assertNotIn("nirmaan_stack/services/expense_invoices.py", writers())
+
+    def test_each_router_calls_the_entry_point(self):
+        for path in ROUTES:
+            with self.subTest(path=path):
+                self.assertIn("receive_bill", calls(path))
 
     def test_a_module_that_writes_the_field_is_caught_and_one_that_only_mentions_it_is_not(self):
         self.assertTrue(python_writes("doc.invoice_attachment = url"))

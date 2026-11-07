@@ -82,3 +82,51 @@ class TestReplacingACardSpendsBill(ReplaceOnPaymentDone, CardBillCase):
         self.assertEqual((bill.invoice_no, str(bill.invoice_date)), ("TYPED-77", TYPED_DATE))
         self.assertEqual(frappe.db.get_value(NPE, self.spend, ["invoice_ref", "invoice_date"]),
                          ("TYPED-77", frappe.utils.getdate(TYPED_DATE)))
+
+    def test_an_accountants_new_bill_waits_like_any_other(self):
+        accountant = self.users.make(ACCOUNTANT)
+
+        self._replace(accountant, NPE, self.spend)
+
+        new = bills_of(NPE, self.spend)[-1]
+        self.assertEqual((new.status, new.approved_by, new.bill_check, new.uploaded_by),
+                         ("Pending", None, "Checking", accountant))
+
+    def test_editing_only_the_number_and_date_lands_no_new_bill(self):
+        _, first = self._attach()
+        lead = self.users.make(ACCOUNTANT_LEAD)
+        kept = frappe.db.get_value(NPE, self.spend, "invoice_attachment")
+
+        self._as(lead, set_paid_expense_invoice, NPE, self.spend, kept, "TYPED-78", TYPED_DATE)
+
+        self.assertEqual([b.name for b in bills_of(NPE, self.spend)], [first])
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_ref"), "TYPED-78")
+
+
+class TestReplacingAWalletSpendsBill(ReplaceOnPaymentDone, CashbookInvoiceCase):
+    def test_an_admins_new_bill_is_approved_at_once_and_the_previous_one_is_history(self):
+        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"))
+        first = bills_of(PE, self.pe)[-1].name
+        admin = self.users.make(ADMIN)
+
+        url = self._replace(admin, PE, self.pe)
+
+        bills = bills_of(PE, self.pe)
+        self.assertEqual([b.name for b in bills][0], first)
+        new = bills[-1]
+        self.assertEqual((new.bill_file, new.status, new.approved_by, new.auto_approved, new.is_latest),
+                         (url, "Approved", admin, 0, 1))
+        self.assertEqual(frappe.db.get_value(BILL, first, "is_latest"), 0)
+        self.assertEqual(frappe.db.get_value(PE, self.pe, "invoice_attachment"), url)
+
+
+class TestOtherPaidExpenses(ReplaceOnPaymentDone, CardBillCase):
+    def test_an_expense_that_is_no_wallet_or_card_spend_gets_no_expense_bill(self):
+        hand_keyed = self._expense(None, amount=900)  # no statement: a hand-keyed Paid expense
+        lead = self.users.make(ACCOUNTANT_LEAD)
+
+        url = self._replace(lead, NPE, hand_keyed)
+
+        self.assertEqual(bills_of(NPE, hand_keyed), [])
+        self.assertEqual(frappe.db.get_value(NPE, hand_keyed, ["invoice_attachment", "invoice_ref"]), (url, "TYPED-77"))
+        self.assertEqual(readings_queued(self.jobs), [])
