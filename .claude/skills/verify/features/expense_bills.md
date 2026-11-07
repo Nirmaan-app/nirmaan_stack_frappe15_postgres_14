@@ -56,6 +56,10 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
   bill. Its header holds two funnels: `Bill check` (each result, and "— (no bill)") and `Approval` (each status,
   and "— (no bill)"). Both are sent with the list request (`bill_check` / `bill_approval` `in` filters, filled and
   narrowed on the server by `api/data_table/virtual_fields.py`), so they page with the list.
+- `all-payments` (#1648) Project Payment & Expense -> `All Payments` (this tab only): an `Invoice` column (a
+  paperclip link to the Expense's bill, its `invoice_attachment`; "—" when it has none) and a `Bill check` column
+  (the latest Expense bill's result over its approval, the cell the expense lists draw; "—" when the Expense has no
+  Expense bill), after Payment Source. A PO / WO payment row leaves both cells empty. No filter on either.
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.
 
@@ -67,6 +71,8 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
   `Cashbook` or `Credit Card` -> the row's `Approve` or `Reject`.
 - Accountant: sidebar `Dashboard` -> card `Non-Project Expenses` or `Project Expenses` -> tab `Paid`.
 - Accountant: the same -> tab `Paid` or `All` -> the `Bill check` column's header funnels (#1640).
+- Accountant: sidebar `Project Payment & Expense` -> tab `All Payments` -> the `Invoice` and `Bill check` columns
+  (#1648); the search box (PO / SR / Description) finds a row.
 
 ## Driving it with drive.py
 
@@ -101,6 +107,13 @@ searched by "WalkBC <stamp>", compares every Bill check cell with its DB row (`B
 uses each funnel, checking that the list request sent the filter. `--part bill-check` runs only these steps (it
 needs only the Accountant).
 
+Then All Payments (#1648), step 19: `BIN/all_payments_bill_seed.py <stamp>` makes made-up Paid records
+"WalkAP-<stamp> ..." -- a Mismatched / Pending and a Matched / Auto-approved Expense (seeded states), an Expense with
+a bill but no Expense bill, and a PO and a WO payment -- each Expense with its own private PDF. The walk searches
+All Payments for them, checks each Invoice link names its own file and that the file opens (200) for the Accountant,
+each Bill check cell, and that the PO / WO rows' two cells are empty, beside the DB read (`19-db.db.json`).
+`--part all-payments` runs only this step (it needs only the Accountant).
+
 Then Read again (#1645), steps 11-14: `BIN/expense_bills_seed.py R<stamp>` makes two more made-up spends and
 `BIN/expense_bill_read_again_seed.py <stamp> <card> <wallet>` puts a Not read bill on the card spend and a bill whose
 reading stopped on the wallet spend (wallet holder "Walk Reread Holder <stamp>"; both seeded states). The walk checks
@@ -110,6 +123,9 @@ result beside its DB row. `--part read-again` runs only these steps (it needs th
 
 ## Gotchas
 
+- **A file link points at `localhost:8000` under vite.** `SITEURL` is `http://localhost:8000` in vite's dev mode (the
+  main bench, never an env) and the page's own origin in production. The walk checks the link's path and opens it
+  on the env's origin; never follow the link as it stands.
 - **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
   ends Not read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints
   NOT WALKED for Matched and Mismatched. Never add a key to an env.
