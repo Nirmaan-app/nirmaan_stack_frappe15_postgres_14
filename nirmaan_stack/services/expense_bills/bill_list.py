@@ -13,9 +13,7 @@ import frappe
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, NOT_READ
 from nirmaan_stack.services.expense_bills.reading import stopped_before
-
-#: The Expense ledgers whose bills are Expense bills.
-EXPENSE_DOCTYPES = ("Project Expenses", "Non Project Expenses")
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 AUTO_APPROVED = "Auto-approved"
 

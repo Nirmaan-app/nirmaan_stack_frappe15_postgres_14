@@ -1,5 +1,5 @@
 """List fields that are not columns of the list's doctype: asked for by name in `fields`, filled in after the page
-is read, and filtered by through a `name in` narrowing.
+is read, and filtered by through a `name in` narrowing (ADR-0046).
 
 Only a caller that names one gets it; every other read of the doctype is unchanged. Today: the Bill check of an
 Expense on the Project Expenses and Non-Project Expenses lists (#1640, `services/expense_bills/bill_list.py`).
@@ -10,6 +10,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
+from nirmaan_stack.api.data_table.constants import NOT_SET_FACET_VALUE as NOT_SET
 from nirmaan_stack.services.expense_bills import bill_list
 
 #: doctype -> the virtual fields it has.
@@ -35,16 +36,14 @@ def fill_virtual_fields(doctype: str, rows: list[dict], asked: list[str]) -> Non
             row[field] = found.get(field)
 
 
-#: The data table's "not set" facet value (`facets.NOT_SET_FACET_VALUE`): here, "no Expense bill".
-NOT_SET = "__NOT_SET__"
-
 #: A `name` value no row has: the narrowing of a virtual filter that matches nothing.
 _NO_MATCH = "NoMatchFound_Virtual_Filter"
 
 
 def virtual_filter(doctype: str, field: str, operator: str, value) -> list | None:
     """The `name` narrowing that stands for a filter on a virtual field, or None when `field` is not one.
-    A virtual field takes `in` (a facet's choices, NOT_SET among them for "no Expense bill") or `=`.
+    A virtual field takes `in` (a facet's choices, the data table's "not set" value among them for "no Expense
+    bill") or `=`.
 
     Every narrowing lists only Expenses that hold an Expense bill: with "no Expense bill" chosen it is a `not in`
     over the ones whose latest bill shows none of the other choices, never a list of every Expense without one."""

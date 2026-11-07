@@ -124,6 +124,7 @@ class TestALateBillIsChecked(LateBillsCase):
 
     def test_a_late_bill_for_an_expense_from_before_the_cashbook_marker_is_recorded_like_any_other(self):
         waiting = self._first_upload()
+        # Raw: the Expense has doc_events, but nothing is derived from the Cashbook marker; an Expense from before it.
         frappe.db.set_value(waiting.doctype, waiting.name, "cashbook_batch", None)
         frappe.db.commit()
         self._upload(self._second_file())

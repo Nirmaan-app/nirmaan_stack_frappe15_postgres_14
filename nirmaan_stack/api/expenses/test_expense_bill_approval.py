@@ -99,6 +99,7 @@ class TestApprove(WaitingCardBillCase):
 
     def _attach_typed(self, invoice_ref, invoice_date):
         """Reject the waiting bill's file off the spend by hand and attach a new one with a typed number and date."""
+        # Raw: the spend has doc_events, but nothing is derived from its invoice fields; a seeded state.
         frappe.db.set_value(NPE, self.spend, "invoice_attachment", None)
         frappe.db.commit()
         return self._attach(invoice_ref=invoice_ref, invoice_date=invoice_date)
@@ -118,6 +119,7 @@ class TestReject(WaitingCardBillCase):
         self.assertEqual(frappe.db.get_value(BILL, self.bill, "status"), "Pending")
 
     def test_rejecting_clears_the_expenses_bill_and_sends_it_back_to_its_queue_with_the_reason(self):
+        # Raw: the spend has doc_events, but nothing is derived from its invoice fields; a seeded state.
         frappe.db.set_value(NPE, self.spend, {"invoice_ref": "INV-9", "invoice_date": "2026-09-09"})
         frappe.db.commit()
         accountant = self.users.make(ACCOUNTANT)
@@ -182,6 +184,7 @@ class TestTheCreditCardPill(WaitingCardBillCase):
 
     def test_a_mismatched_bill_offers_the_number_and_date_the_accountant_typed(self):
         # A Mismatched bill fills nothing on itself; the approve form starts from what was typed on the Expense.
+        # Raw: the spend has doc_events, but nothing is derived from its invoice fields; a seeded state.
         frappe.db.set_value(NPE, self.spend, {"invoice_ref": "TYPED-3", "invoice_date": "2026-09-04"})
         frappe.db.commit()
 

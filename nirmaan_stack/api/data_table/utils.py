@@ -4,6 +4,7 @@ from frappe.utils import cint, getdate
 import frappe.utils.data
 import json
 
+from nirmaan_stack.api.data_table.constants import NOT_SET_FACET_VALUE
 from nirmaan_stack.api.data_table.virtual_fields import virtual_filter
 
 def _parse_json_string_to_list(json_string: str | None, param_name: str, doctype_for_log: str) -> list | None:
@@ -78,12 +79,9 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
     processed_filters = []
     COMMON_DATE_FIELDS = {"creation", "modified"}
     sql_date_format = "%Y-%m-%d"
-    # Sentinel emitted by the facet "blank"/"not set" bucket (see facets.py
-    # NOT_SET_FACET_VALUE). When present in an `in` filter it means "match rows
-    # where this field is unset", which Frappe expresses as `is not set`
-    # (NULL or ''). No real link/data value equals this string, so this branch
-    # is inert for every other facet.
-    NOT_SET_FACET_VALUE = "__NOT_SET__"
+    # The facet "blank"/"not set" bucket's sentinel (`constants.NOT_SET_FACET_VALUE`). When present in an `in`
+    # filter it means "match rows where this field is unset", which Frappe expresses as `is not set` (NULL or '').
+    # No real link/data value equals this string, so this branch is inert for every other facet.
 
     for f in filters_list:
         if not isinstance(f, list) or len(f) < 3: continue
