@@ -159,7 +159,7 @@ class TestReject(WaitingCardBillCase):
 class TestTheCreditCardPill(WaitingCardBillCase):
     def _listed(self, user=None) -> dict:
         rows = self._as(user or self.users.make(ACCOUNTANT), get_pending_expense_bills, "card")
-        return {r["bill"]: r for r in rows}
+        return {r["name"]: r for r in rows}
 
     def test_a_waiting_card_bill_is_listed_with_what_an_approver_decides_on(self):
         row = self._listed()[self.bill]
@@ -206,7 +206,7 @@ class TestTheCashbookPill(CashbookInvoiceCase):
         run_reading(self.bill, FakeReader(ReadFailed("The reader timed out.")))
 
     def test_a_waiting_wallet_bill_is_listed_with_its_wallet_holder_and_project(self):
-        rows = {r["bill"]: r for r in self._as(self.accountant, get_pending_expense_bills, "cashbook")}
+        rows = {r["name"]: r for r in self._as(self.accountant, get_pending_expense_bills, "cashbook")}
 
         row = rows[self.bill]
         self.assertEqual((row["expense"], row["expense_doctype"]), (self.pe, PE))
@@ -217,7 +217,7 @@ class TestTheCashbookPill(CashbookInvoiceCase):
         self.assertEqual(row["project_name"], frappe.db.get_value("Projects", self.project, "project_name"))
         self.assertEqual(row["uploaded_by"], self.accountant)
         # A wallet bill is not on the Credit Card pill.
-        self.assertNotIn(self.bill, {r["bill"] for r in self._as(self.accountant, get_pending_expense_bills, "card")})
+        self.assertNotIn(self.bill, {r["name"] for r in self._as(self.accountant, get_pending_expense_bills, "card")})
 
     def test_a_rejected_wallet_spend_waits_in_the_cashbook_tab_with_the_reason(self):
         self._as(self.accountant, reject_expense_bill, self.bill, reason="Partial bill")

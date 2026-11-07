@@ -33,7 +33,7 @@ KINDS = {
 # A waiting bill: Pending, its Expense's latest, its Bill check done. The number and date offered are the bill's
 # own, else what was typed on the Expense (a Mismatched or Not read bill fills none of its own).
 _PENDING_SQL = f"""
-    SELECT b.name AS bill, b.expense, b.expense_doctype, e.payment_date, b.line_amount,
+    SELECT b.name, b.expense, b.expense_doctype, e.payment_date, b.line_amount,
            CASE WHEN b.bill_check IN ('{MATCHED}', '{MISMATCHED}') THEN b.read_total END AS read_total,
            b.bill_check, b.bill_check_reason,
            COALESCE(NULLIF(b.invoice_no, ''), e.invoice_ref) AS invoice_no,
@@ -78,7 +78,7 @@ def _require_approver() -> str:
 def get_pending_expense_bills(kind: str) -> list[dict]:
     """The expense bills waiting for a person on pill `kind` ("cashbook" or "card"), newest bill first.
 
-    Each row: `bill`, `expense`, `expense_doctype`, `payment_date` (the spend date), `line_amount`, `read_total`
+    Each row: `name` (the Expense bill), `expense`, `expense_doctype`, `payment_date` (the spend date), `line_amount`, `read_total`
     (None unless the bill was compared: Matched or Mismatched), `bill_check` and `bill_check_reason`, `invoice_no` and `invoice_date` (to approve
     with), `paid_by` (the wallet holder or the card holder), `project` and `project_name` (None on a Non-Project
     spend), `uploaded_by` and `uploaded_by_name` (who attached it), `bill_file`.
@@ -87,7 +87,7 @@ def get_pending_expense_bills(kind: str) -> list[dict]:
     if kind not in KINDS:
         frappe.throw(f"'{kind}' is not a Pending Approval pill of expense bills.")
     rows = [row for doctype in KINDS[kind][0] for row in _pending_rows(kind, doctype)]
-    rows.sort(key=lambda r: (r["creation"], r["bill"]), reverse=True)
+    rows.sort(key=lambda r: (r["creation"], r["name"]), reverse=True)
     for row in rows:
         del row["creation"]
     return rows

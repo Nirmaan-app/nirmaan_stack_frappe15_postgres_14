@@ -36,9 +36,16 @@ import { useRecheckAutoApprove } from "../hooks/useRecheckAutoApprove";
 import { RecheckResultDialog } from "./RecheckResultDialog";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
-const URL_SYNC_KEY = "inv_pending";
+// The PO pill keeps today's key, so its old links and bookmarks still land; WO has its own, so a filter set on one
+// pill never empties the other.
+const URL_SYNC_KEYS = { "Procurement Orders": "inv_pending", "Service Requests": "inv_pending_wo" } as const;
 
-export const PendingTasksTable: React.FC = () => {
+interface PendingTasksTableProps {
+    /** The Vendor Invoices `document_type` this table lists: its Pending Approval pill (PO or WO, #1644). */
+    documentType: "Procurement Orders" | "Service Requests";
+}
+
+export const PendingTasksTable: React.FC<PendingTasksTableProps> = ({ documentType }) => {
     const { role, user_id } = useUserData();
 
     // Rows tint red once a Pending invoice has aged past INVOICE_AGING_RED_DAYS.
@@ -184,8 +191,8 @@ export const PendingTasksTable: React.FC = () => {
     );
 
     const staticFilters = useMemo(
-        () => getVendorInvoiceStaticFilters("Pending", role, user_id),
-        [role, user_id]
+        () => getVendorInvoiceStaticFilters("Pending", role, user_id).concat([["document_type", "=", documentType]]),
+        [role, user_id, documentType]
     );
 
     const fetchFields = useMemo(() => DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH, []);
@@ -211,7 +218,7 @@ export const PendingTasksTable: React.FC = () => {
         columns: columns,
         fetchFields: fetchFields,
         searchableFields: searchableFields,
-        urlSyncKey: URL_SYNC_KEY,
+        urlSyncKey: URL_SYNC_KEYS[documentType],
         defaultSort: "modified desc",
         additionalFilters: staticFilters,
         enableRowSelection: false,
