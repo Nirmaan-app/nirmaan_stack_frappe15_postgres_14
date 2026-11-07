@@ -77,7 +77,13 @@ def check_expense_bill(bill: str) -> None:
     claimed = _claim(bill)
     if claimed is None:
         return
-    reading = read_bill(claimed.bill_file)
+    try:
+        reading = read_bill(claimed.bill_file)
+    except Exception as exc:
+        # A claimed bill must end with a result: one left Checking is never read again.
+        frappe.db.rollback()
+        frappe.log_error(title=f"Expense bill {bill}: the reader raised", message=frappe.get_traceback())
+        reading = Reading(ReadFailed(_failure_reason(exc)))
     verdict = check_bill(reading.read, Decimal(str(claimed.line_amount or 0)))
     try:
         _record(bill, reading, verdict)

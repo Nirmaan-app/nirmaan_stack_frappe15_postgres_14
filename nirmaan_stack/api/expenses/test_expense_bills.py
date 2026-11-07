@@ -130,6 +130,19 @@ class TestAttachingInTheCreditCardTab(CardBillCase):
         self.assertEqual((bill.bill_check, bill.bill_check_reason, bill.status), ("Not read", "The reader timed out.", "Pending"))
         self.assertEqual(frappe.db.get_value(NPE, self.spend, ["invoice_ref", "invoice_date"]), (None, None))
 
+    def test_a_reader_that_raises_leaves_the_bill_not_read_never_stuck_checking(self):
+        _, name = self._attach()
+
+        def broken_reader(file_url):
+            raise OSError("storage unreachable")
+
+        run_reading(name, broken_reader)
+
+        self.assertEqual(
+            frappe.db.get_value(BILL, name, ["bill_check", "bill_check_reason", "status"]),
+            ("Not read", "The reader failed (OSError).", "Pending"),
+        )
+
     def test_reading_switched_off_in_settings_is_not_read_without_calling_the_reader(self):
         _, name = self._attach()
         was = frappe.db.get_single_value(SETTINGS, "enabled")
