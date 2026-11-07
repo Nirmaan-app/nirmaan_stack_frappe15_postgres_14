@@ -52,9 +52,11 @@ def receive_bill(
     verdict's Not checked straight away: its total is the line amount, no number or date, Pending, and no reading
     is queued (a merged file gives one guessed total, spec #1637 story 6).
 
-    `approve`: the bill is approved at once in `user`'s name, with the number and date they typed (an approver
-    replacing a paid Expense's bill on Payment Done, #1643). Its Bill check still runs and is recorded, and never
-    replaces that number or date.
+    The typed `invoice_ref` and `invoice_date` go on the Expense and on the bill alike (`invoice_no`, `invoice_date`);
+    a Matched reading later fills only what is still empty (`reading.record_check`).
+
+    `approve`: the bill is approved at once in `user`'s name (an approver replacing a paid Expense's bill on Payment
+    Done, #1643). Its Bill check still runs and is recorded, and never replaces that number or date.
 
     `kept` is a reading already made of this file (a Collect payment's, kept on its line at import, #1642): the
     verdict is taken from it against the line, recorded as the job records one (a Matched bill auto-approved, its
@@ -99,18 +101,13 @@ def receive_bill(
             "statement_line": line,
             "line_amount": float(line_amount),
             "bill_check": verdict.result if verdict else CHECKING,
+            # What the person typed is the bill's own from the start; a Matched reading fills only what is empty.
+            "invoice_no": doc.invoice_ref,
+            "invoice_date": doc.invoice_date,
         }
     )
     if approve:
-        bill.update(
-            {
-                "status": APPROVED,
-                "approved_by": user,
-                "approved_on": now_datetime(),
-                "invoice_no": doc.invoice_ref,
-                "invoice_date": doc.invoice_date,
-            }
-        )
+        bill.update({"status": APPROVED, "approved_by": user, "approved_on": now_datetime()})
     bill.insert(ignore_permissions=True)
     if verdict is None:
         queue_reading(bill.name)

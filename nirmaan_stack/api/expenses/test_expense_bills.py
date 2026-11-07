@@ -243,16 +243,39 @@ class TestAttachingInTheCashbookTab(CashbookInvoiceCase):
             frappe.db.get_value(PE, self.pe, ["invoice_ref", "invoice_date"]), ("WB-501", date(2026, 9, 20))
         )
 
+    def test_a_typed_number_and_date_are_on_the_bill_from_the_start(self):
+        name = self._attach(invoice_ref=" TYPED-1 ", invoice_date="2026-09-01")
+
+        self.assertEqual(
+            frappe.db.get_value(BILL, name, ["invoice_no", "invoice_date", "bill_check"]),
+            ("TYPED-1", date(2026, 9, 1), "Checking"),
+        )
+
     def test_a_matched_bill_never_replaces_a_number_or_date_a_person_typed(self):
         name = self._attach(invoice_ref="TYPED-1")
         line_amount = Decimal(str(frappe.db.get_value(BILL, name, "line_amount")))
 
         run_reading(name, FakeReader(BillRead(line_amount, "WB-501", date(2026, 9, 20))))
 
+        # The typed number stands; the read date fills the empty one, on the bill and on the Expense alike.
         self.assertEqual(
             frappe.db.get_value(PE, self.pe, ["invoice_ref", "invoice_date"]), ("TYPED-1", date(2026, 9, 20))
         )
-        self.assertEqual(frappe.db.get_value(BILL, name, "status"), "Approved")
+        self.assertEqual(
+            frappe.db.get_value(BILL, name, ["invoice_no", "invoice_date", "status"]),
+            ("TYPED-1", date(2026, 9, 20), "Approved"),
+        )
+
+    def test_a_reading_that_does_not_match_leaves_a_typed_number_and_date_on_the_bill(self):
+        name = self._attach(invoice_ref="TYPED-2", invoice_date="2026-09-01")
+        line_amount = Decimal(str(frappe.db.get_value(BILL, name, "line_amount")))
+
+        run_reading(name, FakeReader(BillRead(line_amount + 50, "WB-501", date(2026, 9, 20))))
+
+        self.assertEqual(
+            frappe.db.get_value(BILL, name, ["bill_check", "invoice_no", "invoice_date"]),
+            ("Mismatched", "TYPED-2", date(2026, 9, 1)),
+        )
 
     def test_a_reading_with_no_total_is_not_read_and_writes_nothing_to_the_expense(self):
         name = self._attach()

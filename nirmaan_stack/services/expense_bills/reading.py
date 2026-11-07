@@ -13,11 +13,11 @@ Copies the Porter import's Validate step (`api/outflow_import/porter_validation.
 under its row lock and committed before the reader is called. A second job for the same bill (queued twice, or
 started while the first still reads) finds it claimed and does nothing, so one bill is read once.
 
-A Matched bill is auto-approved (`approved_by` "System", as an auto-approved Vendor Invoice) and fills the
-Expense's `invoice_ref` and `invoice_date` where they are empty -- only while it is still the Expense's latest bill.
-Every other result stays Pending and writes nothing to the Expense. A bill a person approved before it was read
-(an approver's replace on Payment Done, #1643) keeps its approval and the number and date they typed; the result is
-recorded beside them.
+A Matched bill is auto-approved (`approved_by` "System", as an auto-approved Vendor Invoice) and fills the bill's and
+the Expense's number and date where they are empty (a typed one stands) -- the Expense's only while it is still its
+latest bill. Every other result stays Pending and writes nothing to the Expense. A bill a person approved before it
+was read (an approver's replace on Payment Done, #1643) keeps its approval and the number and date they typed; the
+result is recorded beside them.
 """
 
 from __future__ import annotations
@@ -201,19 +201,18 @@ def _claim(bill: str) -> frappe._dict | None:
 
 def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     """The verdict on the bill (through the document layer, so a Version is kept), and a Matched one's number and
-    date on its Expense where empty.
+    date on the bill and on its Expense, each only where empty (what a person typed wins, as on the Expense).
 
-    Approval moves only a Pending bill: one a person approved or rejected while it was read keeps that decision, and
-    its Expense is left alone."""
+    Approval moves only a Pending bill: one a person approved or rejected while it was read keeps that decision, its
+    number and date, and its Expense is left alone."""
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
     auto_approve = verdict.auto_approves and doc.status == PENDING
     doc.update(read_fields(reading))
     doc.bill_check = verdict.result
     doc.bill_check_reason = verdict.reason or None
     if doc.status == PENDING:
-        # A bill a person already decided keeps the number and date they gave it (#1643).
-        doc.invoice_no = verdict.invoice_no or None
-        doc.invoice_date = verdict.invoice_date
+        doc.invoice_no = doc.invoice_no or verdict.invoice_no or None
+        doc.invoice_date = doc.invoice_date or verdict.invoice_date
     doc.invoice_amount = verdict.total
     if auto_approve:
         doc.status = APPROVED
