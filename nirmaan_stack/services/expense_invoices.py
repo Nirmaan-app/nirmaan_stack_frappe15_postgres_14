@@ -14,6 +14,7 @@ import frappe
 from frappe.utils import now_datetime, nowdate
 
 from nirmaan_stack.services.card_invoices import attach_problem, no_invoice_problem
+from nirmaan_stack.services.expense_bills.receive import receive_bill
 from nirmaan_stack.services.role_profiles import PENDING_INVOICE_UPLOAD_PROFILES, has_role_profile
 
 
@@ -30,15 +31,15 @@ def require_upload_access() -> str:
     return require_profile(PENDING_INVOICE_UPLOAD_PROFILES, "You do not have permission to view pending invoice uploads.")
 
 
-def save_invoice(doc, facts, invoice_attachment: str, invoice_ref: str | None, invoice_date: str | None) -> dict:
-    """File the invoice on `doc` (read `FOR UPDATE`, `facts` read from it), refused by `attach_problem`; commits."""
+def save_invoice(
+    doc, facts, invoice_attachment: str, invoice_ref: str | None, invoice_date: str | None, user: str
+) -> dict:
+    """File the invoice on `doc` (read `FOR UPDATE`, `facts` read from it), refused by `attach_problem`, as an
+    Expense bill attached by `user` (`expense_bills.receive_bill`: Checking, its reading queued); commits."""
     problem = attach_problem(facts, invoice_attachment, invoice_date or None, today=nowdate())
     if problem:
         frappe.throw(problem)
-    doc.invoice_attachment = invoice_attachment.strip()
-    doc.invoice_ref = (invoice_ref or "").strip() or None
-    doc.invoice_date = invoice_date or None
-    doc.save(ignore_permissions=True)
+    receive_bill(doc, invoice_attachment, invoice_ref, invoice_date, user)
     frappe.db.commit()
     return {"name": doc.name}
 

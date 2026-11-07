@@ -16,6 +16,7 @@ from nirmaan_stack.api.expenses.card_invoices import (
     get_card_invoice_queue,
     mark_card_no_invoice,
 )
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs, purge_expense_bills
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
 from nirmaan_stack.api.tds.test_submit import _cloud_url
@@ -34,6 +35,7 @@ class CardInvoiceCase(FrappeTestCase):
         self.users = _Users()
         self.expenses, self.statements = [], []
         self.addCleanup(self._purge)
+        self.jobs = capture_jobs(self)
         self.holder = f"CARD TESTHOLDER {frappe.generate_hash(length=6).upper()}"
         self.statement = self._statement(self.holder, "2026-09-02", "2026-10-01", "2026-10-01")
 
@@ -42,6 +44,7 @@ class CardInvoiceCase(FrappeTestCase):
         `delete_doc` would leave Deleted Document rows behind."""
         frappe.db.rollback()
         frappe.set_user("Administrator")
+        purge_expense_bills(self.expenses)
         purge_records(NPE, self.expenses)
         purge_records(STATEMENT, self.statements)
         try:

@@ -23,6 +23,7 @@ from nirmaan_stack.api.expenses.cashbook_invoices import (
     get_cashbook_invoice_queue,
     mark_cashbook_no_invoice,
 )
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs, purge_expense_bills
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
@@ -48,6 +49,7 @@ class CashbookInvoiceCase(FrappeTestCase):
         self.project = None
         self.batch = None
         self.addCleanup(self._purge)
+        self.jobs = capture_jobs(self)
         self.project = self._project()
         self.batch = self._import()
         self.created = self._created()
@@ -105,12 +107,14 @@ class CashbookInvoiceCase(FrappeTestCase):
         if self.batch:
             for doctype in (PE, NPE):
                 names = frappe.get_all(doctype, filters={"cashbook_batch": self.batch}, pluck="name")
+                purge_expense_bills(names)
                 purge_records(doctype, names)
             frappe.db.sql("""DELETE FROM "tabOutflow Row Match" WHERE import_batch = %s""", (self.batch,))
             purge_internal_transfers(self.batch)
             frappe.db.sql("""DELETE FROM "tabOutflow Import Row" WHERE import_batch = %s""", (self.batch,))
             frappe.db.sql("""DELETE FROM "tabOutflow Import Batch" WHERE name = %s""", (self.batch,))
             frappe.db.commit()
+        purge_expense_bills([name for _, name in self.extra])
         for doctype, name in self.extra:
             purge_records(doctype, [name])
         if self.project:
