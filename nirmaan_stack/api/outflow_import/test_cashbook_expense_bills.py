@@ -160,6 +160,39 @@ class TestResumeNeverReadsACheckedBillAgain(LateBillsCase):
         self.assertEqual(cb.get_cashbook_status(batch)["bills_waiting"], 0)
 
 
+class TestResumeAfterACreatedLinesBillWasChecked(CashbookBillsCase):
+    def test_running_the_job_again_files_no_second_bill_and_queues_no_reading(self):
+        self._run()
+        expense = self._expense(ONE_LINK)
+        (bill,) = bills_of(expense.doctype, expense.name)
+        reader = FakeReader(BillRead(total=_line_amount(expense)))
+        run_reading(bill.name, reader)
+        queued_before = len(readings_queued(self.jobs))
+
+        self._run()  # what Resume queues: the same job on the same batch
+
+        (after,) = bills_of(expense.doctype, expense.name)
+        self.assertEqual((after.name, after.bill_check), (bill.name, "Matched"))
+        self.assertEqual(len(readings_queued(self.jobs)), queued_before)
+        self.assertEqual(len(reader.files), 1)
+
+
+class TestALateBillOfSeveralBillsIsNotChecked(LateBillsCase):
+    def test_a_late_bill_with_two_links_is_not_checked_and_never_read(self):
+        waiting = self._first_upload()
+        late_link = next(part for part in self.late_line.split('"') if part.startswith("https://"))
+        two_links = self.late_line.replace(
+            f'"{late_link}","","",""', f'"{late_link}","{late_link.replace("1.jpeg", "2.pdf")}","",""'
+        )
+        self._upload(self._file([self.data[0], two_links, *self.data[2:]]))
+
+        (bill,) = bills_of(waiting.doctype, waiting.name)
+        line_amount = _line_amount(frappe.get_doc(waiting.doctype, waiting.name))
+        self.assertEqual((bill.bill_check, bill.status), ("Not checked", "Pending"))
+        self.assertEqual(Decimal(str(bill.invoice_amount)), line_amount)
+        self.assertNotIn(("long", bill.name), readings_queued(self.jobs))
+
+
 class TestASpendWithSeveralBillsIsNotChecked(CashbookBillsCase):
     def test_four_bill_links_make_a_pending_not_checked_bill_whose_total_is_the_line_amount_and_nothing_is_read(self):
         self._run()

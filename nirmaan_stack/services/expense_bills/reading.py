@@ -81,12 +81,16 @@ def _enqueue_reading(bill: str) -> None:
             bill=bill,
         )
     except Exception:
-        frappe.log_error(title=f"Expense bill {bill}: its reading could not be queued", message=frappe.get_traceback())
-        # Raw: `Expense Bill` has no doc_events; a bill no job will read must not stay Checking.
-        frappe.db.set_value(
-            BILL_DOCTYPE, bill, {"bill_check": NOT_READ, "bill_check_reason": NOT_QUEUED}, update_modified=False
-        )
-        frappe.db.commit()
+        # Runs inside the caller's commit, after its data landed: nothing here may raise into it.
+        try:
+            frappe.log_error(title=f"Expense bill {bill}: its reading could not be queued", message=frappe.get_traceback())
+            # Raw: `Expense Bill` has no doc_events; a bill no job will read must not stay Checking.
+            frappe.db.set_value(
+                BILL_DOCTYPE, bill, {"bill_check": NOT_READ, "bill_check_reason": NOT_QUEUED}, update_modified=False
+            )
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
 
 
 def check_expense_bill(bill: str) -> None:

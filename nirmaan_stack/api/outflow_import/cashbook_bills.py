@@ -119,19 +119,18 @@ def copy_created_line_bills(row_name: str, actor: str) -> None:
         ["transfer_id", "suggested_doctype", "suggested_name", "bill_links"],
         as_dict=True,
     )
+    links = links_of(line)
     dealt_with = _copy_onto(
         row_name,
         line.transfer_id,
-        links_of(line),
-        attach=lambda saved: _attach_invoice(
-            line.suggested_doctype, line.suggested_name, saved, actor, len(links_of(line))
-        ),
+        links,
+        attach=lambda saved: _attach_invoice(line.suggested_doctype, line.suggested_name, saved, actor, len(links)),
         failure=("Cashbook import: could not copy a bill", f"{row_name} / {line.suggested_name}"),
     )
     if not dealt_with:
         # Nothing retries a created line's copy (its Expense waits in Pending Invoices Upload), so even a transient
         # refusal is named in the summary; should that write be refused again, only the Error Log records it.
-        problem = not_copied(len(links_of(line)), BILLS_NOT_STORED)
+        problem = not_copied(len(links), BILLS_NOT_STORED)
         if not _record_bill_problem(row_name, problem):
             frappe.log_error(
                 title=PROBLEM_NOT_RECORDED,
@@ -439,8 +438,8 @@ def _attach_invoice(doctype: str, expense: str, saved, actor: str, bill_count: i
     """Step 3: lock the Expense, re-check it still waits for an invoice, and only then file `saved` as its bill
     through the one entry point (`expense_bills.receive_bill`, #1641): an Expense bill attached by `actor`, the one
     who confirmed the import, its reading queued once this commits; `saved` merged from `bill_count` > 1 links is
-    recorded Not checked and never read. Returns whether it attached; the caller
-    commits or discards. A number or date a person already typed on the Expense is kept."""
+    recorded Not checked and never read. Returns whether it attached (and then
+    commits); when it did not, the caller discards the File (`store_or_discard`). A number or date a person already typed on the Expense is kept."""
     doc = frappe.get_doc(doctype, expense, for_update=True)
     if doc.invoice_attachment or _marked_no_invoice(doc):
         return False
