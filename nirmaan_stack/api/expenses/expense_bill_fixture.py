@@ -24,6 +24,10 @@ def capture_jobs(case) -> list:
 
 
 def purge_expense_bills(expenses: list[str]) -> None:
-    """Every Expense bill of these Expenses, with its Version rows. Raw and committed (`purge_records`)."""
+    """Every Expense bill of these Expenses, with its Version rows and the File row Frappe attaches to it on insert
+    (its `bill_file`; the stored file is the Expense's, left alone). Raw and committed (`purge_records`)."""
     if expenses:
-        purge_records(BILL_DOCTYPE, frappe.get_all(BILL_DOCTYPE, filters={"expense": ["in", expenses]}, pluck="name"))
+        bills = frappe.get_all(BILL_DOCTYPE, filters={"expense": ["in", expenses]}, pluck="name")
+        if bills:
+            frappe.db.delete("File", {"attached_to_doctype": BILL_DOCTYPE, "attached_to_name": ["in", bills]})
+        purge_records(BILL_DOCTYPE, bills)
