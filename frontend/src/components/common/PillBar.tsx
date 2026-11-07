@@ -10,6 +10,7 @@ interface PillBarProps<K extends string> {
     onChange: (key: K) => void;
 }
 
+/** The pills as toggle buttons; the one whose key is `value` is pressed. */
 export const PillBar = <K extends string>({ pills, value, onChange }: PillBarProps<K>) => (
     <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
         <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">

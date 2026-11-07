@@ -12,6 +12,7 @@ export type ReconScreen = "pending" | "all";
 
 const everyone = () => true;
 
+/** Every pill of Vendor Invoice Recon, in the order the bar shows them. */
 export const RECON_PILLS = [
     { key: "po", label: "PO", kind: "vendor", documentType: "Procurement Orders", screens: ["pending", "all"], visibleTo: everyone },
     { key: "wo", label: "WO", kind: "vendor", documentType: "Service Requests", screens: ["pending", "all"], visibleTo: everyone },
@@ -28,6 +29,7 @@ export const RECON_PILLS = [
 export type ReconPill = (typeof RECON_PILLS)[number];
 export type ReconPillKey = ReconPill["key"];
 
+/** Whether `value` (a URL param) names one of `RECON_PILLS`. */
 export const isReconPillKey = (value: string): value is ReconPillKey => RECON_PILLS.some((p) => p.key === value);
 
 /** The pills `screen` shows to `role`, in order. */

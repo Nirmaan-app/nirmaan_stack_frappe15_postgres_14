@@ -29,6 +29,7 @@ interface BillDecisionDialogProps<V> {
     onClose: () => void;
 }
 
+/** Approve `row`'s bill, with its invoice number and date a person may correct. */
 export const ApproveBillDialog = ({ row, submitting, onSubmit, onClose }: BillDecisionDialogProps<ApproveBillValues>) => {
     const today = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
     const form = useForm<ApproveBillValues>({
@@ -81,6 +82,7 @@ export const ApproveBillDialog = ({ row, submitting, onSubmit, onClose }: BillDe
     );
 };
 
+/** Reject `row`'s bill for a typed reason. */
 export const RejectBillDialog = ({ row, submitting, onSubmit, onClose }: BillDecisionDialogProps<RejectBillValues>) => {
     const form = useForm<RejectBillValues>({ resolver: zodResolver(rejectBillSchema), defaultValues: { reason: "" } });
 

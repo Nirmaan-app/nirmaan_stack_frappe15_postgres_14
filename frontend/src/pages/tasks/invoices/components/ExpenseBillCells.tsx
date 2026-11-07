@@ -7,9 +7,10 @@ import type { HeaderContext } from "@tanstack/react-table";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import SITEURL from "@/constants/siteURL";
-import type { BillCheckResult } from "@/pages/tasks/invoices/utils/expenseBillApprovalView";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+
+import type { BillCheckResult } from "../utils/expenseBillApprovalView";
 
 interface MoneyCellProps {
     value: number | null | undefined;

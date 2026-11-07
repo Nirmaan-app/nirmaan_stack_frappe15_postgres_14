@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { BillCheckResultCell, FileLinkCell, MoneyCell } from "./expenseBillCells";
+import { BillCheckResultCell, FileLinkCell, MoneyCell } from "./ExpenseBillCells";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

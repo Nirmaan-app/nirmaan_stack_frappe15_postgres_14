@@ -6,9 +6,6 @@
  */
 import type { ColumnDef } from "@tanstack/react-table";
 
-import {
-    BillCheckResultCell, FileLinkCell, InvoiceNoDateCell, MoneyCell, invoiceNoDateText, rightAlignedHeader,
-} from "@/components/common/expenseBillCells";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
@@ -19,6 +16,9 @@ import {
     type AllExpenseBillRow, type PorterInvoiceListRow, approvalText, billDecision, offersReadAgain, porterResultText,
 } from "../utils/allInvoicesView";
 import { billCheckText } from "../utils/expenseBillApprovalView";
+import {
+    BillCheckResultCell, FileLinkCell, InvoiceNoDateCell, MoneyCell, invoiceNoDateText, rightAlignedHeader,
+} from "./ExpenseBillCells";
 
 interface AllExpenseBillColumnOptions {
     /** A user's full name from their id; the list ships ids for who decided. */

@@ -8,9 +8,6 @@
  */
 import { ColumnDef } from "@tanstack/react-table";
 
-import {
-    BillCheckResultCell, FileLinkCell, InvoiceNoDateCell, MoneyCell, invoiceNoDateText, rightAlignedHeader,
-} from "@/components/common/expenseBillCells";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
@@ -19,6 +16,9 @@ import { formatForReport } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 
 import { type PendingExpenseBillRow, billCheckText } from "../utils/expenseBillApprovalView";
+import {
+    BillCheckResultCell, FileLinkCell, InvoiceNoDateCell, MoneyCell, invoiceNoDateText, rightAlignedHeader,
+} from "./ExpenseBillCells";
 
 interface ExpenseBillApprovalColumnOptions {
     onApprove: (row: PendingExpenseBillRow) => void;
