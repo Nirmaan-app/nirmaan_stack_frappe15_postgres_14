@@ -58,6 +58,12 @@ class BillVerdict:
     invoice_date: date | None = None
     total: Decimal | None = None
 
+    @property
+    def auto_approves(self) -> bool:
+        """A Matched bill is approved by the system (GLOSSARY *Expense bill approval*); every other result waits for
+        a person."""
+        return self.result == MATCHED
+
 
 def check_bill(read: BillRead | ReadFailed, line_amount: Decimal, bill_count: int = 1) -> BillVerdict:
     """The Bill check of one bill against `line_amount`, the amount of the statement line that recorded the spend.

@@ -7,7 +7,6 @@ BILL_DOCTYPE = "Expense Bill"
 # Expense bill approval: the Vendor Invoice statuses (ADR-0045).
 PENDING = "Pending"
 APPROVED = "Approved"
-REJECTED = "Rejected"
 
 #: `approved_by` on a bill the system approved, as on an auto-approved Vendor Invoice.
 SYSTEM_APPROVER = "System"

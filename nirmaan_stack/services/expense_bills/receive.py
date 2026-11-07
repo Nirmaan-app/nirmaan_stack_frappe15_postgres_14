@@ -14,11 +14,14 @@ Every code path that writes `invoice_attachment` on a wallet spend or a card spe
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import frappe
 
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING
 from nirmaan_stack.services.expense_bills.reading import queue_reading
+from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
 def receive_bill(doc, file_url: str, invoice_ref: str | None, invoice_date: str | None, user: str) -> str:
@@ -48,30 +51,22 @@ def receive_bill(doc, file_url: str, invoice_ref: str | None, invoice_date: str 
             "bill_check": CHECKING,
             "status": PENDING,
             "statement_line": line,
-            "line_amount": line_amount,
+            "line_amount": float(line_amount),
         }
     ).insert(ignore_permissions=True)
     queue_reading(bill.name)
     return bill.name
 
 
-def statement_line_of(doctype: str, expense: str, expense_amount) -> tuple[str | None, float]:
-    """The statement line that recorded the spend (its Settled match) and that line's amount.
+def statement_line_of(doctype: str, expense: str, expense_amount) -> tuple[str | None, Decimal]:
+    """The statement line that recorded the spend and that line's amount, read through the one live-link read
+    (`outflow_import.expense_links.list_expense_lines`).
 
-    A wallet spend or a card spend is made from exactly one line, its amount equal to the line's at creation. An
-    Expense with no such line (none is expected) is compared against its own amount, with no line named.
+    A wallet spend or a card spend is made from exactly one line, its amount equal to the line's at creation, so its
+    one line is the one. Should it carry several, the latest is taken. An Expense with no line (none is expected),
+    or whose line was deleted, is compared against its own amount, with no line named.
     """
-    rows = frappe.db.sql(
-        """
-        SELECT r.name, r.amount
-        FROM "tabOutflow Row Match" m JOIN "tabOutflow Import Row" r ON r.name = m.import_row
-        WHERE m.target_doctype = %s AND m.target_name = %s AND m.match_kind = 'Settled'
-        ORDER BY m.creation DESC, m.name DESC
-        LIMIT 1
-        """,
-        (doctype, expense),
-        as_dict=True,
-    )
-    if rows:
-        return rows[0].name, float(rows[0].amount or 0)
-    return None, float(expense_amount or 0)
+    lines = [line for line in list_expense_lines(doctype, expense) if line.line_amount is not None]
+    if lines:
+        return lines[-1].import_row, Decimal(str(lines[-1].line_amount))
+    return None, Decimal(str(expense_amount or 0))

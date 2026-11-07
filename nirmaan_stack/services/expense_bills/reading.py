@@ -26,11 +26,12 @@ from decimal import Decimal, InvalidOperation
 import frappe
 from frappe.utils import getdate, now_datetime
 
-from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, SYSTEM_APPROVER
+from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING, SYSTEM_APPROVER
 from nirmaan_stack.services.expense_bills.bill_check import (
     CHECKING,
-    MATCHED,
+    NOT_READ,
     BillRead,
+    BillVerdict,
     ReadFailed,
     check_bill,
 )
@@ -84,14 +85,22 @@ def check_expense_bill(bill: str) -> None:
         frappe.db.rollback()
         frappe.log_error(title=f"Expense bill {bill}: the reader raised", message=frappe.get_traceback())
         reading = Reading(ReadFailed(_failure_reason(exc)))
-    verdict = check_bill(reading.read, Decimal(str(claimed.line_amount or 0)))
+    verdict = check_bill(reading.read, Decimal(str(claimed.line_amount or 0)).quantize(Decimal("0.01")))
     try:
         _record(bill, reading, verdict)
         frappe.db.commit()
-    except Exception:
+    except Exception as exc:
         frappe.db.rollback()
+        frappe.local.message_log = []
         frappe.log_error(title=f"Expense bill {bill}: the Bill check could not be saved", message=frappe.get_traceback())
-        raise
+        # Raw: `Expense Bill` has no doc_events; a claimed bill must not stay Checking.
+        frappe.db.set_value(
+            BILL_DOCTYPE,
+            bill,
+            {"bill_check": NOT_READ, "bill_check_reason": f"The Bill check could not be saved ({type(exc).__name__})."},
+            update_modified=False,
+        )
+        frappe.db.commit()
 
 
 def _claim(bill: str) -> frappe._dict | None:
@@ -111,10 +120,14 @@ def _claim(bill: str) -> frappe._dict | None:
     return rows[0]
 
 
-def _record(bill: str, reading: Reading, verdict) -> None:
+def _record(bill: str, reading: Reading, verdict: BillVerdict) -> None:
     """The verdict on the bill (through the document layer, so a Version is kept), and a Matched one's number and
-    date on its Expense where empty."""
+    date on its Expense where empty.
+
+    Approval moves only a Pending bill: one a person approved or rejected while it was read keeps that decision, and
+    its Expense is left alone."""
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
+    auto_approve = verdict.auto_approves and doc.status == PENDING
     if isinstance(reading.read, BillRead):
         doc.read_total = reading.read.total
         doc.read_invoice_no = (reading.read.invoice_no or "").strip() or None
@@ -125,17 +138,17 @@ def _record(bill: str, reading: Reading, verdict) -> None:
     doc.invoice_no = verdict.invoice_no or None
     doc.invoice_date = verdict.invoice_date
     doc.invoice_amount = verdict.total
-    if verdict.result == MATCHED:
+    if auto_approve:
         doc.status = APPROVED
         doc.auto_approved = 1
         doc.approved_by = SYSTEM_APPROVER
         doc.approved_on = now_datetime()
     doc.save(ignore_permissions=True)
-    if verdict.result == MATCHED and doc.is_latest:
+    if auto_approve and doc.is_latest:
         _fill_expense(doc, verdict)
 
 
-def _fill_expense(bill, verdict) -> None:
+def _fill_expense(bill, verdict: BillVerdict) -> None:
     """A Matched bill's number and date onto its Expense, only where empty (a person's entry wins), and only while
     the Expense still carries this bill's file."""
     expense = frappe.get_doc(bill.expense_doctype, bill.expense, for_update=True)

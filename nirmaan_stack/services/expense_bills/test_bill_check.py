@@ -31,6 +31,7 @@ class TestBillCheck(unittest.TestCase):
         self.assertEqual(verdict.invoice_no, "INV-77")
         self.assertEqual(verdict.invoice_date, date(2026, 10, 30))
         self.assertEqual(verdict.total, Decimal("1181.00"))
+        self.assertTrue(verdict.auto_approves)
 
     def test_a_total_one_paisa_over_the_rupee_is_mismatched_and_fills_nothing(self):
         read = BillRead(total=Decimal("1181.01"), invoice_no="INV-77", invoice_date=date(2026, 10, 30))
@@ -40,6 +41,7 @@ class TestBillCheck(unittest.TestCase):
         self.assertEqual(verdict.result, MISMATCHED)
         self.assertEqual(verdict.reason, "The bill's total is ₹1,181.01; the statement line is ₹1,180.00.")
         self.assertEqual((verdict.invoice_no, verdict.invoice_date, verdict.total), ("", None, None))
+        self.assertFalse(verdict.auto_approves)
 
     def test_a_total_below_the_line_by_more_than_a_rupee_is_mismatched(self):
         verdict = check_bill(BillRead(total=Decimal("500")), line_amount=Decimal("1180"))

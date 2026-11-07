@@ -23,10 +23,10 @@ from nirmaan_stack.api.expenses.test_cashbook_invoices import NPE, PE, CashbookI
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT
 from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills import reading
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
-BILL = "Expense Bill"
 READING_JOB = "nirmaan_stack.services.expense_bills.reading.check_expense_bill"
 SETTINGS = "Document AI Settings"
 
@@ -141,6 +141,30 @@ class TestAttachingInTheCreditCardTab(CardBillCase):
         self.assertEqual(
             frappe.db.get_value(BILL, name, ["bill_check", "bill_check_reason", "status"]),
             ("Not read", "The reader failed (OSError).", "Pending"),
+        )
+
+    def test_a_bill_decided_by_a_person_while_it_was_read_keeps_that_decision(self):
+        _, name = self._attach()
+
+        def reader_while_a_person_rejects(file_url):
+            frappe.db.set_value(BILL, name, {"status": "Rejected", "rejection_reason": "Wrong shop"})
+            frappe.db.commit()
+            return reading.Reading(BillRead(Decimal("1180.00"), "INV-1", date(2026, 9, 9)))
+
+        run_reading(name, reader_while_a_person_rejects)
+
+        self.assertEqual(frappe.db.get_value(BILL, name, ["status", "auto_approved"]), ("Rejected", 0))
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, ["invoice_ref", "invoice_date"]), (None, None))
+
+    def test_a_result_that_cannot_be_saved_leaves_the_bill_not_read_never_stuck_checking(self):
+        _, name = self._attach()
+
+        with patch.object(reading, "_fill_expense", side_effect=frappe.ValidationError("expense refused the save")):
+            run_reading(name, FakeReader(BillRead(Decimal("1180.00"), "INV-1", date(2026, 9, 9))))
+
+        self.assertEqual(
+            frappe.db.get_value(BILL, name, ["bill_check", "bill_check_reason", "status"]),
+            ("Not read", "The Bill check could not be saved (ValidationError).", "Pending"),
         )
 
     def test_reading_switched_off_in_settings_is_not_read_without_calling_the_reader(self):
