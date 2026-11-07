@@ -211,6 +211,14 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
 
     Approval moves only a Pending bill: one a person approved or rejected while it was read keeps that decision, its
     number and date, and its Expense is left alone."""
+    head = frappe.db.get_value(BILL_DOCTYPE, bill, ["expense_doctype", "expense", "is_latest"], as_dict=True)
+    # The Expense before the bill: THE ONE LOCK ORDER (the package docstring). Taken only when a Matched result
+    # may fill the Expense; a retired bill's Expense may be gone (`receive.retire_bills`).
+    expense = (
+        frappe.get_doc(head.expense_doctype, head.expense, for_update=True)
+        if verdict.auto_approves and head.is_latest
+        else None
+    )
     doc = frappe.get_doc(BILL_DOCTYPE, bill, for_update=True)
     auto_approve = verdict.auto_approves and doc.status == PENDING
     doc.update(read_fields(reading))
@@ -226,8 +234,8 @@ def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:
         doc.approved_by = SYSTEM_APPROVER
         doc.approved_on = now_datetime()
     doc.save(ignore_permissions=True)
-    if auto_approve and doc.is_latest:
-        _fill_expense(doc, verdict)
+    if auto_approve and doc.is_latest and expense is not None:
+        _fill_expense(expense, doc, verdict)
 
 
 def read_fields(reading: Reading) -> dict:
@@ -244,10 +252,9 @@ def read_fields(reading: Reading) -> dict:
     return fields
 
 
-def _fill_expense(bill, verdict: BillVerdict) -> None:
-    """A Matched bill's number and date onto its Expense, only where empty (a person's entry wins), and only while
-    the Expense still carries this bill's file."""
-    expense = frappe.get_doc(bill.expense_doctype, bill.expense, for_update=True)
+def _fill_expense(expense, bill, verdict: BillVerdict) -> None:
+    """A Matched bill's number and date onto its Expense (`expense`, locked before the bill by `record_check`), only
+    where empty (a person's entry wins), and only while the Expense still carries this bill's file."""
     if expense.invoice_attachment != bill.bill_file:
         return
     changed = False
