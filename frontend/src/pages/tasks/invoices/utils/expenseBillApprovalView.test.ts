@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
+
 import {
     type PendingExpenseBillRow,
     PENDING_APPROVAL_PILLS,
+    BILL_APPROVAL_FILTER_OPTIONS,
+    BILL_CHECK_FILTER_OPTIONS,
     approveFormDefaults,
+    expenseListBillCheck,
+    expenseListBillCheckText,
     billCheckText,
     isPendingApprovalPill,
     lastBillRejectedText,
@@ -70,5 +76,39 @@ describe("a spend back in Pending Invoices Upload", () => {
     it("says nothing when no bill was rejected", () => {
         expect(lastBillRejectedText(null)).toBeNull();
         expect(lastBillRejectedText(undefined)).toBeNull();
+    });
+});
+
+describe("the Bill check column of the expense lists", () => {
+    it.each([
+        ["Checking", "Pending"],
+        ["Matched", "Auto-approved"],
+        ["Matched", "Approved"],
+        ["Mismatched", "Pending"],
+        ["Mismatched", "Rejected"],
+        ["Not read", "Approved"],
+        ["Not checked", "Pending"],
+    ] as const)("shows a %s bill that is %s", (result, approval) => {
+        const row = { bill_check: result, bill_approval: approval };
+
+        expect(expenseListBillCheck(row)).toEqual({ result, approval });
+        expect(expenseListBillCheckText(row)).toBe(`${result} · ${approval}`);
+    });
+
+    it("shows a dash for an Expense with no Expense bill", () => {
+        expect(expenseListBillCheck({ bill_check: null, bill_approval: null })).toBeNull();
+        expect(expenseListBillCheck({})).toBeNull();
+        expect(expenseListBillCheckText({})).toBe("—");
+    });
+
+    it("filters on each result, each approval status, and no bill", () => {
+        expect(BILL_CHECK_FILTER_OPTIONS.map((o) => o.label)).toEqual([
+            "Checking", "Matched", "Mismatched", "Not read", "Not checked", "— (no bill)",
+        ]);
+        expect(BILL_APPROVAL_FILTER_OPTIONS.map((o) => o.label)).toEqual([
+            "Auto-approved", "Pending", "Approved", "Rejected", "— (no bill)",
+        ]);
+        expect(BILL_CHECK_FILTER_OPTIONS.at(-1)?.value).toBe(NOT_SET_FACET_VALUE);
+        expect(BILL_APPROVAL_FILTER_OPTIONS.at(-1)?.value).toBe(NOT_SET_FACET_VALUE);
     });
 });
