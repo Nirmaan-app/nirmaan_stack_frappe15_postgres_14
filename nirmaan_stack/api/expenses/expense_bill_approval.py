@@ -12,76 +12,28 @@ checked here on the server, not only by the screen. Read again (#1645): Admin an
 (`role_profiles.READ_AGAIN_PROFILES`).
 """
 
-from typing import NamedTuple
-
 import frappe
 
-from nirmaan_stack.api.expenses.cashbook_invoices import EXPENSE_DOCTYPES, NON_PROJECT_EXPENSE, PROJECT_EXPENSE
-
-from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
+from nirmaan_stack.services.expense_bills import PENDING
 from nirmaan_stack.services.expense_bills.approval import approve_bill, reject_bill
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING, MATCHED, MISMATCHED, NOT_READ
-from nirmaan_stack.services.expense_bills.reading import READING_STOPPED, read_again, stopped_before
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING
+from nirmaan_stack.services.expense_bills.bill_rows import KINDS, bill_rows_sql
+from nirmaan_stack.services.expense_bills.reading import read_again
 from nirmaan_stack.services.expense_invoices import require_profile
 from nirmaan_stack.services.role_profiles import INVOICE_APPROVAL_PROFILES, READ_AGAIN_PROFILES
 
 
-class Pill(NamedTuple):
-    """One pill of expense bills: the ledgers its spends are on, and the SQL condition that puts a spend on it."""
+#: A waiting bill: Pending, its Expense's latest, its Bill check done -- or its reading stopped, which the rows show
+#: as Not read so Read again can reach it (#1645). Its number and date are the ones to approve with.
+_PENDING_SQL = f"""SELECT q.* FROM ({{rows}}) q
+    WHERE q.is_latest = 1 AND q.approval = '{PENDING}' AND q.bill_check != '{CHECKING}'"""
 
-    ledgers: tuple[str, ...]
-    condition: str
-
-
-#: The two pills: the Cashbook import's marker, or a card statement.
-KINDS = {
-    "cashbook": Pill(EXPENSE_DOCTYPES, "COALESCE(e.cashbook_batch, '') != ''"),
-    "card": Pill((NON_PROJECT_EXPENSE,), "COALESCE(e.credit_card_statement, '') != ''"),
-}
-
-# `read_total` is a Currency column, 0 when nothing was read: only a compared bill shows one.
-# A waiting bill: Pending, its Expense's latest, its Bill check done -- or its reading stopped (claimed longer ago
-# than the job limit), shown as Not read so Read again can reach it (#1645). The number and date offered are the bill's
-# own, else what was typed on the Expense (a Mismatched or Not read bill fills none of its own).
-_PENDING_SQL = f"""
-    SELECT b.name, b.expense, b.expense_doctype, e.payment_date, b.line_amount,
-           CASE WHEN b.bill_check IN ('{MATCHED}', '{MISMATCHED}') THEN b.read_total END AS read_total,
-           CASE WHEN b.bill_check = '{CHECKING}' THEN '{NOT_READ}' ELSE b.bill_check END AS bill_check,
-           CASE WHEN b.bill_check = '{CHECKING}' THEN '{READING_STOPPED}' ELSE b.bill_check_reason END
-               AS bill_check_reason,
-           COALESCE(NULLIF(b.invoice_no, ''), e.invoice_ref) AS invoice_no,
-           COALESCE(b.invoice_date, e.invoice_date) AS invoice_date,
-           {{paid_by}} AS paid_by, {{project}} AS project, {{project_name}} AS project_name,
-           b.uploaded_by, u.full_name AS uploaded_by_name, b.bill_file, b.creation
-    FROM "tab{BILL_DOCTYPE}" b
-    JOIN "tab{{doctype}}" e ON e.name = b.expense
-    LEFT JOIN "tabOutflow Import Row" r ON r.name = b.statement_line
-    LEFT JOIN "tabUser" u ON u.name = b.uploaded_by
-    {{joins}}
-    WHERE b.expense_doctype = %(doctype)s AND b.is_latest = 1
-      AND b.status = '{PENDING}'
-      AND (b.bill_check != '{CHECKING}' OR b.read_claimed_at < %(stopped_before)s)
-      AND {{kind}}
-"""
-
-
-def _pending_rows(kind: str, doctype: str) -> list[dict]:
-    if kind == "card":
-        parts = {
-            "paid_by": "s.holder",
-            "joins": 'LEFT JOIN "tabCredit Card Statement" s ON s.name = e.credit_card_statement',
-        }
-    else:
-        # Who paid is the wallet holder on the statement line; else the Project Expense's own Paid by.
-        payment_by = "e.payment_by" if doctype == PROJECT_EXPENSE else "NULL"
-        parts = {"paid_by": f"COALESCE(NULLIF(BTRIM(r.added_by_raw), ''), {payment_by})", "joins": ""}
-    if doctype == PROJECT_EXPENSE:
-        parts.update(project="e.projects", project_name="p.project_name")
-        parts["joins"] += ' LEFT JOIN "tabProjects" p ON p.name = e.projects'
-    else:
-        parts.update(project="NULL", project_name="NULL")
-    sql = _PENDING_SQL.format(doctype=doctype, kind=KINDS[kind].condition, **parts)
-    return frappe.db.sql(sql, {"doctype": doctype, "stopped_before": stopped_before()}, as_dict=True)
+#: The columns a waiting bill's row carries (`get_pending_expense_bills`).
+_PENDING_COLUMNS = (
+    "name", "expense", "expense_doctype", "payment_date", "line_amount", "read_total", "bill_check",
+    "bill_check_reason", "invoice_no", "invoice_date", "paid_by", "project", "project_name", "uploaded_by",
+    "uploaded_by_name", "bill_file",
+)
 
 
 def _require_approver() -> str:
@@ -100,11 +52,10 @@ def get_pending_expense_bills(kind: str) -> list[dict]:
     _require_approver()
     if kind not in KINDS:
         frappe.throw(f"'{kind}' is not a Pending Approval pill of expense bills.")
-    rows = [row for doctype in KINDS[kind].ledgers for row in _pending_rows(kind, doctype)]
+    rows_sql, params = bill_rows_sql(kind)
+    rows = frappe.db.sql(_PENDING_SQL.format(rows=rows_sql), params, as_dict=True)
     rows.sort(key=lambda r: (r["creation"], r["name"]), reverse=True)
-    for row in rows:
-        del row["creation"]
-    return rows
+    return [{column: row[column] for column in _PENDING_COLUMNS} for row in rows]
 
 
 @frappe.whitelist(methods=["POST"])
