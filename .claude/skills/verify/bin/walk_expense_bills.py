@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Walk the Bill check on hand-attached bills (#1639, spec #1637) as an Accountant.
+"""Walk the Bill check on hand-attached bills (#1639) and on the bills a Cashbook import copies (#1641), spec
+#1637, as an Accountant.
 
     devenv.sh script <task> .claude/skills/verify/bin/office_rent_seed.py      # once per env: the free Accountant
     devenv.sh run <task> set-password walk-accountant@example.com <pw>
     python3 .claude/skills/verify/bin/walk_expense_bills.py --task <task> --password <pw> [--accountant <email>]
+        [--part attach|cashbook|all]      # default all
+
+Part `attach` (#1639):
 
 Each run seeds its own made-up card spend (₹1,180.00) and wallet spend (₹2,360.00) with their statement lines
 (`expense_bills_seed.py`) and writes two made-up PDF bills: one for ₹1,180.00 (Matched) and one for ₹2,500.00
@@ -22,6 +26,17 @@ Every step asserts the screen's text and its DB row; a miss raises, saves `FAIL.
 reader is unavailable (no valid key, no network: the bill's reason says so), step 3 asserts the Not read path
 instead -- both bills Not read with their reason, Pending, nothing on either Expense -- and prints NOT WALKED for
 Matched and Mismatched.
+
+Part `cashbook` (#1641): `cashbook_bills_seed.py` confirms two made-up Cashbook imports as the Accountant through the
+real endpoint and runs their job: a spend with one bill link (read: Matched), one with two (Not checked, total =
+line amount, never read) and one whose bill comes late with the second import (read: Mismatched). SEEDED: the env
+cannot reach the wallet's bill storage and its reader key is refused, so the seed answers the downloads with made-up
+files and reads with a stand-in reader; the screens below show those seeded results.
+5. DB: each spend's one Expense bill -- ONE Matched, Approved by System, its number on the Expense; TWO Not checked,
+   Pending, `invoice_amount` = line amount, no number or date, never claimed by a reading; LATE Mismatched, Pending,
+   nothing on the Expense. Each uploaded by the Accountant who confirmed the import.
+6. Dashboard -> each spend's expense list -> Paid: ONE's row shows its Invoice Ref; TWO's and LATE's show none.
+
 Evidence: `$VERIFY_OUT`, else ~/claude-artifacts/verify/<task>/<UTC time>/.
 """
 
@@ -45,6 +60,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--task", required=True)
 ap.add_argument("--password", required=True)
 ap.add_argument("--accountant", default="walk-accountant@example.com")
+ap.add_argument("--part", choices=("attach", "cashbook", "all"), default="all")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -71,7 +87,12 @@ def seed() -> dict:
 
 def db(out: Path, name: str, spends: dict) -> dict:
     """Both spends' invoice fields and Expense bills, saved beside the screenshots as `<name>.db.json`."""
-    stdout = script("expense_bills_db.py", NPE, spends["card"], PE, spends["wallet"])
+    return db_of(out, name, [NPE, spends["card"], PE, spends["wallet"]])
+
+
+def db_of(out: Path, name: str, pairs: list[str]) -> dict:
+    """The invoice fields and Expense bills of each (doctype, name) in `pairs`, saved as `<name>.db.json`."""
+    stdout = script("expense_bills_db.py", *pairs)
     answer = json.loads(next(l for l in stdout.splitlines() if l.startswith("EXPENSE_BILLS_DB ")).removeprefix(
         "EXPENSE_BILLS_DB "))
     (out / f"{name}.db.json").write_text(json.dumps(answer, indent=2))
@@ -142,10 +163,9 @@ def open_list(page, card: str, search: str) -> str:
     return row.inner_text()
 
 
-spends = seed()
-print(f"seeded: {spends}")
-
-with session(a.task, a.accountant, a.password) as (page, out):
+def walk_attach(page, out) -> None:
+    spends = seed()
+    print(f"seeded: {spends}")
     card_pdf = bill_pdf(out / f"walk-cafe-{STAMP}.pdf", f"WC-{STAMP}", "1,180.00", f"WALKCAFE{STAMP} Cafe")
     wallet_pdf = bill_pdf(out / f"walk-tea-{STAMP}.pdf", f"WT-{STAMP}", "2,500.00", "Walk Tea Stall")
 
@@ -210,4 +230,50 @@ with session(a.task, a.accountant, a.password) as (page, out):
     row = open_list(page, "Project Expenses", wallet_list_search)
     save(page, out, "06-project-expenses")
     expect(f"WT-{STAMP}" not in row, "Project Expenses: the wallet spend shows no Invoice Ref")
+
+
+def walk_cashbook(page, out) -> None:
+    stdout = script("cashbook_bills_seed.py", STAMP, a.accountant)
+    seeded = json.loads(next(l for l in stdout.splitlines() if l.startswith("CASHBOOK_BILLS_SEED ")).removeprefix(
+        "CASHBOOK_BILLS_SEED "))
+    print(f"seeded Cashbook imports: {seeded}")
+    state = db_of(out, "07-cashbook-import", [part for key in ("ONE", "TWO", "LATE") for part in seeded[key][:2]])
+    one, two, late = (state[seeded[key][1]] for key in ("ONE", "TWO", "LATE"))
+    for key, spend in (("ONE", one), ("TWO", two), ("LATE", late)):
+        expect(len(spend["bills"]) == 1, f"{key}: one Expense bill")
+        bill = spend["bills"][0]
+        expect(bill["bill_file"] == spend["expense"]["invoice_attachment"] and bool(bill["bill_file"]),
+               f"{key}: the copied bill is the Expense's invoice and its Expense bill's file")
+        expect(bill["uploaded_by"] == a.accountant, f"{key}: attached by the Accountant who confirmed the import")
+        expect(bool(bill["statement_line"]), f"{key}: compared against its statement line")
+    bill = one["bills"][0]
+    expect((bill["bill_check"], bill["status"], bill["auto_approved"], bill["approved_by"])
+           == ("Matched", "Approved", 1, "System"), "ONE (one bill link): Matched, auto-approved by System")
+    expect(one["expense"]["invoice_ref"] == f"WALK-ONE-{STAMP}", "ONE: its Invoice Ref filled from the bill")
+    bill = two["bills"][0]
+    expect((bill["bill_check"], bill["status"]) == ("Not checked", "Pending"), "TWO (two bill links): Not checked, Pending")
+    expect(float(bill["invoice_amount"]) == float(bill["line_amount"]), "TWO: its total is the line amount")
+    expect(not bill["invoice_no"] and not bill["invoice_date"] and not bill["read_claimed_at"],
+           "TWO: no number or date, and never read")
+    bill = late["bills"][0]
+    expect((bill["bill_check"], bill["status"], bill["auto_approved"]) == ("Mismatched", "Pending", 0),
+           "LATE (bill brought by the second import): Mismatched, Pending")
+    expect(not late["expense"]["invoice_ref"], "LATE: nothing written to its Invoice Ref")
+
+    for step, key in (("08", "ONE"), ("09", "TWO"), ("10", "LATE")):
+        doctype, _, description = seeded[key]
+        card = "Project Expenses" if doctype == PE else "Non-Project Expenses"
+        row = open_list(page, card, description)
+        save(page, out, f"{step}-{key.lower()}-{card.lower().replace(' ', '-')}")
+        if key == "ONE":
+            expect(f"WALK-ONE-{STAMP}" in row, f"{card}: ONE's row shows its Invoice Ref WALK-ONE-{STAMP}")
+        else:
+            expect("WALK-" not in row, f"{card}: {key}'s row shows no Invoice Ref")
+
+
+with session(a.task, a.accountant, a.password) as (page, out):
+    if a.part in ("attach", "all"):
+        walk_attach(page, out)
+    if a.part in ("cashbook", "all"):
+        walk_cashbook(page, out)
     print(f"evidence: {out}")
