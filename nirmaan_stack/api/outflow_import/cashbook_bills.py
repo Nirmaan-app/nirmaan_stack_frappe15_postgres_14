@@ -6,7 +6,8 @@
 
 Three kinds of copy, one downloader path (`download_and_save_bills`) and one step-3 frame (`store_or_discard`):
 
-  * **a created line's bills** (`copy_created_line_bills`, #1591) become its new Expense's invoice;
+  * **a created line's bills** (`copy_created_line_bills`, #1591) become its new Expense's invoice, an Expense bill
+    with its Bill check (`expense_bills.receive_bill`, #1641; 2 or more links merged are Not checked);
   * **a late bill** (`attach_late_bills`, #1593): a repeat line's bills reach the existing Expense still waiting
     for one;
   * **an open Collect payment's bills** (`store_collect_bills`, #1595) are kept on its line (`stored_bill`) for
