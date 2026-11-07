@@ -113,9 +113,9 @@ def attach_cashbook_invoice(
     Example: `{"expense": "PE-0042", "doctype": "Project Expenses", "invoice_attachment": "/private/files/b.pdf"}`
     -> `{"name": "PE-0042"}`.
     """
-    require_upload_access()
+    user = require_upload_access()
     doc, facts = _locked_facts(expense, doctype)
-    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date)
+    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date, user)
 
 
 @frappe.whitelist(methods=["POST"])

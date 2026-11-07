@@ -80,9 +80,9 @@ def attach_card_invoice(
 
     Example: `{"expense": "NPE-0042", "invoice_attachment": "/private/files/zomato.pdf"}` -> `{"name": "NPE-0042"}`.
     """
-    require_upload_access()
+    user = require_upload_access()
     doc, facts = _locked_facts(expense)
-    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date)
+    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date, user)
 
 
 @frappe.whitelist(methods=["POST"])

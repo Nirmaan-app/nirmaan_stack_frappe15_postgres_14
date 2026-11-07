@@ -58,3 +58,6 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
 - [Vendor Invoice Recon](./vendor_invoice_recon.md): the Pending Invoice Approvals and All Invoices tabs, and their
   "Invoice Added By" column (full name or email, cut with "…", whole text on hover). Walked by
   `BIN/walk_vendor_invoice_recon.py`.
+- [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
+  becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
+  the Invoice Ref and Date on the expense lists. Walked end to end by `BIN/walk_expense_bills.py`.
