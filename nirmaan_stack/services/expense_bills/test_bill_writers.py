@@ -30,7 +30,6 @@ ENTRY_POINT = {
 #: Writers of a wallet spend's or card spend's bill that do not yet go through the entry point. Each later ticket
 #: of spec #1637 moves its writer and removes its line here.
 LATER_TICKETS = {
-    "nirmaan_stack/api/outflow_import/cashbook_bills.py": "Cashbook import's bill copy and late bill (#1637 ticket 2)",
     "nirmaan_stack/services/outflow_import/settle.py": "Collect payment Create's raw set_value (#1637 ticket 2)",
     "nirmaan_stack/api/expenses/paid_invoice.py": "Payment Done replace, the endpoint (#1637 ticket 3)",
     "nirmaan_stack/services/expense_decision.py": "Payment Done replace, save_paid_invoice (#1637 ticket 3)",
@@ -145,6 +144,11 @@ class TestEveryBillWriterGoesThroughTheEntryPoint(unittest.TestCase):
                 self.assertIn("save_invoice", calls(tab))
         self.assertIn("receive_bill", calls("nirmaan_stack/services/expense_invoices.py"))
         self.assertNotIn("nirmaan_stack/services/expense_invoices.py", writers())
+
+    def test_the_cashbook_import_files_its_copied_and_late_bills_through_the_entry_point(self):
+        copies = "nirmaan_stack/api/outflow_import/cashbook_bills.py"
+        self.assertNotIn(copies, writers())
+        self.assertIn("receive_bill", calls(copies))
 
     def test_a_module_that_writes_the_field_is_caught_and_one_that_only_mentions_it_is_not(self):
         self.assertTrue(python_writes("doc.invoice_attachment = url"))
