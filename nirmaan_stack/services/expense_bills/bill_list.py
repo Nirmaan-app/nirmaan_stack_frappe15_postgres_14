@@ -19,11 +19,18 @@ EXPENSE_DOCTYPES = ("Project Expenses", "Non Project Expenses")
 
 AUTO_APPROVED = "Auto-approved"
 
-#: The two list fields, each the SQL that gives it from the latest bill `b`. The stopped-reading rule is
-#: `reading.reading_stopped`'s, spelled in SQL so the lists can filter on it (as Pending Approval's query does);
-#: `test_expense_bill_list.test_a_bill_whose_reading_stopped_shows_not_read` holds the two together.
-#: True on a bill `b` whose reading stopped; the query passes `stopped_before` (`reading.stopped_before()`).
-STOPPED_SQL = f"(b.bill_check = '{CHECKING}' AND b.read_claimed_at < %(stopped_before)s)"
+def stopped_sql(alias: str, param: str = "%(stopped_before)s") -> str:
+    """SQL, true on record `alias` (an Expense bill, or a Collect payment line, which keeps the same fields) whose
+    reading stopped: `reading.reading_stopped`'s rule, spelled in SQL so a query can show and filter on it. The
+    query passes `reading.stopped_before()` as `param` (named by default; `%s` for a positional query).
+    `test_expense_bill_list.test_a_bill_whose_reading_stopped_shows_not_read` holds the two together."""
+    return f"({alias}.bill_check = '{CHECKING}' AND {alias}.read_claimed_at < {param})"
+
+
+#: The stopped rule on the latest bill `b`, as the two list fields below and Pending Approval's query read it.
+STOPPED_SQL = stopped_sql("b")
+
+#: The two list fields, each the SQL that gives it from the latest bill `b`; the query passes `stopped_before`.
 
 LIST_FIELD_SQL = {
     "bill_check": f"CASE WHEN {STOPPED_SQL} THEN '{NOT_READ}' ELSE b.bill_check END",

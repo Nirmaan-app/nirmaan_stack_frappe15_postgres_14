@@ -16,6 +16,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import frappe
+from frappe.utils import add_to_date, now_datetime
 
 from nirmaan_stack.api.expenses.test_expense_bill_approval import keeping_versions
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, bills_of, readings_queued
@@ -169,6 +170,49 @@ class TestTheMainTableCarriesTheKeptCheck(CollectPaymentCase):
         page = get_outflow_rows(scope="not_matched_outflow", batch=self.batch, limit=500)
         (row,) = [row for row in page["rows"] if row["name"] == line.name]
         self.assertEqual((row["stored_bill"], row["bill_check"]), (line.stored_bill, "Matched"))
+
+
+class TestALineWhoseReadingStopped(CollectPaymentCase):
+    """A worker killed mid-read leaves the line Checking with its claim set (story 20): the line must not say
+    Checking forever."""
+
+    def _stopped_line(self):
+        self._run()
+        line = self._line(COLLECT_WITH_LINK)
+        # Raw: no doc_events on the line; a worker killed mid-read leaves exactly this.
+        frappe.db.set_value("Outflow Import Row", line.name, "read_claimed_at", add_to_date(now_datetime(), minutes=-25))
+        frappe.db.commit()
+        return self._line(COLLECT_WITH_LINK)
+
+    def _row(self, line) -> dict:
+        page = get_outflow_rows(scope="not_matched_outflow", batch=self.batch, limit=500)
+        (row,) = [row for row in page["rows"] if row["name"] == line.name]
+        return row
+
+    def test_the_main_table_ships_it_as_not_read(self):
+        line = self._stopped_line()
+
+        self.assertEqual(self._row(line)["bill_check"], "Not read")
+
+    def test_create_makes_a_not_read_expense_bill_that_waits_for_a_person_and_is_not_read_again(self):
+        line = self._stopped_line()
+        queued_before = list(self.jobs)
+
+        create_expense(row=line.name, doctype=line.suggested_doctype, expense_type=line.suggested_expense_type)
+
+        [match] = self._expenses_of(COLLECT_WITH_LINK)
+        (bill,) = bills_of(match.target_doctype, match.target_name)
+        self.assertEqual((bill.bill_check, bill.bill_check_reason, bill.status), ("Not read", "The reading stopped.", "Pending"))
+        self.assertEqual(readings_queued(self.jobs), readings_queued(queued_before))
+
+    def test_a_line_stored_before_the_bill_check_ships_no_result(self):
+        self._run()
+        line = self._line(COLLECT_WITH_LINK)
+        # Raw: no doc_events on the line; a Collect payment stored before #1642 has no Bill check.
+        frappe.db.set_value("Outflow Import Row", line.name, {"bill_check": None, "read_claimed_at": None})
+        frappe.db.commit()
+
+        self.assertIsNone(self._row(line)["bill_check"])
 
 
 class TestAMatchedCreateCanStillBeUndone(CollectPaymentCase):

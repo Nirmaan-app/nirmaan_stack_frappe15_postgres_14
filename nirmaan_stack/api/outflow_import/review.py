@@ -57,6 +57,9 @@ from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
 )
 from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
+from nirmaan_stack.services.expense_bills.bill_check import NOT_READ
+from nirmaan_stack.services.expense_bills.bill_list import stopped_sql
+from nirmaan_stack.services.expense_bills.reading import stopped_before
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -2992,8 +2995,11 @@ def get_outflow_rows(
                -- popup shows "Paired with <it>" under the tag.
                r.cashbook_refund_partner,
                -- An open Collect payment's stored bill and its Bill check (#1642): the decide screen says
-               -- "Invoice already available" and what Create will lead to.
-               r.stored_bill, r.bill_check,
+               -- "Invoice already available" and what Create will lead to. A line left Checking by a reading
+               -- that stopped reads Not read, as an Expense bill does (`expense_bills.bill_list.stopped_sql`);
+               -- the cutoff is the FIRST parameter of this query. NULL on a line stored before #1642.
+               r.stored_bill,
+               CASE WHEN {stopped_sql("r", "%s")} THEN '{NOT_READ}' ELSE r.bill_check END AS bill_check,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,
@@ -3035,7 +3041,7 @@ def get_outflow_rows(
         ORDER BY {column} {direction}, r.name ASC
         LIMIT %s OFFSET %s
         """,
-        tuple(all_params) + (limit, offset),
+        (stopped_before(), *all_params, limit, offset),
         as_dict=True,
     )
 
