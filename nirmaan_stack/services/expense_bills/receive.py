@@ -96,7 +96,6 @@ def receive_bill(
             "statement_line": line,
             "line_amount": float(line_amount),
             "bill_check": verdict.result if verdict else CHECKING,
-            # What the person typed is the bill's own from the start; a Matched reading fills only what is empty.
             "invoice_no": doc.invoice_ref,
             "invoice_date": doc.invoice_date,
         }
