@@ -76,6 +76,7 @@ import {
     isCollectPaymentLine,
     isOpen,
 } from "../outflowImportStatus";
+import { collectBillOutcome } from "../cashbookCollect";
 import { NEW_EXPENSE_COMMENT_MAX, newExpenseSeed, statementSpender } from "../newExpenseSeed";
 import { useUserData } from "@/hooks/useUserData";
 import type { UnreconcileResult } from "../unreconcileView";
@@ -905,6 +906,10 @@ export const DecisionDialog = ({
                             inflow, a non-project inflow, or a vendor refund.
                         </p>
                     )}
+
+                    {/* #1642: an open Collect payment's bill, already copied and checked at import, and what
+                        Create will lead to. */}
+                    <CollectBillNote row={row} />
 
                     {SHOW_CREATE_NEW_EXPENSE && allowed.includes("new") && (
                         <TargetOption
@@ -2249,6 +2254,25 @@ const RecordVerdict = ({
                     Open <ExternalLink className="h-3.5 w-3.5" />
                 </Link>
             )}
+        </div>
+    );
+};
+
+/** "Invoice already available" on an open Collect payment with a stored bill, and what Create will lead to
+ * (`cashbookCollect.collectBillOutcome`, #1642). Nothing on any other line. */
+const CollectBillNote = ({ row }: { row: OutflowImportRow }) => {
+    const bill = collectBillOutcome(row);
+    if (!bill) return null;
+    return (
+        <div
+            data-testid="collect-bill-note"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2 text-sm"
+        >
+            <span className="font-medium">{bill.heading}</span>
+            <a href={bill.fileUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                View bill
+            </a>
+            <span className="text-muted-foreground">Create expense: {bill.outcome}</span>
         </div>
     );
 };

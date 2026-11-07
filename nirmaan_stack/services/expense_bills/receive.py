@@ -6,11 +6,12 @@
 `receive_bill` mirrors the file (and any number and date a person typed) onto the Expense, records the Expense
 bill as Checking -- the previous one of that Expense stays as history, no longer latest -- and queues its reading
 (`expense_bills.reading`) for after the commit. A file merged from several bills (the Cashbook import's, #1641) is
-recorded Not checked at once, its total the line amount, and is never read. It never refuses a bill and never waits for the reading
+recorded Not checked at once, its total the line amount, and is never read; a Collect payment's bill brings the
+reading made at import (#1642) and is recorded from it, never read again. It never refuses a bill and never waits for the reading
 (GLOSSARY *Bill check*: a Bill check never stops a bill from being attached).
 
 Every code path that writes `invoice_attachment` on a wallet spend or a card spend must come through here;
-`services/expense_bills/test_bill_writers.py` proves it, and names the writers later tickets of spec #1637 move.
+`services/expense_bills/test_bill_writers.py` proves it, and names every other writer of the field with its reason.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from frappe.utils import now_datetime
 
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill
-from nirmaan_stack.services.expense_bills.reading import queue_reading
+from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
@@ -40,6 +41,8 @@ def receive_bill(
     bill_count: int = 1,
     *,
     approve: bool = False,
+    kept: Reading | None = None,
+    file_stays: bool = False,
 ) -> str:
     """File `file_url` as Expense `doc`'s bill (`doc` read `FOR UPDATE` by the caller) and record it; returns the
     Expense bill's name. Saves `doc` through the document layer (its `doc_events` run). Never commits: the caller
@@ -51,11 +54,27 @@ def receive_bill(
 
     `approve`: the bill is approved at once in `user`'s name, with the number and date they typed (an approver
     replacing a paid Expense's bill on Payment Done, #1643). Its Bill check still runs and is recorded, and never
-    replaces that number or date."""
-    doc.invoice_attachment = file_url.strip()
+    replaces that number or date.
+
+    `kept` is a reading already made of this file (a Collect payment's, kept on its line at import, #1642): the
+    verdict is taken from it against the line, recorded as the job records one (a Matched bill auto-approved, its
+    number and date filled where empty), and no reading is queued.
+
+    `file_stays` keeps the file's one `File` where it is (a Collect payment's stays on its line, #1642): the URL is
+    written after the save, raw, so Frappe's attach-on-save hook mints no `File` on the Expense sharing its stored
+    object (an undo deletes an Expense with every File attached to it, and the cloud app deletes the object by its
+    key). The Expense bill's own `bill_file` row is minted as for every Expense bill (#1639).
+    """
+    url = file_url.strip()
+    if not file_stays:
+        doc.invoice_attachment = url
     doc.invoice_ref = (invoice_ref or "").strip() or None
     doc.invoice_date = invoice_date or None
     doc.save(ignore_permissions=True)
+    if file_stays:
+        # Raw, after the save: see the docstring. Nothing is derived from `invoice_attachment`, so no hook is owed.
+        frappe.db.set_value(doc.doctype, doc.name, "invoice_attachment", url, update_modified=False)
+        doc.invoice_attachment = url
 
     line, line_amount = statement_line_of(doc.doctype, doc.name, doc.amount)
     # Raw: `Expense Bill` has no doc_events, and `is_latest` is a history marker nothing is derived from.
@@ -64,22 +83,21 @@ def receive_bill(
             WHERE expense_doctype = %s AND expense = %s AND is_latest = 1""",
         (doc.doctype, doc.name),
     )
-    check = {"bill_check": CHECKING}
     if bill_count > 1:
-        verdict = check_bill(ReadFailed("A merged file is not read."), line_amount, bill_count)
-        check = {"bill_check": verdict.result, "bill_check_reason": verdict.reason, "invoice_amount": float(verdict.total)}
+        kept = Reading(ReadFailed("A merged file is not read."))
+    verdict = check_bill(kept.read, line_amount, bill_count) if kept is not None else None
     bill = frappe.get_doc(
         {
             "doctype": BILL_DOCTYPE,
             "expense_doctype": doc.doctype,
             "expense": doc.name,
             "is_latest": 1,
-            "bill_file": doc.invoice_attachment,
+            "bill_file": url,
             "uploaded_by": user,
             "status": PENDING,
             "statement_line": line,
             "line_amount": float(line_amount),
-            **check,
+            "bill_check": verdict.result if verdict else CHECKING,
         }
     )
     if approve:
@@ -93,8 +111,10 @@ def receive_bill(
             }
         )
     bill.insert(ignore_permissions=True)
-    if bill.bill_check == CHECKING:
+    if verdict is None:
         queue_reading(bill.name)
+    else:
+        record_check(bill.name, kept, verdict)
     return bill.name
 
 

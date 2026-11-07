@@ -6,10 +6,10 @@
     devenv.sh unit nirmaan_stack.services.expense_bills.test_bill_writers
 
 It reads the source: every backend module (by its syntax tree) and every frontend file (by pattern) that writes
-`invoice_attachment` must be listed below, as the entry point, as a writer a later ticket of spec #1637 moves
-onto it, or as a writer of some other record. A path added later that writes the field fails here until it goes
-through `expense_bills.receive.receive_bill` or is listed with its reason. A listed file that no longer writes the
-field fails too, so each ticket that moves a writer removes its line.
+`invoice_attachment` must be listed below, as the entry point, a writer that only clears the bill, a writer that
+routes a wallet spend's or card spend's bill to the entry point, a hand edit, or a writer of some other record. A
+path added later that writes the field fails here until it goes through `expense_bills.receive.receive_bill` or is
+listed with its reason. A listed file that no longer writes the field fails too, so its line goes with the write.
 
 What it cannot see: a write that never names the field (a Desk form, a generic `doc.update(form_dict)`).
 """
@@ -31,12 +31,6 @@ ENTRY_POINT = {
 CLEARS = {
     "nirmaan_stack/services/expense_bills/approval.py": "reject_bill: the Expense waits for a new bill; its Expense "
     "bill keeps the file (#1644)",
-}
-
-#: Writers of a wallet spend's or card spend's bill that do not yet go through the entry point. Each later ticket
-#: of spec #1637 moves its writer and removes its line here.
-LATER_TICKETS = {
-    "nirmaan_stack/services/outflow_import/settle.py": "Collect payment Create's raw set_value (#1637 ticket 2)",
 }
 
 #: Writers that send a wallet spend's or card spend's new bill through the entry point and write every other
@@ -65,9 +59,11 @@ OTHER_RECORDS = {
     "nirmaan_stack/api/expense_requests/invoice.py": "an Expense Request's Expense (raised by hand, no statement)",
     "nirmaan_stack/patches/v3_0/migrate_invoices_to_vendor_invoices.py": "Vendor Invoices migration (append-only)",
     "nirmaan_stack/services/reimbursements/convert.py": "a Reimbursement's Expense (spec #1637: out of scope)",
+    "nirmaan_stack/services/outflow_import/settle.py": "a Porter spend's shared Porter Invoice URL (spec #1637: out of "
+    "scope); a Collect payment's bill goes through the entry point since #1642",
 }
 
-KNOWN = {**ENTRY_POINT, **CLEARS, **ROUTES, **LATER_TICKETS, **HAND_EDITS, **OTHER_RECORDS}
+KNOWN = {**ENTRY_POINT, **CLEARS, **ROUTES, **HAND_EDITS, **OTHER_RECORDS}
 
 _WRITE_CALLS = {"set_value", "db_set", "save_file"}
 _FIELD_KEYWORDS = {"df", "fieldname", "attached_to_field"}
@@ -165,6 +161,11 @@ class TestEveryBillWriterGoesThroughTheEntryPoint(unittest.TestCase):
         for path in ROUTES:
             with self.subTest(path=path):
                 self.assertIn("receive_bill", calls(path))
+
+    def test_a_collect_payments_create_files_its_stored_bill_through_the_entry_point(self):
+        create = "nirmaan_stack/api/outflow_import/cashbook_collect.py"
+        self.assertNotIn(create, writers())
+        self.assertIn("receive_bill", calls(create))
 
     def test_a_module_that_writes_the_field_is_caught_and_one_that_only_mentions_it_is_not(self):
         self.assertTrue(python_writes("doc.invoice_attachment = url"))

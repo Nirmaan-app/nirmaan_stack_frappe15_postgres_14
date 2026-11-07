@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Walk the Bill check on hand-attached bills (#1639) and on the bills a Cashbook import copies (#1641), spec
-#1637, as an Accountant.
+"""Walk the Bill check on hand-attached bills (#1639), on the bills a Cashbook import copies (#1641) and on a
+Collect payment's stored bill (#1642), spec #1637, as an Accountant.
 
     devenv.sh script <task> .claude/skills/verify/bin/office_rent_seed.py      # once per env: the free Accountant
     devenv.sh run <task> set-password walk-accountant@example.com <pw>   # the walk gives its other two users <pw>
     python3 .claude/skills/verify/bin/walk_expense_bills.py --task <task> --password <pw> [--accountant <email>]
-        [--part read-again|cashbook|bill-check|paid-replace|all-payments|all]      # default all
+        [--part read-again|cashbook|bill-check|paid-replace|all-payments|collect|all]      # default all
 
 Part `attach` (#1639):
 
@@ -75,6 +75,8 @@ files and reads with a stand-in reader; the screens below show those seeded resu
    nothing on the Expense. Each uploaded by the Accountant who confirmed the import.
 6. Dashboard -> each spend's expense list -> Paid: ONE's row shows its Invoice Ref; TWO's and LATE's show none.
 
+Part `collect` (#1642): `walk_collect`'s docstring (steps 24-27).
+
 Evidence: `$VERIFY_OUT`, else ~/claude-artifacts/verify/<task>/<UTC time>/.
 """
 
@@ -106,9 +108,10 @@ ap.add_argument("--accountant", default="walk-accountant@example.com")
 ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
 ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
-ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check", "paid-replace", "all-payments"),
+ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check", "paid-replace", "all-payments",
+                                   "collect"),
                 default="all",
-                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); paid-replace: only steps 19-22 (#1643); all-payments: only step 23 (#1648); each with its own seed")
+                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); paid-replace: only steps 19-22 (#1643); all-payments: only step 23 (#1648); collect: only steps 24-27, the Collect payment walk (#1642); each with its own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -529,7 +532,139 @@ def paid_replace_part() -> None:
         print(f"evidence: {out}")
 
 
-# One evidence folder for every session of this walk.
+COLLECT_OUTCOME = {"M": "Will be auto-approved", "X": "Will go to Pending Approval",
+                   "N": "Will go to Pending Approval", "K": "Checking", "S": "Will be auto-approved"}
+
+
+def collect_db(out: Path, name: str, lines: list[str]) -> dict:
+    stdout = script("collect_bills_db.py", *lines)
+    answer = json.loads(next(l for l in stdout.splitlines() if l.startswith("COLLECT_BILLS_DB ")).removeprefix(
+        "COLLECT_BILLS_DB "))
+    (out / f"{name}.db.json").write_text(json.dumps(answer, indent=2))
+    return answer
+
+
+def open_collect_line(page, remarks: str):
+    """Bulk Import Transactions -> Not Matched – Outflow -> the line's Choose: its decision dialog."""
+    sidebar(page, "Bulk Import Transactions")
+    page.get_by_role("heading", name="Bulk Import Transactions").wait_for()
+    page.get_by_role("button", name=re.compile(r"^Not Matched – Outflow \d+$")).click()
+    page.get_by_placeholder(re.compile("Search remarks")).fill(remarks)
+    row = page.get_by_role("row").filter(has_text=remarks)
+    row.first.wait_for(timeout=60_000)
+    expect(row.count() == 1, f"one Not Matched – Outflow row for '{remarks}'")
+    row.first.get_by_role("button", name="Choose").click()
+    dialog = page.get_by_role("dialog")
+    dialog.wait_for()
+    page.wait_for_timeout(500)  # the dialog's opening animation
+    return dialog
+
+
+def walk_collect() -> None:
+    """Part `collect` (#1642): a Collect payment's bill checked at import, shown when deciding, moved on Create.
+
+    `collect_bills_seed.py` stages five made-up open Collect payments and runs their import: M read Matched, X read
+    Mismatched, N two bills (Not checked), K still Checking, S read Matched. SEEDED: the env cannot reach the wallet's
+    bill storage and its reader key is refused, so the downloads are made-up files and the readings a stand-in.
+    24. DB: each line's stored bill and its kept Bill check (M Matched, X Mismatched, N Not checked, K Checking).
+    25. As the Accountant, Bulk Import Transactions -> Not Matched – Outflow -> each line's Choose: the dialog says
+        "Invoice already available" and "Create expense: <what Create leads to>".
+    26. Create a new expense on M, X, N and K: DB: M's Expense bill Matched, Approved by System, its number on the
+        Expense, never read again; X and N Pending; K Checking (its reading queued). The bill file is the line's.
+    27. As the Accountant Lead, Skip S by hand: no Expense bill.
+    """
+    stdout = script("collect_bills_seed.py", STAMP, a.accountant)
+    seeded = json.loads(next(l for l in stdout.splitlines() if l.startswith("COLLECT_BILLS_SEED ")).removeprefix(
+        "COLLECT_BILLS_SEED "))
+    print(f"seeded Collect payments: {seeded}")
+    keys = ("M", "X", "N", "K", "S")
+    lines = [seeded[key]["line"] for key in keys]
+    with session(a.task, a.accountant, a.password) as (page, out):
+        state = collect_db(out, "24-at-import", lines)
+        kept = {key: state[seeded[key]["line"]]["line"] for key in keys}
+        for key, check in (("M", "Matched"), ("X", "Mismatched"), ("N", "Not checked"), ("K", "Checking"),
+                           ("S", "Matched")):
+            expect(bool(kept[key]["stored_bill"]) and kept[key]["bill_check"] == check,
+                   f"24.{key}: its stored bill is {check} at import, kept on the line")
+            expect(state[seeded[key]["line"]]["bills_against_line"] == 0, f"24.{key}: no Expense bill yet")
+
+        for key in ("M", "X", "N", "K"):
+            dialog = open_collect_line(page, seeded[key]["remarks"])
+            note = dialog.get_by_test_id("collect-bill-note")
+            note.wait_for()
+            text = note.inner_text()
+            expect("Invoice already available" in text and COLLECT_OUTCOME[key] in text,
+                   f"25.{key}: the dialog says Invoice already available and '{COLLECT_OUTCOME[key]}' ({text!r})")
+            criterion = {"M": "2-decide-auto-approved", "X": "2-decide-pending-approval", "N": None,
+                         "K": "2-decide-checking"}[key]
+            shot(page, out, f"25-{key.lower()}-decide", criterion)
+            dialog.get_by_text("Create a new expense", exact=True).click()
+            page.wait_for_timeout(500)
+            if key == "M":
+                shot(page, out, "26-m-create-picked", "3-create-picked")
+            dialog.get_by_role("button", name=re.compile(r"^(Create|Record|Confirm)")).last.click()
+            dialog.wait_for(state="hidden", timeout=60_000)
+
+        state = collect_db(out, "26-after-create", lines)
+        for key in ("M", "X", "N", "K"):
+            got = state[seeded[key]["line"]]
+            expect(got["line"]["row_status"] == "Settled" and got["expense"] is not None,
+                   f"26.{key}: Create made its Expense")
+            expect(len(got["bills"]) == 1, f"26.{key}: one Expense bill")
+            bill = got["bills"][0]
+            expect(bill["bill_file"] == got["line"]["stored_bill"] == got["expense"]["invoice_attachment"],
+                   f"26.{key}: the line's stored bill is the Expense's invoice and its Expense bill's file")
+            expect(bill["statement_line"] == seeded[key]["line"] and bill["uploaded_by"] == a.accountant,
+                   f"26.{key}: against its line, attached by the Accountant who created it")
+        m, x, n, k = (state[seeded[key]["line"]] for key in ("M", "X", "N", "K"))
+        bill = m["bills"][0]
+        expect((bill["bill_check"], bill["status"], bill["auto_approved"], bill["approved_by"])
+               == ("Matched", "Approved", 1, "System"), "26.M: Matched, auto-approved by System")
+        expect(not bill["read_claimed_at"], "26.M: no reading of the Expense bill (the kept result was used)")
+        expect(m["expense"]["invoice_ref"] == f"WALK-CP-M-{STAMP}", "26.M: its Invoice Ref filled from the kept read")
+        expect((x["bills"][0]["bill_check"], x["bills"][0]["status"]) == ("Mismatched", "Pending"),
+               "26.X: Mismatched, Pending")
+        expect(not x["expense"]["invoice_ref"], "26.X: nothing written to its Invoice Ref")
+        expect((n["bills"][0]["bill_check"], n["bills"][0]["status"]) == ("Not checked", "Pending"),
+               "26.N: Not checked, Pending")
+        expect((k["bills"][0]["bill_check"], k["bills"][0]["status"]) == ("Checking", "Pending"),
+               "26.K: Checking, Pending (its Expense bill is read)")
+
+        # Pending Invoice Approvals -> Cashbook lists X's and N's bills (they wait for a person); M's (auto-approved)
+        # and K's (still Checking) are not there. The rows are read from the pill's own endpoint, as the page reads them.
+        approvals_pill(page, "Cashbook")
+        page.get_by_text(re.compile(r"\d+ bills? waits? for approval")).first.wait_for()
+        waiting = page.evaluate(
+            """async () => {
+                const r = await fetch('/api/method/nirmaan_stack.api.expenses.expense_bill_approval.get_pending_expense_bills?kind=cashbook',
+                    {headers: {'X-Frappe-CSRF-Token': window.csrf_token}});
+                return (await r.json()).message.map((row) => [row.name, row.bill_check]);
+            }"""
+        )
+        (out / "26-pending-approval-cashbook.rows.json").write_text(json.dumps(waiting, indent=2))
+        listed = dict(waiting)
+        for key, check in (("X", "Mismatched"), ("N", "Not checked")):
+            bill = state[seeded[key]["line"]]["bills"][0]["name"]
+            expect(listed.get(bill) == check, f"26.{key}: its bill waits in Pending Invoice Approvals -> Cashbook ({check})")
+        for key in ("M", "K"):
+            bill = state[seeded[key]["line"]]["bills"][0]["name"]
+            expect(bill not in listed, f"26.{key}: its bill is not waiting")
+        page.get_by_text("Not checked").first.scroll_into_view_if_needed()
+        shot(page, out, "26-pending-approval-cashbook", "3-create-pending-approval")
+        print(f"evidence: {out}")
+
+    subprocess.run([DEVENV, "run", a.task, "set-password", a.lead, a.password], capture_output=True)
+    with session(a.task, a.lead, a.password) as (page, out):
+        dialog = open_collect_line(page, seeded["S"]["remarks"])
+        dialog.locator("#skip-transfer-reason").fill(f"Walk: a personal spend, repaid {STAMP}")
+        shot(page, out, "27-s-skip", "4-skip-no-expense-bill")
+        dialog.get_by_role("button", name=re.compile(r"^Skip")).last.click()
+        dialog.wait_for(state="hidden", timeout=60_000)
+        got = collect_db(out, "27-after-skip", [seeded["S"]["line"]])[seeded["S"]["line"]]
+        expect(got["line"]["row_status"] == "Skipped", "27.S: Skipped by hand")
+        expect(got["expense"] is None and got["bills_against_line"] == 0, "27.S: no Expense, no Expense bill")
+        print(f"evidence: {out}")
+
 
 LIST_API = "nirmaan_stack.api.data-table.get_list_with_count_enhanced"
 
@@ -735,10 +870,14 @@ def all_payments_part() -> None:
         shot(page, out, "23d-walked-as-accountant", "4-walked-as-accountant")
 
 
+# One evidence folder for every session of this walk.
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 if a.part == "read-again":
     read_again_part()
+    sys.exit(0)
+if a.part == "collect":
+    walk_collect()
     sys.exit(0)
 if a.part == "cashbook":
     with session(a.task, a.accountant, a.password) as (page, out):
@@ -961,3 +1100,4 @@ paid_replace_part()
 
 all_payments_part()
 
+walk_collect()

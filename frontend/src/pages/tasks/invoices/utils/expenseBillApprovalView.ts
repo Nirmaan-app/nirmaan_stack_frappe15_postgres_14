@@ -8,6 +8,7 @@
  */
 import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 
 /** The pills of Pending Approval. PO and WO carry the Vendor Invoices `document_type` they show. */
 export const PENDING_APPROVAL_PILLS = [
@@ -72,7 +73,13 @@ export const lastBillRejectedText = (reason: string | null | undefined): string 
     reason ? `Last bill rejected: ${reason}` : null;
 
 /** A Bill check result (GLOSSARY *Bill check*); Checking while the reading runs. */
-export const BILL_CHECK_RESULTS = ["Checking", "Matched", "Mismatched", "Not read", "Not checked"] as const;
+export const BILL_CHECK_RESULTS = [
+    "Checking",
+    "Matched",
+    "Mismatched",
+    "Not read",
+    "Not checked",
+] as const satisfies readonly BillCheck[];
 export type BillCheckResult = (typeof BILL_CHECK_RESULTS)[number];
 
 /** An Expense bill's approval as the lists show it: a Matched bill the system approved is Auto-approved. */

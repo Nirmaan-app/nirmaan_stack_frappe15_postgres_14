@@ -2,7 +2,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CollectPaymentLine, collectPaymentsHeading, collectPaymentsOf } from "./cashbookCollect";
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
+
+import { CollectPaymentLine, collectBillOutcome, collectPaymentsHeading, collectPaymentsOf } from "./cashbookCollect";
 
 const line = (transfer_id: string, amount: number): CollectPaymentLine => ({
     row_number: 1,
@@ -36,5 +38,39 @@ describe("collectPaymentsOf", () => {
     it("reads the preview's Collect payments, or none from a server that predates them", () => {
         expect(collectPaymentsOf({})).toEqual([]);
         expect(collectPaymentsOf({ collect_payments: [line("A", 480)] })).toEqual([line("A", 480)]);
+    });
+});
+
+describe("collectBillOutcome (#1642)", () => {
+    const row = (stored_bill: string | null, bill_check: BillCheck | null) => ({
+        source: "Cashbook",
+        row_kind: "Collect Payment",
+        row_status: "Mismatched",
+        stored_bill,
+        bill_check,
+    });
+
+    it("says nothing for a Collect payment with no stored bill", () => {
+        expect(collectBillOutcome(row(null, null))).toBeNull();
+    });
+
+    it("says nothing for a line that is not a Collect payment", () => {
+        expect(collectBillOutcome({ ...row("/private/files/b.jpeg", "Matched"), row_kind: "Wallet Spend" })).toBeNull();
+    });
+
+    it("a Matched bill will be auto-approved", () => {
+        expect(collectBillOutcome(row("/private/files/b.jpeg", "Matched"))).toEqual({
+            heading: "Invoice already available",
+            outcome: "Will be auto-approved",
+            fileUrl: "/private/files/b.jpeg",
+        });
+    });
+
+    it.each<BillCheck>(["Mismatched", "Not read", "Not checked"])("a %s bill will go to Pending Approval", (check) => {
+        expect(collectBillOutcome(row("/private/files/b.jpeg", check))?.outcome).toBe("Will go to Pending Approval");
+    });
+
+    it.each<BillCheck | null>(["Checking", null])("a bill still being read (%s) says Checking", (check) => {
+        expect(collectBillOutcome(row("/private/files/b.jpeg", check))?.outcome).toBe("Checking");
     });
 });

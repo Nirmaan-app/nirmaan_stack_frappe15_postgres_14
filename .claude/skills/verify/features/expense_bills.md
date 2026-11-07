@@ -27,6 +27,12 @@ and never replaces that number or date. The previous bill stays as history, no l
 (Accountant, HR) waits like an attached one. Editing only the number or date lands no new bill. Any other paid
 Expense (hand-keyed, Porter, ...) gets no Expense bill.
 
+An open **Collect payment** keeps its bill on its line until someone decides it (#1642): that stored bill gets its
+Bill check at import, against the line's amount, and the result is kept on the line. The line's decide dialog
+(Bulk Import Transactions -> Not Matched – Outflow -> Choose) says **Invoice already available** and `Create
+expense: Will be auto-approved` (Matched), `Will go to Pending Approval` (Mismatched, Not read, Not checked) or
+`Checking`. Create a new expense makes the Expense bill from the kept result without reading again; Skip makes none.
+
 ## Sub-features
 
 - `bill-attach-card` Credit Card pill: the spend is listed, Attach invoice -> Upload Invoice dialog -> Save Invoice;
@@ -38,7 +44,13 @@ Expense (hand-keyed, Porter, ...) gets no Expense bill.
   Accountant who confirmed the import; two or more links Not checked. Seen on the expense lists (`bill-lists`).
 - `bill-lists` Dashboard -> Non-Project Expenses / Project Expenses -> Paid: a Matched bill's Invoice Ref and Invoice
   Date on the spend's row; nothing for any other result.
-
+- `collect-bill` an open Collect payment's stored bill: DB `Outflow Import Row.bill_check` (Checking with a reading
+  queued as `expense_bills.line_check.check_collect_line`, or Not checked for two or more links), then the kept
+  result and `read_*` fields. The decide dialog's `collect-bill-note` (test id) shows `Invoice already available`,
+  `View bill` and `Create expense: <outcome>`. After Create: one Expense bill against the line, its file the line's
+  stored bill (the File stays on the line); Matched Approved by System, its number on the Expense, never claimed by
+  a reading; anything else Pending; a line still Checking gives a Checking bill whose reading is queued. Skip by
+  hand (Admin, Accountant Lead): no Expense bill.
 - `approval-pills` Pending Invoice Approvals -> `PO` / `WO` / `Cashbook` / `Credit Card`. Cashbook and Credit Card
   list each waiting bill: spend date, line amount, bill total read ("--" unless Matched or Mismatched), Bill check
   with its reason, invoice number and date (the bill's own, else the ones typed on the Expense), Paid by (wallet or
@@ -85,6 +97,8 @@ Expense (hand-keyed, Porter, ...) gets no Expense bill.
 - Accountant: the same -> tab `Paid` or `All` -> the `Bill check` column's header funnels (#1640).
 - Accountant: sidebar `Project Payment & Expense` -> tab `All Payments` -> the `Invoice` and `Bill check` columns
   (#1648); the search box (PO / SR / Description) finds a row.
+- Accountant: sidebar `Bulk Import Transactions` -> `Not Matched – Outflow` -> an open Collect payment's `Choose`
+  (#1642); the search box (remarks) finds the line.
 
 ## Driving it with drive.py
 
@@ -141,11 +155,21 @@ All Payments for them, checks each Invoice link names its own file and that the 
 each Bill check cell, and that the PO / WO rows' two cells are empty, beside the DB read (`23-db.db.json`).
 `--part all-payments` runs only this step (it needs only the Accountant).
 
+Then the Collect payment (#1642), steps 24-27, `--part collect`: `BIN/collect_bills_seed.py <stamp> <accountant>`
+stages five made-up open Collect payments (copies of the fixture's ₹480 one) as the Accountant and runs their import
+with made-up downloads and a stand-in reader: M Matched, X Mismatched, N two links (Not checked), K left Checking,
+S Matched. The walk opens each line's Choose dialog as the Accountant, reads the note, creates M, X, N and K, reads
+each Expense bill (`BIN/collect_bills_db.py`), shows the Cashbook pill of Pending Invoice Approvals, and skips S as
+the Accountant Lead.
+
 ## Gotchas
 
 - **A file link points at `localhost:8000` under vite.** `SITEURL` is `http://localhost:8000` in vite's dev mode (the
   main bench, never an env) and the page's own origin in production. The walk checks the link's path and opens it
   on the env's origin; never follow the link as it stands.
+- **The Collect payment part is seeded, not live**, for the same reasons as the Cashbook part: the stored bills are
+  made-up files and the line readings a stand-in reader, so the dialog's Matched and Mismatched notes show seeded
+  results.
 - **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
   ends Not read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints
   NOT WALKED for Matched and Mismatched. Never add a key to an env.
