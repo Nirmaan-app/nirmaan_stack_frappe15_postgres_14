@@ -45,6 +45,13 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
   the reading: the row's new result (Not read with its reason, Mismatched), or gone (Matched, auto-approved).
 - `reading-stopped` a bill Checking with `read_claimed_at` older than 20 minutes shows as Not read, "The reading
   stopped."; Read again and Approve / Reject reach it (a decision records it Not read with that reason).
+- `bill-check-column` (#1640) Non-Project Expenses and Project Expenses -> `Paid` or `All` (standalone lists only,
+  not the project page's read-only Expenses view): a `Bill check` column after Invoice Ref. Its cell shows the
+  latest Expense bill's result (Checking / Matched / Mismatched / Not read / Not checked; a reading that stopped is
+  Not read) over its approval (Auto-approved / Pending / Approved / Rejected), or "—" when the spend has no Expense
+  bill. Its header holds two funnels: `Bill check` (each result, and "— (no bill)") and `Approval` (each status,
+  and "— (no bill)"). Both are sent with the list request (`bill_check` / `bill_approval` `in` filters, filled and
+  narrowed on the server by `api/data_table/virtual_fields.py`), so they page with the list.
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.
 
@@ -55,6 +62,7 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
 - Accountant (or Accountant Lead, Admin): sidebar `Vendor Invoice Recon` -> `Pending Invoice Approvals` -> pill
   `Cashbook` or `Credit Card` -> the row's `Approve` or `Reject`.
 - Accountant: sidebar `Dashboard` -> card `Non-Project Expenses` or `Project Expenses` -> tab `Paid`.
+- Accountant: the same -> tab `Paid` or `All` -> the `Bill check` column's header funnels (#1640).
 
 ## Driving it with drive.py
 
@@ -78,6 +86,13 @@ date, and the made-up users `walk-accountant-lead@example.com` and `walk-pmo@exa
 sees it back in Pending Invoices Upload with its reason, marks it No invoice as the Accountant Lead, and checks the
 PMO has no tab and gets 403 from the reject endpoint (`BIN/expense_bill_approval_db.py` reads each state).
 `--shots DIR` keeps one half-size screenshot per acceptance criterion.
+
+Then the Bill check column (#1640), steps 15-18: `BIN/expense_bill_list_seed.py <stamp>` makes made-up Paid spends
+"WalkBC <stamp> ..." with their latest bill seeded in each state (four Non-Project, three Project; one of each with
+no bill, and a rejected one with an older Matched bill under it). The walk reads each list's Paid and All tabs,
+searched by "WalkBC <stamp>", compares every Bill check cell with its DB row (`BIN/expense_bill_list_db.py`), and
+uses each funnel, checking that the list request sent the filter. `--part bill-check` runs only these steps (it
+needs only the Accountant).
 
 Then Read again (#1645), steps 11-14: `BIN/expense_bills_seed.py R<stamp>` makes two more made-up spends and
 `BIN/expense_bill_read_again_seed.py <stamp> <card> <wallet>` puts a Not read bill on the card spend and a bill whose
