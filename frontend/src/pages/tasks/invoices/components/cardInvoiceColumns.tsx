@@ -17,6 +17,7 @@ import formatToIndianRupee, { formatForReport } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 
 import { type CardInvoiceRow, expenseTypeLabel, statementLabel, statementMonthsLabel } from "../utils/cardInvoicesView";
+import { LastBillRejected } from "./LastBillRejected";
 
 interface CardInvoiceColumnOptions {
     /** Which row actions the user gets (`cardInvoiceActions`). */
@@ -50,6 +51,7 @@ export const getCardInvoiceColumns = ({
             <div>
                 <div className="font-medium">{row.original.merchant}</div>
                 <div className="text-xs text-muted-foreground">{row.original.details}</div>
+                <LastBillRejected reason={row.original.last_bill_rejected} />
             </div>
         ),
         meta: {

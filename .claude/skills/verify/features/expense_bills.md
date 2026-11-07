@@ -7,6 +7,12 @@ invoice reader reads the bill and its total (incl. GST) is compared with the sta
 (within ₹1) fills the Expense's Invoice Ref and Invoice Date where empty and auto-approves the bill; **Mismatched**
 and **Not read** (with the reason) leave it Pending and write nothing to the Expense.
 
+A bill that is not Matched waits for a person in Vendor Invoice Recon -> Pending Invoice Approvals, on the
+**Cashbook** and **Credit Card** pills (#1644; PO and WO are the Vendor Invoices beside them). Admin, Accountant and
+Accountant Lead approve it, correcting its number and date, which are mirrored onto the Expense, or reject it with a
+reason: the Expense loses its bill and waits again in Pending Invoices Upload, showing "Last bill rejected: <reason>".
+The server refuses both to anyone else.
+
 ## Sub-features
 
 - `bill-attach-card` Credit Card pill: the spend is listed, Attach invoice -> Upload Invoice dialog -> Save Invoice;
@@ -17,10 +23,26 @@ and **Not read** (with the reason) leave it Pending and write nothing to the Exp
 - `bill-lists` Dashboard -> Non-Project Expenses / Project Expenses -> Paid: a Matched bill's Invoice Ref and Invoice
   Date on the spend's row; nothing for any other result.
 
+- `approval-pills` Pending Invoice Approvals -> `PO` / `WO` / `Cashbook` / `Credit Card`. Cashbook and Credit Card
+  list each waiting bill: spend date, line amount, bill total read ("--" unless Matched or Mismatched), Bill check
+  with its reason, invoice number and date (the bill's own, else the ones typed on the Expense), Paid by (wallet or
+  card holder), Project, Invoice Added By, a `View` link to the file, `Approve` and `Reject`.
+- `approve` Approve -> dialog with `#expense_bill_invoice_no` and `#expense_bill_invoice_date` prefilled -> Approve;
+  the row leaves. DB: Approved, `approved_by` the person, `approved_on`; number and date on the bill and the Expense;
+  a Version on both.
+- `reject` Reject -> `#expense_bill_reject_reason` -> Reject; the row leaves. DB: Rejected with the reason; the
+  Expense's `invoice_attachment`, `invoice_ref`, `invoice_date` cleared; a Version on both. Pending Invoices Upload
+  -> Cashbook / Credit Card then lists the spend with "Last bill rejected: <reason>" under its remark or details;
+  No invoice (Admin, Accountant Lead) still works on it.
+- `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
+  tab, and the endpoints answer 403.
+
 ## How to get to it (user POV)
 
 - Accountant (or Accountant Lead, Admin, PMO, procurement): sidebar `Vendor Invoice Recon` -> `Pending Invoices
   Upload` -> pill `Credit Card` or `Cashbook` -> the row's `Attach invoice`.
+- Accountant (or Accountant Lead, Admin): sidebar `Vendor Invoice Recon` -> `Pending Invoice Approvals` -> pill
+  `Cashbook` or `Credit Card` -> the row's `Approve` or `Reject`.
 - Accountant: sidebar `Dashboard` -> card `Non-Project Expenses` or `Project Expenses` -> tab `Paid`.
 
 ## Driving it with drive.py
@@ -38,6 +60,14 @@ Preconditions:
 attaches them in both pills, runs the readings and reads both lists, asserting each screen and its DB row
 (`BIN/expense_bills_db.py`). It exits 1 on any miss.
 
+Then the approval part: `BIN/expense_bill_approval_seed.py <stamp>` seeds a made-up card spend whose bill reads
+Mismatched (₹1,250 against ₹1,180; a seeded state, since the env's reader cannot give one) with a typed number and
+date, and the made-up users `walk-accountant-lead@example.com` and `walk-pmo@example.com` (the walk gives them
+`--password`). The walk approves the seeded bill with a corrected number and date, rejects the wallet bill of step 3,
+sees it back in Pending Invoices Upload with its reason, marks it No invoice as the Accountant Lead, and checks the
+PMO has no tab and gets 403 from the reject endpoint (`BIN/expense_bill_approval_db.py` reads each state).
+`--shots DIR` keeps one half-size screenshot per acceptance criterion of #1644.
+
 ## Gotchas
 
 - **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
@@ -47,4 +77,7 @@ attaches them in both pills, runs the readings and reads both lists, asserting e
   walk's PDFs carry the binary marker line every real PDF has.
 - **No Cashbook spend waits in the 2026-10-28 data**, so the seed makes one (a Project Expense with the Cashbook
   marker and a Settled match).
+- **Frappe keeps no Version under tests** (`ignore_version` defaults to `in_test`): a test that asserts one patches
+  `frappe.flags.in_test` off around the save (`test_expense_bill_approval.keeping_versions`). The walk reads real ones.
+- **The env DB has no Pending WO Vendor Invoice** (2026-10-28 data), so the WO pill is walked empty.
 - The expense lists open on a tab other than Paid; the seeded spends are Paid.

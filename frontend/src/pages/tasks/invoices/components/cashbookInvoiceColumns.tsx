@@ -17,6 +17,7 @@ import formatToIndianRupee, { formatForReport } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 
 import { type CashbookInvoiceRow, cashbookExpenseTypeLabel, cashbookProjectLabel } from "../utils/cashbookInvoicesView";
+import { LastBillRejected } from "./LastBillRejected";
 
 interface CashbookInvoiceColumnOptions {
     /** Which row actions the user gets (`cashbookInvoiceActions`). */
@@ -74,7 +75,12 @@ export const getCashbookInvoiceColumns = ({
         accessorKey: "remark",
         size: 200,
         header: "Remark",
-        cell: ({ row }) => <div className="truncate" title={row.original.remark}>{row.original.remark || "--"}</div>,
+        cell: ({ row }) => (
+            <div>
+                <div className="truncate" title={row.original.remark}>{row.original.remark || "--"}</div>
+                <LastBillRejected reason={row.original.last_bill_rejected} />
+            </div>
+        ),
         enableSorting: false,
         meta: {
             exportHeaderName: "Remark",

@@ -2,7 +2,7 @@
 """Walk the Bill check on hand-attached bills (#1639, spec #1637) as an Accountant.
 
     devenv.sh script <task> .claude/skills/verify/bin/office_rent_seed.py      # once per env: the free Accountant
-    devenv.sh run <task> set-password walk-accountant@example.com <pw>
+    devenv.sh run <task> set-password walk-accountant@example.com <pw>   # the walk gives its other two users <pw>
     python3 .claude/skills/verify/bin/walk_expense_bills.py --task <task> --password <pw> [--accountant <email>]
 
 Each run seeds its own made-up card spend (₹1,180.00) and wallet spend (₹2,360.00) with their statement lines
@@ -18,6 +18,24 @@ Each run seeds its own made-up card spend (₹1,180.00) and wallet spend (₹2,3
 4. Dashboard -> Non-Project Expenses: the card spend's row shows the bill's Invoice Ref and Invoice Date.
    Dashboard -> Project Expenses: the wallet spend's row shows none.
 
+Then Pending Approval (#1644), with `expense_bill_approval_seed.py <stamp>`: a made-up card spend whose bill was
+read Mismatched (seeded: the env's reader cannot give one), and two made-up users, an Accountant Lead and a PMO.
+
+5. As the Accountant, Vendor Invoice Recon -> Pending Invoice Approvals: the PO / WO / Cashbook / Credit Card
+   pills. PO lists every Pending PO Vendor Invoice and WO every Pending WO one (DB).
+6. Credit Card: the seeded bill's row (spend date, line ₹1,180, total read ₹1,250, Mismatched, the typed number,
+   the holder, who attached it, the file). Approve: the form offers the typed number; a corrected number and date
+   are approved; the row leaves. DB: Approved by the Accountant, both mirrored onto the spend, a Version by the
+   Accountant on the bill and on the spend.
+7. Cashbook: the wallet bill (step 3's, Pending) -> Reject with a reason; the row leaves. DB: Rejected with the
+   reason, the spend's attachment, ref and date cleared, Versions by the Accountant.
+8. Pending Invoices Upload -> Cashbook: the wallet spend is back, showing "Last bill rejected: <reason>".
+9. As the Accountant Lead: Pending Invoices Upload -> Cashbook -> No invoice on that spend; it leaves. DB: marked.
+10. As the PMO (outside the approvers): Vendor Invoice Recon shows no Pending Invoice Approvals tab, and a direct
+   call of the reject endpoint is refused (403). DB: the bill is still Pending.
+
+`--shots DIR` also keeps one half-size screenshot per acceptance criterion of #1644 there.
+
 Every step asserts the screen's text and its DB row; a miss raises, saves `FAIL.*` and exits 1. When the env's
 reader is unavailable (no valid key, no network: the bill's reason says so), step 3 asserts the Not read path
 instead -- both bills Not read with their reason, Pending, nothing on either Expense -- and prints NOT WALKED for
@@ -25,11 +43,16 @@ Matched and Mismatched.
 Evidence: `$VERIFY_OUT`, else ~/claude-artifacts/verify/<task>/<UTC time>/.
 """
 
+from __future__ import annotations
+
 import argparse
 import datetime
 import json
+import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from drive import save, session, sidebar
@@ -45,6 +68,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--task", required=True)
 ap.add_argument("--password", required=True)
 ap.add_argument("--accountant", default="walk-accountant@example.com")
+ap.add_argument("--lead", default="walk-accountant-lead@example.com")
+ap.add_argument("--outsider", default="walk-pmo@example.com")
+ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion of #1644 here")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -142,8 +168,55 @@ def open_list(page, card: str, search: str) -> str:
     return row.inner_text()
 
 
+def approval_db(out: Path, name: str, *bills: str) -> dict:
+    stdout = script("expense_bill_approval_db.py", *bills)
+    answer = json.loads(next(l for l in stdout.splitlines() if l.startswith("EXPENSE_BILL_APPROVAL_DB ")).removeprefix(
+        "EXPENSE_BILL_APPROVAL_DB "))
+    (out / f"{name}.db.json").write_text(json.dumps(answer, indent=2))
+    return answer
+
+
+def shot(page, out: Path, name: str, criterion: str | None = None) -> None:
+    """`save`, and with --shots a half-size copy named for the acceptance criterion it shows."""
+    save(page, out, name)
+    if a.shots and criterion:
+        Path(a.shots).mkdir(parents=True, exist_ok=True)
+        target = Path(a.shots) / f"{criterion}.png"
+        shutil.copy(out / f"{name}.png", target)
+        if sys.platform == "darwin":
+            width = int(subprocess.run(["sips", "-g", "pixelWidth", str(target)], capture_output=True, text=True)
+                        .stdout.split()[-1])
+            subprocess.run(["sips", "--resampleWidth", str(width // 2), str(target)], capture_output=True)
+
+
+def pill(page, label: str) -> None:
+    page.get_by_role("button", name=label, exact=True).click()
+    page.wait_for_load_state("networkidle")
+
+
+def find_row(page, search: str):
+    page.get_by_placeholder(re.compile("search", re.I)).first.fill(search)
+    row = page.get_by_role("row").filter(has_text=search)
+    row.first.wait_for(timeout=30_000)
+    expect(row.count() == 1, f"one row for '{search}'")
+    return row.first
+
+
+def gone(page, search: str, what: str) -> None:
+    page.get_by_role("row").filter(has_text=search).first.wait_for(state="detached", timeout=30_000)
+    expect(page.get_by_role("row").filter(has_text=search).count() == 0, what)
+
+
+# One evidence folder for every session of this walk.
+os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
+                                        datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 spends = seed()
 print(f"seeded: {spends}")
+approval = json.loads(next(l for l in script("expense_bill_approval_seed.py", STAMP).splitlines()
+                           if l.startswith("EXPENSE_BILL_APPROVAL_SEED ")).removeprefix("EXPENSE_BILL_APPROVAL_SEED "))
+print(f"seeded for approval: {approval}")
+for user in (a.lead, a.outsider):  # made by the seed above; a password on the env DB only
+    subprocess.run([DEVENV, "run", a.task, "set-password", user, a.password], capture_output=True, check=True)
 
 with session(a.task, a.accountant, a.password) as (page, out):
     card_pdf = bill_pdf(out / f"walk-cafe-{STAMP}.pdf", f"WC-{STAMP}", "1,180.00", f"WALKCAFE{STAMP} Cafe")
@@ -210,4 +283,126 @@ with session(a.task, a.accountant, a.password) as (page, out):
     row = open_list(page, "Project Expenses", wallet_list_search)
     save(page, out, "06-project-expenses")
     expect(f"WT-{STAMP}" not in row, "Project Expenses: the wallet spend shows no Invoice Ref")
+
+    # 5. Pending Approval's pills; PO and WO are today's table split by document type.
+    wallet_bill = wallet_bill["name"]
+    before = approval_db(out, "07-before-approval", approval["bill"], wallet_bill)
+    sidebar(page, "Vendor Invoice Recon")
+    page.get_by_role("button", name="Pending Invoice Approvals").click()
+    page.wait_for_load_state("networkidle")
+    for label in ("PO", "WO", "Cashbook", "Credit Card"):
+        expect(page.get_by_role("button", name=label, exact=True).count() == 1, f"Pending Approval: the {label} pill")
+    pill(page, "PO")
+    page.wait_for_timeout(1500)
+    text = page.locator("body").inner_text()
+    pos, wos = before["pending"]["Procurement Orders"], before["pending"]["Service Requests"]
+    expect(all(name in text for name in pos), f"PO pill: every Pending PO invoice listed ({len(pos)})")
+    expect(not any(name in text for name in wos), "PO pill: no WO invoice")
+    shot(page, out, "08-pending-approval-po", "1-pills-po")
+    pill(page, "WO")
+    page.wait_for_timeout(1500)
+    text = page.locator("body").inner_text()
+    expect(all(name in text for name in wos), f"WO pill: every Pending WO invoice listed ({len(wos)})")
+    expect(not any(name in text for name in pos), "WO pill: no PO invoice")
+    save(page, out, "09-pending-approval-wo")
+
+    # 6. Credit Card: the seeded Mismatched bill, approved with a corrected number and date.
+    pill(page, "Credit Card")
+    row = find_row(page, approval["holder"])
+    cells = row.inner_text()
+    typed_shown = datetime.date.fromisoformat(approval["typed_date"]).strftime("%d-%b-%Y")
+    for want in (TODAY.strftime("%d-%b-%Y"), "₹1,180", "₹1,250", "Mismatched", f"TYPED-{STAMP}", typed_shown,
+                 "Walk Accountant", "View"):
+        expect(want in cells, f"Credit Card row shows {want!r}")
+    expect(row.get_by_role("link", name="View").get_attribute("href").endswith(approval["file_url"]),
+           "Credit Card row links the bill file")
+    shot(page, out, "10-credit-card-pill", "2-credit-card-list")
+    row.get_by_role("button", name="Approve").click()
+    number = page.locator("#expense_bill_invoice_no")
+    number.wait_for()
+    expect(number.input_value() == f"TYPED-{STAMP}", "Approve form offers the number the Accountant typed")
+    expect(page.locator("#expense_bill_invoice_date").input_value() == approval["typed_date"],
+           "Approve form offers the date the Accountant typed")
+    corrected_date = (TODAY - datetime.timedelta(days=2)).isoformat()
+    number.fill(f"BK-FIX-{STAMP}")
+    page.locator("#expense_bill_invoice_date").fill(corrected_date)
+    shot(page, out, "11-approve-corrected", "3-approve-corrected")
+    page.get_by_role("dialog").get_by_role("button", name="Approve").click()
+    gone(page, approval["holder"], "Credit Card: the approved bill left the list")
+    save(page, out, "12-credit-card-after-approve")
+    after = approval_db(out, "12-after-approve", approval["bill"])[approval["bill"]]
+    expect((after["bill"]["status"], after["bill"]["approved_by"]) == ("Approved", a.accountant),
+           "DB: the bill is Approved by the Accountant")
+    expect(bool(after["bill"]["approved_on"]), f"DB: approved_on {after['bill']['approved_on']}")
+    expect((after["bill"]["invoice_no"], after["bill"]["invoice_date"]) == (f"BK-FIX-{STAMP}", corrected_date),
+           "DB: the corrected number and date are on the bill")
+    expect((after["expense"]["invoice_ref"], after["expense"]["invoice_date"]) == (f"BK-FIX-{STAMP}", corrected_date),
+           "DB: ... and mirrored onto the spend")
+    expect(after["versions"].get("Expense Bill", {}).get(a.accountant, 0) >= 1
+           and after["versions"].get(NPE, {}).get(a.accountant, 0) >= 1,
+           f"DB: a Version by the Accountant on the bill and the spend: {after['versions']}")
+
+    # 7. Cashbook: the wallet bill rejected with a reason.
+    reason = f"Walk wrong shop {STAMP}"
+    pill(page, "Cashbook")
+    row = find_row(page, "Walk Wallet Holder")
+    expect(before[wallet_bill]["bill"]["bill_check"] in row.inner_text(), "Cashbook row shows the wallet bill's Bill check")
+    row.get_by_role("button", name="Reject").click()
+    page.locator("#expense_bill_reject_reason").fill(reason)
+    shot(page, out, "13-reject-reason", "4a-reject-reason")
+    page.get_by_role("dialog").get_by_role("button", name="Reject").click()
+    gone(page, "Walk Wallet Holder", "Cashbook: the rejected bill left the list")
+    after = approval_db(out, "14-after-reject", wallet_bill)[wallet_bill]
+    expect((after["bill"]["status"], after["bill"]["rejection_reason"]) == ("Rejected", reason),
+           "DB: the wallet bill is Rejected with the reason")
+    expect(not any((after["expense"]["invoice_attachment"], after["expense"]["invoice_ref"],
+                    after["expense"]["invoice_date"])), "DB: the spend's invoice attachment, ref and date are cleared")
+    expect(after["versions"].get("Expense Bill", {}).get(a.accountant, 0) >= 1
+           and after["versions"].get(PE, {}).get(a.accountant, 0) >= 1,
+           f"DB: a Version by the Accountant on the bill and the spend: {after['versions']}")
+
+    # 8. The spend waits again in Pending Invoices Upload -> Cashbook, with the reason.
+    page.get_by_role("button", name="Pending Invoices Upload").click()
+    page.wait_for_load_state("networkidle")
+    pill(page, "Cashbook")
+    row = find_row(page, wallet_list_search)
+    expect(f"Last bill rejected: {reason}" in row.inner_text(), "Pending Invoices Upload: 'Last bill rejected: <reason>'")
+    shot(page, out, "15-back-in-cashbook-queue", "4b-back-in-pending-invoices-upload")
+    print(f"evidence: {out}")
+
+# 9. The Accountant Lead marks the rejected spend No invoice.
+with session(a.task, a.lead, a.password) as (page, out):
+    sidebar(page, "Vendor Invoice Recon")
+    page.get_by_role("button", name="Pending Invoices Upload").click()
+    page.wait_for_load_state("networkidle")
+    pill(page, "Cashbook")
+    row = find_row(page, wallet_list_search)
+    row.get_by_role("button", name="No invoice").click()
+    page.locator("#cashbook_no_invoice_reason").fill(f"Walk tea stall, no bill {STAMP}")
+    shot(page, out, "16-lead-no-invoice", "6-no-invoice-after-reject")
+    page.get_by_role("button", name="Mark No invoice").click()
+    gone(page, wallet_list_search, "Cashbook: the spend marked No invoice left the list")
+    after = approval_db(out, "17-after-no-invoice", wallet_bill)[wallet_bill]
+    expect(after["expense"]["no_invoice_by"] == a.lead, "DB: marked No invoice by the Accountant Lead")
+
+# 10. Outside the approvers: no tab, and the server refuses.
+with session(a.task, a.outsider, a.password) as (page, out):
+    sidebar(page, "Vendor Invoice Recon")
+    page.wait_for_timeout(1000)
+    expect(page.get_by_role("button", name="Pending Invoice Approvals").count() == 0,
+           "PMO: no Pending Invoice Approvals tab")
+    status = page.evaluate(
+        """async (bill) => {
+            const r = await fetch('/api/method/nirmaan_stack.api.expenses.expense_bill_approval.reject_expense_bill', {
+                method: 'POST', headers: {'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': window.csrf_token},
+                body: JSON.stringify({bill, reason: 'PMO tries'})});
+            return [r.status, await r.text()];
+        }""",
+        card_bill["name"],
+    )
+    (out / "18-outsider-reject.txt").write_text(json.dumps(status))
+    expect(status[0] == 403, f"PMO: the reject endpoint refuses ({status[0]})")
+    shot(page, out, "18-outsider-no-tab", "7-refused-outside-approvers")
+    after = approval_db(out, "18-after-outsider", card_bill["name"])[card_bill["name"]]
+    expect(after["bill"]["status"] == card_bill["status"], f"DB: the bill is still {card_bill['status']}")
     print(f"evidence: {out}")

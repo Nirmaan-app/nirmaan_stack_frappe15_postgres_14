@@ -60,4 +60,6 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   `BIN/walk_vendor_invoice_recon.py`.
 - [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
   becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
-  the Invoice Ref and Date on the expense lists. Walked end to end by `BIN/walk_expense_bills.py`.
+  the Invoice Ref and Date on the expense lists; any other result waits in Pending Invoice Approvals -> Cashbook or
+  -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason).
+  Walked end to end by `BIN/walk_expense_bills.py`.

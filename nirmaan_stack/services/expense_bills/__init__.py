@@ -10,3 +10,4 @@ APPROVED = "Approved"
 
 #: `approved_by` on a bill the system approved, as on an auto-approved Vendor Invoice.
 SYSTEM_APPROVER = "System"
+REJECTED = "Rejected"

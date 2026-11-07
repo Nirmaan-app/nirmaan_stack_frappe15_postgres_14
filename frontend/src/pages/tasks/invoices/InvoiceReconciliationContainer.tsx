@@ -9,7 +9,7 @@ import { useLocation } from 'react-router-dom';
 
 const InvoiceSummaryCards = React.lazy(() => import('./components/InvoiceSummaryCards'));
 const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'));
-const PendingTasksTable = React.lazy(() => import('./components/PendingTasksTable'));
+const PendingApprovals = React.lazy(() => import('./components/PendingApprovals'));
 const AllPoInvocies=React.lazy(()=>import('./components/PoInvoices'))
 const AllSRInvocies=React.lazy(()=>import('./components/SrInvoices'))
 const PendingInvoiceUploads=React.lazy(()=>import('./components/PendingInvoiceUploads'))
@@ -148,9 +148,10 @@ export default function InvoiceReconciliationContainer() {
                        <TaskHistoryTable />
                     )}
                     {/* The tab button is hidden for non-approvers, but `?tab=pending` still lands here.
-                        The approve/reject endpoints behind this table carry no role check. */}
+                        The PO / WO approve/reject endpoint carries no role check (#1638); the expense bill
+                        ones of the Cashbook / Credit Card pills do (#1644). */}
                     {tab === "pending" && (
-                        canViewPending ? <PendingTasksTable />
+                        canViewPending ? <PendingApprovals />
                         : role === "Loading" ? <LoadingFallback />
                         : <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve vendor invoices.</div>
                     )}
