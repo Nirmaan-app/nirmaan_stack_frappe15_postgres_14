@@ -2,7 +2,7 @@
 """Walk the Bill check on hand-attached bills (#1639, spec #1637) as an Accountant.
 
     devenv.sh script <task> .claude/skills/verify/bin/office_rent_seed.py      # once per env: the free Accountant
-    devenv.sh run <task> set-password walk-accountant@example.com <pw>
+    devenv.sh run <task> set-password walk-accountant@example.com <pw>   # the walk gives its other two users <pw>
     python3 .claude/skills/verify/bin/walk_expense_bills.py --task <task> --password <pw> [--accountant <email>]
 
 Each run seeds its own made-up card spend (₹1,180.00) and wallet spend (₹2,360.00) with their statement lines
@@ -213,6 +213,8 @@ print(f"seeded: {spends}")
 approval = json.loads(next(l for l in script("expense_bill_approval_seed.py", STAMP).splitlines()
                            if l.startswith("EXPENSE_BILL_APPROVAL_SEED ")).removeprefix("EXPENSE_BILL_APPROVAL_SEED "))
 print(f"seeded for approval: {approval}")
+for user in (a.lead, a.outsider):  # made by the seed above; a password on the env DB only
+    subprocess.run([DEVENV, "run", a.task, "set-password", user, a.password], capture_output=True, check=True)
 
 with session(a.task, a.accountant, a.password) as (page, out):
     card_pdf = bill_pdf(out / f"walk-cafe-{STAMP}.pdf", f"WC-{STAMP}", "1,180.00", f"WALKCAFE{STAMP} Cafe")
