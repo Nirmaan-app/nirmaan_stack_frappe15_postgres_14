@@ -8,7 +8,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { useLocation } from 'react-router-dom';
 
 const InvoiceSummaryCards = React.lazy(() => import('./components/InvoiceSummaryCards'));
-const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'));
+const AllInvoices = React.lazy(() => import('./components/AllInvoices'));
 const PendingApprovals = React.lazy(() => import('./components/PendingApprovals'));
 const AllPoInvocies=React.lazy(()=>import('./components/PoInvoices'))
 const AllSRInvocies=React.lazy(()=>import('./components/SrInvoices'))
@@ -145,7 +145,7 @@ export default function InvoiceReconciliationContainer() {
                     <LoadingFallback />
                 }>
                     {tab==="history" &&(
-                       <TaskHistoryTable />
+                       <AllInvoices />
                     )}
                     {/* The tab button is hidden for non-approvers, but `?tab=pending` still lands here.
                         The PO / WO approve/reject endpoint carries no role check (#1638); the expense bill
