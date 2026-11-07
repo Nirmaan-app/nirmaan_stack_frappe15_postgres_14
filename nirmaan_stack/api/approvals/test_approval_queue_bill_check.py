@@ -56,7 +56,7 @@ class TestAllPaymentsBillCheck(CardSpendOnTheListCase):
 
         row = self._rows()[self.spend]
 
-        self.assertEqual(row["invoice"], _cloud_url("bill.pdf"))
+        self.assertEqual(row["invoice"], self.bill_url)
         self.assertEqual((row["bill_check"], row["bill_approval"]), ("Matched", "Auto-approved"))
 
     def test_a_mismatched_bill_shows_mismatched_and_pending(self):

@@ -67,7 +67,7 @@
   },
   {
    "fieldname": "bill_file",
-   "fieldtype": "Data",
+   "fieldtype": "Small Text",
    "label": "Bill File",
    "reqd": 1
   },
@@ -227,7 +227,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-07 19:10:42.428107",
+ "modified": "2026-11-07 22:52:16.428860",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Bill",

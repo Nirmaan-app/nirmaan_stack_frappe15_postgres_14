@@ -17,15 +17,17 @@ import frappe
 
 from nirmaan_stack.api.expenses.card_invoices import attach_card_invoice, get_card_invoice_queue
 from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice
-from nirmaan_stack.api.expenses.expense_bill_fixture import purge_expense_bills
+from nirmaan_stack.api.expenses.expense_bill_approval import approve_expense_bill
+from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url, purge_expense_bills
+from nirmaan_stack.api.expenses.paid_invoice import set_paid_expense_invoice
 from nirmaan_stack.api.expenses.test_card_invoices import CardInvoiceCase
 from nirmaan_stack.api.expenses.test_cashbook_invoices import NPE, PE, CashbookInvoiceCase
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
-from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills import reading
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
+from nirmaan_stack.services.expense_bills.receive import receive_bill
 
 READING_JOB = "nirmaan_stack.services.expense_bills.reading.check_expense_bill"
 SETTINGS = "Document AI Settings"
@@ -88,9 +90,10 @@ class CardBillCase(CardInvoiceCase):
             purge_records(doctype, frappe.get_all(doctype, filters={field: self.batch}, pluck="name"))
 
     def _attach(self, **kwargs) -> tuple[str, str]:
-        """Attach a bill to the spend as an Accountant; (the user, the Expense bill)."""
+        """Attach a bill (`self.bill_url`) to the spend as an Accountant; (the user, the Expense bill)."""
         user = self.users.make(ACCOUNTANT)
-        self._as(user, attach_card_invoice, self.spend, _cloud_url("bill.pdf"), **kwargs)
+        self.bill_url = cloud_url("bill.pdf")
+        self._as(user, attach_card_invoice, self.spend, self.bill_url, **kwargs)
         return user, bills_of(NPE, self.spend)[-1].name
 
 
@@ -100,14 +103,14 @@ class TestAttachingInTheCreditCardTab(CardBillCase):
 
         bill = frappe.get_doc(BILL, name)
         self.assertEqual((bill.bill_check, bill.status, bill.is_latest), ("Checking", "Pending", 1))
-        self.assertEqual(bill.bill_file, _cloud_url("bill.pdf"))
+        self.assertEqual(bill.bill_file, self.bill_url)
         self.assertEqual(bill.uploaded_by, user)
         self.assertEqual(bill.statement_line, self.line)
         self.assertEqual(float(bill.line_amount), 1180.0)
         self.assertEqual(readings_queued(self.jobs), [("long", name)])
         # The spend leaves the queue as it does today.
         self.assertNotIn(self.spend, {r["name"] for r in get_card_invoice_queue()})
-        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_attachment"), _cloud_url("bill.pdf"))
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_attachment"), self.bill_url)
 
     def test_a_mismatched_bill_stays_pending_and_writes_nothing_to_the_expense(self):
         _, name = self._attach()
@@ -188,7 +191,7 @@ class TestAttachingInTheCreditCardTab(CardBillCase):
         run_reading(name, reader)
         run_reading(name, reader)
 
-        self.assertEqual(reader.files, [_cloud_url("bill.pdf")])
+        self.assertEqual(reader.files, [self.bill_url])
         self.assertEqual(frappe.db.get_value(BILL, name, "bill_check"), "Matched")
 
     def test_a_bill_claimed_by_a_running_reading_is_not_read_by_a_second_job(self):
@@ -209,7 +212,7 @@ class TestAttachingInTheCreditCardTab(CardBillCase):
 
 class TestAttachingInTheCashbookTab(CashbookInvoiceCase):
     def _attach(self, invoice_ref=None, invoice_date=None) -> str:
-        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"),
+        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, cloud_url("wallet.pdf"),
                  invoice_ref=invoice_ref, invoice_date=invoice_date)
         return bills_of(PE, self.pe)[-1].name
 
@@ -288,3 +291,105 @@ class TestAttachingInTheCashbookTab(CashbookInvoiceCase):
         )
         self.assertEqual(frappe.db.get_value(PE, self.pe, ["invoice_ref", "invoice_date"]), (None, None))
         self.assertNotIn(self.pe, self._queue())
+
+
+class TestABillUrlOfRealLength(CardBillCase):
+    """The cloud storage app's bill URLs run 200 to 270 characters (spec #1637 review: every Project Expenses bill
+    link in the 2026-10-28 data is over 140, the longest 269). An Expense bill keeps the whole of one however the
+    bill lands: attached by hand, copied by the Cashbook import, approved at once from Payment Done, a Collect
+    payment's with its kept reading, or a file merged from several bills."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = cloud_url("Made Up Stores Private Limited tax invoice 2026-09-20 at 11.16.42 rev.pdf")
+        self.assertGreaterEqual(len(self.url), 250)
+        self.user = self.users.make(ACCOUNTANT)
+
+    def _spend(self):
+        return frappe.get_doc(NPE, self.spend, for_update=True)
+
+    def _kept_whole(self):
+        """The spend's latest bill; its file and the spend's attachment both hold the whole URL."""
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_attachment"), self.url)
+        bill = bills_of(NPE, self.spend)[-1]
+        self.assertEqual(bill.bill_file, self.url)
+        return bill
+
+    def test_attached_by_hand(self):
+        self._as(self.user, attach_card_invoice, self.spend, self.url)
+
+        self.assertEqual(self._kept_whole().bill_check, "Checking")
+
+    def test_copied_by_the_cashbook_import(self):
+        receive_bill(self._spend(), self.url, None, None, self.user)
+
+        self.assertEqual(self._kept_whole().bill_check, "Checking")
+
+    def test_approved_at_once_from_payment_done(self):
+        receive_bill(self._spend(), self.url, "TYPED-5", "2026-09-20", self.user, approve=True)
+
+        bill = self._kept_whole()
+        self.assertEqual((bill.status, bill.approved_by, bill.invoice_no), ("Approved", self.user, "TYPED-5"))
+
+    def test_a_collect_payments_bill_with_the_reading_kept_on_its_line(self):
+        kept = reading.Reading(BillRead(Decimal("1180.00"), "SHOP-5", date(2026, 9, 20)), {"entities": []})
+
+        receive_bill(self._spend(), self.url, None, None, self.user, kept=kept, file_stays=True)
+
+        bill = self._kept_whole()
+        self.assertEqual((bill.bill_check, bill.status, bill.invoice_no), ("Matched", "Approved", "SHOP-5"))
+        self.assertEqual(frappe.db.count("File", {"attached_to_doctype": NPE, "attached_to_name": self.spend}), 0)
+
+    def test_a_file_merged_from_several_bills(self):
+        receive_bill(self._spend(), self.url, None, None, self.user, bill_count=2)
+
+        self.assertEqual(self._kept_whole().bill_check, "Not checked")
+
+
+class TestEveryWriterLocksTheExpenseBeforeItsBill(CardBillCase):
+    """One lock order on every path that locks both an Expense and its bill: the Expense, then the bill (spec #1637
+    review). A reading recording its result and an approver deciding or correcting the same Expense's bill then
+    queue up instead of deadlocking."""
+
+    def _locks_taken(self, action) -> list[str]:
+        """The doctypes `action` read `FOR UPDATE` through the document layer, in the order each was first taken
+        (every save takes a lock already held again, which orders nothing)."""
+        taken, real = [], frappe.get_doc
+
+        def recording(*args, **kwargs):
+            if kwargs.get("for_update") and args and isinstance(args[0], str):
+                taken.append(args[0])
+            return real(*args, **kwargs)
+
+        with patch.object(frappe, "get_doc", recording):
+            action()
+        return list(dict.fromkeys(taken))
+
+    def test_a_matched_reading_filling_the_expense(self):
+        _, name = self._attach()
+        reader = FakeReader(BillRead(Decimal("1180.00"), "INV-1", date(2026, 9, 9)))
+
+        taken = self._locks_taken(lambda: run_reading(name, reader))
+
+        self.assertEqual(taken, [NPE, BILL])
+        self.assertEqual(frappe.db.get_value(NPE, self.spend, "invoice_ref"), "INV-1")
+
+    def test_an_approvers_decision(self):
+        _, name = self._attach()
+        run_reading(name, FakeReader(BillRead(Decimal("1250.00"), "INV-9", date(2026, 9, 9))))
+        lead = self.users.make(ACCOUNTANT_LEAD)
+
+        taken = self._locks_taken(lambda: self._as(lead, approve_expense_bill, name))
+
+        self.assertEqual(taken, [NPE, BILL])
+
+    def test_an_approvers_correction_on_payment_done(self):
+        _, name = self._attach()
+        lead = self.users.make(ACCOUNTANT_LEAD)
+        kept = frappe.db.get_value(NPE, self.spend, "invoice_attachment")
+
+        taken = self._locks_taken(
+            lambda: self._as(lead, set_paid_expense_invoice, NPE, self.spend, kept, "TYPED-3", "2026-09-01")
+        )
+
+        self.assertEqual(taken, [NPE, BILL])

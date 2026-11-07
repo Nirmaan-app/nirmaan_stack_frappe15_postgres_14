@@ -16,11 +16,11 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.expenses.card_invoices import attach_card_invoice
+from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url
 from nirmaan_stack.api.expenses.expense_bill_approval import get_pending_expense_bills
 from nirmaan_stack.api.expenses.test_all_expense_bills import _list
 from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT
-from nirmaan_stack.api.tds.test_submit import _cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 from nirmaan_stack.services.expense_bills.bill_list import latest_bill_checks
@@ -31,7 +31,7 @@ class TestADeletedExpensesBills(CardBillCase):
         super().setUp()
         self.accountant = self.users.make(ACCOUNTANT)
         self.orphaned = self._expense(self.statement, serno="70000000008", amount=640)
-        self._as(self.accountant, attach_card_invoice, self.orphaned, _cloud_url("orphan.pdf"))
+        self._as(self.accountant, attach_card_invoice, self.orphaned, cloud_url("orphan.pdf"))
         self.bill = bills_of(NPE, self.orphaned)[-1].name
         run_reading(self.bill, FakeReader(BillRead(Decimal("700.00"), "INV-O", date(2026, 9, 9))))
         self.assertIn(self.bill, self._pending())
@@ -52,3 +52,20 @@ class TestADeletedExpensesBills(CardBillCase):
         self.assertNotIn(self.bill, self._pending())
         self.assertNotIn(self.bill, {r["name"] for r in self._as(self.accountant, _list, "card")["data"]})
         self.assertEqual(latest_bill_checks(NPE, [self.orphaned]), {})
+
+
+class TestAnOrdinaryDeleteOfAnExpenseWithBills(CardBillCase):
+    """An Expense bill is history and never holds its Expense in place (spec #1637 review): Frappe's link check
+    would refuse the ordinary delete (no `force`) for the bill's Dynamic Link, so `on_trash` could retire bills only
+    under Unreconcile's force. The links of every other doctype still guard the delete."""
+
+    def test_the_expense_goes_and_its_bills_stay_as_history(self):
+        spend = self._expense(self.statement, serno="70000000009", amount=320)
+        self._as(self.users.make(ACCOUNTANT), attach_card_invoice, spend, cloud_url("gone.pdf"))
+        bill = bills_of(NPE, spend)[-1].name
+
+        frappe.delete_doc(NPE, spend, ignore_permissions=True)
+        frappe.db.commit()
+
+        self.assertFalse(frappe.db.exists(NPE, spend))
+        self.assertEqual(frappe.db.get_value(BILL, bill, ["expense", "is_latest"]), (spend, 0))

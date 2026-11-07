@@ -57,7 +57,6 @@ from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
 )
 from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
-from nirmaan_stack.services.expense_bills.bill_check import NOT_READ
 from nirmaan_stack.services.expense_bills.bill_list import stopped_sql
 from nirmaan_stack.services.expense_bills.reading import stopped_before
 from nirmaan_stack.services.outflow_import import candidates as C
@@ -2996,10 +2995,11 @@ def get_outflow_rows(
                r.cashbook_refund_partner,
                -- An open Collect payment's stored bill and its Bill check (#1642): the decide screen says
                -- "Invoice already available" and what Create will lead to. A line left Checking by a reading
-               -- that stopped reads Not read, as an Expense bill does (`expense_bills.bill_list.stopped_sql`);
-               -- the cutoff is the FIRST parameter of this query. NULL on a line stored before #1642.
+               -- that stopped (`expense_bills.bill_list.stopped_sql`; the cutoff is the FIRST parameter of this
+               -- query) has no result for Create to carry, so it ships none, as a line stored before #1642
+               -- does: the dialog then says "Will be read on Create", which is what Create does.
                r.stored_bill,
-               CASE WHEN {stopped_sql("r", "%s")} THEN '{NOT_READ}' ELSE r.bill_check END AS bill_check,
+               CASE WHEN {stopped_sql("r", "%s")} THEN NULL ELSE r.bill_check END AS bill_check,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,

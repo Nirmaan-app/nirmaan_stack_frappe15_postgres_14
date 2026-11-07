@@ -65,8 +65,9 @@ def receive_bill(
     `file_stays` keeps the file's one `File` where it is (a Collect payment's stays on its line, #1642): the URL is
     written after the save, raw, so Frappe's attach-on-save hook mints no `File` on the Expense sharing its stored
     object (an undo deletes an Expense with every File attached to it, and the cloud app deletes the object by its
-    key). The Expense bill never gets a `File` row of its own: `bill_file` is a plain URL (Data, not Attach), so
-    the one `File` stays the Expense's (or the line's).
+    key). The Expense bill never gets a `File` row of its own: `bill_file` is a plain URL (Small Text, not Attach,
+    which alone makes Frappe mint one; a text column, since the cloud storage app's URLs run up to 270 characters),
+    so the one `File` stays the Expense's (or the line's).
     """
     url = file_url.strip()
     if not file_stays:
@@ -112,8 +113,8 @@ def receive_bill(
 
 def retire_bills(doctype: str, expense: str) -> None:
     """Every Expense bill of Expense `expense` becomes history (`is_latest` 0): a new bill is landing, or the
-    Expense is being deleted (an Unreconcile's undo; `integrations/controllers/expense_bills.on_trash`). A deleted
-    Expense's bills are never deleted, and every queue and list joins the Expense, so they leave them all."""
+    Expense is being deleted (an Unreconcile's undo, or any other delete; `integrations/controllers/expense_bills.on_trash`).
+    A deleted Expense's bills are never deleted, and every queue and list joins the Expense, so they leave them all."""
     # Raw: `Expense Bill` has no doc_events, and `is_latest` is a history marker nothing is derived from.
     frappe.db.sql(
         f"""UPDATE "tab{BILL_DOCTYPE}" SET is_latest = 0

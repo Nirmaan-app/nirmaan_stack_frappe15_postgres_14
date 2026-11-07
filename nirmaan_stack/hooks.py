@@ -774,7 +774,12 @@ scheduler_events = {
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------
 
-# ignore_links_on_delete = ["Communication", "ToDo"]
+# An Expense bill is history (GLOSSARY *Expense bills*, ADR-0045): a deleted Expense's bills stay, retired by
+# `integrations/controllers/expense_bills.on_trash`, never deleted, and never hold the Expense in place. Without
+# this, Frappe's dynamic-link check refused every ordinary delete of an Expense with a bill (only Unreconcile's
+# `force=True` got through), so `on_trash` was unreachable. The bill's other link, `statement_line`, is ignored
+# with it: the bill keeps the line's amount of its own. Every other doctype's links still guard a delete.
+ignore_links_on_delete = ["Expense Bill"]
 
 # Request Events
 # ----------------

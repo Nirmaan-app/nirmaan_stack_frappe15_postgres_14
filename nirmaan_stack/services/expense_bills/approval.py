@@ -69,7 +69,8 @@ def correct_latest_bill(expense_doctype: str, expense: str, invoice_no: str | No
     layer (a Version is kept): an approver (`role_profiles.PAID_BILL_APPROVER_PROFILES`) editing only the number and
     date on Payment Done, which lands no new bill (#1643). A Pending or Approved bill is corrected, whoever approved
     it: a person's number wins over the reader's. A Rejected one is left as the record of its rejection, as is an
-    Expense with no Expense bill. Does not commit."""
+    Expense with no Expense bill. Does not commit. The caller holds the Expense's lock already, so the bill's is
+    taken second: THE ONE LOCK ORDER (the package docstring)."""
     name = frappe.db.get_value(
         BILL_DOCTYPE,
         {"expense_doctype": expense_doctype, "expense": expense, "is_latest": 1, "status": ("!=", REJECTED)},
@@ -95,8 +96,7 @@ def _lock_waiting(name: str):
     """The bill and its Expense, both `FOR UPDATE`; refused unless the bill still waits for a person. A bill whose
     reading stopped is set Not read here (unsaved; the decision saves it), as Pending Approval showed it.
 
-    The Expense is locked first, as `receive_bill`'s callers do before they touch its bills: a decision and a new
-    bill landing on the same Expense then queue up instead of deadlocking."""
+    The Expense is locked first, then the bill: THE ONE LOCK ORDER (the package docstring)."""
     expense_doctype, expense_name = frappe.db.get_value(BILL_DOCTYPE, name, ["expense_doctype", "expense"]) or (None, None)
     if not expense_doctype:
         frappe.throw(f"Expense bill {name} not found.", frappe.DoesNotExistError)
