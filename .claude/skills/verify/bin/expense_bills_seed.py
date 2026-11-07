@@ -16,6 +16,8 @@ import sys
 import frappe
 from frappe.utils import nowdate
 
+from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE
+
 stamp = sys.argv[1]
 NPE, PE = "Non Project Expenses", "Project Expenses"
 
@@ -37,7 +39,7 @@ def line_and_match(source: str, doctype: str, expense: str, amount: float, **row
 statement = frappe.get_doc({"doctype": "Credit Card Statement", "holder": f"WALK CARDHOLDER {stamp}",
                             "company": "STRATOS INFRA TECHNOLOGIES PVT LTD", "statement_date": nowdate(),
                             "period_from": nowdate(), "period_to": nowdate()}).insert(ignore_permissions=True).name
-card = frappe.get_doc({"doctype": NPE, "type": frappe.db.get_value("Expense Type", {"non_project": 1}, "name"),
+card = frappe.get_doc({"doctype": NPE, "type": FALLBACK_EXPENSE_TYPE,
                        "status": "Paid", "amount": 1180, "payment_date": nowdate(),
                        "payment_ref": f"WALKCAFE{stamp} Bangalore IN - {stamp}", "description": f"Walk card spend {stamp}",
                        "credit_card_statement": statement}).insert(ignore_permissions=True).name
