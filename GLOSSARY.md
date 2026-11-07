@@ -245,7 +245,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Cashbook Statement** — the petty-cash wallet provider's export of every movement in the company's wallets over a period, one line per movement, with links to the bills employees attached to their spends. Only the export that carries those links is accepted; the older export without them is refused. Its links stop working a week after export, so a statement is uploaded within that week. (Owner, 2026-11-02.)
   *Avoid*: wallet statement, Obopay report, cashbook upload.
 
-- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet. Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. (Owner, 2026-11-02.)
+- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet. Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. A wallet spend recorded before invoices were chased (#1592) waits only when it is dated in this financial year, from 1 April 2026; older ones never wait. (Owner, 2026-11-02; this financial year, 2026-11-07.)
 
 - **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app. Money left the company, so it is never treated as a move between the company's own balances. It may not be a company spend, so it is never recorded on its own: it is kept as an open line, shown for checking, until someone records it as an Expense or skips it by hand with a reason. One refunded in full on the same statement needs no decision (see *Paired wallet refund*). (Owner, 2026-11-02.)
 
