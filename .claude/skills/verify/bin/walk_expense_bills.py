@@ -48,6 +48,9 @@ Then the Bill check column of the expense lists (#1640), steps 15-18, with `expe
 made-up Paid spends "WalkBC <stamp> ..." whose latest bills are seeded in each state. They are `bill_check_part`'s
 docstring. `--part bill-check` runs only these steps (they need only the Accountant).
 
+Then All Invoices (#1646), steps 19-23, with `all_invoices_seed.py`: `all_invoices_part`'s docstring.
+`--part all-invoices` runs only these steps (they need only the Accountant).
+
 `--shots DIR` also keeps one half-size screenshot per acceptance criterion there.
 
 Every step asserts the screen's text and its DB row; a miss raises, saves `FAIL.*` and exits 1. When the env's
@@ -78,6 +81,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 from drive import save, session, sidebar
@@ -96,8 +100,8 @@ ap.add_argument("--accountant", default="walk-accountant@example.com")
 ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
 ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
-ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check"), default="all",
-                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); each with its own seed")
+ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check", "all-invoices"), default="all",
+                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); all-invoices: only steps 19-23 (#1646); each with its own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -550,6 +554,216 @@ def bill_check_part() -> None:
         expect_rows({"notchecked": "Not checked Approved"}, "18. Approval filter Approved on All")
         shot(page, out, "18c-pe-all-filter-approval", "2-filter-approval-project-all")
 
+ALL_EXPENSE_BILLS_API = "nirmaan_stack.api.expenses.all_expense_bills.get_all_expense_bills"
+ALL_PORTER_API = "nirmaan_stack.api.invoices.all_porter_invoices.get_all_porter_invoices"
+
+
+def porter_of_file(file_url: str) -> str | None:
+    """The Porter Invoice whose `invoice_file` is `file_url`, read from the env DB."""
+    out = script("all_invoices_db.py", "--file", file_url)
+    return json.loads(next(l for l in out.splitlines() if l.startswith("ALL_INVOICES_DB "))
+                      .removeprefix("ALL_INVOICES_DB "))["file_owner"]
+
+
+def all_invoices_part() -> None:
+    """Steps 19-23: Vendor Invoice Recon -> All Invoices and its PO / WO / Cashbook / Credit Card / Porter pills (#1646),
+    as the Accountant, over seeded Expense bills (`all_invoices_seed.py`; the env's reader gives only Not read) and
+    the env's real Porter Invoices plus one seeded Error one.
+
+    19. Sidebar Vendor Invoice Recon -> All Invoices: the five pills. PO lists every PO Vendor Invoice (Pending,
+        Approved, Rejected) and WO every WO one, each count from the server equal to the DB's, with today's columns.
+    20. Credit Card, searched by the card holder: the spend's two bills -- the latest Matched / Auto-approved / Latest
+        with its number, the older Mismatched / Rejected with its reason / Replaced; spend date, line amount, bill
+        total read, Paid by, Invoice Added By. DB: each bill. The Bill check filter -> Mismatched leaves the older
+        one, and the list request carries the filter (server-side).
+    21. Cashbook, searched by the wallet holder: the wallet bill, Not read with its reason, Pending, its project.
+    22. Porter: the server's count equals the DB's Porter Invoices; the seeded one, searched by its number, shows
+        Error with its message and nothing to open; the Validate result filter -> Passed is sent to the server; a
+        Passed invoice's Open link serves its PDF.
+    23. Paging: Porter -> next page asks the server for the next rows (`limit_start` past the first page).
+    """
+    stamp = f"A{STAMP}"  # this part's own spends, apart from the attach part's
+    spends = seed_as(stamp)
+    stdout = script("all_invoices_seed.py", stamp, spends["card"], spends["wallet"])
+    seeded = json.loads(next(l for l in stdout.splitlines() if l.startswith("ALL_INVOICES_SEED "))
+                        .removeprefix("ALL_INVOICES_SEED "))
+    print(f"seeded for All Invoices: {spends} {seeded}")
+    holder, wallet_holder = f"WALK CARDHOLDER {stamp}", f"Walk Wallet Holder {stamp}"
+
+    with session(a.task, a.accountant, a.password) as (page, out):
+        stdout = script("all_invoices_db.py", seeded["card_old"], seeded["card_latest"], seeded["wallet"], "--",
+                        seeded["porter"])
+        dbr = json.loads(next(l for l in stdout.splitlines() if l.startswith("ALL_INVOICES_DB "))
+                         .removeprefix("ALL_INVOICES_DB "))
+        (out / "19-db.json").write_text(json.dumps(dbr, indent=2))
+        calls: list[tuple[str, dict, dict]] = []  # (url, request payload, response message)
+
+        def on_response(r) -> None:
+            if not any(api in r.url for api in (LIST_API, ALL_EXPENSE_BILLS_API, ALL_PORTER_API)):
+                return
+            body = r.request.post_data or ""
+            try:
+                payload = json.loads(body) if body.startswith("{") else {
+                    k: v[0] for k, v in urllib.parse.parse_qs(body).items()}
+                message = r.json().get("message") or {}
+            except Exception as e:  # a response that is not JSON (a refused call) is kept with its error
+                payload, message = {"_unparsed": body[:200]}, {"_error": repr(e)}
+            calls.append((r.url, payload, message))
+        page.on("response", on_response)
+
+        def last(api: str, doctype: str | None = None, since: int = 0) -> tuple[dict, dict]:
+            """The latest answered call of `api` (for `doctype`) after the first `since` calls; waits up to 60 s."""
+            for _ in range(120):
+                for url, payload, message in reversed(calls[since:]):
+                    if api in url and (doctype is None or payload.get("doctype") == doctype):
+                        return payload, message
+                page.wait_for_timeout(500)
+            raise AssertionError(f"MISS: no {api} call")
+
+        def filters_of(payload: dict) -> list:
+            f = payload.get("filters")
+            return json.loads(f) if isinstance(f, str) else f or []
+
+        def headers() -> list[str]:
+            return [" ".join(h.inner_text().split()) for h in page.get_by_role("columnheader").all()]
+
+        def search(term: str):
+            page.get_by_placeholder(re.compile("search", re.I)).first.fill(term)
+            page.get_by_role("row").filter(has_text=term).first.wait_for(timeout=30_000)
+            # The search is debounced, and the table drops a filter change made while a fetch is loading.
+            page.wait_for_timeout(1500)
+            page.wait_for_load_state("networkidle")
+            return page.get_by_role("row").filter(has_text=term)
+
+        # 19. The pills; PO and WO are today's table, one document type each.
+        sidebar(page, "Vendor Invoice Recon")
+        page.get_by_role("button", name="All Invoices", exact=True).click()
+        page.wait_for_load_state("networkidle")
+        page.get_by_role("button", name="Porter", exact=True).wait_for(timeout=60_000)
+        for label in ("PO", "WO", "Cashbook", "Credit Card", "Porter"):
+            expect(page.get_by_role("button", name=label, exact=True).count() == 1, f"19. All Invoices shows the {label} pill")
+        page.get_by_role("row").nth(1).wait_for(timeout=30_000)
+        payload, message = last(LIST_API, "Vendor Invoices")
+        expect(["document_type", "=", "Procurement Orders"] in filters_of(payload), "19. PO asks the server for PO invoices")
+        expect(message.get("total_count") == dbr["vendor_invoices"]["Procurement Orders"],
+               f"19. PO counts {message.get('total_count')} invoices, the DB {dbr['vendor_invoices']['Procurement Orders']}")
+        po_headers = headers()
+        shot(page, out, "19a-all-invoices-po", "1-po-pill")
+        mark = len(calls)
+        pill(page, "WO")
+        payload, message = last(LIST_API, "Vendor Invoices", mark)
+        page.get_by_role("row").nth(1).wait_for(timeout=30_000)
+        expect(["document_type", "=", "Service Requests"] in filters_of(payload), "19. WO asks the server for WO invoices")
+        expect(message.get("total_count") == dbr["vendor_invoices"]["Service Requests"],
+               f"19. WO counts {message.get('total_count')} invoices, the DB {dbr['vendor_invoices']['Service Requests']}")
+        expect(headers() == po_headers, f"19. WO has PO's columns, today's table: {po_headers}")
+        shot(page, out, "19b-all-invoices-wo", "1-wo-pill")
+
+        # 20. Credit Card: every bill of the card spend, latest and history.
+        old, latest = dbr["bills"][seeded["card_old"]], dbr["bills"][seeded["card_latest"]]
+        expect((old["bill_check"], old["status"], old["is_latest"]) == ("Mismatched", "Rejected", 0), "DB: the older card bill")
+        expect((latest["bill_check"], latest["status"], latest["auto_approved"], latest["is_latest"]) ==
+               ("Matched", "Approved", 1, 1), "DB: the latest card bill, auto-approved")
+        pill(page, "Credit Card")
+        rows = search(holder)
+        expect(rows.count() == 2, "20. Credit Card lists both bills of the card spend")
+        expect(all(spends["card"] in r.inner_text() for r in rows.all()), "20. both rows name the card spend")
+        new_text = " ".join(rows.filter(has_text=f"WAI-{stamp}").first.inner_text().split())
+        old_text = " ".join(rows.filter(has_text="Replaced").first.inner_text().split())
+        for want in ("Matched", "Auto-approved", "Latest", "1,180", f"WAI-{stamp}", holder):
+            expect(want in new_text, f"20. the latest bill's row shows {want!r}")
+        for want in ("Mismatched", "Rejected", "Walk: another shop", "Replaced", "1,250", "1,180", holder):
+            expect(want in old_text, f"20. the older bill's row shows {want!r}")
+        expect(len(page.get_by_role("columnheader").filter(has_text="Invoice Added By").all()) == 1,
+               "20. the Invoice Added By column")
+        shot(page, out, "20a-credit-card-bills", "2-credit-card-pill")
+        mark = len(calls)
+        header = page.get_by_role("columnheader").filter(has_text="Bill check")
+        header.locator('[aria-haspopup="dialog"]').first.click()
+        page.get_by_role("option", name="Mismatched", exact=True).click()
+        page.keyboard.press("Escape")
+        page.wait_for_load_state("networkidle")
+        page.get_by_role("row").filter(has_text=f"WAI-{stamp}").first.wait_for(state="detached", timeout=30_000)
+        rows.first.wait_for(timeout=30_000)
+        expect(rows.count() == 1 and "Mismatched" in rows.first.inner_text(),
+               f"20. Bill check filter Mismatched leaves the older bill ({rows.count()} rows)")
+        payload, _ = last(ALL_EXPENSE_BILLS_API, since=mark)
+        expect(["bill_check", "in", ["Mismatched"]] in filters_of(payload) and ["kind", "=", "card"] in filters_of(payload),
+               "20. the request sends the pill and the Bill check filter: filtered on the server")
+        shot(page, out, "20b-credit-card-filter", "4-filter-credit-card")
+
+        # 21. Cashbook: the wallet bill.
+        wallet = dbr["bills"][seeded["wallet"]]
+        expect((wallet["bill_check"], wallet["status"]) == ("Not read", "Pending"), "DB: the wallet bill")
+        pill(page, "Cashbook")
+        rows = search(wallet_holder)
+        text = " ".join(rows.first.inner_text().split())
+        expect(rows.count() == 1, "21. Cashbook lists the wallet bill")
+        for want in ("Not read", "The reader failed (ClientError).", "Pending", "Latest", "2,360", spends["wallet"]):
+            expect(want in text, f"21. the wallet bill's row shows {want!r}")
+        expect(spends["card"] not in page.inner_text("body"), "21. no card bill on Cashbook")
+        shot(page, out, "21-cashbook-bills", "2-cashbook-pill")
+
+        # 22. Porter.
+        mark = len(calls)
+        pill(page, "Porter")
+        _, message = last(ALL_PORTER_API, since=mark)
+        page.get_by_role("row").nth(1).wait_for(timeout=30_000)
+        expect(message.get("total_count") == dbr["porter_count"],
+               f"22. Porter counts {message.get('total_count')} invoices, the DB {dbr['porter_count']}")
+        shot(page, out, "22a-porter", "3-porter-pill")
+        porter = dbr["porter"][seeded["porter"]]
+        rows = search(seeded["porter"])
+        text = " ".join(rows.first.inner_text().split())
+        expect(rows.count() == 1 and porter["validation_status"] == "Error", "22. the seeded Porter invoice, Error in the DB")
+        for want in ("Error", "Walk: the invoice could not be downloaded.", "472"):
+            expect(want in text, f"22. its row shows {want!r}")
+        expect(rows.first.get_by_role("link").count() == 0, "22. an invoice with no PDF offers nothing to open")
+        shot(page, out, "22b-porter-error", "3-porter-validate-result")
+        page.get_by_placeholder(re.compile("search", re.I)).first.fill("")
+        page.wait_for_timeout(1500)
+        page.wait_for_load_state("networkidle")
+        mark = len(calls)
+        header = page.get_by_role("columnheader").filter(has_text="Validate result")
+        header.locator('[aria-haspopup="dialog"]').first.click()
+        page.get_by_role("option", name="Passed", exact=True).click()
+        page.keyboard.press("Escape")
+        page.wait_for_load_state("networkidle")
+        payload, message = last(ALL_PORTER_API, since=mark)
+        page.wait_for_load_state("networkidle")
+        expect(["validation_status", "in", ["Passed"]] in filters_of(payload), "22. the Validate result filter is sent to the server")
+        expect(seeded["porter"] not in page.inner_text("body"), "22. filtered to Passed, the Error invoice is gone")
+        shot(page, out, "22c-porter-filter-passed", "4-filter-porter")
+        link = page.get_by_role("row").nth(1).get_by_role("link", name="Open")
+        href = link.get_attribute("href")
+        # The link is SITEURL + the file, as every file link in the app; in dev SITEURL names the main bench, so the
+        # walk asks the env's own host for the same file.
+        parsed = urllib.parse.urlparse(href)
+        file_url = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        owner = porter_of_file(urllib.parse.unquote(file_url))
+        expect(bool(owner) and owner in link.locator("xpath=ancestor::tr").inner_text(),
+               f"22. Open links the row's own invoice file ({owner})")
+        status = page.evaluate("""async (u) => { try { const r = await fetch(u);
+            return [r.status, r.headers.get('content-type')]; } catch (e) { return [0, String(e)]; } }""", file_url)
+        if status[0] == 200 and "pdf" in (status[1] or ""):
+            print(f"ok   22. Open serves the Porter PDF ({status})")
+        elif "frappe_gcp_attachment" in file_url:
+            print(f"NOT WALKED: 22. the PDF itself: it is in the production bucket, which every env is cut off from "
+                  f"({status[0]}); the link is the invoice's own file")
+        else:
+            expect(False, f"22. Open serves the Porter PDF ({file_url}: {status})")
+
+        # 23. Paging on the server.
+        before = len(calls)
+        page.get_by_role("button", name="Go to next page").click()
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(1000)
+        paged = [p for u, p, _ in calls[before:] if ALL_PORTER_API in u]
+        expect(any(int(p.get("limit_start") or 0) > 0 for p in paged), "23. the next page asks the server for the next rows")
+        shot(page, out, "23-porter-page-2", "4-paging-porter")
+        (out / "calls.json").write_text(json.dumps([[u, p] for u, p, _ in calls], indent=2))
+
+
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 if a.part == "read-again":
@@ -561,6 +775,9 @@ if a.part == "cashbook":
     sys.exit(0)
 if a.part == "bill-check":
     bill_check_part()
+    sys.exit(0)
+if a.part == "all-invoices":
+    all_invoices_part()
     sys.exit(0)
 spends = seed()
 print(f"seeded: {spends}")
