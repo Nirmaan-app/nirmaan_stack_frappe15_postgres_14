@@ -5,7 +5,7 @@ Collect payment's stored bill (#1642), spec #1637, as an Accountant.
     devenv.sh script <task> .claude/skills/verify/bin/office_rent_seed.py      # once per env: the free Accountant
     devenv.sh run <task> set-password walk-accountant@example.com <pw>   # the walk gives its other two users <pw>
     python3 .claude/skills/verify/bin/walk_expense_bills.py --task <task> --password <pw> [--accountant <email>]
-        [--part read-again|cashbook|bill-check|paid-replace|all-payments|collect|all-invoices|all]      # default all
+        [--part read-again|cashbook|bill-check|paid-replace|all-payments|collect|all-invoices|marker-patch|all]      # default all
 
 Part `attach` (#1639):
 
@@ -80,6 +80,9 @@ files and reads with a stand-in reader; the screens below show those seeded resu
 
 Part `collect` (#1642): `walk_collect`'s docstring (steps 24-27).
 
+Part `marker-patch` (#1649): `marker_patch_part`'s docstring (steps 33-36). It RUNS the one-off patch on the env, so
+it is not part of `all`: run it on its own, once per env for the before screen.
+
 Evidence: `$VERIFY_OUT`, else ~/claude-artifacts/verify/<task>/<UTC time>/.
 """
 
@@ -113,9 +116,9 @@ ap.add_argument("--lead", default="walk-accountant-lead@example.com")
 ap.add_argument("--outsider", default="walk-pmo@example.com")
 ap.add_argument("--shots", help="also keep one half-size screenshot per acceptance criterion here")
 ap.add_argument("--part", choices=("all", "read-again", "cashbook", "bill-check", "paid-replace", "all-payments",
-                                   "collect", "all-invoices"),
+                                   "collect", "all-invoices", "marker-patch"),
                 default="all",
-                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); paid-replace: only steps 19-22 (#1643); all-payments: only step 23 (#1648); collect: only steps 24-27, the Collect payment walk (#1642); all-invoices: only steps 28-32 (#1646); each with its own seed")
+                help="read-again: only steps 11-14 (#1645); cashbook: only the Cashbook import walk (#1641); bill-check: only steps 15-18 (#1640); paid-replace: only steps 19-22 (#1643); all-payments: only step 23 (#1648); collect: only steps 24-27, the Collect payment walk (#1642); all-invoices: only steps 28-32 (#1646); marker-patch: only steps 33-36, the #1649 patch run on the env (#1649); each with its own seed")
 a = ap.parse_args()
 
 STAMP = datetime.datetime.now(datetime.timezone.utc).strftime("%m%d%H%M%S")
@@ -1085,6 +1088,97 @@ def all_invoices_part() -> None:
         (out / "calls.json").write_text(json.dumps([[u, p] for u, p, _ in calls], indent=2))
 
 
+def marker_db(out: Path, name: str) -> dict:
+    stdout = script("cashbook_marker_db.py")
+    answer = json.loads(next(l for l in stdout.splitlines() if l.startswith("CASHBOOK_MARKER_DB ")).removeprefix(
+        "CASHBOOK_MARKER_DB "))
+    (out / f"{name}.db.json").write_text(json.dumps(answer, indent=2))
+    return answer
+
+
+def run_marker_patch(out: Path, name: str) -> dict:
+    """Run the #1649 patch on the env (`bench execute`, which commits), save what it printed, return its counts."""
+    res = subprocess.run(
+        [DEVENV, "run", a.task, "execute", "nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses.execute"],
+        capture_output=True, text=True,
+    )
+    (out / f"{name}.txt").write_text(res.stdout + res.stderr)
+    if res.returncode:
+        raise RuntimeError(f"the patch failed:\n{res.stdout[-2000:]}\n{res.stderr[-2000:]}")
+    counts = {}
+    for doctype in (PE, NPE):
+        m = re.search(rf"^{doctype}: marked (\d+), of them waiting in the Cashbook queue (\d+)$", res.stdout, re.M)
+        expect(m is not None, f"the patch printed {doctype}'s marked and waiting counts")
+        counts[doctype] = (int(m[1]), int(m[2]))
+    return counts
+
+
+def cashbook_tab_count(page) -> int:
+    sidebar(page, "Vendor Invoice Recon")
+    page.get_by_role("button", name="Pending Invoices Upload").click()
+    page.wait_for_load_state("networkidle")
+    pill(page, "Cashbook")
+    line = page.get_by_text(re.compile(r"^\d+ wallet spends? waiting for an invoice$")).first
+    line.wait_for(timeout=60_000)
+    return int(line.inner_text().split()[0])
+
+
+def marker_patch_part() -> None:
+    """Steps 33-36 (#1649): the patch that marks this financial year's older Cashbook Expenses, as an Accountant.
+
+    33. DB: the Expenses the patch would mark (dated from 1 Apr 2026, made by a Cashbook import, no marker), per
+        ledger. Vendor Invoice Recon -> Pending Invoices Upload -> Cashbook: its count line equals the queue's DB
+        count (on data from before the patch: none waiting, the tab empty).
+    34. The patch runs on the env. It prints per ledger how many it marked and how many of them now wait; both equal
+        step 33's DB counts, and no Expense dated before 1 Apr 2026 gained a marker.
+    35. The tab again: its count line is the old count plus every Expense that now waits, and the DB queue agrees,
+        its oldest spend dated on or after 1 Apr 2026 (when the queue was empty before).
+    36. The patch again: it marks 0 on both ledgers, and the tab's count is unchanged.
+
+    On an env where the patch already ran, step 33 finds nothing to mark: the before screen is NOT WALKED (it says
+    so) and steps 34-36 assert the second-run behaviour only.
+    """
+    with session(a.task, a.accountant, a.password) as (page, out):
+        before = marker_db(out, "33-before")
+        print(f"before: {before}")
+        fresh = sum(before["to_mark"].values()) > 0
+        count = cashbook_tab_count(page)
+        expect(count == sum(before["queue"].values()), f"Cashbook tab before the patch: {count} = the DB queue")
+        if fresh:
+            shot(page, out, "33-cashbook-before-patch", "1-before-cashbook-tab")
+        else:
+            print("NOT WALKED: the before screen -- the patch already ran on this env, nothing is left to mark")
+            save(page, out, "33-cashbook-before-patch")
+
+        counts = run_marker_patch(out, "34-patch-output")
+        for doctype in (PE, NPE):
+            expect(counts[doctype] == (before["to_mark"][doctype], before["to_wait"][doctype]),
+                   f"{doctype}: the patch marked {counts[doctype][0]} and {counts[doctype][1]} wait, as the DB said")
+        after = marker_db(out, "35-after")
+        print(f"after: {after}")
+        expect(after["to_mark"] == {PE: 0, NPE: 0}, "nothing is left for the patch to mark")
+        expect(after["marked_before_from_date"] == before["marked_before_from_date"],
+               "no Expense dated before 1 Apr 2026 gained a marker")
+        for doctype in (PE, NPE):
+            expect(after["queue"][doctype] == before["queue"][doctype] + before["to_wait"][doctype],
+                   f"{doctype}: the queue grew by exactly the Expenses that now wait")
+        if fresh and not sum(before["queue"].values()):
+            expect(after["queue_oldest"] >= "2026-04-01", f"the oldest waiting spend is {after['queue_oldest']}")
+        page.reload()
+        count = cashbook_tab_count(page)
+        expect(count == sum(after["queue"].values()), f"Cashbook tab after the patch: {count} = the DB queue")
+        expect(page.get_by_role("button", name="Attach invoice").count() > 0 or count == 0,
+               "the listed wallet spends offer Attach invoice")
+        shot(page, out, "35-cashbook-after-patch", "1-after-cashbook-tab")
+
+        again = run_marker_patch(out, "36-patch-again-output")
+        expect(again == {PE: (0, 0), NPE: (0, 0)}, "a second run marks nothing")
+        page.reload()
+        expect(cashbook_tab_count(page) == count, "the Cashbook tab's count is unchanged by the second run")
+        shot(page, out, "36-cashbook-after-second-run", "3-second-run-unchanged")
+        print(f"evidence: {out}")
+
+
 # One evidence folder for every session of this walk.
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
@@ -1109,6 +1203,9 @@ if a.part == "all-payments":
     sys.exit(0)
 if a.part == "all-invoices":
     all_invoices_part()
+    sys.exit(0)
+if a.part == "marker-patch":
+    marker_patch_part()
     sys.exit(0)
 spends = seed()
 print(f"seeded: {spends}")
