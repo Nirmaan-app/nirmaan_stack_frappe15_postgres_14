@@ -97,6 +97,9 @@ ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `ignore_permissions=True` and a bare `@frappe.whitelist()` would otherwise be
 # reachable by any logged-in user. Keep the two lists in sync.
 #
+# The same set decides a Purchase Order invoice on every surface (#1638): the Vendor Invoices validate
+# hook `guard_purchase_order_decision` checks it, so Desk and REST obey it too.
+#
 # PMO Executive was REMOVED on 2026-09-17 (PMO access review), on both sides.
 INVOICE_APPROVAL_PROFILES = (
     ADMIN_PROFILE,

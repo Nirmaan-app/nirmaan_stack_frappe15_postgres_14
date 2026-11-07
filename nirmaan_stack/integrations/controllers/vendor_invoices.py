@@ -20,7 +20,8 @@ and writes every Purchase Order Item row, so putting it on doc events would fire
 on paths it deliberately does not run on today.
 
 Also home of `guard_work_order_invoice` (validate): who may approve, reject or edit a
-Work Order invoice (#1531, ADR-0014 Amendment A); and of `follow_generated_invoice`
+Work Order invoice (#1531, ADR-0014 Amendment A); of `guard_purchase_order_decision` (validate):
+who may approve or reject a Purchase Order invoice (#1638); and of `follow_generated_invoice`
 (on_update) and `delete_generated_invoice_with_it` (on_trash): a generated invoice's
 Vendor Invoice moves its record (#1547), and deleting it deletes the record too.
 """
@@ -31,7 +32,9 @@ from nirmaan_stack.api.invoices._item_billing_sync import (
     recompute_document_amount_invoiced,
 )
 from nirmaan_stack.services import wo_generated_invoices as generated
+from nirmaan_stack.services import purchase_order_invoice_access as po_access
 from nirmaan_stack.services.role_profiles import (
+    can_action_invoice_approvals,
     can_decide_wo_invoice,
     can_edit_approved_wo_invoice,
     can_edit_wo_invoice,
@@ -118,7 +121,8 @@ def recompute_parent_total(doc, method=None):
 def guard_work_order_invoice(doc, method=None):
     """Refuse a Work Order invoice save the user's role does not allow (#1531, ADR-0014 Amendment A;
     the rule is `services/work_order_invoice_access.change_problem`). Bound to validate, so the
-    approve and edit endpoints, Desk and the REST API all obey it. A Purchase Order invoice passes.
+    approve and edit endpoints, Desk and the REST API all obey it. A Purchase Order invoice passes: its
+    decision is `guard_purchase_order_decision`'s.
     """
     before = doc.get_doc_before_save()
     if not (is_work_order_invoice(doc) or is_work_order_invoice(before)):
@@ -134,6 +138,22 @@ def guard_work_order_invoice(doc, method=None):
     )
     if problem:
         frappe.throw(problem, WorkOrderInvoiceRefused)
+
+
+def guard_purchase_order_decision(doc, method=None):
+    """Refuse a person's approval or rejection of a Purchase Order invoice without an invoice-approval role
+    (#1638; the rule is `services/purchase_order_invoice_access.decision_problem`). Bound to validate, so the
+    approve endpoint, Desk and the REST API all obey it. The system's own decision (auto-approve, the
+    re-check) carries `SYSTEM_DECISION_FLAG` and passes. A Work Order invoice passes: it has its own guard.
+    """
+    problem = po_access.decision_problem(
+        doc.get_doc_before_save(),
+        doc,
+        may_decide=can_action_invoice_approvals(frappe.session.user),
+        by_system=bool(doc.flags.get(po_access.SYSTEM_DECISION_FLAG)),
+    )
+    if problem:
+        frappe.throw(problem, po_access.PurchaseOrderInvoiceRefused)
 
 
 def follow_generated_invoice(doc, method=None):

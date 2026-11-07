@@ -413,8 +413,12 @@ doc_events = {
         # No `after_insert`: Document.insert() runs after_insert AND then
         # run_post_save_methods() -> on_update, so binding both fired the recompute
         # TWICE per saved invoice. on_update alone covers insert.
-        # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A).
-        "validate": "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
+        # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A),
+        # and who may approve or reject a Purchase Order invoice (#1638).
+        "validate": [
+            "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
+            "nirmaan_stack.integrations.controllers.vendor_invoices.guard_purchase_order_decision",
+        ],
         # A generated invoice's Vendor Invoice moves its record (#1547), and its delete deletes the record too.
         "on_update": [
             "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
