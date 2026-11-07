@@ -55,6 +55,8 @@ first = {}
 for doctype, spend in (("Non Project Expenses", card), ("Project Expenses", wallet)):
     file_url = save_file(f"walk-first-bill-{spend}.pdf", one_page_pdf(f"Walk first bill {stamp}"), doctype, spend,
                          is_private=1).file_url
+    # Raw, skipping the Expense's doc_events on purpose: this plants the state a first bill leaves (as the approval
+    # seed does), and nothing derived from the invoice fields is read by the walk.
     frappe.db.set_value(doctype, spend, {"invoice_attachment": file_url, "invoice_ref": f"FIRST-{stamp}",
                                          "invoice_date": add_days(nowdate(), -5)}, update_modified=False)
     line, amount = statement_line_of(doctype, spend, 0)

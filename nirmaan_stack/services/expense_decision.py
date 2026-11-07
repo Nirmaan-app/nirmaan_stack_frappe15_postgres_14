@@ -62,7 +62,7 @@ from nirmaan_stack.services.expense_statuses import (
     EXPENSE_REJECTED,
     EXPENSE_REQUESTED,
 )
-from nirmaan_stack.services.expense_bills.receive import gets_expense_bill, receive_bill
+from nirmaan_stack.services.expense_bills.receive import is_wallet_or_card_spend, receive_bill
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.role_profiles import (
@@ -317,7 +317,7 @@ def save_paid_invoice(
 ) -> None:
     """The Payment Done tab's Upload / Edit Inv (owner, 2026-10-31): a carve-out from `edit_access` like
     `save_raiser_invoice`, for `role_profiles.PAID_INVOICE_PROFILES` (`api/expenses/paid_invoice` checks who).
-    On a Paid Expense it writes `INVOICE_FIELDS` and nothing else, so it saves elevated; all three are
+    On a Paid Expense it writes the invoice file, ref and date and nothing else, so it saves elevated; all three are
     required and the date is not after today.
 
     The file is the one already on the expense, or one `user` just uploaded unattached (an HR user may not
@@ -349,7 +349,7 @@ def save_paid_invoice(
             name, doc.status or "blank"))
     replaced = values["invoice_attachment"] != (doc.invoice_attachment or "")
     new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user) if replaced else None
-    if replaced and gets_expense_bill(doc):
+    if replaced and is_wallet_or_card_spend(doc):
         # A new bill on a wallet spend or card spend is an Expense bill (#1643); an approver's is approved at once.
         receive_bill(doc, values["invoice_attachment"], values["invoice_ref"], values["invoice_date"], user,
                      approve=has_role_profile(user, PAID_BILL_APPROVER_PROFILES))

@@ -41,8 +41,17 @@ class ReplaceOnPaymentDone:
             (name, owner, owner, f"paid-bill-{name}.pdf", url),
         )
         frappe.db.commit()
-        self.addCleanup(lambda: (frappe.db.delete("File", {"name": name}), frappe.db.commit()))
+        self.addCleanup(self._purge_file, name)
         return url
+
+    def _purge_file(self, name: str) -> None:
+        frappe.db.rollback()
+        try:
+            frappe.db.delete("File", {"name": name})
+            frappe.db.commit()
+        except Exception as exc:
+            frappe.db.rollback()
+            raise AssertionError(f"purge failed: file {name}: {exc}") from exc
 
     def _replace(self, user: str, doctype: str, expense: str, ref: str = "TYPED-77", day: str = TYPED_DATE) -> str:
         """Replace the bill as `user`; the new bill's file URL."""

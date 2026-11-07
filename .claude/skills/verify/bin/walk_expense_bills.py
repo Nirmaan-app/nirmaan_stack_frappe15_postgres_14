@@ -356,7 +356,6 @@ def read_again_part() -> None:
         print(f"evidence: {out}")
 
 
-# One evidence folder for every session of this walk.
 def replace_on_payment_done(page, search: str, pdf: Path, ref: str, day: str, out: Path, step: str, button: str):
     """Project Payment & Expense -> Payment Done / Reconciliation Done -> the spend's `button` (Edit Inv or Upload
     Inv) -> a new file, number and date -> Save Invoice; the dialog closes."""
@@ -469,6 +468,7 @@ def paid_replace_part() -> None:
         print(f"evidence: {out}")
 
 
+# One evidence folder for every session of this walk.
 os.environ.setdefault("VERIFY_OUT", str(Path.home() / "claude-artifacts" / "verify" / a.task /
                                         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")))
 if a.part == "read-again":

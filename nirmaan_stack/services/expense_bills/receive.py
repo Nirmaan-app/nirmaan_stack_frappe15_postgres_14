@@ -25,7 +25,7 @@ from nirmaan_stack.services.expense_bills.reading import queue_reading
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
-def gets_expense_bill(doc) -> bool:
+def is_wallet_or_card_spend(doc) -> bool:
     """Is Expense `doc` a wallet spend or a card spend, the only Expenses whose bill is an Expense bill?"""
     return bool(doc.get("cashbook_batch") or doc.get("credit_card_statement"))
 
