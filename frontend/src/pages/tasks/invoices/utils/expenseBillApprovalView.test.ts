@@ -4,14 +4,12 @@ import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
 
 import {
     type PendingExpenseBillRow,
-    PENDING_APPROVAL_PILLS,
     BILL_APPROVAL_FILTER_OPTIONS,
     BILL_CHECK_FILTER_OPTIONS,
     approveFormDefaults,
     expenseListBillCheck,
     expenseListBillCheckText,
     billCheckText,
-    isPendingApprovalPill,
     lastBillRejectedText,
     readTotalText,
 } from "./expenseBillApprovalView";
@@ -34,17 +32,6 @@ const ROW: PendingExpenseBillRow = {
     uploaded_by_name: "Walk Accountant",
     bill_file: "/private/files/bill.pdf",
 };
-
-describe("the Pending Approval pills", () => {
-    it("are PO, WO, Cashbook and Credit Card, in that order", () => {
-        expect(PENDING_APPROVAL_PILLS.map((p) => p.label)).toEqual(["PO", "WO", "Cashbook", "Credit Card"]);
-    });
-
-    it("know their own keys from a stray URL value", () => {
-        expect(isPendingApprovalPill("cashbook")).toBe(true);
-        expect(isPendingApprovalPill("porter")).toBe(false);
-    });
-});
 
 describe("a waiting expense bill's cells", () => {
     it("show the Bill check with its reason", () => {

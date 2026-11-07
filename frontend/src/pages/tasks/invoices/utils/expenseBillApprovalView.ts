@@ -1,30 +1,17 @@
 /**
  * Vendor Invoice Recon -> Pending Approval (#1644, spec #1637, GLOSSARY *Expense bill approval*): the pure rules of
- * the four pills and of the Cashbook / Credit Card tables of waiting expense bills.
+ * the Cashbook / Credit Card tables of waiting expense bills (its pills are `reconPills`).
  *
- * PO and WO are today's table of Vendor Invoices split by document type. Cashbook and Credit Card list the Expense
- * bills waiting for a person (`api/expenses/expense_bill_approval.get_pending_expense_bills`): Pending, the
- * Expense's latest bill, its Bill check done (Matched bills are auto-approved and never wait).
+ * Cashbook and Credit Card list the Expense bills waiting for a person
+ * (`api/expenses/expense_bill_approval.get_pending_expense_bills`): Pending, the Expense's latest bill, its Bill check
+ * done (Matched bills are auto-approved and never wait).
  */
 import { NOT_SET_FACET_VALUE } from "@/components/data-table/facetConfig";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 
-/** The pills of Pending Approval. PO and WO carry the Vendor Invoices `document_type` they show. */
-export const PENDING_APPROVAL_PILLS = [
-    { key: "po", label: "PO", kind: "vendor", documentType: "Procurement Orders" },
-    { key: "wo", label: "WO", kind: "vendor", documentType: "Service Requests" },
-    { key: "cashbook", label: "Cashbook", kind: "expense" },
-    { key: "card", label: "Credit Card", kind: "expense" },
-] as const;
-
-export type PendingApprovalPill = (typeof PENDING_APPROVAL_PILLS)[number]["key"];
-
 /** The two pills of expense bills; the value the list endpoint takes as `kind`. */
 export type ExpenseBillKind = "cashbook" | "card";
-
-export const isPendingApprovalPill = (value: string): value is PendingApprovalPill =>
-    PENDING_APPROVAL_PILLS.some((p) => p.key === value);
 
 /** One Expense bill waiting for a person, as `get_pending_expense_bills` returns it. */
 export interface PendingExpenseBillRow {

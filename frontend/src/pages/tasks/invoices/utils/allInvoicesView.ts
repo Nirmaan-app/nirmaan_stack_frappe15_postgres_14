@@ -1,35 +1,12 @@
 /**
- * Vendor Invoice Recon -> All Invoices (#1646, spec #1637, GLOSSARY *Expense bills*): the pure rules of its pills
- * and of the Cashbook / Credit Card / Porter tables.
+ * Vendor Invoice Recon -> All Invoices (#1646, spec #1637, GLOSSARY *Expense bills*): the pure rules of the
+ * Cashbook / Credit Card / Porter tables (its pills are `reconPills`).
  *
- * PO and WO are today's table of Vendor Invoices split by document type. Cashbook and Credit Card list every Expense
- * bill, latest and history (`api/expenses/all_expense_bills.get_all_expense_bills`); Porter lists one row per Porter
- * Invoice with its Validate result (`api/invoices/all_porter_invoices.get_all_porter_invoices`). Those three are for
- * the Vendor Invoice approvers only (Admin, Accountant, Accountant Lead), as the server checks.
+ * Cashbook and Credit Card list every Expense bill, latest and history
+ * (`api/expenses/all_expense_bills.get_all_expense_bills`); Porter lists one row per Porter Invoice with its Validate
+ * result (`api/invoices/all_porter_invoices.get_all_porter_invoices`).
  */
-import { canActionInvoiceApprovals } from "@/constants/roles";
-
 import type { BillApprovalStatus, BillCheckResult } from "./expenseBillApprovalView";
-
-export const ALL_INVOICES_PILLS = [
-    { key: "po", label: "PO", kind: "vendor", documentType: "Procurement Orders" },
-    { key: "wo", label: "WO", kind: "vendor", documentType: "Service Requests" },
-    { key: "cashbook", label: "Cashbook", kind: "expense" },
-    { key: "card", label: "Credit Card", kind: "expense" },
-    { key: "porter", label: "Porter", kind: "porter" },
-] as const;
-
-export type AllInvoicesPill = (typeof ALL_INVOICES_PILLS)[number];
-export type AllInvoicesPillKey = AllInvoicesPill["key"];
-
-export const isAllInvoicesPill = (value: string): value is AllInvoicesPillKey =>
-    ALL_INVOICES_PILLS.some((p) => p.key === value);
-
-/** The pills `role` sees: PO and WO for everyone who sees All Invoices; the rest for the approvers only. */
-export const allInvoicesPillsFor = (role?: string | null, userId?: string | null): AllInvoicesPill[] => {
-    const approver = canActionInvoiceApprovals(role, userId);
-    return ALL_INVOICES_PILLS.filter((p) => p.kind === "vendor" || approver);
-};
 
 /** One Expense bill, as `get_all_expense_bills` returns it. */
 export interface AllExpenseBillRow {

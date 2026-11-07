@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-    allInvoicesPillsFor,
     approvalText,
     billDecision,
-    isAllInvoicesPill,
     porterResultText,
     type AllExpenseBillRow,
 } from "./allInvoicesView";
@@ -35,24 +33,6 @@ const BILL: AllExpenseBillRow = {
     bill_file: "/private/files/bill.pdf",
     creation: "2026-09-11 10:00:00",
 };
-
-describe("All Invoices pills", () => {
-    it("are PO / WO / Cashbook / Credit Card / Porter for an Accountant", () => {
-        expect(allInvoicesPillsFor("Nirmaan Accountant Profile", "a@example.com").map((p) => p.label)).toEqual([
-            "PO", "WO", "Cashbook", "Credit Card", "Porter",
-        ]);
-        expect(allInvoicesPillsFor(null, "Administrator").map((p) => p.key)).toEqual(["po", "wo", "cashbook", "card", "porter"]);
-    });
-
-    it("are PO / WO only for a profile that may not see expense or Porter bills", () => {
-        expect(allInvoicesPillsFor("Nirmaan Project Manager Profile", "pm@example.com").map((p) => p.label)).toEqual(["PO", "WO"]);
-    });
-
-    it("know their own keys", () => {
-        expect(isAllInvoicesPill("porter")).toBe(true);
-        expect(isAllInvoicesPill("history")).toBe(false);
-    });
-});
 
 describe("an expense bill's approval", () => {
     it("says why a rejected bill was rejected", () => {
