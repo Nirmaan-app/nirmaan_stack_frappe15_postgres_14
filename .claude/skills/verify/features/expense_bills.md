@@ -68,10 +68,10 @@ bill from the kept result without reading again; Skip makes none.
   list each waiting bill: spend date, line amount, bill total read ("--" unless Matched or Mismatched), Bill check
   with its reason, invoice number and date (the bill's own, else the ones typed on the Expense), Paid by (wallet or
   card holder), Project, Invoice Added By, a `View` link to the file, `Approve` and `Reject`.
-- `approve` Approve -> dialog with `#expense_bill_invoice_no` and `#expense_bill_invoice_date` prefilled -> Approve;
+- `approve` Approve -> dialog with the fields labelled `Invoice number` and `Invoice date` prefilled -> Approve;
   the row leaves. DB: Approved, `approved_by` the person, `approved_on`; number and date on the bill and the Expense;
   a Version on both.
-- `reject` Reject -> `#expense_bill_reject_reason` -> Reject; the row leaves. DB: Rejected with the reason,
+- `reject` Reject -> the field labelled `Reason` -> Reject; the row leaves. DB: Rejected with the reason,
   `rejected_by` the person, `rejected_on`; the Expense's `invoice_attachment`, `invoice_ref`, `invoice_date` cleared;
   a Version on both. All Invoices' Cashbook / Credit Card rows and the pending queue's rows carry `approved_by`,
   `approved_on`, `rejected_by`, `rejected_on` (story 35). Pending Invoices Upload
@@ -208,9 +208,13 @@ the DB (`BIN/all_invoices_db.py`), the card spend's two rows, the wallet row, th
 - **The Collect payment part is seeded, not live**, for the same reasons as the Cashbook part: the stored bills are
   made-up files and the line readings a stand-in reader, so the dialog's Matched and Mismatched notes show seeded
   results.
-- **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
-  ends Not read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints
-  NOT WALKED for Matched and Mismatched. Never add a key to an env.
+- **An env's reader may have no valid key.** Then Google answers 401 "API key not valid", every reading ends Not
+  read, "The reader failed (ClientError).", and the walk asserts the Not read path instead and prints NOT WALKED for
+  Matched and Mismatched. With a working key the attach steps read the made-up PDFs for real: the ₹1,180 bill
+  Matched and auto-approved, the ₹2,500 one Mismatched. Never add a key to an env yourself.
+- **Every run's wallet spend has the holder "Walk Wallet Holder".** A run that stopped before its reject step leaves
+  its Mismatched bill waiting on the Cashbook pill, so the reject step picks this run's row by its View link (the
+  run's own bill file name), not by the holder.
 - **A text-only PDF is refused by the reader.** Frappe hands back a local file that decodes as text as a str; the
   walk's PDFs carry the binary marker line every real PDF has.
 - **No Cashbook spend waits in the 2026-10-28 data**, so the seed makes one (a Project Expense with the Cashbook
