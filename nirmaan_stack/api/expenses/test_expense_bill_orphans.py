@@ -52,3 +52,20 @@ class TestADeletedExpensesBills(CardBillCase):
         self.assertNotIn(self.bill, self._pending())
         self.assertNotIn(self.bill, {r["name"] for r in self._as(self.accountant, _list, "card")["data"]})
         self.assertEqual(latest_bill_checks(NPE, [self.orphaned]), {})
+
+
+class TestAnOrdinaryDeleteOfAnExpenseWithBills(CardBillCase):
+    """An Expense bill is history and never holds its Expense in place (spec #1637 review): Frappe's link check
+    would refuse the ordinary delete (no `force`) for the bill's Dynamic Link, so `on_trash` could retire bills only
+    under Unreconcile's force. The links of every other doctype still guard the delete."""
+
+    def test_the_expense_goes_and_its_bills_stay_as_history(self):
+        spend = self._expense(self.statement, serno="70000000009", amount=320)
+        self._as(self.users.make(ACCOUNTANT), attach_card_invoice, spend, cloud_url("gone.pdf"))
+        bill = bills_of(NPE, spend)[-1].name
+
+        frappe.delete_doc(NPE, spend, ignore_permissions=True)
+        frappe.db.commit()
+
+        self.assertFalse(frappe.db.exists(NPE, spend))
+        self.assertEqual(frappe.db.get_value(BILL, bill, ["expense", "is_latest"]), (spend, 0))
