@@ -249,7 +249,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app. Money left the company, so it is never treated as a move between the company's own balances. It may not be a company spend, so it is never recorded on its own: it is kept as an open line, shown for checking, until someone records it as an Expense or skips it by hand with a reason. One refunded in full on the same statement needs no decision (see *Paired wallet refund*). (Owner, 2026-11-02.)
 
-- **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported arrives with a later statement and is attached then. (Owner, 2026-11-02.)
+- **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported (a **late bill**) arrives with a later statement and is attached then. Each becomes an *Expense bill* with its *Bill check*, a late bill too; one of several pages is Not checked. (Owner, 2026-11-02; Bill check, 2026-11-07.)
 
 - **Paired wallet refund** — a refund on a Cashbook Statement that gives back the whole of a spend on the same statement. Both lines are skipped, each naming the other. (Owner, 2026-11-02.)
 

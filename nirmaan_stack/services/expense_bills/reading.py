@@ -43,6 +43,7 @@ _JOB = "nirmaan_stack.services.expense_bills.reading.check_expense_bill"
 JOB_TIMEOUT_SECONDS = 15 * 60
 
 READING_OFF = "Reading is switched off in Document AI Settings."
+NOT_QUEUED = "The reading could not be queued."
 
 #: A bill claimed longer ago than this is still Checking only because its worker was killed (the job limit, plus a
 #: margin for a job still saving its result and for clocks a little apart): it shows as Not read with this reason,
@@ -68,16 +69,36 @@ def reading_job_id(bill: str) -> str:
 
 def queue_reading(bill: str, job_id: str | None = None) -> None:
     """Queue `bill`'s reading on the `long` queue, once the caller's transaction commits (so the job finds the
-    bill), de-duplicated by its job id (`reading_job_id`, unless `job_id` is given)."""
-    frappe.enqueue(
-        _JOB,
-        queue="long",
-        timeout=JOB_TIMEOUT_SECONDS,
-        job_id=job_id or reading_job_id(bill),
-        deduplicate=True,
-        enqueue_after_commit=True,
-        bill=bill,
-    )
+    bill), de-duplicated by its job id (`reading_job_id`, unless `job_id` is given).
+
+    ⚠️ A QUEUE THAT REFUSES NEVER UNDOES THE BILL (#1641). The enqueue runs inside the caller's `commit()`, after
+    the bill is saved; were it to raise there, the caller would take the commit for failed (the Cashbook import
+    then deletes the bill file it just attached). So a refusal is caught: the bill ends Not read with the reason,
+    for a person to read again, and the error is logged."""
+    frappe.db.after_commit.add(lambda: _enqueue_reading(bill, job_id or reading_job_id(bill)))
+
+
+def _enqueue_reading(bill: str, job_id: str) -> None:
+    try:
+        frappe.enqueue(
+            _JOB,
+            queue="long",
+            timeout=JOB_TIMEOUT_SECONDS,
+            job_id=job_id,
+            deduplicate=True,
+            bill=bill,
+        )
+    except Exception:
+        # Runs inside the caller's commit, after its data landed: nothing here may raise into it.
+        try:
+            frappe.log_error(title=f"Expense bill {bill}: its reading could not be queued", message=frappe.get_traceback())
+            # Raw: `Expense Bill` has no doc_events; a bill no job will read must not stay Checking.
+            frappe.db.set_value(
+                BILL_DOCTYPE, bill, {"bill_check": NOT_READ, "bill_check_reason": NOT_QUEUED}, update_modified=False
+            )
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
 
 
 def stopped_before() -> datetime:

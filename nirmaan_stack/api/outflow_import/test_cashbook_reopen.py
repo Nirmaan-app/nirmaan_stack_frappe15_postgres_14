@@ -24,6 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import file_manager
 
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import STATEMENT, _fake_bills
@@ -88,6 +89,8 @@ class ReopenCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
+        # #1641: a copied bill queues its reading; the queue is shared with the main bench.
+        self.jobs = capture_jobs(self)
         self.suffix = "R" + frappe.generate_hash(length=6).upper()
         self.content = _with_suffix(STATEMENT.read_bytes(), self.suffix)
         self.parsed = parse_statement(self.content, source="Cashbook")

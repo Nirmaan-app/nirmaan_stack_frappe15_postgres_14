@@ -18,6 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expenses.cashbook_invoices import get_cashbook_invoice_queue
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import _fake_bills
@@ -34,6 +35,8 @@ class LateBillsCase(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+        # #1641: a copied bill queues its reading; the queue is shared with the main bench.
+        self.jobs = capture_jobs(self)
         lines = FIXTURE.read_text().splitlines()
         self.header, self.data, self.footer = lines[0], lines[1:12], lines[12:]
         link = next(part for part in self.data[0].split('"') if part.startswith("https://"))
@@ -132,8 +135,10 @@ class TestLateBills(LateBillsCase):
         after = self._expense(LATE)  # still one Expense
         self.assertEqual(after.name, waiting.name)
         self.assertTrue(after.invoice_attachment)
-        bill = frappe.get_doc("File", {"file_url": after.invoice_attachment})
-        self.assertEqual((bill.attached_to_doctype, bill.attached_to_name), (after.doctype, after.name))
+        # #1641: its Expense bill holds a File row of the same URL too.
+        self.assertTrue(frappe.db.exists(
+            "File", {"file_url": after.invoice_attachment, "attached_to_doctype": after.doctype, "attached_to_name": after.name}
+        ))
         self.assertNotIn(after.name, {row["name"] for row in get_cashbook_invoice_queue()})
         self.assertEqual(self._lines_of(LATE), 1)  # the repeat line is still not saved
 
