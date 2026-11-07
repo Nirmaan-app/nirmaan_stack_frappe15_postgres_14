@@ -40,7 +40,16 @@ class TestOnlyTheServicesWriteAnExpenseBill(FrappeTestCase):
         not_read_only = [field for field in SYSTEM_FIELDS if not meta.get_field(field) or not meta.get_field(field).read_only]
         self.assertEqual(not_read_only, [])
 
-    def test_the_bill_file_is_a_plain_url_so_frappe_mints_no_file_row_for_it(self):
+    def test_the_bill_file_is_a_plain_url_of_any_length_so_frappe_mints_no_file_row_for_it(self):
         # An Attach field makes Frappe attach a second File row to the Expense's stored object on insert, and
-        # deleting either row deletes the object under the other (review of spec #1637).
-        self.assertEqual(frappe.get_meta(BILL_DOCTYPE).get_field("bill_file").fieldtype, "Data")
+        # deleting either row deletes the object under the other (review of spec #1637). A Data field is a
+        # varchar(140), and the cloud storage app's bill URLs run up to 270 characters (the review's blocker).
+        self.assertEqual(frappe.get_meta(BILL_DOCTYPE).get_field("bill_file").fieldtype, "Small Text")
+        self.assertEqual(
+            frappe.db.sql(
+                """SELECT data_type FROM information_schema.columns
+                   WHERE table_name = %s AND column_name = 'bill_file'""",
+                (f"tab{BILL_DOCTYPE}",),
+            ),
+            (("text",),),
+        )

@@ -17,13 +17,13 @@ import frappe
 from frappe.utils import add_days, getdate, nowdate
 
 from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice
+from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url
 from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
 from nirmaan_stack.api.expenses.paid_invoice import set_paid_expense_invoice
 from nirmaan_stack.api.expenses.test_cashbook_invoices import NPE, PE, CashbookInvoiceCase
 from nirmaan_stack.api.expenses.test_expense_bill_approval import keeping_versions
 from nirmaan_stack.api.expenses.test_expense_bills import CardBillCase, FakeReader, bills_of, readings_queued, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN
-from nirmaan_stack.api.tds.test_submit import _cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.approval import correct_latest_bill
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
@@ -36,7 +36,7 @@ class ReplaceOnPaymentDone:
 
     def _upload(self, owner: str) -> str:
         name = frappe.generate_hash(length=10)
-        url = _cloud_url(f"paid-bill-{name}.pdf")
+        url = cloud_url(f"paid-bill-{name}.pdf")
         frappe.db.sql(
             """INSERT INTO "tabFile" (name, creation, modified, modified_by, owner, docstatus, idx, file_name,
                    file_url, is_private, is_folder)
@@ -147,7 +147,7 @@ class TestReplacingACardSpendsBill(ReplaceOnPaymentDone, CardBillCase):
 
 class TestReplacingAWalletSpendsBill(ReplaceOnPaymentDone, CashbookInvoiceCase):
     def test_an_admins_new_bill_is_approved_at_once_and_the_previous_one_is_history(self):
-        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"))
+        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, cloud_url("wallet.pdf"))
         first = bills_of(PE, self.pe)[-1].name
         admin = self.users.make(ADMIN)
 

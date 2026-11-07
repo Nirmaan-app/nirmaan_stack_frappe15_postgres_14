@@ -16,11 +16,11 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.expenses.card_invoices import attach_card_invoice
+from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url
 from nirmaan_stack.api.expenses.expense_bill_approval import get_pending_expense_bills
 from nirmaan_stack.api.expenses.test_all_expense_bills import _list
 from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT
-from nirmaan_stack.api.tds.test_submit import _cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
 from nirmaan_stack.services.expense_bills.bill_list import latest_bill_checks
@@ -31,7 +31,7 @@ class TestADeletedExpensesBills(CardBillCase):
         super().setUp()
         self.accountant = self.users.make(ACCOUNTANT)
         self.orphaned = self._expense(self.statement, serno="70000000008", amount=640)
-        self._as(self.accountant, attach_card_invoice, self.orphaned, _cloud_url("orphan.pdf"))
+        self._as(self.accountant, attach_card_invoice, self.orphaned, cloud_url("orphan.pdf"))
         self.bill = bills_of(NPE, self.orphaned)[-1].name
         run_reading(self.bill, FakeReader(BillRead(Decimal("700.00"), "INV-O", date(2026, 9, 9))))
         self.assertIn(self.bill, self._pending())
