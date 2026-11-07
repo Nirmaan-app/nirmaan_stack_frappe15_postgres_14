@@ -36,7 +36,6 @@ CLEARS = {
 #: Writers of a wallet spend's or card spend's bill that do not yet go through the entry point. Each later ticket
 #: of spec #1637 moves its writer and removes its line here.
 LATER_TICKETS = {
-    "nirmaan_stack/services/outflow_import/settle.py": "Collect payment Create's raw set_value (#1637 ticket 2)",
     "nirmaan_stack/api/expenses/paid_invoice.py": "Payment Done replace, the endpoint (#1637 ticket 3)",
     "nirmaan_stack/services/expense_decision.py": "Payment Done replace, save_paid_invoice (#1637 ticket 3)",
 }
@@ -60,6 +59,8 @@ OTHER_RECORDS = {
     "nirmaan_stack/api/expense_requests/invoice.py": "an Expense Request's Expense (raised by hand, no statement)",
     "nirmaan_stack/patches/v3_0/migrate_invoices_to_vendor_invoices.py": "Vendor Invoices migration (append-only)",
     "nirmaan_stack/services/reimbursements/convert.py": "a Reimbursement's Expense (spec #1637: out of scope)",
+    "nirmaan_stack/services/outflow_import/settle.py": "a Porter spend's shared Porter Invoice URL (spec #1637: out of "
+    "scope); a Collect payment's bill goes through the entry point since #1642",
 }
 
 KNOWN = {**ENTRY_POINT, **CLEARS, **LATER_TICKETS, **HAND_EDITS, **OTHER_RECORDS}
@@ -155,6 +156,11 @@ class TestEveryBillWriterGoesThroughTheEntryPoint(unittest.TestCase):
         copies = "nirmaan_stack/api/outflow_import/cashbook_bills.py"
         self.assertNotIn(copies, writers())
         self.assertIn("receive_bill", calls(copies))
+
+    def test_a_collect_payments_create_files_its_stored_bill_through_the_entry_point(self):
+        create = "nirmaan_stack/api/outflow_import/cashbook_collect.py"
+        self.assertNotIn(create, writers())
+        self.assertIn("receive_bill", calls(create))
 
     def test_a_module_that_writes_the_field_is_caught_and_one_that_only_mentions_it_is_not(self):
         self.assertTrue(python_writes("doc.invoice_attachment = url"))
