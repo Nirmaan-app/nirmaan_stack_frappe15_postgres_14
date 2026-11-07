@@ -57,6 +57,7 @@ def seed(prefix: str, filters: dict) -> dict[str, str]:
                           order_by="creation desc", pluck="name")
     for key, uploader in ((f"{prefix}long_name", LONG_USER), (f"{prefix}email", NO_NAME_EMAIL)):
         if not picked[key]:
+            assert free, f"the env holds no {filters} Vendor Invoice left to seed for {key}"
             picked[key] = free.pop(0)
             frappe.db.set_value("Vendor Invoices", picked[key], "uploaded_by", uploader, update_modified=False)
     return picked

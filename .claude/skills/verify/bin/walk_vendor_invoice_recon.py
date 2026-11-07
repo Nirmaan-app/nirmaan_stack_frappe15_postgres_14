@@ -73,13 +73,13 @@ for prefix, status, doctype in (("", "Pending", None), ("po_", "Approved", "Proc
            f"DB: {picked[prefix + 'email']} uploaded by {NO_NAME_EMAIL}, who has no Nirmaan Users name")
 
 
-def check_cell(page: Page, out: Path, tab: str, row_db: dict, shown: str, slug: str) -> None:
+def check_cell(page: Page, out: Path, tab: str, row_db: dict, shown: str, slug: str, doc_is_link: bool = True) -> None:
     # Approval tables link the document id; the 2B Recon tables show it as plain text with an info link beside it.
     rows = page.get_by_role("row")
-    if tab.endswith("2B Recon"):
-        row = rows.filter(has_text=row_db["document_name"]).filter(has_text=row_db["invoice_no"])
-    else:
+    if doc_is_link:
         row = rows.filter(has=page.get_by_role("link", name=row_db["document_name"], exact=True))
+    else:
+        row = rows.filter(has_text=row_db["document_name"]).filter(has_text=row_db["invoice_no"])
     row = row.filter(has=page.get_by_role("cell", name=shown, exact=True)).first
     cell = row.get_by_role("cell", name=shown, exact=True)
     cell.wait_for(timeout=30_000)
@@ -156,5 +156,5 @@ with session(a.task, ACCOUNTANT, a.password) as (page, out):
                 .some(r => r.textContent.includes(no) && r.textContent.includes(doc))""",
                                    arg=[row_db["invoice_no"], row_db["document_name"]], timeout=30_000)
             page.wait_for_load_state("networkidle")
-            check_cell(page, out, tab, row_db, shown, slug)
+            check_cell(page, out, tab, row_db, shown, slug, doc_is_link=False)
     print(f"evidence: {out}")
