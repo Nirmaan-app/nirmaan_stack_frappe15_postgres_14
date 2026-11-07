@@ -35,7 +35,7 @@ read Mismatched (seeded: the env's reader cannot give one), and two made-up user
    call of the reject endpoint is refused (403). DB: the bill is still Pending.
 
 Then Read again (#1645), with `expense_bill_read_again_seed.py`: a made-up Not read card bill and a made-up wallet
-bill whose reading stopped (Checking, claimed 20 minutes ago). Steps 11-14 are `read_again_part`'s docstring: the
+bill whose reading stopped (Checking, claimed 30 minutes ago). Steps 11-14 are `read_again_part`'s docstring: the
 Accountant sees no Read again and is refused; the Accountant Lead presses it on both rows, they leave as Checking,
 a second press reads once, a one-shot worker reads them, and each row's new result shows. `--part read-again` runs
 only these steps.

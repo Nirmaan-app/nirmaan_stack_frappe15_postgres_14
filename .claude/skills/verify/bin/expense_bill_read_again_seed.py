@@ -7,7 +7,7 @@ Puts a made-up bill on each spend, in the two states Read again reaches (seeded:
 read, and a stopped reading needs a worker killed mid-read):
 
 * the card spend: Not read, "The reader failed (ClientError).", waiting in Pending Approval -> Credit Card;
-* the wallet spend: Checking with its claim taken 20 minutes ago (past the 15-minute job limit), so Pending Approval
+* the wallet spend: Checking with its claim taken 30 minutes ago (past the 15-minute job limit and its 5-minute margin), so Pending Approval
   -> Cashbook shows it Not read, "The reading stopped." Its line's wallet holder becomes "Walk Reread Holder
   <stamp>", so the walk finds this row alone.
 
@@ -69,7 +69,7 @@ answer = {
     "wallet": wallet,
     "wallet_holder": holder,
     "wallet_bill": bill(PE, wallet, "reread-wallet", bill_check="Checking",
-                        read_claimed_at=add_to_date(now_datetime(), minutes=-20)),
+                        read_claimed_at=add_to_date(now_datetime(), minutes=-30)),
 }
 frappe.db.commit()
 print("EXPENSE_BILL_READ_AGAIN_SEED " + json.dumps(answer))

@@ -16,7 +16,7 @@ The server refuses both to anyone else.
 A Not read bill can be **read again** (#1645) by Admin and Accountant Lead: Read again puts it back to Checking (it
 leaves the pill) and queues its reading; its new result comes back to the pill, or a Matched one is auto-approved
 and does not. A bill left Checking by a reading that stopped (a worker killed mid-read: its claim is older than the
-15-minute job limit) shows on its pill as Not read, "The reading stopped.", and can be read again or decided.
+15-minute job limit plus a 5-minute margin) shows on its pill as Not read, "The reading stopped.", and can be read again or decided.
 
 ## Sub-features
 
@@ -43,7 +43,7 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
   sees no button and the endpoint `read_expense_bill_again` answers 403) -> the row leaves. DB: Checking,
   `read_claimed_at` cleared, the reading queued on `long`; a second press is answered 200 and changes nothing. After
   the reading: the row's new result (Not read with its reason, Mismatched), or gone (Matched, auto-approved).
-- `reading-stopped` a bill Checking with `read_claimed_at` older than 15 minutes shows as Not read, "The reading
+- `reading-stopped` a bill Checking with `read_claimed_at` older than 20 minutes shows as Not read, "The reading
   stopped."; Read again and Approve / Reject reach it (a decision records it Not read with that reason).
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.

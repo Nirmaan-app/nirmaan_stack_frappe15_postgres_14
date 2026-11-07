@@ -20,10 +20,11 @@ from nirmaan_stack.api.expenses.expense_bill_approval import (
     get_pending_expense_bills,
     read_expense_bill_again,
 )
-from nirmaan_stack.api.expenses.test_expense_bills import CardBillCase, FakeReader, readings_queued, run_reading
+from nirmaan_stack.api.expenses.test_expense_bills import READING_JOB, CardBillCase, FakeReader, readings_queued, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
+from nirmaan_stack.services.expense_bills.reading import reading_job_id
 
 
 class NotReadCardBillCase(CardBillCase):
@@ -34,6 +35,10 @@ class NotReadCardBillCase(CardBillCase):
         _, self.bill = self._attach()
         run_reading(self.bill, FakeReader(ReadFailed("The reader failed (ClientError).")))
         self.jobs.clear()
+
+    def _listed(self) -> dict:
+        rows = self._as(self.users.make(ACCOUNTANT), get_pending_expense_bills, "card")
+        return {r["name"]: r for r in rows}
 
 
 class TestReadAgain(NotReadCardBillCase):
@@ -62,6 +67,20 @@ class TestReadAgain(NotReadCardBillCase):
 
         self.assertEqual(frappe.db.get_value(BILL, self.bill, "bill_check"), "Mismatched")
         self.assertEqual(readings_queued(self.jobs), [])
+
+    def test_a_decided_or_replaced_bill_cannot_be_read_again(self):
+        for field, value, state in (("status", "Approved", "Approved"), ("status", "Rejected", "Rejected"),
+                                    ("is_latest", 0, "no longer the latest")):
+            with self.subTest(state):
+                frappe.db.set_value(BILL, self.bill, {"status": "Pending", "is_latest": 1, field: value})
+                frappe.db.commit()
+
+                with self.assertRaises(frappe.ValidationError) as refused:
+                    self._as(self.users.make(ACCOUNTANT_LEAD), read_expense_bill_again, self.bill)
+
+                self.assertIn(state, str(refused.exception))
+                self.assertEqual(frappe.db.get_value(BILL, self.bill, "bill_check"), "Not read")
+                self.assertEqual(readings_queued(self.jobs), [])
 
     def test_pressing_twice_reads_the_bill_once(self):
         lead = self.users.make(ACCOUNTANT_LEAD)
@@ -100,13 +119,10 @@ class TestReadAgain(NotReadCardBillCase):
                 self.assertEqual(self._listed()[self.bill]["bill_check"], result)
                 self.assertEqual(frappe.db.get_value(BILL, self.bill, "status"), "Pending")
 
-    def _listed(self) -> dict:
-        rows = self._as(self.users.make(ACCOUNTANT), get_pending_expense_bills, "card")
-        return {r["name"]: r for r in rows}
-
 
 class TestAReadingThatStopped(NotReadCardBillCase):
-    """A worker killed mid-read (past the job limit) leaves its bill Checking with its claim set (#1639)."""
+    """A worker killed mid-read leaves its bill Checking with its claim set (#1639). Its reading counts as stopped
+    once the claim is older than the 15-minute job limit plus a 5-minute margin."""
 
     def _stop_reading(self, minutes_ago: int):
         frappe.db.set_value(BILL, self.bill, {
@@ -115,24 +131,20 @@ class TestAReadingThatStopped(NotReadCardBillCase):
         })
         frappe.db.commit()
 
-    def _listed(self) -> dict:
-        rows = self._as(self.users.make(ACCOUNTANT), get_pending_expense_bills, "card")
-        return {r["name"]: r for r in rows}
-
-    def test_a_bill_claimed_longer_ago_than_the_job_limit_shows_as_not_read_because_the_reading_stopped(self):
-        self._stop_reading(minutes_ago=16)
+    def test_a_bill_claimed_well_past_the_job_limit_shows_as_not_read_because_the_reading_stopped(self):
+        self._stop_reading(minutes_ago=25)
 
         row = self._listed()[self.bill]
 
         self.assertEqual((row["bill_check"], row["bill_check_reason"]), ("Not read", "The reading stopped."))
 
-    def test_a_bill_still_inside_the_job_limit_is_not_listed(self):
-        self._stop_reading(minutes_ago=5)
+    def test_a_bill_claimed_inside_the_job_limit_and_its_margin_is_not_listed(self):
+        self._stop_reading(minutes_ago=18)  # past the 15-minute limit, inside the 5-minute margin
 
         self.assertNotIn(self.bill, self._listed())
 
     def test_read_again_reaches_a_bill_whose_reading_stopped(self):
-        self._stop_reading(minutes_ago=16)
+        self._stop_reading(minutes_ago=25)
 
         self._as(self.users.make(ACCOUNTANT_LEAD), read_expense_bill_again, self.bill)
         run_reading(self.bill, FakeReader(BillRead(Decimal("1250.00"))))
@@ -148,7 +160,7 @@ class TestAReadingThatStopped(NotReadCardBillCase):
         self.assertEqual(frappe.db.get_value(BILL, self.bill, "bill_check"), "Checking")
 
     def test_a_bill_whose_reading_stopped_can_be_approved_and_keeps_why_it_was_not_read(self):
-        self._stop_reading(minutes_ago=16)
+        self._stop_reading(minutes_ago=25)
 
         self._as(self.users.make(ACCOUNTANT), approve_expense_bill, self.bill)
 
@@ -156,3 +168,13 @@ class TestAReadingThatStopped(NotReadCardBillCase):
             frappe.db.get_value(BILL, self.bill, ["status", "bill_check", "bill_check_reason"]),
             ("Approved", "Not read", "The reading stopped."),
         )
+
+    def test_read_again_is_not_swallowed_by_the_stopped_readings_job_still_registered_in_the_queue(self):
+        # A worker killed outright can leave its job marked started under the bill's job id; a reading queued
+        # under that same id would be dropped as a duplicate, leaving the bill Checking with no reading at all.
+        self._stop_reading(minutes_ago=25)
+
+        self._as(self.users.make(ACCOUNTANT_LEAD), read_expense_bill_again, self.bill)
+
+        [(_, kwargs)] = [job for job in self.jobs if job[0] == READING_JOB]
+        self.assertNotEqual(kwargs["job_id"], reading_job_id(self.bill))

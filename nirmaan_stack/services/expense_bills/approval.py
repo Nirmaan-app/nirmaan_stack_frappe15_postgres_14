@@ -71,7 +71,8 @@ def last_rejection_sql(alias: str, doctype_sql: str) -> str:
 
 
 def _lock_waiting(name: str):
-    """The bill and its Expense, both `FOR UPDATE`; refused unless the bill still waits for a person.
+    """The bill and its Expense, both `FOR UPDATE`; refused unless the bill still waits for a person. A bill whose
+    reading stopped is set Not read here (unsaved; the decision saves it), as Pending Approval showed it.
 
     The Expense is locked first, as `receive_bill`'s callers do before they touch its bills: a decision and a new
     bill landing on the same Expense then queue up instead of deadlocking."""
