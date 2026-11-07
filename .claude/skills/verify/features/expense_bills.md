@@ -20,6 +20,13 @@ leaves the pill) and queues its reading; its new result comes back to the pill, 
 and does not. A bill left Checking by a reading that stopped (a worker killed mid-read: its claim is older than the
 15-minute job limit plus a 5-minute margin) shows on its pill as Not read, "The reading stopped.", and can be read again or decided.
 
+A paid wallet spend's or card spend's bill replaced on Project Payment & Expense -> Payment Done / Reconciliation
+Done (Edit Inv / Upload Inv, #1643) is a new Expense bill too: an Admin's or Accountant Lead's is **Approved at once
+in their name** (not auto-approved) with the number and date they typed; its Bill check still runs and is recorded,
+and never replaces that number or date. The previous bill stays as history, no longer latest. Anyone else's
+(Accountant, HR) waits like an attached one. Editing only the number or date lands no new bill. Any other paid
+Expense (hand-keyed, Porter, ...) gets no Expense bill.
+
 ## Sub-features
 
 - `bill-attach-card` Credit Card pill: the spend is listed, Attach invoice -> Upload Invoice dialog -> Save Invoice;
@@ -56,6 +63,11 @@ and does not. A bill left Checking by a reading that stopped (a worker killed mi
   bill. Its header holds two funnels: `Bill check` (each result, and "— (no bill)") and `Approval` (each status,
   and "— (no bill)"). Both are sent with the list request (`bill_check` / `bill_approval` `in` filters, filled and
   narrowed on the server by `api/data_table/virtual_fields.py`), so they page with the list.
+- `paid-replace` Project Payment & Expense -> `Payment Done / Reconciliation Done` -> search the spend -> `Edit Inv`
+  (`Upload Inv` with no bill) -> dialog `Edit Invoice`: a file in `input[type=file]`, `#invoice_ref_update_id`,
+  `#invoice_date_update_id` -> `Save Invoice`. DB: a new `Expense Bill`, Approved, `approved_by` the person,
+  `auto_approved` 0, Checking, latest, `invoice_no` / `invoice_date` typed; the old one `is_latest` 0. After the
+  reading: a result, still Approved, the typed number and date on the bill and the spend. A hand-keyed spend: none.
 - `approval-refused` a profile outside Admin / Accountant / Accountant Lead (PMO) sees no Pending Invoice Approvals
   tab, and the endpoints answer 403.
 
@@ -108,6 +120,13 @@ the Accountant sees both rows Not read with no Read again and gets 403, presses 
 Lead, presses the card one twice more by hand (200, still Checking), runs one burst worker, and reads each row's new
 result beside its DB row. `--part read-again` runs only these steps (it needs the users of the steps above).
 
+Then Payment Done's replace (#1643), steps 19-22, `--part paid-replace`: `BIN/expense_bills_seed.py P<stamp>` makes a
+card spend and a wallet spend, and `BIN/expense_bill_paid_seed.py <stamp> <card> <wallet>` gives each a first bill
+(Not read, Pending: a seeded state), makes a hand-keyed Paid spend ("Walk hand-keyed spend <stamp>") and the
+Accountant Lead. The walk replaces both bills as the Accountant Lead, runs one burst worker, checks each Bill check
+left the approval and the typed number and date alone, and uploads a bill on the hand-keyed spend (no Expense bill).
+Matched over a typed number is NOT WALKED (the reader key is refused); `test_paid_expense_bill` proves it.
+
 ## Gotchas
 
 - **The env's reader key is not valid** (2026-11-07: Google answers 401 "API key not valid"). Every reading then
@@ -131,3 +150,7 @@ result beside its DB row. `--part read-again` runs only these steps (it needs th
 - **A made-up file must have bytes of its own.** Frappe gives a saved file the URL of any File with the same
   content; a private one another user owns (a test's leftover) is then refused to the Accountant, and the copy
   ends "Bill not copied: the bills could not be stored."
+- **Payment Done's tab name has a slash** (`Payment Done / Reconciliation Done 19464`): escape it in a role-name
+  regex (`r"^Payment Done \/ Reconciliation Done"`). Its search reads the description.
+- **No screen lists an Expense's bill history yet** (the All Invoices pills are a later ticket of spec #1637): the
+  previous bill staying as history is read from the DB.

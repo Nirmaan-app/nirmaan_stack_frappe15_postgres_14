@@ -18,15 +18,28 @@ from __future__ import annotations
 from decimal import Decimal
 
 import frappe
+from frappe.utils import now_datetime
 
-from nirmaan_stack.services.expense_bills import BILL_DOCTYPE, PENDING
+from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill
 from nirmaan_stack.services.expense_bills.reading import queue_reading
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
 
+def is_wallet_or_card_spend(doc) -> bool:
+    """Is Expense `doc` a wallet spend or a card spend, the only Expenses whose bill is an Expense bill?"""
+    return bool(doc.get("cashbook_batch") or doc.get("credit_card_statement"))
+
+
 def receive_bill(
-    doc, file_url: str, invoice_ref: str | None, invoice_date: str | None, user: str, bill_count: int = 1
+    doc,
+    file_url: str,
+    invoice_ref: str | None,
+    invoice_date: str | None,
+    user: str,
+    bill_count: int = 1,
+    *,
+    approve: bool = False,
 ) -> str:
     """File `file_url` as Expense `doc`'s bill (`doc` read `FOR UPDATE` by the caller) and record it; returns the
     Expense bill's name. Saves `doc` through the document layer (its `doc_events` run). Never commits: the caller
@@ -34,7 +47,11 @@ def receive_bill(
 
     `bill_count` is how many bills the file holds. Two or more (one PDF merged from a line's bill links) give the
     verdict's Not checked straight away: its total is the line amount, no number or date, Pending, and no reading
-    is queued (a merged file gives one guessed total, spec #1637 story 6)."""
+    is queued (a merged file gives one guessed total, spec #1637 story 6).
+
+    `approve`: the bill is approved at once in `user`'s name, with the number and date they typed (an approver
+    replacing a paid Expense's bill on Payment Done, #1643). Its Bill check still runs and is recorded, and never
+    replaces that number or date."""
     doc.invoice_attachment = file_url.strip()
     doc.invoice_ref = (invoice_ref or "").strip() or None
     doc.invoice_date = invoice_date or None
@@ -64,7 +81,18 @@ def receive_bill(
             "line_amount": float(line_amount),
             **check,
         }
-    ).insert(ignore_permissions=True)
+    )
+    if approve:
+        bill.update(
+            {
+                "status": APPROVED,
+                "approved_by": user,
+                "approved_on": now_datetime(),
+                "invoice_no": doc.invoice_ref,
+                "invoice_date": doc.invoice_date,
+            }
+        )
+    bill.insert(ignore_permissions=True)
     if bill.bill_check == CHECKING:
         queue_reading(bill.name)
     return bill.name

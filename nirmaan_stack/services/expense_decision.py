@@ -62,12 +62,14 @@ from nirmaan_stack.services.expense_statuses import (
     EXPENSE_REJECTED,
     EXPENSE_REQUESTED,
 )
+from nirmaan_stack.services.expense_bills.receive import is_wallet_or_card_spend, receive_bill
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_LEAD_PROFILE,
     ACCOUNTANT_PROFILE,
     ADMIN_PROFILE,
+    PAID_BILL_APPROVER_PROFILES,
     PAYMENT_SETTLE_PROFILES,
     has_role_profile,
 )
@@ -310,18 +312,28 @@ def save_raiser_invoice(doctype: str, name: str, invoice: dict) -> None:
     doc.save(ignore_permissions=True)
 
 
-def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None:
+def save_paid_invoice(
+    doctype: str, name: str, invoice_attachment: str, invoice_ref: str, invoice_date: str, user: str
+) -> None:
     """The Payment Done tab's Upload / Edit Inv (owner, 2026-10-31): a carve-out from `edit_access` like
     `save_raiser_invoice`, for `role_profiles.PAID_INVOICE_PROFILES` (`api/expenses/paid_invoice` checks who).
-    On a Paid Expense it writes `INVOICE_FIELDS` and nothing else, so it saves elevated; all three are
+    On a Paid Expense it writes the invoice file, ref and date and nothing else, so it saves elevated; all three are
     required and the date is not after today.
 
     The file is the one already on the expense, or one `user` just uploaded unattached (an HR user may not
     write the expense, so cannot upload against it), which is then filed under the expense. Any other File
-    URL is refused, so this cannot put another record's file on an expense. Never commits."""
+    URL is refused, so this cannot put another record's file on an expense.
+
+    A new file on a wallet spend or card spend goes through `expense_bills.receive_bill` as an Expense bill: approved
+    at once in `user`'s name when they hold `PAID_BILL_APPROVER_PROFILES`, else waiting like any other (#1643). A
+    changed number or date with the same file lands no new bill. Never commits."""
     if doctype not in EXPENSE_DOCTYPES:
         frappe.throw(_("{0} is not an expense ledger.").format(doctype))
-    values = {f: (invoice.get(f) or "").strip() for f in INVOICE_FIELDS}
+    values = {
+        "invoice_attachment": (invoice_attachment or "").strip(),
+        "invoice_ref": (invoice_ref or "").strip(),
+        "invoice_date": (invoice_date or "").strip(),
+    }
     if not values["invoice_attachment"]:
         frappe.throw(_("Attach the invoice file."), title=_("Invoice file required"))
     if not values["invoice_ref"]:
@@ -335,11 +347,15 @@ def save_paid_invoice(doctype: str, name: str, invoice: dict, user: str) -> None
     if (doc.status or "").strip() != EXPENSE_PAID:
         frappe.throw(_("{0} is {1}; its invoice is added here only once it is Paid.").format(
             name, doc.status or "blank"))
-    new_file = None
-    if values["invoice_attachment"] != (doc.invoice_attachment or ""):
-        new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user)
-    doc.update(values)
-    doc.save(ignore_permissions=True)
+    replaced = values["invoice_attachment"] != (doc.invoice_attachment or "")
+    new_file = _uploaded_invoice_file(doc, values["invoice_attachment"], user) if replaced else None
+    if replaced and is_wallet_or_card_spend(doc):
+        # A new bill on a wallet spend or card spend is an Expense bill (#1643); an approver's is approved at once.
+        receive_bill(doc, values["invoice_attachment"], values["invoice_ref"], values["invoice_date"], user,
+                     approve=has_role_profile(user, PAID_BILL_APPROVER_PROFILES))
+    else:
+        doc.update(values)
+        doc.save(ignore_permissions=True)
     if new_file:
         # Files the upload under the expense, as an upload made against it would have been. A plain write:
         # it moves no bytes, and a File's own hooks have nothing to do for a link.

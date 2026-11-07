@@ -63,7 +63,8 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   the Invoice Ref and Date on the expense lists; the bills a Cashbook import copies, late bills too, get the same
   check, and two or more bill links are Not checked; any other result waits in Pending Invoice Approvals -> Cashbook
   or -> Credit Card, to be approved (number and date corrected) or rejected (the spend waits again, with the reason);
-  a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; the Project and
+  a Not read bill (or one whose reading stopped) can be read again by Admin or Accountant Lead; a paid spend's bill
+  an Admin or Accountant Lead replaces on Payment Done is approved at once in their name; the Project and
   Non-Project Expenses lists show each spend's Bill check and approval on Paid and All, with a filter on each.
-  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook` or `--part bill-check`
-  for one part alone).
+  Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check` or
+  `--part paid-replace` for one part alone).
