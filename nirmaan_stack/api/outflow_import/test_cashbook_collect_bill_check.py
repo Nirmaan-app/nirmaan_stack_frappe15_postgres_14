@@ -114,6 +114,7 @@ class TestCreateMovesTheKeptCheckToTheExpenseBill(CollectPaymentCase):
                                      "attached_to_field": "invoice_attachment"}),
             0,
         )
+        self.assertEqual(frappe.db.count("File", {"attached_to_doctype": "Expense Bill"}), 0)
 
     def test_a_mismatched_line_makes_a_pending_expense_bill_and_fills_nothing(self):
         line = self._checked_line(FakeReader(BillRead(total=LINE_AMOUNT + 50, invoice_no="SHOP-8")))

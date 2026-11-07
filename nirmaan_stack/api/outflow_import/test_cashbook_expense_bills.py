@@ -27,8 +27,12 @@ from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_bills import FOUR_LINKS, ONE_LINK, CashbookBillsCase, _fake_bills
 from nirmaan_stack.api.outflow_import.test_cashbook_late_bills import LATE, LateBillsCase
+from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills import reading
 from nirmaan_stack.services.expense_bills.bill_check import BillRead
+
+#: What Frappe's attach-on-save hook logs when it cannot mint a File row for an Attach field.
+ATTACH_ERROR = "Error Attaching File"
 
 
 def _line_amount(expense) -> Decimal:
@@ -37,6 +41,7 @@ def _line_amount(expense) -> Decimal:
 
 class TestACopiedBillIsChecked(CashbookBillsCase):
     def test_a_created_line_with_one_bill_gets_a_checking_expense_bill_whose_reading_then_matches(self):
+        attach_errors = frappe.db.count("Error Log", {"method": ATTACH_ERROR, "reference_doctype": BILL})
         self._run()
         expense = self._expense(ONE_LINK)
 
@@ -45,6 +50,16 @@ class TestACopiedBillIsChecked(CashbookBillsCase):
         self.assertEqual(bill.bill_file, expense.invoice_attachment)
         self.assertEqual(bill.uploaded_by, "Administrator")
         self.assertIn(("long", bill.name), readings_queued(self.jobs))
+        # The copied file is one File, the Expense's: the bill carries its URL and Frappe mints no File row for it
+        # (nor tries to, which a site with no Home/Attachments folder logs), so deleting one record never takes
+        # the stored object from under the other.
+        self.assertEqual(
+            frappe.db.count("File", {"file_url": bill.bill_file, "attached_to_doctype": expense.doctype,
+                                     "attached_to_name": expense.name}),
+            1,
+        )
+        self.assertEqual(frappe.db.count("File", {"attached_to_doctype": BILL}), 0)
+        self.assertEqual(frappe.db.count("Error Log", {"method": ATTACH_ERROR, "reference_doctype": BILL}), attach_errors)
 
         reader = FakeReader(BillRead(total=_line_amount(expense), invoice_no="WALLET-1"))
         run_reading(bill.name, reader)

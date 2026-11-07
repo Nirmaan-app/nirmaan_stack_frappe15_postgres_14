@@ -34,7 +34,9 @@
   "cb_approval",
   "approved_by",
   "approved_on",
-  "rejection_reason"
+  "rejection_reason",
+  "rejected_by",
+  "rejected_on"
  ],
  "fields": [
   {
@@ -65,7 +67,7 @@
   },
   {
    "fieldname": "bill_file",
-   "fieldtype": "Attach",
+   "fieldtype": "Data",
    "label": "Bill File",
    "reqd": 1
   },
@@ -176,6 +178,7 @@
    "in_standard_filter": 1,
    "label": "Status",
    "options": "Pending\nApproved\nRejected",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -193,23 +196,38 @@
   {
    "fieldname": "approved_by",
    "fieldtype": "Data",
-   "label": "Approved By"
+   "label": "Approved By",
+   "read_only": 1
   },
   {
    "fieldname": "approved_on",
    "fieldtype": "Datetime",
-   "label": "Approved On"
+   "label": "Approved On",
+   "read_only": 1
   },
   {
    "fieldname": "rejection_reason",
    "fieldtype": "Small Text",
-   "label": "Rejection Reason"
+   "label": "Rejection Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_by",
+   "fieldtype": "Data",
+   "label": "Rejected By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rejected_on",
+   "fieldtype": "Datetime",
+   "label": "Rejected On",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-07 15:32:59.673104",
+ "modified": "2026-11-07 19:10:42.428107",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Bill",
@@ -229,28 +247,18 @@
    "write": 1
   },
   {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Accountant",
-   "share": 1,
-   "write": 1
+   "role": "Nirmaan Accountant"
   },
   {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Nirmaan Accountant Lead",
-   "share": 1,
-   "write": 1
+   "role": "Nirmaan Accountant Lead"
   }
  ],
  "row_format": "Dynamic",

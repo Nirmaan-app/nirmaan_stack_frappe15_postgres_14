@@ -24,17 +24,10 @@ def capture_jobs(case) -> list:
 
 
 def purge_expense_bills(expenses: list[str]) -> None:
-    """Every Expense bill of these Expenses, with its Version rows and the File row Frappe attaches to it on insert
-    (its `bill_file`; the stored file is the Expense's, left alone). Rolls back first (a test may leave the
-    transaction aborted); each scope raw, committed, and a failure rolled back and reported (`purge_records`)."""
+    """Every Expense bill of these Expenses, with its Version rows (a bill owns no File row: its `bill_file` is the
+    Expense's own file's URL). Rolls back first (a test may leave the transaction aborted); raw, committed, and a
+    failure rolled back and reported (`purge_records`)."""
     frappe.db.rollback()
     bills = frappe.get_all(BILL_DOCTYPE, filters={"expense": ["in", expenses]}, pluck="name") if expenses else []
-    if not bills:
-        return
-    try:
-        frappe.db.delete("File", {"attached_to_doctype": BILL_DOCTYPE, "attached_to_name": ["in", bills]})
-        frappe.db.commit()
-    except Exception:
-        frappe.db.rollback()
-        print(f"expense bill purge: could not delete the File rows of {', '.join(bills[:3])}")
-    purge_records(BILL_DOCTYPE, bills)
+    if bills:
+        purge_records(BILL_DOCTYPE, bills)
