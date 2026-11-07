@@ -4,7 +4,9 @@ An Accountant (also Accountant Lead, Admin, PMO and procurement) reviews the ven
 and WOs: the Pending Invoice Approvals tab lists the ones waiting for a decision, with Approve and Reject; All
 Invoices lists every invoice with its status and who actioned it. Both tables show who entered each invoice in
 "Invoice Added By": the uploader's full name, or their email when they have no name, on one line cut with "…",
-the whole text in a tooltip on hover (#1647).
+the whole text in a tooltip on hover (#1647). The PO Invoices 2B Recon and WO Invoices 2B Recon tabs list the
+Approved invoices of each document type for reconciliation, and show the same uploader the same way in "Invoice
+Uploaded By" (#1650).
 
 ## Sub-features
 
@@ -17,6 +19,8 @@ the whole text in a tooltip on hover (#1647).
 - `added-by-cut` "Invoice Added By" shows the full name, or the email, on one line with an ellipsis, inside its own
   150 px cell, on both tables.
 - `added-by-hover` a hover over a cut value opens a tooltip with the whole text.
+- `uploaded-by-cut` "Invoice Uploaded By" on PO Invoices 2B Recon (`?tab=po_invoices`) and WO Invoices 2B Recon
+  (`?tab=sr_invoices`) does the same, inside its 160 px cell, with the same hover tooltip.
 
 ## How to get to it (user POV)
 
@@ -29,21 +33,28 @@ Preconditions:
 
 - `DEVENV script <task> BIN/vendor_invoice_recon_seed.py` makes the open Accountant `walk-accountant@example.com`
   and gives the two newest Pending invoices made-up uploaders: `Walkerton Fairweather-Longbottom Montgomery`, and an
-  email with no Nirmaan Users row. The walk runs it itself; run it once by hand first to create the user, then
+  email with no Nirmaan Users row; so do the two newest Approved invoices of each document type, for the 2B Recon
+  tabs. The walk runs it itself; run it once by hand first to create the user, then
   `DEVENV run <task> set-password walk-accountant@example.com <pw>`.
 
 - **Whole walk.** `python3 BIN/walk_vendor_invoice_recon.py --task <task> --password <pw> [--shots <dir>]`. It
-  asserts, on both tabs and for both rows: one line with `text-overflow: ellipsis`, the text wider than its box,
+  asserts, on all four tabs and for both rows: one line with `text-overflow: ellipsis`, the text wider than its box,
   its right edge inside its `td`, and the hover tooltip equal to the whole text; and, by `BIN/vendor_invoice_recon_db.py`,
   each invoice's `uploaded_by` and the uploader's Nirmaan Users name (none for the email). Exits 1 on any miss.
 - **Find a row.** `get_by_role("row").filter(has=get_by_role("link", name=<PO id>, exact=True))`; its cell is
   `get_by_role("cell", name=<full text>)`, because the ARIA name keeps the whole text even when the screen cuts it.
 - **All Invoices.** Type the PO id into the `Search by PO…` box and wait until every row is that PO's.
+- **2B Recon tabs.** The document id is plain text there (beside an info link), so find the row by its text: the
+  PO / SR id and the invoice no. Type the invoice no into the `Search by Invoice No…` box (its default field), then
+  wait for the summary's `"<invoice no>"` chip and for the row.
 
 ## Gotchas
 
 - The search box is debounced: the table redraws after `networkidle`, and a redraw closes an open tooltip. Wait
   for the rows, not for the network.
+- The 2B Recon search matches loosely: an amount like `₹46,725` matches `4725`. Wait for the invoice's row, not
+  for every row to be the invoice's.
+- A late redraw can detach a found cell before it is measured (`closest('td')` is null); measure again.
 - Close a tooltip with Escape; moving the mouse to the sidebar leaves Radix's tooltip open in headless Chromium.
 - The tables use `table-layout: fixed`, so a column is exactly its `size` and the cell content has 16 px less
   (`p-2`). A cell's cap must be `max-w-full`, not a fixed width, or it pokes past the cell.

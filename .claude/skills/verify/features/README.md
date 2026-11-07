@@ -56,8 +56,8 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   in words, the Cashbook preview's and the card Review's Internal transfers lists, and the preview's sentence on the
   old ₹0 records it fills. Walked end to end by `BIN/walk_internal_transfers.py`.
 - [Vendor Invoice Recon](./vendor_invoice_recon.md): the Pending Invoice Approvals and All Invoices tabs, and their
-  "Invoice Added By" column (full name or email, cut with "…", whole text on hover). Walked by
-  `BIN/walk_vendor_invoice_recon.py`.
+  "Invoice Added By" column; the PO and WO Invoices 2B Recon tabs, and their "Invoice Uploaded By" column (full
+  name or email, cut with "…", whole text on hover). Walked by `BIN/walk_vendor_invoice_recon.py`.
 - [Expense bills](./expense_bills.md): a bill attached in Pending Invoices Upload -> Credit Card or -> Cashbook
   becomes an Expense bill with a Bill check (Checking, then Matched / Mismatched / Not read); a Matched bill fills
   the Invoice Ref and Date on the expense lists; the bills a Cashbook import copies, late bills too, get the same

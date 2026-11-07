@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TruncatedText } from "@/components/common/TruncatedText";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
@@ -380,8 +381,7 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                 header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Uploaded By</span>} />,
                 cell: ({ row }) => {
                     const userId = row.original.uploaded_by;
-                    const fullName = getUserFullName(userId);
-                    return <div className="font-medium">{fullName}</div>;
+                    return <TruncatedText text={getUserFullName(userId)} className="max-w-full font-medium" />;
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
                 meta: {
