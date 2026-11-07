@@ -30,6 +30,12 @@ NOT_CHECKED = "Not checked"
 TOLERANCE = Decimal("1")
 
 
+def paise(value) -> Decimal:
+    """`value` (a Currency column, a float, a string; None as 0) as a Decimal of whole paise, the one shape every
+    amount takes before it meets `check_bill`."""
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+
+
 @dataclass(frozen=True)
 class BillRead:
     """What the reader found on the bill. `total` (incl. GST) is None when it read none."""

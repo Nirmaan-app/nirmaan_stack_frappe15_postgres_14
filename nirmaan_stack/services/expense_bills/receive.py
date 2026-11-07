@@ -22,7 +22,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
-from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill
+from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, paise
 from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check
 from nirmaan_stack.services.outflow_import.expense_links import list_expense_lines
 
@@ -80,12 +80,7 @@ def receive_bill(
         doc.invoice_attachment = url
 
     line, line_amount = statement_line_of(doc.doctype, doc.name, doc.amount)
-    # Raw: `Expense Bill` has no doc_events, and `is_latest` is a history marker nothing is derived from.
-    frappe.db.sql(
-        f"""UPDATE "tab{BILL_DOCTYPE}" SET is_latest = 0
-            WHERE expense_doctype = %s AND expense = %s AND is_latest = 1""",
-        (doc.doctype, doc.name),
-    )
+    retire_bills(doc.doctype, doc.name)
     if bill_count > 1:
         kept = Reading(ReadFailed("A merged file is not read."))
     verdict = check_bill(kept.read, line_amount, bill_count) if kept is not None else None
@@ -116,6 +111,18 @@ def receive_bill(
     return bill.name
 
 
+def retire_bills(doctype: str, expense: str) -> None:
+    """Every Expense bill of Expense `expense` becomes history (`is_latest` 0): a new bill is landing, or the
+    Expense is being deleted (an Unreconcile's undo; `integrations/controllers/expense_bills.on_trash`). A deleted
+    Expense's bills are never deleted, and every queue and list joins the Expense, so they leave them all."""
+    # Raw: `Expense Bill` has no doc_events, and `is_latest` is a history marker nothing is derived from.
+    frappe.db.sql(
+        f"""UPDATE "tab{BILL_DOCTYPE}" SET is_latest = 0
+            WHERE expense_doctype = %s AND expense = %s AND is_latest = 1""",
+        (doctype, expense),
+    )
+
+
 def statement_line_of(doctype: str, expense: str, expense_amount) -> tuple[str | None, Decimal]:
     """The statement line that recorded the spend and that line's amount, read through the one live-link read
     (`outflow_import.expense_links.list_expense_lines`).
@@ -126,5 +133,5 @@ def statement_line_of(doctype: str, expense: str, expense_amount) -> tuple[str |
     """
     lines = [line for line in list_expense_lines(doctype, expense) if line.line_amount is not None]
     if lines:
-        return lines[-1].import_row, Decimal(str(lines[-1].line_amount))
-    return None, Decimal(str(expense_amount or 0))
+        return lines[-1].import_row, paise(lines[-1].line_amount)
+    return None, paise(expense_amount)

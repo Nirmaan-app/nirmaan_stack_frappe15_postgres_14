@@ -37,6 +37,7 @@ from nirmaan_stack.services.expense_bills.bill_check import (
     BillVerdict,
     ReadFailed,
     check_bill,
+    paise,
 )
 
 _JOB = "nirmaan_stack.services.expense_bills.reading.check_expense_bill"
@@ -150,11 +151,11 @@ def read_again(bill: str) -> None:
 def check_expense_bill(bill: str) -> None:
     """THE JOB: read one Checking Expense bill and record its Bill check. Does nothing for a bill another job
     claimed or one already decided."""
-    claimed = _claim(bill)
+    claimed = claim(BILL_DOCTYPE, bill, "bill_file, line_amount")
     if claimed is None:
         return
     reading = read_or_fail(claimed.bill_file, f"Expense bill {bill}")
-    verdict = check_bill(reading.read, Decimal(str(claimed.line_amount or 0)).quantize(Decimal("0.01")))
+    verdict = check_bill(reading.read, paise(claimed.line_amount))
     try:
         record_check(bill, reading, verdict)
         frappe.db.commit()
@@ -183,21 +184,25 @@ def read_or_fail(file_url: str, what: str) -> Reading:
         return Reading(ReadFailed(_failure_reason(exc)))
 
 
-def _claim(bill: str) -> frappe._dict | None:
-    """Take a Checking, unclaimed bill under its row lock and mark it claimed, committed. None otherwise."""
+def claim(doctype: str, name: str, columns: str, still_open=None) -> frappe._dict | None:
+    """THE ONE CLAIM, so one record is read once: take record `name` of `doctype` (an Expense bill, or a Collect
+    payment line, `line_check`) under its row lock while it is Checking, unclaimed and `still_open(row)` (when
+    given), mark it claimed (raw, committed) and give back its row with `columns`. None otherwise, the lock
+    released."""
     rows = frappe.db.sql(
-        f"""SELECT name, bill_file, line_amount, bill_check, read_claimed_at
-            FROM "tab{BILL_DOCTYPE}" WHERE name = %s FOR UPDATE""",
-        (bill,),
+        f"""SELECT name, {columns}, bill_check, read_claimed_at FROM "tab{doctype}" WHERE name = %s FOR UPDATE""",
+        (name,),
         as_dict=True,
     )
-    if not rows or rows[0].bill_check != CHECKING or rows[0].read_claimed_at:
+    row = rows[0] if rows else None
+    if row is None or row.bill_check != CHECKING or row.read_claimed_at or (still_open and not still_open(row)):
         frappe.db.rollback()
         return None
-    # Raw: `Expense Bill` has no doc_events, and the claim is a marker nothing is derived from.
-    frappe.db.set_value(BILL_DOCTYPE, bill, "read_claimed_at", now_datetime(), update_modified=False)
+    # Raw: neither `Expense Bill` nor `Outflow Import Row` has doc_events, and the claim is a marker nothing is
+    # derived from.
+    frappe.db.set_value(doctype, name, "read_claimed_at", now_datetime(), update_modified=False)
     frappe.db.commit()
-    return rows[0]
+    return row
 
 
 def record_check(bill: str, reading: Reading, verdict: BillVerdict) -> None:

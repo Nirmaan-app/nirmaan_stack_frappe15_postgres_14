@@ -14,17 +14,16 @@ result to the one entry point (`receive.receive_bill`, `kept`), so the bill is n
                     \\                                                                       Mismatched / Not read
                      `-> Not checked (2 or more bills merged: never read)
 
-The job copies `reading.check_expense_bill`: it claims the line under its row lock before reading, so a second job
-for it does nothing, and it reads only a line still open: a line decided while it waited has its own Expense bill,
-read on its own (a line Created while Checking hands over no result, and its Expense bill is read).
+The job is `reading.check_expense_bill`'s shape: it claims the line under its row lock before reading
+(`reading.claim`), so a second job for it does nothing, and it reads only a line still open: a line decided while
+it waited has its own Expense bill, read on its own (a line Created while Checking hands over no result, and its
+Expense bill is read).
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import frappe
-from frappe.utils import getdate, now_datetime
+from frappe.utils import getdate
 
 from nirmaan_stack.services.expense_bills import reading
 from nirmaan_stack.services.expense_bills.bill_check import (
@@ -35,18 +34,20 @@ from nirmaan_stack.services.expense_bills.bill_check import (
     BillRead,
     ReadFailed,
     check_bill,
+    paise,
 )
 from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED
 
 LINE_DOCTYPE = "Outflow Import Row"
 _JOB = "nirmaan_stack.services.expense_bills.line_check.check_collect_line"
 
+
 def start_check(line: str, line_amount, bill_count: int) -> dict:
     """The Bill check fields a just-stored bill of `line` starts with: Not checked for a file merged from several
     bills (never read, its total the line amount), else Checking with its reading queued once the caller commits.
     The caller writes them with the stored bill, under the line's lock."""
     if bill_count > 1:
-        verdict = check_bill(ReadFailed(""), Decimal(str(line_amount or 0)), bill_count)
+        verdict = check_bill(ReadFailed(""), paise(line_amount), bill_count)
         return {"bill_check": verdict.result, "bill_check_reason": verdict.reason}
     reading.queue_after_commit(_JOB, f"collect-bill-check-{line}", LINE_DOCTYPE, line, line=line)
     return {"bill_check": CHECKING, "bill_check_reason": None}
@@ -55,11 +56,13 @@ def start_check(line: str, line_amount, bill_count: int) -> dict:
 def check_collect_line(line: str) -> None:
     """THE JOB: read one Checking, open Collect payment line's stored bill and keep its Bill check on the line.
     Does nothing for a line another job claimed, one already checked, or one a person decided meanwhile."""
-    claimed = _claim(line)
+    claimed = reading.claim(
+        LINE_DOCTYPE, line, "stored_bill, amount, row_status", still_open=lambda row: row.row_status == ROW_MISMATCHED
+    )
     if claimed is None:
         return
     read = reading.read_or_fail(claimed.stored_bill, f"Collect payment {line}")
-    verdict = check_bill(read.read, Decimal(str(claimed.amount or 0)).quantize(Decimal("0.01")))
+    verdict = check_bill(read.read, paise(claimed.amount))
     try:
         _write(line, {"bill_check": verdict.result, "bill_check_reason": verdict.reason or None, **reading.read_fields(read)})
     except Exception as exc:
@@ -72,21 +75,6 @@ def check_collect_line(line: str) -> None:
         except Exception:
             frappe.db.rollback()
             frappe.log_error(title=f"Collect payment {line}: left Checking", message=frappe.get_traceback())
-
-
-def _claim(line: str) -> frappe._dict | None:
-    rows = frappe.db.sql(
-        f"""SELECT name, stored_bill, amount, bill_check, read_claimed_at, row_status
-            FROM "tab{LINE_DOCTYPE}" WHERE name = %s FOR UPDATE""",
-        (line,),
-        as_dict=True,
-    )
-    row = rows[0] if rows else None
-    if row is None or row.bill_check != CHECKING or row.read_claimed_at or row.row_status != ROW_MISMATCHED:
-        frappe.db.rollback()
-        return None
-    _write(line, {"read_claimed_at": now_datetime()})
-    return row
 
 
 def _write(line: str, values: dict) -> None:
@@ -113,7 +101,7 @@ def kept_reading(line: str) -> reading.Reading | None:
     if kept.bill_check in (MATCHED, MISMATCHED):
         return reading.Reading(
             BillRead(
-                total=None if kept.read_total is None else Decimal(str(kept.read_total)).quantize(Decimal("0.01")),
+                total=None if kept.read_total is None else paise(kept.read_total),
                 invoice_no=kept.read_invoice_no or "",
                 invoice_date=getdate(kept.read_invoice_date) if kept.read_invoice_date else None,
             ),
