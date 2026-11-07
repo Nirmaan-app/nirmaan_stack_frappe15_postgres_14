@@ -461,7 +461,9 @@ def _failure_text(messages: list[dict]) -> str:
     assistants = [m for m in messages if m.get("type") == "assistant"]
     if assistants and API_ERROR_TEXT.search(text := _assistant_text(assistants[-1])):
         return text
-    return "; ".join(e for e in last.get("errors") or [] if isinstance(e, str))
+    errors = "; ".join(e for e in last.get("errors") or [] if isinstance(e, str))
+    subtype = last.get("subtype")
+    return errors or (subtype if isinstance(subtype, str) and subtype.startswith("error_") else "")
 
 
 def redact(text: str, env: dict[str, str]) -> str:
@@ -807,6 +809,11 @@ def author_notice(before: ReviewState, after: ReviewState, author: str, checks: 
     return f"@{author}, review run {after['run']} found {len(added)} new {noun} to fix: {', '.join(added)}. See {link}."
 
 
+def _inert(text: str) -> str:
+    """Error text as a code span, where GitHub renders no mention, link, image or HTML comment."""
+    return "`" + text.replace("`", "'") + "`"
+
+
 def _headline(author: str, state: ReviewState, blocking: int, head_sha: str | None, failed: bool,
               out_of_budget: bool, run_url: str, reason: str) -> str:
     if out_of_budget:
@@ -814,7 +821,7 @@ def _headline(author: str, state: ReviewState, blocking: int, head_sha: str | No
     if failed:
         earlier = f" The list below is from run {state['run']}." if state["run"] else ""
         if reason:
-            return f'This review run failed: Anthropic said "{reason}". [See the log]({run_url}).{earlier}'
+            return f"This review run failed: {_inert(reason)}. [See the log]({run_url}).{earlier}"
         return f"This review run failed, [see the log]({run_url}).{earlier}"
     if state["locked"]:
         return f"This PR is locked: {OPTION_BY_KEY[state['decision']['choice']].done} by the owner's decision."

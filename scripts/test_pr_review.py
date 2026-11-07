@@ -524,7 +524,7 @@ class FailureReason(unittest.TestCase):
         reason = failure_reason(execution_file(error_result("Invalid API key · Fix external API key")), NO_ENV)
         with_reason = render_comment("asha", state, [], RUN_URL, failed=True, reason=reason)
         self.assertEqual(with_reason.splitlines()[1],
-                         f'This review run failed: Anthropic said "Invalid API key · Fix external API key". '
+                         "This review run failed: `Invalid API key · Fix external API key`. "
                          f"[See the log]({RUN_URL}). The list below is from run 2.")
         self.assertEqual(parse_state(with_reason), state)
         self.assertEqual(render_comment("asha", state, [], RUN_URL, failed=True).splitlines()[1],
@@ -828,6 +828,18 @@ class AuthorNotice(unittest.TestCase):
         for name, (old, new) in cases.items():
             self.assertEqual(author_notice(old, new, "asha", FAILING_CI, CHECKLIST), "", name)
 
+
+
+class InertReasonTest(unittest.TestCase):
+    def test_reason_cannot_hide_the_comment_or_ping(self):
+        from pr_review import _inert
+        self.assertEqual(_inert("bad <!-- hide --> @someone `x` [l](u)"), "`bad <!-- hide --> @someone 'x' [l](u)`")
+
+    def test_an_error_subtype_is_the_reason_when_there_is_no_text(self):
+        from pr_review import failure_reason
+        log = json.dumps([{"type": "result", "subtype": "error_max_turns", "is_error": True, "num_turns": 60,
+                           "total_cost_usd": 1.2}])
+        self.assertEqual(failure_reason(log, {}), "error_max_turns")
 
 if __name__ == "__main__":
     unittest.main()
