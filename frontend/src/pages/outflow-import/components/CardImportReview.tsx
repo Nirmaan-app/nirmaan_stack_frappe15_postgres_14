@@ -224,7 +224,7 @@ const CardRefunds = ({
                                 </td>
                                 <td className="px-3 py-1.5">{line.details}</td>
                                 <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-emerald-700">
-                                    {formatToIndianRupee(-line.amount)}
+                                    -{formatToIndianRupee(line.amount)}
                                 </td>
                                 <td className="px-3 py-1">
                                     <SpendType
