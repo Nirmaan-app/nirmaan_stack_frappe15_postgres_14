@@ -26,7 +26,19 @@ THE LAYOUT, measured on the 2026-10-01 statement (`tests/fixtures/icici_card_sta
 
 A line is `DD/MM/YYYY`, an 11-digit SerNo, the transaction details, the reward points, an optional
 international amount, the amount and an optional `CR`. A line dated before the period, or out of date
-order, is kept as printed. The card number printed as a heading over each card's lines is kept on each line as its last four digits only (#1624).
+order, is kept as printed.
+
+A line too wide for the Transaction Details column is split over two or three rows (the 2026 Apr, Jun, Jul and
+Sep statements): the opening row holds the date, the SerNo and the first details; the next row the country code,
+or the city and country code; the last the points, the amount and any `CR`:
+
+    03/03/2026 12900000001 ING*FAKE TRAVELS  INDI HTTPS://WWW.F
+    IN
+    0 12,754.68
+
+Such a line is read as its rows' words joined with one space (details `ING*FAKE TRAVELS INDI HTTPS://WWW.F IN`).
+A row is joined on only when it is neither a card heading nor the next line's opening row, and a line not complete
+within three rows is not read, so the gate refuses the file. The card number printed as a heading over each card's lines is kept on each line as its last four digits only (#1624).
 
 The company is read to be SHOWN on Review, never checked (ADR-0039 Amendment B). The layout is the text
 pypdf 6.13.3 (Frappe's pin) extracts; pypdf 3.17.4 joins some of these lines and misreads the statement.

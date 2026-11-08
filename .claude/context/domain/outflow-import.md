@@ -7489,6 +7489,11 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
    standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated
    before the period or out of order are kept as printed. The card-number headings are never read.
+   ⚠️ **A line may be split over two or three rows** (pypdf breaks a details too wide for its column; seen in the
+   2026 Apr, Jun, Jul and Sep statements, which the gate refused until `_line_from` read them): a row that opens
+   with date + SerNo but does not end the line is joined with the one or two rows under it, words joined with one
+   space, never across a card heading or the next line's opening row. A line not complete in three rows is unread
+   and the gate refuses the file.
 3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code AND the city
    before it (and `NEW` / `NAVI` before that), then punctuation, then trailing PVT / P / LTD / LIMITED /
    INDIA / PRIVATE (never to nothing). The three MakeMyTrip spellings give `MAKEMYTRIP`. A line with no
