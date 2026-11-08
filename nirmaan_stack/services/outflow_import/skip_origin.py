@@ -35,8 +35,8 @@ database that shape does not occur (all seven decided skips carry a non-skip mat
 prints what it classified so production can be checked.
 """
 
-from nirmaan_stack.services.outflow_import.card_credits import CARD_SPEND_REFUSAL
-from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+from nirmaan_stack.services.outflow_import.card_credits import CARD_REFUND_REFUSAL, CARD_SPEND_REFUSAL
+from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS, DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BY_HAND,
@@ -101,15 +101,20 @@ def cashbook_pending_line_refusal(import_batch: str | None) -> str:
 
 
 def own_import_refusal(
-    *, source: str | None, direction: str | None, row_status: str | None, import_batch: str | None = None
+    *,
+    source: str | None,
+    direction: str | None,
+    row_status: str | None,
+    import_batch: str | None = None,
+    match_basis: str | None = None,
 ) -> str | None:
     """Why no main-table write may touch this line because its OWN import owns it -- or `None` (#1443, #1587).
 
     Every main-table write asks this: `expenses.guard_not_an_own_import_line` (Create, Link, Allocate,
     Split / Part payment) and `manual_skip_refusal` (Skip).
 
-      * A Porter line, and a card SPEND, wait for their import's Create whatever their status
-        (`sources.line_waits_for_its_own_create`).
+      * A Porter line, a card SPEND and a card REFUND (a credit carrying Create's plan, `match_basis`, #1673)
+        wait for their import's Create whatever their status (`sources.line_waits_for_its_own_create`).
       * A Cashbook line waits only while it is `Pending match run` (#1587, spec #1585 gap B). The Cashbook
         worker reads its line list once and writes each line from it, so a hand write taken now is
         written again by the job. ⚠️ THE STATUS, NOT THE SOURCE ALONE: a Cashbook line at any other open
@@ -117,15 +122,22 @@ def own_import_refusal(
         (ADR-0015 Amendment A), and the job never takes it.
     """
     source = (source or "").strip()
-    if line_waits_for_its_own_create(source, direction or ""):
-        return CARD_SPEND_REFUSAL if source == CARD_STATEMENT_SOURCE else OWN_IMPORT_LINE_REFUSAL
+    if line_waits_for_its_own_create(source, direction or "", match_basis):
+        if source != CARD_STATEMENT_SOURCE:
+            return OWN_IMPORT_LINE_REFUSAL
+        return CARD_REFUND_REFUSAL if (direction or "").strip() == DIRECTION_CREDIT else CARD_SPEND_REFUSAL
     if source == CASHBOOK_SOURCE and (row_status or "").strip() == ROW_PENDING_MATCH:
         return cashbook_pending_line_refusal(import_batch)
     return None
 
 
 def manual_skip_refusal(
-    *, row_status: str | None, source: str | None, direction: str | None = None, import_batch: str | None = None
+    *,
+    row_status: str | None,
+    source: str | None,
+    direction: str | None = None,
+    import_batch: str | None = None,
+    match_basis: str | None = None,
 ) -> str | None:
     """Why a person may NOT skip this line, as the sentence to show -- or `None` when they may (#1273).
 
@@ -152,9 +164,11 @@ def manual_skip_refusal(
         return SKIP_REFUSED_NOT_OPEN.format(status=status or "in no known state")
     # ⚠️ A PORTER LINE IS NEVER SKIPPED FROM THE MAIN TABLE (#1443). It is created by its own import once
     # Porter's invoices agree; a hand skip would let one order quietly drop out of an import whose
-    # validation is all or nothing. A card SPEND waits the same way; a card CREDIT does not (#1567).
-    # A Cashbook line waits while its job has not written it (#1314, #1587).
-    return own_import_refusal(source=source, direction=direction, row_status=status, import_batch=import_batch)
+    # validation is all or nothing. A card SPEND waits the same way, and so does a card REFUND (#1673); any
+    # other card CREDIT does not (#1567). A Cashbook line waits while its job has not written it (#1314, #1587).
+    return own_import_refusal(
+        source=source, direction=direction, row_status=status, import_batch=import_batch, match_basis=match_basis
+    )
 
 
 UNSKIP_REFUSED_NOT_SKIPPED = "This transfer is not skipped, so there is nothing to unskip."

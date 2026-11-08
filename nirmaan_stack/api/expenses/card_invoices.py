@@ -17,7 +17,13 @@ sub-tab (`cashbook_invoices.py`, #1592) and live in `services/expense_invoices.p
 
 import frappe
 
-from nirmaan_stack.services.card_invoices import CardExpenseFacts, card_line_details, statement_months
+from nirmaan_stack.services.card_invoices import (
+    CARD_SPEND_SQL,
+    CardExpenseFacts,
+    card_line_details,
+    is_card_spend,
+    statement_months,
+)
 from nirmaan_stack.services.expense_bills.approval import last_rejection_sql
 from nirmaan_stack.services.expense_invoices import (
     require_profile,
@@ -48,10 +54,11 @@ def get_card_invoice_queue() -> list[dict]:
                {last_bill_rejected} AS last_bill_rejected
         FROM "tabNon Project Expenses" e
         JOIN "tabCredit Card Statement" s ON s.name = e.credit_card_statement
-        WHERE COALESCE(e.invoice_attachment, '') = ''
+        WHERE {card_spend}
+          AND COALESCE(e.invoice_attachment, '') = ''
           AND COALESCE(e.no_invoice_by, '') = ''
         ORDER BY e.payment_date DESC, e.name DESC
-        """.format(last_bill_rejected=last_rejection_sql("e", f"'{EXPENSE_DOCTYPE}'")),
+        """.format(card_spend=CARD_SPEND_SQL, last_bill_rejected=last_rejection_sql("e", f"'{EXPENSE_DOCTYPE}'")),
         as_dict=True,
     )
     for row in rows:
@@ -65,7 +72,7 @@ def _locked_facts(expense: str):
     doc = frappe.get_doc(EXPENSE_DOCTYPE, expense, for_update=True)
     facts = CardExpenseFacts(
         name=doc.name,
-        is_card=bool(doc.credit_card_statement),
+        is_card=is_card_spend(doc.credit_card_statement, doc.amount),
         invoice_attachment=doc.invoice_attachment,
         no_invoice_by=doc.no_invoice_by,
     )

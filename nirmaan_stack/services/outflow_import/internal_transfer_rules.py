@@ -60,12 +60,17 @@ def own_place(source: str | None) -> str | None:
 
 
 def mark_refusal(
-    *, row_status: str | None, source: str | None, direction: str | None, import_batch: str | None = None
+    *,
+    row_status: str | None,
+    source: str | None,
+    direction: str | None,
+    import_batch: str | None = None,
+    match_basis: str | None = None,
 ) -> str | None:
     """Why this line may NOT be marked as an Internal Transfer by hand, or `None` when it may.
 
-    Open lines only (Pending match run, Matched, Mismatched, Error), so money is never recorded twice. A Porter line
-    and a card spend wait for their own import, and a Cashbook line its job still owns is refused with the same
+    Open lines only (Pending match run, Matched, Mismatched, Error), so money is never recorded twice. A Porter line,
+    a card spend and a card refund wait for their own import, and a Cashbook line its job still owns is refused with the same
     sentences every main-table write uses (`skip_origin.own_import_refusal`). Any other source but ICICI, Cashfree
     and Cashbook (a card credit) is refused by name.
     """
@@ -77,7 +82,9 @@ def mark_refusal(
             ROW_SKIPPED: MARK_REFUSED_SKIPPED,
             ROW_INTERNAL_TRANSFER: MARK_REFUSED_ALREADY,
         }.get(status, MARK_REFUSED_NOT_OPEN.format(status=status or "in no known state"))
-    owned = own_import_refusal(source=source, direction=direction, row_status=status, import_batch=import_batch)
+    owned = own_import_refusal(
+        source=source, direction=direction, row_status=status, import_batch=import_batch, match_basis=match_basis
+    )
     if owned:
         return owned
     if own_place(source) is None:

@@ -230,6 +230,14 @@ class TestTheCreditCardStatementSource(unittest.TestCase):
             for source in ("Cashfree", "Cashbook", "ICICI Bank Statement", "", None):
                 self.assertFalse(line_waits_for_its_own_create(source, direction), repr((source, direction)))
 
+    def test_a_card_credit_carrying_the_create_plan_is_a_refund_and_waits(self):
+        """#1673 (ADR-0039 Amendment D): an unpaired card refund carries Create's plan and waits like a spend."""
+        from nirmaan_stack.services.outflow_import.sources import line_waits_for_its_own_create
+
+        self.assertTrue(line_waits_for_its_own_create("ICICI Credit Card Statement", "Credit", "card statement"))
+        self.assertFalse(line_waits_for_its_own_create("ICICI Credit Card Statement", "Credit", ""))
+        self.assertFalse(line_waits_for_its_own_create("ICICI Bank Statement", "Credit", "card statement"))
+
     def test_it_can_carry_a_credit(self):
         from nirmaan_stack.services.outflow_import.parser import source_can_carry_credit
 

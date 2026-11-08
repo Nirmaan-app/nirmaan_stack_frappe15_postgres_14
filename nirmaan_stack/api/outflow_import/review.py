@@ -138,6 +138,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CARD_PLAN_BASIS,
     CARD_STATEMENT_SOURCE,
     CASHBOOK_SOURCE,
     CREATE_GATED_SOURCES,
@@ -1485,19 +1486,20 @@ def skip_row(row: str, reason: str):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
-            ["name", "import_batch", "row_status", "direction", "source", "row_kind"],
+            ["name", "import_batch", "row_status", "direction", "source", "row_kind", "match_basis"],
             as_dict=True,
             for_update=True,
         )
         if not current:
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
         # The BATCH's source, as `match_line` reads it -- the run-level fact, not the denormalised copy.
-        # The direction: a card credit may be skipped here, a card spend may not (#1567).
+        # The direction and plan: a card credit may be skipped here, a card spend or refund may not (#1567, #1673).
         refusal = manual_skip_refusal(
             row_status=current.row_status,
             source=_batch_source(current.import_batch),
             direction=current.direction,
             import_batch=current.import_batch,
+            match_basis=current.match_basis,
         )
         if refusal:
             frappe.throw(refusal, title="Cannot skip this transfer")
@@ -3171,12 +3173,14 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # the facets, the summary panel's *Still open* and the Payments card's *Total Unreconciled Outflow*
     # (`not_matched_totals`). One clause here keeps all of them equal to each other. A Porter line comes
     # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
-    # ⚠️ PER LINE, NOT PER SOURCE (#1567, README ruling 4): a card CREDIT is decided here, so an open one is
-    # in the population; a card spend waits like a Porter line. `sources.line_waits_for_its_own_create`
-    # is the same rule in Python.
+    # ⚠️ PER LINE, NOT PER SOURCE (#1567, #1673): a card spend waits like a Porter line, and so does a card
+    # refund (a credit carrying its import's Create plan, `CARD_PLAN_BASIS`); any other card CREDIT is
+    # decided here, so an open one is in the population. `sources.line_waits_for_its_own_create` is the
+    # same rule in Python.
     where.append(
         "NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s"
-        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s))"
+        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s"
+        " AND COALESCE(r.match_basis, '') != %s))"
     )
     params.extend(
         [
@@ -3184,6 +3188,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
             (ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER),
             tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
             DIRECTION_CREDIT,
+            CARD_PLAN_BASIS,
         ]
     )
 

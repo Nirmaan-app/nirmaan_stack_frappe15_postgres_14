@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from nirmaan_stack.services.card_invoices import CARD_SPEND_SQL
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE
 from nirmaan_stack.services.expense_bills.bill_check import MATCHED, MISMATCHED
 from nirmaan_stack.services.expense_bills.bill_list import EXPENSE_DOCTYPES, LIST_FIELD_SQL, STOPPED_SQL
@@ -35,10 +36,10 @@ class Pill(NamedTuple):
     condition: str
 
 
-#: The two pills: the Cashbook import's marker, or a card statement.
+#: The two pills: the Cashbook import's marker, or a card spend (a card refund needs no bill, #1673).
 KINDS = {
     "cashbook": Pill((PROJECT_EXPENSE, NON_PROJECT_EXPENSE), "COALESCE(e.cashbook_batch, '') != ''"),
-    "card": Pill((NON_PROJECT_EXPENSE,), "COALESCE(e.credit_card_statement, '') != ''"),
+    "card": Pill((NON_PROJECT_EXPENSE,), CARD_SPEND_SQL),
 }
 
 _ROWS_SQL = f"""

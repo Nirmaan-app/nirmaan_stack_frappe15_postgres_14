@@ -17,7 +17,7 @@ from nirmaan_stack.services.outflow_import.card_credits import (
     REFUND,
     REFUNDED_SPEND,
     SPEND,
-    UNPAIRED_CREDIT,
+    UNPAIRED_REFUND,
     sort_card_lines,
 )
 from nirmaan_stack.services.outflow_import.card_statement import CardLine, merchant_key, read_card_statement
@@ -72,7 +72,7 @@ class TestTheFixtureStatement(unittest.TestCase):
         self.assertEqual(self._kind("14144135412"), CASHBACK)
 
     def test_the_makemytrip_801_50_credit_is_unpaired(self):
-        self.assertEqual(self._kind("14261832070"), UNPAIRED_CREDIT)
+        self.assertEqual(self._kind("14261832070"), UNPAIRED_REFUND)
         self.assertIsNone(self.sorted["14261832070"].partner)
 
     def test_five_credits_skipped_one_internal_one_open(self):
@@ -80,7 +80,7 @@ class TestTheFixtureStatement(unittest.TestCase):
         credits = [self.sorted[line.serno] for line in self.statement.credits]
         self.assertEqual(sum(1 for s in credits if s.skipped), 5)
         self.assertEqual(sum(1 for s in credits if s.internal), 1)
-        self.assertEqual([s.kind for s in credits if not s.skipped and not s.internal], [UNPAIRED_CREDIT])
+        self.assertEqual([s.kind for s in credits if not s.skipped and not s.internal], [UNPAIRED_REFUND])
 
     def test_every_spend_stays_a_spend_the_two_identical_ones_too(self):
         for line in self.statement.spends:
@@ -138,7 +138,7 @@ class TestRefundPairs(unittest.TestCase):
         refund = _line(5, "SWIGGY BANGALORE IN", "420.00", credit=True)
         after = _line(5, "SWIGGY BANGALORE IN", "420.00")
         result = sort_card_lines([refund, after])
-        self.assertEqual(result[refund.serno].kind, UNPAIRED_CREDIT)
+        self.assertEqual(result[refund.serno].kind, UNPAIRED_REFUND)
         self.assertEqual(result[after.serno].kind, SPEND)
 
     def test_two_credits_cancel_two_spends(self):
@@ -154,7 +154,7 @@ class TestRefundPairs(unittest.TestCase):
         refund = _line(3, "SWIGGY BANGALORE IN", "420.00", credit=True)
         later = _line(5, "SWIGGY BANGALORE IN", "420.00")
         result = sort_card_lines([refund, later])
-        self.assertEqual(result[refund.serno].kind, UNPAIRED_CREDIT)
+        self.assertEqual(result[refund.serno].kind, UNPAIRED_REFUND)
         self.assertEqual(result[later.serno].kind, SPEND)
 
     def test_a_different_amount_or_merchant_does_not_pair(self):
@@ -162,8 +162,8 @@ class TestRefundPairs(unittest.TestCase):
         partial = _line(4, "SWIGGY BANGALORE IN", "419.99", credit=True)
         other = _line(4, "ZOMATO LIMITED Gurugram IN", "420.00", credit=True)
         result = sort_card_lines([spend, partial, other])
-        self.assertEqual(result[partial.serno].kind, UNPAIRED_CREDIT)
-        self.assertEqual(result[other.serno].kind, UNPAIRED_CREDIT)
+        self.assertEqual(result[partial.serno].kind, UNPAIRED_REFUND)
+        self.assertEqual(result[other.serno].kind, UNPAIRED_REFUND)
         self.assertEqual(result[spend.serno].kind, SPEND)
 
     def test_a_payment_or_cashback_never_pairs_with_a_spend(self):

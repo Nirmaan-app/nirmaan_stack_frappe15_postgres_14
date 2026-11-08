@@ -21,6 +21,7 @@ from decimal import Decimal
 import frappe
 from frappe.utils import now_datetime
 
+from nirmaan_stack.services.card_invoices import is_card_spend
 from nirmaan_stack.services.expense_bills import APPROVED, BILL_DOCTYPE, PENDING
 from nirmaan_stack.services.expense_bills.bill_check import CHECKING, ReadFailed, check_bill, money
 from nirmaan_stack.services.expense_bills.reading import Reading, queue_reading, record_check
@@ -28,8 +29,9 @@ from nirmaan_stack.services.outflow_import.expense_links import list_expense_lin
 
 
 def is_wallet_or_card_spend(doc) -> bool:
-    """Is Expense `doc` a wallet spend or a card spend, the only Expenses whose bill is an Expense bill?"""
-    return bool(doc.get("cashbook_batch") or doc.get("credit_card_statement"))
+    """Is Expense `doc` a wallet spend or a card spend, the only Expenses whose bill is an Expense bill? A card refund
+    (#1673) is neither: it needs no bill (`card_invoices.is_card_spend`)."""
+    return bool(doc.get("cashbook_batch")) or is_card_spend(doc.get("credit_card_statement"), doc.get("amount"))
 
 
 def receive_bill(

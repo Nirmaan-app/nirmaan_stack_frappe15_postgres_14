@@ -44,7 +44,7 @@ from nirmaan_stack.services.outflow_import.parser import (
     DIRECTION_DEBIT,
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
-from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
+from nirmaan_stack.services.outflow_import.sources import CARD_PLAN_BASIS, CARD_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER, ROW_MISMATCHED, ROW_PENDING_MATCH
 
 BATCH_DOCTYPE = "Outflow Import Batch"
@@ -52,8 +52,8 @@ ROW_DOCTYPE = "Outflow Import Row"
 STATEMENT_DOCTYPE = "Credit Card Statement"
 SOURCE = CARD_STATEMENT_SOURCE
 
-#: The basis a card spend's match record carries (`Outflow Row Match.match_basis`).
-MATCH_BASIS = "card statement"
+#: The basis a card line's Create plan and its match record carry (`Outflow Row Match.match_basis`).
+MATCH_BASIS = CARD_PLAN_BASIS
 #: Every card spend becomes a Non-Project Expense (ADR-0039 decision 1).
 SPEND_DOCTYPE = "Non Project Expenses"
 
@@ -211,12 +211,11 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
             # The Expense's payment reference (ADR-0039 decision 6), resolved once, here (README ruling 6).
             "settlement_reference": line_reference(line),
         }
-        if line.is_credit:
-            # An unpaired credit is open work on the main table (README ruling 4).
-            values["row_status"] = ROW_MISMATCHED
-        else:
-            # A spend keeps its Create plan even when a refund cancels it, so an unskipped pair brings it
-            # straight back as Create's work.
+        sort = sorts[line.serno]
+        if sort.planned:
+            # Create's plan: a spend, and since #1673 every merchant credit (an *Unpaired card refund*, recorded
+            # as a negative Non-Project Expense). A refund pair keeps it under its skip, so an unskipped pair
+            # comes straight back as Create's work.
             values.update(
                 {
                     "row_status": ROW_PENDING_MATCH,
@@ -228,10 +227,13 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
                     "type_source": TYPE_SOURCE_FALLBACK,
                 }
             )
+        else:
+            # A payment into the card, cashback or the auto-debit: skipped or an Internal Transfer just below.
+            values["row_status"] = ROW_MISMATCHED
         # A payment into the card, cashback and both lines of a refund pair are system skips.
-        values.update(skip_values(sorts[line.serno]))
+        values.update(skip_values(sort))
         # #1624: the bank's auto-debit paying the card is an Internal Transfer line, with its record.
-        transfer = card_auto_debit_transfer(line.card_last_four) if sorts[line.serno].internal else None
+        transfer = card_auto_debit_transfer(line.card_last_four) if sort.internal else None
         if transfer:
             values.update({"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": transfer_sentence(transfer)})
         doc = frappe.new_doc(ROW_DOCTYPE)

@@ -14,7 +14,8 @@ PURE: no Frappe, no DB. `sort_card_lines(lines)` answers, for every line the rea
                      amount on this statement; its `partner` is that spend
     REFUNDED_SPEND   the spend a REFUND cancels; its `partner` is the refund. Both lines are skipped together
                      and come back together on unskip
-    UNPAIRED_CREDIT  any other merchant credit: open, with the choices a bank credit has
+    UNPAIRED_REFUND  any other merchant credit, an *Unpaired card refund* (#1673, ADR-0039 Amendment D): open
+                     on the card import's Review, created as a negative Non-Project Expense
 
 ⚠️ ONE CREDIT CANCELS ONE SPEND: the latest spend before it (by date, then as printed), and a spend is
 cancelled at most once. So two identical bookings with one refund leave one spend open. A spend dated after
@@ -51,21 +52,29 @@ CARD_PAYMENT = "card payment"
 CASHBACK = "cashback"
 REFUND = "refund"
 REFUNDED_SPEND = "refunded spend"
-UNPAIRED_CREDIT = "unpaired credit"
+UNPAIRED_REFUND = "unpaired refund"
 # The bank's auto-debit paying the card ("Autodebit Payment Recd.", #1624, spec #1619): an Internal Transfer from
 # the ICICI Current Account to the card. Every other payment credit stays CARD_PAYMENT: the statement does not
 # say who paid it (#1618).
 CARD_AUTO_DEBIT = "card auto-debit"
 
 #: What a main-table action on a card SPEND is refused with: it waits for the card import's own Create
-#: (`sources.line_waits_for_its_own_create`). A card credit is decided on the main table.
+#: (`sources.line_waits_for_its_own_create`).
 CARD_SPEND_REFUSAL = (
     "This is a card spend. It can only be created by its Credit Card Statement import. Open that import "
     "from Import History, on the Credit Card tab."
 )
+#: The same, for a card REFUND (a credit carrying its import's Create plan, #1673).
+CARD_REFUND_REFUSAL = (
+    "This is a card refund. It can only be recorded by its Credit Card Statement import. Open that import "
+    "from Import History, on the Credit Card tab."
+)
 
-#: The kinds that are skipped at upload. The other two (a spend, an unpaired credit) are open work.
+#: The kinds that are skipped at upload. The other two (a spend, an unpaired refund) are open work.
 SKIPPED_KINDS = frozenset({CARD_PAYMENT, CASHBACK, REFUND, REFUNDED_SPEND})
+#: The kinds staged with Create's plan: a spend and a merchant credit (#1673). A refund pair keeps it under
+#: its skip, so an unskipped pair comes straight back as Create's work.
+PLANNED_KINDS = frozenset({SPEND, REFUNDED_SPEND, REFUND, UNPAIRED_REFUND})
 
 # Read on the merchant key (upper case, punctuation dropped): "Autodebit Payment Recd." ->
 # "AUTODEBIT PAYMENT RECD", "Auto Dr.Retn-Insuff. fund" -> "AUTO DR RETN INSUFF FUND".
@@ -81,6 +90,14 @@ def auto_debit_words(details: str) -> bool:
     return bool(_AUTO_DEBIT.search(merchant_key(details or "")))
 
 
+def merchant_credit_words(details: str) -> bool:
+    """Whether a card credit's words are a merchant's -- neither a payment into the card, cashback nor the bank's
+    auto-debit -- read as `sort_card_lines` reads them. Shared with the one-time patch that moves old open card
+    credits back to their import as unpaired refunds (#1673)."""
+    key = merchant_key(details or "")
+    return not (_AUTO_DEBIT.search(key) or _PAYMENT.search(key) or _CASHBACK.search(key))
+
+
 @dataclass(frozen=True)
 class LineSort:
     """What one line is. `partner` is the other line of a refund pair, else `None`."""
@@ -91,6 +108,11 @@ class LineSort:
     @property
     def skipped(self) -> bool:
         return self.kind in SKIPPED_KINDS
+
+    @property
+    def planned(self) -> bool:
+        """Staged with Create's plan (`PLANNED_KINDS`)."""
+        return self.kind in PLANNED_KINDS
 
     @property
     def internal(self) -> bool:
@@ -152,7 +174,7 @@ def sort_card_lines(lines: Iterable[CardLine]) -> dict[str, LineSort]:
             and (spend.date, spend_position) < (credit.date, position)
         ]
         if not candidates:
-            result[credit.serno] = LineSort(UNPAIRED_CREDIT)
+            result[credit.serno] = LineSort(UNPAIRED_REFUND)
             continue
         _, spend_position, spend = max(candidates, key=lambda c: (c[0], c[1]))
         open_spends.remove((spend_position, spend))

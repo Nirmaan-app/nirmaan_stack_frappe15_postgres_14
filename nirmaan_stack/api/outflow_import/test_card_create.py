@@ -103,8 +103,9 @@ class TestReviewShowsEachSpendsType(CardCreateCase):
         self.assertEqual({line["check"] for line in spends}, {True})
         self.assertEqual({line["editable"] for line in spends}, {True})
 
-    def test_a_credit_has_no_type_and_is_not_editable_here(self):
-        credits = [line for line in self._review()["lines"] if line["is_credit"]]
+    def test_a_credit_other_than_a_refund_has_no_type_and_is_not_editable_here(self):
+        # #1673: the unpaired refund has a type like a spend (`test_card_refunds`); the other credits have none.
+        credits = [line for line in self._review()["lines"] if line["is_credit"] and not line["is_refund"]]
         self.assertEqual({line["expense_type"] for line in credits}, {None})
         self.assertEqual({line["editable"] for line in credits}, {False})
 
@@ -142,8 +143,8 @@ class TestChangingASpendsType(CardCreateCase):
             card_review.set_card_expense_type(self.batch, [line.name], PROJECT_ONLY)
         self.assertEqual(self._line("PARK RESIDENCY Cochin IN").suggested_expense_type, MISC)
 
-    def test_a_credit_line_is_refused(self):
-        credit = next(row for row in self._rows(self.batch) if row.direction == "Credit")
+    def test_a_credit_line_other_than_a_refund_is_refused(self):
+        credit = next(row for row in self._rows(self.batch) if row.direction == "Credit" and not row.match_basis)
         with self.assertRaises(frappe.ValidationError):
             card_review.set_card_expense_type(self.batch, [credit.name], HOTEL)
         self.assertFalse(self._line(credit.remarks).suggested_expense_type)
@@ -192,9 +193,10 @@ class TestCreatedSpends(CardCreateCase):
         self._run_create()
 
     def test_each_spend_is_one_paid_non_project_expense_on_the_statement(self):
-        expenses = self._expenses()
+        # 40 spends, and since #1673 the one unpaired refund (negative, `test_card_refunds`).
+        expenses = [e for e in self._expenses() if float(e.amount) > 0]
         self.assertEqual(len(expenses), 40)
-        self.assertEqual({e.status for e in expenses}, {"Paid"})
+        self.assertEqual({e.status for e in self._expenses()}, {"Paid"})
         self.assertEqual(round(sum(float(e.amount) for e in expenses), 2), 137584.99)
 
     def test_an_expense_carries_the_lines_amount_date_reference_and_description(self):
@@ -220,18 +222,18 @@ class TestCreatedSpends(CardCreateCase):
         matches = frappe.get_all(
             MATCH_DOCTYPE, filters={"import_batch": self.batch}, fields=["match_basis", "created_by_import", "match_kind"]
         )
-        self.assertEqual(len(matches), 40)
+        self.assertEqual(len(matches), 41)  # 40 spends and the refund (#1673)
         self.assertEqual({(m.match_basis, m.created_by_import, m.match_kind) for m in matches}, {("card statement", 1, "Settled")})
 
-    def test_credits_are_never_created(self):
+    def test_no_credit_but_the_refund_is_created(self):
         credits = [row for row in self._rows(self.batch) if row.direction == "Credit"]
         self.assertEqual(len(credits), 7)
-        self.assertFalse({row.row_status for row in credits} & {"Settled"})
-        self.assertFalse(any(row.suggested_name for row in credits))
+        created = [row.remarks for row in credits if row.row_status == "Settled"]
+        self.assertEqual(created, ["MAKEMYTRIP(INDIA) P Gurgaon IN"])  # the unpaired refund (#1673)
 
     def test_review_reports_it_created_and_discard_is_refused(self):
         review = self._review()
-        self.assertEqual((review["created"], review["to_create"], review["failed"]), (40, 0, 0))
+        self.assertEqual((review["created"], review["to_create"], review["failed"]), (41, 0, 0))
         self.assertFalse(review["discardable"])
         self.assertEqual({line["editable"] for line in review["lines"]}, {False})
         with self.assertRaises(frappe.ValidationError):
@@ -254,23 +256,24 @@ class TestAnInterruptedCreateResumes(CardCreateCase):
         with patch.object(card_create, "create_expense_from_row", side_effect=_third_fails):
             self._run_create()
         review = self._review()
-        self.assertEqual((review["created"], review["failed"], review["to_create"]), (39, 1, 1))
-        failed = [row for row in self._spends() if row.row_status == "Error"]
+        # 40 spends and the unpaired refund (#1673): 41 lines, one failed.
+        self.assertEqual((review["created"], review["failed"], review["to_create"]), (40, 1, 1))
+        failed = [row for row in self._rows(self.batch) if row.row_status == "Error"]
         self.assertEqual(len(failed), 1)
         self.assertIn("Could not create", failed[0].outcome_note)
 
         _, jobs = self._press_create()
         self.assertEqual(len(jobs), 1)
         self._run_create()
-        self.assertEqual(len(self._expenses()), 40)
+        self.assertEqual(len(self._expenses()), 41)
         self.assertEqual({row.row_status for row in self._spends()}, {"Settled"})
-        self.assertEqual(len({e.payment_ref for e in self._expenses()}), 40)
+        self.assertEqual(len({e.payment_ref for e in self._expenses()}), 41)
 
     def test_a_second_run_writes_nothing_twice(self):
         self._press_create()
         self._run_create()
         self._run_create()
-        self.assertEqual(len(self._expenses()), 40)
+        self.assertEqual(len(self._expenses()), 41)
 
 
 class TestUnreconcilingACreatedSpend(CardCreateCase):
@@ -288,7 +291,7 @@ class TestUnreconcilingACreatedSpend(CardCreateCase):
         reopened = self._line("PARK RESIDENCY Cochin IN")
         self.assertNotEqual(reopened.row_status, "Settled")
         review = self._review()
-        self.assertEqual((review["created"], review["to_create"]), (39, 1))
+        self.assertEqual((review["created"], review["to_create"]), (40, 1))
         shown = next(item for item in review["lines"] if item["name"] == line.name)
         self.assertTrue(shown["editable"])
 
@@ -297,7 +300,7 @@ class TestUnreconcilingACreatedSpend(CardCreateCase):
         again = self._line("PARK RESIDENCY Cochin IN")
         self.assertEqual(again.row_status, "Settled")
         self.assertNotEqual(again.suggested_name, first)
-        self.assertEqual(len(self._expenses()), 40)
+        self.assertEqual(len(self._expenses()), 41)
 
 
 class TestTheMatcherIsNeverCalled(FrappeTestCase):

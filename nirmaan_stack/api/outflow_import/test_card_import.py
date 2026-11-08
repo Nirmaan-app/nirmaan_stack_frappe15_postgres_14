@@ -227,9 +227,9 @@ class TestUploadingAStatement(CardImportCase):
         self.assertEqual({row.match_basis for row in spends}, {"card statement"})
         self.assertEqual({row.suggested_doctype for row in spends}, {"Non Project Expenses"})
         # Sorted at upload (#1567): five skipped by rule, the auto-debit payment an Internal Transfer (#1624; it was
-        # the sixth skip), the unpaired MakeMyTrip credit open.
+        # the sixth skip), the unpaired MakeMyTrip credit waiting for Create as a refund (#1673; it was Mismatched).
         self.assertEqual(
-            sorted(row.row_status for row in credits), ["Internal Transfer", "Mismatched"] + ["Skipped"] * 5
+            sorted(row.row_status for row in credits), ["Internal Transfer", "Pending match run"] + ["Skipped"] * 5
         )
 
     def test_a_line_keeps_its_date_amount_details_and_reference(self):
@@ -343,17 +343,17 @@ class TestACashAdvance(CardImportCase):
 
 
 class TestCardLinesAreNotBankLines(CardImportCase):
-    def test_total_unreconciled_outflow_does_not_move_on_upload(self):
-        """The spends wait for the card's own Create. The one unpaired credit (MakeMyTrip ₹801.50) is open
-        work on the main table (#1567, README ruling 4), so Unreconciled Inflow gains exactly it."""
+    def test_total_unreconciled_outflow_and_inflow_do_not_move_on_upload(self):
+        """The spends wait for the card's own Create, and so does the one unpaired credit (MakeMyTrip ₹801.50):
+        since #1673 it is an unpaired card refund, no longer open work on the main table, so Unreconciled Inflow
+        no longer gains it."""
         from nirmaan_stack.api.outflow_import.review import not_matched_totals
 
         before = not_matched_totals()
         self._upload(pdf_from_text(self._text()))
         after = not_matched_totals()
         self.assertEqual(after["outflow"], before["outflow"])
-        self.assertEqual(after["inflow"]["rows"], before["inflow"]["rows"] + 1)
-        self.assertAlmostEqual(after["inflow"]["amount"], before["inflow"]["amount"] + 801.50, places=2)
+        self.assertEqual(after["inflow"], before["inflow"])
 
 
 class TestRefusalsSaveNothing(CardImportCase):

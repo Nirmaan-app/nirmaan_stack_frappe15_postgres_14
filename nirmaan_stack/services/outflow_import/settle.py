@@ -1020,6 +1020,7 @@ def create_expense_from_row(
     credit_card_statement: str | None = None,
     cashbook_batch: str | None = None,
     blank_payment_by_is_actor: bool = True,
+    card_refund: bool = False,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -1037,6 +1038,10 @@ def create_expense_from_row(
     marks the expense a card spend.
     `cashbook_batch` is the Cashbook job's (#1592, ADR-0015 Amendment B): the import batch that made the expense,
     on either ledger. It is the marker that puts the wallet spend in Pending Invoices Upload -> Cashbook.
+    `card_refund` is the card import's too (#1673, ADR-0039 Amendment D): the line is an *Unpaired card refund*,
+    and the Expense is written at MINUS its amount. It is the one way past the "zero or less" guard: the line's
+    own amount must still be above zero, and it is refused without `credit_card_statement` on a Non-Project
+    Expense, so no other caller can write a negative expense through here.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1059,6 +1064,16 @@ def create_expense_from_row(
             AmountMismatchError,
             title="Nothing to record",
         )
+    if card_refund:
+        # ⚠️ THE ONE NEGATIVE WRITE, AND ONLY FOR A CARD REFUND (#1673): a card statement's merchant credit gives
+        # back money a card spend took, so it balances that spend as a Paid Non-Project Expense of minus itself.
+        if doctype != NON_PROJECT_EXPENSE or not credit_card_statement:
+            frappe.throw(
+                "Only a card refund on a Credit Card Statement is recorded as a negative expense.",
+                WrongStatusError,
+                title="Not a card refund",
+            )
+        amount = -amount
 
     beneficiary = (getattr(row, "beneficiary_name", "") or "").strip()
     remarks = (getattr(row, "remarks", "") or "").strip()
