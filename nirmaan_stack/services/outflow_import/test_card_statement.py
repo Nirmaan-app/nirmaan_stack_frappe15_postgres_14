@@ -217,6 +217,83 @@ class TestASplitLine(unittest.TestCase):
         self.assertEqual(line.card_last_four, "2222")
         self.assertEqual(len(statement.lines), 47)
 
+    def test_shape_b_the_city_and_country_code_then_points_and_amount(self):
+        _, line = self._read_with("01/09/2026 14092030373 FAKESHOP PAY INDIA PRIVATE\nWWW.FAKESHOP.IN IN\n0 470.00\n")
+        self.assertEqual(line.serno, "14092030373")
+        self.assertEqual(line.details, "FAKESHOP PAY INDIA PRIVATE WWW.FAKESHOP.IN IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(line.merchant_key, "FAKESHOP PAY")
+
+    def test_shape_c_a_credit_split_the_same_way(self):
+        text = _replace(
+            _text(),
+            "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n",
+            "19/09/2026 14194563678 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 167.00 CR\n",
+        )
+        statement = read_card_statement(text)
+        [line] = [line for line in statement.lines if line.serno == "14194563678"]
+        self.assertEqual(line.date, date(2026, 9, 19))
+        self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
+        self.assertEqual(line.amount, Decimal("167.00"))
+        self.assertTrue(line.is_credit)
+        self.assertEqual(statement.credits_total, Decimal("276821.73"))
+
+    def test_a_split_line_under_the_first_card_keeps_that_cards_last_four(self):
+        text = _replace(
+            _text(),
+            "11/09/2026 14144135412 transaction cashback 0 1,854.21 CR\n",
+            "11/09/2026 14144135412 FAKE CASHBACK TRAVELS\nIN\n0 1,854.21 CR\n",
+        )
+        [line] = [line for line in read_card_statement(text).lines if line.serno == "14144135412"]
+        self.assertEqual(line.card_last_four, "1111")
+        self.assertEqual(line.details, "FAKE CASHBACK TRAVELS IN")
+
+    def test_an_invoice_number_row_is_not_a_line(self):
+        _, line = self._read_with(
+            "01/09/2026 14092030373 FAKESHOP PAY INDIA PRIVATE\nWWW.FAKESHOP.IN IN\n0 470.00\n"
+            "Invoice No: 1574010400030670\n"
+        )
+        self.assertEqual(line.amount, Decimal("470.00"))
+
+
+class TestALineThatNeverCompletes(unittest.TestCase):
+    """A row with a date and a SerNo whose points and amount never come within the next two rows is not read,
+    and the gate refuses the statement: the reader never builds a line out of rows that are not its own."""
+
+    def assertRefused(self, text: str, *fragments: str):
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(text)
+        for fragment in ("do not add up", *fragments):
+            self.assertIn(fragment, str(caught.exception))
+
+    def test_amount_three_rows_down_is_not_reached(self):
+        self.assertRefused(
+            _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKESHOP PAY\nINDIA\nPRIVATE IN\n0 470.00\n")
+        )
+
+    def test_the_next_transactions_row_is_never_swallowed(self):
+        # Joined with the next line's row, the opening row would end in that line's points and amount and read
+        # ₹11,935.00 twice. Not read, only its own ₹470.00 is missing from the spends.
+        self.assertRefused(
+            _replace(
+                _text(),
+                _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                "01/09/2026 14092030373 FAKESHOP PAY IN\n02/09/2026 14099237561",
+            ),
+            "spends read ₹1,37,114.99",
+        )
+
+    def test_a_card_heading_is_never_swallowed(self):
+        # The first card's last line, cut short, sits over the second card's heading and its first line.
+        self.assertRefused(
+            _replace(
+                _text(),
+                "20/09/2026 14200624627 Autodebit Payment Recd. 0 1,73,999.02 CR\n4200XXXXXXXX2222\n",
+                "20/09/2026 14200624627 Autodebit Payment Recd.\n4200XXXXXXXX2222\n0 1,73,999.02 CR\n",
+            )
+        )
+
 
 class TestRefusals(unittest.TestCase):
     """Every refusal happens in the reader, before anything is saved."""
