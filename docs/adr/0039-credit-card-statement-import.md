@@ -165,6 +165,9 @@ with no project stays a *Non Project Inflow*.
 
 1. Every merchant credit that does not pair (decision 4's pairing rule, unchanged) is an *Unpaired card refund*.
    Card payments, cashback, the auto-debit Internal Transfer and *Paired card refunds* are unchanged.
+   Unskipping a pair says its credit cancels no spend, so that credit becomes an Unpaired card refund on Review
+   too (owner, 2026-11-08). A pair staged before this amendment carries no Create plan, so its unskipped credit
+   still goes to the main table.
 2. It stays on the card import's Review, in its own Refunds list under the spends, never on the main table.
    Review offers no way to send it to the main table.
 3. Its expense type is suggested as a spend's is (decision 5): the merchant's confirmed type, else Gemini, else
