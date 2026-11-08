@@ -42,7 +42,6 @@ import frappe
 from nirmaan_stack.api.outflow_import.card_import import (
     card_import,
     create_job_id,
-    is_refund_line,
     refuse_unless_card_import,
     suggest_running,
 )
@@ -66,7 +65,7 @@ from nirmaan_stack.services.outflow_import.card_types import (
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup, target_snapshot
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
-from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
+from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE, is_card_refund
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 
 _JOB = "nirmaan_stack.api.outflow_import.card_create.create_card_import"
@@ -155,7 +154,7 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
     if not rows or rows[0].row_status not in CREATE_LINE_STATUSES or rows[0].match_basis != MATCH_BASIS:
         return
     row = rows[0]
-    refund = is_refund_line(row)
+    refund = is_card_refund(row.direction, row.match_basis)
     describe = refund_description if refund else spend_description
 
     # ⚠️ THE ADAPTER, NOT THE RAW ROW: the writer reads `added_on_date` and a Decimal `amount` by attribute.

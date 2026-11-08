@@ -7523,8 +7523,8 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    the Expense's payment_ref, ADR-0039 decision 6). Batch `gross_amount` = the staged spends.
 7. **Spends and refunds are not bank lines (#1567, #1673, ADR-0039 Amendment D).** The gate is PER LINE:
    `sources.line_waits_for_its_own_create(source, direction, match_basis)` is True for every Porter line, a card
-   SPEND, and a card CREDIT carrying Create's plan (`match_basis` = `sources.CARD_PLAN_BASIS`, an *Unpaired card
-   refund*); False for any other card credit (`CREDITS_DECIDED_ON_THE_MAIN_TABLE`: an auto-debit sent back to
+   SPEND, and a card refund (`sources.is_card_refund`: a CREDIT carrying Create's plan, `match_basis` =
+   `sources.CARD_PLAN_BASIS`); False for any other card credit (`CREDITS_WAIT_ONLY_WITH_A_PLAN`: an auto-debit sent back to
    Mismatched, a credit decided on the main table before #1673 and reopened). `review._row_filters` states the
    same split in SQL, so an open card spend or refund is in no tab and in neither *Total Unreconciled* figure.
    ⚠️ THE PLAN IS THE MARKER, NOT THE DIRECTION: Unreconcile keeps `match_basis`, so a reopened refund goes back
@@ -7579,8 +7579,9 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     lines only), but the suggestion types it like a spend. It needs no bill: `services/card_invoices.is_card_spend`
     (amount > 0) keeps it out of the Credit Card invoice queue, the Expense bill pill (`bill_rows.KINDS["card"]`
     = `CARD_SPEND_SQL`) and `expense_bills.receive.is_wallet_or_card_spend`. The one-time patch
-    `v3_0.card_credits_to_unpaired_refunds` gave open pre-#1673 card merchant credits the plan; a decided one,
-    or one with a live match or a pick, was left (the latter printed).
+    `v3_0.card_credits_to_unpaired_refunds` gave open pre-#1673 card merchant credits the plan, then queued each
+    touched import's type suggestion; a decided one, or one with a live match or a pick, was left (the latter
+    printed). It picks its lines by its own copy of the card words, as they were on 2026-11-08.
 12. **Unreconcile** of a created spend is the generic path (`unreconcile.unreconcile_row`): the Expense is
     deleted, the line reopens (`Mismatched`, Confirm by hand), Review offers it editable again and Create
     re-creates it. It stays out of the main table (gated source).

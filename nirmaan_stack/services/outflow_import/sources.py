@@ -33,7 +33,7 @@ __all__ = [
     "CASHBOOK_SOURCE",
     "CREATE_GATED_SOURCES",
     "CARD_PLAN_BASIS",
-    "CREDITS_DECIDED_ON_THE_MAIN_TABLE",
+    "CREDITS_WAIT_ONLY_WITH_A_PLAN",
     "NEVER_MATCHED_SOURCES",
     "PORTER_STATEMENT_SOURCE",
     "TRANSFER_ID_REFERENCE_SOURCES",
@@ -43,6 +43,7 @@ __all__ = [
     "source_names_its_spender",
     "source_transfer_id_is_its_reference",
     "source_waits_for_its_own_create",
+    "is_card_refund",
     "line_waits_for_its_own_create",
     "source_writes_its_match_surface",
 ]
@@ -131,17 +132,16 @@ NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", CARD_STATEMEN
 #:
 #: The Credit Card Statement joins it (#1566): a card line is not a bank line, so a card upload moves
 #: neither *Still open* nor *Total Unreconciled Outflow*. ⚠️ Only its SPENDS and its REFUNDS wait (#1567,
-#: #1673): its other credits are `CREDITS_DECIDED_ON_THE_MAIN_TABLE`, so ask `line_waits_for_its_own_create`
-#: about a LINE.
+#: #1673): its other credits are decided on the main table (`CREDITS_WAIT_ONLY_WITH_A_PLAN`), so ask
+#: `line_waits_for_its_own_create` about a LINE.
 CREATE_GATED_SOURCES = frozenset({"Porter Statement", CARD_STATEMENT_SOURCE})
 
-#: Create-gated sources whose open CREDITS are decided on the main table, with the choices a bank credit has
-#: (#1567) -- unless the credit carries its import's Create plan (`CARD_PLAN_BASIS`). Since #1673 (ADR-0039
-#: Amendment D) every merchant credit a card upload stages carries that plan: an *Unpaired card refund* is
-#: Create's work, recorded as a negative Non-Project Expense. A card credit without the plan (an auto-debit
-#: sent back to Mismatched, a credit a person decided on the main table before #1673 and later reopened) is
-#: still decided here.
-CREDITS_DECIDED_ON_THE_MAIN_TABLE = frozenset({CARD_STATEMENT_SOURCE})
+#: Create-gated sources whose CREDITS wait for their import's Create only when they carry its plan
+#: (`is_card_refund`, #1673, ADR-0039 Amendment D): every merchant credit a card upload stages carries it, an
+#: *Unpaired card refund* recorded by Create as a negative Non-Project Expense. A credit without the plan (an
+#: auto-debit sent back to Mismatched, a credit staged before #1673) is decided on the main table, with the
+#: choices a bank credit has (#1567).
+CREDITS_WAIT_ONLY_WITH_A_PLAN = frozenset({CARD_STATEMENT_SOURCE})
 
 #: The `match_basis` a card line's Create plan carries (= `card_upload.MATCH_BASIS`, the basis of the
 #: Settled match record Create writes). Spelled here because this leaf imports nothing.
@@ -160,11 +160,20 @@ def source_waits_for_its_own_create(source: str) -> bool:
     return (source or "").strip() in CREATE_GATED_SOURCES
 
 
+def is_card_refund(direction: str | None, match_basis: str | None) -> bool:
+    """Is this card line a refund: a credit carrying its import's Create plan (`CARD_PLAN_BASIS`)? (#1673)
+
+    An unpaired card refund, or the credit of a refund pair, which keeps the plan under its skip. Review,
+    Create, retype and `line_waits_for_its_own_create` read this; `review._row_filters` states it in SQL.
+    """
+    return (direction or "").strip() == _CREDIT and (match_basis or "").strip() == CARD_PLAN_BASIS
+
+
 def line_waits_for_its_own_create(source: str, direction: str, match_basis: str | None = None) -> bool:
     """Is this LINE worked only by its own import, never from the main table? (#1443, #1567, #1673)
 
     Per line, not per source: a Porter line always waits; a card spend waits; a card credit waits only when it
-    carries its import's Create plan (`match_basis` = `CARD_PLAN_BASIS`: an *Unpaired card refund*).
+    is a refund (`is_card_refund`: it carries its import's Create plan).
     Every main-table guard asks this through `skip_origin.own_import_refusal`
     (`expenses.guard_not_an_own_import_line`, `skip_origin.manual_skip_refusal`), and
     `review._row_filters` states the same split in SQL.
@@ -172,8 +181,8 @@ def line_waits_for_its_own_create(source: str, direction: str, match_basis: str 
     source = (source or "").strip()
     if source not in CREATE_GATED_SOURCES:
         return False
-    if source in CREDITS_DECIDED_ON_THE_MAIN_TABLE and (direction or "").strip() == _CREDIT:
-        return (match_basis or "").strip() == CARD_PLAN_BASIS
+    if source in CREDITS_WAIT_ONLY_WITH_A_PLAN and (direction or "").strip() == _CREDIT:
+        return is_card_refund(direction, match_basis)
     return True
 
 

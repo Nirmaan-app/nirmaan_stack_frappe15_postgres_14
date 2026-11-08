@@ -142,7 +142,7 @@ from nirmaan_stack.services.outflow_import.sources import (
     CARD_STATEMENT_SOURCE,
     CASHBOOK_SOURCE,
     CREATE_GATED_SOURCES,
-    CREDITS_DECIDED_ON_THE_MAIN_TABLE,
+    CREDITS_WAIT_ONLY_WITH_A_PLAN,
     PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
     source_runs_the_matcher,
@@ -3175,8 +3175,8 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
     # ⚠️ PER LINE, NOT PER SOURCE (#1567, #1673): a card spend waits like a Porter line, and so does a card
     # refund (a credit carrying its import's Create plan, `CARD_PLAN_BASIS`); any other card CREDIT is
-    # decided here, so an open one is in the population. `sources.line_waits_for_its_own_create` is the
-    # same rule in Python.
+    # decided here, so an open one is in the population. `sources.is_card_refund` and
+    # `sources.line_waits_for_its_own_create` are the same rule in Python.
     where.append(
         "NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s"
         " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s"
@@ -3186,7 +3186,7 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
         [
             tuple(sorted(CREATE_GATED_SOURCES)),
             (ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER),
-            tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
+            tuple(sorted(CREDITS_WAIT_ONLY_WITH_A_PLAN)),
             DIRECTION_CREDIT,
             CARD_PLAN_BASIS,
         ]

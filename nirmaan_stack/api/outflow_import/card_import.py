@@ -52,7 +52,7 @@ from nirmaan_stack.services.outflow_import.card_pdf import unlocked_copy
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, needs_check
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
-from nirmaan_stack.services.outflow_import.sources import CARD_PLAN_BASIS
+from nirmaan_stack.services.outflow_import.sources import is_card_refund
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED, ROW_SKIPPED
 from nirmaan_stack.services.stored_files import delete_files
 
@@ -258,7 +258,7 @@ def card_import(batch: str) -> dict:
     spends = [line for line in lines if line.direction != DIRECTION_CREDIT]
     # Unpaired card refunds (#1673): the credits Create records as negative Non-Project Expenses. A paired refund
     # carries the plan under its skip, and is no refund until unskipped.
-    refunds = [line for line in lines if is_refund_line(line) and line.row_status != ROW_SKIPPED]
+    refunds = [line for line in lines if is_card_refund(line.direction, line.match_basis) and line.row_status != ROW_SKIPPED]
     statuses = [line.row_status for line in spends + refunds]
 
     def _date(value):
@@ -309,17 +309,11 @@ def card_import(batch: str) -> dict:
     }
 
 
-def is_refund_line(line) -> bool:
-    """An *Unpaired card refund* (#1673, ADR-0039 Amendment D): a credit carrying Create's plan
-    (`sources.CARD_PLAN_BASIS`). A refund pair carries it too, under its skip."""
-    return line.direction == DIRECTION_CREDIT and (line.match_basis or "") == CARD_PLAN_BASIS
-
-
 def _line(line, date: str | None) -> dict:
     """One statement line as Review lists it."""
     is_credit = line.direction == DIRECTION_CREDIT
     # A line with a type: a spend, or a refund (#1673). Any other credit has none.
-    typed = not is_credit or is_refund_line(line)
+    typed = not is_credit or is_card_refund(line.direction, line.match_basis)
     return {
         "name": line.name,
         "serno": line.transfer_id,
@@ -330,7 +324,7 @@ def _line(line, date: str | None) -> dict:
         "amount": float(line.amount or 0),
         "is_credit": is_credit,
         # Review lists it under Refunds, with a minus amount (#1673).
-        "is_refund": is_refund_line(line),
+        "is_refund": is_card_refund(line.direction, line.match_basis),
         "row_status": line.row_status,
         # Its type and where it came from; "Check" while nobody has chosen it. Blank on any other credit.
         "expense_type": line.suggested_expense_type or None if typed else None,
