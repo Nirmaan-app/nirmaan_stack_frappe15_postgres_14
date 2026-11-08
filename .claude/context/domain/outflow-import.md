@@ -7492,8 +7492,9 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    ⚠️ **A line may be split over two or three rows** (pypdf breaks a details too wide for its column; seen in the
    2026 Apr, Jun, Jul and Sep statements, which the gate refused until `_line_from` read them): a row that opens
    with date + SerNo but does not end the line is joined with the one or two rows under it, words joined with one
-   space, never across a card heading or the next line's opening row. A line not complete in three rows is unread
-   and the gate refuses the file.
+   space. Only a place row (city and country code, or the code alone) or a points-and-amount row is joined on
+   (`_RUN_ON`), never the next line's opening row, a card heading or an invoice number. A line not complete in
+   three rows is unread and the gate refuses the file.
 3. **Merchant key** (`card_statement.merchant_key`): drop a trailing 2-letter country code AND the city
    before it (and `NEW` / `NAVI` before that), then punctuation, then trailing PVT / P / LTD / LIMITED /
    INDIA / PRIVATE (never to nothing). The three MakeMyTrip spellings give `MAKEMYTRIP`. A line with no

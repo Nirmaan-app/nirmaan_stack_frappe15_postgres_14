@@ -211,6 +211,7 @@ class TestASplitLine(unittest.TestCase):
             "01/09/2026 14092030373 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 470.00\n"
         )
         self.assertEqual(line.date, date(2026, 9, 1))
+        self.assertEqual(line.serno, "14092030373")
         self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
         self.assertEqual(line.amount, Decimal("470.00"))
         self.assertFalse(line.is_credit)
@@ -219,6 +220,7 @@ class TestASplitLine(unittest.TestCase):
 
     def test_shape_b_the_city_and_country_code_then_points_and_amount(self):
         _, line = self._read_with("01/09/2026 14092030373 FAKESHOP PAY INDIA PRIVATE\nWWW.FAKESHOP.IN IN\n0 470.00\n")
+        self.assertEqual(line.date, date(2026, 9, 1))
         self.assertEqual(line.serno, "14092030373")
         self.assertEqual(line.details, "FAKESHOP PAY INDIA PRIVATE WWW.FAKESHOP.IN IN")
         self.assertEqual(line.amount, Decimal("470.00"))
@@ -249,12 +251,11 @@ class TestASplitLine(unittest.TestCase):
         self.assertEqual(line.card_last_four, "1111")
         self.assertEqual(line.details, "FAKE CASHBACK TRAVELS IN")
 
-    def test_an_invoice_number_row_is_not_a_line(self):
-        _, line = self._read_with(
-            "01/09/2026 14092030373 FAKESHOP PAY INDIA PRIVATE\nWWW.FAKESHOP.IN IN\n0 470.00\n"
-            "Invoice No: 1574010400030670\n"
-        )
-        self.assertEqual(line.amount, Decimal("470.00"))
+    def test_an_invoice_number_row_is_never_joined_into_a_line(self):
+        # The row under the opening row is neither the place (ending in a country code) nor the points and amount.
+        with self.assertRaises(CardStatementError) as caught:
+            self._read_with("01/09/2026 14092030373 FAKESHOP PAY\nInvoice No: 1574010400030670\n0 470.00\n")
+        self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
 
 
 class TestALineThatNeverCompletes(unittest.TestCase):
@@ -269,7 +270,8 @@ class TestALineThatNeverCompletes(unittest.TestCase):
 
     def test_amount_three_rows_down_is_not_reached(self):
         self.assertRefused(
-            _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKESHOP PAY\nINDIA\nPRIVATE IN\n0 470.00\n")
+            _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKESHOP PAY\nNEW DELHI IN\nIN\n0 470.00\n"),
+            "spends read ₹1,37,114.99",
         )
 
     def test_the_next_transactions_row_is_never_swallowed(self):
@@ -291,7 +293,8 @@ class TestALineThatNeverCompletes(unittest.TestCase):
                 _text(),
                 "20/09/2026 14200624627 Autodebit Payment Recd. 0 1,73,999.02 CR\n4200XXXXXXXX2222\n",
                 "20/09/2026 14200624627 Autodebit Payment Recd.\n4200XXXXXXXX2222\n0 1,73,999.02 CR\n",
-            )
+            ),
+            "credits read ₹1,02,822.71",
         )
 
 

@@ -37,8 +37,11 @@ or the city and country code; the last the points, the amount and any `CR`:
     0 12,754.68
 
 Such a line is read as its rows' words joined with one space (details `ING*FAKE TRAVELS INDI HTTPS://WWW.F IN`).
-A row is joined on only when it is neither a card heading nor the next line's opening row, and a line not complete
-within three rows is not read, so the gate refuses the file. The card number printed as a heading over each card's lines is kept on each line as its last four digits only (#1624).
+Only such a place row or points-and-amount row is joined on (never an invoice number, a page header, a card
+heading or the next line's opening row), and a line not complete within three rows is not read, so the gate
+refuses the file.
+
+The card number printed as a heading over each card's lines is kept on each line as its last four digits only (#1624).
 
 The company is read to be SHOWN on Review, never checked (ADR-0039 Amendment B). The layout is the text
 pypdf 6.13.3 (Frappe's pin) extracts; pypdf 3.17.4 joins some of these lines and misreads the statement.
@@ -53,8 +56,10 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.amounts import rupees
 
+# How a transaction line opens: its date and SerNo.
+_OPENING = r"(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<serno>\d{11})"
 _LINE = re.compile(
-    r"^(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<serno>\d{11})\s+(?P<details>.+?)\s+(?P<points>-?\d+)"
+    rf"^{_OPENING}\s+(?P<details>.+?)\s+(?P<points>-?\d+)"
     r"(?:\s+(?:[A-Z]{3}\s+)?[\d,]+\.\d{2})?\s+(?P<amount>[\d,]+\.\d{2})(?P<cr>\s+CR)?\s*$"
 )
 _PERIOD = re.compile(r"Statement period\s*:\s*(?P<start>[A-Za-z]+ \d{1,2}, \d{4})\s+to\s+(?P<end>[A-Za-z]+ \d{1,2}, \d{4})")
@@ -250,8 +255,14 @@ _CARD_HEADING = re.compile(r"^\s*\d{4}X{8}(\d{4})\s*$")
 
 
 # A row that opens a transaction: its date and SerNo. A line too wide for the Transaction Details column runs on
-# over the next rows (its country code, then its points and amount), so such a row may not end the line.
-_LINE_START = re.compile(r"^\d{2}/\d{2}/\d{4}\s+\d{11}\b")
+# over the next rows, so such a row may not end the line.
+_LINE_START = re.compile(rf"^{_OPENING}\b")
+# A row a split line runs on to: its place (the city and two-letter country code, or the code alone), then or
+# instead its points, optional international amount, amount and optional CR. Any other row (an invoice number, a
+# page header, a card heading, the next line's opening row) is never part of a line.
+_PLACE = r"(?:\S+\s+)*[A-Z]{2}"
+_POINTS_AND_AMOUNT = r"-?\d+(?:\s+(?:[A-Z]{3}\s+)?[\d,]+\.\d{2})?\s+[\d,]+\.\d{2}(?:\s+CR)?"
+_RUN_ON = re.compile(rf"^(?:{_PLACE}|(?:{_PLACE}\s+)?{_POINTS_AND_AMOUNT})\s*$")
 # The most rows one line has been seen to take (the 2026 Apr-Sep statements): the opening row and two more.
 _MAX_LINE_ROWS = 3
 
@@ -263,7 +274,7 @@ def _lines(rows: list[str]):
         if heading:
             last_four = heading.group(1)
             continue
-        found = _line_from(rows, index)
+        found = _match_line_at(rows, index)
         if not found:
             continue
         details = found.group("details").strip()
@@ -278,16 +289,16 @@ def _lines(rows: list[str]):
         )
 
 
-def _line_from(rows: list[str], index: int) -> re.Match | None:
-    """The transaction line that opens at `rows[index]`: the row alone, or, when it does not end there, the row
-    with the one or two rows under it, their words joined with one space. A run-on row is never a card heading
-    or the next transaction's opening row; a line not complete within `_MAX_LINE_ROWS` rows is not read."""
+def _match_line_at(rows: list[str], index: int) -> re.Match | None:
+    """The `_LINE` match of the transaction line that opens at `rows[index]`: the row alone, or, when it does not
+    end there, the row with the one or two rows under it, their words joined with one space. Only a place row or a
+    points-and-amount row (`_RUN_ON`) is joined on; a line not complete within `_MAX_LINE_ROWS` rows is not read."""
     row = rows[index]
     found = _LINE.match(row)
     if found or not _LINE_START.match(row):
         return found
     for end in range(index + 1, min(index + _MAX_LINE_ROWS, len(rows))):
-        if _CARD_HEADING.match(rows[end]) or _LINE_START.match(rows[end]):
+        if _LINE_START.match(rows[end]) or not _RUN_ON.match(rows[end]):
             return None
         found = _LINE.match(" ".join(" ".join(rows[index : end + 1]).split()))
         if found:
