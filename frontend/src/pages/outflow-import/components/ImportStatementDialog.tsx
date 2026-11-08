@@ -99,20 +99,17 @@ import { CashbookResumeButton } from "./CashbookResume";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import {
-    CARD_DISCARD_METHOD,
     CARD_SOURCE,
     CARD_UPLOAD_URL,
-    canDiscardCard,
     cardAsksForPassword,
-    cardDiscardConfirmation,
     pdfLooksLocked,
     type CardImport,
 } from "../creditCardImport";
-import { cardCreateStarted, cardPhaseView } from "../cardCreate";
+import { cardCreateStarted } from "../cardCreate";
 import { cardImportKey, useCardImport } from "../useCardImport";
 import { recordsFilledText } from "../internalTransferView";
+import { CardImportFooter } from "./CardImportFooter";
 import { CardImportReview } from "./CardImportReview";
-import { ImportDiscardButton } from "./ImportDiscardButton";
 import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
@@ -1303,11 +1300,7 @@ export const ImportStatementDialog = ({
                                     {card.actionError}
                                 </p>
                             )}
-                            <CardImportReview
-                                card={cardImport}
-                                onRetype={cardPhaseView(cardImport).phase === "finished" ? undefined : card.retype}
-                                retyping={card.retyping}
-                            />
+                            <CardImportReview card={cardImport} onRetype={card.retype} retyping={card.retyping} />
                         </>
                     )}
 
@@ -1529,7 +1522,7 @@ export const ImportStatementDialog = ({
                 )}
 
                 {isCard && cardImport && (
-                    <CardFooter
+                    <CardImportFooter
                         card={cardImport}
                         onCreate={card.create}
                         busy={card.startingCreate || card.retyping !== null}
@@ -1964,46 +1957,3 @@ const CashbookProgress = ({
     );
 };
 
-
-/**
- * The card import's footer (#1568, #1674), read from its phase: Discard (Admin / Accountant Lead, before Create has
- * written anything), Create while lines are left, and Done, the only button once the import is finished.
- */
-const CardFooter = ({
-    card,
-    onCreate,
-    busy,
-    starting,
-    onDone,
-}: {
-    card: CardImport;
-    onCreate: () => void;
-    busy: boolean;
-    starting: boolean;
-    onDone: () => void;
-}) => {
-    const { footer } = cardPhaseView(card);
-    return (
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-            {footer.discard && (
-                <ImportDiscardButton
-                    method={CARD_DISCARD_METHOD}
-                    batch={card.batch}
-                    offered={(canUndo) => canDiscardCard(card, canUndo)}
-                    title="Discard this Credit Card Statement import?"
-                    confirmation={cardDiscardConfirmation(card)}
-                    onDiscarded={onDone}
-                />
-            )}
-            {footer.create && (
-                <Button onClick={onCreate} disabled={busy}>
-                    {starting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                    {footer.create}
-                </Button>
-            )}
-            <Button variant={footer.done === "primary" ? "default" : "outline"} onClick={onDone}>
-                Done
-            </Button>
-        </div>
-    );
-};

@@ -7,6 +7,7 @@
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
 import type { CardImport, CardImportLine } from "./creditCardImport";
+import { ROW_INTERNAL_TRANSFER, ROW_SETTLED, ROW_SKIPPED } from "./outflowImportStatus";
 import { plural } from "./porterWords";
 
 export const CARD_CREATE_METHOD = "nirmaan_stack.api.outflow_import.card_create.create_card_expenses";
@@ -85,8 +86,6 @@ export interface CardPhaseView {
     footer: { create: string | null; discard: boolean; done: "primary" | "outline" };
 }
 
-const SETTLED = "Settled";
-
 export const cardPhase = (card: CardCreateProgress): CardPhase => {
     if (card.create_running) return "creating";
     if (!cardCreateStarted(card)) return "review";
@@ -95,12 +94,12 @@ export const cardPhase = (card: CardCreateProgress): CardPhase => {
 
 /** The Finished banner's counts, from the lines as the server reports them. */
 const finishedLines = (lines: readonly CardImportLine[]): string[] => {
-    const created = lines.filter((line) => line.row_status === SETTLED);
+    const created = lines.filter((line) => line.row_status === ROW_SETTLED);
     const spends = created.filter((line) => !line.is_credit);
     const refunds = created.filter((line) => line.is_refund);
     const sum = (items: CardImportLine[]) => items.reduce((total, line) => total + line.amount, 0);
-    const skipped = lines.filter((line) => line.row_status === "Skipped").length;
-    const internal = lines.filter((line) => line.row_status === "Internal Transfer").length;
+    const skipped = lines.filter((line) => line.row_status === ROW_SKIPPED).length;
+    const internal = lines.filter((line) => line.row_status === ROW_INTERNAL_TRANSFER).length;
     return [
         `${plural(spends.length, "expense", "expenses")} created, ${formatToIndianRupeeOrZero(sum(spends))}`,
         refunds.length > 0 ? `${plural(refunds.length, "refund", "refunds")} recorded, -${formatToIndianRupee(sum(refunds))}` : null,

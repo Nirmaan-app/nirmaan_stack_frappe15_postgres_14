@@ -19,7 +19,7 @@ out = {"batch": batch}
 if batch:
     review = card_import(batch)
     out.update({k: review[k] for k in ("created", "failed", "to_create", "spends_to_create", "refunds_to_create",
-                                         "create_running", "suggest_running", "refunds", "refunds_total")})
+                                         "create_running", "suggest_running", "refunds")})
     refunds = [line for line in review["lines"] if line["is_refund"]]
     out["refunds_lines"] = [{k: line[k] for k in ("name", "row_status", "expense_type", "expense")} for line in refunds]
     out["makemytrip_spend_types"] = sorted(

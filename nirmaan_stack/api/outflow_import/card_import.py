@@ -51,8 +51,9 @@ from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access
 from nirmaan_stack.services.outflow_import.card_pdf import unlocked_copy
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, needs_check
+from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.sources import CARD_PLAN_BASIS
-from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED, ROW_SKIPPED
 from nirmaan_stack.services.stored_files import delete_files
 
 
@@ -249,9 +250,10 @@ def card_import(batch: str) -> dict:
         (batch,),
         as_dict=True,
     )
-    spends = [line for line in lines if line.direction != "Credit"]
-    # Unpaired card refunds (#1673): the credits Create records as negative Non-Project Expenses.
-    refunds = [line for line in lines if is_refund_line(line)]
+    spends = [line for line in lines if line.direction != DIRECTION_CREDIT]
+    # Unpaired card refunds (#1673): the credits Create records as negative Non-Project Expenses. A paired refund
+    # carries the plan under its skip, and is no refund until unskipped.
+    refunds = [line for line in lines if is_refund_line(line) and line.row_status != ROW_SKIPPED]
     statuses = [line.row_status for line in spends + refunds]
 
     def _date(value):
@@ -282,8 +284,6 @@ def card_import(batch: str) -> dict:
         "credits": len(lines) - len(spends),
         "spends_total": float(sum(line.amount or 0 for line in spends)),
         "refunds": len(refunds),
-        # What the refunds give back, as a positive sum of their credits (the Expenses carry it negative).
-        "refunds_total": float(sum(line.amount or 0 for line in refunds)),
         # Lines already imported by an earlier statement, left out of this one.
         "repeats_not_saved": int(meta.repeats_not_saved or 0),
         # Discard is still possible: Create has written nothing. Who may discard is not asked here.
@@ -307,12 +307,12 @@ def card_import(batch: str) -> dict:
 def is_refund_line(line) -> bool:
     """An *Unpaired card refund* (#1673, ADR-0039 Amendment D): a credit carrying Create's plan
     (`sources.CARD_PLAN_BASIS`). A refund pair carries it too, under its skip."""
-    return line.direction == "Credit" and (line.match_basis or "") == CARD_PLAN_BASIS
+    return line.direction == DIRECTION_CREDIT and (line.match_basis or "") == CARD_PLAN_BASIS
 
 
 def _line(line, date: str | None) -> dict:
     """One statement line as Review lists it."""
-    is_credit = line.direction == "Credit"
+    is_credit = line.direction == DIRECTION_CREDIT
     # A line with a type: a spend, or a refund (#1673). Any other credit has none.
     typed = not is_credit or is_refund_line(line)
     return {

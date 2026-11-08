@@ -17,8 +17,8 @@ other credit has no type at all.
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.card_import import card_import, refuse_unless_card_import
-from nirmaan_stack.api.outflow_import.card_upload import MATCH_BASIS, ROW_DOCTYPE
+from nirmaan_stack.api.outflow_import.card_import import card_import, is_refund_line, refuse_unless_card_import
+from nirmaan_stack.api.outflow_import.card_upload import ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import line_names
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, TYPE_SOURCE_REVIEW
@@ -58,7 +58,7 @@ def set_card_expense_type(batch: str, rows, expense_type: str):
         line = found.get(name)
         if not line or line.import_batch != batch:
             frappe.throw(f"{name} is not a line of {batch}.", title="Not this import")
-        if line.direction != DIRECTION_DEBIT and line.match_basis != MATCH_BASIS:
+        if line.direction != DIRECTION_DEBIT and not is_refund_line(line):
             frappe.throw(f"{name} is a credit: only a spend or a refund has an expense type.", title="Not a spend")
         if line.row_status not in CREATE_LINE_STATUSES:
             frappe.throw(

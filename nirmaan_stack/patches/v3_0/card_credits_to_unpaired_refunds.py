@@ -30,17 +30,25 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.card_upload import MATCH_BASIS, SPEND_DOCTYPE
-from nirmaan_stack.services.outflow_import.allocation import MATCH_REVERSED
 from nirmaan_stack.services.outflow_import.card_credits import merchant_credit_words
-from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK
-from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
-from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
-from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_MISMATCHED, ROW_PENDING_MATCH
 
+# ⚠️ THE VALUES THIS PATCH WRITES ARE SPELLED HERE, AS THEY WERE ON 2026-11-08 (#1673): a patch is history, and
+# a later rename in the live modules must not change what it writes on a site that runs it late.
 ROW_DOCTYPE = "Outflow Import Row"
-OPEN_STATUSES = (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR)
+CARD_SOURCE = "ICICI Credit Card Statement"
+CREDIT = "Credit"
+OPEN_STATUSES = ("Pending match run", "Mismatched", "Error")
+REVERSED = "Reversed"
+PLAN = {
+    "row_status": "Pending match run",
+    "suggested_doctype": "Non Project Expenses",
+    "match_basis": "card statement",
+    "auto_matched": 1,
+    "suggested_expense_type": "Misc. Expenses",
+    "type_source": "Fallback",
+    "confirm_by_hand": 0,
+}
 
 
 def execute():
@@ -62,9 +70,9 @@ def move_open_card_credits(batches: list[str] | None = None) -> list[str]:
         ORDER BY r.name
         """,
         {
-            "reversed": MATCH_REVERSED,
-            "source": CARD_STATEMENT_SOURCE,
-            "credit": DIRECTION_CREDIT,
+            "reversed": REVERSED,
+            "source": CARD_SOURCE,
+            "credit": CREDIT,
             "open": OPEN_STATUSES,
             "batches": tuple(batches or ()),
         },
@@ -78,20 +86,7 @@ def move_open_card_credits(batches: list[str] | None = None) -> list[str]:
             print(f"card credits patch: left {line.name} ({line.import_batch}): it has a match record or a pick.")
             continue
         # Raw: see the module docstring. The batch rollup is recomputed below.
-        frappe.db.set_value(
-            ROW_DOCTYPE,
-            line.name,
-            {
-                "row_status": ROW_PENDING_MATCH,
-                "suggested_doctype": SPEND_DOCTYPE,
-                "match_basis": MATCH_BASIS,
-                "auto_matched": 1,
-                "suggested_expense_type": FALLBACK_EXPENSE_TYPE,
-                "type_source": TYPE_SOURCE_FALLBACK,
-                "confirm_by_hand": 0,
-            },
-            update_modified=False,
-        )
+        frappe.db.set_value(ROW_DOCTYPE, line.name, PLAN, update_modified=False)
         moved.append(line.name)
         touched.add(line.import_batch)
         print(f"card credits patch: moved {line.name} back to {line.import_batch} as an unpaired card refund.")

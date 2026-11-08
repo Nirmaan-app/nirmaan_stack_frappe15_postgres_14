@@ -137,7 +137,12 @@ class TestTheRefundNeedsNoBill(CardRefundCase):
         with self.assertRaises(frappe.ValidationError):
             card_invoices.mark_card_no_invoice(self.expense, "money came back")
         frappe.db.rollback()
-        self.assertFalse(frappe.db.get_value(EXPENSE, self.expense, "no_invoice_by"))
+        with self.assertRaises(frappe.ValidationError):
+            card_invoices.attach_card_invoice(self.expense, "https://storage.example/credit-note.pdf")
+        frappe.db.rollback()
+        self.assertEqual(
+            frappe.db.get_value(EXPENSE, self.expense, ["no_invoice_by", "invoice_attachment"]), (None, None)
+        )
 
     def test_an_invoice_added_on_the_expense_page_is_no_expense_bill(self):
         url = f"https://storage.example/refund-{frappe.generate_hash(length=8)}.pdf"
@@ -207,14 +212,15 @@ class TestNoOtherCallerWritesANegativeExpense(CardRefundCase):
     def test_a_zero_or_negative_line_is_still_refused(self):
         from nirmaan_stack.api.outflow_import.review import StagedRow
 
-        row = StagedRow(frappe._dict(self._refund_line(), amount=0))
-        with self.assertRaises(frappe.ValidationError):
-            create_expense_from_row(row, doctype=EXPENSE, expense_type="Misc. Expenses", actor="Administrator")
-        with self.assertRaises(frappe.ValidationError):
-            create_expense_from_row(
-                row, doctype=EXPENSE, expense_type="Misc. Expenses", actor="Administrator",
-                credit_card_statement=self.statement, card_refund=True,
-            )
+        for amount in (0, -REFUND_AMOUNT):
+            row = StagedRow(frappe._dict(self._refund_line(), amount=amount))
+            with self.subTest(amount=amount), self.assertRaises(frappe.ValidationError):
+                create_expense_from_row(row, doctype=EXPENSE, expense_type="Misc. Expenses", actor="Administrator")
+            with self.subTest(amount=amount, card_refund=True), self.assertRaises(frappe.ValidationError):
+                create_expense_from_row(
+                    row, doctype=EXPENSE, expense_type="Misc. Expenses", actor="Administrator",
+                    credit_card_statement=self.statement, card_refund=True,
+                )
 
     def test_a_card_refund_without_its_statement_is_refused(self):
         from nirmaan_stack.api.outflow_import.review import StagedRow

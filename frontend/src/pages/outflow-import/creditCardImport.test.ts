@@ -58,7 +58,6 @@ const cardImport = (overrides: Partial<CardImport> = {}): CardImport => ({
     credits: 7,
     spends_total: 137584.99,
     refunds: 1,
-    refunds_total: 801.5,
     repeats_not_saved: 0,
     discardable: true,
     created: 0,

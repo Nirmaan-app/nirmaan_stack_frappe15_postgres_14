@@ -109,9 +109,8 @@ export interface CardImport {
     spends: number;
     credits: number;
     spends_total: number;
-    /** Unpaired card refunds (#1673), and what they give back (a positive sum; the Expenses carry it negative). */
+    /** Unpaired card refunds (#1673): Review's Refunds list (a paired refund, skipped, is not one). */
     refunds: number;
-    refunds_total: number;
     /** Lines whose SerNo an earlier import holds, left out of this one. */
     repeats_not_saved: number;
     /** Create has written nothing, so Discard is possible. Who may discard is the screen's question. */
