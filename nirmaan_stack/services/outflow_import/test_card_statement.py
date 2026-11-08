@@ -193,6 +193,111 @@ class TestTheAddressBlock(unittest.TestCase):
                 self.assertEqual(read_card_statement(text).company, name)
 
 
+# The 4200XXXXXXXX2222 card's first spend, as one row; the tests below print it split over rows instead.
+_ONE_ROW_SPEND = "01/09/2026 14092030373 BLINK COMMERCE PVT LTD BANGALORE IN 0 470.00\n"
+
+
+class TestASplitLine(unittest.TestCase):
+    """A line whose Transaction Details are too wide for the column: pypdf prints it over two or three rows.
+    Merchant names are made up."""
+
+    def _read_with(self, rows: str):
+        statement = read_card_statement(_replace(_text(), _ONE_ROW_SPEND, rows))
+        [line] = [line for line in statement.lines if line.serno == "14092030373"]
+        return statement, line
+
+    def test_shape_a_the_country_code_alone_then_points_and_amount(self):
+        statement, line = self._read_with(
+            "01/09/2026 14092030373 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 470.00\n"
+        )
+        self.assertEqual(line.date, date(2026, 9, 1))
+        self.assertEqual(line.serno, "14092030373")
+        self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(line.card_last_four, "2222")
+        self.assertEqual(len(statement.lines), 47)
+
+    def test_shape_b_the_city_and_country_code_then_points_and_amount(self):
+        _, line = self._read_with("01/09/2026 14092030373 FAKESHOP PAY INDIA PRIVATE\nWWW.FAKESHOP.IN IN\n0 470.00\n")
+        self.assertEqual(line.date, date(2026, 9, 1))
+        self.assertEqual(line.serno, "14092030373")
+        self.assertEqual(line.details, "FAKESHOP PAY INDIA PRIVATE WWW.FAKESHOP.IN IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(line.merchant_key, "FAKESHOP PAY")
+
+    def test_shape_c_a_credit_split_the_same_way(self):
+        text = _replace(
+            _text(),
+            "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n",
+            "19/09/2026 14194563678 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 167.00 CR\n",
+        )
+        statement = read_card_statement(text)
+        [line] = [line for line in statement.lines if line.serno == "14194563678"]
+        self.assertEqual(line.date, date(2026, 9, 19))
+        self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
+        self.assertEqual(line.amount, Decimal("167.00"))
+        self.assertTrue(line.is_credit)
+        self.assertEqual(statement.credits_total, Decimal("276821.73"))
+
+    def test_a_split_line_under_the_first_card_keeps_that_cards_last_four(self):
+        text = _replace(
+            _text(),
+            "11/09/2026 14144135412 transaction cashback 0 1,854.21 CR\n",
+            "11/09/2026 14144135412 FAKE CASHBACK TRAVELS\nIN\n0 1,854.21 CR\n",
+        )
+        [line] = [line for line in read_card_statement(text).lines if line.serno == "14144135412"]
+        self.assertEqual(line.card_last_four, "1111")
+        self.assertEqual(line.details, "FAKE CASHBACK TRAVELS IN")
+
+    def test_an_invoice_number_row_is_never_joined_into_a_line(self):
+        # The row under the opening row is neither the place (ending in a country code) nor the points and amount.
+        with self.assertRaises(CardStatementError) as caught:
+            self._read_with("01/09/2026 14092030373 FAKESHOP PAY\nInvoice No: 1574010400030670\n0 470.00\n")
+        self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
+
+
+class TestALineThatNeverCompletes(unittest.TestCase):
+    """A row with a date and a SerNo whose points and amount never come within the next two rows is not read,
+    and the gate refuses the statement: the reader never builds a line out of rows that are not its own."""
+
+    def assertRefused(self, text: str, *fragments: str):
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(text)
+        for fragment in ("do not add up", *fragments):
+            self.assertIn(fragment, str(caught.exception))
+
+    def test_amount_three_rows_down_is_not_reached(self):
+        self.assertRefused(
+            _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKESHOP PAY\nNEW DELHI IN\nIN\n0 470.00\n"),
+            "spends read ₹1,37,114.99",
+        )
+
+    def test_the_next_transactions_row_is_never_swallowed(self):
+        # Joined with the next line's row, the opening row would end in that line's points and amount and read
+        # ₹11,935.00 twice. Not read, only its own ₹470.00 is missing from the spends.
+        self.assertRefused(
+            _replace(
+                _text(),
+                _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                "01/09/2026 14092030373 FAKESHOP PAY IN\n02/09/2026 14099237561",
+            ),
+            "spends read ₹1,37,114.99",
+        )
+
+    def test_a_card_heading_is_never_swallowed(self):
+        # The first card's last line, cut short, sits over the second card's heading and its first line.
+        self.assertRefused(
+            _replace(
+                _text(),
+                "20/09/2026 14200624627 Autodebit Payment Recd. 0 1,73,999.02 CR\n4200XXXXXXXX2222\n",
+                "20/09/2026 14200624627 Autodebit Payment Recd.\n4200XXXXXXXX2222\n0 1,73,999.02 CR\n",
+            ),
+            "credits read ₹1,02,822.71",
+        )
+
+
 class TestRefusals(unittest.TestCase):
     """Every refusal happens in the reader, before anything is saved."""
 
