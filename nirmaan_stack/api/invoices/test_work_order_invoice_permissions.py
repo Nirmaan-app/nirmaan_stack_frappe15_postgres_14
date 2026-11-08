@@ -2,7 +2,7 @@
 
 Each test acts as a real user of the role it names (one is picked from the site's `Nirmaan Users`; the
 test is skipped when the site has none), does what the screen or Desk does, and checks the refusal or
-the stored figures. Purchase Order invoices keep their old rules.
+the stored figures. Purchase Order invoices have their own rule: `test_po_invoice_permissions` (#1638).
 
 The endpoints COMMIT, so the fixtures come from `_InvoiceEndpointCase`, whose clean-up deletes every
 order and invoice it planted.
@@ -145,15 +145,13 @@ class TestDecidingAWorkOrderInvoice(_AsRoleCase):
         self.assertIn(DECIDE_REFUSAL, str(refused.exception))
         self.assertEqual(self._status(name), "Approved")
 
-    def test_a_purchase_order_invoice_is_decided_as_before(self):
-        """PO invoices are unchanged: no role check, and only a Pending one is decided."""
+    def test_a_purchase_order_invoice_gets_its_own_rule(self):
+        """A PO invoice is refused by the Purchase Order rule (#1638), never the Work Order one."""
         name = self._invoice(self.po)
-        res = self._as(PROCUREMENT, approve_vendor_invoice, name, "Approved")
-        self.assertEqual(res["status"], 200, res)
         with self.assertRaises(frappe.ValidationError) as refused:
-            approve_vendor_invoice(name, "Rejected", "wrong amount")
-        self.assertIn("is not in 'Pending' status", str(refused.exception))
-        self.assertEqual(self._status(name), "Approved")
+            self._as(PROCUREMENT, approve_vendor_invoice, name, "Approved")
+        self.assertNotIn(DECIDE_REFUSAL, str(refused.exception))
+        self.assertIn("Purchase Order invoice", str(refused.exception))
 
 
 EDIT_REFUSAL = "Only Admin and Accountants can edit a Work Order invoice."

@@ -60,7 +60,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   uploaded again). The Vendor Invoice a generated invoice's signed upload created is fixed for
   everyone, Admin included: no change to number, date or amounts, no Edit dialog (`update_invoice_data` refuses
   it whole, so the signed scan is not swapped), and once Rejected it stays Rejected. PO invoices keep their old
-  rules.
+  rules, except approve and reject, which take an invoice-approval role there too (#1638).
 - **A generated invoice is a record, numbered and limited by the server, never edited (#1546, ADR-0040, GLOSSARY
   *Generated invoice*, *RA number*).** Doctype `WO Generated Invoice`, named `WGI-<WO>-<RA number>` (so the pair
   is unique in the primary key). Made only by `api/service_requests/generated_invoices.generate_invoice`

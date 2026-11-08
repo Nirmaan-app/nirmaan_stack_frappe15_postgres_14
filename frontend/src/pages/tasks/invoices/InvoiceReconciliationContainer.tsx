@@ -148,8 +148,8 @@ export default function InvoiceReconciliationContainer() {
                        <AllInvoices />
                     )}
                     {/* The tab button is hidden for non-approvers, but `?tab=pending` still lands here.
-                        The PO / WO approve/reject endpoint carries no role check (#1638); the expense bill
-                        ones of the Cashbook / Credit Card pills do (#1644). */}
+                        The server refuses a non-approver on every pill: the PO / WO decisions in the Vendor
+                        Invoices validate hook (#1531, #1638), the expense bill ones in their endpoints (#1644). */}
                     {tab === "pending" && (
                         canViewPending ? <PendingApprovals />
                         : role === "Loading" ? <LoadingFallback />

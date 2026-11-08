@@ -114,6 +114,11 @@ result without reading again; Skip makes none.
   `api/invoices/all_porter_invoices.get_all_porter_invoices`): funnels `Bill check` / `Approval` / `Bill`, and
   `Validate result`, page, search and sort on the server. Shown to Admin, Accountant and Accountant Lead; anyone
   else sees PO and WO only, and the endpoints answer 403.
+- `cashbook-marker-patch` (#1649) the one-off patch `patches/v3_0/mark_this_year_cashbook_expenses` gives the
+  Cashbook marker to every Expense a Cashbook import made before #1592 and dated from 1 Apr 2026. Pending Invoices
+  Upload -> `Cashbook` then lists those with no invoice and no *No invoice* mark; its count line
+  (`<n> wallet spends waiting for an invoice`) equals the queue endpoint's row count. The patch prints, per ledger,
+  how many it marked and how many of them wait; a second run marks 0.
 
 ## How to get to it (user POV)
 
@@ -200,6 +205,12 @@ the DB (`BIN/all_invoices_db.py`), the card spend's two rows, the wallet row, th
 (the list request must carry it) and the next page (a request with `limit_start` past the first page).
 `--part all-invoices` runs only these steps (they need only the Accountant).
 
+Then the #1649 marker patch, steps 33-36, `--part marker-patch` (never part of `all`: it RUNS the patch on the env).
+As the Accountant: the Cashbook pill's count before, the patch run through `devenv.sh run <task> execute
+nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses.execute` (its printed counts saved), the count after,
+then a second run that marks 0. Each count is checked against `BIN/cashbook_marker_db.py` (the queue endpoint, and
+what the patch would still mark). On an env where it already ran, the before screen prints NOT WALKED.
+
 ## Gotchas
 
 - **A file link points at `localhost:8000` under vite.** `SITEURL` is `http://localhost:8000` in vite's dev mode (the
@@ -219,6 +230,8 @@ the DB (`BIN/all_invoices_db.py`), the card spend's two rows, the wallet row, th
   walk's PDFs carry the binary marker line every real PDF has.
 - **No Cashbook spend waits in the 2026-10-28 data**, so the seed makes one (a Project Expense with the Cashbook
   marker and a Settled match).
+- **The Cashbook pill is empty on data from before the #1649 patch** (2026-11-07 backup: 0 waiting, 2,203 to mark)
+  and holds about 2,200 rows after it. `--part marker-patch` sees the before screen only once per env.
 - **Frappe keeps no Version under tests** (`ignore_version` defaults to `in_test`): a test that asserts one patches
   `frappe.flags.in_test` off around the save (`test_expense_bill_approval.keeping_versions`). The walk reads real ones.
 - **Read again's Matched path cannot be walked on an env** (its reader key is refused): the walk prints NOT WALKED
