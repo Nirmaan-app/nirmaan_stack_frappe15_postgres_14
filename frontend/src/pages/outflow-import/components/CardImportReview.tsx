@@ -26,7 +26,7 @@ import {
     type CardImport,
     type CardImportLine,
 } from "../creditCardImport";
-import { cardWorkLines } from "../cardCreditsView";
+import { cardRefundLines, cardWorkLines } from "../cardCreditsView";
 import { CardInternalTransfers } from "./CardInternalTransfers";
 import { CardSkippedLines } from "./CardSkippedLines";
 
@@ -49,6 +49,8 @@ const TYPE_SEARCH: TokenSearchConfig = {
  * names its source (earlier statement, AI, fallback), and one link gives it to every spend of the merchant.
  * Where a merchant has more than one retypable spend, the picker first asks whether a choice is for this spend
  * or all of them (story 29), so ten lines of one merchant take one choice, even all still at "Check".
+ * Unpaired card refunds (#1673) are listed under the spends, in their own Refunds list, each at a minus amount
+ * with its own type picker: a merchant's "Use for all" never reaches them.
  * Rendered by `ImportStatementDialog`, which holds Create and
  * Discard in its footer.
  */
@@ -166,13 +168,85 @@ export const CardImportReview = ({
                 </table>
             </div>
 
+            <CardRefunds
+                card={card}
+                options={options}
+                retyping={retyping}
+                onRetype={onRetype}
+            />
+
             <CardInternalTransfers card={card} />
             <CardSkippedLines card={card} />
         </div>
     );
 };
 
-/** A spend's type: a picker while Create would still write it, else the type and its Expense. */
+/** The unpaired card refunds (#1673), under the spends: each at minus its amount, with its own type picker. */
+const CardRefunds = ({
+    card,
+    options,
+    retyping,
+    onRetype,
+}: {
+    card: CardImport;
+    options: TypeOption[];
+    retyping: string | null;
+    onRetype?: (line: string, expenseType: string, rows?: string[]) => void;
+}) => {
+    const refunds = cardRefundLines(card);
+    if (refunds.length === 0) return null;
+    return (
+        <section className="space-y-2" aria-label="Refunds">
+            <div>
+                <h3 className="text-sm font-semibold">Refunds</h3>
+                <p className="text-xs text-muted-foreground">
+                    Merchant credits that give back money a card spend took. Create records each as a Non-Project
+                    Expense of minus its amount; no bill is needed.
+                </p>
+            </div>
+            <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                            <th className="px-3 py-2 text-left font-medium">Date</th>
+                            <th className="px-3 py-2 text-left font-medium">SerNo</th>
+                            <th className="px-3 py-2 text-left font-medium">Transaction details</th>
+                            <th className="px-3 py-2 text-right font-medium">Amount</th>
+                            <th className="min-w-[15rem] px-3 py-2 text-left font-medium">Expense type</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                        {refunds.map((line) => (
+                            <tr key={line.name}>
+                                <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">{cardDay(line.date)}</td>
+                                <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-muted-foreground">
+                                    {line.serno}
+                                </td>
+                                <td className="px-3 py-1.5">{line.details}</td>
+                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-emerald-700">
+                                    {formatToIndianRupee(-line.amount)}
+                                </td>
+                                <td className="px-3 py-1">
+                                    <SpendType
+                                        line={line}
+                                        forMerchant={null}
+                                        merchantSpends={null}
+                                        options={options}
+                                        saving={retyping === line.name}
+                                        disabled={retyping !== null || card.create_running || !onRetype}
+                                        onChange={(type) => onRetype?.(line.name, type)}
+                                    />
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    );
+};
+
+/** A spend's or refund's type: a picker while Create would still write it, else the type and its Expense. */
 const SpendType = ({
     line,
     forMerchant,
@@ -193,7 +267,7 @@ const SpendType = ({
     onChange: (expenseType: string, rows?: string[]) => void;
 }) => {
     const [forAll, setForAll] = useState(false);
-    if (line.is_credit) return <span className="text-muted-foreground">—</span>;
+    if (line.is_credit && !line.is_refund) return <span className="text-muted-foreground">—</span>;
     const badge = typeChoiceLabel(line);
     const chip = badge && (
         <Badge

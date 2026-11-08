@@ -21,9 +21,12 @@ import { CARD_STEPS, currentStepIndex } from "./importWizard";
 
 const progress = (overrides: Partial<CardCreateProgress> = {}): CardCreateProgress => ({
     spends: 40,
+    refunds: 0,
     created: 0,
     failed: 0,
     to_create: 40,
+    spends_to_create: 40,
+    refunds_to_create: 0,
     create_running: false,
     suggest_running: false,
     discardable: true,
@@ -39,11 +42,21 @@ describe("Create is offered", () => {
         expect(canCreateCard(progress({ created: 40, to_create: 0, discardable: false }))).toBe(false);
     });
 
+    it("names both counts when unpaired refunds wait too (#1673)", () => {
+        const withRefund = progress({ spends: 39, refunds: 1, to_create: 40, spends_to_create: 39, refunds_to_create: 1 });
+        expect(cardCreateButtonLabel(withRefund)).toBe("Create 39 expenses and 1 refund");
+        expect(
+            cardCreateButtonLabel(progress({ refunds: 2, to_create: 2, spends_to_create: 0, refunds_to_create: 2 })),
+        ).toBe("Create 2 refunds");
+    });
+
     it("names how many it creates, and the remainder once it has started", () => {
         expect(cardCreateButtonLabel(progress())).toBe("Create 40 expenses");
-        expect(cardCreateButtonLabel(progress({ created: 39, to_create: 1, discardable: false }))).toBe(
-            "Create the remaining 1",
-        );
+        expect(
+            cardCreateButtonLabel(
+                progress({ created: 39, to_create: 1, spends_to_create: 1, discardable: false }),
+            ),
+        ).toBe("Create the remaining 1 expense");
     });
 });
 
@@ -127,6 +140,7 @@ const spend = (name: string, merchant: string, overrides: Partial<CardImportLine
             type_source: "Fallback",
             check: true,
             editable: true,
+            is_refund: false,
             expense: null,
             outcome_note: null,
         },
@@ -191,5 +205,24 @@ describe("choosing a type for every spend of one merchant in one step (story 29)
         expect(merchantScope(lines, lines[10])).toBeNull();
         expect(merchantScope(lines, lines[11])).toBeNull();
         expect(merchantScope(lines, lines[12])).toBeNull();
+    });
+});
+
+describe("an unpaired card refund's type is its own (#1673)", () => {
+    const refund = spend("r", "MAKEMYTRIP", { is_credit: true, is_refund: true });
+    const lines = [
+        spend("a", "MAKEMYTRIP", { expense_type: "Hotel Expenses", type_source: "Chosen on Review", check: false }),
+        spend("b", "MAKEMYTRIP"),
+        refund,
+    ];
+
+    it("Use for all reaches only the merchant's spends, never its refund", () => {
+        expect(merchantRetype(lines, lines[0])?.rows).toEqual(["a", "b"]);
+        expect(merchantScope(lines, lines[0])?.rows).toEqual(["a", "b"]);
+    });
+
+    it("the refund's own picker types it alone", () => {
+        expect(merchantScope(lines, refund)).toBeNull();
+        expect(merchantRetype(lines, refund)).toBeNull();
     });
 });

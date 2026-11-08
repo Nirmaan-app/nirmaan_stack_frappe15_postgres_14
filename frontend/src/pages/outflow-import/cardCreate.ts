@@ -15,7 +15,16 @@ export const CARD_CREATE_POLL_MS = 2000;
 
 export type CardCreateProgress = Pick<
     CardImport,
-    "spends" | "created" | "failed" | "to_create" | "create_running" | "suggest_running" | "discardable"
+    | "spends"
+    | "refunds"
+    | "created"
+    | "failed"
+    | "to_create"
+    | "spends_to_create"
+    | "refunds_to_create"
+    | "create_running"
+    | "suggest_running"
+    | "discardable"
 >;
 
 /** Create has started: its job is queued or running, or it has written (Discard is gone from then on). */
@@ -38,14 +47,21 @@ export const cardSuggestNote = (card: Pick<CardImport, "suggest_running">): stri
 export const canCreateCard = (card: CardCreateProgress): boolean =>
     !card.create_running && !card.suggest_running && card.to_create > 0;
 
+/** What Create will write: "39 expenses and 1 refund", leaving out a count of nought (#1673). */
+const toCreateWords = (card: CardCreateProgress): string =>
+    [
+        card.spends_to_create > 0 ? plural(card.spends_to_create, "expense", "expenses") : null,
+        card.refunds_to_create > 0 ? plural(card.refunds_to_create, "refund", "refunds") : null,
+    ]
+        .filter(Boolean)
+        .join(" and ");
+
 export const cardCreateButtonLabel = (card: CardCreateProgress): string =>
-    cardCreateStarted(card)
-        ? `Create the remaining ${card.to_create}`
-        : `Create ${plural(card.to_create, "expense", "expenses")}`;
+    cardCreateStarted(card) ? `Create the remaining ${toCreateWords(card)}` : `Create ${toCreateWords(card)}`;
 
 /** Where Create stands, from the lines; null before it has started. */
 export const cardCreateProgress = (card: CardCreateProgress): string | null => {
-    const of = `${card.created} of ${card.spends} created.`;
+    const of = `${card.created} of ${card.spends + card.refunds} created.`;
     if (card.create_running) return `Creating… ${of}`;
     if (!cardCreateStarted(card)) return null;
     if (card.to_create === 0) return `All ${plural(card.created, "expense", "expenses")} created, at Paid.`;
@@ -73,8 +89,8 @@ export const typeSourceTitle = (line: Pick<CardImportLine, "type_source">): stri
 /**
  * Every spend of `line`'s merchant Review may still retype, `line` included, when there is more than one
  * (story 29): Review's type picker then offers "this spend" or all of them, so ten lines of one merchant take
- * one choice, the fallback ("Check") ones too. Null on a credit, a spend Create has written, or a merchant
- * with one retypable spend.
+ * one choice, the fallback ("Check") ones too. Null on a credit (a refund is typed on its own, #1673), a spend
+ * Create has written, or a merchant with one retypable spend. A refund is never among the rows.
  */
 export const merchantScope = (
     lines: readonly CardImportLine[],
