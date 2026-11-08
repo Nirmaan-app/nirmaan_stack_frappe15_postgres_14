@@ -90,14 +90,6 @@ def auto_debit_words(details: str) -> bool:
     return bool(_AUTO_DEBIT.search(merchant_key(details or "")))
 
 
-def merchant_credit_words(details: str) -> bool:
-    """Whether a card credit's words are a merchant's -- neither a payment into the card, cashback nor the bank's
-    auto-debit -- read as `sort_card_lines` reads them. Shared with the one-time patch that moves old open card
-    credits back to their import as unpaired refunds (#1673)."""
-    key = merchant_key(details or "")
-    return not (_AUTO_DEBIT.search(key) or _PAYMENT.search(key) or _CASHBACK.search(key))
-
-
 @dataclass(frozen=True)
 class LineSort:
     """What one line is. `partner` is the other line of a refund pair, else `None`."""

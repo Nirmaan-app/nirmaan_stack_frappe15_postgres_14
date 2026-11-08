@@ -70,6 +70,14 @@ def create_job_id(batch: str) -> str:
 _SUGGEST_JOB = "nirmaan_stack.api.outflow_import.card_suggest.suggest_card_types"
 
 
+def queue_type_suggestion(batch: str) -> None:
+    """Queue the type suggestion (#1569) for an import's lines still at the fallback, once per import. Called after
+    the commit that staged them: the job reads them."""
+    frappe.enqueue(
+        _SUGGEST_JOB, queue="long", timeout=1800, batch=batch, job_id=suggest_job_id(batch), deduplicate=True
+    )
+
+
 def suggest_running(batch: str) -> bool:
     """The type suggestion job is queued or running: Review polls, and Create waits."""
     return is_job_enqueued(suggest_job_id(batch))
@@ -127,10 +135,7 @@ def upload_card_statement():
         update_modified=False,
     )
     frappe.db.commit()
-    # After the commit: the job reads the lines this request staged.
-    frappe.enqueue(
-        _SUGGEST_JOB, queue="long", timeout=1800, batch=batch, job_id=suggest_job_id(batch), deduplicate=True
-    )
+    queue_type_suggestion(batch)
     return card_import(batch)
 
 

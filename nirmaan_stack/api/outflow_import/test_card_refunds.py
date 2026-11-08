@@ -34,7 +34,17 @@ from nirmaan_stack.services.outflow_import.card_credits import CARD_REFUND_REFUS
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
 
 REFUND_DETAILS = "MAKEMYTRIP(INDIA) P Gurgaon IN"
+NON_PROJECT_INFLOW = "Non Project Inflows"
 REFUND_AMOUNT = 801.50
+
+
+def _purge_inflow(inflow: str) -> None:
+    """A Non Project Inflow a main-table test recorded, with the statement File the record was given."""
+    frappe.db.rollback()
+    files = frappe.get_all("File", filters={"attached_to_doctype": NON_PROJECT_INFLOW, "attached_to_name": inflow},
+                           pluck="name")
+    purge_records("File", files)
+    purge_records(NON_PROJECT_INFLOW, [inflow])
 
 
 class CardRefundCase(CardCreateCase):
@@ -284,10 +294,12 @@ class TestThePatchMovesOldOpenCreditsBack(CardRefundCase):
         frappe.db.set_value("Outflow Import Row", self.auto_debit.name, "row_status", "Mismatched")
         frappe.db.commit()
 
-    def _run(self):
+    def _run(self, jobs=None):
         from nirmaan_stack.patches.v3_0.card_credits_to_unpaired_refunds import move_open_card_credits
 
-        return move_open_card_credits(batches=[self.batch])
+        queued = [] if jobs is None else jobs
+        with patch.object(frappe, "enqueue", side_effect=lambda method, **kw: queued.append((method, kw))):
+            return move_open_card_credits(batches=[self.batch])
 
     def _state(self, name):
         return frappe.db.get_value("Outflow Import Row", name, ["row_status", "match_basis", "type_source",
@@ -309,6 +321,60 @@ class TestThePatchMovesOldOpenCreditsBack(CardRefundCase):
         self.assertEqual([self._state(self.cashback.name), self._state(self.auto_debit.name)], before)
         rows = get_outflow_rows(scope=SCOPE_NOT_MATCHED_INFLOW, batch=self.batch)["rows"]
         self.assertEqual([row["name"] for row in rows], [self.auto_debit.name])
+
+    def test_the_suggestion_is_queued_once_for_the_import_and_types_the_refund(self):
+        from nirmaan_stack.api.outflow_import import card_suggest
+
+        frappe.get_doc({"doctype": "Card Merchant Memory", "merchant": "MAKEMYTRIP", "expense_type": HOTEL}).insert(
+            ignore_permissions=True
+        )
+        frappe.db.commit()
+        jobs = []
+        self._run(jobs)
+        self.assertEqual([kw["job_id"] for _, kw in jobs], [card_import.suggest_job_id(self.batch)])
+        self.assertTrue(jobs[0][1]["deduplicate"])
+        method, kw = jobs[0]
+        with patch.object(card_suggest, "get_extraction_settings", return_value={"enabled": False}):
+            frappe.get_attr(method)(batch=kw["batch"])
+        shown = self._shown_refund()
+        self.assertEqual((shown["expense_type"], shown["type_source"], shown["check"]), (HOTEL, "Earlier statement", False))
+
+    def test_a_run_that_moves_nothing_queues_nothing(self):
+        self._run()
+        jobs = []
+        self._run(jobs)
+        self.assertEqual(jobs, [])
+
+    def test_a_credit_recorded_as_a_non_project_inflow_on_the_main_table_stays(self):
+        from nirmaan_stack.api.outflow_import.inflows import create_non_project_inflow
+
+        summary = create_non_project_inflow(row=self.refund.name, inflow_type="FD Closures")
+        inflow = summary["settled"]["name"]
+        self.addCleanup(_purge_inflow, inflow)
+        before = self._state(self.refund.name)
+        self.assertEqual(before.row_status, "Settled")
+        self.assertEqual(self._run(), [])
+        self.assertEqual(self._state(self.refund.name), before)
+        self.assertTrue(frappe.db.exists("Outflow Row Match", {"import_row": self.refund.name, "target_name": inflow}))
+
+    def test_a_credit_skipped_by_hand_on_the_main_table_stays(self):
+        from nirmaan_stack.api.outflow_import.review import skip_row
+
+        skip_row(self.refund.name, "a refund we keep off the books")
+        before = self._state(self.refund.name)
+        self.assertEqual(before.row_status, "Skipped")
+        self.assertEqual(self._run(), [])
+        self.assertEqual(self._state(self.refund.name), before)
+        self.assertEqual(frappe.db.get_value("Outflow Import Row", self.refund.name, "skip_origin"), "Manual")
+
+    def test_an_open_credit_with_a_pick_is_left_and_named(self):
+        frappe.db.set_value("Outflow Import Row", self.refund.name, "suggested_name", "NPI-PICKED-BY-HAND")
+        frappe.db.commit()
+        before = self._state(self.refund.name)
+        with patch("builtins.print") as printed:
+            self.assertEqual(self._run(), [])
+        self.assertEqual(self._state(self.refund.name), before)
+        self.assertIn(self.refund.name, " ".join(str(call.args[0]) for call in printed.call_args_list))
 
     def test_a_second_run_changes_nothing(self):
         self._run()

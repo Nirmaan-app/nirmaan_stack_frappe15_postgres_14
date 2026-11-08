@@ -7,10 +7,12 @@
 WHAT IT MOVES
     A card line (source `ICICI Credit Card Statement`) that is a Credit, still open (`Pending match run`,
     `Mismatched` or `Error`), carries no Create plan yet (blank `match_basis`), has no live match record and no
-    pick, and whose words are a merchant's (`card_credits.merchant_credit_words`: not a payment into the card,
-    cashback or the bank's auto-debit). It gets the plan a card upload now stages a refund with
-    (`card_upload.stage`): `Pending match run`, Non Project Expenses, basis `card statement`, the fallback type
-    marked Check. Its import's next Create records it as a negative Paid Non-Project Expense.
+    pick, and whose words are a merchant's (`_merchant_credit_words`: not a payment into the card, cashback or the
+    bank's auto-debit). It gets the plan a card upload now stages a refund with (`card_upload.stage`): `Pending
+    match run`, Non Project Expenses, basis `card statement`, the fallback type marked Check. Then each touched
+    import's type suggestion is queued, as upload queues it (`card_import.queue_type_suggestion`), so a merchant
+    type a person confirmed before replaces the fallback. Its import's next Create records it as a negative Paid
+    Non-Project Expense.
 
 WHAT IT LEAVES
     Every decided credit (Settled, Partially Allocated, Skipped, Internal Transfer) stays as it was decided. An open
@@ -28,13 +30,16 @@ RAW LINE UPDATE, NOT `doc.save` -- AND WHY SKIPPING THE LIFECYCLE IS CORRECT HER
 
 from __future__ import annotations
 
+import re
+
 import frappe
 
-from nirmaan_stack.services.outflow_import.card_credits import merchant_credit_words
+from nirmaan_stack.api.outflow_import.card_import import queue_type_suggestion
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 
-# ⚠️ THE VALUES THIS PATCH WRITES ARE SPELLED HERE, AS THEY WERE ON 2026-11-08 (#1673): a patch is history, and
-# a later rename in the live modules must not change what it writes on a site that runs it late.
+# ⚠️ THE LINES THIS PATCH CHOOSES AND THE VALUES IT WRITES ARE SPELLED HERE, AS THEY WERE ON 2026-11-08 (#1673):
+# a patch is history, and a later change to the live card rules must not change what it moves on a site that
+# runs it late. The batch rollup and the type suggestion stay live: each derives from the lines as they stand.
 ROW_DOCTYPE = "Outflow Import Row"
 CARD_SOURCE = "ICICI Credit Card Statement"
 CREDIT = "Credit"
@@ -49,6 +54,13 @@ PLAN = {
     "type_source": "Fallback",
     "confirm_by_hand": 0,
 }
+
+# `card_statement._MERCHANT_SUFFIXES`, `_CITY_PREFIXES` and `card_credits._AUTO_DEBIT`, `_PAYMENT`, `_CASHBACK`.
+_MERCHANT_SUFFIXES = frozenset({"PVT", "PRIVATE", "P", "LTD", "LIMITED", "INDIA"})
+_CITY_PREFIXES = frozenset({"NEW", "NAVI"})
+_AUTO_DEBIT = re.compile(r"^AUTODEBIT PAYMENT RECD\b")
+_PAYMENT = re.compile(r"\bPAYMENT (?:RECD|RECEIVED)\b|^AUTO DR RETN\b")
+_CASHBACK = re.compile(r"\bCASH ?BACK\b")
 
 
 def execute():
@@ -80,7 +92,7 @@ def move_open_card_credits(batches: list[str] | None = None) -> list[str]:
     )
     moved, touched = [], set()
     for line in lines:
-        if not merchant_credit_words(line.remarks):
+        if not _merchant_credit_words(line.remarks):
             continue
         if line.has_live_match or line.suggested_name:
             print(f"card credits patch: left {line.name} ({line.import_batch}): it has a match record or a pick.")
@@ -93,4 +105,26 @@ def move_open_card_credits(batches: list[str] | None = None) -> list[str]:
     for batch in sorted(touched):
         refresh_batch_rollup(batch)
     frappe.db.commit()
+    for batch in sorted(touched):
+        queue_type_suggestion(batch)
     return moved
+
+
+def _merchant_credit_words(details: str | None) -> bool:
+    """Whether a card credit's words are a merchant's: neither the bank's auto-debit, a payment into the card nor
+    cashback, read on the merchant key as `card_credits.sort_card_lines` read them on 2026-11-08."""
+    key = _merchant_key(details or "")
+    return not (_AUTO_DEBIT.search(key) or _PAYMENT.search(key) or _CASHBACK.search(key))
+
+
+def _merchant_key(details: str) -> str:
+    """`card_statement.merchant_key` as of 2026-11-08."""
+    words = details.split()
+    if len(words) >= 3 and re.fullmatch(r"[A-Za-z]{2}", words[-1]):
+        words = words[:-2]
+        if len(words) >= 2 and words[-1].upper() in _CITY_PREFIXES:
+            words = words[:-1]
+    cleaned = re.sub(r"[^A-Z0-9]+", " ", " ".join(words).upper()).split()
+    while len(cleaned) > 1 and cleaned[-1] in _MERCHANT_SUFFIXES:
+        cleaned.pop()
+    return " ".join(cleaned)
