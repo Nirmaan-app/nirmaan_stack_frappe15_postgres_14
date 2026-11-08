@@ -7489,8 +7489,8 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
    standalone money lines on page 1 (the other is the minimum due). Statement date is the earlier of the two
    standalone long dates. A line is `DD/MM/YYYY SerNo(11) details points [intl] amount [CR]`; lines dated
    before the period or out of order are kept as printed. The card-number headings are never read.
-   ⚠️ **A line may be split over two or three rows** (pypdf breaks a details too wide for its column; seen in the
-   2026 Apr, Jun, Jul and Sep statements, which the gate refused until `_line_from` read them): a row that opens
+   ⚠️ **A line may be split over two or three rows** (pypdf breaks details too wide for their column; read by
+   `_match_line_at`): a row that opens
    with date + SerNo but does not end the line is joined with the one or two rows under it, words joined with one
    space. Only a place row (city and country code, or the code alone) or a points-and-amount row is joined on
    (`_RUN_ON`), never the next line's opening row, a card heading or an invoice number. A line not complete in
