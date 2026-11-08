@@ -193,6 +193,31 @@ class TestTheAddressBlock(unittest.TestCase):
                 self.assertEqual(read_card_statement(text).company, name)
 
 
+# The 4200XXXXXXXX2222 card's first spend, as one row; the tests below print it split over rows instead.
+_ONE_ROW_SPEND = "01/09/2026 14092030373 BLINK COMMERCE PVT LTD BANGALORE IN 0 470.00\n"
+
+
+class TestASplitLine(unittest.TestCase):
+    """A line whose Transaction Details are too wide for the column: pypdf prints it over two or three rows.
+    Merchant names are made up."""
+
+    def _read_with(self, rows: str):
+        statement = read_card_statement(_replace(_text(), _ONE_ROW_SPEND, rows))
+        [line] = [line for line in statement.lines if line.serno == "14092030373"]
+        return statement, line
+
+    def test_shape_a_the_country_code_alone_then_points_and_amount(self):
+        statement, line = self._read_with(
+            "01/09/2026 14092030373 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 470.00\n"
+        )
+        self.assertEqual(line.date, date(2026, 9, 1))
+        self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(line.card_last_four, "2222")
+        self.assertEqual(len(statement.lines), 47)
+
+
 class TestRefusals(unittest.TestCase):
     """Every refusal happens in the reader, before anything is saved."""
 

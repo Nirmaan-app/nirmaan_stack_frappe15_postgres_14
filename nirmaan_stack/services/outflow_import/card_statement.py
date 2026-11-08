@@ -237,14 +237,21 @@ def _statement_date(rows: list[str], period_to: date) -> date:
 _CARD_HEADING = re.compile(r"^\s*\d{4}X{8}(\d{4})\s*$")
 
 
+# A row that opens a transaction: its date and SerNo. A line too wide for the Transaction Details column runs on
+# over the next rows (its country code, then its points and amount), so such a row may not end the line.
+_LINE_START = re.compile(r"^\d{2}/\d{2}/\d{4}\s+\d{11}\b")
+# The most rows one line has been seen to take (the 2026 Apr-Sep statements): the opening row and two more.
+_MAX_LINE_ROWS = 3
+
+
 def _lines(rows: list[str]):
     last_four = ""
-    for row in rows:
+    for index, row in enumerate(rows):
         heading = _CARD_HEADING.match(row)
         if heading:
             last_four = heading.group(1)
             continue
-        found = _LINE.match(row)
+        found = _line_from(rows, index)
         if not found:
             continue
         details = found.group("details").strip()
@@ -257,6 +264,23 @@ def _lines(rows: list[str]):
             merchant_key=merchant_key(details),
             card_last_four=last_four,
         )
+
+
+def _line_from(rows: list[str], index: int) -> re.Match | None:
+    """The transaction line that opens at `rows[index]`: the row alone, or, when it does not end there, the row
+    with the one or two rows under it, their words joined with one space. A run-on row is never a card heading
+    or the next transaction's opening row; a line not complete within `_MAX_LINE_ROWS` rows is not read."""
+    row = rows[index]
+    found = _LINE.match(row)
+    if found or not _LINE_START.match(row):
+        return found
+    for end in range(index + 1, min(index + _MAX_LINE_ROWS, len(rows))):
+        if _CARD_HEADING.match(rows[end]) or _LINE_START.match(rows[end]):
+            return None
+        found = _LINE.match(" ".join(" ".join(rows[index : end + 1]).split()))
+        if found:
+            return found
+    return None
 
 
 def _gate(statement: CardStatement) -> None:
