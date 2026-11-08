@@ -4,6 +4,8 @@
 // fetch. `CardImportReview` and `ImportStatementDialog` render it; `cardCreate.test.ts` pins it. The server
 // (`card_review.py`, `card_create.py`) asks every rule again.
 
+import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+
 import type { CardImport, CardImportLine } from "./creditCardImport";
 import { plural } from "./porterWords";
 
@@ -59,16 +61,82 @@ const toCreateWords = (card: CardCreateProgress): string =>
 export const cardCreateButtonLabel = (card: CardCreateProgress): string =>
     cardCreateStarted(card) ? `Create the remaining ${toCreateWords(card)}` : `Create ${toCreateWords(card)}`;
 
-/** Where Create stands, from the lines; null before it has started. */
-export const cardCreateProgress = (card: CardCreateProgress): string | null => {
-    const of = `${card.created} of ${card.spends + card.refunds} created.`;
-    if (card.create_running) return `Creating… ${of}`;
-    if (!cardCreateStarted(card)) return null;
-    if (card.to_create === 0) return `All ${plural(card.created, "expense", "expenses")} created, at Paid.`;
-    if (card.failed > 0)
-        return `${of} ${card.failed} could not be created: press Create again to retry ${card.failed === 1 ? "it" : "them"}.`;
-    const waiting = card.to_create;
-    return `${of} ${waiting} ${waiting === 1 ? "is" : "are"} waiting: press Create again to create ${waiting === 1 ? "it" : "them"}.`;
+/**
+ * Where the import stands, as the dialog shows it (#1674). One phase, derived from the import alone, so a reload
+ * or a reopen from Import History shows the same thing:
+ *
+ *   review        Create not started
+ *   creating      its job is queued or running: "Creating… N of M" and a bar
+ *   finished      nothing left to create: a green "Import finished" banner, and Done is the only button
+ *   needs_create  Create ran and some lines failed or still wait: how many, and Create offered again
+ */
+export type CardPhase = "review" | "creating" | "finished" | "needs_create";
+
+export interface CardPhaseView {
+    phase: CardPhase;
+    /** While Create runs: the line and the bar's percent. */
+    progress: { label: string; percent: number } | null;
+    /** Once finished: the banner's title and its counts, one per line. */
+    banner: { title: string; lines: string[] } | null;
+    /** When another Create is needed: how many lines failed or wait. */
+    notice: string | null;
+    /** The footer: Create's label (null when not offered), whether Discard may show (who may discard is the
+     *  button's own question), and whether Done is the main button or a plain one beside Create. */
+    footer: { create: string | null; discard: boolean; done: "primary" | "outline" };
+}
+
+const SETTLED = "Settled";
+
+export const cardPhase = (card: CardCreateProgress): CardPhase => {
+    if (card.create_running) return "creating";
+    if (!cardCreateStarted(card)) return "review";
+    return card.to_create === 0 ? "finished" : "needs_create";
+};
+
+/** The Finished banner's counts, from the lines as the server reports them. */
+const finishedLines = (lines: readonly CardImportLine[]): string[] => {
+    const created = lines.filter((line) => line.row_status === SETTLED);
+    const spends = created.filter((line) => !line.is_credit);
+    const refunds = created.filter((line) => line.is_refund);
+    const sum = (items: CardImportLine[]) => items.reduce((total, line) => total + line.amount, 0);
+    const skipped = lines.filter((line) => line.row_status === "Skipped").length;
+    const internal = lines.filter((line) => line.row_status === "Internal Transfer").length;
+    return [
+        `${plural(spends.length, "expense", "expenses")} created, ${formatToIndianRupeeOrZero(sum(spends))}`,
+        refunds.length > 0 ? `${plural(refunds.length, "refund", "refunds")} recorded, -${formatToIndianRupee(sum(refunds))}` : null,
+        skipped > 0 ? `${plural(skipped, "line", "lines")} skipped` : null,
+        internal > 0 ? plural(internal, "internal transfer", "internal transfers") : null,
+    ].filter((part): part is string => part !== null);
+};
+
+export const cardPhaseView = (card: CardCreateProgress & Pick<CardImport, "lines">): CardPhaseView => {
+    const phase = cardPhase(card);
+    const total = card.created + card.to_create;
+    const create = canCreateCard(card) ? cardCreateButtonLabel(card) : null;
+    const view: CardPhaseView = {
+        phase,
+        progress: null,
+        banner: null,
+        notice: null,
+        footer: { create, discard: phase === "review" && card.discardable, done: create ? "outline" : "primary" },
+    };
+    if (phase === "creating") {
+        view.progress = {
+            label: `Creating… ${card.created} of ${total}`,
+            percent: total > 0 ? Math.round((card.created / total) * 100) : 0,
+        };
+        view.footer.done = "outline";
+    } else if (phase === "finished") {
+        view.banner = { title: "Import finished", lines: finishedLines(card.lines) };
+    } else if (phase === "needs_create") {
+        const of = `${card.created} of ${total} created.`;
+        const left = card.to_create;
+        view.notice =
+            card.failed > 0
+                ? `${of} ${plural(card.failed, "line", "lines")} could not be created: press Create again to retry ${card.failed === 1 ? "it" : "them"}.`
+                : `${of} ${plural(left, "line", "lines")} still ${left === 1 ? "waits" : "wait"}: press Create again to create ${left === 1 ? "it" : "them"}.`;
+    }
+    return view;
 };
 
 /** What the badge beside a spend's type says: "Check" for the fallback nobody has chosen, else its source. */

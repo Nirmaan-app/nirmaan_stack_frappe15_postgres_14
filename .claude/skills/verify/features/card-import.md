@@ -4,7 +4,8 @@ An Accountant imports a company card's monthly ICICI PDF from Bulk Import Transa
 with its expense type, the unpaired card refunds under them in their own Refunds list (each at a minus amount, with
 its own type picker), the internal transfers and the skipped lines. Create writes one Paid Non-Project Expense per
 spend and one of minus its amount per refund (spec #1653, #1673; ADR-0039 Amendment D). A refund never reaches the
-main table and needs no bill.
+main table and needs no bill. The dialog shows where the import stands: Review, Creating (a progress bar), Finished
+(a green banner, Done only) or Needs another Create (#1674).
 
 ## Sub-features
 
@@ -15,6 +16,15 @@ main table and needs no bill.
 - `card-create-label` the Create button names both counts: `Create 40 expenses and 1 refund`.
 - `card-create` Create writes the spends and the refund; the refund is a Paid Non-Project Expense of minus its amount,
   described `Card refund from <MERCHANT>, <holder>'s card`.
+- `card-phase-review` before Create: no banner, footer `Create …` and `Done` (Discard only for Admin / Accountant
+  Lead).
+- `card-phase-creating` while the Create job is queued or running: `status "Create progress"` with `Creating… N of M`
+  and a `progressbar`; footer `Done` only.
+- `card-phase-finished` nothing left to create: `status "Import finished"` listing expenses created and their
+  total, refunds recorded and their total, lines skipped, internal transfers; the lines below with no picker; footer
+  `Done` only. Reopened from Import History, the same.
+- `card-phase-needs-create` lines failed or wait: `N of M created. 1 line still waits: press Create again to create
+  it.` and `Create the remaining 1 expense`.
 - `card-main-table` the refund is in no Not Matched tab of the main table.
 - `card-npe-list` the Non-Project Expenses list (Paid tab) shows the refund at minus its amount (rounded, `₹-802`).
 
@@ -31,7 +41,9 @@ main table and needs no bill.
 `BIN/walk_card_import.py --task <task> --accountant <accountant email> --password <pw>` walks every sub-feature
 above as the Accountant and exits 1 on a miss. It writes a made-up statement PDF each run (`BIN/card_import_seed.py`:
 the card fixture with a fresh holder and SerNos, under the bench's `tmp/`), uploads it through the dialog, and reads
-the DB beside each write (`BIN/card_import_db.py`), saving `db.txt` beside the screenshots. The made-up import is
+the DB beside each write (`BIN/card_import_db.py`), saving `db.txt` beside the screenshots. Creating is seen because
+the env has no worker: the job waits in the queue until the walk drains it. Needs another Create is reached by
+unreconciling one created spend as Administrator (`BIN/card_import_reopen_seed.py`, setup). The made-up import is
 left on the env.
 
 ## Gotchas

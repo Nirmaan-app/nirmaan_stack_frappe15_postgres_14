@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Walk the Credit Card Statement import (spec #1653): an unpaired card refund on Review, Create, and the
-Non-Project Expenses list and the main table after it (#1673). Exits 1 on the first screen or DB read that is not
-as expected.
+Non-Project Expenses list and the main table after it (#1673); the dialog's four phases, Review, Creating,
+Finished and Needs another Create, and a finished import reopened from Import History (#1674). Exits 1 on the
+first screen or DB read that is not as expected.
 
     python3 .claude/skills/verify/bin/walk_card_import.py --task <task> --accountant <email> --password <pw>
 
@@ -9,7 +10,8 @@ The Accountant needs the password on the env DB (`devenv.sh run <task> set-passw
 made-up statement (`card_import_seed.py`: the card fixture with a fresh holder and SerNos) through the import
 dialog, so every run is a new import. An env runs no RQ worker, so the walk drains the `long` queue itself
 (`devenv.sh run <task> worker --queue long --burst`) after the upload (the type suggestion) and after Create.
-The made-up import is left on the env.
+To reach Needs another Create it reopens one created spend through Unreconcile as Administrator
+(`card_import_reopen_seed.py`, setup only). The made-up import is left on the env.
 """
 
 import argparse
@@ -58,6 +60,33 @@ holder = seeded["holder"]
 # The container's /workspace/development is the host's development folder, four levels above this app.
 statement = Path("../../../..").resolve() / seeded["statement"].removeprefix("/workspace/development/")
 log = [f"seeded: {json.dumps(seeded)}"]
+
+
+def footer_buttons(dialog) -> list[str]:
+    """The card footer's buttons, in order (the dialog's last row of buttons)."""
+    footer = dialog.locator("div.border-t").last
+    return [b.inner_text().strip() for b in footer.get_by_role("button").all()]
+
+
+def open_from_history(page) -> object:
+    """Import history -> Credit Card tab -> this holder's statement: the card dialog."""
+    page.get_by_role("button", name="Import history").click()
+    history = page.get_by_role("dialog", name="Import history")
+    history.wait_for()
+    for _ in range(14):
+        page.wait_for_timeout(1500)
+        if history.get_by_role("tabpanel").get_by_role("button").filter(has_text=holder).count():
+            break
+        if history.get_by_role("tab", name=re.compile(r"^Credit Card \([1-9]")).count():
+            history.get_by_role("tab", name=re.compile(r"^Credit Card")).click()
+            page.wait_for_timeout(1000)
+            if history.get_by_role("tabpanel").get_by_role("button").filter(has_text=holder).count():
+                break
+        history.get_by_role("button", name="Previous month").click()
+    history.get_by_role("tabpanel").get_by_role("button").filter(has_text=holder).first.click()
+    dialog = page.get_by_role("dialog", name="Import a Credit Card Statement")
+    dialog.get_by_text(holder).first.wait_for(timeout=60_000)
+    return dialog
 
 
 def retype(row, expense_type: str) -> None:
@@ -131,10 +160,22 @@ with session(a.task, a.accountant, a.password) as (page, out):
     log.append(f"db before Create: {json.dumps(db(holder))}")
     save(page, out, "03-refund-typed-on-its-own")
 
+    # #1674 Review: Create not started; Discard is the Accountant Lead's, so this Accountant sees Create and Done.
+    check(dialog.get_by_role("status", name="Import finished").count() == 0, "Review: no banner yet")
+    check(footer_buttons(dialog) == ["Create 40 expenses and 1 refund", "Done"],
+          f"Review: the footer offers Create and Done: {footer_buttons(dialog)}")
+
+    # Creating: the job is queued and not yet run (the env has no worker), so the dialog reads Creating.
     create.click()
-    page.wait_for_timeout(1500)
+    creating = dialog.get_by_role("status", name="Create progress")
+    creating.wait_for(timeout=30_000)
+    check(re.search(r"Creating… 0 of 41", creating.inner_text()) is not None,
+          f"Creating: 'Creating… N of M': {creating.inner_text()!r}")
+    check(creating.get_by_role("progressbar").count() == 1, "Creating: with a progress bar")
+    check(footer_buttons(dialog) == ["Done"], f"Creating: only Done is offered: {footer_buttons(dialog)}")
+    save(page, out, "04-creating")
+
     drain()
-    page.wait_for_timeout(4000)
     created = db(holder)
     check(created["to_create"] == 0 and created["created"] == 41, f"DB: Create wrote 40 spends and the refund: "
           f"{created['created']} created, {created['to_create']} left")
@@ -144,8 +185,48 @@ with session(a.task, a.accountant, a.password) as (page, out):
           f"DB: the refund is a Paid Non-Project Expense of -801.50: {json.dumps(expense)}")
     check(created["open_on_main_table"] == [], "DB: nothing of this import is open on the main table")
     log.append(f"db after Create: {json.dumps(created)}")
-    save(page, out, "04-after-create")
-    page.keyboard.press("Escape")
+
+    # Finished: the green banner with the counts, the lines below read-only, Done the only button.
+    banner = dialog.get_by_role("status", name="Import finished")
+    banner.wait_for(timeout=30_000)
+    text = banner.inner_text()
+    for words in ("Import finished", "40 expenses created, ₹1,37,584.99", "1 refund recorded, -₹801.50",
+                  "5 lines skipped", "1 internal transfer"):
+        check(words in text, f"Finished: the banner says {words!r}")
+    check(footer_buttons(dialog) == ["Done"], f"Finished: Done is the only button: {footer_buttons(dialog)}")
+    check(dialog.get_by_role("table").first.get_by_role("row").count() > 40
+          and dialog.get_by_role("combobox").count() == 0, "Finished: the lines stay below, read-only")
+    save(page, out, "05-finished")
+    dialog.get_by_role("button", name="Done").click()
+    dialog.wait_for(state="hidden")
+
+    # Reopened from Import History, a finished import shows Finished.
+    dialog = open_from_history(page)
+    dialog.get_by_role("status", name="Import finished").wait_for(timeout=30_000)
+    check(footer_buttons(dialog) == ["Done"], "Import History: the reopened import shows Finished, Done only")
+    save(page, out, "06-reopened-finished")
+    dialog.get_by_role("button", name="Done").click()
+    dialog.wait_for(state="hidden")
+
+    # Needs another Create: a spend unreconciled since (setup) waits; the dialog says so and offers Create again.
+    log.append(devenv("script", a.task, f"{BIN}/card_import_reopen_seed.py", holder).strip().splitlines()[-1])
+    dialog = open_from_history(page)
+    notice = dialog.get_by_text("40 of 41 created. 1 line still waits: press Create again to create it.")
+    notice.wait_for(timeout=30_000)
+    check(dialog.get_by_role("status", name="Import finished").count() == 0, "Needs another Create: no banner")
+    check(footer_buttons(dialog) == ["Create the remaining 1 expense", "Done"],
+          f"Needs another Create: Create is offered again: {footer_buttons(dialog)}")
+    save(page, out, "07-needs-another-create")
+    dialog.get_by_role("button", name="Create the remaining 1 expense").click()
+    dialog.get_by_role("status", name="Create progress").wait_for(timeout=30_000)
+    drain()
+    dialog.get_by_role("status", name="Import finished").wait_for(timeout=30_000)
+    again = db(holder)
+    check(again["to_create"] == 0 and again["created"] == 41, "DB: the second Create wrote the reopened spend")
+    log.append(f"db after the second Create: {json.dumps(again)}")
+    save(page, out, "08-finished-again")
+    dialog.get_by_role("button", name="Done").click()
+    dialog.wait_for(state="hidden")
 
     # The main table: the credit is in no Not Matched tab.
     page.get_by_role("button", name=re.compile(r"^Not Matched – Inflow \d+$")).click()
@@ -154,7 +235,7 @@ with session(a.task, a.accountant, a.password) as (page, out):
     check(page.get_by_role("row").filter(has_text=expense["name"]).count() == 0
           and page.get_by_role("row").filter(has_text=holder).count() == 0,
           "the main table's Not Matched – Inflow tab does not list the refund")
-    save(page, out, "05-main-table-not-matched-inflow")
+    save(page, out, "09-main-table-not-matched-inflow")
 
     # The Non-Project Expenses list shows it at minus its amount.
     page.goto(page.url.split("/", 3)[0] + "//" + page.url.split("/", 3)[2] + "/")
@@ -166,7 +247,7 @@ with session(a.task, a.accountant, a.password) as (page, out):
     # The list rounds to the rupee ("₹-802"), as it does every amount.
     check(re.search(r"(-\s?₹|₹\s?-)\s?80(1\.50|2)\b", row.inner_text()) is not None,
           f"the Non-Project Expenses list shows the refund at minus its amount: {row.inner_text()!r}")
-    save(page, out, "06-non-project-expenses-negative")
+    save(page, out, "10-non-project-expenses-negative")
 
     (out / "db.txt").write_text("\n".join(log) + "\n")
     print(f"evidence: {out}")
