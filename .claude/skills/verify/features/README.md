@@ -71,6 +71,8 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   Collect payment's stored bill is checked at import, its decide dialog says "Invoice already available" and what
   Create leads to, and Create moves the kept check to the Expense bill. Vendor Invoice Recon -> All Invoices has
   PO / WO / Cashbook / Credit Card / Porter pills: every Expense bill, latest and history, and every Porter Invoice
-  with its Validate result.
+  with its Validate result. The #1649 patch marks this financial year's older Cashbook Expenses, so they wait in
+  Pending Invoices Upload -> Cashbook.
   Walked end to end by `BIN/walk_expense_bills.py` (`--part read-again`, `--part cashbook`, `--part bill-check`,
-  `--part paid-replace`, `--part all-payments`, `--part collect` or `--part all-invoices` for one part alone).
+  `--part paid-replace`, `--part all-payments`, `--part collect` or `--part all-invoices` for one part alone;
+  `--part marker-patch` runs the #1649 patch on the env and walks the Cashbook pill before and after it).
