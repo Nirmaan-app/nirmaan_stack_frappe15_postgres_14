@@ -97,9 +97,10 @@ class TestUploadStartsSuggestion(CardSuggestCase):
 
     def test_each_spend_names_its_merchant(self):
         lines = [line for line in self._review()["lines"] if "MAKEMYTRIP" in line["details"].upper()]
-        # The three spellings of MakeMyTrip are one merchant; a credit has none.
-        self.assertEqual({line["merchant"] for line in lines if not line["is_credit"]}, {"MAKEMYTRIP"})
-        self.assertEqual({line["merchant"] for line in lines if line["is_credit"]}, {None})
+        # The three spellings of MakeMyTrip are one merchant; its unpaired refund names it too (#1673).
+        self.assertEqual({line["merchant"] for line in lines}, {"MAKEMYTRIP"})
+        others = [line for line in self._review()["lines"] if line["is_credit"] and not line["is_refund"]]
+        self.assertEqual({line["merchant"] for line in others}, {None})
 
 
 class TestTheAiTypesNewMerchants(CardSuggestCase):

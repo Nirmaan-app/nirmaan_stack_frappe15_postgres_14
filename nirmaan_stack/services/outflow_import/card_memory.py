@@ -4,8 +4,8 @@
 """Merchant memory: the expense type a person last confirmed for a card merchant (#1569, ADR-0039 ruling 5).
 
 One `Card Merchant Memory` record per merchant key (`card_statement.merchant_key`, the record's name): its
-type, who confirmed it last and when. The type suggestion reads it first (`recall`); it is written when Create
-records a spend (`card_create._create_one`) and when a card Expense's type is edited
+type, who confirmed it last and when. The type suggestion reads it first (`recall`), for spends and refunds alike;
+only a SPEND writes it (#1673): when Create records a spend (`card_create._create_one`) and when a card Expense's type is edited
 (`integrations/controllers/card_merchant_memory`). The latest confirmation wins.
 """
 
@@ -15,6 +15,7 @@ import frappe
 
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
+from nirmaan_stack.services.outflow_import.parser import DIRECTION_DEBIT
 
 MEMORY_DOCTYPE = "Card Merchant Memory"
 
@@ -52,16 +53,18 @@ def remember(merchant: str, expense_type: str, user: str) -> None:
 
 
 def merchant_of_expense(expense: str) -> str | None:
-    """The merchant key of the card line a Non Project Expense was created from; None for any other
-    Expense. Read through its Settled match record, the one link from an Expense back to its line."""
+    """The merchant key of the card SPEND a Non Project Expense was created from; None for any other Expense,
+    a card refund's included (#1673: a refund never teaches the memory). Read through its Settled match record,
+    the one link from an Expense back to its line."""
     remarks = frappe.db.sql(
         """
         SELECT r.remarks FROM "tabOutflow Row Match" m
         JOIN "tabOutflow Import Row" r ON r.name = m.import_row
         WHERE m.target_doctype = 'Non Project Expenses' AND m.target_name = %s AND m.match_kind = %s
+          AND r.direction = %s
         LIMIT 1
         """,
-        (expense, MATCH_SETTLED),
+        (expense, MATCH_SETTLED, DIRECTION_DEBIT),
         pluck=True,
     )
     return merchant_key(remarks[0]) if remarks else None

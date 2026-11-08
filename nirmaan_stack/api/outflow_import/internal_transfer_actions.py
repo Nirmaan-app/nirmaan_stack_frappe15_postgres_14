@@ -44,8 +44,8 @@ SEND_BACK_REASON_REQUIRED = "A reason is required to send a line back to Mismatc
 MARKED_NOTE = "Marked as Internal Transfer by {actor} on {day}: {reason}"
 SENT_BACK_NOTE = "Sent back to Mismatched by {actor} on {day}: {reason}"
 
-_LINE_FIELDS = ["name", "import_batch", "row_status", "source", "direction", "amount", "added_on", "remarks",
-                "settlement_reference", "transfer_id"]
+_LINE_FIELDS = ["name", "import_batch", "row_status", "source", "direction", "match_basis", "amount", "added_on",
+                "remarks", "settlement_reference", "transfer_id"]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -70,7 +70,11 @@ def mark_internal_transfer(row: str, other_end: str, reason: str, detail: str | 
     with concurrent_writer_refusal_as_sentence("mark_internal_transfer", row):
         line = _locked_line(row)
         refusal = mark_refusal(
-            row_status=line.row_status, source=line.source, direction=line.direction, import_batch=line.import_batch
+            row_status=line.row_status,
+            source=line.source,
+            direction=line.direction,
+            import_batch=line.import_batch,
+            match_basis=line.match_basis,
         ) or other_end_refusal(line.source, other_end)
         if refusal:
             frappe.throw(refusal, title="Cannot mark as Internal Transfer")

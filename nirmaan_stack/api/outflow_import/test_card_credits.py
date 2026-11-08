@@ -7,8 +7,8 @@
 
 Uploads a real PDF built from the fixture (the `test_card_import.CardImportCase` harness) and asserts on the
 lines it stages and on what the main-table endpoints then allow: payments and cashback skipped for good, a
-refund pair skipped together and unskipped together, an unpaired credit decided on the main table, a spend
-still refused there.
+refund pair skipped together and unskipped together, an unpaired credit kept off the main table as a refund
+(#1673), a spend still refused there.
 """
 
 import frappe
@@ -22,7 +22,7 @@ from nirmaan_stack.api.outflow_import.review import (
     unskip_row,
 )
 from nirmaan_stack.api.outflow_import.test_card_import import ROW_DOCTYPE, CardImportCase
-from nirmaan_stack.services.outflow_import.card_credits import CARD_SPEND_REFUSAL
+from nirmaan_stack.services.outflow_import.card_credits import CARD_REFUND_REFUSAL, CARD_SPEND_REFUSAL
 from nirmaan_stack.services.outflow_import.skip_origin import UNSKIP_LOCKED_KINDS
 from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 
@@ -93,9 +93,10 @@ class TestTheFixtureIsSorted(CardCreditsCase):
         self.assertEqual((line.row_status, line.skip_kind, line.skip_origin), ("Skipped", "Card cashback", "System"))
         self.assertTrue(line.skip_reason.startswith("Card cashback"))
 
-    def test_the_unpaired_makemytrip_credit_stays_open_and_every_spend_waits(self):
+    def test_the_unpaired_makemytrip_credit_is_a_refund_waiting_like_every_spend(self):
+        # #1673 (ADR-0039 Amendment D): it was open on the main table at Mismatched; it is Create's work now.
         line = self._line(self.batch, "MAKEMYTRIP(INDIA) P Gurgaon IN", 801.50)
-        self.assertEqual(line.row_status, "Mismatched")
+        self.assertEqual(line.row_status, "Pending match run")
         self.assertFalse(line.skip_kind)
         spends = [l for l in self._lines(self.batch) if l.direction == "Debit"]
         self.assertEqual({l.row_status for l in spends}, {"Pending match run"})
@@ -118,29 +119,25 @@ class TestTheFixtureIsSorted(CardCreditsCase):
             self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line.name, "row_status"), "Skipped")
 
 
-class TestAnUnpairedCreditIsDecidedOnTheMainTable(CardCreditsCase):
+class TestAnUnpairedRefundIsNotAMainTableLine(CardCreditsCase):
+    """#1673 flipped #1567's "decided on the main table": the unpaired credit waits for the card import's Create,
+    like a spend. `test_card_refunds` holds the rest."""
+
     def setUp(self):
         super().setUp()
         self.batch = self._upload_text(self._text())
         self.credit = self._line(self.batch, "MAKEMYTRIP(INDIA) P Gurgaon IN", 801.50)
 
-    def test_it_is_listed_under_not_matched_inflow_and_no_spend_is_listed(self):
+    def test_neither_it_nor_any_spend_is_listed(self):
         inflow = get_outflow_rows(scope=SCOPE_NOT_MATCHED_INFLOW, batch=self.batch)
-        self.assertEqual([row["name"] for row in inflow["rows"]], [self.credit.name])
+        self.assertEqual(inflow["rows"], [])
         outflow = get_outflow_rows(scope=SCOPE_NOT_MATCHED_OUTFLOW, batch=self.batch)
         self.assertEqual(outflow["rows"], [])
 
-    def test_it_may_be_skipped_by_hand(self):
-        skip_row(self.credit.name, "Refund already counted elsewhere")
-        self.assertEqual(
-            frappe.db.get_value(ROW_DOCTYPE, self.credit.name, ["row_status", "skip_kind"]),
-            ("Skipped", "Skipped by hand"),
-        )
-
-    def test_the_bank_credit_guard_lets_it_through(self):
-        from nirmaan_stack.api.outflow_import.expenses import guard_not_an_own_import_line
-
-        guard_not_an_own_import_line(frappe.db.get_value(ROW_DOCTYPE, self.credit.name, "*", as_dict=True))
+    def test_it_may_not_be_skipped_by_hand(self):
+        with self.assertRaises(frappe.ValidationError) as caught:
+            skip_row(self.credit.name, "Refund already counted elsewhere")
+        self.assertIn(CARD_REFUND_REFUSAL, str(caught.exception))
 
     def test_a_spend_is_still_refused_on_the_main_table(self):
         from nirmaan_stack.api.outflow_import.expenses import guard_not_an_own_import_line
@@ -186,6 +183,11 @@ class TestARefundPair(CardCreditsCase):
             ]
 
         self.assertEqual(cleared(refund), ["Mismatched", None, None, None, None])
+        # #1673: the credit comes back as an unpaired refund, Create's work like the spend.
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, self.refund.name, ["suggested_doctype", "match_basis"]),
+            ("Non Project Expenses", "card statement"),
+        )
         self.assertEqual(cleared(spend), ["Pending match run", None, None, None, None])
         # The spend is back as Create's work: still planned as a Non-Project Expense.
         self.assertEqual(

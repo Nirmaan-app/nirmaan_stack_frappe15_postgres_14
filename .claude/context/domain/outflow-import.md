@@ -7517,19 +7517,21 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
 6. **Staging.** Spend: `Pending match run`, `direction` Debit, `match_basis` `card statement` (a new
    `Outflow Row Match.match_basis` option), `suggested_doctype` `Non Project Expenses`, `auto_matched` 1,
    `suggested_expense_type` *Misc. Expenses* with `type_source` Fallback (#1568; #1569's suggestion job
-   replaces it, invariant 17). Credit: sorted at upload (invariant 14); an unpaired one is `Mismatched`. Every line: `status_raw` SUCCESS,
+   replaces it, invariant 17). Credit: sorted at upload (invariant 14); an unpaired merchant credit (an *Unpaired card
+   refund*, #1673) is staged with the same plan as a spend, `Pending match run`. Every line: `status_raw` SUCCESS,
    `remarks` = details, `settlement_reference` = "{details} - {SerNo}" (`card_statement.line_reference`,
    the Expense's payment_ref, ADR-0039 decision 6). Batch `gross_amount` = the staged spends.
-7. **Spends are not bank lines; open credits are (#1567, README ruling 4).** The gate is PER LINE:
-   `sources.line_waits_for_its_own_create(source, direction)` is True for every Porter line and for a card
-   SPEND, False for a card CREDIT (`CREDITS_DECIDED_ON_THE_MAIN_TABLE`). `review._row_filters` states the same
-   split in SQL, so an open card spend is in no tab and not in *Total Unreconciled Outflow*, while an unpaired
-   card credit is in *Not Matched – Inflow* and *Total Unreconciled Inflow*, with the bank-credit choices
-   (Project Inflow, Non-Project Inflow, Waiting refund / Vendor Refund, Skip by hand). The guards
-   `expenses.guard_not_an_own_import_line` and `skip_origin.manual_skip_refusal(direction=)` ask the same
-   predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL` (`skip_origin.own_import_refusal`
-   picks Porter's or the card's sentence). The generic upload still refuses the source ("imported through its
-   own import").
+7. **Spends and refunds are not bank lines (#1567, #1673, ADR-0039 Amendment D).** The gate is PER LINE:
+   `sources.line_waits_for_its_own_create(source, direction, match_basis)` is True for every Porter line, a card
+   SPEND, and a card refund (`sources.is_card_refund`: a CREDIT carrying Create's plan, `match_basis` =
+   `sources.CARD_PLAN_BASIS`); False for any other card credit (`CREDITS_WAIT_ONLY_WITH_A_PLAN`: an auto-debit sent back to
+   Mismatched, a credit decided on the main table before #1673 and reopened). `review._row_filters` states the
+   same split in SQL, so an open card spend or refund is in no tab and in neither *Total Unreconciled* figure.
+   ⚠️ THE PLAN IS THE MARKER, NOT THE DIRECTION: Unreconcile keeps `match_basis`, so a reopened refund goes back
+   to Review, not to the main table. The guards `expenses.guard_not_an_own_import_line`,
+   `skip_origin.manual_skip_refusal(direction=, match_basis=)` and `internal_transfer_rules.mark_refusal` ask the
+   same predicate; a card spend is refused with `card_credits.CARD_SPEND_REFUSAL`, a refund with
+   `CARD_REFUND_REFUSAL`. The generic upload still refuses the source ("imported through its own import").
 8. **Discard** (`card_import.discard_card_import`): Admin and Accountant Lead; refused once any `Outflow Row
    Match` names the batch (`created_anything`) or a job in `card_import.job_ids` (`card-suggest-<batch>`,
    `card-create-<batch>`) is queued. Raw deletes of lines, statement and batch, then
@@ -7555,7 +7557,8 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
 11. **Create** (`api/outflow_import/card_create.py`, #1568): `create_card_expenses` (Bulk Import gate: Admin,
     Accountant Lead, Accountant) enqueues `create_card_import` on `long`, job id `card_import.create_job_id` =
     `card-create-<batch>` (deduplicated; Discard waits for it); refused once no spend is left. The job is
-    Porter's shape: each SPEND (direction Debit, ⚠️ never a credit, which is open at `Mismatched` too) in
+    Porter's shape: each line carrying the plan (`match_basis` = `card statement`: a spend or, since #1673, an
+    unpaired refund; ⚠️ never a credit decided on the main table, which is open at `Mismatched` too) in
     `CREATE_LINE_STATUSES`, re-read `FOR UPDATE`, one transaction each: `settle.create_expense_from_row`
     (Paid; amount; `payment_date` = transaction date; `payment_ref` = `settlement_reference`; type as the line
     holds it; description `card_types.spend_description` "Card spend at {merchant_key}, {holder}'s card";
@@ -7565,6 +7568,20 @@ other half of `bank_exclusions`' card-bill rules, which stay unchanged.
     ("Could not create this expense. Run Create again."); a re-press creates only Error / reopened lines.
     ⚠️ NO PAID BY: Non Project Expenses has no such field (spec ruling 1); the holder is in the description
     and behind the link. Discard is refused from the first match (`created_anything`).
+11a. **Unpaired card refunds (#1673, ADR-0039 Amendment D).** Create writes a refund through
+    `settle.create_expense_from_row(card_refund=True)`: a Paid Non-Project Expense of MINUS the line amount,
+    description `card_types.refund_description` "Card refund from {merchant}, {holder}'s card", the same
+    payment_ref and statement link, no link to any one spend. ⚠️ `card_refund` is the one way past the create
+    path's "zero or less" guard, refused without `credit_card_statement` on a Non-Project Expense. The match
+    record's `target_amount` is the Expense's own (negative) amount: the Expense's bank-link guard
+    (`expense_links.amount_below_links_refusal`) and Unreconcile both compare it with the Expense. A refund never
+    teaches the merchant memory (`card_create` skips `remember`; `card_memory.merchant_of_expense` reads Debit
+    lines only), but the suggestion types it like a spend. It needs no bill: `services/card_invoices.is_card_spend`
+    (amount > 0) keeps it out of the Credit Card invoice queue, the Expense bill pill (`bill_rows.KINDS["card"]`
+    = `CARD_SPEND_SQL`) and `expense_bills.receive.is_wallet_or_card_spend`. The one-time patch
+    `v3_0.card_credits_to_unpaired_refunds` gave open pre-#1673 card merchant credits the plan, then queued each
+    touched import's type suggestion; a decided one, or one with a live match or a pick, was left (the latter
+    printed). It picks its lines by its own copy of the card words, as they were on 2026-11-08.
 12. **Unreconcile** of a created spend is the generic path (`unreconcile.unreconcile_row`): the Expense is
     deleted, the line reopens (`Mismatched`, Confirm by hand), Review offers it editable again and Create
     re-creates it. It stays out of the main table (gated source).

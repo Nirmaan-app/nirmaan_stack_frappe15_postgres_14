@@ -51,6 +51,18 @@ class CashbookExpenseFacts(NamedTuple):
 ExpenseFacts = CardExpenseFacts | CashbookExpenseFacts
 
 
+#: What makes a card Expense a card SPEND, in SQL over the `Non Project Expenses` alias `e` (`is_card_spend`).
+CARD_SPEND_SQL = "COALESCE(e.credit_card_statement, '') != '' AND e.amount > 0"
+
+
+def is_card_spend(credit_card_statement: str | None, amount) -> bool:
+    """A card spend: an Expense the card import made (`credit_card_statement` set) above zero. An *Unpaired card
+    refund* (#1673, ADR-0039 Amendment D) carries the statement too, at minus its amount: it needs no bill, so it
+    is kept out of the Credit Card invoice queue and is no Expense bill's spend. `CARD_SPEND_SQL` is the same rule
+    in SQL."""
+    return bool(credit_card_statement) and float(amount or 0) > 0
+
+
 REASON_REQUIRED = "Type the reason this spend has no invoice."
 FILE_REQUIRED = "Attach the invoice file."
 FUTURE_INVOICE_DATE = "Invoice date cannot be in the future."

@@ -1292,12 +1292,14 @@ def guard_not_an_own_import_line(doc) -> None:
     A Cashbook line is owned by its job only while `Pending match run` (#1587): a hand write then is
     written again by the job. At any other open status it is worked here (ADR-0015 Amendment A).
     """
-    # Per line (#1567): a card spend waits for the card import's Create; a card credit is decided here.
+    # Per line (#1567, #1673): a card spend or refund waits for the card import's Create; any other card credit
+    # is decided here.
     refusal = own_import_refusal(
         source=doc.get("source"),
         direction=doc.get("direction"),
         row_status=doc.get("row_status"),
         import_batch=doc.get("import_batch"),
+        match_basis=doc.get("match_basis"),
     )
     if refusal:
         frappe.throw(refusal, ExpenseSettlementError, title="Not a main-table line")

@@ -238,7 +238,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
 
-- **Unpaired card credit** — a merchant credit with no spend of the same amount on the same statement (a partial refund, or a refund of an earlier month). It is never skipped silently: it is kept as an open line for someone to decide. (Owner, 2026-10-25.)
+- **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
+  *Avoid*: unpaired card credit, card credit, card inflow.
 
 ## Petty-cash wallet (Cashbook)
 

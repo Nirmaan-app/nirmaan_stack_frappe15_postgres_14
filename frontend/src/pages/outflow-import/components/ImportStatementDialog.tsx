@@ -99,20 +99,17 @@ import { CashbookResumeButton } from "./CashbookResume";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import {
-    CARD_DISCARD_METHOD,
     CARD_SOURCE,
     CARD_UPLOAD_URL,
-    canDiscardCard,
     cardAsksForPassword,
-    cardDiscardConfirmation,
     pdfLooksLocked,
     type CardImport,
 } from "../creditCardImport";
-import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
+import { cardCreateStarted } from "../cardCreate";
 import { cardImportKey, useCardImport } from "../useCardImport";
 import { recordsFilledText } from "../internalTransferView";
+import { CardImportFooter } from "./CardImportFooter";
 import { CardImportReview } from "./CardImportReview";
-import { ImportDiscardButton } from "./ImportDiscardButton";
 import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
@@ -1525,30 +1522,13 @@ export const ImportStatementDialog = ({
                 )}
 
                 {isCard && cardImport && (
-                    <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-                        {/* Discard: Admin / Accountant Lead, until Create has written anything. */}
-                        <ImportDiscardButton
-                            method={CARD_DISCARD_METHOD}
-                            batch={cardImport.batch}
-                            offered={(canUndo) => canDiscardCard(cardImport, canUndo)}
-                            title="Discard this Credit Card Statement import?"
-                            confirmation={cardDiscardConfirmation(cardImport)}
-                            onDiscarded={handleOwnImportDone}
-                        />
-                        {/* Create (#1568): the Bulk Import gate, so every user of this dialog. */}
-                        {canCreateCard(cardImport) && (
-                            <Button onClick={card.create} disabled={card.startingCreate || card.retyping !== null}>
-                                {card.startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                                {cardCreateButtonLabel(cardImport)}
-                            </Button>
-                        )}
-                        <Button
-                            variant={canCreateCard(cardImport) ? "outline" : "default"}
-                            onClick={handleOwnImportDone}
-                        >
-                            Done
-                        </Button>
-                    </div>
+                    <CardImportFooter
+                        card={cardImport}
+                        onCreate={card.create}
+                        createDisabled={card.startingCreate || card.retyping !== null}
+                        startingCreate={card.startingCreate}
+                        onDone={handleOwnImportDone}
+                    />
                 )}
 
                 {!isCashbook && !isPorter && !isCard && stepIndex >= 2 && (

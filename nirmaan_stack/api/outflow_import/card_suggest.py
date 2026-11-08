@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Credit Card Statement import's Suggest step: an expense type for every card spend, in the background
-after upload (#1569, spec #1565, ADR-0039 ruling 5).
+"""The Credit Card Statement import's Suggest step: an expense type for every card spend and unpaired refund
+(#1673), in the background after upload (#1569, spec #1565, ADR-0039 ruling 5).
 
     upload ─▶ (this job: card_import.suggest_job_id = `card-suggest-<batch>`) ─▶ Review ─▶ Create
 
@@ -32,19 +32,20 @@ from nirmaan_stack.services.extraction.merchant_types import gemini_type_merchan
 from nirmaan_stack.services.outflow_import.card_memory import recall
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import TYPE_SOURCE_FALLBACK, AiAnswer, choose_type
-from nirmaan_stack.services.outflow_import.parser import DIRECTION_DEBIT
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 
 
 def suggest_card_types(batch: str) -> None:
-    """THE JOB: type every spend of the import still at the fallback. Re-running it is harmless."""
+    """THE JOB: type every spend and refund of the import still at the fallback. Re-running it is harmless.
+
+    A refund (#1673) is typed as a spend is: only a line carrying Create's plan has a `type_source` at all."""
     lines = frappe.db.sql(
         """
         SELECT name, remarks FROM "tabOutflow Import Row"
-        WHERE import_batch = %s AND direction = %s AND type_source = %s AND row_status != %s
+        WHERE import_batch = %s AND type_source = %s AND row_status != %s
         ORDER BY name
         """,
-        (batch, DIRECTION_DEBIT, TYPE_SOURCE_FALLBACK, ROW_SETTLED),
+        (batch, TYPE_SOURCE_FALLBACK, ROW_SETTLED),
         as_dict=True,
     )
     if not lines:
