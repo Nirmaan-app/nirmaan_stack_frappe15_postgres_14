@@ -1525,8 +1525,8 @@ export const ImportStatementDialog = ({
                     <CardImportFooter
                         card={cardImport}
                         onCreate={card.create}
-                        busy={card.startingCreate || card.retyping !== null}
-                        starting={card.startingCreate}
+                        createDisabled={card.startingCreate || card.retyping !== null}
+                        startingCreate={card.startingCreate}
                         onDone={handleOwnImportDone}
                     />
                 )}

@@ -39,7 +39,6 @@ REFUND_AMOUNT = 801.50
 
 
 def _purge_inflow(inflow: str) -> None:
-    """A Non Project Inflow a main-table test recorded, with the statement File the record was given."""
     frappe.db.rollback()
     files = frappe.get_all("File", filters={"attached_to_doctype": NON_PROJECT_INFLOW, "attached_to_name": inflow},
                            pluck="name")

@@ -71,10 +71,15 @@ _SUGGEST_JOB = "nirmaan_stack.api.outflow_import.card_suggest.suggest_card_types
 
 
 def queue_type_suggestion(batch: str) -> None:
-    """Queue the type suggestion (#1569) for an import's lines still at the fallback, once per import. Called after
-    the commit that staged them: the job reads them."""
+    """Queue the type suggestion (#1569) for an import's lines still at the fallback, unless it is already queued."""
     frappe.enqueue(
-        _SUGGEST_JOB, queue="long", timeout=1800, batch=batch, job_id=suggest_job_id(batch), deduplicate=True
+        _SUGGEST_JOB,
+        queue="long",
+        timeout=1800,
+        batch=batch,
+        job_id=suggest_job_id(batch),
+        deduplicate=True,
+        enqueue_after_commit=True,
     )
 
 

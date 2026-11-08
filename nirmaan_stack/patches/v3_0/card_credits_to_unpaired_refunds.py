@@ -55,7 +55,6 @@ PLAN = {
     "confirm_by_hand": 0,
 }
 
-# `card_statement._MERCHANT_SUFFIXES`, `_CITY_PREFIXES` and `card_credits._AUTO_DEBIT`, `_PAYMENT`, `_CASHBACK`.
 _MERCHANT_SUFFIXES = frozenset({"PVT", "PRIVATE", "P", "LTD", "LIMITED", "INDIA"})
 _CITY_PREFIXES = frozenset({"NEW", "NAVI"})
 _AUTO_DEBIT = re.compile(r"^AUTODEBIT PAYMENT RECD\b")
@@ -111,14 +110,11 @@ def move_open_card_credits(batches: list[str] | None = None) -> list[str]:
 
 
 def _merchant_credit_words(details: str | None) -> bool:
-    """Whether a card credit's words are a merchant's: neither the bank's auto-debit, a payment into the card nor
-    cashback, read on the merchant key as `card_credits.sort_card_lines` read them on 2026-11-08."""
     key = _merchant_key(details or "")
     return not (_AUTO_DEBIT.search(key) or _PAYMENT.search(key) or _CASHBACK.search(key))
 
 
 def _merchant_key(details: str) -> str:
-    """`card_statement.merchant_key` as of 2026-11-08."""
     words = details.split()
     if len(words) >= 3 and re.fullmatch(r"[A-Za-z]{2}", words[-1]):
         words = words[:-2]

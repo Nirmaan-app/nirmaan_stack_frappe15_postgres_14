@@ -136,11 +136,8 @@ NEVER_MATCHED_SOURCES = frozenset({"Cashbook", "Porter Statement", CARD_STATEMEN
 #: `line_waits_for_its_own_create` about a LINE.
 CREATE_GATED_SOURCES = frozenset({"Porter Statement", CARD_STATEMENT_SOURCE})
 
-#: Create-gated sources whose CREDITS wait for their import's Create only when they carry its plan
-#: (`is_card_refund`, #1673, ADR-0039 Amendment D): every merchant credit a card upload stages carries it, an
-#: *Unpaired card refund* recorded by Create as a negative Non-Project Expense. A credit without the plan (an
-#: auto-debit sent back to Mismatched, a credit staged before #1673) is decided on the main table, with the
-#: choices a bank credit has (#1567).
+#: Create-gated sources whose CREDITS wait for their import's Create only as refunds (`is_card_refund`, #1673);
+#: any other credit of theirs is decided on the main table, with the choices a bank credit has (#1567).
 CREDITS_WAIT_ONLY_WITH_A_PLAN = frozenset({CARD_STATEMENT_SOURCE})
 
 #: The `match_basis` a card line's Create plan carries (= `card_upload.MATCH_BASIS`, the basis of the
@@ -163,8 +160,7 @@ def source_waits_for_its_own_create(source: str) -> bool:
 def is_card_refund(direction: str | None, match_basis: str | None) -> bool:
     """Is this card line a refund: a credit carrying its import's Create plan (`CARD_PLAN_BASIS`)? (#1673)
 
-    An unpaired card refund, or the credit of a refund pair, which keeps the plan under its skip. Review,
-    Create, retype and `line_waits_for_its_own_create` read this; `review._row_filters` states it in SQL.
+    True for the credit of a refund pair too, which keeps the plan under its skip.
     """
     return (direction or "").strip() == _CREDIT and (match_basis or "").strip() == CARD_PLAN_BASIS
 
@@ -173,7 +169,7 @@ def line_waits_for_its_own_create(source: str, direction: str, match_basis: str 
     """Is this LINE worked only by its own import, never from the main table? (#1443, #1567, #1673)
 
     Per line, not per source: a Porter line always waits; a card spend waits; a card credit waits only when it
-    is a refund (`is_card_refund`: it carries its import's Create plan).
+    is a refund (`is_card_refund`).
     Every main-table guard asks this through `skip_origin.own_import_refusal`
     (`expenses.guard_not_an_own_import_line`, `skip_origin.manual_skip_refusal`), and
     `review._row_filters` states the same split in SQL.

@@ -239,7 +239,6 @@ class TestTheCreditCardStatementSource(unittest.TestCase):
         self.assertFalse(line_waits_for_its_own_create("ICICI Bank Statement", "Credit", "card statement"))
 
     def test_a_card_refund_is_a_credit_carrying_the_create_plan(self):
-        """#1673: the one refund rule Review, Create, retype and the main-table guards read."""
         from nirmaan_stack.services.outflow_import.sources import is_card_refund
 
         self.assertTrue(is_card_refund("Credit", "card statement"))
