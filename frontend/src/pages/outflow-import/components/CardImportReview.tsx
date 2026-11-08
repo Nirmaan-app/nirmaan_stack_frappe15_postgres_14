@@ -222,17 +222,14 @@ export const CardImportReview = ({
 };
 
 /** The unpaired card refunds (#1673), under the spends: each at minus its amount, with its own type picker. */
-const CardRefunds = ({
-    card,
-    options,
-    retyping,
-    onRetype,
-}: {
+interface CardRefundsProps {
     card: CardImport;
     options: TypeOption[];
     retyping: string | null;
     onRetype?: (line: string, expenseType: string, rows?: string[]) => void;
-}) => {
+}
+
+const CardRefunds = ({ card, options, retyping, onRetype }: CardRefundsProps) => {
     const refunds = cardRefundLines(card);
     if (refunds.length === 0) return null;
     return (

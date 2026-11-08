@@ -8,11 +8,9 @@
 
 import type { CardImport, CardImportLine } from "./creditCardImport";
 
-import { ROW_INTERNAL_TRANSFER as INTERNAL_TRANSFER } from "./outflowImportStatus";
+import { ROW_INTERNAL_TRANSFER as INTERNAL_TRANSFER, ROW_SKIPPED } from "./outflowImportStatus";
 
-const SKIPPED = "Skipped";
-
-const listed = (line: CardImportLine) => line.row_status !== SKIPPED && line.row_status !== INTERNAL_TRANSFER;
+const listed = (line: CardImportLine) => line.row_status !== ROW_SKIPPED && line.row_status !== INTERNAL_TRANSFER;
 
 /** The spends, in statement order (and any credit a person decides on the main table, which carries no plan). */
 export const cardWorkLines = (card: Pick<CardImport, "lines">): CardImportLine[] =>
@@ -31,7 +29,7 @@ export const cardInternalTransferLines = (card: Pick<CardImport, "lines">): Card
 
 /** The lines sorted out at upload (or skipped since), each carrying its kind and reason. */
 export const cardSkippedLines = (card: Pick<CardImport, "lines">): CardImportLine[] =>
-    card.lines.filter((line) => line.row_status === SKIPPED);
+    card.lines.filter((line) => line.row_status === ROW_SKIPPED);
 
 /** "6 lines skipped: 5 Card payment received, 1 Card cashback", or `null` when none was skipped. */
 export const cardSkippedSummary = (card: Pick<CardImport, "lines">): string | null => {
