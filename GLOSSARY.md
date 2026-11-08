@@ -342,9 +342,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 Two separate holds sit on a Vendor. They share the word "hold" and nothing else — never merge them in UI copy, code or reports.
 
-- **Vendor Hold** — the *credit* hold: `vendor_status` = On-Hold when the vendor's available credit is used up. Blocks dispatch and payments on "PO Approved" POs. Set by the daily credit job; cleared automatically when credit frees up.
+- **Vendor Hold** — the *credit* hold: `vendor_status` = On-Hold when the vendor's available credit is used up. Blocks dispatch and payments on "PO Approved" POs. Set by the daily credit cron job; cleared automatically when credit frees up.
 
-- **GST Hold** — the *GST* hold: the `gst_hold` checkbox. The daily job turns it ON for a Service or Material & Service vendor with **no GST number** whose **GST-off Work Orders** created this financial year (not Rejected) total **more than ₹15,00,000**, summed on their Work Order total. A vendor on GST Hold **cannot get a new Work Order**, nor be swapped into one by an *Amendment*; its existing Work Orders carry on. The job only ever turns it ON — it stays ON when the total drops, when the vendor gets a GST number and into the next financial year. Only *Remove GST Hold* (Admin) takes it off. A change by hand on the field switches no Work Order; an untick on a vendor that still qualifies is put back ON the next morning. *Avoid*: "vendor on hold" for this — that phrase means Vendor Hold. ([ADR-0028](docs/adr/0028-gst-hold.md).)
+- **GST Hold** — the *GST* hold: the `gst_hold` checkbox. The daily GST cron job turns it ON for a Service or Material & Service vendor with **no GST number** whose **GST-off Work Orders** created this financial year (not Rejected) total **more than ₹15,00,000**, summed on their Work Order total. A vendor on GST Hold **cannot get a new Work Order**, nor be swapped into one by an *Amendment*; its existing Work Orders carry on. The cron job only ever turns it ON — it stays ON when the total drops, when the vendor gets a GST number and into the next financial year. Only *Remove GST Hold* (Admin) takes it off. A change by hand on the field switches no Work Order; an untick on a vendor that still qualifies is put back ON the next morning. *Avoid*: "vendor on hold" for this — that phrase means Vendor Hold. ([ADR-0028](docs/adr/0028-gst-hold.md).)
 
 - **Remove GST Hold** — the Admin action on the Vendor page. It only clears GST Hold: it changes no Work Order, and no GST number is needed. If the vendor has registered, someone enters its GST number; its new Work Orders are then approved GST-on and its old GST-off ones appear on the GST mismatch list for *Match GST to vendor*. A vendor that still qualifies is put back on GST Hold the next morning. ([ADR-0028 Amendment A](docs/adr/0028-gst-hold.md).)
 
@@ -652,3 +652,19 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   back. Taking one back on (rehiring) is not supported yet
   ([ADR-0043](docs/adr/0043-an-exited-employees-login-is-switched-off-and-stripped-not-deleted.md)). *Avoid*:
   deleted user, inactive user. (Owner, 2026-11-05.)
+
+## Background operations
+
+- **Background operation** — a unit of work the system carries out after the screen that started it already has its
+  answer back: a TDS export, a BoQ upload's parse, a sheet's classification, a rate suggestion, a daily check. It waits
+  in a queue, runs, and ends *finished*, *failed* or *lost* (the server stopped while running it). One started from a
+  screen belongs to the user who started it, and only that user follows it or collects its result. A **run** (such as a
+  BoQ AI Run Log or a Rate Suggestion Run) is the business record; one run can span several background operations
+  (suggest, then match). *Avoid*: job (a construction project), task (the Task records and Action Center tasks),
+  request, batch, reading; "worker" for the operation (a worker is the server process that runs operations).
+  ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
+  (Owner, 2026-11-08.)
+
+- **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
+  owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
+  (Owner, 2026-11-08.)
