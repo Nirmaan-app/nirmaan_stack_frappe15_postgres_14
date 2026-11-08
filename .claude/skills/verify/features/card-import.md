@@ -26,6 +26,8 @@ main table and needs no bill. The dialog shows where the import stands: Review, 
 - `card-phase-needs-create` lines failed or wait: `N of M created. 1 line still waits: press Create again to create
   it.` and `Create the remaining 1 expense`.
 - `card-main-table` the refund is in no Not Matched tab of the main table.
+- `card-invoice-queue` Vendor Invoice Recon → Pending Invoices Upload → Credit Card lists the import's spends and
+  never its refund.
 - `card-npe-list` the Non-Project Expenses list (Paid tab) shows the refund at minus its amount (rounded, `₹-802`).
 
 ## How to get to it (user POV)

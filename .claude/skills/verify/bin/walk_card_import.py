@@ -249,5 +249,19 @@ with session(a.task, a.accountant, a.password) as (page, out):
           f"the Non-Project Expenses list shows the refund at minus its amount: {row.inner_text()!r}")
     save(page, out, "10-non-project-expenses-negative")
 
+    # The refund needs no bill: Vendor Invoice Recon -> Pending Invoices Upload -> Credit Card lists this import's
+    # spends, never its refund.
+    sidebar(page, "Vendor Invoice Recon")
+    page.get_by_role("button", name="Pending Invoices Upload").click()
+    page.wait_for_load_state("networkidle")
+    page.get_by_role("button", name=re.compile(r"^Credit Card")).click()
+    page.wait_for_load_state("networkidle")
+    page.get_by_placeholder(re.compile("search", re.I)).first.fill(holder)
+    rows = page.get_by_role("row").filter(has_text=holder)
+    rows.first.wait_for(timeout=30_000)
+    check(rows.count() > 0 and rows.filter(has_text="801.50").count() == 0,
+          f"the Credit Card invoice queue lists the spends ({rows.count()} rows) and not the refund")
+    save(page, out, "11-credit-card-invoice-queue")
+
     (out / "db.txt").write_text("\n".join(log) + "\n")
     print(f"evidence: {out}")
