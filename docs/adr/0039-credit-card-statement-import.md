@@ -144,3 +144,52 @@ file cannot be read or does not add up. A cash withdrawal is money out on the ca
 
 **Consequences.** A withdrawal is not told apart from a purchase. Doing that needs a real statement with a cash
 advance, to learn how the bank prints the line.
+
+## Amendment D (2026-11-08) — an unpaired card refund is a negative Non-Project Expense
+
+**Status:** Accepted (owner grilling session, 2026-11-08). Amends decision 4 ("Any other merchant credit is an
+*Unpaired card credit*, kept open with the choices a bank credit has") and decision 7's steps. Every other decision
+is unchanged. Term: `GLOSSARY.md` *Unpaired card refund*, which replaces *Unpaired card credit*.
+
+**Why.** A merchant credit on the card gives back money a card spend already took: a partial refund, an earlier
+month's refund, a reversed charge. Kept open on the main table, it was recorded as a *Non Project Inflow*, so the
+card's spend stayed booked in full and the refund showed up as company income. The owner wants the refund to
+balance the expense it reverses.
+
+**This does not reopen ADR-0016 Amendment A.** That amendment moved bank credits off negative Non-Project Expenses
+because they were income (FD closures, loan drawdowns), and a negative expense shrank reported spend by money that
+was never spend. A card refund *is* spend coming back, so shrinking reported spend is the correct result. Income
+with no project stays a *Non Project Inflow*.
+
+**Decision.**
+
+1. Every merchant credit that does not pair (decision 4's pairing rule, unchanged) is an *Unpaired card refund*.
+   Card payments, cashback, the auto-debit Internal Transfer and *Paired card refunds* are unchanged.
+2. It stays on the card import's Review, in its own Refunds list under the spends, never on the main table.
+   Review offers no way to send it to the main table.
+3. Its expense type is suggested as a spend's is (decision 5): the merchant's confirmed type, else Gemini, else
+   *Misc. Expenses* marked Check. It is retyped on its own; a merchant's "use for all spends" does not reach it.
+   It reads the merchant memory but never teaches it: only spends do.
+4. Create writes it as a *Paid* Non-Project Expense of minus the credit's amount, with no approval, no link to any
+   one spend, the description "Card refund from {merchant}, {holder}'s card", payment_ref as decision 6, and the
+   Credit Card Statement link.
+5. It needs no bill: it is kept out of the Credit Card invoice queue, Bill check and All Invoices.
+6. It lowers every total that sums Non-Project Expenses (the Non-Project Expenses page, the payments dashboard's
+   non-project figures, the card spends by type).
+7. Unreconciling its expense reopens it on Review, and the next Create writes it again, as for a spend.
+8. A one-time patch moves every card credit still open on the main table back to its own import as an Unpaired
+   card refund. A card credit already decided on the main table stays as it was decided.
+
+**Considered options.**
+
+- *Keep it on the main table as a Non Project Inflow* (decision 4 as written): rejected; the spend stays booked in
+  full and a refund reads as income.
+- *Ask for the merchant's credit note as its bill*: rejected; the statement line is the evidence, and a bill check
+  compares a positive bill total, so every refund would read Mismatched.
+- *Link the refund to the spend it reverses*: rejected; a partial or earlier-month refund cannot be pinned to one
+  spend for certain.
+
+**Consequences.** A Non-Project Expense may now be negative from an import again, for card refunds only. Code that
+assumes a positive Non-Project Expense amount (the main table's record picker, the matcher's amount window, the
+create guard in `settle.create_expense_from_row`, the approval tiers) must either not meet these rows or say why
+it is right for them; the build lists each one.
