@@ -23,7 +23,12 @@
 #                                     --affected <base-ref> adds every module the repo CLAUDE.md calls affected by the
 #                                     changes since <base-ref> (committed, staged, unstaged, untracked);
 #                                     --skips runs verbose and prints only skipped tests (with reasons), failures and
-#                                     the verdict (the full verbose output stays in the log)
+#                                     the verdict (the full verbose output stays in the log).
+#                                     It first migrates the env when the worktree's doctype JSON, patches.txt or
+#                                     hooks.py differ from what the env's last migrate saw (each migrate records them
+#                                     in benches/<task>/.migrated-schema; an env with no record migrates once), and
+#                                     prints that it did, or that none was needed. --no-migrate skips this and runs on
+#                                     the DB as it is
 #   ./devenv.sh affected <base-ref>   print those affected modules, one per line, without running them
 #   ./devenv.sh run [task] <args>     any frappe command on the task site, e.g. migrate, console,
 #                                     set-admin-password <pw>, set-password <email> <pw>
@@ -50,9 +55,10 @@
 #
 # [task] may be left out when you run the command from inside the task's worktree.
 #
-# Every migrate (so create, up, reset and `run migrate`) cuts the cloned DB off from real people and real storage:
-# phone push tokens cleared, outgoing mail off, uploads kept on local disk instead of the production bucket. It also
-# gives every enabled user with a Nirmaan Users row a Notification Settings row (without one the SPA goes blank).
+# Every migrate (so create, up, reset, `run migrate` and a test that needs one) cuts the cloned DB off from real
+# people and real storage: phone push tokens cleared, outgoing mail off, uploads kept on local disk instead of the
+# production bucket. It also gives every enabled user with a Nirmaan Users row a Notification Settings row (without
+# one the SPA goes blank).
 #
 # Runs on the host (Mac or Linux VM). Git steps run there; everything else re-runs this file inside the container.
 # The main bench (frappe-bench/, site localhost, its DB) is only ever read, never written.
@@ -159,7 +165,30 @@ db_state() {
 migrate() {    # frappe migrate, after clearing locks a killed or failed run left behind (else DocumentLockedError)
   pgrep -f -- "--site $SITE migrate" >/dev/null && die "a migrate is already running on $SITE"
   rm -f "$B/sites/$SITE/locks/"*.lock
-  frappe_cmd migrate "$@" && make_safe
+  # The schema files are read before the migrate, and become the env's record only once it succeeded.
+  schema record "$B/.migrated-schema.next"
+  frappe_cmd migrate "$@" && make_safe && mv "$B/.migrated-schema.next" "$B/.migrated-schema"
+}
+
+# The env's schema files (every doctype JSON, patches.txt, hooks.py) against what its last migrate saw:
+# `schema record <file>` saves them, `schema check` exits 10 (and says why) when they differ. See devenv_schema.py.
+schema() {
+  local cmd="$1" stamp="${2:-$B/.migrated-schema}"
+  python3 -I "$SELF_DIR/devenv_schema.py" "$cmd" "$B/apps/nirmaan_stack" "$stamp"
+}
+
+# Before a test run: migrate first when the schema files changed since the env's last migrate (a merge that adds a
+# doctype or field), else the run fails on a missing table and may leave rows behind.
+migrate_if_needed() {
+  local why rc=0
+  why="$(schema check)" || rc=$?
+  case "$rc" in
+    0)  echo "  migrate: none needed (doctype JSON, patches.txt and hooks.py unchanged since the env's last migrate)" ;;
+    10) echo "  migrate: $why; migrating first (log: benches/$TASK/logs/migrate.log)"
+        ( migrate ) >"$B/logs/migrate.log" 2>&1 || { tail -30 "$B/logs/migrate.log"; die "migrate failed, so no test ran"; }
+        echo "  migrate: done" ;;
+    *)  die "could not tell whether $TASK needs a migrate (devenv_schema.py exited $rc)" ;;
+  esac
 }
 
 # The DB is a copy of the dev DB, which holds real phone push tokens (a test once pushed to the CEO's phone), a live
@@ -402,16 +431,20 @@ PY
     test)
       # Frappe's run-tests exits 0 on failures unless $CI is set (frappe/commands/utils.py), and $CI changes
       # other behaviour, so read unittest's own verdict line instead.
-      check_task "$1"; shift; guard; db_state
+      check_task "$1"; shift
       # run-tests keeps only the LAST --module, so run each module on its own and judge each run.
-      MODS=(); REST=(); SKIPS=
+      MODS=(); REST=(); SKIPS=; MIGRATE=1
       while [ $# -gt 0 ]; do
         case "$1" in
           --module) MODS+=("${2:?--module needs a value}"); shift 2 ;;
           --skips) SKIPS=1; shift ;;
+          --no-migrate) MIGRATE=; shift ;;
           *) REST+=("$1"); shift ;;
         esac
       done
+      guard
+      if [ -n "$MIGRATE" ]; then migrate_if_needed; else echo "  migrate: skipped (--no-migrate): the DB as it is"; fi
+      db_state
       # --skips: Frappe prints a skip's reason only at verbosity 2 (`frappe --verbose`), one line per test, so the
       # screen gets just the skips, failures and verdict; the whole run is still in the log.
       VERBOSE=(); [ -n "$SKIPS" ] && VERBOSE=(--verbose)
@@ -790,7 +823,7 @@ case "$CMD" in
     [ $found = 1 ] && [ $YES = 0 ] && echo "(dry run: add --yes to remove the above)"
     true
     ;;
-  *) sed -n '2,51p' "$0"; exit 1 ;;
+  *) sed -n '2,56p' "$0"; exit 1 ;;
 esac
 exit
 }
