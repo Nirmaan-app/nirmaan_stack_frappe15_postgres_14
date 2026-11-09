@@ -1339,9 +1339,13 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("Supply / installation settled by the sheet's own rows",
         "a 'Supply of' row under a note that includes installation: supply only when the sheet has an installation row of that kind (named), else supply + installation, with a note; an installation-only row: the uplift only when the sheet has no supply row of that kind, else the normal installation rate (named)");
   }
-  if (ex5?.safeguard?.control_wiring || ex5?.safeguard?.note_wins) {
+  if (ex5?.safeguard?.control_wiring) {
     add("'Control wiring' and 'quantified separately'",
         "'control wiring' in a unit heading = the communication cable included, with a note; a note saying the cabling is quantified separately wins over a heading that includes it (not added, the note quoted)");
+  } else if (ex5?.safeguard?.note_wins) {
+    // VRF-7 (A4): without the control-wiring key the line names only what the config still does
+    add("'Quantified separately' wins",
+        "a note saying the cabling is quantified separately wins over a heading that includes it (not added, the note quoted)");
   }
   if (ex5?.prepare) {
     add("The BoQ's own words settle some answers before pricing",
@@ -1350,6 +1354,54 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (ex5?.two_capacities) {
     add("Two capacities in one row refuse, naming both",
         "a row whose text states two different capacities is not priced: 'two capacities stated (a / b) - pick one'");
+  }
+  // ── 13i. VRF-7 (owner rulings 2026-11-10 01:30-01:53, from the VRF-6 review) -- ADDED LAST, each only where its key is in the
+  // config (v62 and older add nothing)
+  type Prep7 = { discharge_words?: unknown; heat_words?: unknown; armour_words?: unknown; implied_includes?: unknown[]; stated_setup?: unknown;
+    family_words?: Array<{ unless?: unknown }> };
+  const prep7: Prep7 | null = ex5?.prepare && typeof ex5.prepare === "object" ? (ex5.prepare as Prep7) : null;
+  type Acc7 = { id?: string; note_words?: unknown; choice?: { conflict?: unknown }; electrical?: { match?: { step_up_note?: unknown } } };
+  const accs7: Acc7[] = ex5 && Array.isArray(ex5.accessories) ? (ex5.accessories as Acc7[]) : [];
+  const fm7 = ex5?.from_model && typeof ex5.from_model === "object" ? (ex5.from_model as { armoured?: unknown; length_by_item?: unknown }) : null;
+  if (prep7?.discharge_words) {
+    add("A discharge type the BoQ states wins",
+        "'top discharge' / 'side discharge' / 'top throw' anywhere in the row's chain (the row first, then each heading up with its notes) sets the outdoor unit's discharge when the model gave none, noted; a type not stocked at that size -> the next stocked size of that type; only when nothing states it does an outdoor unit below the smallest Top go Side");
+  }
+  if (prep7?.heat_words) {
+    add("Cooling-and-heating wordings are a heat pump",
+        "'cooling/heating', 'cooling or heating or both', 'cooling as well as heating' -> Heat Pump, noted; the row's own 'Cooling Type' / 'Cool only' still wins, with the override note");
+  }
+  if (fm7?.armoured || prep7?.armour_words) {
+    add("A cable is armoured only when the BoQ says so",
+        "the model answers armoured yes / no per cable; 'armoured' in a clause of the row's chain that names that cable sets it too (noted, the clause quoted); otherwise the cable is unarmoured");
+  }
+  if (fm7?.length_by_item) {
+    add("A length belongs to the item it is written for",
+        "power cable, communication cable and copper piping each read only their own length; an item with no length of its own takes the default length, with a note");
+  }
+  if (ex5?.safeguard?.own_row_always || ex5?.safeguard?.words_suffix) {
+    add("Every extra: added only when the sheet has no row of its own for it, always with a note",
+        "every extra (gas, frame, MCB + ELCB, cables, copper, insulation, drain pump, remote, refnet) wherever the inclusion is written -- the row itself included -- is added only when the same sheet does not quote it on a row of its own; the note quotes the BoQ words and says where they sit (this row / heading row n / note row n)");
+  }
+  if (accs7.some((a) => a?.electrical?.match?.step_up_note)) {
+    add("A breaker step-up is noted",
+        "when the HP schedule's rating is not stocked and the next one is used, the row carries a note: '<n> HP: schedule says <a> A - not stocked; <b> A used'");
+  }
+  if (prep7?.stated_setup) {
+    add("A module setup the BoQ states comes first",
+        "'16HP+16HP' or 'minimum 2 units of at least 20 HP each' on the row is followed before the split rule when every module is stocked for the unit's make and type; otherwise the split rule, with a note naming the size not stocked");
+  }
+  if ((prep7?.implied_includes ?? []).length) {
+    add("An optional remote and an individual controller include the remote",
+        "'with/without ... remote ... as per the requirement of the client' -> the remote is priced in; 'individual controller' in a system heading -> one remote per indoor unit; each noted, the own-row rule applies");
+  }
+  if ((prep7?.family_words ?? []).some((f) => f?.unless)) {
+    add("A treated fresh air unit is priced as the fresh-air unit",
+        "'treated fresh air' / 'fresh air unit' / 'TFA' -> the fresh-air unit even where 'CSU' / 'ceiling suspended' also appears; CSU alone stays Ductable");
+  }
+  if (accs7.some((a) => a?.note_words || a?.choice?.conflict)) {
+    add("Starter-panel and wired-remote notes",
+        "a unit-mounted starter panel with fused switches keeps the MCB + ELCB, with a note to check; a remote the BoQ's words priced Cordless keeps Cordless where another note says wired, with a note quoting both");
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {

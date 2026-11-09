@@ -848,8 +848,24 @@ export interface PrepareSpec {
   family_by_unit?: Array<{ family: string; unit_class: string; to: string; line: string }>;
   same_as_outdoor?: { words: string; attr: string; outdoor_family: string; line: string; also_attr?: string };
   row_cooling?: { attr: string; words: Record<string, string>; line: string };
-  family_words?: Array<{ family: string; words: string; from?: string[]; line: string; in?: "row" | "heading" | "both" }>;
+  /** VRF-7 (B11): `unless` -- words (regex) in the same text that stop the rule (a treated fresh air unit is not a Ductable) */
+  family_words?: Array<{ family: string; words: string; from?: string[]; line: string; in?: "row" | "heading" | "both"; unless?: string }>;
   attr_words?: Array<{ attr: string; value: string; families: string[]; words: string; line: string; in?: "row" | "heading" | "both"; unless_row?: string }>;
+  /** VRF-7 (A1, owner 01:53): a discharge type the BoQ states anywhere in the row's chain (nearest level first: the row, its
+   *  notes, then each heading up with its notes) decides when the model gave none, noted ({said}, {where}, {value}) */
+  discharge_words?: { attr: string; families: string[]; words: Record<string, string>; line: string };
+  /** VRF-7 (A5): cooling-and-heating wordings = Heat Pump (a safety net over the model) -- unless the row itself states
+   *  `unless_row` (its own "Cooling Type"); the words also count as a heading's heat-pump statement for `row_cooling` */
+  heat_words?: { attr: string; value: string; families: string[]; words: string; unless_row?: string; line: string };
+  /** VRF-7 (A2 safety net): "armoured" in a clause of the chain that names a cable -> that cable armoured (`attrs.power` /
+   *  `attrs.comm` set to `yes`); a clause naming the communication cable (`comm_words`) is the comm cable's */
+  armour_words?: { words: string; not_words?: string; cable_words: string; comm_words: string; attrs: { power: string; comm: string }; yes: string; line: string };
+  /** VRF-7 (B10 / C13): words that mean an include the model may have left unanswered -- the question set to `yes`, its
+   *  `_where` / `_words` answers filled from where the words sit, only on a unit of `role`, noted */
+  implied_includes?: Array<{ question: string; words: string; role: "indoor" | "outdoor"; yes: string; line: string }>;
+  /** VRF-7 (B9): a module setup the BoQ states ("16HP+16HP"; "minimum 2 units of at least 20 HP each") is followed BEFORE the
+   *  split rule when every module is stocked for the unit's make and type; else the split rule, noted */
+  stated_setup?: { attr: string; family: string; min_each: string; line: string; not_stocked: string };
 }
 
 /** VRF-5: see `ExtrasSpec.scope`. `options` = the choice values in order (the first = supply + installation). */
@@ -889,7 +905,10 @@ export interface AccessorySpec {
     /** VRF-6 (F1): the model item's own answer for the choice (the remote type) -- read before the plain words / default */
     model_attr?: string;
     /** VRF-6 (F1): the row's own notes and its headings' notes are read with the row text and the headings */
-    read_notes?: boolean };
+    read_notes?: boolean;
+    /** VRF-7 (D2): a type the BoQ's words decided (not the model's answer) kept although another type's words sit elsewhere in
+     *  the chain -- noted ({first}, {said}, {where}, {value}) */
+    conflict?: { line: string } };
   /** borrowed from Electrical (read only): the item text built from the band's rating, priced by Electrical's own rules */
   electrical?: { category: string; discipline: string; item_attr: string; qty_attr: string; label: string; template?: string; rating_key?: string;
     /** VRF-5 (owner ANSWER 6): words (regex) naming a device priced as this one ("isolator" -> the default MCCB), and the line saying so */
@@ -899,7 +918,9 @@ export interface AccessorySpec {
     /** VRF-6 (team rule 2026-11-09): the item is found in the target's catalogue BY ITS ATTRIBUTES (device / pole / curve; plus
      *  words its name must carry, "300 ?mA"), the smallest stocked rating at or above the one needed; `step_up_line` names a
      *  step up ({want}, {got}, {item}). With `match` there is no `template`. */
-    match?: { kind?: string; attrs: Record<string, string>; name_words?: string; rating_attr: string; step_up_line: string };
+    match?: { kind?: string; attrs: Record<string, string>; name_words?: string; rating_attr: string; step_up_line: string;
+      /** VRF-7 (A6): the step up also as a review note ({label}, {hp}, {want}, {got}) */
+      step_up_note?: string };
     /** VRF-6: the rating needed, by the unit's HP -- the first row whose `max` the HP does not exceed; above the last, the last
      *  row (26 HP -> 63 A). Each row's Pricing Input `factor` is the rating. */
     schedule?: Array<{ max: number; input: string }> };
@@ -913,6 +934,9 @@ export interface AccessorySpec {
   follow_unit_brand?: { line: string };
   /** VRF-6 (owner Q1): words (regex) that mean the unit has the item built in -- it is still added, with `line` */
   builtin?: { words: string; line: string };
+  /** VRF-7 (D1): words (regex) in the chain that ask the reviewer to check the line (a unit-mounted starter panel's fused
+   *  switches) -- the line is kept, `line` ({said}) is a review note */
+  note_words?: { words: string; line: string };
   /** the word of the quantity's unit ("Kg", "Nos") */
   unit_word: string;
 }
@@ -941,6 +965,11 @@ export interface ExtrasSafeguard {
   /** VRF-6 (owner Q7): words in a note saying an item is quantified separately -- it wins over a heading's inclusion; the
    *  includes it covers, and the note ({label}, {said}) */
   note_wins?: { words: string; ids: string[]; line: string };
+  /** VRF-7 (B7, owner 01:36): the own-row check runs for EVERY extra wherever it is stated -- the row itself included */
+  own_row_always?: boolean;
+  /** VRF-7 (B8): the per-include question (`<includes question>` + suffix) holding the BoQ words that state it; the notes then
+   *  quote them and say where they sit (`lines.added_q` / `excluded_q` / `not_added_q`, {words}, {where}) */
+  words_suffix?: string;
 }
 
 /** VRF-5 / VRF-6: one include's own-row rule (see `ExtrasSafeguard.own_row`). */
@@ -970,6 +999,11 @@ export interface ExtrasFromModel {
   accessory_includes?: Record<string, string>;
   /** VRF-5 (owner R4-R8): the row's scope question (asked per item; the row takes the first item that answers) */
   scope?: string;
+  /** VRF-7 (A2, owner 01:3x "armoured only when specifically mentioned"): the cable's armoured Yes / No question per cable */
+  armoured?: { power?: string; comm?: string };
+  /** VRF-7 (A3): a length per cable / pipe item -- an item reads ONLY its own answer (`length` is then not read); none ->
+   *  the default, noted (`lines.length_default`) */
+  length_by_item?: { power?: string; comm?: string; copper?: string };
 }
 
 /** VRF-5 (owner R1 SAFEGUARD). PURE. What a MODEL ITEM says about every inclusion beyond `boqExtrasOf`: the accessories it
@@ -977,8 +1011,11 @@ export interface ExtrasFromModel {
  * quantity as written (the `safeguard` suffixes on the include's question id). */
 export function boqInclusionsOf(item: ExtractedListItem | undefined, fm: ExtrasFromModel | undefined, sg: ExtrasSafeguard | undefined): {
   accessories: Set<string>; where: Record<string, string>; wording: Record<string, string>; qty: Record<string, string>;
+  /** VRF-7 (B8): the BoQ words that state each include (only with `sg.words_suffix`) */
+  words: Record<string, string>;
 } {
-  const out = { accessories: new Set<string>(), where: {} as Record<string, string>, wording: {} as Record<string, string>, qty: {} as Record<string, string> };
+  const out = { accessories: new Set<string>(), where: {} as Record<string, string>, wording: {} as Record<string, string>, qty: {} as Record<string, string>,
+    words: {} as Record<string, string> };
   if (!item || !fm) return out;
   const said = (id: string | undefined) => {
     if (!id) return "";
@@ -992,6 +1029,7 @@ export function boqInclusionsOf(item: ExtractedListItem | undefined, fm: ExtrasF
       const w = said(q + sg.where_suffix); if (w) out.where[id] = w;
       const x = said(q + sg.wording_suffix); if (x) out.wording[id] = x;
       const n = said(q + sg.qty_suffix); if (n) out.qty[id] = n;
+      if (sg.words_suffix) { const ws = said(q + sg.words_suffix); if (ws) out.words[id] = ws; }
     }
   }
   return out;
@@ -1208,6 +1246,15 @@ export function boqExtrasOf(item: ExtractedListItem | undefined, fm: ExtrasFromM
     const spec = readCableSpecWords(cable);
     if (spec) { values[`${line}_cores`] = String(spec.cores); values[`${line}_sqmm`] = String(spec.sqmm); }
     else values[`${line}_spec`] = cable;
+  }
+  // VRF-7 (A3): with `length_by_item` each item reads ONLY its own length answer; the shared one is not read
+  if (fm.length_by_item) {
+    const by = fm.length_by_item;
+    for (const [line, q] of [["power", by.power], ["comm", by.comm], ["copper_supply", by.copper], ["copper_return", by.copper]] as Array<[string, string | undefined]>) {
+      const l = readLengthWords(said(q));
+      if (l !== null) values[`${line}_length`] = l;
+    }
+    return { includes, values };
   }
   const len = readLengthWords(said(fm.length));
   if (len !== null) for (const line of ["copper_supply", "copper_return", "power", "comm"]) values[`${line}_length`] = len;
@@ -4534,9 +4581,13 @@ function priceOneItem(
     const size = read[bs.size_attr];
     if (typeof size !== "number" || !Number.isFinite(size)) continue;
     const fa = familyAttr(spec);
+    // VRF-7 (A1, owner 2026-11-10: a regression since VRF-6): only the choices the FAMILY prices on narrow the SKUs -- a
+    // remote type the model put on an outdoor unit (no outdoor SKU carries one) emptied the list, so the Side step never ran
+    const famNeeds = family !== null && spec.families[family] ? new Set(spec.families[family].needs) : null;
     const sizes = projected.filter((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === family
       && String(it.attributes?.[d.attr] ?? "") === String(d.value)
       && Object.entries(read).every(([k, v]) => k === d.attr || k === bs.size_attr || !(spec.choice_attrs ?? []).includes(k)
+        || (famNeeds !== null && !famNeeds.has(k))
         || String(k === "brand" ? ((it as { brand?: unknown }).brand ?? it.attributes?.[k] ?? "") : (it.attributes?.[k] ?? "")) === String(v)))
       .map((it) => Number(it.attributes?.[bs.size_attr])).filter((n) => Number.isFinite(n));
     if (!sizes.length) continue;

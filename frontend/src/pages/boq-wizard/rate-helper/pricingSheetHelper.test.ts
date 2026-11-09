@@ -4328,14 +4328,23 @@ describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row 
     // INVERTED again at VRF-3a K2 (owner QR-1 (a) / U9 approved, 2026-11-04 19:07): the calculator field's label "BoQ quantity of
     // this row" is the third sanctioned "this row"; removed and pinned exactly once like the two above
     const U9_LABEL = "BoQ quantity of this row";
+    // INVERTED at VRF-7 (owner B8, 2026-11-10 01:36: a note "says where they sit (this row / heading row n / sheet note row n)") by
+    // mechanical authority: the two place labels of a BoQ row's OWN texts in its chain (`rowChainOf` / `chainOf`; a BoQ row only,
+    // the calculator has no chain) are the fourth and fifth sanctioned "this row"; removed and pinned exactly once like the three above
+    const B8_PLACE = 'CHAIN_ROW_PLACE = "this row"';
+    const B8_NOTE_PLACE = 'CHAIN_ROW_NOTE_PLACE = "this row\'s note"';
     for (const [name, raw] of Object.entries(CALC1_SRC)) {
-      const src = stripComments(raw).split(QTY_LABEL).join("").split(U2_CHANGED).join("").split(U9_LABEL).join("");
+      const src = stripComments(raw).split(QTY_LABEL).join("").split(U2_CHANGED).join("").split(U9_LABEL).join("")
+        .split(B8_PLACE).join("").split(B8_NOTE_PLACE).join("");
       for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
     }
     const panel = CALC1_SRC.panel;
     expect(panel.split(QTY_LABEL).length - 1).toBe(1);
     expect(stripComments(CALC1_SRC.helper).split(U2_CHANGED).length - 1).toBe(1);
     expect(stripComments(CALC1_SRC.helper).split(U9_LABEL).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.types).split(B8_PLACE).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.types).split(B8_NOTE_PLACE).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.helper)).not.toContain(B8_PLACE);
   });
   it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
     const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });

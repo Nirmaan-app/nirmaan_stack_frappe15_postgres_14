@@ -569,6 +569,9 @@ export interface RateHelperRowContext {
   /** VRF-6 (owner Q6): the notes of EVERY heading above the row, nearest first (`rowAncestorNotes`) -- read only by the VRF-6
    *  reading rules (`extras.prepare`). Absent where the page's rows were not passed. */
   ancestorNotes?: string[];
+  /** VRF-7 (A1 / B8, owner 01:36 / 01:53): the row's chain NEAREST FIRST, each text with the excel row it sits on and what it
+   *  is ("this row", "note row n", "heading row n", "sheet note row n") -- read only by the VRF-7 rules (`rowChainOf`) */
+  chainRows?: ReadonlyArray<{ row: number; where: string; text: string }>;
   /**
    * VRF-3a K2 (owner QR-1 (a), 2026-11-04 19:07): the BoQ row's QUANTITY (`qty_total`), built by `buildRowContext` from the
    * priced row. Read ONLY by a counted item (a refnet) on a per-Set row. OPTIONAL: the calculator has no row and omits it.
@@ -634,3 +637,8 @@ export function rowSuggestionsEqual(a?: RowSuggestions, b?: RowSuggestions): boo
   }
   return true;
 }
+
+/** VRF-7 (B8 / A1): the place labels of a BoQ row's OWN texts in its chain (`rowChainOf`, `chainOf`) -- a BoQ row only; the
+ *  calculator has no chain, so no calculator wording ever carries them. */
+export const CHAIN_ROW_PLACE = "this row";
+export const CHAIN_ROW_NOTE_PLACE = "this row's note";

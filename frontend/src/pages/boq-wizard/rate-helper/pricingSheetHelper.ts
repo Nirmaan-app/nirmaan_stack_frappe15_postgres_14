@@ -58,7 +58,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
+import { CHAIN_ROW_NOTE_PLACE, CHAIN_ROW_PLACE, POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 import { applyConductorFloor, conductorFloorGroups, CONDUCTOR_FLOOR_NOTE } from "./conductorFloor";
 import { USED_INPUT_MARK, attributeWorkingLine, moneyValue, usedAssemblyInputs } from "./attributeWorkingLines";
 // SLICE 6 (owner S1-S5, 2026-09-24): the item-list mode prices a LIST of items per row through the pure module;
@@ -122,6 +122,7 @@ import {
   type CountedSpec,
   type ExtractedListItem,
   type AccessorySpec,
+  type PrepareSpec,
   type ItemFieldDef,
   type ItemListPricingSpec,
   type ItemPriceResult,
@@ -4472,33 +4473,49 @@ function withExtras(
     catFirst ? { categoryFirst: true, askingCategory: ctx.category ?? null } : undefined);
   const rowsText = (quotes: Array<{ row: number; sheet?: string }>) => quotes.slice(0, 4).map((q) => `${q.sheet ? `${q.sheet} ` : ""}row ${q.row}`).join(", ")
     + (quotes.length > 4 ? ` and ${quotes.length - 4} more` : "");
+  // VRF-7 (B8): the row's chain with where each text sits -- the quoted BoQ words are found in it
+  const chain = perItem ? chainOf(ctx) : [];
   const whereOf = (i: number, id: string) => {
     const inc = inclOf(i);
     const where = (inc.where[id] ?? "").trim();
     const whereWord = where !== "" ? where.toLowerCase() : (sg?.lines.where_unknown ?? "a heading or note");
     const wording = inc.wording[id] ? (sg?.lines.wording ?? " ({wording})").replace("{wording}", inc.wording[id].toLowerCase()) : "";
-    return { where, whereWord, wording };
+    // VRF-7 (B8, owner 01:36): the BoQ words that state it, and where they sit ("heading row 12"; else the model's answer)
+    const words = sg?.words_suffix && inc.words[id] ? clip(inc.words[id]) : "";
+    const located = words ? (locateWords(inc.words[id], chain) ?? (where !== "" ? `the ${whereWord}` : whereWord)) : "";
+    return { where, whereWord, wording, words, located };
+  };
+  /** VRF-7 (B8): a safeguard line in its quoting form (`<key>_q`) when the BoQ words are known; else the VRF-5 / VRF-6 form */
+  const lineOf = (key: string, w: { whereWord: string; wording: string; words: string; located: string }) => {
+    const q = w.words && sg?.lines[`${key}_q`];
+    return q ? q.replace("{words}", w.words).replace("{where}", w.located) : (sg?.lines[key] ?? "").replace("{where}", w.whereWord).replace("{wording}", w.wording);
   };
   const decide = (i: number, id: string, label: string): { add: boolean; point?: string; extra?: string } => {
     if (!perItem || !sg) return { add: true };
-    const { where, whereWord, wording } = whereOf(i, id);
-    if (where !== "" && where.toLowerCase() === sg.row_value.toLowerCase()) return { add: true };
+    const w = whereOf(i, id);
+    // VRF-7 (B7, owner 01:36 "only add price if there is no separate row for this and always declare a suitable note"): with
+    // `own_row_always` an extra the ROW states is checked against the sheet's own rows too
+    if (!sg.own_row_always && w.where !== "" && w.where.toLowerCase() === sg.row_value.toLowerCase()) return { add: true };
     const quotes = quotesOf(id);
     if (quotes.length) {
-      return { add: false, point: sg.lines.excluded.replace("{label}", label).replace("{where}", whereWord).replace("{wording}", wording).replace("{rows}", rowsText(quotes)) };
+      return { add: false, point: lineOf("excluded", w).replace("{label}", label).replace("{rows}", rowsText(quotes)) };
     }
     // VRF-6 (owner Q-pre 13, soft guidance): copper added from a heading / note says the sheet usually quotes it separately
-    const extra = id === "copper" && sg.lines.copper_usual ? sg.lines.copper_usual : undefined;
-    return { add: true, point: sg.lines.added.replace("{label}", label).replace("{where}", whereWord).replace("{wording}", wording), ...(extra ? { extra } : {}) };
+    const extra = id === "copper" && sg.lines.copper_usual && w.where.toLowerCase() !== sg.row_value.toLowerCase() ? sg.lines.copper_usual : undefined;
+    return { add: true, point: lineOf("added", w).replace("{label}", label), ...(extra ? { extra } : {}) };
   };
   /** VRF-6 (F3): an include the model read that this unit cannot carry -- the reason, and the rows that quote it on their own */
   const notCarried = (i: number, id: string, label: string, why: string): string => {
-    const { whereWord, wording } = whereOf(i, id);
+    const w = whereOf(i, id);
     const quotes = sg && perItem ? quotesOf(id) : [];
     const own = quotes.length && sg?.lines.also_own_row ? sg.lines.also_own_row.replace("{rows}", rowsText(quotes)) : "";
+    const q = perItem && w.words && sg?.lines.not_added_q;
+    if (q) return q.replace("{label}", label).replace("{words}", w.words).replace("{where}", w.located).replace("{why}", why) + own;
     return (sg?.lines.not_added ?? "{label}: stated in {where}{wording} - NOT added: {why}").replace("{label}", label)
-      .replace("{where}", perItem ? whereWord : (sg?.lines.where_calculator ?? "your tick")).replace("{wording}", perItem ? wording : "").replace("{why}", why) + own;
+      .replace("{where}", perItem ? w.whereWord : (sg?.lines.where_calculator ?? "your tick")).replace("{wording}", perItem ? w.wording : "").replace("{why}", why) + own;
   };
+  /** VRF-7: the first match of a pattern in a text (trimmed), or null */
+  const execIn = (w: string | undefined, text: string): string | null => { if (!w) return null; try { const m = new RegExp(w, "i").exec(text); return m ? m[0].trim() : null; } catch { return null; } };
   // VRF-5 (owner R1, ANSWER 4): ONE accessory line on one unit -- quantity (typed / the BoQ's / the default by band), the per-unit
   // rate by the item's own rules, figures = quantity x rate, each rounded up to the rupee. Optional: never blocks the row.
   const remoteWords = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
@@ -4508,7 +4525,9 @@ function withExtras(
   const accessoryLine = (acc: AccessorySpec, lineId: ExtraLineId, i: number, role: "indoor" | "outdoor", bandValue: number | null,
                          typed: Record<string, string>, boqQty: string | undefined,
                          /** VRF-6: the unit's priced size in its band unit, its brand and its model item */
-                         unit: { size: number | null; brand: string | null; model?: ExtractedListItem }): ExtraLineView => {
+                         unit: { size: number | null; brand: string | null; model?: ExtractedListItem },
+                         /** VRF-7 (A6 / D2): review notes the line raises */
+                         pts?: string[]): ExtraLineView => {
     lineNo++;
     const heading = `Item ${lineNo} · ${L.heading_tail} · ${acc.electrical ? `from ${acc.electrical.label}` : (L.acc_from ?? "from VRF")}`;
     const band = acc.bands ? extraBandOf(acc.bands[role] ?? [], bandValue) : null;
@@ -4549,7 +4568,13 @@ function withExtras(
         else {
           what = String(got.attributes?.item ?? acc.title);
           const g = Number(got.attributes?.[m.rating_attr]);
-          if (g > want + 1e-9) working.push(m.step_up_line.replace("{want}", fmtMm(want)).replace("{got}", fmtMm(g)).replace("{item}", what));
+          if (g > want + 1e-9) {
+            working.push(m.step_up_line.replace("{want}", fmtMm(want)).replace("{got}", fmtMm(g)).replace("{item}", what));
+            // VRF-7 (A6, owner 01:3x "every breaker step-up gets a note"): the step up as a review note, with the unit's HP
+            if (m.step_up_note && pts && unit.size !== null) {
+              pts.push(m.step_up_note.replace("{label}", acc.label).replace("{hp}", fmtMm(unit.size)).replace("{want}", fmtMm(want)).replace("{got}", fmtMm(g)));
+            }
+          }
           if (el.alias && reTest(el.alias.words, allWords)) working.push(el.alias.line.replace("{item}", what));
           rate = cableRate ? cableRate(el.category, { ...(el.fill ?? {}), [el.item_attr]: what, [el.qty_attr]: "1" }, "Nos")
             : { reason: L.not_loaded.replace("{rules}", el.label) };
@@ -4582,6 +4607,29 @@ function withExtras(
         const modelSaid = typeof mv === "string" && options.includes(mv.trim()) ? mv.trim() : null;
         const hit = Object.entries(c.words).find(([, w]) => reTest(w, words));
         const said = first ? first[0] : modelSaid ?? (hit ? hit[0] : null);
+        // VRF-7 (D2, owner 01:36 "let it be - just make a suitable note"): a type the BoQ's WORDS decided (the ambiguous spelling, or
+        // the plain words; never the model's own answer) is kept although other words anywhere in the chain name another type -- noted
+        const decidedBy = first ?? (modelSaid === null && hit ? hit : null);
+        if (decidedBy && c.conflict && pts && typed[c.attr] === undefined) {
+          const mine = execIn(decidedBy[1], words);
+          const texts = chain.length ? chain : [{ where: "", text: words }];
+          const clauseAt = (t: string, m: string) => clip(t.split(/[.;|]+/).find((cl) => cl.includes(m))?.trim() ?? m, 90);
+          let other: { said: string; where: string } | null = null;
+          for (const [v, w] of Object.entries(c.words)) {
+            if (v === decidedBy[0] || other) continue;
+            for (const e of texts) {
+              const t = mine ? e.text.replace(mine, " ") : e.text;
+              const m = execIn(w, t);
+              if (m) { other = { said: clauseAt(t, m), where: e.where }; break; }
+            }
+          }
+          if (mine && other) {
+            const firstWhere = chain.length ? locateWords(mine, chain) : null;
+            const firstText = firstWhere ? clauseAt(texts.find((e) => e.where === firstWhere)?.text ?? mine, mine) : mine;
+            pts.push(c.conflict.line.replace("{first}", firstText).replace("{said}", other.said)
+              .replace("{where}", other.where ? ` (${other.where})` : "").replace("{value}", decidedBy[0]));
+          }
+        }
         attrs[c.attr] = typed[c.attr] ?? said ?? c.default;
         choiceTag = typed[c.attr] !== undefined ? "picked" : said !== null ? "boq" : "default";
         what = `${attrs[c.attr]} ${acc.title}`;
@@ -4789,6 +4837,10 @@ function withExtras(
       return { id: "count", label: L.label_count, value: p.raw, typedValue: p.typed ?? "", ...(p.tag ? { tag: p.tag, tagText: tt } : {}), userEdited: p.typed !== undefined, ...(p.raw.trim() === "" ? { blank: true } : {}) };
     };
 
+    /** VRF-7 (A3): on a BoQ row with per-item lengths, a line the BoQ gives no length of its own says it took the default */
+    const lengthDefaultNoted = (id: ExtraLineId, f: ExtraFieldView): ExtraFieldView =>
+      (perItem && x.from_model?.length_by_item && L.length_default && f.tag === "default" && f.value.trim() !== ""
+        ? { ...f, note: L.length_default.replace("{item}", titleOf(id).toLowerCase()).replace("{n}", f.value) } : f);
     for (const id of want) {
       if (gone(id)) continue;
       if (id === "copper_supply" || id === "copper_return") {
@@ -4813,7 +4865,7 @@ function withExtras(
         // the default as declared
         const note = p.tag !== "default" ? cu?.note : undefined;
         const otherMode = p.typed !== undefined && !options.includes(p.typed.trim());
-        const lenF = lengthField(id, lengthDefault(x.copper_length_input));
+        const lenF = lengthDefaultNoted(id, lengthField(id, lengthDefault(x.copper_length_input)));
         const cntF = countField(id);
         copperUsed.set(side, { read: cu?.read, length: lenF.value });
         const fields: ExtraFieldView[] = [
@@ -4899,7 +4951,12 @@ function withExtras(
       const M = x.cable.conductor_attr ?? "material";
       const A = x.cable.armour_attr ?? "insulation";
       const mp = wordsOnly || kindAlways ? seeded("conductor", kindWords.conductor ?? x.cable.attrs[M], kindWords.conductor ? "boq" : "default") : seeded("conductor", x.cable.attrs[M]);
-      const ap = wordsOnly || kindAlways ? seeded("armour", kindWords.armour ?? x.cable.attrs[A], kindWords.armour ? "boq" : "default") : seeded("armour", x.cable.attrs[A]);
+      const ap0 = wordsOnly || kindAlways ? seeded("armour", kindWords.armour ?? x.cable.attrs[A], kindWords.armour ? "boq" : "default") : seeded("armour", x.cable.attrs[A]);
+      // VRF-7 (A2, owner 01:3x "armoured only when specifically mentioned. else default unarmoured"): the model's armoured Yes for
+      // THIS cable (the safety net sets it from the chain's words) -> armoured, from the BoQ; a typed value still wins
+      const armQ = perItem && (id === "power" || id === "comm") ? x.from_model?.armoured?.[id] : undefined;
+      const armYes = !!armQ && String(modelItem?.attributes?.[armQ]?.value ?? "").trim().toLowerCase() === (x.from_model?.yes ?? "Yes").toLowerCase();
+      const ap = armYes && ap0.typed === undefined && L.armoured_value ? { raw: L.armoured_value, tag: "boq" as const, typed: undefined } : ap0;
       const cp = defParsed ? seeded("cores", String(defParsed.cores), "default") : seeded("cores", parsed ? String(parsed.cores) : undefined);
       const zp = defParsed ? seeded("sqmm", String(defParsed.sqmm), "default") : seeded("sqmm", parsed ? String(parsed.sqmm) : undefined);
       const conductorOptions = strsOf(cableSkus.map((it) => it.attributes?.[M])).sort();
@@ -4929,7 +4986,7 @@ function withExtras(
       const lenF: ExtraFieldView = lenWords
         ? { ...lenF0, value: lenWords.value, tag: "boq", tagText: tagText("boq"), blank: undefined,
             ...(lenWords.range && L.length_range ? { note: L.length_range.replace("{a}", lenWords.range[0]).replace("{b}", lenWords.range[1]).replace("{v}", lenWords.value) } : {}) }
-        : lenF0;
+        : lengthDefaultNoted(id, lenF0);
       const cntF = countField(id);
       // VRF-5 (F2, U2): which values came from the BoQ and which are the default
       const fromBoqKinds = [kindWords.armour ? kindWords.armour.toLowerCase() : null, kindWords.conductor ? kindWords.conductor.toLowerCase() : null, lenWords ? `${lenWords.value} m` : null]
@@ -4940,7 +4997,8 @@ function withExtras(
       const opt = (opts: string[], v: string) => (v !== "" && !opts.includes(v) ? [...opts, v] : opts);
       const fields: ExtraFieldView[] = [
         { id: "conductor", label: L.label_conductor, value: mp.raw, typedValue: "", options: opt(conductorOptions, mp.raw), required: true, ...tagOf(mp), ...(mp.raw === "" ? { blank: true } : {}) },
-        { id: "armour", label: L.label_armour, value: ap.raw, typedValue: "", options: opt(armourOptions, ap.raw), required: true, ...tagOf(ap), ...(ap.raw === "" ? { blank: true } : {}) },
+        { id: "armour", label: L.label_armour, value: ap.raw, typedValue: "", options: opt(armourOptions, ap.raw), required: true, ...tagOf(ap), ...(ap.raw === "" ? { blank: true } : {}),
+          ...(armYes && ap === ap0 ? {} : armYes && L.armour_note ? { note: L.armour_note } : {}) },
         { id: "cores", label: L.label_cores, value: cp.raw === "" ? "" : fmtMm(cores), typedValue: "", options: opt(coresOptions, cp.raw === "" ? "" : fmtMm(cores)), required: true, ...tagOf(cp), ...(why ? { blank: true } : {}) },
         { id: "sqmm", label: L.label_sqmm, value: zp.raw === "" ? "" : fmtMm(sqmm), typedValue: "", options: opt(sqmmOptions, zp.raw === "" ? "" : fmtMm(sqmm)), required: true, ...tagOf(zp), ...(why ? { blank: true } : {}) },
         { id: "spec", label: L.label_spec, value: !why ? value : "", typedValue: "", readOnly: true, userEdited: false, note: wordsNote ?? L.cable_note },
@@ -4971,7 +5029,12 @@ function withExtras(
       const d = decide(i, acc.id, acc.label);
       if (d.point) reviewPts.push(d.point);
       if (!d.add) continue;
-      mine.push(accessoryLine(acc, lineId, i, role, bandValue, set[lineId] ?? {}, perItem ? inclOf(i).qty[acc.id] : undefined, unitInfo));
+      mine.push(accessoryLine(acc, lineId, i, role, bandValue, set[lineId] ?? {}, perItem ? inclOf(i).qty[acc.id] : undefined, unitInfo, reviewPts));
+      // VRF-7 (D1, owner 01:36 "its ok..just make a suitable note"): words asking the reviewer to check the line (kept)
+      if (perItem && acc.note_words) {
+        const m = execIn(acc.note_words.words, allWords);
+        if (m) reviewPts.push(acc.note_words.line.replace("{said}", clip(m)));
+      }
       // VRF-6 (owner Q1): a unit the BoQ says has the item built in still gets the line, with a review point
       if (acc.builtin && reTest(acc.builtin.words, allWords)) reviewPts.push(acc.builtin.line);
     }
@@ -5160,7 +5223,9 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
  *   family_words    an ON/OFF central controller is the Touch Screen controller, noted (Q-pre 4)
  * The calculator (no model item) is never touched.
  */
-function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined):
+function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  /** VRF-7 (B9): the catalogue, for "is every stated module stocked" */
+  catalogue: readonly RateMasterItem[] = []):
   { ext: ExtractionRowWithItems | undefined; notes: string[] } {
   const P = spec.extras?.prepare;
   if (!P || !ext?.items?.length) return { ext, notes: [] };
@@ -5171,6 +5236,13 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
   const headText = [...(ctx.headings ?? []), ...(ctx.ancestorNotes ?? ctx.headingNotes ?? [])].join(" | ");
   const find = (w: string | undefined, t: string): string | null => { if (!w) return null; try { const m = new RegExp(w, "i").exec(t); return m ? m[0].trim() : null; } catch { return null; } };
   const textOf = (where: "row" | "heading" | "both" | undefined) => (where === "heading" ? headText : where === "both" ? `${rowText} | ${headText}` : rowText);
+  // VRF-7: the row's chain nearest first, each text with where it sits (`chainOf`)
+  const chain = chainOf(ctx);
+  const firstHeading = (() => { const k = chain.findIndex((c) => /heading/.test(c.where)); return k === -1 ? chain.length : k; })();
+  const chainFind = (w: string): { said: string; where: string } | null => {
+    for (const c of chain) { const m = find(w, c.text); if (m) return { said: m, where: c.where }; }
+    return null;
+  };
   const val = (it: ExtractedListItem, a: string) => { const v = it.attributes?.[a]?.value; return typeof v === "string" ? v : v === null || v === undefined ? "" : String(v); };
   const setVal = (it: ExtractedListItem, a: string, v: string): ExtractedListItem => ({ ...it, attributes: { ...it.attributes, [a]: { ...(it.attributes?.[a] ?? { confidence: 1 }), value: v } } });
   const rowClass = typeof ctx.unit === "string" ? unitClassOf(spec, ctx.unit) : null;
@@ -5195,6 +5267,8 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     }
     for (const fw of P.family_words ?? []) {
       const said = find(fw.words, textOf(fw.in));
+      // VRF-7 (B11): a rule whose `unless` words sit in the same text gives way (a treated fresh air unit is no Ductable)
+      if (said && fw.unless && find(fw.unless, textOf(fw.in))) continue;
       if (said && (fam === fw.family || fam === "" || fam === "None" || /^none of these$/i.test(fam) || (fw.from ?? []).includes(fam))) {
         if (fam !== fw.family) it = setVal(it, fa, fw.family);
         notes.push(fw.line.replace("{said}", said).replace("{family}", fw.family));
@@ -5211,13 +5285,110 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       it = setVal(it, aw.attr, aw.value);
       notes.push(aw.line.replace("{said}", said).replace("{value}", aw.value));
     }
+    // VRF-7 (A5): the cooling-and-heating wordings also count as a heading's heat-pump statement
+    const hw = P.heat_words;
+    const coolWords = (rc: NonNullable<PrepareSpec["row_cooling"]>): Record<string, string> => (hw && rc.words[hw.value] !== undefined
+      ? { ...rc.words, [hw.value]: `(?:${rc.words[hw.value]})|(?:${hw.words})` } : rc.words);
     if (idx === 0 && P.row_cooling) {
       const rc = P.row_cooling;
       const rowSaid = Object.entries(rc.words).map(([v, w]) => [v, find(w, rowText)] as const).find(([, m]) => m !== null);
       if (rowSaid) {
-        const headSaid = Object.entries(rc.words).map(([v, w]) => [v, find(w, headText)] as const).find(([v, m]) => m !== null && v !== rowSaid[0]);
+        const headSaid = Object.entries(coolWords(rc)).map(([v, w]) => [v, find(w, headText)] as const).find(([v, m]) => m !== null && v !== rowSaid[0]);
         if (val(it, rc.attr) !== rowSaid[0]) it = setVal(it, rc.attr, rowSaid[0]);
         if (headSaid) notes.push(rc.line.replace("{row}", rowSaid[1]!).replace("{heading}", headSaid[1]!).replace("{value}", rowSaid[0]));
+      }
+    }
+    // VRF-7 (A5, owner 01:3x): "suitable for cooling/heating", "for cooling or heating or both", "cooling as well as heating"
+    // = Heat Pump -- unless the row itself says otherwise (its own "Cooling Type" wins, Q6, with its note above)
+    if (hw && hw.families.includes(val(it, fa)) && val(it, hw.attr) !== hw.value && !(hw.unless_row && find(hw.unless_row, rowText))) {
+      const hit = chainFind(hw.words);
+      if (hit) {
+        it = setVal(it, hw.attr, hw.value);
+        notes.push(hw.line.replace("{said}", hit.said).replace("{where}", hit.where).replace("{value}", hw.value));
+      }
+    }
+    // VRF-7 (A1, owner 01:53): a discharge type stated anywhere in the chain decides where the model gave none (nearest first)
+    const dw = P.discharge_words;
+    if (dw && dw.families.includes(val(it, fa)) && (val(it, dw.attr) === "" || val(it, dw.attr) === "None")) {
+      for (const c of chain) {
+        const hits = Object.entries(dw.words).map(([v, w]) => { try { const m = new RegExp(w, "i").exec(c.text); return m ? { v, said: m[0].trim(), at: m.index } : null; } catch { return null; } })
+          .filter((h): h is { v: string; said: string; at: number } => h !== null).sort((a, b) => a.at - b.at);
+        if (!hits.length) continue;
+        it = setVal(it, dw.attr, hits[0].v);
+        notes.push(dw.line.replace("{said}", hits[0].said).replace("{where}", c.where).replace("{value}", hits[0].v));
+        break;
+      }
+    }
+    // VRF-7 (A2 safety net, owner 01:3x "armoured only when specifically mentioned"): "armoured" in a clause naming a cable
+    const aw2 = P.armour_words;
+    if (aw2 && x2Role(spec, val(it, fa))) {
+      const fm = spec.extras?.from_model;
+      for (const c of chain) {
+        for (const clause of c.text.split(/[.;|\n]+/)) {
+          if (!find(aw2.words, clause) || (aw2.not_words && find(aw2.not_words, clause)) || !find(aw2.cable_words, clause)) continue;
+          const which: "power" | "comm" = find(aw2.comm_words, clause) ? "comm" : "power";
+          const incQ = fm?.includes?.[which];
+          if (incQ && val(it, incQ).toLowerCase() !== (fm?.yes ?? "Yes").toLowerCase()) continue;
+          if (val(it, aw2.attrs[which]).toLowerCase() === aw2.yes.toLowerCase()) continue;
+          it = setVal(it, aw2.attrs[which], aw2.yes);
+          const label = spec.extras?.includes.find((i) => i.id === which)?.label ?? which;
+          notes.push(aw2.line.replace("{label}", label).replace("{said}", clip(clause.trim())).replace("{where}", c.where));
+        }
+      }
+    }
+    // VRF-7 (B10 / C13): words that mean an include (an optional remote, an individual controller) on a unit of the rule's role
+    for (const ii of P.implied_includes ?? []) {
+      if (x2Role(spec, val(it, fa)) !== ii.role || val(it, ii.question).toLowerCase() === ii.yes.toLowerCase()) continue;
+      const hit = chainFind(ii.words);
+      if (!hit) continue;
+      const sg = spec.extras?.safeguard;
+      it = setVal(it, ii.question, ii.yes);
+      if (sg) {
+        it = setVal(it, ii.question + sg.where_suffix, hit.where === CHAIN_ROW_PLACE ? sg.row_value : /^heading/.test(hit.where) ? "Heading" : "Note");
+        if (sg.words_suffix) it = setVal(it, ii.question + sg.words_suffix, hit.said);
+      }
+      notes.push(ii.line.replace("{said}", hit.said).replace("{where}", hit.where));
+    }
+    // VRF-7 (B9): a module setup the BoQ states, followed before the split rule when every module is stocked
+    const ss = P.stated_setup;
+    if (ss && val(it, fa) === ss.family && !/\+|\bx\s*\d|\d\s*(?:nos|no\.?)(?![a-z])/i.test(val(it, "capacity"))) {
+      const sources: Array<{ text: string; where: string }> = [
+        ...(val(it, ss.attr) !== "" ? [{ text: val(it, ss.attr), where: "" }] : []),
+        // the row and its own notes only: a heading's "a + b" describes another unit as often as this one
+        { text: val(it, "capacity"), where: CHAIN_ROW_PLACE }, ...chain.slice(0, firstHeading).map((c) => ({ text: c.text, where: c.where })),
+      ];
+      let mods: number[] | null = null; let said = ""; let where = "";
+      for (const src of sources) {
+        let me: RegExpExecArray | null = null;
+        try { me = new RegExp(ss.min_each, "i").exec(src.text); } catch { me = null; }
+        if (me) {
+          const n = Number(me[1]); const v = Number(me[2]);
+          if (Number.isInteger(n) && n >= 2 && n <= 6 && Number.isFinite(v) && v > 0) { mods = Array(n).fill(v); said = me[0].trim(); where = src.where; break; }
+        }
+        const plus = /(\d+(?:\.\d+)?)\s*h\.?\s*p\.?(?:\s*\+\s*(\d+(?:\.\d+)?)\s*h\.?\s*p\.?)+/i.exec(src.text);
+        if (plus) { mods = (plus[0].match(/\d+(?:\.\d+)?/g) ?? []).map(Number); said = plus[0].trim(); where = src.where; break; }
+      }
+      if (mods && mods.length >= 2) {
+        const listed = spec.choice_defs?.brand?.values ?? [];
+        const b0 = val(it, "brand");
+        const brand = b0 !== "" && b0 !== "None" && listed.includes(b0) ? b0 : (ruledDefaultValue(spec, "brand", ss.family) ?? "");
+        const c0 = val(it, "cooling");
+        const cooling = c0 !== "" && c0 !== "None" ? c0 : (ruledDefaultValue(spec, "cooling", ss.family) ?? "");
+        const fattr = familyAttr(spec);
+        const stocked = new Set(catalogue.filter((k) => kindIn(spec, k.kind) && k.attributes?.[fattr] === ss.family
+          && String((k as { brand?: unknown }).brand ?? k.attributes?.brand ?? "") === brand && String(k.attributes?.cooling ?? "") === cooling)
+          .map((k) => Number(k.attributes?.capacity)).filter((n) => Number.isFinite(n)));
+        const missing = [...new Set(mods.filter((m) => !stocked.has(m)))];
+        const layers = mods.map((m) => fmtNum(m)).join(" + ");
+        const at = where ? ` (${where})` : "";
+        if (missing.length === 0) {
+          const total = mods.reduce((a, b) => a + b, 0);
+          it = setVal(it, "capacity", `${fmtNum(total)} HP (${mods.map((m) => fmtNum(m)).join("+")})`);
+          notes.push(ss.line.replace("{said}", said).replace("{where}", at).replace("{layers}", layers));
+        } else {
+          notes.push(ss.not_stocked.replace("{said}", said).replace("{where}", at).replace("{layers}", layers)
+            .replace("{missing}", missing.map((m) => fmtNum(m)).join(" / ")).replace("{brand}", brand).replace("{cooling}", cooling));
+        }
       }
     }
     if (P.same_as_outdoor && ctx.sheetOutdoorBrand) {
@@ -5236,6 +5407,41 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
 }
 
 const x2Role = (spec: ItemListPricingSpec, fam: string): "indoor" | "outdoor" | undefined => spec.extras?.roles?.[fam];
+
+/** VRF-7. A quoted text cut to `n` characters (on a word where it can), for a note. */
+export function clip(t: string, n = 120): string {
+  const s = t.replace(/\s+/g, " ").trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > n * 0.6 ? cut.slice(0, sp) : cut).trim()}...`;
+}
+
+/** VRF-7 (B8 / A1). PURE. The row's chain NEAREST FIRST with where each text sits: the context's `chainRows` (built from the
+ *  page's rows); without them (a context built by hand), the row, its notes, the headings' notes and the headings nearest first. */
+export function chainOf(ctx: RowContextWithUnit): Array<{ row: number | null; where: string; text: string }> {
+  if (ctx.chainRows && ctx.chainRows.length) return ctx.chainRows.map((c) => ({ row: c.row, where: c.where, text: c.text }));
+  const out: Array<{ row: number | null; where: string; text: string }> = [];
+  const push = (where: string, t: string | undefined) => { if (t && t.trim() !== "") out.push({ row: null, where, text: t.trim() }); };
+  push(CHAIN_ROW_PLACE, ctx.description);
+  for (const n of ctx.ownNotes ?? []) push(CHAIN_ROW_NOTE_PLACE, n);
+  for (const n of ctx.ancestorNotes ?? ctx.headingNotes ?? []) push("a heading's note", n);
+  for (const h of [...(ctx.headings ?? [])].reverse()) push("a heading", h);
+  return out;
+}
+
+/** VRF-7 (B8). PURE. Where in the chain the BoQ words the model quoted sit ("heading row 12"), matched without case, spacing or
+ *  punctuation (the whole quote, else its first six words); null when they are not found. */
+export function locateWords(words: string, chain: ReadonlyArray<{ where: string; text: string }>): string | null {
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const q = norm(words);
+  for (const probe of [q, q.split(" ").slice(0, 6).join(" ")]) {
+    if (probe.length < 3) continue;
+    const hit = chain.find((c) => norm(c.text).includes(probe));
+    if (hit) return hit.where;
+  }
+  return null;
+}
 
 /** VRF-6. The notes `prepareModelItems` made, as review points on the row's first item (its own extras block when it has none). */
 function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: string[]): HelperResult {
@@ -5308,7 +5514,7 @@ function computeItemList(
   // VRF-3b: a config declaring `extras` (VRF) prices its own items exactly as before, then its units' extra lines
   if (declared.length === 0 && spec.extras) {
     // VRF-6: the model's answers as the owner's reading rules settle them, before pricing (each change noted)
-    const prep = prepareModelItems(spec, ctx, ext);
+    const prep = prepareModelItems(spec, ctx, ext, items);
     const probe: OwnPassProbe = {};
     const own = computeItemListOwn(category, spec, items, ctx, prep.ext, inRun, overrides, probe) as ItemListSuggestion;
     const done = own.itemList ? withExtras(spec, items, ctx, prep.ext, overrides, configOf, cableRate, own, probe, category) : own;

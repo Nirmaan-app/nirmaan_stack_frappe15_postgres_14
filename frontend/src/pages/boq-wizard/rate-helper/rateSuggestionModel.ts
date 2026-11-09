@@ -9,6 +9,7 @@
 import type { ColumnDescriptor, PricedRow, SheetCategoryRow } from "../boqTypes";
 import { isRateDescriptor, isRateEditableRow } from "../PricingGrid";
 import type { RateHelper, RateHelperRowContext, RowSuggestions } from "./rateHelperTypes";
+import { CHAIN_ROW_PLACE } from "./rateHelperTypes";
 import { RATE_HELPERS, suggestionCountsByKind } from "./rateHelperRegistry";
 
 /** Scalar rate value_field -> rate-kind token (mirrors the grid's / backend's spelling). Per-area
@@ -85,6 +86,8 @@ export function buildRowContext(
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
     // VRF-6 (owner Q6): every heading's notes above the row -- read only by the VRF-6 reading rules
     ...(rows ? { ancestorNotes: rowAncestorNotes(row, rows) } : {}),
+    // VRF-7 (B8 / A1): the chain with its excel rows, nearest first -- read only by the VRF-7 rules
+    ...(rows ? { chainRows: rowChainOf(row, rows) } : {}),
     // VRF-3a K2 (QR-1 (a)): the row's quantity, for a refnet on a Set row -- with the page's rows, as the three above
     ...(rows && typeof row.qty_total === "number" ? { quantity: row.qty_total } : {}),
     // VRF-4 (q2): every row's quantity, for a refnet's unit counts read from the sheet (one map per rows array)
@@ -174,6 +177,55 @@ export function rowAncestorNotes(row: PricedRow, rows: readonly PricedRow[]): st
     out.push(...rowHeadingNotes(cur, rows));
     cur = rows.find((r) => r.row_index === parent);
   }
+  return out;
+}
+
+/**
+ * VRF-7 (owner B8 "notes quote the BoQ ... and say where they sit (this row / heading row n / sheet note row n)"; A1 "a type
+ * stated anywhere in the row's chain"). PURE. The row's chain NEAREST FIRST, each text with its excel row and its place: the
+ * row (its description and `row_notes`) = "this row"; each child NOTE row of the row = "note row n"; then each heading up: its
+ * description, `row_notes` and appended notes = "heading row n", its child note rows = "note row n"; last the sheet's own notes
+ * (note rows with no parent) = "sheet note row n". Blank texts are dropped; a cycle ends the walk.
+ */
+const CHAIN_INDEX_CACHE = new WeakMap<readonly PricedRow[], { byIndex: Map<number, PricedRow>; notes: Map<number, PricedRow[]>; sheetNotes: PricedRow[] }>();
+export function rowChainOf(row: PricedRow, rows: readonly PricedRow[]): Array<{ row: number; where: string; text: string }> {
+  const out: Array<{ row: number; where: string; text: string }> = [];
+  let ix = CHAIN_INDEX_CACHE.get(rows);
+  if (!ix) {
+    const byIndex = new Map<number, PricedRow>();
+    const notes = new Map<number, PricedRow[]>();
+    const sheetNotes: PricedRow[] = [];
+    for (const r of [...rows].sort((a, b) => a.row_index - b.row_index)) {
+      byIndex.set(r.row_index, r);
+      if ((r as { effective_classification?: unknown }).effective_classification !== NOTE_CLASSIFICATION) continue;
+      const pi = r.effective_parent_index;
+      if (typeof pi === "number" && pi >= 0) notes.set(pi, [...(notes.get(pi) ?? []), r]);
+      else sheetNotes.push(r);
+    }
+    ix = { byIndex, notes, sheetNotes };
+    CHAIN_INDEX_CACHE.set(rows, ix);
+  }
+  const index = ix;
+  const add = (r: PricedRow, where: string, parts: unknown[]) => {
+    const t = parts.filter((v): v is string => typeof v === "string" && v.trim() !== "").map((v) => v.trim()).join(" | ");
+    if (t !== "") out.push({ row: r.source_row_number, where, text: t });
+  };
+  const notesOf = (idx: number) => index.notes.get(idx) ?? [];
+  add(row, CHAIN_ROW_PLACE, [row.description, (row as { row_notes?: unknown }).row_notes]);
+  for (const n of notesOf(row.row_index)) if (n !== row) add(n, `note row ${n.source_row_number}`, [n.description]);
+  const seen = new Set<number>([row.row_index]);
+  let parent = row.effective_parent_index;
+  while (typeof parent === "number" && parent >= 0 && !seen.has(parent)) {
+    seen.add(parent);
+    const p = index.byIndex.get(parent);
+    if (!p) break;
+    const ap = (p as { append_notes_raw?: unknown }).append_notes_raw;
+    add(p, `heading row ${p.source_row_number}`, [p.description, (p as { row_notes?: unknown }).row_notes,
+      ...(ap && typeof ap === "object" && !Array.isArray(ap) ? Object.values(ap as Record<string, unknown>) : [])]);
+    for (const n of notesOf(p.row_index)) add(n, `note row ${n.source_row_number}`, [n.description]);
+    parent = p.effective_parent_index;
+  }
+  for (const n of index.sheetNotes) if (n !== row) add(n, `sheet note row ${n.source_row_number}`, [n.description]);
   return out;
 }
 

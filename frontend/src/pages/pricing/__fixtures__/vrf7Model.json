@@ -1,0 +1,146 @@
+{
+ "_about": "VRF-7 (owner rulings 2026-11-10 01:30-01:53): the hvac_vrf keys and question changes HVAC v63 adds over v62. Read by vrf7Model.test.ts and by scripts/_instruments/mint_hvac_v63_vrf7.py (test_vrf_v63 proves the asset equals it). Every key is optional: v62 without them is unchanged.",
+ "prepare_add": {
+  "discharge_words": {
+   "attr": "discharge",
+   "families": ["Outdoor Unit"],
+   "words": {
+    "Top": "\\btop\\s*-?\\s*(?:dis\\w*rge|throw|blow)\\b",
+    "Side": "\\bside\\s*-?\\s*(?:dis\\w*rge|throw|blow)\\b"
+   },
+   "line": "BoQ says \"{said}\" ({where}) - priced as {value} discharge: a type the BoQ states wins (owner A1, 01:53)"
+  },
+  "heat_words": {
+   "attr": "cooling",
+   "value": "Heat Pump",
+   "families": ["Outdoor Unit"],
+   "words": "\\bcooling\\s*/\\s*heating\\b|\\bcooling\\s+or\\s+heating\\b|\\bcooling\\s+as\\s+well\\s+as\\s+heating\\b",
+   "unless_row": "\\bcool(?:ing)?\\s*(?:only|type)\\b",
+   "line": "BoQ says \"{said}\" ({where}) - priced as {value} (owner A5)"
+  },
+  "armour_words": {
+   "words": "\\barmou?red\\b",
+   "not_words": "\\bun-?armou?red\\b",
+   "cable_words": "\\bcabl",
+   "comm_words": "\\bcommunication\\b|\\bcontrol\\s+cabl|\\btransmission\\b|\\bsignal\\b",
+   "attrs": { "power": "extra_power_armoured", "comm": "extra_comm_armoured" },
+   "yes": "Yes",
+   "line": "{label}: armoured - the BoQ says \"{said}\" ({where}) (owner A2: armoured only when the BoQ says so)"
+  },
+  "implied_includes": [
+   {
+    "question": "includes_remote",
+    "words": "\\bwith\\s*/\\s*without\\b[^.|]{0,40}\\bremote\\b[^.|]{0,80}",
+    "role": "indoor",
+    "yes": "Yes",
+    "line": "Remote: the BoQ says \"{said}\" ({where}) - the remote is priced in (optional in the BoQ, owner B10)"
+   },
+   {
+    "question": "includes_remote",
+    "words": "\\bindividual\\s+(?:remote\\s+)?controll?ers?\\b",
+    "role": "indoor",
+    "yes": "Yes",
+    "line": "Remote: the BoQ says \"{said}\" ({where}) - one remote per indoor unit (owner C13)"
+   }
+  ],
+  "stated_setup": {
+   "attr": "module_setup_as_written",
+   "family": "Outdoor Unit",
+   "min_each": "\\bmin(?:imum)?\\.?\\s+(\\d+)\\s*(?:nos\\.?\\s+)?(?:units?|modules?|odus?)\\s+of\\s+(?:at\\s*least|min(?:imum)?\\.?)\\s+(\\d+(?:\\.\\d+)?)\\s*h\\.?\\s*p\\.?\\s*each\\b",
+   "line": "The BoQ states the modules: \"{said}\"{where} - priced as {layers} HP, before the split rule (owner B9)",
+   "not_stocked": "The BoQ states the modules: \"{said}\"{where}; {missing} HP is not stocked for {brand} {cooling} - priced by the split rule (owner B9)"
+  }
+ },
+ "family_words_prepend": [
+  {
+   "family": "Single Skin Treated Fresh Air",
+   "words": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+unit\\b|\\bTFA\\b",
+   "from": ["Ductable", "Concealed Split", "Cassette", "Hi-Wall", "Floor-cum-Ceiling Mounted", "Packaged Unit"],
+   "in": "both",
+   "line": "BoQ says \"{said}\" - priced as the {family} unit: fresh air beats CSU (owner B11)"
+  }
+ ],
+ "family_words_unless": {
+  "Ductable": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+unit\\b|\\bTFA\\b"
+ },
+ "safeguard_add": {
+  "own_row_always": true,
+  "words_suffix": "_words",
+  "lines": {
+   "added_q": "{label}: the BoQ says \"{words}\" ({where}) - added (the BoQ has no row of its own for it)",
+   "excluded_q": "{label}: the BoQ says \"{words}\" ({where}) - NOT added: the BoQ quotes it on its own row ({rows})",
+   "not_added_q": "{label}: the BoQ says \"{words}\" ({where}) - NOT added: {why}"
+  }
+ },
+ "safeguard_drop": ["control_wiring"],
+ "accessories_patch": {
+  "mcb": {
+   "step_up_note": "{label} - {hp} HP: schedule says {want} A - not stocked; {got} A used (owner A6)",
+   "note_words": {
+    "words": "\\bunit\\s+mounted\\s+starter\\s+panel\\b[^.|]{0,160}|\\bdisconnecting\\s+switch(?:es)?\\s+with\\s+fuses?\\b",
+    "line": "MCB + ELCB: the BoQ says \"{said}\" - the unit's own starter panel has switches with fuses; MCB + ELCB still added, please check (owner D1)"
+   }
+  },
+  "elcb": {
+   "step_up_note": "{label} - {hp} HP: schedule says {want} A - not stocked; {got} A used (owner A6)"
+  },
+  "remote": {
+   "conflict": { "line": "Remote: the BoQ says \"{first}\" and also \"{said}\"{where} - priced as {value}, please check (owner D2)" }
+  }
+ },
+ "from_model_add": {
+  "armoured": { "power": "extra_power_armoured", "comm": "extra_comm_armoured" },
+  "length_by_item": { "power": "extra_power_length_as_written", "comm": "extra_comm_length_as_written", "copper": "extra_copper_length_as_written" }
+ },
+ "from_model_drop": ["length"],
+ "lines_add": {
+  "length_default": "no length stated for {item} - {n} m default used (owner A3)",
+  "armour_note": "the BoQ says this cable is armoured (owner A2)",
+  "armoured_value": "ARMOURED"
+ },
+ "question_drop": ["extra_length_as_written"],
+ "question_add": [
+  { "id": "extra_power_armoured", "label": "Power cable armoured", "type": "choice", "values": ["Yes", "No"], "allow_none": true,
+    "note": "Only when this unit's price includes its power cable: Yes when the BoQ says THAT cable is armoured ('armoured', 'armored', 'AL armoured'); No when it says unarmoured. 'None' when it does not say - the cable is then unarmoured." },
+  { "id": "extra_comm_armoured", "label": "Communication cable armoured", "type": "choice", "values": ["Yes", "No"], "allow_none": true,
+    "note": "Only when this unit's price includes its communication / control cable: Yes when the BoQ says THAT cable is armoured; No when it says unarmoured. 'None' when it does not say." },
+  { "id": "extra_power_length_as_written", "label": "Power cable length as written", "type": "text",
+    "note": "A length the BoQ gives for THIS unit's power cable only ('around a distance of 5m', 'up to 15 m'), copied as written. A length written for another item (the piping, the communication cable) is not this one's. Leave it out when none is stated for the power cable." },
+  { "id": "extra_comm_length_as_written", "label": "Communication cable length as written", "type": "text",
+    "note": "A length the BoQ gives for THIS unit's communication / control cable only, copied as written. A length written for the power cable or the piping is not this one's. Leave it out when none is stated for it." },
+  { "id": "extra_copper_length_as_written", "label": "Copper piping length as written", "type": "text",
+    "note": "A length the BoQ gives for THIS unit's refrigerant copper piping only ('up to 15 m', 'first 10 RMT'), copied as written. A length written for a cable is not this one's. Leave it out when none is stated for the piping." },
+  { "id": "includes_copper_words", "label": "Copper piping - BoQ words", "type": "text",
+    "note": "Only when 'includes_copper' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_insulation_words", "label": "Insulation - BoQ words", "type": "text",
+    "note": "Only when 'includes_insulation' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_power_words", "label": "Power cable - BoQ words", "type": "text",
+    "note": "Only when 'includes_power' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_comm_words", "label": "Communication cable - BoQ words", "type": "text",
+    "note": "Only when 'includes_comm' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_frame_words", "label": "Frame / stand - BoQ words", "type": "text",
+    "note": "Only when 'includes_frame' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_gas_words", "label": "Gas charge - BoQ words", "type": "text",
+    "note": "Only when 'includes_gas' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_drain_pump_words", "label": "Drain pump - BoQ words", "type": "text",
+    "note": "Only when 'includes_drain_pump' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_remote_words", "label": "Remote - BoQ words", "type": "text",
+    "note": "Only when 'includes_remote' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_refnet_words", "label": "Refnet - BoQ words", "type": "text",
+    "note": "Only when 'includes_refnet' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "includes_mccb_words", "label": "MCCB / isolator - BoQ words", "type": "text",
+    "note": "Only when 'includes_mccb' is Yes or No: the BoQ words that state it, copied exactly as written and cut to that clause (at most about 15 words)." },
+  { "id": "module_setup_as_written", "label": "Module setup as written", "type": "text",
+    "note": "Outdoor units only: the module make-up the BoQ states for THIS unit, copied as written ('16HP+16HP', 'minimum 2 units of at least 20 HP each'). Leave it out when none is stated." }
+ ],
+ "question_notes_append": {
+  "item": " VRF-7: a treated fresh air unit (TFA / fresh air unit) is 'Single Skin Treated Fresh Air', even when the BoQ also calls it CSU or ceiling suspended.",
+  "cooling": " VRF-7: a unit the BoQ describes for cooling and heating together (cooling/heating, cooling or heating or both, cooling as well as heating) is 'Heat Pump'. The row's own cooling type wins over a heading.",
+  "discharge": " VRF-7: as the BoQ states it anywhere for this unit - the row, its notes, a heading or note above ('top discharge', 'side discharge', 'top throw'). 'None' when nothing states it.",
+  "includes_comm": " VRF-7: decide from the BoQ's words at EVERY level above the row (the row, its heading, the heading above that, the sheet's notes) whether the control / communication cabling is in this unit's scope. A sentence about how the system must behave when the control wiring fails or breaks down is NOT scope. A heading or note at any level that puts the control wiring in the scope IS scope.",
+  "includes_remote": " VRF-7: a unit supplied with or without a remote as the client requires counts as Yes (the remote is priced in). An individual controller for the units of a system means one remote per indoor unit: Yes.",
+  "includes_copper": " VRF-7: interconnecting piping named in a unit's heading or note is the copper piping stated: Yes.",
+  "includes_insulation": " VRF-7: suction line insulation named in a unit's heading or note is the insulation stated: Yes."
+ },
+ "second_opinion": false
+}
