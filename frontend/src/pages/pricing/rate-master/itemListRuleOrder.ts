@@ -1309,7 +1309,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("Written splits, and a module above the largest unit",
         "'24HP (12HP x 2NOS)' is a written split like '20+18 HP'; a written module above the largest single unit is itself split (fewest units, then cheapest) with a note, never refusing the row; a split into three or more modules carries a note");
   }
-  if (sp6 && sp6.pair_first) {
+  if (sp6 && sp6.pair_first && sp6.pair_first.mode === "single_unless_cheaper") {
+    // VRF-6 (owner QR-1 Q3 final, 2026-11-09 19:32)
+    add("A single that covers, unless a pair is cheaper",
+        "a stated outdoor size no single unit matches takes the next size up that covers it (a combination SKU counts) unless a pair of stocked units that covers it is cheaper -- then the cheaper pair with the least excess (ties: the cheaper); a module setup the BoQ writes still wins; the note names the pick and why");
+  } else if (sp6 && sp6.pair_first) {
     add(sp6.pair_first.mode === "always" ? "A pair / set before the next size up" : "A cheaper pair / set before the next size up",
         sp6.pair_first.mode === "always"
           ? "a stated outdoor size no single unit matches is priced as the best pair / set (exact first, else covering; fewest units, then cheapest) rather than the next size up; the note says so"

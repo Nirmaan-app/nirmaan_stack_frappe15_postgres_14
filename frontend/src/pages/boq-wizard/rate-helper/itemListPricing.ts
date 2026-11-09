@@ -38,7 +38,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "../../pricing/rate-master/rateMasterTypes";
-import { resolveSize, composeSize, nearestRung, type SizeMatchSpec, type ComposeSpec } from "./ladderResolution";
+import { resolveSize, composeSize, coveringSets, nearestRung, type SizeMatchSpec, type ComposeSpec } from "./ladderResolution";
 import { noSkuSentence, type PlainFact } from "../../pricing/rate-master/plainEnglish";
 
 // ---------------------------------------------------------------------------------------------------------
@@ -656,8 +656,12 @@ export interface ItemListPricingSpec {
     split_over_top?: { line: string };
     /** VRF-6 (F8, QR-1 Q3): a stated size no single SKU matches -- the best pair / set (exact first, else covering; fewest units,
      *  then cheapest) before the next size up: `cheaper` = only when it costs less than the next-size-up single; `always` = it
-     *  always wins. `line` names both ({total}, {layers}, {up}, {unit}, {pair_cost}, {up_cost}). ABSENT => next size up. */
-    pair_first?: { mode: "cheaper" | "always"; line: string };
+     *  always wins. `line` names both ({total}, {layers}, {up}, {unit}, {pair_cost}, {up_cost}). ABSENT => next size up.
+     *  `single_unless_cheaper` (owner QR-1 Q3 final, 2026-11-09 19:32 "option b", replacing both): the single that covers the
+     *  stated size stands UNLESS a covering pair (`coveringSets`, at most `max_units` units, ABSENT => `compose.max_layers`) is
+     *  cheaper -- then the cheaper pair with the least excess (ties: cheapest). `line` also takes {excess} / {up_excess};
+     *  `single_line` (optional) is the working line when the single stands ({layers} / {pair_cost} = the cheapest covering pair). */
+    pair_first?: { mode: "cheaper" | "always" | "single_unless_cheaper"; line: string; single_line?: string; max_units?: number };
     /** VRF-6 (F8 / Q4): the note added when a split has three or more modules ({n}) */
     many_line?: string;
   };
@@ -5164,7 +5168,26 @@ function priceOneItem(
     // VRF-6 (F8, QR-1 Q3): no single SKU is the stated size -- the best pair / set (exact first, else covering; fewest units, then
     // cheapest: `composeSize` above_only) comes before the next size up ("cheaper": only when its cost is below the single's)
     const pf = spec.split?.pair_first;
-    if (pf && !fit.exact && spec.compose && spec.compose.attr === attr && family !== null && spec.split!.families.includes(family) && item.splitAllowed) {
+    if (pf && pf.mode === "single_unless_cheaper" && !fit.exact && spec.compose && spec.compose.attr === attr && family !== null && spec.split!.families.includes(family) && item.splitAllowed) {
+      // VRF-6 (owner QR-1 Q3 final, 19:32): the single that covers stands unless a covering pair is cheaper -- then the cheaper
+      // pair with the least excess (ties: cheapest). A cost nobody read never proves a pair cheaper.
+      const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+      const sets = coveringSets(want, sizes, Math.min(pf.max_units ?? spec.compose.max_layers, spec.compose.max_layers), rungCost);
+      const upCost = rungCost(fit.modules);
+      const upExcess = Math.round((fit.modules - want) * 1e6) / 1e6;
+      const fill = (t: string, s: (typeof sets)[number]) => t.replace("{total}", fmt(want)).split("{layers}").join(s.layers.map(fmt).join(" + "))
+        .replace("{up}", fmt(fit.modules)).split("{unit}").join(famUnit).replace("{excess}", fmt(s.excess)).replace("{up_excess}", fmt(upExcess))
+        .replace("{pair_cost}", s.cost !== null ? String(Math.round(s.cost)) : "-").replace("{up_cost}", upCost !== null ? String(Math.round(upCost)) : "-");
+      const cheaper = upCost === null ? [] : sets.filter((s) => s.cost !== null && s.cost < upCost);
+      if (cheaper.length) {
+        const pick = cheaper[0];
+        const readNote = out.unitReads?.[attr];
+        return { ...blank(`split into ${pick.layers.length} lines`), selection: { ...sel },
+                 splitInto: { attr, total: want, layers: [...pick.layers], exact: pick.excess === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why: fill(pf.line, pick), ...(readNote ? { readNote } : {}) } };
+      }
+      const cheapest = [...sets].filter((s) => s.cost !== null).sort((x, y) => (x.cost as number) - (y.cost as number) || x.excess - y.excess)[0];
+      if (cheapest && pf.single_line) out.working.push(fill(pf.single_line, cheapest));
+    } else if (pf && !fit.exact && spec.compose && spec.compose.attr === attr && family !== null && spec.split!.families.includes(family) && item.splitAllowed) {
       const comp = composeSize(want, sizes, spec.compose, rungCost);
       const pairCost = comp ? comp.layers.reduce<number | null>((a, r) => { const c = rungCost(r); return a === null || c === null ? null : a + c; }, 0) : null;
       const upCost = rungCost(fit.modules);

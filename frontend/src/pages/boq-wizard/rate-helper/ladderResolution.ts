@@ -204,6 +204,51 @@ export function composeSize(
   return best;
 }
 
+/** VRF-6 (QR-1 Q3): one covering set -- its units (largest first), its excess over the stated value, its summed cost (null when
+ * any unit's cost is unknown). */
+export interface CoveringSet { layers: number[]; excess: number; cost: number | null }
+
+/**
+ * VRF-6 (owner QR-1 Q3, final rule 2026-11-09 19:32 "option b": "When a single unit covers the size, use the single unless a
+ * pair is cheaper") -- EVERY set of 2..`maxUnits` stocked rungs whose total COVERS `stated` (total >= stated), each with its
+ * excess and summed cost, ranked LEAST EXCESS -> CHEAPEST (an unknown cost after every known one) -> fewest units -> largest
+ * first. The caller decides against the covering single: a set is used only when it is cheaper than that single, and then the
+ * cheaper set with the least excess. A set that already covers is never extended (one more unit only adds excess and cost).
+ */
+export function coveringSets(
+  stated: number,
+  rungs: number[],
+  maxUnits: number,
+  costOf?: (rung: number) => number | null,
+): CoveringSet[] {
+  if (!Number.isFinite(stated) || stated <= 0 || !Number.isFinite(maxUnits)) return [];
+  const max = Math.floor(maxUnits);
+  if (max < 2) return [];
+  const sorted = [...new Set(rungs.filter((r) => Number.isFinite(r) && r > 0))].sort((a, b) => b - a);
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  const out: CoveringSet[] = [];
+  const walk = (start: number, chosen: number[], total: number) => {
+    if (chosen.length >= 2 && round(total - stated) >= 0) {
+      out.push({ layers: [...chosen], excess: round(total - stated), cost: costOfLayers({ layers: chosen, delta: 0 }, costOf) });
+      return;
+    }
+    if (chosen.length >= max) return;
+    const left = max - chosen.length;
+    for (let i = start; i < sorted.length; i++) {
+      // prune: even filling every remaining unit with this rung (the largest still allowed) cannot reach the value
+      if (round(stated - total - sorted[i] * left) > 0) break;
+      chosen.push(sorted[i]);
+      walk(i, chosen, total + sorted[i]);
+      chosen.pop();
+    }
+  };
+  walk(0, [], 0);
+  const lex = (a: number[], b: number[]) => { for (let k = 0; k < Math.min(a.length, b.length); k++) if (a[k] !== b[k]) return b[k] - a[k]; return 0; };
+  return out.sort((a, b) => a.excess - b.excess
+    || (a.cost === null ? 1 : 0) - (b.cost === null ? 1 : 0) || (a.cost ?? 0) - (b.cost ?? 0)
+    || a.layers.length - b.layers.length || lex(a.layers, b.layers));
+}
+
 /** The summed cost of a candidate's layers, or null when any one of them is unknown. */
 function costOfLayers(c: Composition, costOf?: (rung: number) => number | null): number | null {
   if (!costOf) return null;

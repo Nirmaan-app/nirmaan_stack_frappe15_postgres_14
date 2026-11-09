@@ -401,8 +401,10 @@
    "line": "Module {module} {unit} is above the largest single unit ({top} {unit}), so that module is split: {layers} {unit} (owner Q4)"
   },
   "pair_first": {
-   "mode": "cheaper",
-   "line": "{total} {unit} is not a stocked size: {layers} {unit} (cost {pair_cost}) is cheaper than the next size up, one {up} {unit} unit (cost {up_cost}), so the helper used {layers} {unit} (owner F8)."
+   "mode": "single_unless_cheaper",
+   "max_units": 2,
+   "line": "{total} {unit} is not a stocked size: the pair {layers} {unit} ({excess} {unit} over, cost {pair_cost}) is cheaper than the {up} {unit} single that covers it (cost {up_cost}), so the helper used {layers} {unit} (owner Q3).",
+   "single_line": "{total} {unit} is not a stocked size: the single {up} {unit} unit covers it ({up_excess} {unit} over, cost {up_cost}) and is cheaper than any pair that covers it (the cheapest, {layers} {unit}, costs {pair_cost}) (owner Q3)."
   },
   "many_line": "This row is split into {n} modules - check the BoQ allows that many (owner F8 / Q4)."
  },
@@ -965,5 +967,6 @@
    ]
   }
  ],
- "notes_add": " VRF-6 (owner, 2026-11-09): the remote's type follows the BoQ (ambiguous 'corded or cordless' -> Cordless, then the model's answer, then the words); every included extra that is not added says why; the own-row check reads each row's category first; '12HP x 2NOS' is a written split, a written module above the largest unit is split, a cheaper pair / set comes before the next size up; a cable length reaches only its own cable, 'AL' is aluminium, drain-pump cabling is not the power cable; accessories take the unit's make; per outdoor module: one MS frame / stand (its own Nos item), gas kg = HP, one MCB + ELCB by the HP schedule; built-in drain pump, scope conflicts and installation-only settled by the sheet's own rows; control wiring = comm cable; a 'quantified separately' note wins; two capacities refuse. second_opinion stays ON for testing and must be switched off before deploy (the slice after VRF-6)."
+ "second_opinion": false,
+ "notes_add": " VRF-6 (owner, 2026-11-09): the remote's type follows the BoQ (ambiguous 'corded or cordless' -> Cordless, then the model's answer, then the words); every included extra that is not added says why; the own-row check reads each row's category first; '12HP x 2NOS' is a written split, a written module above the largest unit is split, a size no single unit matches takes the single that covers it unless a covering pair is cheaper (then the cheaper pair with the least excess); a cable length reaches only its own cable, 'AL' is aluminium, drain-pump cabling is not the power cable; accessories take the unit's make; per outdoor module: one MS frame / stand (its own Nos item), gas kg = HP, one MCB + ELCB by the HP schedule; built-in drain pump, scope conflicts and installation-only settled by the sheet's own rows; control wiring = comm cable; a 'quantified separately' note wins; two capacities refuse. second_opinion is OFF (owner 2026-11-09 18:52: the standing rule for every category, new-category testing included)."
 }

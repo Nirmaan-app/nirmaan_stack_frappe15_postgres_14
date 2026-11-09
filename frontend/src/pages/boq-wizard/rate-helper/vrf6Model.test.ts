@@ -4,7 +4,7 @@
  *   F1   the remote's type: the ambiguous spellings -> Cordless first, then the model's answer, then the words, then the default
  *   F3   every extra read as included that the item cannot carry is a review point with the reason (role, no-extras family, needs)
  *   F4   the own-row check reads each row's category first (piping rows = copper; a VRF row by its item; words only uncategorised)
- *   F8   "12HP x 2NOS" is a written split; a written module above the largest is split; a cheaper pair before the next size up
+ *   F8   "12HP x 2NOS" is a written split; a written module above the largest is split; the least excess over the stated size wins (QR-1 Q3)
  *   F11  a length inside the cable's words reaches that cable only; "AL" = aluminium; drain-pump cabling is not the power cable
  *   F12  accessories take the unit's make; "make same as outdoor" = the sheet's outdoor make
  *   TEAM frame / stand (its own Nos item, 1 per module), gas kg = HP, MCB + ELCB by the HP schedule (next stocked rating up)
@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
 import { ownRowQuotes, readCableKindWords, readStatedSplit, type ExtractedListItem, type NumberReader } from "./itemListPricing";
+import { coveringSets } from "./ladderResolution";
 import {
   EXTRAS_INCLUDES_KEY, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, buildExtractionByRow, makePricingSheetHelper,
   type ExtraLineView, type ItemListSuggestion, type ItemListView,
@@ -246,15 +247,49 @@ describe("VRF-6 F8 -- splits", () => {
     expect(v.split?.note).toMatch(/Module 24 HP is above the largest single unit \(20 HP\), so that module is split: 12 \+ 12 HP/);
     expect(v.split?.note).toMatch(/split into 4 modules/);
   });
-  it("26 HP Daikin heat pump (00131 r17) -> 20 + 6, cheaper than the 34 HP combination SKU; the note shows both costs", () => {
+  const caps = (v: ReturnType<typeof one>) => v.items.map((b) => b.fields.find((f) => f.id === "capacity")?.value);
+  it("26 HP Daikin heat pump (00131 r17) -> the pair 20 + 6 (0 over), cheaper than the 34 HP combination SKU that covers it; the note says so", () => {
     const v = one({ items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "26 HP" })] });
-    expect(v.items.map((b) => b.fields.find((f) => f.id === "capacity")?.value)).toEqual(["20", "6"]);
-    expect(v.split?.note).toMatch(/26 HP is not a stocked size: 20 \+ 6 HP .* cheaper than the next size up, one 34 HP unit/);
+    expect(caps(v)).toEqual(["20", "6"]);
+    expect(v.split?.note).toMatch(/26 HP is not a stocked size: the pair 20 \+ 6 HP \(0 HP over, cost \d+\) is cheaper than the 34 HP single that covers it \(cost \d+\)/);
   });
-  it("NEGATIVE: a Blue Star 9 HP keeps the single 10 HP (the pair 7 + 7 costs more); v61's split keys -> 34 HP / refuse as before", () => {
+  it("QR-1 Q3 final: 22 HP Daikin heat pump (00131 r15) -> the cheaper pair with the least excess, 20 + 6 (4 over); NEGATIVE: never the exact 8 + 8 + 6", () => {
+    const v = one({ items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "22 HP" })] });
+    expect(caps(v)).toEqual(["20", "6"]);
+    expect(v.split?.note).toMatch(/22 HP is not a stocked size: the pair 20 \+ 6 HP \(4 HP over/);
+    expect(v.split?.note).not.toMatch(/split into 3 modules/);
+  });
+  it("QR-1 Q3 final: 10 HP Daikin heat pump -> 6 + 6, cheaper than the 20 HP single", () => {
+    expect(caps(one({ items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "10 HP" })] }))).toEqual(["6", "6"]);
+  });
+  it("NEGATIVE: a pair whose cost nobody read is never proved cheaper -- 10 HP Daikin heat pump with the 6 HP cost blanked -> not 6 + 6 (cost unknown) but the next cheaper pair, 8 + 8", () => {
+    const is6 = (it: RateMasterItem) => it.kind === "hvac_vrf_item" && it.attributes.brand === "Daikin" && it.attributes.item === "Outdoor Unit"
+      && it.attributes.cooling === "Heat Pump" && it.attributes.discharge === "Top" && Number(it.attributes.capacity) === 6;
+    expect(ITEMS.filter(is6).length).toBeGreaterThan(0);
+    const blanked = ITEMS.map((it) => (is6(it) ? ({ ...it, rates: Object.fromEntries(Object.entries(it.rates ?? {}).filter(([k]) => k !== "cost_supply")) } as RateMasterItem) : it));
+    const v = sheet({ 9: { items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "10 HP" })] } }, vrf6(), blanked)(9);
+    expect(caps(v)).toEqual(["8", "8"]);
+  });
+  it("NEGATIVE: 30 HP Daikin heat pump (00131 r19) -> the 34 HP single, cheaper than every covering pair (cheapest 20 + 20)", () => {
+    const v = one({ items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "30 HP" })] });
+    expect(caps(v)).toEqual(["34"]);
+    expect(v.items[0].working.join(" | ")).toMatch(/30 HP is not a stocked size: the single 34 HP unit covers it \(4 HP over, cost \d+\) and is cheaper than any pair that covers it \(the cheapest, 20 \+ 20 HP/);
+  });
+  it("NEGATIVE: 16.25 HP Blue Star (00098 r15) -> one 18 HP; the pair 10 + 7 has less excess (0.75) but costs more", () => {
+    const v = one({ items: [ODU({ capacity: "16.25 HP", discharge: "Top" })] });
+    expect(caps(v)).toEqual(["18"]);
+    expect(v.items[0].working.join(" | ")).toMatch(/the single 18 HP unit covers it \(1.75 HP over/);
+  });
+  it("NEGATIVE: 10 HP Daikin Cool Only top discharge (00378 r3) -> one 12 HP; 6 + 6 costs more", () => {
+    const v = one({ items: [ODU({ brand: "Daikin", cooling: "Cool Only", discharge: "Top", capacity: "10 HP" })] });
+    expect(caps(v)).toEqual(["12"]);
+    expect(v.items[0].working.join(" | ")).toMatch(/the single 12 HP unit covers it \(2 HP over, cost \d+\) and is cheaper than any pair that covers it \(the cheapest, 6 \+ 6 HP/);
+  });
+  it("NEGATIVE: a Blue Star 9 HP keeps the single 10 HP (cheaper than 7 + 7) and the working line says so; v61's split keys -> 34 HP / refuse as before", () => {
     const v = one({ items: [ODU({ capacity: "9 HP", discharge: "Top" })] });
     expect(v.items).toHaveLength(1);
     expect(v.items[0].fields.find((f) => f.id === "capacity")?.value).toBe("10");
+    expect(v.items[0].working.join(" | ")).toMatch(/9 HP is not a stocked size: the single 10 HP unit covers it \(1 HP over, cost \d+\) and is cheaper than any pair that covers it \(the cheapest, 7 \+ 7 HP/);
     const old = vrf6(["split"]);
     expect(one({ items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "26 HP" })] }, old).items[0].fields.find((f) => f.id === "capacity")?.value).toBe("34");
     expect(one({ items: [ODU({ brand: "Daikin", cooling: "Cool Only", capacity: "60.0 HP (18+18+24)" })] }, old).rowPriced).toBe(false);
@@ -426,5 +461,27 @@ describe("VRF-6 -- a config without the keys is byte-identical", () => {
       const a = allText(one(r, V61()));
       expect(a).not.toMatch(/owner Q|owner F|team rule/);
     }
+  });
+});
+
+describe("VRF-6 QR-1 Q3 -- coveringSets (every covering pair: least excess, then cheapest)", () => {
+  it("covering only, at most maxUnits units; ranked least excess first", () => {
+    const s = coveringSets(22, [6, 8, 20], 2);
+    expect(s.map((x) => x.layers)).toEqual([[20, 6], [20, 8], [20, 20]]);
+    expect(s.every((x) => x.layers.reduce((a, b) => a + b, 0) >= 22)).toBe(true);
+    expect(coveringSets(22, [6, 8, 20], 3)[0]).toEqual({ layers: [8, 8, 6], excess: 0, cost: null });
+  });
+  it("least excess ranks before cost (a cheaper pair with more excess comes later)", () => {
+    const cost: Record<number, number> = { 20: 1, 10: 50, 12: 50, 14: 50 };
+    expect(coveringSets(24, [10, 12, 14, 20], 2, (r) => cost[r] ?? null)[0].layers).toEqual([14, 10]);
+  });
+  it("an equal excess goes to the cheaper; an unknown cost ranks after a known one", () => {
+    const cost: Record<number, number> = { 12: 100, 14: 1, 10: 1 };
+    expect(coveringSets(24, [10, 12, 14], 2, (r) => cost[r] ?? null).slice(0, 2).map((x) => x.layers)).toEqual([[14, 10], [12, 12]]);
+    expect(coveringSets(26, [10, 12, 14, 13], 2, (r) => cost[r] ?? null).filter((x) => x.excess === 0).map((x) => x.cost)).toEqual([101, null]);
+  });
+  it("NEGATIVE: nothing covers -> empty; fewer than two units allowed -> empty", () => {
+    expect(coveringSets(100, [6, 8], 2)).toEqual([]);
+    expect(coveringSets(10, [6], 1)).toEqual([]);
   });
 });
