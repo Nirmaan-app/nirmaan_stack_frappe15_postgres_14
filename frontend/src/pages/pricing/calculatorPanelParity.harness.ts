@@ -49,12 +49,14 @@ import {
   EXTRAS_INCLUDES_KEY,
   ROW_UNIT_OVERRIDE_KEY,
   SCOPE_OVERRIDE_KEY,
+  buildExtractionByRow,
   makePricingSheetHelper,
   type ItemBlockView,
   type ItemListSuggestion,
   type ItemListView,
   type RowContextWithUnit,
 } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { rowQuantitiesOf, sheetLinesOf } from "@/pages/boq-wizard/rate-helper/rateSuggestionModel";
 import {
   boqExtrasOf,
   familyAttr,
@@ -112,6 +114,13 @@ export interface ParityCase {
   /** VRF-3b: the pricer's edits on the PANEL (an `ItemListEditState`: a removed extra, a typed size) -- fed to the calculator
    *  as the same edits. OPTIONAL -- absent on every existing case, byte-identical. */
   panelEdits?: Record<string, unknown>;
+  /** VRF-6: the heading's notes and every heading's notes above the row, as the PANEL's context carries them. OPTIONAL. */
+  headingNotes?: string[];
+  ancestorNotes?: string[];
+  /** VRF-6 (F4 / Q5 / installation-only): the OTHER rows of the sheet -- each its excel row, text, node type, and (a row the run
+   *  read) its category and model items -- so the panel's own-row and same-sheet rules see a sheet. OPTIONAL -- absent on every
+   *  existing case: the panel's extraction map holds the one row, byte-identical. */
+  sheet?: Array<{ row: number; text?: string; node?: string; category?: string; items?: Array<Record<string, string | number | null>> }>;
 }
 
 type Cells = ExtractionRow["attributes"];
@@ -152,11 +161,26 @@ export function panelHelper(
   items: RateMasterItem[],
   c: ParityCase,
 ): RateHelper {
+  if (c.sheet) {
+    // VRF-6: the run's results for the whole sheet, through the page's own builder (it keeps each row's category beside the map)
+    const own = extractionRowFor(c) as ExtractionRow & { items?: Array<{ attributes: Cells }> };
+    const results = [
+      { excel_row: PANEL_ROW, description: c.desc, attributes: own.attributes, ...(own.items ? { items: own.items } : {}), category_id: c.cat },
+      ...c.sheet.filter((r) => r.items).map((r) => ({ excel_row: r.row, description: r.text ?? "", attributes: {}, items: r.items!.map((a) => ({ attributes: toCells(a) })), category_id: r.category ?? c.cat })),
+    ];
+    return makePricingSheetHelper({ configsByCategory, items, extractionByRow: buildExtractionByRow(results as never) });
+  }
   return makePricingSheetHelper({
     configsByCategory,
     items,
     extractionByRow: new Map([[PANEL_ROW, extractionRowFor(c)]]),
   });
+}
+
+/** VRF-6: the sheet's priced rows as the page holds them (the panel row and the case's other rows) -- for the sheet lines. */
+function sheetRowsOf(c: ParityCase) {
+  return [{ source_row_number: PANEL_ROW, qty_total: typeof c.qty === "number" ? c.qty : 1, node_type: "Line Item", description: c.desc },
+    ...(c.sheet ?? []).map((r) => ({ source_row_number: r.row, qty_total: 1, node_type: r.node ?? "Line Item", description: r.text ?? "" }))];
 }
 
 /** The CALCULATOR helper -- `PricingCalculator`'s construction, verbatim (an EMPTY extraction map). */
@@ -184,6 +208,9 @@ export function panelCtx(c: ParityCase): RowContextWithUnit {
     ...(c.headings ? { headings: c.headings } : {}),
     ...(c.ownNotes ? { ownNotes: c.ownNotes } : {}),
     ...(typeof c.qty === "number" ? { quantity: c.qty } : {}),
+    ...(c.headingNotes ? { headingNotes: c.headingNotes } : {}),
+    ...(c.ancestorNotes ? { ancestorNotes: c.ancestorNotes } : {}),
+    ...(c.sheet ? { sheetLines: sheetLinesOf(sheetRowsOf(c) as never), rowQuantities: rowQuantitiesOf(sheetRowsOf(c) as never) } : {}),
   };
 }
 
@@ -363,11 +390,14 @@ export function feedFromPanel(
         // VRF-4 (owner "q1 ok"): what the model COPIED (`*_as_written`, v60) is typed as written too -- the same raw text the panel
         // read through `boqExtrasOf`, so the calculator meets Piping's / Insulation's / Electrical's rules on the same words
         const fm = itemListPricingSpec(config)?.extras?.from_model;
+        // VRF-6 (F11): on a config whose BoQ length reaches only its own line, a line the panel kept on its default is not typed
+        const perItemLength = !!itemListPricingSpec(config)?.extras?.lines?.length_per_item;
         if (fm && c.items?.[i]) {
           const said = boqExtrasOf({ attributes: Object.fromEntries(Object.entries(c.items[i]).map(([k, v]) => [k, { value: v }])) }, fm).values;
           for (const [k, v] of Object.entries(said)) {
             const m = /^(copper_supply|copper_return|ins_supply|ins_return|power|comm)_([a-z]+)$/.exec(k);
             const shown = b.extras!.lines.find((l) => l.id === m?.[1])?.fields.find((f) => f.id === m?.[2]);
+            if (perItemLength && m?.[2] === "length" && shown?.tag !== "boq") continue;
             if (m && shown?.tag !== "picked") (set[m[1]] ??= {})[m[2]] = v;   // a pricer's own pick stays theirs
           }
         }
@@ -378,11 +408,15 @@ export function feedFromPanel(
       // own insulation) is typed into the calculator as the same section edit -- its family and every field the pricer could set,
       // but never the size it MIRRORS from the pipe (the calculator mirrors it too)
       const sectionsFeed = b.sections?.length ? { sections: Object.fromEntries(b.sections.map((sv) => [sv.sectionId, sectionEdit(sv.view.items[0])])) } : {};
+      // VRF-6 (F8): a line of the helper's split keeps its hidden tag, as the panel's own state does -- so the calculator, like the
+      // panel, never splits it again (a module the pair-first rule could otherwise split once more)
+      const tag = spec?.split?.pair_first ? view.editState?.items?.[i]?.helper : undefined;
+      const helperFeed = tag ? { helper: tag } : {};
       if (b.familyControl?.otherMode) {
         other.push(famId);
-        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed, ...sectionsFeed };
+        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed, ...sectionsFeed, ...helperFeed };
       }
-      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...extrasFeed, ...sectionsFeed };
+      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...extrasFeed, ...sectionsFeed, ...helperFeed };
     });
     // VRF-5 B2: the INDEPENDENT sections (insulation that belongs to no pipe), each as the pricer would add it in the calculator
     const indep: Record<string, unknown[]> = {};

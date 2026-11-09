@@ -5054,17 +5054,22 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
       }
     }
   }
-  if (value !== sc.supply_only && value !== sc.install_only) {
+  // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
+  const installNormal = !!sc.install_only_normal && value === sc.install_only_normal;
+  if (value !== sc.supply_only && value !== sc.install_only && !installNormal) {
     return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
   }
   const supplyOnly = value === sc.supply_only;
   // VRF-6 (INSTALLATION-ONLY): x (1 + uplift) only when the sheet has no supply row for this kind of item; with one, the normal rate
-  const supplyRows = !supplyOnly && !calculator && sc.supply_row ? sameKind((s) => s !== sc.install_only) : [];
+  const supplyRows = !supplyOnly && !installNormal && !calculator && sc.supply_row ? sameKind((s) => s !== sc.install_only && s !== sc.install_only_normal) : [];
+  const normalRate = installNormal || supplyRows.length > 0;
   const uplift0 = supplyOnly ? null : pricingInputFactor(items, sc.uplift_input);
-  const uplift = supplyRows.length ? 0 : uplift0;
-  if (!supplyOnly && !calculator && sc.supply_row) {
+  const uplift = normalRate ? 0 : uplift0;
+  if (!supplyOnly && !calculator && sc.supply_row && !installNormal) {
     extraNote = supplyRows.length ? sc.supply_row.with_row.replace("{rows}", rowsWord(supplyRows)) : sc.supply_row.no_row;
   }
+  // the row's scope as the calculator states it: a panel row whose sheet quotes the supply elsewhere shows the normal-rate option
+  const shownValue = supplyRows.length && sc.install_only_normal ? sc.install_only_normal : value;
   const pct = uplift === null ? "" : `${fmtN(uplift * 100)}%`;
   // the lines of the row, each with its own figures: the units (a block per unit) and every extra line that priced
   type Ln = { title: string; f: Partial<Record<RateKind, number>> };
@@ -5104,9 +5109,9 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
       totals = adj(view.totals, L.row_title ?? "the row");
     }
   }
-  const note0 = supplyOnly ? L.supply_only_note : (supplyRows.length && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
+  const note0 = supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
   const note = extraNote ? `${note0} ${extraNote}` : note0;
-  const scopeView = { value, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
+  const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
   if (refuse) {
     const { totals: _t, ...rest } = view;

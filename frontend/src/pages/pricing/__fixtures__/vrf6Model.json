@@ -377,6 +377,13 @@
   "mccb"
  ],
  "scope_add": {
+  "options": [
+   "Supply + installation",
+   "Supply only",
+   "Installation only",
+   "Installation only (supply quoted on another row)"
+  ],
+  "install_only_normal": "Installation only (supply quoted on another row)",
   "conflict": {
    "words": "\\b(?:unit\\s+)?(?:rates?|prices?|costs?)\\b[^.|]{0,160}?\\binclud\\w*[^.|]{0,200}?\\binstallation\\b",
    "with_row": "BoQ: the row says supply but a note says \"{said}\"; this sheet quotes installation on its own row ({rows}) - supply only (owner Q5).",

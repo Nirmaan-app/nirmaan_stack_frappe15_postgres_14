@@ -3045,3 +3045,110 @@ describe("HVAC VRF (VRF-5, v61) -- accessories, the cable default, Side, several
 
 /** VRF-5: the v61 parity cases whose ONLY difference is the source's own wording for a BoQ value vs a typed one (both refuse). */
 const PARITY_V61_WORDING_ONLY: string[] = [];
+
+/*
+ * VRF-6 B2 (K2) -- the calculator follows every K1 rule: on the fixture's v62 keys (v61 + `vrf6Model.json`, the file the v62 mint
+ * reads) the panel and the calculator price each new path the same -- the frame / stand item, gas kg = HP, MCB + ELCB by the HP
+ * schedule, the remote's type, the unit's make, the splits, the cable facts, the scope conflict and installation-only (a sheet
+ * around the row), the reading rules. The count asserted; the wording-only list NAMED.
+ */
+describe("VRF-6 B2 -- the K1 rules on both paths; panel = calculator on every case, the count asserted", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A61 = rd("rate_master_hvac_all_v61.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  type Fx6 = { accessories: unknown[]; accessory_includes: Record<string, string>; safeguard_add: Record<string, unknown> & { lines: Record<string, string> };
+    own_row_add: Record<string, Record<string, unknown>>; own_row_drop: string[]; scope_add: Record<string, unknown>; split_add: Record<string, unknown>;
+    lines_add: Record<string, string>; prepare: unknown; two_capacities: unknown; families_add: Record<string, unknown>;
+    inputs: Array<{ item: string; name: string; unit: string; factor: number }>; retire_inputs: string[];
+    new_items: Array<{ kind: string; unit: string; attributes: Record<string, unknown>; rates: Record<string, number> }> };
+  const FX6 = readJsonFixture<Fx6>(new URL("./__fixtures__/vrf6Model.json", import.meta.url));
+  type Px = { families: Record<string, unknown>; split: Record<string, unknown>; extras: { accessories?: unknown; from_model: Record<string, unknown>; scope: Record<string, unknown>;
+    lines: Record<string, string>; prepare?: unknown; two_capacities?: unknown; safeguard: { lines: Record<string, string>; own_row: Record<string, Record<string, unknown>>; [k: string]: unknown } } };
+  const v62 = (() => {
+    const c = structuredClone(A61.category_configs.find((x) => x.category_id === "hvac_vrf")) as unknown as { list_spec: { pricing: Px } };
+    const p = c.list_spec.pricing, x = p.extras;
+    x.accessories = structuredClone(FX6.accessories);
+    x.from_model.accessory_includes = structuredClone(FX6.accessory_includes);
+    Object.assign(p.families, structuredClone(FX6.families_add));
+    for (const [k, v] of Object.entries(FX6.safeguard_add)) { if (k === "lines") Object.assign(x.safeguard.lines, v); else x.safeguard[k] = structuredClone(v); }
+    for (const k of FX6.own_row_drop) delete x.safeguard.own_row[k];
+    for (const [k, v] of Object.entries(FX6.own_row_add)) x.safeguard.own_row[k] = { words: [], ...(x.safeguard.own_row[k] ?? {}), ...structuredClone(v) };
+    Object.assign(x.scope, structuredClone(FX6.scope_add));
+    Object.assign(p.split, structuredClone(FX6.split_add));
+    Object.assign(x.lines, FX6.lines_add);
+    x.prepare = structuredClone(FX6.prepare);
+    x.two_capacities = structuredClone(FX6.two_capacities);
+    return c as unknown as RateCategoryConfig;
+  })();
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const retired = new Set(FX6.retire_inputs);
+  const ITEMS62 = [
+    ...asItems(A61).filter((it) => !(it.kind === "hvac_pricing_input" && retired.has(String(it.attributes?.item ?? "")))),
+    ...asItems(E72),
+    ...FX6.inputs.map((p) => ({ name: `fx6-${p.item}`, discipline: "HVAC", kind: "hvac_pricing_input", brand: null, unit: p.unit, attributes: { item: p.item, name: p.name, shared_by: "vrf" }, rates: { factor: p.factor } } as unknown as RateMasterItem)),
+    ...FX6.new_items.map((n, i) => ({ name: `fx6-new-${i}`, discipline: "HVAC", brand: null, ...n } as unknown as RateMasterItem)),
+  ];
+  const CFG62 = new Map<string, RateCategoryConfig>([...A61.category_configs.map((c) => (c.category_id === "hvac_vrf" ? v62 : c)), ...E72.category_configs].map((c) => [c.category_id, c]));
+  const run = (c: ParityCase) => runParity(CFG62, ITEMS62, c, "full");
+  const vc = (unit: string, item: Record<string, string>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const od = (cap: string, more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: cap, ...more });
+  const cas = (cap: string, more: Record<string, string> = {}) => ({ item: "Cassette", brand: "Blue Star", capacity: cap, way: "FOUR-WAY", ...more });
+  const row = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const OUT = row(["frame", "gas", "mccb"]);
+  const CASES: Array<[string, ParityCase]> = [
+    ...["5 HP", "6 HP", "8 HP", "10 HP", "12 HP", "14 HP", "16 HP", "18 HP", "20 HP", "22 HP", "24 HP", "26 HP"]
+      .map((cap) => [`TEAM ${cap}: frame / stand + gas kg = HP + MCB + ELCB by the schedule`, vc("Nos", od(cap, OUT))] as [string, ParityCase]),
+    ["TEAM '38HP (20+18)': each module its own frame / gas / MCB + ELCB", vc("Nos", od("38HP (20+18)", OUT))],
+    ["TEAM 20 HP with isolator -> the MCB + ELCB set", vc("Nos", od("20 HP", row(["mccb"])), { desc: "20 HP ODU with isolator" })],
+    ["TEAM frame quoted per Nos -> the frame / stand item", vc("Nos", { item: "MS Angle Base Frame Structure", capacity: "6HP" })],
+    ["F1 the model's Wired on a cassette", vc("Nos", cas("2 TR", { ...row(["remote"]), remote_type: "Wired" }))],
+    ["F1 'corded or cordless' over the model's Wired", vc("Nos", cas("2 TR", { ...row(["remote"]), remote_type: "Wired" }), { ownNotes: ["corded or cordless remote"] })],
+    ["F12 a Daikin cassette's remote + refnet + drain pump", vc("Nos", cas("1 TR", { brand: "Daikin", ...row(["remote", "refnet", "drain_pump"]) }))],
+    ["F8 '24HP (12HP x 2NOS)'", vc("Nos", od("24HP (12HP x 2NOS)"))],
+    ["F8 Daikin Cool Only '60.0 HP (18+18+24)'", vc("Nos", od("60.0 HP (18+18+24)", { brand: "Daikin", cooling: "Cool Only" }))],
+    ["F8 Daikin heat pump 26 HP -> 20 + 6", vc("Nos", od("26 HP", { brand: "Daikin", cooling: "Heat Pump" }))],
+    ["F8 Daikin heat pump '32 H.P (16HP+16HP)'", vc("Nos", od("32 H.P (16HP+16HP)", { brand: "Daikin", cooling: "Heat Pump" }))],
+    ["F11 a 3 m cord: power 3 m, copper / comm 30 m", vc("Nos", cas("1.28 TR", { ...row(["copper", "power", "comm"]), extra_cable_spec_as_written: "3 meters long 3 core flexible copper cable", extra_length_as_written: "3 meters long" }))],
+    ["F11 'FRLS, XLPE, AL Armoured'", vc("Nos", od("8 HP", { ...row(["power"]), extra_cable_spec_as_written: "power cable (FRLS, XLPE, AL Armoured)" }))],
+    ["F3 gas on a cassette", vc("Nos", cas("2 TR", row(["gas"], "Heading")))],
+    ["F4 copper in a note + a piping row on the sheet", vc("Nos", od("6 HP", row(["copper"], "Note")), { sheet: [{ row: 287, text: "5/8 dia with 13 mm insulation", category: "hvac_piping", items: [{ item: "Copper", size: "15.9 mm" }] }] })],
+    ["Q1 built-in drain pump", vc("Nos", cas("2 TR", row(["drain_pump"])), { desc: "cassette with built-in drain pump" })],
+    ["Q5 supply under 'rates include installation', no installation row", vc("Nos", od("16 HP", { scope: "Supply only" }), { headingNotes: ["The unit rate shall include installation"] })],
+    ["Q5 the same with an installation row of that kind", vc("Nos", od("16 HP", { scope: "Supply only" }), { headingNotes: ["The unit rate shall include installation"], sheet: [{ row: 40, items: [od("16 HP", { scope: "Installation only" })] }] })],
+    ["installation-only with a supply row of that kind", vc("Nos", od("6 HP", { discharge: "Side", scope: "Installation only" }), { sheet: [{ row: 6, items: [od("6 HP", { discharge: "Side", scope: "Supply only" })] }] })],
+    ["installation-only with no supply row (x 1.5)", vc("Nos", od("6 HP", { discharge: "Side", scope: "Installation only" }))],
+    ["Q6 row 'Cooling Type' over '(HEAT PUMP)'", vc("Nos", od("20 HP", { cooling: "Heat Pump" }), { desc: "20 HP (Cooling Type)", ancestorNotes: ["(HEAT PUMP)"] })],
+    ["Q7 'cabling ... quantified separately'", vc("Nos", cas("1.6TR", row(["power", "comm"], "Heading")), { headingNotes: ["cabling & ODU stands quantified separately"] })],
+    ["Q-pre 7 CSU -> Ductable", vc("Nos", { capacity: "3.0 TR" }, { headings: ["CSU type indoor units"] })],
+    ["Q-pre 7 600x600 -> compact", vc("Nos", cas("1.0 TR"), { desc: "1.0 TR (600mm X 600mm only)" })],
+    ["Q-pre 11 control wiring -> comm", vc("Nos", { item: "Ductable", brand: "Blue Star", capacity: "3.2 TR" }, { headings: ["Ductable units with control wiring"] })],
+    ["'6 .3TR' -> 8 TR ductable", vc("Nos", { item: "Ductable", brand: "Blue Star", capacity: "6 .3TR" })],
+  ];
+
+  it("every case: 0 divergences -- the count asserted", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    expect(out.filter((o) => o.div.length).map((o) => ({ name: o.name, div: o.div }))).toEqual([]);
+    expect(CASES).toHaveLength(37);
+  }, 600000);
+
+  it("the harness carries the sheet around the row: the panel sees the installation row of that kind, and the calculator is fed its option", () => {
+    const c = CASES.find(([n]) => n === "installation-only with a supply row of that kind")![1];
+    const r = run(c);
+    expect((r.panel as ItemListSuggestion).itemList!.scope?.note).toMatch(/row 6/);
+    expect(r.feed.overrides["__scope__"]).toBe("Installation only (supply quoted on another row)");
+  });
+
+  it("NAMED wording-only: two capacities in the row text -- both refuse; only the panel can name them (the calculator has no row text)", () => {
+    const r = run(vc("Nos", { item: "Cassette", brand: "Blue Star", way: "FOUR-WAY" }, { desc: "Cassette 2.6 Tr Capacity ... 1.3 TR capacity" }));
+    expect((r.panel as ItemListSuggestion).itemList!.rowPriced).toBe(false);
+    expect(r.divergences.filter((d) => !/reason|blocks/.test(d.what))).toEqual([]);
+    expect(r.divergences.map((d) => d.what)).toEqual(["item row reason", "item blocks"]);
+  });
+
+  it("the harness carries a split line's hidden tag on a pair-first config: the calculator never splits it again", () => {
+    const r = run(vc("Nos", od("32 H.P (16HP+16HP)", { brand: "Daikin", cooling: "Heat Pump" })));
+    expect((r.panel as ItemListSuggestion).itemList!.items).toHaveLength(2);
+    expect(r.divergences).toEqual([]);
+  });
+});
