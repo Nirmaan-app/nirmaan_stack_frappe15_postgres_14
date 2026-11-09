@@ -7,7 +7,8 @@
 #       -> start Claude in that env, visible in Orca. --no-agent stops before Claude.
 #       Write the brief from scripts/devenv/BRIEF_TEMPLATE.md, keeping the filled copy outside the repo.
 #   task.sh status <name>    who has the branch, what the Definition of Done still lacks, where the report is
-#   task.sh done <name>      bring the agent's commits back to the laptop and print its report (review, merge and
+#   task.sh done <name>      bring the agent's commits back to the laptop and print its report, kept at
+#                            ${XDG_STATE_HOME:-~/.local/state}/devbox/reports/<name>.md (review, merge and
 #                            push stay with you)
 #   task.sh clean <name>     after you merged: remove the env and the branch on the box (refused while the box has
 #                            commits the laptop lacks)
@@ -253,6 +254,10 @@ case "$CMD" in
     [ -z "$BRIEF" ] || [ -s "$BRIEF" ] || die "no brief at $BRIEF"
     # A placeholder left from BRIEF_TEMPLATE.md would hand the agent a wrong base, ticket or env.
     [ -z "$BRIEF" ] || ! grep -n '<<FILL' "$BRIEF" >&2 || die "the brief still holds a <<FILL: …>> from the template (lines above): fill it first"
+    # The title names the task's GitHub issue, so its merge and its closing have one to name (fix #1655 had none
+    # until after it was built). An experiment, which never merges, says so instead.
+    [ -z "$BRIEF" ] || head -n 1 "$BRIEF" | grep -Eiq '^# Task:.*(#[0-9]+|experiment)' \
+      || die "the brief's first line names no issue: write '# Task: … #<issue> …' (file the issue first), or '# Task: experiment: …'"
     [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
       || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
     [ "$AGENT" = 0 ] || agent_ready
@@ -323,7 +328,16 @@ case "$CMD" in
   done)
     "$SELF_DIR/handoff.sh" from "$BOX_NAME" "$BRANCH"
     export BOX_STARTED=1
-    echo; box_ssh "cat ~/$DIR/REPORT.md 2>/dev/null" || echo "(no report on the box)"
+    # The report is also kept as a file on the laptop, outside ~/claude-artifacts (no .md there), so a reviewer
+    # agent has a path to read.
+    REPORT_COPY="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/reports/$NAME.md"
+    mkdir -p "$(dirname "$REPORT_COPY")"
+    echo
+    if box_ssh "cat ~/$DIR/REPORT.md 2>/dev/null" > "$REPORT_COPY.tmp" && [ -s "$REPORT_COPY.tmp" ]; then
+      mv "$REPORT_COPY.tmp" "$REPORT_COPY"; cat "$REPORT_COPY"; ok "report kept at $REPORT_COPY"
+    else
+      rm -f "$REPORT_COPY.tmp"; echo "(no report on the box)"
+    fi
     # Bring the task's walk evidence (screenshots, pages) home: the owner's phone link serves only the laptop's
     # ~/claude-artifacts. A copy, so the box keeps its own; reruns only add what changed. Markdown stays on the box
     # (no .md in ~/claude-artifacts, the owner's page rules); the report is printed above.

@@ -1,4 +1,4 @@
-# Task: <<FILL: one line: build ticket #N, or what the task is>>
+# Task: <<FILL: one line naming its issue: build ticket #N; or `experiment: <what>` for a run that never merges>>
 <!-- The brief for `task.sh start <name> --brief <file>`. Copy this file outside the repo (the brief may name what
 must not be published), replace every <<FILL: …>> (task.sh start refuses a brief that still holds one), and delete
 each section marked "omit when". Each rule in "Rules" was broken once by a box agent; keep them all. -->

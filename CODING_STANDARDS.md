@@ -114,6 +114,12 @@ pick one ad-hoc. Enforcement: [Before committing](#before-committing).
 **Transactions:** `frappe.db.commit()` after any DML in whitelisted methods. Call it **before**
 `publish_realtime()` to avoid race conditions: a client that reacts to the event must find the write already visible.
 
+**Queuing a background job:** the job must find what it reads already committed. Where the writes are not yet
+committed (a doc hook, `services/action_items/doc_hooks.py`), pass `enqueue_after_commit=True`. Where the caller has
+just run its own `frappe.db.commit()`, enqueue directly: `enqueue_after_commit` waits for the request's final commit,
+and a rollback after the explicit commit drops the job while the rows it was meant to process stay saved
+(`api/outflow_import/card_import.queue_type_suggestion`, #1673).
+
 **Endpoints:** `@frappe.whitelist()` RPC methods, called from the frontend as
 `nirmaan_stack.api.<module>.<method>`. Restrict mutating methods with `methods=["POST"]`, keep them thin
 (see B4 above), and raise user-facing errors with `frappe.throw(...)`. Document API endpoints with parameters,
