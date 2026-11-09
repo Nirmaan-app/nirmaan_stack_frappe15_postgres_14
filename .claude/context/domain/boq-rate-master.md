@@ -134,6 +134,38 @@ The run never touches the pool's file lock, so a 06:00 build in progress cannot 
 nirmaan_stack.services.boq_rate_match.pool.rebuild_pool` are unchanged; `pool.ensure_pool` stays for h2_bench's own
 bench pool. A stale pool's rows carry the old pricing stamp's rule values until the 06:00 build; targets are always
 read live. Tests: `test_match_run_pool` (B6's "one queued" pins inverted), `test_rate_match.TestQueuePoolRebuild`.
+DEV2-B9 adds ONE more automatic build, only for a MISSING pool (the auto-build after a deploy, below).
+
+**THE POOL OFFERS ONLY ROWS WHOSE SHEET WAS COMMITTED IN THE LAST 6 CALENDAR MONTHS - A HARD CUT-OFF (DEV2-B9; owner
+R-H2B 2026-10-30 00:53 "lets keep the cutoff as 6 months"; 2026-11-10 "Hard cut-off", "committ date", answer 2 to
+B9-Q1 "option D").** `pool.POOL_MAX_AGE_MONTHS = 6`; the rule is `services/boq_rate_match/pool_age.py`, applied once
+in `pool.build_pool` right after the KEPT set is made (R-H2S / near copies / test projects first). A row is offered
+only if its OWN SHEET's CURRENT `BoQ Sheet.committed_at` (written by the commit pipeline once per sheet commit; a
+re-commit writes a new current version, so it resets that sheet only) is on or after the cut-off date: the build
+moment's date in Asia/Kolkata, 6 calendar months back, a missing day clamped to the month's end (31 Aug -> 28 / 29
+Feb; 30 Nov -> 30 May), on-the-day kept. Stored datetimes and `now_datetime()` are read in the system time zone and
+converted to Asia/Kolkata before the day is taken. Hard: an aged row leaves KEPT and is never a 2X extra
+(`Pool.extra_for` subtracts `pool.aged`); no fallback. A sheet with no commit date counts as too old
+(`rows_without_commit_date`). Sheets of one BoQ age out on different days. Rows stay in the file and the index (the
+index statistics do not move); revision families: R-H2S picks the version, then each of its rows is aged by its own
+sheet. The pool records `aged` (row keys) and `age`; `rebuild_pool()`'s summary adds `cutoff_date`,
+`max_age_months`, `rows_left_out_by_age`, `sheets_left_out_by_age`, `boqs_left_out_by_age`,
+`rows_without_commit_date` (KEPT rows only). A row ages out at the next build; its spec card stays, unused;
+`fill_spec_cards.py` still reads `pool._corpus` (not the cut-off). POOL_FORMAT is unchanged on purpose: a pre-B9 file
+is used as it is until the next build (a new format name would leave no usable file after a deploy). Tests:
+`test_pool_age`.
+
+**THE POOL REBUILDS BY ITSELF WHEN THERE IS NO USABLE POOL FILE (DEV2-B9; owner 2026-11-10 "Auto-build after deploy";
+answer 3 to B9-Q2 "H").** Production's deploy removes the sites volume and the pool file is not restored (2.11.56,
+2026-11-07: Abhishek rebuilt it by hand). `services/boq_rate_match/pool_autobuild.autobuild_pool`, called by the
+existing 5-minute match healer (`tasks/match_run_healer.heal_stale_match_runs`, after its own work; a failure on
+either side never stops the other): with NO usable file (missing, unreadable, another format - `job_pool`'s test), the
+build lock free and the job neither queued nor running, it enqueues ONE `pool.rebuild_pool` on `long` with the 06:00
+job's timeout and FIXED id `boq_match_pool_daily_rebuild`, deduplicated, and logs one line. It NEVER fires while a
+usable pool exists, stale or not (B8's 06:00-only rule for those stands), and a user's run still never builds. An
+existing file is fully loaded once per (size, mtime) and remembered in the cache for two days; every other check is a
+stat and a lock probe. NO new hooks.py line on purpose: Frappe turns a hooks.py cron line into a Scheduled Job Type
+row only in `sync_jobs` (migrate / install), and the fix release has no migrate. Tests: `test_pool_autobuild`.
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before

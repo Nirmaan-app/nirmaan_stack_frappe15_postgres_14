@@ -51017,3 +51017,54 @@ Owner rulings this slice (2026-11-06):
 - The estimate over-estimates sheets where every row needs a card (parallel card waves); the running modal's time left
   is still 65 + 0.45 a row.
 - Production pool build speed (price-driving fields 877.5 s) is not addressed.
+
+## Slice DEV2-B9 - the 6-month cut-off for the "Previously priced" pool (by sheet commit date, hard) and the pool auto-build after a deploy - as built 2026-11-10
+
+Desktop session `devb9` on dev2, delegated by the laptop. Production runs 2.11.56 (B8 `c0b991893`, deployed
+2026-11-07). Two commits, nothing deployed, no model call, no migrate / patch / doctype / setting / frontend change:
+- C1 `d44bc5dcc`: `pool.py` (POOL_MAX_AGE_MONTHS = 6, the cut-off hook, `extra_for` minus aged rows, the summary keys),
+  `pool_age.py` (new), `pool_autobuild.py` (new), `tasks/match_run_healer.py` (runs the check), `test_pool_age` (24,
+  new), `test_pool_autobuild` (15, new), the plan entries.
+- C2 is this entry + `boq-rate-master.md`. The deploy note `H2_Fix_Release_Deploy_Note_2026-11-10.md` is in the
+  slice folder.
+
+Report, ledger, deploy note: `2026-11-10_DEV2-B9_Report.md` / `_Ledger.md` / `H2_Fix_Release_Deploy_Note_2026-11-10.md`
+(`Historical Rate Suggest\DEV2-B9\`).
+
+Owner rulings this slice:
+- R-H2B (2026-10-30 00:53): "lets keep the cutoff as 6 months" (it had never reached the build requirements).
+- 2026-11-10 02:03-02:06: "yes. we need to check?" (check, add if missing); "Hard cut-off"; "committ date".
+- Answer 1 (02:27): "Auto-build after deploy" - every deploy deletes the pool file (2.11.56: rebuilt by hand).
+- Answer 2 (02:28, B9-Q1): "option D" - each row is aged by its own sheet's current committed_at.
+- Answer 3 (02:39, B9-Q2): "H" - the existing 5-minute match healer carries the check; hooks.py untouched.
+
+### 1. Built
+- `pool_age.apply_cutoff` in `build_pool`, after KEPT: a row stays only if its sheet's CURRENT `BoQ Sheet.committed_at`
+  is on or after the build day (Asia/Kolkata) minus 6 calendar months (month ends clamp, on-the-day kept, stored times
+  converted from the system zone); no date = out, counted apart. Aged rows leave KEPT and 2X; they stay in the file
+  and the index. `pool.aged` / `pool.age`; `rebuild_pool()`'s summary adds cutoff_date, max_age_months, rows / sheets /
+  boqs_left_out_by_age, rows_without_commit_date; every build logs one "match pool cut-off" line. POOL_FORMAT unchanged.
+- `pool_autobuild.autobuild_pool` (run by `heal_stale_match_runs` after its own work): no usable file + lock free +
+  job not queued -> ONE `pool.rebuild_pool` on long under `boq_match_pool_daily_rebuild` (deduplicated), one log line;
+  never with a usable pool. An existing file is fully loaded once per (size, mtime) (cache, 2 days).
+
+### 2. Proved
+- P0: NO date limit existed (pool.py's only time rules: the 3-day settle / WIP windows and the 24 h file age).
+  committed_at is 100 % filled (1,763 / 1,763 sheet versions; 1,313 current). dev2's oldest sheet commit is
+  2026-06-23 (not May, as the brief assumed): the cut-off leaves out 0 rows / 0 bench answers at 2026-11-10 and at
+  2026-10-27; it first bites at the build of 2026-12-26 (today's data: 1 kept row, then 44 on 2027-01-05, ~870 on
+  2027-01-10, ~7,300 on 2027-02-01). Revision readings (picked version vs family oldest) differ by < 1 % at every date.
+- A NEW hooks.py cron line would run only after a migrate (frappe `sync_jobs`, migrate.py:142) - hence route H.
+- S2 (one scratch build at d44bc5dcc, read-only DB, 530.8 s, deleted after): 30,766 rows, KEPT 25,159 before and after the
+  cut-off (cutoff_date 2026-05-10, rows / sheets / BoQs left out 0); bench 201 / 68 targets, 0 answers aged out, the
+  top-5 ceiling unchanged; the live pool file untouched.
+- Vacuity 13 / 13 red then green (cut-off line, IST, on-the-day, missing date, per sheet, 2X, the auto-build's
+  missing-file trigger, fixed job id, no double enqueue, lock, never with a usable pool, the healer's isolation and call).
+- Suites: C1 targeted 20 modules / 401 OK (before 362 on the 18 old modules). T3 FULL Python BoQ set after d44bc5dcc:
+  109 modules / 4,848 tests OK (before 107 / 4,809, B8 T3; +2 modules, +39 tests; every other module the same count).
+  No frontend file changed: no vitest / tsc. Replay D2 = D0 (18,106 rows, ac7 93028e29... / ac7v2 28d25f5a...).
+
+### 3. Open
+- `fill_spec_cards.py` still reads `pool._corpus` (no cut-off): a re-run after late December would card rows the pool no
+  longer offers (harmless).
+- The auto-build rides on the match healer: if that Scheduled Job Type is stopped on a site, it does not run.
