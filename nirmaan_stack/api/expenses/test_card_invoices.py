@@ -19,7 +19,7 @@ from nirmaan_stack.api.expenses.card_invoices import (
 from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs, purge_expense_bills
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE
 
 PMO = "Nirmaan PMO Executive Profile"
@@ -119,7 +119,7 @@ class TestTheList(CardInvoiceCase):
 
     def test_an_invoiced_a_marked_and_a_non_card_expense_are_not_listed(self):
         waiting = self._expense(self.statement, serno="70000000001")
-        invoiced = self._expense(self.statement, serno="70000000002", invoice_attachment=_cloud_url("inv.pdf"))
+        invoiced = self._expense(self.statement, serno="70000000002", invoice_attachment=cloud_url("inv.pdf"))
         marked = self._expense(self.statement, serno="70000000003", no_invoice_reason="Toll", no_invoice_by="Administrator")
         not_card = self._expense(None, serno="70000000004")
         listed = set(self._queue())
@@ -141,16 +141,16 @@ class TestTheList(CardInvoiceCase):
 class TestAttachingTheInvoice(CardInvoiceCase):
     def test_a_file_alone_files_it_and_the_spend_leaves_the_list(self):
         name = self._expense(self.statement)
-        self._as(self.users.make(PROCUREMENT), attach_card_invoice, name, _cloud_url("zomato.pdf"))
+        self._as(self.users.make(PROCUREMENT), attach_card_invoice, name, cloud_url("zomato.pdf"))
         doc = frappe.get_doc(NPE, name)
-        self.assertEqual(doc.invoice_attachment, _cloud_url("zomato.pdf"))
+        self.assertEqual(doc.invoice_attachment, cloud_url("zomato.pdf"))
         self.assertFalse(doc.invoice_ref)
         self.assertFalse(doc.invoice_date)
         self.assertNotIn(name, self._queue())
 
     def test_number_and_date_are_kept_when_given(self):
         name = self._expense(self.statement)
-        self._as(self.users.make(ACCOUNTANT), attach_card_invoice, name, _cloud_url("mmt.pdf"), "INV-77", "2026-09-11")
+        self._as(self.users.make(ACCOUNTANT), attach_card_invoice, name, cloud_url("mmt.pdf"), "INV-77", "2026-09-11")
         doc = frappe.get_doc(NPE, name)
         self.assertEqual((doc.invoice_ref, str(doc.invoice_date)), ("INV-77", "2026-09-11"))
 
@@ -159,16 +159,16 @@ class TestAttachingTheInvoice(CardInvoiceCase):
         self.assertRaisesRegex(frappe.ValidationError, "Attach the invoice file", attach_card_invoice, name, "")
         self.assertRaisesRegex(
             frappe.ValidationError, "cannot be in the future",
-            attach_card_invoice, name, _cloud_url("f.pdf"), None, add_days(nowdate(), 1),
+            attach_card_invoice, name, cloud_url("f.pdf"), None, add_days(nowdate(), 1),
         )
         other = self._expense(None, serno="70000000009")
-        self.assertRaisesRegex(frappe.ValidationError, "not a card spend", attach_card_invoice, other, _cloud_url("f.pdf"))
+        self.assertRaisesRegex(frappe.ValidationError, "not a card spend", attach_card_invoice, other, cloud_url("f.pdf"))
         self.assertFalse(frappe.db.get_value(NPE, name, "invoice_attachment"))
 
     def test_a_user_outside_pending_invoices_upload_is_refused(self):
         name = self._expense(self.statement)
         self.assertRaises(
-            frappe.PermissionError, self._as, self.users.make(OUTSIDER), attach_card_invoice, name, _cloud_url("f.pdf")
+            frappe.PermissionError, self._as, self.users.make(OUTSIDER), attach_card_invoice, name, cloud_url("f.pdf")
         )
         self.assertFalse(frappe.db.get_value(NPE, name, "invoice_attachment"))
 
@@ -200,5 +200,5 @@ class TestMarkingNoInvoice(CardInvoiceCase):
     def test_a_blank_reason_and_an_already_invoiced_spend_are_refused(self):
         name = self._expense(self.statement)
         self.assertRaisesRegex(frappe.ValidationError, "Type the reason", mark_card_no_invoice, name, "  ")
-        invoiced = self._expense(self.statement, serno="70000000002", invoice_attachment=_cloud_url("inv.pdf"))
+        invoiced = self._expense(self.statement, serno="70000000002", invoice_attachment=cloud_url("inv.pdf"))
         self.assertRaisesRegex(frappe.ValidationError, "already has its invoice", mark_card_no_invoice, invoiced, "x")

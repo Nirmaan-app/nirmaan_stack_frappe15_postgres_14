@@ -18,7 +18,8 @@ import frappe
 from nirmaan_stack.api.expenses.card_invoices import attach_card_invoice, get_card_invoice_queue
 from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice
 from nirmaan_stack.api.expenses.expense_bill_approval import approve_expense_bill
-from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url, purge_expense_bills
+from nirmaan_stack.api.expenses.expense_bill_fixture import purge_expense_bills
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.api.expenses.paid_invoice import set_paid_expense_invoice
 from nirmaan_stack.api.expenses.test_card_invoices import CardInvoiceCase
 from nirmaan_stack.api.expenses.test_cashbook_invoices import NPE, PE, CashbookInvoiceCase

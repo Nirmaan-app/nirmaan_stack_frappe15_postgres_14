@@ -17,6 +17,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.tds.client_status import CLIENT_STATUS_REJECTED
 from nirmaan_stack.api.tds.submit import submit_tds_request
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
 from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
@@ -31,13 +32,6 @@ def _raw(doctype, **fields):
 	doc.name = fields.get("name") or frappe.generate_hash(length=12)
 	doc.db_insert()
 	return doc.name
-
-
-def _cloud_url(file_name):
-	"""A stored datasheet URL as production has it: the storage app rewrites every upload to an
-	`/api/method/...` URL, so Frappe's own on_update `attach_files_to_document` (which only reads
-	`/files` and `/private/files`) never touches it. Re-linking the upload is the endpoint's job."""
-	return f"/api/method/frappe_gcp_attachment.controller.generate_file?key={file_name}&file_name={file_name}"
 
 
 def _make_user(email, profile, roles):
@@ -96,14 +90,14 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			tds_item=self.item,
 			make="MakeA",
 			status="Verified",
-			tds_attachment=_cloud_url("gate-valve-a.pdf"),
+			tds_attachment=cloud_url("gate-valve-a.pdf"),
 		)
 		self.entry_b = _raw(
 			"TDS Repository",
 			tds_item=self.item,
 			make="MakeB",
 			status="Not Verified",
-			tds_attachment=_cloud_url("gate-valve-b.pdf"),
+			tds_attachment=cloud_url("gate-valve-b.pdf"),
 		)
 		self.request_prefix = f"RQ-{self.project[-3:]}-"
 		# Project Custom fixtures: a Procurement Package with one Category, and a Category under
@@ -131,7 +125,7 @@ class TestSubmitTdsRequest(FrappeTestCase):
 
 	def _upload(self, owner=None):
 		"""A datasheet uploaded by the sender and not yet attached to anything."""
-		url = _cloud_url(f"request-{frappe.generate_hash(length=6)}.pdf")
+		url = cloud_url(f"request-{frappe.generate_hash(length=6)}.pdf")
 		name = _raw("File", file_name="request.pdf", file_url=url, is_private=1)
 		# `db_insert` stamps the session user as owner; the uploader is set after.
 		frappe.db.set_value("File", name, "owner", owner or frappe.session.user, update_modified=False)
@@ -219,8 +213,8 @@ class TestSubmitTdsRequest(FrappeTestCase):
 		# Snapshot comes from the catalogue, not from the browser.
 		self.assertEqual(rows[0].tds_item_name, "Gate Valve")
 		self.assertEqual(rows[0].tds_work_package, self.wp)
-		self.assertEqual(rows[0].tds_attachment, _cloud_url("gate-valve-a.pdf"))
-		self.assertEqual(rows[1].tds_attachment, _cloud_url("gate-valve-b.pdf"))
+		self.assertEqual(rows[0].tds_attachment, cloud_url("gate-valve-a.pdf"))
+		self.assertEqual(rows[1].tds_attachment, cloud_url("gate-valve-b.pdf"))
 		self.assertEqual(frappe.db.get_value(ROW, rows[1].name, "tds_boq_line_item"), "BOQ 4.2")
 
 	def test_the_request_id_continues_the_projects_series(self):
@@ -282,7 +276,7 @@ class TestSubmitTdsRequest(FrappeTestCase):
 		self.assertEqual(self._rows(), [])
 
 	def test_a_request_without_an_uploaded_datasheet_is_refused(self):
-		for attachment in ("", _cloud_url("never-uploaded.pdf")):
+		for attachment in ("", cloud_url("never-uploaded.pdf")):
 			with self.subTest(attachment=attachment):
 				with self.assertRaises(frappe.ValidationError):
 					self._send([self._new_make(tds_attachment=attachment)])

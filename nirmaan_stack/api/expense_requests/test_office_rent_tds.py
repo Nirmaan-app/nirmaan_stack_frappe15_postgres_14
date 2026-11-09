@@ -41,6 +41,7 @@ from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.expense_tds import withhold_expense_tds
 from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 NPE = "Non Project Expenses"
 TDS = "Payment TDS Deduction"
@@ -64,7 +65,7 @@ def _rent_answers(**overrides):
             "responses": {"detail": detail}}
 
 
-class OfficeRentCase(FrappeTestCase):
+class OfficeRentCase(ExpenseTypeFlagGuard, FrappeTestCase):
     """The fixture and helpers of the Office Rent tax suites; holds no test of its own."""
 
     def setUp(self):

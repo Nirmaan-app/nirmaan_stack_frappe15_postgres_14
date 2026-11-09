@@ -29,6 +29,7 @@ from nirmaan_stack.api.expense_requests.read import get_my_expense_requests, get
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.patches.v3_0 import seed_records_without_review as seed_patch
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_rwr_pm@example.com"
 HR_USER = "exr_rwr_hr@example.com"
@@ -44,7 +45,7 @@ SEEDED = (
 	"Nirmaan HR Executive Profile",
 	"Nirmaan HR Lead Profile",
 )
-NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
+NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # raised with no project; its flags are the site's (#1677)
 # Raised by HR in the fixture, never by IDLE_PROFILE; a test lends it to IDLE_PROFILE and puts its roles back.
 SPARE_TYPE = "Postage & Courier"
 # A profile made for these tests, allowed to raise no type at all.
@@ -85,7 +86,7 @@ def _write_list(profiles) -> None:
 	doc.save(ignore_permissions=True)
 
 
-class TestRecordsWithoutReview(FrappeTestCase):
+class TestRecordsWithoutReview(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

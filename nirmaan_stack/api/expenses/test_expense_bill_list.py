@@ -23,7 +23,7 @@ from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
 from nirmaan_stack.api.expenses.test_cashbook_invoices import PE, CashbookInvoiceCase
 from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
@@ -120,7 +120,7 @@ class TestTheBillCheckFilters(CardSpendOnTheListCase):
         _, bill = self._attach()
         run_reading(bill, FakeReader(BillRead(Decimal("1250.00"), "INV-9", date(2026, 9, 9))))
         self.rejected = self._expense(self.statement, serno="70000000002", amount=500)
-        self._as(self.accountant, attach_card_invoice, self.rejected, _cloud_url("other.pdf"))
+        self._as(self.accountant, attach_card_invoice, self.rejected, cloud_url("other.pdf"))
         bill = bills_of(NPE, self.rejected)[-1].name
         run_reading(bill, FakeReader(ReadFailed("The reader timed out.")))
         self._as(self.accountant, reject_expense_bill, bill, reason="Wrong shop")
@@ -178,7 +178,7 @@ class TestTheProjectExpensesList(CashbookInvoiceCase):
         accountant = self.users.make(ACCOUNTANT)
         frappe.get_doc("User", accountant).add_roles("Nirmaan Accountant")
         frappe.db.commit()
-        self._as(accountant, attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"))
+        self._as(accountant, attach_cashbook_invoice, self.pe, PE, cloud_url("wallet.pdf"))
         run_reading(bills_of(PE, self.pe)[-1].name, FakeReader(ReadFailed("The reader timed out.")))
 
         result = self._as(

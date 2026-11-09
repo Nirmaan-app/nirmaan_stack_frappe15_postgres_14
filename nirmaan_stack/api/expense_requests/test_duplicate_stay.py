@@ -26,6 +26,7 @@ from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.update import update_expense_request
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.expense_decision import decide
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_dup_pm@example.com"
 HR_USER = "exr_dup_hr@example.com"
@@ -68,7 +69,7 @@ def _project(label):
 	return p.name
 
 
-class TestDuplicateStay(FrappeTestCase):
+class TestDuplicateStay(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

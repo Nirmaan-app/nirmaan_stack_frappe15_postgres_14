@@ -30,6 +30,7 @@ from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services.payees.guard import check_payee_links
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 U = "Administrator"
 PM_USER = "pye_guard_pm@example.com"
@@ -39,7 +40,7 @@ PE = "Project Expenses"
 NPE = "Non Project Expenses"
 
 
-class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
+class TestEveryWritePathKeepsThePayeeRules(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

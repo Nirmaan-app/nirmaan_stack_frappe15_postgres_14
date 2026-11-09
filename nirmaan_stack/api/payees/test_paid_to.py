@@ -42,6 +42,7 @@ from nirmaan_stack.services.extraction.gemini import GeminiExtractor
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
 from nirmaan_stack.services.payees.writer import edit_payee
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
@@ -75,7 +76,7 @@ def _site_clock_at(moment: datetime):
         yield
 
 
-class TestPaidTo(FrappeTestCase):
+class TestPaidTo(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

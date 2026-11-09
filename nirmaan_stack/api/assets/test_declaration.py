@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from PIL import Image, ImageDraw
 
 from nirmaan_stack.api.assets import declaration
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.asset_declaration import (
     ALREADY_SIGNED,
     BLANK_MESSAGE,
@@ -34,11 +35,6 @@ from nirmaan_stack.services.asset_declaration import (
 
 CATEGORY_PREFIX = "ZZT"  # Asset Master names itself ASSET-<first 3 letters of the category>-###
 FAKE_PDF = b"%PDF-1.4 fake declaration"
-
-
-def _fake_cloud_url(tag):
-    """A stored URL shaped like production's: Frappe's own attach hook ignores `/api/method/...` URLs."""
-    return f"/api/method/frappe_gcp_attachment.controller.generate_file?key=test-esign/{tag}.pdf&file_name={tag}.pdf"
 
 
 def _png_uri(draw=True, size=(600, 200), image_format="PNG", mode="RGBA"):
@@ -207,7 +203,7 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
         row.flags.department_change_reason = "E-sign test: the asset follows its assignee"
         self.row = row.insert(ignore_permissions=True)
         frappe.db.commit()
-        self.url = _fake_cloud_url(self.row.name)
+        self.url = cloud_url(f"{self.row.name}.pdf", "Asset Management")
 
     def tearDown(self):
         frappe.set_user("Administrator")
@@ -262,7 +258,7 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
         self.assertEqual(self._stored_declaration(), self.url)
 
     def test_hr_upload_already_present_is_refused(self):
-        frappe.db.set_value("Asset Management", self.row.name, "asset_declaration_attachment", _fake_cloud_url("scan"))
+        frappe.db.set_value("Asset Management", self.row.name, "asset_declaration_attachment", cloud_url("scan.pdf", "Asset Management"))
         frappe.db.commit()
         with self.assertRaises(frappe.ValidationError):
             self._sign()
@@ -295,7 +291,7 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
 
     def test_signed_while_rendering_is_caught_under_the_lock(self):
         """A second tab signs while this request renders: the re-check after rendering refuses."""
-        other_url = _fake_cloud_url("other-tab")
+        other_url = cloud_url("other-tab.pdf", "Asset Management")
 
         def render_while_other_tab_signs(asset):
             frappe.db.set_value("Asset Management", self.row.name, "asset_declaration_attachment", other_url)
