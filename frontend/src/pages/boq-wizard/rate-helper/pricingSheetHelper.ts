@@ -126,6 +126,7 @@ import {
   type ItemListPricingSpec,
   type ItemPriceResult,
   type LadderHop,
+  type CoverChoice,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -2255,6 +2256,9 @@ export interface ItemEdit {
    * marker. While any entry of a row carries one, the split never fires on that row again (its own lines, a re-compute,
    * after any edit / remove / add, the calculator's re-run of the seam). Written only by `splitEdits`. */
   helper?: HelperMark;
+  /** VRF-6 U11 (owner 2026-11-09 18:52): the option the pricer stepped to on the helper's ranked singles / pairs for this
+   *  entry (`CoverChoice`); absent = the helper's own pick. Written only by the `cover_option` operation. */
+  cover?: number;
   /** VRF-3b: the pricer's edits to this unit's extra lines (values typed / picked, lines removed). Absent on every entry
    * of a config that declares no `extras`, and on a unit nobody has touched. */
   extras?: ExtrasEdit;
@@ -2297,6 +2301,8 @@ export interface HelperMark {
   cond?: string;
   /** VRF-6 (F8): a pair / set chosen before the next size up -- the sentence that replaces "bigger than the largest unit" */
   why?: string;
+  /** VRF-6 U11: the ranked options this split was one of -- the panel's "next best option" steps on from it */
+  cover?: CoverChoice;
 }
 
 export interface ItemListEditState {
@@ -2339,6 +2345,8 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number, sec
       ...(nested ? helperMarkOf(e.helper, count) : {}),
       // VRF-3b: the extras' edits and the removed-extras tag survive too (strings only)
       ...(nested ? extrasEditOf(e.extras) : {}),
+      // VRF-6 U11: the option the pricer stepped to survives (a positive whole number only)
+      ...(typeof e.cover === "number" && Number.isInteger(e.cover) && e.cover > 0 ? { cover: e.cover } : {}),
     };
   };
   const extrasEditOf = (x: unknown): { extras: ExtrasEdit } | Record<string, never> => {
@@ -2361,7 +2369,7 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number, sec
     if (!nums.every((x) => typeof x === "number" && Number.isFinite(x)) || typeof m.attr !== "string" || typeof m.size !== "string"
         || typeof m.made !== "string" || typeof m.unit !== "string" || typeof m.exact !== "boolean" || !m.from || typeof m.from !== "object") return {};
     const f = one(m.from as ItemEdit, count, false);
-    return { helper: { ...m, from: { base: f.base, family: f.family, attrs: f.attrs, ...(f.qty !== undefined ? { qty: f.qty } : {}), ...(f.other ? { other: f.other } : {}) } } };
+    return { helper: { ...m, from: { base: f.base, family: f.family, attrs: f.attrs, ...(f.qty !== undefined ? { qty: f.qty } : {}), ...(f.other ? { other: f.other } : {}), ...(f.cover !== undefined ? { cover: f.cover } : {}) } } };
   };
   try {
     const parsed = JSON.parse(raw) as ItemListEditState;
@@ -2420,7 +2428,7 @@ export function assembleItems(
     if (e.family !== null && (e.other ?? []).includes(familyAttrId)) attributes[familyAttrId] = { value: e.family === "" ? null : e.family, typed: true };
     // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
     // marking changes no rate anywhere.
-    return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}) };
+    return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}), ...(e.cover !== undefined ? { coverPick: e.cover } : {}) };
   });
 }
 
@@ -2573,6 +2581,9 @@ export interface ItemBlockView {
   /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
   helperLine?: string;
   changedByYou?: true;
+  /** VRF-6 U11 (owner 18:52): on the unit a stated size no single SKU matched (the first line of its split, or the single) --
+   *  where it sits on the helper's ranked singles / pairs, and the option "Next best option" steps to (`cover_option`). */
+  cover?: { option: number; of: number; userChosen: boolean; label: string; next: number };
   /** VRF-3a K2 (U5, board 11): a counted item (a refnet) on a per-Set row -- its three typed fields, the expected-count
    * formula, the case's sentence, the pieces the rule gave (null = withheld: the box blank and red) and whether the
    * pricer typed the pieces themselves. */
@@ -3460,6 +3471,14 @@ function itemBlockView(
         : `From the helper's split of ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`.replace(/\s+$/, ""),
       ...(helperLineChanged(edit) ? { changedByYou: true as const } : {}),
     } : {}),
+    ...(() => {
+      const c = edit.helper ? (edit.helper.i === 0 ? edit.helper.cover : undefined) : res.cover;
+      if (!c || c.options.length < 2) return {};
+      const o = c.options[c.picked];
+      const u = c.unit ? ` ${c.unit}` : "";
+      return { cover: { option: c.picked + 1, of: c.options.length, userChosen: c.picked > 0, next: (c.picked + 1) % c.options.length,
+        label: `Option ${c.picked + 1} of ${c.options.length}${c.picked > 0 ? " (chosen by you)" : " - the helper's pick"}: ${o.layers.map(fmtN).join(" + ")}${u} for the BoQ's ${fmtN(c.total)}${u}` } };
+    })(),
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
     // SLICE 12e-2 (owner Q16 / Q15 / P1): the `family_text` line, and the family CONTROL where the config
@@ -3667,6 +3686,7 @@ export function splitEdits(
         ...(sp.stated ? { stated: { ...sp.stated, typed: typedSize } } : {}),
         ...(cond ? { cond } : {}),
         ...(sp.why ? { why: sp.why } : {}),
+        ...(sp.cover ? { cover: sp.cover } : {}),
       } });
     });
   });
@@ -5647,6 +5667,10 @@ export type ItemEditOp =
   /** VRF-3a (U2): "Reset to the helper's split" -- every line of a split goes, the entry each split replaced comes back,
    *  and the row splits again at the next compute */
   | { op: "reset_split" }
+  /** VRF-6 U11 (owner 18:52): step entry `index` (a helper line = its whole split) to option `option` of the helper's ranked
+   *  singles / pairs (0 = back to the helper's pick). The split's entry comes back carrying the choice and the row re-prices
+   *  from it -- every split of the row comes back, as "Reset to the helper's split" does, since a row splits only whole. */
+  | { op: "cover_option"; index: number; option: number }
   /** SLICE 12c-S (F15): the pricer opened, or closed, this field's "Other..." box. `on` false also
    *  covers picking a real option, which is what takes the field back out of typing. */
   | { op: "set_other"; index: number; id: string; on: boolean }
@@ -5741,6 +5765,29 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (!at(op.index)) return state;
       items.splice(op.index, 1);
       return done(items);
+    case "cover_option": {
+      const t = at(op.index);
+      if (!t) return state;
+      const withCover = (e: ItemEdit): ItemEdit => {
+        const { cover: _c, ...rest } = e;
+        return op.option > 0 ? { ...rest, cover: op.option } : rest;
+      };
+      if (!t.helper) {
+        items[op.index] = withCover(t);
+        return done(items);
+      }
+      const g = t.helper.g;
+      const seen = new Set<number>();
+      const out: ItemEdit[] = [];
+      for (const e of items) {
+        if (!e.helper) { out.push(e); continue; }
+        if (seen.has(e.helper.g)) continue;
+        seen.add(e.helper.g);
+        const from = { ...e.helper.from, attrs: { ...e.helper.from.attrs } };
+        out.push(e.helper.g === g ? withCover(from) : from);
+      }
+      return done(out);
+    }
     case "reset_split": {
       const seen = new Set<number>();
       const out: ItemEdit[] = [];
@@ -5748,7 +5795,9 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
         if (!e.helper) { out.push(e); continue; }
         if (seen.has(e.helper.g)) continue;
         seen.add(e.helper.g);
-        out.push({ ...e.helper.from, attrs: { ...e.helper.from.attrs } });
+        // VRF-6 U11: back to the HELPER's split -- a stepped option goes too
+        const { cover: _c, ...from } = e.helper.from;
+        out.push({ ...from, attrs: { ...from.attrs } });
       }
       return done(out);
     }

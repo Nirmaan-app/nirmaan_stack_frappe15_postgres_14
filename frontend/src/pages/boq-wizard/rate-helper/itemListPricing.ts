@@ -1505,6 +1505,52 @@ export interface ExtractedListItem {
   /** VRF-3a (Q3 hidden tag): the panel helper allows the helper split on this item -- set ONLY on a row none of whose items
    * came from a split (the split never fires on its own lines, after an edit, or on a re-compute). Absent => no split. */
   splitAllowed?: true;
+  /** VRF-6 U11 (owner 2026-11-09 18:52): the option the pricer stepped to on the helper's ranked list of singles / pairs
+   *  (`CoverChoice`); 0 or absent = the helper's own pick. Read only where `pair_first` is `single_unless_cheaper`. */
+  coverPick?: number;
+}
+
+/**
+ * VRF-6 U11 (owner 18:52 / 19:32): the ranked ways to cover a stated outdoor size no single SKU matches -- single units and
+ * pairs, ranked by the Q3 rule applied again and again (`rankCover`); option 0 is always the helper's own pick. `picked` is
+ * the option the pricer stepped to. The automatic price never changes: only a pricer's step picks another option.
+ */
+export interface CoverChoice {
+  attr: string;
+  unit: string;
+  /** the stated size */
+  total: number;
+  options: Array<{ layers: number[]; excess: number; cost: number | null }>;
+  picked: number;
+}
+
+/** VRF-6 U11: how many options the toggle offers at most (the helper's pick + four alternatives). */
+export const COVER_OPTIONS_MAX = 5;
+
+/**
+ * VRF-6 U11 -- PURE. The ranked options: the covering singles (each stocked size at or above the stated one) and the covering
+ * sets, ranked by applying the Q3 rule to what is left, repeatedly: the smallest single left stands unless a set left is
+ * cheaper than it (then the cheaper set with the least excess, ties cheapest -- `coveringSets` order); no single left -> the
+ * first set left. So option 0 is exactly the helper's pick.
+ */
+export function rankCover(
+  want: number, sizes: number[], sets: Array<{ layers: number[]; excess: number; cost: number | null }>,
+  costOf: (rung: number) => number | null, max = COVER_OPTIONS_MAX,
+): CoverChoice["options"] {
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  const singles = [...new Set(sizes)].filter((z) => z >= want).sort((a, b) => a - b).map((z) => ({ layers: [z], excess: round(z - want), cost: costOf(z) }));
+  let pool = [...singles, ...sets];
+  const out: CoverChoice["options"] = [];
+  while (pool.length && out.length < max) {
+    const single = pool.find((o) => o.layers.length === 1);
+    const multi = pool.filter((o) => o.layers.length > 1);
+    const sc = single?.cost;
+    const cheaper = single ? (sc === null || sc === undefined ? [] : multi.filter((o) => o.cost !== null && o.cost < sc)) : multi;
+    const pick = cheaper[0] ?? single ?? multi[0];
+    out.push(pick);
+    pool = pool.filter((o) => o !== pick);
+  }
+  return out;
 }
 
 export interface DefaultedAttr {
@@ -1579,7 +1625,11 @@ export interface ItemPriceResult {
     stated?: { modules: number[]; sum: number; total: number | null; written: string };
     /** VRF-6 (F8): a pair / set chosen before the next size up -- the sentence saying why (replaces "bigger than the largest") */
     why?: string;
+    /** VRF-6 U11: the ranked options this split was one of (the hidden tag carries it, so the panel can step on) */
+    cover?: CoverChoice;
   };
+  /** VRF-6 U11: the ranked singles / pairs a stated size no single SKU matches could take, and the one priced (a single) */
+  cover?: CoverChoice;
   composeInto?: {
     attr: string;
     /** The stated value AS THE NUMBER READER READ IT. ⚠️ Carried rather than re-read from the extracted
@@ -5117,7 +5167,8 @@ function priceOneItem(
       const aboveAsInches = spec.numbers[attr]?.bare_above_largest === "refuse" && !mirroredCell && [want * 25.4, want * inchAlt].every((mm) => mm > hi);
       if (bare && (couldBeInches || aboveAsInches)) return { ...blank(noUnitMessage(fmt(want))), selection: sel, sizeRefused: attr };
     }
-    const fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
+    let fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
+    let userSingle = false;
     if (!fit) {
       const top = rungs[rungs.length - 1];
       // SLICE 12c (owner Q8): above the top rung, build it out of rungs rather than refuse -- but only
@@ -5173,20 +5224,44 @@ function priceOneItem(
       // pair with the least excess (ties: cheapest). A cost nobody read never proves a pair cheaper.
       const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
       const sets = coveringSets(want, sizes, Math.min(pf.max_units ?? spec.compose.max_layers, spec.compose.max_layers), rungCost);
-      const upCost = rungCost(fit.modules);
-      const upExcess = Math.round((fit.modules - want) * 1e6) / 1e6;
+      const upM = fit.modules;
+      const upCost = rungCost(upM);
+      const upExcess = Math.round((upM - want) * 1e6) / 1e6;
       const fill = (t: string, s: (typeof sets)[number]) => t.replace("{total}", fmt(want)).split("{layers}").join(s.layers.map(fmt).join(" + "))
-        .replace("{up}", fmt(fit.modules)).split("{unit}").join(famUnit).replace("{excess}", fmt(s.excess)).replace("{up_excess}", fmt(upExcess))
+        .replace("{up}", fmt(upM)).split("{unit}").join(famUnit).replace("{excess}", fmt(s.excess)).replace("{up_excess}", fmt(upExcess))
         .replace("{pair_cost}", s.cost !== null ? String(Math.round(s.cost)) : "-").replace("{up_cost}", upCost !== null ? String(Math.round(upCost)) : "-");
       const cheaper = upCost === null ? [] : sets.filter((s) => s.cost !== null && s.cost < upCost);
+      // VRF-6 U11 (owner 18:52 / 19:32): the ranked options (option 0 = the helper's pick below); a pricer's step picks another
+      const opts = rankCover(want, sizes, sets, rungCost);
+      const pickN = opts.length ? Math.min(Math.max(0, Math.floor(Number(item.coverPick ?? 0)) || 0), opts.length - 1) : 0;
+      const cover: CoverChoice | undefined = opts.length > 1 ? { attr, unit: famUnit, total: want, options: opts, picked: pickN } : undefined;
+      const lay = (o: { layers: number[] }) => o.layers.map(fmt).join(" + ");
+      const userLine = cover && pickN > 0
+        ? `Option ${pickN + 1} of ${opts.length} (chosen by the user): ${lay(opts[pickN])} ${famUnit} = ${fmt(opts[pickN].layers.reduce((x, y) => x + y, 0))} ${famUnit}, `
+          + `${fmt(opts[pickN].excess)} ${famUnit} over the BoQ's ${fmt(want)} ${famUnit}; the helper's pick was ${lay(opts[0])} ${famUnit}.`
+        : undefined;
+      if (userLine && opts[pickN].layers.length > 1) {
+        const readNote = out.unitReads?.[attr];
+        return { ...blank(`split into ${opts[pickN].layers.length} lines`), selection: { ...sel }, cover,
+                 splitInto: { attr, total: want, layers: [...opts[pickN].layers], exact: opts[pickN].excess === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why: userLine, cover, ...(readNote ? { readNote } : {}) } };
+      }
+      if (userLine) {
+        // the pricer stepped to a SINGLE: priced at that size, said so
+        out.working.push(userLine);
+        out.cover = cover;
+        fit = { ...fit, label: fmt(opts[pickN].layers[0]), modules: opts[pickN].layers[0], exact: false };
+        userSingle = true;
+      } else {
       if (cheaper.length) {
         const pick = cheaper[0];
         const readNote = out.unitReads?.[attr];
-        return { ...blank(`split into ${pick.layers.length} lines`), selection: { ...sel },
-                 splitInto: { attr, total: want, layers: [...pick.layers], exact: pick.excess === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why: fill(pf.line, pick), ...(readNote ? { readNote } : {}) } };
+        return { ...blank(`split into ${pick.layers.length} lines`), selection: { ...sel }, ...(cover ? { cover } : {}),
+                 splitInto: { attr, total: want, layers: [...pick.layers], exact: pick.excess === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why: fill(pf.line, pick), ...(cover ? { cover } : {}), ...(readNote ? { readNote } : {}) } };
       }
       const cheapest = [...sets].filter((s) => s.cost !== null).sort((x, y) => (x.cost as number) - (y.cost as number) || x.excess - y.excess)[0];
       if (cheapest && pf.single_line) out.working.push(fill(pf.single_line, cheapest));
+      if (cover) out.cover = cover;
+      }
     } else if (pf && !fit.exact && spec.compose && spec.compose.attr === attr && family !== null && spec.split!.families.includes(family) && item.splitAllowed) {
       const comp = composeSize(want, sizes, spec.compose, rungCost);
       const pairCost = comp ? comp.layers.reduce<number | null>((a, r) => { const c = rungCost(r); return a === null || c === null ? null : a + c; }, 0) : null;
@@ -5219,7 +5294,7 @@ function priceOneItem(
       ...(severalReads[attr] ? { several: severalReads[attr] } : {}),
       ...(!declares && belowSmallest ? { belowSmallest: true as const } : {}) });
     if (!fit.exact) {
-      out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (${belowSmallest ? "the smallest size" : "next size up"}, R6)`);
+      out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (${belowSmallest ? "the smallest size" : userSingle ? "the option the user chose" : "next size up"}, R6)`);
       sel[attr] = fit.modules;
     }
     // a SKU without the ladder attribute is not on the ladder and must not match a laddered selection
