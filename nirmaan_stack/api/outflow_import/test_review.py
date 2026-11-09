@@ -4539,8 +4539,8 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         )
         # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266,
         # `Vendor Refunds` since. `Non Project Expenses` left it (owner ruling 2026-09-24,
-        # services/outflow_import/ledgers.RECEIVED_LEDGER_DOCTYPES): no receipt reaches that book,
-        # and a leftover row of the removed receipt path lands in `Other`, as this one does.
+        # services/outflow_import/ledgers.RECEIVED_LEDGER_DOCTYPES); a credit there is a card refund
+        # (#1675). This row settled a `Project Payment`, which no credit reaches, so it lands in `Other`.
         received = by_direction["Received"]
         self.assertEqual(received["rows"], 1)
         self.assertEqual(

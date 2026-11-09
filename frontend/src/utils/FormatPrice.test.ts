@@ -17,8 +17,13 @@ describe("rupee figures round to the nearest rupee (#1543, owner ruling Q30-A)",
 
   it("rounds a negative (overpaid) figure the same way, and never reads -0", () => {
     expect(formatToRoundedIndianRupee(-0.3)).toBe("₹0");
-    expect(formatToRoundedIndianRupee(-120.6)).toBe("₹-121");
-    expect(formatToRoundedIndianRupee(-120.5)).toBe("₹-121");
+    expect(formatToRoundedIndianRupee(-120.6)).toBe("-₹121");
+    expect(formatToRoundedIndianRupee(-120.5)).toBe("-₹121");
+  });
+
+  it("puts a negative figure's sign before the rupee symbol (#1675): a card refund reads -₹802", () => {
+    expect(formatToRoundedIndianRupee(-801.5)).toBe("-₹802");
+    expect(formatToRoundedIndianRupee("-150000")).toBe("-₹1,50,000");
   });
 
   it("exports the same rounded figure to a report", () => {

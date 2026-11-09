@@ -35,7 +35,8 @@ export const formatToRoundedIndianRupee = (price: number | string | undefined) =
     return "--";
   }
 
-  return `₹${roundToRupee(amount).toLocaleString('en-IN')}`;
+  const rupees = roundToRupee(amount);
+  return `${rupees < 0 ? "-" : ""}₹${Math.abs(rupees).toLocaleString('en-IN')}`;
 }
 
 /** The same rounded figure as a number, for a report's export column. */

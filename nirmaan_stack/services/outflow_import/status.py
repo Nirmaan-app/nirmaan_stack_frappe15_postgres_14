@@ -87,7 +87,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 # ⚠️ THE ONE IMPORT THIS MODULE MAY MAKE FROM ITS OWN PACKAGE, and it was added to fix a live defect.
 # The already-Paid branch below used EXACT equality while every other amount comparison in the
@@ -179,6 +179,7 @@ __all__ = [
     "SUMMARY_EXCLUDED_STATUSES",
     "SettledLedgerEntry",
     "derive_settled_ledger_split",
+    "SETTLED_LEDGER_CARD_REFUNDS",
     "SETTLED_LEDGER_OTHER",
     "ROW_DIRECTION_CREDIT",
     "SETTLED_BLOCK_RECEIVED",
@@ -1770,6 +1771,13 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
 # than silently dropped.
 SETTLED_LEDGER_OTHER = "Other"
 
+# The Received block's name for a credit settled into `Non Project Expenses` (#1675). The only writer
+# of such a row is a card import's Create, which records an *Unpaired card refund* as a negative
+# `Non Project Expense` (#1673); the removed B7 path left no such row (2026-11-07 data: 0). Like
+# `Other`, it shows only when it holds rows, so a bank statement's Received block never carries it.
+SETTLED_LEDGER_CARD_REFUNDS = "Card refunds"
+RECEIVED_NAMED_LEDGERS = {NON_PROJECT_EXPENSE_DOCTYPE: SETTLED_LEDGER_CARD_REFUNDS}
+
 
 @dataclass(frozen=True)
 class SettledLedgerEntry:
@@ -1811,6 +1819,7 @@ class SettledLedgerEntry:
 def derive_settled_ledger_split(
     entries: Iterable[SettledLedgerEntry],
     ledgers: Sequence[str] = LEDGER_DOCTYPES,
+    named: Mapping[str, str] | None = None,
 ) -> list[dict]:
     """The settled rows broken down by the ledger the money actually landed in.
 
@@ -1843,6 +1852,9 @@ def derive_settled_ledger_split(
     whitespace-only ledgers fold in here too -- a settled row whose match record could not be read
     is exactly the fact worth surfacing.
 
+    `named` maps a ledger outside `ledgers` to a line of its own name, shown like `Other` only when it
+    holds rows and placed before it (the Received block's "Card refunds", #1675).
+
     Everything is summed as `Decimal`, never float: these are money figures and the summary they sit
     beside is `Decimal` throughout.
     """
@@ -1850,14 +1862,21 @@ def derive_settled_ledger_split(
     buckets: dict[str, dict] = {
         ledger: {"ledger": ledger, "rows": 0, "value": Decimal("0")} for ledger in order
     }
+    extra = {
+        ledger: {"ledger": label, "rows": 0, "value": Decimal("0")}
+        for ledger, label in (named or {}).items()
+        if ledger not in buckets
+    }
     other = {"ledger": SETTLED_LEDGER_OTHER, "rows": 0, "value": Decimal("0")}
 
     for entry in entries:
-        bucket = buckets.get((entry.ledger or "").strip(), other)
+        key = (entry.ledger or "").strip()
+        bucket = buckets.get(key) or extra.get(key) or other
         bucket["rows"] += entry.count
         bucket["value"] += entry.value
 
     split = [buckets[ledger] for ledger in order]
+    split.extend(bucket for bucket in extra.values() if bucket["rows"])
     if other["rows"]:
         split.append(other)
     return split
@@ -1954,18 +1973,22 @@ def derive_settled_direction_blocks(
         target.append(entry)
 
     paid = _settled_block(SETTLED_BLOCK_PAID, paid_entries, LEDGER_DOCTYPES)
-    received = _settled_block(SETTLED_BLOCK_RECEIVED, received_entries, RECEIVED_LEDGER_DOCTYPES)
+    received = _settled_block(
+        SETTLED_BLOCK_RECEIVED, received_entries, RECEIVED_LEDGER_DOCTYPES, RECEIVED_NAMED_LEDGERS
+    )
     return [paid, received] if received["rows"] else [paid]
 
 
-def _settled_block(direction: str, entries: Sequence[SettledLedgerEntry], ledgers) -> dict:
+def _settled_block(
+    direction: str, entries: Sequence[SettledLedgerEntry], ledgers, named: Mapping[str, str] | None = None
+) -> dict:
     """One block: its ledger lines, and the total THOSE LINES add up to.
 
     The total is summed from `split`, never from `entries`, and the difference is the whole point:
     summing the input would produce a figure the rendered lines could disagree with the day an entry
     stopped reaching a bucket. Summing the output cannot.
     """
-    split = derive_settled_ledger_split(entries, ledgers)
+    split = derive_settled_ledger_split(entries, ledgers, named)
     return {
         "direction": direction,
         "rows": sum(bucket["rows"] for bucket in split),
