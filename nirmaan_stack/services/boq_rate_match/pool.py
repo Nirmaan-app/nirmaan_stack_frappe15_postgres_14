@@ -4,7 +4,7 @@
 
     ensure_pool(as_of=None)       -> Pool   (the cached file; rebuilt when missing, older than 24 h, or stale)
     build_pool(as_of=None, ...)   -> Pool   (a fresh build, written nowhere)
-    pool.eligible_for(own_boq)    -> the target's candidate test: R-H2S's selected versions, 2X, own BoQ out, WIP out
+    pool.offered / allowed / extra_for -> a target's candidates: R-H2S's versions, 2X, own BoQ out, WIP out, cut-off
 
 WHAT A ROW IS. Every PRICED, RATE-EDITABLE row (a Line Item, or a Preamble carrying a quantity: extraction's
 `_rate_editable_excel_rows` predicate) on a current committed sheet, with: its payload block (`extraction._ai_item`,
@@ -29,6 +29,7 @@ THE RULES (owner rulings; ported from the DEV2 scratch scripts named in each ste
   test projects (G15)   out by the APP's rule (boq_ai_guidance.build_library): "testproject" in the project name,
                         lower-cased, spaces removed. (The scratch rule `^\\s*test` is retired.)
   WIP                   a row whose sheet's last pricing is newer than `as_of` - 3 days is not offered. (t5_score.mjs)
+  6-month cut-off       a row whose SHEET was committed before the build day (IST) - POOL_MAX_AGE_MONTHS: never offered
   groups                same normalised row text (description + own notes) + every heading level (description + notes)
                         + unit: one group's rows are copies.             (DEV2-S3 w2_prep.py, w2_norm.py)
 
@@ -40,9 +41,8 @@ bundle's measureDrivingFields on EVERY stored row; DEV2-B4 rule (iii): the price
 nothing is stored in code, so a pricing-config change reaches W1 at the next build. Step unavailable or no readings ->
 no v1 tokens (W1 without V1).
 
-THE DAILY REBUILD: `rebuild_pool()` (no arguments, under the same lock) is the one entry point a scheduled job calls;
-B4 adds the daily 06:00 IST scheduler entry (cron in the site's time zone - confirm it is Asia/Kolkata). The 24 h age
-check in `ensure_pool` stays as the fallback.
+THE DAILY REBUILD: `rebuild_pool()` (no arguments, under the same lock) is the entry point the 06:00 IST job calls
+(rate_match.daily_pool_rebuild); its summary adds the cut-off's counts. `ensure_pool` (the bench) keeps its 24 h check.
 
 THE INDEX (owner G6 (a)) is built with the pool and cached in the same file: per heading level a TF-IDF over word
 tokens + bigrams (self / parent / upper), a TF-IDF over character 3-grams of the description, BM25 postings over all
@@ -74,6 +74,7 @@ from nirmaan_stack.services.boq_rate_match.match_index import (  # noqa: F401 --
 
 POOL_FORMAT = 1
 POOL_MAX_AGE_SEC = 24 * 3600
+POOL_MAX_AGE_MONTHS = 6          # THE 6-MONTH CUT-OFF by commit date (owner R-H2B; hard; DEV2-B9): pool_age.py
 REBUILD_WAIT_SEC = 900
 WINDOW_DAYS = 3
 KINDS = ("supply_rate", "install_rate", "combined_rate")
@@ -240,8 +241,8 @@ class Pool:
 
     def extra_for(self, own_boq):
         """2X: a target in its family's selected version also sees the next-latest settled version's rows."""
-        if self.sel.get(own_boq) == own_boq and self.nxt.get(own_boq):
-            return {r['key'] for r in self.rows if r['boq'] == self.nxt[own_boq] and not r['test'] and r['key'] not in self.kept}
+        if self.sel.get(own_boq) == own_boq and self.nxt.get(own_boq):     # minus the rows the 6-month cut-off left out
+            return {r['key'] for r in self.rows if r['boq'] == self.nxt[own_boq] and not r['test'] and r['key'] not in self.kept} - getattr(self, 'aged', set())
         return set()
 
 
@@ -307,11 +308,11 @@ def _corpus(progress=None):
 
 
 def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progress=None):
-    """Build the pool and its index from the live data (READ ONLY). `as_of` (default now) sets the 3-day windows.
+    """Build the pool and its index from the live data (READ ONLY). `as_of` (default now) sets the 3-day windows + cut-off.
     `row_order` (a list of keys) only fixes the rows' order -- and so group numbering and index ties -- to reproduce an
     earlier build; production orders rows by key. Nothing is written."""
     from nirmaan_stack.services.boq_ai_guidance import revision_family
-    from nirmaan_stack.services.boq_rate_match import pricing_step
+    from nirmaan_stack.services.boq_rate_match import pool_age, pricing_step
 
     t0 = time.time()
     at = _as_datetime(as_of)
@@ -392,7 +393,7 @@ def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progres
     families = sorted({frozenset(f) for f in fam_sets.values() if len(f) > 1}, key=lambda f: sorted(f))
     sel, nxt = select_versions([sorted(f) for f in families], created, priced_count, last_team_change(cells), cut)
     near = near_copy_sets(near_copy_pairs(desc_by_boq))
-    kept = kept_keys(rows, sel, near, created)
+    kept, aged, age = pool_age.apply_cutoff(rows, kept_keys(rows, sel, near, created), at, POOL_MAX_AGE_MONTHS)
     for r in rows:
         r.pop('parent_raw', None)   # used by the near-copy rule only
     for r in rows:
@@ -402,7 +403,7 @@ def build_pool(as_of=None, card_source=None, row_order=None, asset=None, progres
     t_end = time.time()
     return Pool({
         'format': POOL_FORMAT, 'as_of': _iso(at), 'cut': cut, 'built_at': _iso(frappe.utils.now_datetime()),
-        'rows': rows, 'kept': kept, 'sel': sel, 'nxt': nxt, 'near_sets': [sorted(s) for s in near], 'index': index,
+        'rows': rows, 'kept': kept, 'aged': aged, 'age': age, 'sel': sel, 'nxt': nxt, 'near_sets': [sorted(s) for s in near], 'index': index,
         'pricing': {'available': step['available'], 'reason': step['reason'], 'stamp': step['stamp']},
         'driving': {'available': driving['available'], 'reason': driving['reason'], 'lists': driving['lists'],
                     'categories': {c: {k: v[k] for k in ('rows', 'pricedRows', 'sampled')} for c, v in driving['categories'].items()}},
@@ -478,7 +479,7 @@ def rebuild_pool():
         pool = build_pool()
         save_pool(pool, path)
     return {'path': path, 'rows': len(pool.rows), 'kept': len(pool.kept), 'as_of': pool.as_of, 'secs': pool.secs,
-            'pricing': pool.pricing, 'driving': {k: pool.driving[k] for k in ('available', 'reason')}}
+            'pricing': pool.pricing, 'driving': {k: pool.driving[k] for k in ('available', 'reason')}, **getattr(pool, 'age', {})}
 
 
 def ensure_pool(path=None, builder=None):
