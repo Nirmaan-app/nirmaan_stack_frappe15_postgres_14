@@ -2050,3 +2050,119 @@ describe("VRF-5 (v61) -- R-39: every VRF Derivation-tab rule v61 adds fires from
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
   });
 });
+
+/*
+ * VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- R-39 ON v62: the thirteen lines v62 adds each fire
+ * from the PANEL's entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v62's titles = v61's 33 + 13.
+ */
+describe("VRF-6 (v62) -- R-39: every VRF Derivation-tab rule v62 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A62 = rd("rate_master_hvac_all_v62.json");
+  const A61 = rd("rate_master_hvac_all_v61.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items62 = [...asItems(A62), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A62.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    remote: "The remote's type follows the BoQ",
+    said: "Every included extra that is not added says why",
+    cat: "The own-row check reads each row's category first",
+    split: "Written splits, and a module above the largest unit",
+    pair: "A single that covers, unless a pair is cheaper",
+    cable: "A cable or pipe fact reaches only the item it describes",
+    make: "Accessories take the unit's make",
+    team: "Frame / stand, gas by HP, MCB + ELCB by HP (team rule)",
+    builtin: "A built-in drain pump is still added, with a review point",
+    scope: "Supply / installation settled by the sheet's own rows",
+    wiring: "'Control wiring' and 'quantified separately'",
+    words: "The BoQ's own words settle some answers before pricing",
+    two: "Two capacities in one row refuse, naming both",
+  };
+  type Row = { items?: Array<Record<string, string>>; unit?: string; text?: string; category?: string; node?: string; headings?: string[]; headingNotes?: string[]; ownNotes?: string[] };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const CAS = (more: Record<string, string> = {}) => ({ item: "Cassette", brand: "Blue Star", capacity: "2 TR", way: "FOUR-WAY", ...more });
+  const W = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const VCASES: VCase[] = [
+    { id: "H1a", rule: VT.remote, kind: "pos", rows: { 9: { items: [CAS({ ...W(["remote"]), remote_type: "Wired" })] } }, at: 9, re: ["remote_type:Wired"], priced: true },
+    { id: "H1b-neg", rule: VT.remote, kind: "neg", rows: { 9: { items: [CAS(W(["remote"]))] } }, at: 9, re: ["remote_type:Cordless"], not: ["remote_type:Wired"], priced: true },
+    { id: "H2a", rule: VT.said, kind: "pos", rows: { 9: { items: [CAS(W(["gas"], "Heading"))] } }, at: 9, re: [/Gas charge: .*NOT added: applies to outdoor units only/], priced: true },
+    { id: "H2b-neg", rule: VT.said, kind: "neg", rows: { 9: { items: [OD(W(["gas"]))] } }, at: 9, re: ["line:acc_gas"], not: [/outdoor units only/], priced: true },
+    { id: "H3a", rule: VT.cat, kind: "pos", rows: { 9: { items: [OD(W(["copper"], "Note"))] }, 287: { items: [{ item: "Copper" }], category: "hvac_piping", text: "5/8 dia" } }, at: 9,
+      re: [/NOT added: the BoQ quotes it on its own row \(row 287\)/], not: ["line:copper_supply"], priced: true },
+    { id: "H3b-neg", rule: VT.cat, kind: "neg", rows: { 9: { items: [OD(W(["copper"], "Note"))] }, 38: { items: [{ item: "Refnet/Y-Joint" }], text: "joints to connect copper piping" } }, at: 9,
+      re: ["line:copper_supply"], priced: true },
+    { id: "H4a", rule: VT.split, kind: "pos", rows: { 9: { items: [OD({ capacity: "24HP (12HP x 2NOS)" })] } }, at: 9, re: ["capacity:12", "split:The row states a split: 12 + 12"], priced: true },
+    { id: "H4b-neg", rule: VT.split, kind: "neg", rows: { 9: { items: [OD({ capacity: "24 HP" })] } }, at: 9, re: ["capacity:24"], not: ["split:"], priced: true },
+    { id: "H5a", rule: VT.pair, kind: "pos", rows: { 9: { items: [OD({ brand: "Daikin", cooling: "Heat Pump", capacity: "26 HP" })] } }, at: 9, re: [/split:26 HP is not a stocked size: the pair 20 \+ 6 HP \(0 HP over, cost \d+\) is cheaper than the 34 HP single/], priced: true },
+    { id: "H5b-neg", rule: VT.pair, kind: "neg", rows: { 9: { items: [OD({ capacity: "9 HP", discharge: "Top" })] } }, at: 9, re: ["capacity:10"], not: ["split:"], priced: true },
+    { id: "H6a", rule: VT.cable, kind: "pos", rows: { 9: { items: [OD({ capacity: "8 HP", ...W(["power"]), extra_cable_spec_as_written: "power cable (FRLS, XLPE, AL Armoured)" })] } }, at: 9, re: ["conductor:ALUMINIUM"], priced: true },
+    { id: "H6b-neg", rule: VT.cable, kind: "neg", rows: { 9: { items: [OD({ capacity: "8 HP", ...W(["power"]), extra_cable_spec_as_written: "armoured copper cable" })] } }, at: 9, re: ["conductor:COPPER"], priced: true },
+    { id: "H7a", rule: VT.make, kind: "pos", rows: { 9: { items: [CAS({ brand: "Daikin", capacity: "1 TR", ...W(["remote"]) })] } }, at: 9, re: [/item:Cordless Remote controller \(Daikin\)/], priced: true },
+    { id: "H7b-neg", rule: VT.make, kind: "neg", rows: { 9: { items: [CAS(W(["remote"]))] } }, at: 9, re: [/item:Cordless Remote controller \(Blue Star\)/], not: [/no Blue Star/], priced: true },
+    { id: "H8a", rule: VT.team, kind: "pos", rows: { 9: { items: [OD({ capacity: "26 HP", cooling: "Heat Pump", ...W(["frame", "gas", "mccb"]) })] } }, at: 9,
+      re: ["item:MS frame / stand for ODU", "qty:26", "item:63A FP MCB C CURVE", "item:63A RCCB 300mA(FP)"], priced: true },
+    { id: "H8b-neg", rule: VT.team, kind: "neg", rows: { 9: { items: [CAS(W(["frame", "gas", "mccb"]))] } }, at: 9, re: [], not: ["line:acc_frame", "line:acc_mcb"], priced: true },
+    { id: "H9a", rule: VT.builtin, kind: "pos", rows: { 9: { items: [CAS(W(["drain_pump"]))], text: "cassette with built-in drain pump" } }, at: 9, re: [/built-in drain pump - added as a separate pump/], priced: true },
+    { id: "H9b-neg", rule: VT.builtin, kind: "neg", rows: { 9: { items: [CAS(W(["drain_pump"]))] } }, at: 9, re: ["line:acc_drain_pump"], not: [/built-in/], priced: true },
+    { id: "H10a", rule: VT.scope, kind: "pos", rows: { 22: { items: [OD({ capacity: "6 HP", discharge: "Side", scope: "Installation only" })] }, 6: { items: [OD({ capacity: "6 HP", discharge: "Side", scope: "Supply only" })] } }, at: 22,
+      re: [/scope:.*normal installation rate applies.*row 6/], priced: true },
+    { id: "H10b-neg", rule: VT.scope, kind: "neg", rows: { 22: { items: [OD({ capacity: "6 HP", discharge: "Side", scope: "Installation only" })] } }, at: 22, re: [/scope:.*installation-only uplift applies/], priced: true },
+    { id: "H11a", rule: VT.wiring, kind: "pos", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.2 TR" }], headings: ["Ductable units with control wiring"] } }, at: 9, re: ["line:comm", /control wiring/], priced: true },
+    { id: "H11b-neg", rule: VT.wiring, kind: "neg", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.2 TR" }] } }, at: 9, re: [], not: ["line:comm"], priced: true },
+    { id: "H12a", rule: VT.words, kind: "pos", rows: { 9: { items: [{ capacity: "3.0 TR" }], headings: ["CSU type indoor units"] } }, at: 9, re: ["family:Ductable", /CSU/], priced: true },
+    { id: "H12b-neg", rule: VT.words, kind: "neg", rows: { 9: { items: [{ capacity: "3.0 TR" }] } }, at: 9, re: [], not: ["family:Ductable"], priced: false },
+    { id: "H13a", rule: VT.two, kind: "pos", rows: { 9: { items: [CAS({ capacity: "" })], text: "Cassette 2.6 Tr Capacity ... 1.3 TR capacity" } }, at: 9, re: ["two capacities stated (2.6 TR / 1.3 TR) - pick one"], priced: false },
+    { id: "H13b-neg", rule: VT.two, kind: "neg", rows: { 9: { items: [CAS({ capacity: "" })], text: "Cassette unit" } }, at: 9, re: ["no capacity stated"], not: ["two capacities"], priced: false },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er]) => [Number(er), 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "", ...(r.node === "Preamble" ? { preamble: true } : {}) }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items62, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [], unit: r.unit ?? "Nos", quantity: 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.scope?.note) out.push(`scope:${v.scope.note}`);
+    if (v.split?.note) out.push(`split:${v.split.note}`);
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      for (const f of b.fields) if (["capacity", "brand", "way"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+      for (const l of b.extras?.lines ?? []) {
+        out.push(`line:${l.id}`);
+        for (const f of l.fields) if (["item", "qty", "remote_type", "conductor"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+        out.push(...l.working);
+      }
+      if (b.extras?.review) out.push(...b.extras.review.points);
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v62's VRF rules = v61's 33 + the thirteen VRF-6 lines; each line this block names has a positive AND a negative case", () => {
+    const t62 = titles(A62);
+    expect(t62).toHaveLength(46);
+    expect(t62.slice(0, 33)).toEqual(titles(A61));
+    expect(t62.slice(33)).toEqual(Object.values(VT));
+    for (const t of Object.values(VT)) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(26);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});

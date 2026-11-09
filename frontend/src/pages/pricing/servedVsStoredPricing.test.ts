@@ -126,8 +126,12 @@ function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
   // v61 adds 13 `shared_by: vrf` inputs (the accessory defaults `vrf_acc_*` and `vrf_install_only_uplift`, owner ANSWER 4-6), which the
   // served fixture predates too -- set aside with the rest; it still throws unless every one of the 2 + 29 + 13 is present
   const vrf5 = items.filter((it) => isVrf1(it) && it.kind === "hvac_pricing_input" && (String(it.attributes?.item ?? "").startsWith("vrf_acc_") || it.attributes?.item === "vrf_install_only_uplift")).length;
-  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 4 || n("hvac_pricing_input") - extras - vrf5 !== 2 || extras !== 29 || vrf5 !== 13) {
-    throw new Error("VRF's 150 + 4 + 2 items (v56), the 29 extras inputs (v59) and the 13 VRF-5 inputs (v61) are not all in the stored asset");
+  // INVERTED at VRF-6 (HVAC v62; the standing authority: a test failing solely because it reads the current HVAC asset) by mechanical
+  // authority: BEFORE `n("hvac_misc_item") !== 4` and `vrf5 !== 13`. v62 (team rule 2026-11-09) adds the Misc item "MS frame / stand for ODU"
+  // and 14 `vrf_acc_*` inputs and retires 9 of VRF-5's 13 -- 5 Misc and 4 + 14 = 18 accessory / uplift inputs, all set aside; it still
+  // throws unless every one is present
+  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 5 || n("hvac_pricing_input") - extras - vrf5 !== 2 || extras !== 29 || vrf5 !== 18) {
+    throw new Error("VRF's 150 + 5 + 2 items (v56 / v62), the 29 extras inputs (v59) and the 18 VRF-5 / VRF-6 inputs (v62) are not all in the stored asset");
   }
   return items.filter((it) => !isVrf1(it));
 }

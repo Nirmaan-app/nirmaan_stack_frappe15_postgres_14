@@ -1166,6 +1166,116 @@ _EXTRAS_PLACEHOLDERS = {"follows_size": ["{x}"], "typed_note": ["{typed}", "{use
                         "working_count": ["{n}", "{S}", "{I}"]}
 
 
+# VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- every key OPTIONAL, each refused by name when
+# malformed: `extras.prepare` (the reading rules applied before pricing), `extras.two_capacities`, the cable / length words in
+# `lines`; per accessory `qty_per_size` (gas kg = HP), `follow_unit_brand`, `builtin`, `choice.first_words / model_attr /
+# read_notes`, and an `electrical` accessory found BY ATTRIBUTES (`match`) with its rating from an HP `schedule`;
+# `safeguard.match / control_wiring / note_wins` and the own-row `categories` rule; `scope.conflict / supply_row`;
+# `split.stated_times / split_over_top / pair_first / many_line`.
+_EXTRAS_OPTIONAL_KEYS = _EXTRAS_OPTIONAL_KEYS | {"prepare", "two_capacities"}
+_EXTRAS_PATTERN_LINES = ("length_cable_words", "length_pipe_words", "drain_cable_words", "drain_cable_note_words", "power_cable_words")
+_EXTRAS_OPTIONAL_LINES = _EXTRAS_OPTIONAL_LINES | set(_EXTRAS_PATTERN_LINES) | {"length_per_item", "cable_kind_always", "drain_cable_line"}
+_EXTRAS_OPTIONAL_PLACEHOLDERS = dict(_EXTRAS_OPTIONAL_PLACEHOLDERS, drain_cable_line=["{said}"])
+_ACCESSORY_OPTIONAL_KEYS = _ACCESSORY_OPTIONAL_KEYS | {"qty_per_size", "follow_unit_brand", "builtin"}
+_ACCESSORY_ELECTRICAL_MATCH_KEYS = {"category", "discipline", "item_attr", "qty_attr", "label", "match", "schedule"}
+_CHOICE_OPTIONAL_KEYS = {"first_words", "model_attr", "read_notes"}
+_SAFEGUARD_OPTIONAL_KEYS = {"match", "control_wiring", "note_wins"}
+_OWN_ROW_OPTIONAL_KEYS = {"categories", "category_words", "category_not_families"}
+_SCOPE_OPTIONAL_KEYS = {"conflict", "supply_row", "install_only_normal"}
+_SPLIT_KEYS = _SPLIT_KEYS | {"stated_times", "split_over_top", "pair_first", "many_line"}
+_PREPARE_KEYS = {"spaced_decimal", "family_by_unit", "same_as_outdoor", "row_cooling", "family_words", "attr_words"}
+
+
+def _pattern(p, where):
+    if not _nonempty_str(p):
+        _vthrow(f"{where} must be a non-empty pattern.")
+    try:
+        re.compile(p)
+    except re.error as exc:
+        _vthrow(f"{where} is not a valid pattern ({exc}).")
+
+
+def _sentence(d, key, where, needs=()):
+    if not isinstance(d, dict) or not _nonempty_str(d.get(key)):
+        _vthrow(f"{where}.{key} must be a non-empty sentence.")
+    for ph in needs:
+        if ph not in d[key]:
+            _vthrow(f"{where}.{key} must name {ph}.")
+
+
+def _validate_prepare(pp, pr, fams, loc):
+    """VRF-6 -- `extras.prepare`: the reading rules a BoQ row's model items pass through before pricing. Each named family is
+    priced here, each attribute is a list_spec question, each pattern compiles, each line names what it fills in."""
+    if not isinstance(pp, dict) or not pp or set(pp) - _PREPARE_KEYS:
+        _vthrow(f"{loc} must be an object of {', '.join(sorted(_PREPARE_KEYS))} (unknown: {', '.join(sorted(set(pp or {}) - _PREPARE_KEYS)) or '-'}).")
+    if "spaced_decimal" in pp and (not isinstance(pp["spaced_decimal"], dict) or set(pp["spaced_decimal"]) != {"attr"} or not _nonempty_str(pp["spaced_decimal"]["attr"])):
+        _vthrow(f"{loc}.spaced_decimal needs exactly attr.")
+    for n, fb in enumerate(pp.get("family_by_unit") or []):
+        w = f"{loc}.family_by_unit[{n}]"
+        if not isinstance(fb, dict) or set(fb) != {"family", "unit_class", "to", "line"}:
+            _vthrow(f"{w} needs exactly family, unit_class, to and line.")
+        if fb["family"] not in fams or fb["to"] not in fams:
+            _vthrow(f"{w}: family and to must be families this category prices.")
+        if fb["unit_class"] not in (pr.get("unit_classes") or {}):
+            _vthrow(f"{w}.unit_class '{fb['unit_class']}' is not a unit class of this category.")
+        _sentence(fb, "line", w)
+    if "same_as_outdoor" in pp:
+        so, w = pp["same_as_outdoor"], f"{loc}.same_as_outdoor"
+        if not isinstance(so, dict) or not ({"words", "attr", "outdoor_family", "line"} <= set(so) <= {"words", "attr", "outdoor_family", "line", "also_attr"}):
+            _vthrow(f"{w} needs words, attr, outdoor_family and line (and optionally also_attr).")
+        _pattern(so["words"], f"{w}.words")
+        if so["outdoor_family"] not in fams:
+            _vthrow(f"{w}.outdoor_family '{so['outdoor_family']}' is not a family this category prices.")
+        _sentence(so, "line", w, ("{brand}",))
+    if "row_cooling" in pp:
+        rc, w = pp["row_cooling"], f"{loc}.row_cooling"
+        if not isinstance(rc, dict) or set(rc) != {"attr", "words", "line"} or not isinstance(rc["words"], dict) or not rc["words"]:
+            _vthrow(f"{w} needs exactly attr, words (value -> pattern) and line.")
+        for v, pat in rc["words"].items():
+            _pattern(pat, f"{w}.words['{v}']")
+        _sentence(rc, "line", w, ("{row}", "{heading}", "{value}"))
+    for n, fw in enumerate(pp.get("family_words") or []):
+        w = f"{loc}.family_words[{n}]"
+        if not isinstance(fw, dict) or not ({"family", "words", "line"} <= set(fw) <= {"family", "words", "line", "from", "in"}):
+            _vthrow(f"{w} needs family, words and line (and optionally from / in).")
+        if fw["family"] not in fams or any(f not in fams for f in fw.get("from") or []):
+            _vthrow(f"{w}: family and from must be families this category prices.")
+        if fw.get("in", "row") not in ("row", "heading", "both"):
+            _vthrow(f"{w}.in must be row, heading or both.")
+        _pattern(fw["words"], f"{w}.words")
+        _sentence(fw, "line", w, ("{said}",))
+    for n, aw in enumerate(pp.get("attr_words") or []):
+        w = f"{loc}.attr_words[{n}]"
+        if not isinstance(aw, dict) or not ({"attr", "value", "families", "words", "line"} <= set(aw) <= {"attr", "value", "families", "words", "line", "in", "unless_row"}):
+            _vthrow(f"{w} needs attr, value, families, words and line (and optionally in / unless_row).")
+        if not isinstance(aw["families"], list) or not aw["families"] or any(f not in fams for f in aw["families"]):
+            _vthrow(f"{w}.families must list families this category prices.")
+        if aw.get("in", "row") not in ("row", "heading", "both"):
+            _vthrow(f"{w}.in must be row, heading or both.")
+        _pattern(aw["words"], f"{w}.words")
+        if "unless_row" in aw:
+            _pattern(aw["unless_row"], f"{w}.unless_row")
+        _sentence(aw, "line", w, ("{said}",))
+
+
+def _validate_vrf6_extras(ex, pr, fams, loc):
+    """VRF-6 -- the extras-level keys (`prepare`, `two_capacities`, the pattern lines)."""
+    lines = ex.get("lines") or {}
+    for k in _EXTRAS_PATTERN_LINES:
+        if k in lines:
+            _pattern(lines[k], f"{loc}.lines.{k}")
+    if "prepare" in ex:
+        _validate_prepare(ex["prepare"], pr, fams, f"{loc}.prepare")
+    if "two_capacities" in ex:
+        tc, w = ex["two_capacities"], f"{loc}.two_capacities"
+        if not isinstance(tc, dict) or set(tc) != {"words", "refusal", "line"} or not _nonempty_str(tc.get("refusal")):
+            _vthrow(f"{w} needs exactly words, refusal and line.")
+        _pattern(tc["words"], f"{w}.words")
+        if re.compile(tc["words"]).groups < 2:
+            _vthrow(f"{w}.words must capture the number and the unit (two groups).")
+        _sentence(tc, "line", w, ("{list}",))
+
+
 def _validate_extras(ex, pr, fams):
     """VRF-3b -- `list_spec.pricing.extras`, the SHAPE. The roles name families priced here; the band units are units of
     the capacity reader; the row class is a unit class; the include ids are the four, insulation needing copper; each band
@@ -1269,6 +1379,7 @@ def _validate_extras(ex, pr, fams):
             _vthrow(f"{loc}.folded needs exactly title, none_line and other_line (naming {{family}}).")
     if "scope" in ex:
         _validate_scope(ex["scope"], f"{loc}.scope")
+    _validate_vrf6_extras(ex, pr, fams, loc)
     fm = ex.get("from_model") if isinstance(ex.get("from_model"), dict) else {}
     if set((fm.get("accessory_includes") or {})) - set(acc_ids):
         _vthrow(f"{loc}.from_model.accessory_includes names an accessory the config does not declare ({', '.join(sorted(set(fm['accessory_includes']) - set(acc_ids)))}).")
@@ -1314,7 +1425,39 @@ def _validate_accessories(accs, fams, loc):
             _vthrow(f"{w} must carry exactly one of family / electrical.")
         if "family" in a and a["family"] not in fams:
             _vthrow(f"{w}.family '{a['family']}' is not a family this category prices.")
-        if "electrical" in a:
+        if "electrical" in a and isinstance(a["electrical"], dict) and "match" in a["electrical"]:
+            # VRF-6 (team rule 2026-11-09): the item found BY ITS ATTRIBUTES in the target's catalogue, rated by the HP schedule
+            e = a["electrical"]
+            strs = _ACCESSORY_ELECTRICAL_MATCH_KEYS - {"match", "schedule"}
+            if not (_ACCESSORY_ELECTRICAL_MATCH_KEYS <= set(e) <= _ACCESSORY_ELECTRICAL_MATCH_KEYS | {"alias", "fill"}) or not all(_nonempty_str(e[k]) for k in strs):
+                _vthrow(f"{w}.electrical (by attributes) needs {', '.join(sorted(_ACCESSORY_ELECTRICAL_MATCH_KEYS))} (and optionally alias / fill).")
+            m = e["match"]
+            if not isinstance(m, dict) or not ({"attrs", "rating_attr", "step_up_line"} <= set(m) <= {"attrs", "rating_attr", "step_up_line", "kind", "name_words"}) \
+                    or not isinstance(m["attrs"], dict) or not m["attrs"] or not all(isinstance(k, str) and isinstance(v, str) for k, v in m["attrs"].items()) \
+                    or not _nonempty_str(m["rating_attr"]):
+                _vthrow(f"{w}.electrical.match needs attrs (attribute -> value), rating_attr and step_up_line (and optionally kind / name_words).")
+            if "name_words" in m:
+                _pattern(m["name_words"], f"{w}.electrical.match.name_words")
+            _sentence(m, "step_up_line", f"{w}.electrical.match", ("{want}", "{item}"))
+            sch = e["schedule"]
+            if not isinstance(sch, list) or not sch:
+                _vthrow(f"{w}.electrical.schedule must be a non-empty list of rows.")
+            last = None
+            for k, row in enumerate(sch):
+                if not isinstance(row, dict) or set(row) != {"max", "input"} or not _nonempty_str(row.get("input")) \
+                        or isinstance(row.get("max"), bool) or not isinstance(row.get("max"), (int, float)) or row["max"] <= 0 or (last is not None and row["max"] <= last):
+                    _vthrow(f"{w}.electrical.schedule[{k}] needs exactly max (rising, above 0) and input.")
+                last = row["max"]
+            if "bands" in a or "input" in a or "qty_per_size" in a:
+                _vthrow(f"{w}: an electrical accessory rated by a schedule takes no bands / input / qty_per_size.")
+            if "alias" in e:
+                al = e["alias"]
+                if not isinstance(al, dict) or set(al) != {"words", "line"} or not all(_nonempty_str(al[k]) for k in al) or "{item}" not in al["line"]:
+                    _vthrow(f"{w}.electrical.alias needs exactly words and line (naming {{item}}).")
+                _pattern(al["words"], f"{w}.electrical.alias.words")
+            if "fill" in e and (not isinstance(e["fill"], dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in e["fill"].items())):
+                _vthrow(f"{w}.electrical.fill must map attribute ids to string answers.")
+        elif "electrical" in a:
             e = a["electrical"]
             if not isinstance(e, dict) or not (_ACCESSORY_ELECTRICAL_KEYS <= set(e) <= _ACCESSORY_ELECTRICAL_KEYS | {"alias", "fill"}) or not all(
                     _nonempty_str(e[k]) for k in _ACCESSORY_ELECTRICAL_KEYS):
@@ -1333,8 +1476,24 @@ def _validate_accessories(accs, fams, loc):
                 _vthrow(f"{w}.electrical.fill must map attribute ids to string answers.")
             if "bands" not in a:
                 _vthrow(f"{w}: an electrical accessory takes its rating from a band table (bands).")
-        if ("bands" in a) == ("input" in a) and "electrical" not in a:
-            _vthrow(f"{w} must carry exactly one of bands / input.")
+        if "electrical" not in a and sum(k in a for k in ("bands", "input", "qty_per_size")) != 1:
+            _vthrow(f"{w} must carry exactly one of bands / input / qty_per_size.")
+        if "qty_per_size" in a:
+            qs = a["qty_per_size"]
+            if not isinstance(qs, dict) or set(qs) != {"input", "line"} or not _nonempty_str(qs.get("input")):
+                _vthrow(f"{w}.qty_per_size needs exactly input and line.")
+            _sentence(qs, "line", f"{w}.qty_per_size", ("{size}", "{qty}"))
+        if "follow_unit_brand" in a:
+            fb = a["follow_unit_brand"]
+            if not isinstance(fb, dict) or set(fb) != {"line"}:
+                _vthrow(f"{w}.follow_unit_brand needs exactly line.")
+            _sentence(fb, "line", f"{w}.follow_unit_brand", ("{brand}",))
+        if "builtin" in a:
+            bi = a["builtin"]
+            if not isinstance(bi, dict) or set(bi) != {"words", "line"}:
+                _vthrow(f"{w}.builtin needs exactly words and line.")
+            _pattern(bi["words"], f"{w}.builtin.words")
+            _sentence(bi, "line", f"{w}.builtin")
         if "input" in a and not _nonempty_str(a["input"]):
             _vthrow(f"{w}.input must name a Pricing Input.")
         if "bands" in a:
@@ -1345,22 +1504,48 @@ def _validate_accessories(accs, fams, loc):
                 _validate_bands(bands, f"{w}.bands.{side}")
         if "choice" in a:
             ch = a["choice"]
-            if not isinstance(ch, dict) or set(ch) != {"attr", "default", "words"} or not _nonempty_str(ch["attr"]) or not _nonempty_str(ch["default"]) \
-                    or not isinstance(ch["words"], dict) or not ch["words"]:
-                _vthrow(f"{w}.choice needs exactly attr, default and words.")
+            if not isinstance(ch, dict) or not ({"attr", "default", "words"} <= set(ch) <= {"attr", "default", "words"} | _CHOICE_OPTIONAL_KEYS) \
+                    or not _nonempty_str(ch["attr"]) or not _nonempty_str(ch["default"]) or not isinstance(ch["words"], dict) or not ch["words"]:
+                _vthrow(f"{w}.choice needs attr, default and words (and optionally {', '.join(sorted(_CHOICE_OPTIONAL_KEYS))}).")
             for v, pat in ch["words"].items():
                 try:
                     re.compile(pat)
                 except re.error as exc:
                     _vthrow(f"{w}.choice.words['{v}'] is not a valid pattern ({exc}).")
+            # VRF-6 (F1): the words that decide first, the model's own answer, the notes read with the row
+            fw = ch.get("first_words", {})
+            if not isinstance(fw, dict) or any(not _nonempty_str(v) for v in fw):
+                _vthrow(f"{w}.choice.first_words must map values to patterns.")
+            for v, pat in fw.items():
+                _pattern(pat, f"{w}.choice.first_words['{v}']")
+            if "model_attr" in ch and not _nonempty_str(ch["model_attr"]):
+                _vthrow(f"{w}.choice.model_attr must name a question.")
+            if "read_notes" in ch and not isinstance(ch["read_notes"], bool):
+                _vthrow(f"{w}.choice.read_notes must be true or false.")
     return ids
 
 
 def _validate_safeguard(sg, include_ids, loc):
     """VRF-5 (owner R1 SAFEGUARD, ANSWER 9) -- `extras.safeguard`: the three question suffixes, the WHERE value meaning the row's
     own text, the own-row rule per include id (words / not_words compile; families), the lines and their placeholders."""
-    if not isinstance(sg, dict) or set(sg) != _SAFEGUARD_KEYS:
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SAFEGUARD_KEYS))}.")
+    if not isinstance(sg, dict) or not (_SAFEGUARD_KEYS <= set(sg) <= _SAFEGUARD_KEYS | _SAFEGUARD_OPTIONAL_KEYS):
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SAFEGUARD_KEYS))} (and optionally {', '.join(sorted(_SAFEGUARD_OPTIONAL_KEYS))}).")
+    # VRF-6 (F4, owner Q-pre 10 / 11, Q7)
+    if "match" in sg and sg["match"] != "category":
+        _vthrow(f"{loc}.match must be 'category'.")
+    if "control_wiring" in sg:
+        cw = sg["control_wiring"]
+        if not isinstance(cw, dict) or set(cw) != {"words", "line"}:
+            _vthrow(f"{loc}.control_wiring needs exactly words and line.")
+        _pattern(cw["words"], f"{loc}.control_wiring.words")
+        _sentence(cw, "line", f"{loc}.control_wiring")
+    if "note_wins" in sg:
+        nw = sg["note_wins"]
+        if not isinstance(nw, dict) or set(nw) != {"words", "ids", "line"} or not isinstance(nw["ids"], list) or not nw["ids"] \
+                or set(nw["ids"]) - set(include_ids):
+            _vthrow(f"{loc}.note_wins needs exactly words, ids (includes the config declares) and line.")
+        _pattern(nw["words"], f"{loc}.note_wins.words")
+        _sentence(nw, "line", f"{loc}.note_wins", ("{label}", "{said}"))
     for k in ("where_suffix", "wording_suffix", "qty_suffix", "row_value"):
         if not _nonempty_str(sg[k]):
             _vthrow(f"{loc}.{k} must be a non-empty string.")
@@ -1368,8 +1553,18 @@ def _validate_safeguard(sg, include_ids, loc):
     if not isinstance(own, dict) or set(own) - set(include_ids):
         _vthrow(f"{loc}.own_row names includes the config does not declare ({', '.join(sorted(set(own or {}) - set(include_ids)))}).")
     for iid, rule in own.items():
-        if not isinstance(rule, dict) or "words" not in rule or set(rule) - {"words", "not_words", "families"}:
-            _vthrow(f"{loc}.own_row['{iid}'] needs words (and optionally not_words / families).")
+        if not isinstance(rule, dict) or "words" not in rule or set(rule) - {"words", "not_words", "families"} - _OWN_ROW_OPTIONAL_KEYS:
+            _vthrow(f"{loc}.own_row['{iid}'] needs words (and optionally not_words / families / {' / '.join(sorted(_OWN_ROW_OPTIONAL_KEYS))}).")
+        cats = rule.get("categories", [])
+        if not isinstance(cats, list) or not all(_nonempty_str(c) for c in cats):
+            _vthrow(f"{loc}.own_row['{iid}'].categories must list category ids.")
+        for k in ("category_words", "category_not_families"):
+            m = rule.get(k, {})
+            if not isinstance(m, dict) or set(m) - set(cats) or not all(isinstance(v, list) and all(_nonempty_str(x) for x in v) for v in m.values()):
+                _vthrow(f"{loc}.own_row['{iid}'].{k} must map categories it names to lists.")
+        for pats in (rule.get("category_words") or {}).values():
+            for pat in pats:
+                _pattern(pat, f"{loc}.own_row['{iid}'].category_words")
         for k in ("words", "not_words"):
             for pat in rule.get(k) or []:
                 try:
@@ -1388,8 +1583,28 @@ def _validate_safeguard(sg, include_ids, loc):
 def _validate_scope(sc, loc):
     """VRF-5 (owner R4-R8) -- `extras.scope`: the choice values (the first = supply + installation), the two that change the
     row, the uplift input, the calculator's title and the lines."""
-    if not isinstance(sc, dict) or set(sc) != _SCOPE_KEYS:
-        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SCOPE_KEYS))}.")
+    if not isinstance(sc, dict) or not (_SCOPE_KEYS <= set(sc) <= _SCOPE_KEYS | _SCOPE_OPTIONAL_KEYS):
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SCOPE_KEYS))} (and optionally {', '.join(sorted(_SCOPE_OPTIONAL_KEYS))}).")
+    # VRF-6 (owner Q5; INSTALLATION-ONLY 11:50 / 11:55)
+    if "conflict" in sc:
+        cf = sc["conflict"]
+        if not isinstance(cf, dict) or set(cf) != {"words", "with_row", "no_row"}:
+            _vthrow(f"{loc}.conflict needs exactly words, with_row and no_row.")
+        _pattern(cf["words"], f"{loc}.conflict.words")
+        _sentence(cf, "with_row", f"{loc}.conflict", ("{said}", "{rows}"))
+        _sentence(cf, "no_row", f"{loc}.conflict", ("{said}",))
+    if "install_only_normal" in sc and (sc["install_only_normal"] not in list(sc.get("options") or [])[1:]
+                                        or sc["install_only_normal"] in (sc.get("supply_only"), sc.get("install_only"))):
+        _vthrow(f"{loc}.install_only_normal must be an option of its own after the first.")
+    if "install_only_normal" in sc and "supply_row" not in sc:
+        _vthrow(f"{loc}.install_only_normal needs supply_row (its note).")
+    if "supply_row" in sc:
+        sr = sc["supply_row"]
+        if not isinstance(sr, dict) or set(sr) != {"normal_note", "with_row", "no_row"}:
+            _vthrow(f"{loc}.supply_row needs exactly normal_note, with_row and no_row.")
+        _sentence(sr, "normal_note", f"{loc}.supply_row")
+        _sentence(sr, "with_row", f"{loc}.supply_row", ("{rows}",))
+        _sentence(sr, "no_row", f"{loc}.supply_row")
     opts = sc["options"]
     if not isinstance(opts, list) or len(opts) < 3 or not all(_nonempty_str(o) for o in opts) or len(set(opts)) != len(opts):
         _vthrow(f"{loc}.options must list at least three distinct values.")
@@ -1440,6 +1655,11 @@ def accessory_input_ids(ex):
             out += [f"{b.get('input')}_{key or 'qty'}" for b in (bands or []) if isinstance(b, dict)]
         if a.get("input"):
             out.append(a["input"])
+        # VRF-6: gas kg = HP x its input; the MCB / ELCB rating schedule's inputs
+        if isinstance(a.get("qty_per_size"), dict) and a["qty_per_size"].get("input"):
+            out.append(a["qty_per_size"]["input"])
+        sch = (a.get("electrical") or {}).get("schedule") if isinstance(a.get("electrical"), dict) else None
+        out += [r.get("input") for r in (sch or []) if isinstance(r, dict)]
     sc = ex.get("scope") if isinstance(ex, dict) else None
     if isinstance(sc, dict) and sc.get("uplift_input"):
         out.append(sc["uplift_input"])
@@ -1605,7 +1825,8 @@ def _validate_vrf4_reads(cfg, pr, by_id):
                     need(qid + sg["qty_suffix"], f"extras.safeguard (quantity, {inc})", "text")
         sc = (pr.get("extras") or {}).get("scope")
         if "scope" in fm:
-            need(fm["scope"], "extras.from_model.scope", "choice", list((sc or {}).get("options") or []))
+            # VRF-6 K2: the "installation only, supply quoted on another row" option is the pricer's / the sheet's, never the model's
+            need(fm["scope"], "extras.from_model.scope", "choice", [o for o in list((sc or {}).get("options") or []) if o != (sc or {}).get("install_only_normal")])
     if isinstance(pr.get("working_standby"), dict):
         need(pr["working_standby"]["attr"], "working_standby.attr", "text")
     for attr, d in (pr.get("defaults") or {}).items():
@@ -1753,6 +1974,30 @@ def _validate_split(sp, pr, fams):
                 _vthrow(f"{loc}.conditions.words: '{w}' is not a valid pattern ({e}).")
         if not isinstance(c["line"], str) or "{said}" not in c["line"]:
             _vthrow(f"{loc}.conditions.line must be a sentence naming {{said}} (the condition as the row writes it).")
+    # VRF-6 (F8 / Q4, QR-1 Q3)
+    if "stated_times" in sp and not isinstance(sp["stated_times"], bool):
+        _vthrow(f"{loc}.stated_times must be true or false.")
+    if "split_over_top" in sp:
+        so = sp["split_over_top"]
+        if not isinstance(so, dict) or set(so) != {"line"}:
+            _vthrow(f"{loc}.split_over_top needs exactly line.")
+        _sentence(so, "line", f"{loc}.split_over_top", ("{module}", "{top}", "{layers}"))
+    if "pair_first" in sp:
+        pf = sp["pair_first"]
+        # VRF-6 (owner QR-1 Q3 final, 2026-11-09 19:32): `single_unless_cheaper` -- the covering single stands unless a covering
+        # pair is cheaper; its optional `single_line` is the working line when the single stands
+        # ... `max_units` (2 = pairs) caps the set's units
+        mu = pf.get("max_units") if isinstance(pf, dict) else None
+        if (not isinstance(pf, dict) or not {"mode", "line"} <= set(pf) or not set(pf) <= {"mode", "line", "single_line", "max_units"}
+                or pf.get("mode") not in ("cheaper", "always", "single_unless_cheaper")
+                or (("single_line" in pf or "max_units" in pf) and pf.get("mode") != "single_unless_cheaper")
+                or ("max_units" in pf and (isinstance(mu, bool) or not isinstance(mu, int) or mu < 2))):
+            _vthrow(f"{loc}.pair_first needs mode ('cheaper' / 'always' / 'single_unless_cheaper') and line (single_line / max_units >= 2 only with single_unless_cheaper).")
+        _sentence(pf, "line", f"{loc}.pair_first", ("{total}", "{layers}", "{up}"))
+        if "single_line" in pf:
+            _sentence(pf, "single_line", f"{loc}.pair_first", ("{total}", "{up}", "{layers}"))
+    if "many_line" in sp and (not _nonempty_str(sp["many_line"]) or "{n}" not in sp["many_line"]):
+        _vthrow(f"{loc}.many_line must be a sentence naming {{n}}.")
 
 
 def _pricing_kinds(pr):

@@ -189,16 +189,25 @@ class TestVrf5AssetV61(FrappeTestCase):
     def test_06_v61_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V61))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 61)
-        self.assertEqual(nums, list(range(1, 62)))
+        self.assertEqual(nums[-1], 62)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE nums[-1] == 61
+        self.assertEqual(nums, list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
         self.assertTrue(os.path.exists(_asset_path(V60)))
 
     def test_07_live_catalogue_is_v61(self):
         row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", CATEGORY))
         self.assertTrue(row)
         live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-        self.assertEqual(_norm(live), _norm(self.cfg))
+        # INVERTED at VRF-6 (HVAC v62 minted + LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE
+        # `assertEqual(_norm(live), _norm(self.cfg))` (live == v61) and every one of the 13 VRF-5 inputs active. The live VRF config is v62's
+        # (test_vrf_v62 07 pins it whole): v61's 53 question ids stand inside it (second opinion OFF, owner 18:52); 9 of the 13 inputs are retired by the team rule
+        self.assertNotEqual(_norm(live), _norm(self.cfg))
+        self.assertEqual([q["id"] for q in live["list_spec"]["attribute_definitions"]], [q["id"] for q in self.cfg["list_spec"]["attribute_definitions"]])
+        # INVERTED at VRF-6 (owner 2026-11-09 18:52: "run with second opinion off ... from now onwards we will keep it off"; v62 LOADED): BEFORE
+        # `assertIs(live["list_spec"]["second_opinion"], True)`
+        self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 579)
+        self.assertEqual(n, 585)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE n == 579
         ids = {r[0] for r in frappe.db.sql("""select attributes::json->>'item' from "tabBoQ Rate Master Item" where active=1 and discipline='HVAC' and kind='hvac_pricing_input'""")}
-        self.assertEqual({p["item"] for p in self.fx["inputs"]} - ids, set())
+        kept = {"vrf_install_only_uplift", "vrf_acc_drain_pump_per_indoor", "vrf_acc_remote_per_indoor", "vrf_acc_refnet_per_indoor"}
+        self.assertEqual(kept - ids, set())
+        self.assertEqual(({p["item"] for p in self.fx["inputs"]} - kept) & ids, set())

@@ -306,7 +306,7 @@ class TestSlice12e1AssetV34(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V35)), "v35 stays on disk as the 12e-1b record")
         self.assertTrue(os.path.exists(_asset_path(V34)), "v34 stays on disk as the 12e-1 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -783,7 +783,7 @@ class TestSlice12e2AssetV36(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V36)))
         self.assertTrue(os.path.exists(_asset_path(V35)))
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -808,7 +808,7 @@ class TestSlice12e2Live(FrappeTestCase):
         # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `self.assertEqual(len(rows), 537, "load v56 first")`.
         # The live catalogue is v59: v56's + the 29 VRF extras inputs (`shared_by: vrf`, left out below like the rest of VRF).
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `self.assertEqual(len(rows), 566, "load v59 first")` -- v61 adds the 13 VRF-5 inputs (`shared_by: vrf`, left out below like the rest of VRF)
-        self.assertEqual(len(rows), 579, "load v61 first")
+        self.assertEqual(len(rows), 585, "load v62 first")   # VRF-6: 579 - 9 retired inputs + 14 + 1 Misc item (BEFORE: 579, VRF-5)
         _attrs = lambda r: json.loads(r["attributes"] if isinstance(r["attributes"], str) else json.dumps(r["attributes"]))
         rows = [r for r in rows if r["kind"] not in ("hvac_vrf_item", "hvac_misc_item")
                 and not (r["kind"] == INPUT_KIND and _attrs(r).get("shared_by") == "vrf")]
@@ -828,7 +828,8 @@ class TestSlice12e2Live(FrappeTestCase):
         # INVERTED at VRF-1 (HVAC v55 LOADED; owner QR-4 "A"; mechanical authority): BEFORE `self.assertEqual(served["count"], 14)`
         # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 16)`
         # INVERTED at VRF-5 (HVAC v61 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 45)`
-        self.assertEqual(served["count"], 58)   # ADP-1: + the three ADP inputs (BEFORE: 11); VRF-1: + the two VRF inputs; VRF-3b: + the 29 extras inputs; VRF-5: + the 13 accessory / uplift inputs
+        # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 58)` -- + 14 VRF-6 inputs - 9 retired
+        self.assertEqual(served["count"], 63)   # ADP-1: + the three ADP inputs (BEFORE: 11); VRF-1: + the two VRF inputs; VRF-3b: + the 29 extras inputs; VRF-5: + the 13 accessory / uplift inputs
         self.assertEqual({it["attributes"]["item"]: it["rates"] for it in served["items"] if it["attributes"]["shared_by"] == "piping"},
                          {INPUT_IDS[f]: {"factor": ACCESSORIES[f]} for f in ACCESSORIES})
         cfg = rate_master.get_rate_category_config(discipline="HVAC", category_id=CATEGORY)["config"]
@@ -959,7 +960,7 @@ class TestSlice12e3aSectionsV37(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V37)))
         self.assertTrue(os.path.exists(_asset_path(V36)), "v36 stays on disk as the 12e-2 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -1595,7 +1596,7 @@ class TestSlice12e4bAssetV38(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V37)), "v37 stays on disk as the 12e-3a record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1887,7 +1888,7 @@ class TestSlice12e5bAssetV39(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V38)), "v38 stays on disk as the 12e-4b record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -2030,7 +2031,7 @@ class TestSlice12e5bAssetV40(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V39)), "v39 stays on disk as the 12e-5b record")
 
 
@@ -2103,7 +2104,7 @@ class TestSlice12e5b2AssetV41(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V40)), "v40 stays on disk as the 12e-5b record")
 
 
@@ -2172,7 +2173,7 @@ class TestSlice12e5cAssetV42(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V41)), "v41 stays on disk as the 12e-5b2 record")
 
 
@@ -2263,7 +2264,7 @@ class TestSlice12e6AssetV43(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V42)), "v42 stays on disk as the 12e-5c record")
 
 
@@ -2342,7 +2343,7 @@ class TestSlice12e6bAssetV45(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         # owner option B (12e-6b, 2026-10-17): BEFORE `self.assertNotIn(44, ns, "v44 was reverted in 12e-6 and is not on disk")`.
         # v44: reverted in 12e-6, kept on disk for the version series -- history only, never loaded, never current.
         self.assertIn(44, ns, "v44 stays on disk as history for the contiguous version series")
@@ -2415,7 +2416,7 @@ class TestSlice12e6cAssetV46(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         self.assertTrue(os.path.exists(_asset_path(V45)))
         # INVERTED at ADP-1 (mechanical authority): BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v47.json")))`.
         # v47 is minted; nothing past it exists.
@@ -2444,7 +2445,7 @@ class TestSlice12e6cAssetV46(FrappeTestCase):
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v62.json")))   # VRF-5 (BEFORE: v61)
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v63.json")))   # VRF-6 (BEFORE: v62, VRF-5)
 
 
 V47 = "rate_master_hvac_all_v47.json"   # ADP-1: v46 + the ADP-1 rules (H3 / H4 / A4 / F1), the two per-number plenum SKUs deactivated
@@ -2525,7 +2526,7 @@ class TestAdp1AssetV47(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         # INVERTED at ADP-2 (HVAC v48) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 48)))`
         # INVERTED at ADP-3b (HVAC v49) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 49)))`
         # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 50)))`
@@ -2540,7 +2541,7 @@ class TestAdp1AssetV47(FrappeTestCase):
         # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `list(range(1, 60))`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `list(range(1, 61))`
-        self.assertEqual(sorted(ns), list(range(1, 62)))
+        self.assertEqual(sorted(ns), list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
         self.assertTrue(os.path.exists(_asset_path(V46)))
 
 
@@ -2609,7 +2610,7 @@ class TestAdp2AssetV48(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         # INVERTED at ADP-3b (HVAC v49) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 49)))`
         # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 50)))`
         # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 51)))`
@@ -2623,7 +2624,7 @@ class TestAdp2AssetV48(FrappeTestCase):
         # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `list(range(1, 60))`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `list(range(1, 61))`
-        self.assertEqual(sorted(ns), list(range(1, 62)))
+        self.assertEqual(sorted(ns), list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
         self.assertTrue(os.path.exists(_asset_path(V47)))
         # INVERTED at ADP-3b (mechanical authority): BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v49.json")))`.
         # v49 is minted; nothing past it exists.
@@ -2646,7 +2647,7 @@ class TestAdp2AssetV48(FrappeTestCase):
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v62.json")))   # VRF-5 (BEFORE: v61)
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v63.json")))   # VRF-6 (BEFORE: v62, VRF-5)
 
 
 V49 = "rate_master_hvac_all_v49.json"   # ADP-3b: v48 + the ADP-3b config (B1 face boxes, D4 depth retired); no item change
@@ -2718,7 +2719,7 @@ class TestAdp3bAssetV49(FrappeTestCase):
         # INVERTED at VRF-2a (HVAC v56; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 55)`
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 50)))`
         # INVERTED at ADP-5a (HVAC v51; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 51)))`
         # INVERTED at ADP-5b (HVAC v52; standing authority for this slice: a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 52)))`
@@ -2731,7 +2732,7 @@ class TestAdp3bAssetV49(FrappeTestCase):
         # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `list(range(1, 60))`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `list(range(1, 61))`
-        self.assertEqual(sorted(ns), list(range(1, 62)))
+        self.assertEqual(sorted(ns), list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
         self.assertTrue(os.path.exists(_asset_path(V48)))
         # INVERTED at ADP-4a (HVAC v50; owner PY-1, the latest-asset pins) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v50.json")))
@@ -2751,4 +2752,4 @@ class TestAdp3bAssetV49(FrappeTestCase):
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v62.json")))   # VRF-5 (BEFORE: v61)
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v63.json")))   # VRF-6 (BEFORE: v62, VRF-5)

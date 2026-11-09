@@ -176,8 +176,8 @@ class TestVrf3bAssetV59(FrappeTestCase):
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `nums[-1] == 59` and `range(1, 60)`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `nums[-1] == 60` and `range(1, 61)`
-        self.assertEqual(nums[-1], 61)
-        self.assertEqual(nums, list(range(1, 62)))
+        self.assertEqual(nums[-1], 62)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE nums[-1] == 61
+        self.assertEqual(nums, list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
         self.assertTrue(os.path.exists(_asset_path(V58)))
 
     def test_07_live_catalogue_is_v59(self):
@@ -190,10 +190,12 @@ class TestVrf3bAssetV59(FrappeTestCase):
         self.assertNotIn("calculator_only", live)
         # INVERTED at VRF-5 (HVAC v61 LOADED; mechanical authority): BEFORE the live extras less `from_model` only -- v61's extras also carry
         # `accessories` / `safeguard` / `folded` / `scope` (VRF-5); v59's extras still stand inside them
-        self.assertEqual(_norm({k: v for k, v in live["list_spec"]["pricing"]["extras"].items() if k not in ("from_model", "accessories", "safeguard", "folded", "scope")} | {"lines": None, "cable": None}),
+        # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE the excluded keys stopped at `scope` -- v62's extras also carry
+        # `prepare` / `two_capacities` (VRF-6); v59's extras still stand inside them
+        self.assertEqual(_norm({k: v for k, v in live["list_spec"]["pricing"]["extras"].items() if k not in ("from_model", "accessories", "safeguard", "folded", "scope", "prepare", "two_capacities")} | {"lines": None, "cable": None}),
                          _norm({k: v for k, v in self.ex.items()} | {"lines": None, "cable": None}))
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `self.assertEqual(n, 566)` -- + the 13 VRF-5 inputs
-        self.assertEqual(n, 579)
+        self.assertEqual(n, 585)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE n == 579
         ids = {r[0] for r in frappe.db.sql('select attributes::json->>%s from "tabBoQ Rate Master Item" where active=1 and discipline=%s and kind=%s', ("item", "HVAC", INPUT_KIND))}
         self.assertTrue(set(self.inp) <= ids)

@@ -164,13 +164,13 @@ class TestVrf3aAssetV58(FrappeTestCase):
     def test_06_v58_is_the_newest_and_v57_stays(self):
         d = os.path.dirname(_asset_path(V58))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 61)   # VRF-5: v61 (BEFORE: 60, VRF-4)
+        self.assertEqual(max(ns), 62)   # VRF-6: v62 (BEFORE: 61, VRF-5)
         # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 60)))`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `list(range(1, 61))`
-        self.assertEqual(sorted(ns), list(range(1, 62)))
+        self.assertEqual(sorted(ns), list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
         self.assertTrue(os.path.exists(_asset_path(V57)))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v62.json")))   # VRF-5 (BEFORE: v61)
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v63.json")))   # VRF-6 (BEFORE: v62, VRF-5)
 
     def test_07_live_the_loaded_vrf_config_is_v58s(self):
         rows = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "HVAC", "active": 1}, fields=["category_id", "config"])
@@ -183,7 +183,8 @@ class TestVrf3aAssetV58(FrappeTestCase):
         # The live list_spec is v59's -- v58's plus `extras` (test_vrf_v59 07 pins it whole); every claim below stands.
         # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority (HVAC v60 loaded): BEFORE the live list_spec was compared with v59's; it is v60's now
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority): BEFORE `_asset_path("rate_master_hvac_all_v60.json")` -- the live VRF config is v61's (test_vrf_v61 07 pins it whole)
-        with open(_asset_path("rate_master_hvac_all_v61.json"), "r", encoding="utf-8") as fh:
+        # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE `_asset_path("rate_master_hvac_all_v61.json")` -- the live VRF config is v62's (test_vrf_v62 07 pins it whole)
+        with open(_asset_path("rate_master_hvac_all_v62.json"), "r", encoding="utf-8") as fh:
             v59cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
         self.assertEqual(_norm(cfg.get("list_spec")), _norm(v59cfg["list_spec"]))
         self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))
@@ -191,4 +192,4 @@ class TestVrf3aAssetV58(FrappeTestCase):
         self.assertTrue(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))   # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE assertFalse (live = v60, eligible)
         # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `... {"discipline": "HVAC", "active": 1}), 537)` -- + the 29 extras inputs
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `... {"discipline": "HVAC", "active": 1}), 566)` -- + the 13 VRF-5 inputs
-        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 579)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 585)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE 579

@@ -360,6 +360,13 @@ const loose = (v: unknown): Loose => (v && typeof v === "object" ? (v as Loose) 
 const pricingOf = (cfg: unknown): Loose => loose(loose(loose(cfg).list_spec).pricing);
 const famAttrOf = (cfg: unknown): string => String(loose(loose(cfg).list_spec).family_attribute_id ?? "family");
 type ExtrasBand = { max: number | null; input: string };
+/** VRF-6: an electrical accessory's HP schedule as bands -- the last row open (a unit above it takes the last rating) */
+const scheduleBands = (acc: Loose): ExtrasBand[] => {
+  const sch = loose(acc.electrical).schedule;
+  if (!Array.isArray(sch)) return [];
+  const rows = (sch as unknown[]).map(loose).filter((r) => typeof r.input === "string" && typeof r.max === "number");
+  return rows.map((r, n) => ({ max: n === rows.length - 1 ? null : Number(r.max), input: String(r.input) }));
+};
 const bandsOf = (ex: Loose, table: string, role: string): ExtrasBand[] => {
   const v = loose(ex[table])[role];
   return Array.isArray(v) ? (v as ExtrasBand[]) : [];
@@ -423,10 +430,14 @@ export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null
       const bands = (loose(acc.bands)[role] as ExtrasBand[] | undefined) ?? [];
       if (Array.isArray(bands)) bands.forEach((b, n) => out.push({ input: `${b.input}_${key}`, skus: inBand(role, bands, n) }));
     }
-    if (typeof acc.input === "string" && acc.input) {
-      const roleSkus = ((acc.roles as string[] | undefined) ?? []).flatMap((r) => unitSkus(r)).map((it) => String(it.item_uid ?? "")).filter(Boolean);
-      out.push({ input: String(acc.input), skus: roleSkus });
-    }
+    const roleSkus = () => ((acc.roles as string[] | undefined) ?? []).flatMap((r) => unitSkus(r)).map((it) => String(it.item_uid ?? "")).filter(Boolean);
+    if (typeof acc.input === "string" && acc.input) out.push({ input: String(acc.input), skus: roleSkus() });
+    // VRF-6 (team rule): gas kg = HP x its input -- every unit of its role; the MCB + ELCB schedule -- each row the units of its role
+    // whose size falls in it (the last row also every larger unit: above 26 HP -> 63 A)
+    const qps = loose(acc.qty_per_size);
+    if (typeof qps.input === "string" && qps.input) out.push({ input: String(qps.input), skus: roleSkus() });
+    const sched = scheduleBands(acc);
+    for (const role of (acc.roles as string[] | undefined) ?? []) sched.forEach((b, n) => out.push({ input: b.input, skus: inBand(role, sched, n) }));
   }
   const scope = loose(ex.scope);
   if (typeof scope.uplift_input === "string" && scope.uplift_input) out.push({ input: String(scope.uplift_input), skus: all });
@@ -483,7 +494,7 @@ export interface ExtrasTables {
   cables: Array<{ band: string; cores: number | null; sqmm: number | null; material: string; armour: string }>;
   lengths: Array<{ label: string; value: number | null }>;
   /** VRF-5 (owner ANSWER 5): the accessory defaults (per outdoor band / per indoor unit) and the installation-only uplift */
-  accessories?: Array<{ label: string; value: number | null; unit: string }>;
+  accessories?: Array<{ label: string; value: number | null; unit: string; /** VRF-6: a schedule row's input (shared rows listed once) */ input?: string }>;
   uplift?: { label: string; value: number | null } | null;
 }
 export function extrasTablesOf(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): ExtrasTables | null {
@@ -531,6 +542,19 @@ export function extrasTablesOf(cfg: unknown, items: readonly RateMasterItem[] | 
     }
     if (typeof acc.input === "string" && acc.input) {
       accessories.push({ label: `${what} - per ${((acc.roles as string[] | undefined) ?? []).join(" / ")} unit`, value: f(String(acc.input)), unit: `${String(acc.unit_word ?? "")} per unit` });
+    }
+    // VRF-6 (team rule 2026-11-09): gas kg = HP x its factor; the MCB + ELCB schedule ONCE (one row per HP band, the accessories
+    // sharing it named together)
+    const qps = loose(acc.qty_per_size);
+    if (typeof qps.input === "string" && qps.input) {
+      accessories.push({ label: `${what} - per HP of the ${((acc.roles as string[] | undefined) ?? []).join(" / ")} unit`, value: f(String(qps.input)), unit: `${String(acc.unit_word ?? "")} per HP` });
+    }
+    const sched = scheduleBands(acc);
+    if (sched.length && !accessories.some((r) => r.input === sched[0].input)) {
+      const sharing = (Array.isArray(ex.accessories) ? (ex.accessories as unknown[]) : []).map(loose)
+        .filter((o) => scheduleBands(o).map((b) => b.input).join("|") === sched.map((b) => b.input).join("|")).map((o) => String(o.label ?? o.id ?? ""));
+      const role = ((acc.roles as string[] | undefined) ?? [])[0] ?? "outdoor";
+      sched.forEach((b, n) => accessories.push({ label: `${sharing.join(" + ")} rating - ${bandWords(sched, n, role)}`, value: f(b.input), unit: "A", input: b.input }));
     }
   }
   const scope = loose(ex.scope);
