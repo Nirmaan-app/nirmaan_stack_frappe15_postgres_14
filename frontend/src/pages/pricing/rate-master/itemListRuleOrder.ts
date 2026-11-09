@@ -1287,6 +1287,66 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("Supply only / installation only, from the BoQ",
         "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
   }
+  // ── 13h. VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- ADDED LAST, each only where its key is
+  // in the config (v61 and older add nothing)
+  type Acc6 = { choice?: { first_words?: unknown; model_attr?: unknown }; follow_unit_brand?: unknown; qty_per_size?: unknown; electrical?: { schedule?: unknown }; builtin?: unknown };
+  const accs6: Acc6[] = ex5 && Array.isArray(ex5.accessories) ? (ex5.accessories as Acc6[]) : [];
+  const remote6 = accs6.find((a) => a?.choice?.first_words || a?.choice?.model_attr);
+  if (remote6) {
+    add("The remote's type follows the BoQ",
+        "'corded or cordless', 'cordless/corded', 'corded less' -> Cordless first; then the model's own answer for the unit; then the words ('corded' / 'wired' alone -> Wired, 'cordless' / 'wireless' -> Cordless) in the row, its notes, its headings and their notes; nothing stated -> Cordless (tagged default); the default never overrides the model");
+  }
+  if (ex5?.safeguard?.lines?.not_added) {
+    add("Every included extra that is not added says why",
+        "an extra read as included that this item cannot carry is a review point with the reason: outdoor units only (gas, frame, MCB + ELCB on an indoor unit), indoor units only (remote, refnet, drain pump on an outdoor unit), no extras on a controller or AHU kit (interim), insulation needs copper -- and the rows that quote it on their own; the same for a tick in the calculator");
+  }
+  if (ex5?.safeguard?.match === "category") {
+    add("The own-row check reads each row's category first",
+        "a row of the piping category is the sheet's own copper row (unless the model read a non-copper pipe), an insulation row (or a piping row whose words say insulation) its own insulation row, an HVAC cable row its own cable row; a VRF row counts by the item the model read on it (a refnet-joint row is never a copper row); WORDS only for a row with no category; a sheet-level quantity row the run read counts too");
+  }
+  const sp6 = pr.split && typeof pr.split === "object" ? pr.split : null;
+  if (sp6 && (sp6.stated_times || sp6.split_over_top)) {
+    add("Written splits, and a module above the largest unit",
+        "'24HP (12HP x 2NOS)' is a written split like '20+18 HP'; a written module above the largest single unit is itself split (fewest units, then cheapest) with a note, never refusing the row; a split into three or more modules carries a note");
+  }
+  if (sp6 && sp6.pair_first) {
+    add(sp6.pair_first.mode === "always" ? "A pair / set before the next size up" : "A cheaper pair / set before the next size up",
+        sp6.pair_first.mode === "always"
+          ? "a stated outdoor size no single unit matches is priced as the best pair / set (exact first, else covering; fewest units, then cheapest) rather than the next size up; the note says so"
+          : "a stated outdoor size no single unit matches is priced as the best pair / set (exact first, else covering; fewest units, then cheapest) when it costs less than the next-size-up unit (a combination SKU such as Daikin 34 HP never blocks it); the note shows both costs");
+  }
+  if (ex5?.lines?.length_per_item || ex5?.lines?.cable_kind_always || ex5?.lines?.drain_cable_words) {
+    add("A cable or pipe fact reaches only the item it describes",
+        "a length the BoQ gives inside the cable's words (a 3 m cord) is that cable's only -- copper and the other cable keep their defaults; 'AL' / 'aluminium' sets the conductor even where a size is stated; cabling the BoQ ties to the drain pump is not the unit's power cable");
+  }
+  if (accs6.some((a) => a?.follow_unit_brand)) {
+    add("Accessories take the unit's make",
+        "a remote, refnet or drain pump line takes the unit's brand where the catalogue stocks it in that brand; else the default make, with a note");
+  }
+  if (accs6.some((a) => a?.qty_per_size || a?.electrical?.schedule)) {
+    add("Frame / stand, gas by HP, MCB + ELCB by HP (team rule)",
+        "per OUTDOOR module when included: one MS frame / stand (its own Nos item; a BoQ row quoting stands per Nos prices on it), gas kg = the module's HP, one MCB 4-pole + one ELCB 300 mA 4-pole rated by the HP schedule in Pricing Inputs (an HP not in it -> the next row; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked one, noted; 'isolator' -> this set); never on an indoor unit");
+  }
+  if (accs6.some((a) => a?.builtin)) {
+    add("A built-in drain pump is still added, with a review point",
+        "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it");
+  }
+  if (ex5?.scope?.conflict || ex5?.scope?.supply_row) {
+    add("Supply / installation settled by the sheet's own rows",
+        "a 'Supply of' row under a note that includes installation: supply only when the sheet has an installation row of that kind (named), else supply + installation, with a note; an installation-only row: the uplift only when the sheet has no supply row of that kind, else the normal installation rate (named)");
+  }
+  if (ex5?.safeguard?.control_wiring || ex5?.safeguard?.note_wins) {
+    add("'Control wiring' and 'quantified separately'",
+        "'control wiring' in a unit heading = the communication cable included, with a note; a note saying the cabling is quantified separately wins over a heading that includes it (not added, the note quoted)");
+  }
+  if (ex5?.prepare) {
+    add("The BoQ's own words settle some answers before pricing",
+        "the row's 'Cooling Type' / 'heat pump' wins over the heading (noted); CSU / ceiling suspended = Ductable; 600x600 / 2'x2' = the compact cassette; '1 way' in a heading = a one-way cassette; an ON/OFF controller = the Touch Screen controller (noted); 'make same as outdoor' = the sheet's outdoor-unit make; '6 .3TR' reads 6.3; a frame quoted per Nos prices on the frame / stand item");
+  }
+  if (ex5?.two_capacities) {
+    add("Two capacities in one row refuse, naming both",
+        "a row whose text states two different capacities is not priced: 'two capacities stated (a / b) - pick one'");
+  }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};

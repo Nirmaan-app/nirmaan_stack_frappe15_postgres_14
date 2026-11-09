@@ -566,6 +566,9 @@ export interface RateHelperRowContext {
    * `family_merge` words -- every other text rule reads exactly what it read before. OPTIONAL: the calculator omits it.
    */
   headingNotes?: string[];
+  /** VRF-6 (owner Q6): the notes of EVERY heading above the row, nearest first (`rowAncestorNotes`) -- read only by the VRF-6
+   *  reading rules (`extras.prepare`). Absent where the page's rows were not passed. */
+  ancestorNotes?: string[];
   /**
    * VRF-3a K2 (owner QR-1 (a), 2026-11-04 19:07): the BoQ row's QUANTITY (`qty_total`), built by `buildRowContext` from the
    * priced row. Read ONLY by a counted item (a refnet) on a per-Set row. OPTIONAL: the calculator has no row and omits it.
@@ -583,7 +586,9 @@ export interface RateHelperRowContext {
    * own-row safeguard of a config declaring `extras.safeguard`. OPTIONAL: the calculator omits it. `sheet` is set on a row
    * of ANOTHER sheet of the same BoQ (absent = this sheet).
    */
-  sheetLines?: ReadonlyArray<{ row: number; text: string; family1?: string | null; sheet?: string }>;
+  sheetLines?: ReadonlyArray<{ row: number; text: string; family1?: string | null; sheet?: string;
+    /** VRF-6 (F4): a rate-editable Preamble (kept only where the run read it); the row's category; its item 1's scope answer */
+    preamble?: boolean; category?: string | null; scope1?: string }>;
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

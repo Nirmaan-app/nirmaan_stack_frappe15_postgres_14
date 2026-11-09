@@ -83,6 +83,8 @@ export function buildRowContext(
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
     ...(rows ? { ownNotes: rowOwnNotes(row, rows) } : {}),
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
+    // VRF-6 (owner Q6): every heading's notes above the row -- read only by the VRF-6 reading rules
+    ...(rows ? { ancestorNotes: rowAncestorNotes(row, rows) } : {}),
     // VRF-3a K2 (QR-1 (a)): the row's quantity, for a refnet on a Set row -- with the page's rows, as the three above
     ...(rows && typeof row.qty_total === "number" ? { quantity: row.qty_total } : {}),
     // VRF-4 (q2): every row's quantity, for a refnet's unit counts read from the sheet (one map per rows array)
@@ -95,15 +97,19 @@ export function buildRowContext(
  * VRF-5 (owner R1 SAFEGUARD). PURE, memoised per rows array: every LINE ITEM of the sheet as the own-row rule reads it -- its
  * excel row and its text (the description and its own row notes). A heading never quotes an item; a line item does.
  */
-const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string }>>();
-export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string }> {
+const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string; preamble?: boolean }>>();
+export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string; preamble?: boolean }> {
   const hit = SHEET_LINES_CACHE.get(rows);
   if (hit) return hit;
-  const out: Array<{ row: number; text: string }> = [];
+  const out: Array<{ row: number; text: string; preamble?: boolean }> = [];
   for (const r of rows) {
-    if ((r.node_type ?? "").trim() !== "Line Item") continue;
+    const nt = (r.node_type ?? "").trim();
+    // VRF-6 (F4, 00234 r55): a Preamble may be rate-editable (a quantity-bearing heading) -- flagged, and kept by the VRF-6 rule
+    // only where the run READ it (it has a run category); every other reader drops it
+    const preamble = nt === "Preamble";
+    if (nt !== "Line Item" && !preamble) continue;
     const rn = (r as { row_notes?: unknown }).row_notes;
-    out.push({ row: r.source_row_number, text: [r.description ?? "", typeof rn === "string" ? rn : ""].filter((t) => t.trim() !== "").join(" | ") });
+    out.push({ row: r.source_row_number, text: [r.description ?? "", typeof rn === "string" ? rn : ""].filter((t) => t.trim() !== "").join(" | "), ...(preamble ? { preamble: true } : {}) });
   }
   SHEET_LINES_CACHE.set(rows, out);
   return out;
@@ -149,6 +155,25 @@ export function rowHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): str
     .filter((r) => (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION && r.effective_parent_index === p.row_index)
     .sort((a, b) => a.row_index - b.row_index);
   for (const n of notes) keep(n.description);
+  return out;
+}
+
+/**
+ * VRF-6 (owner Q6, 00114 r24: "(HEAT PUMP)" is a note on the GRANDPARENT heading). PURE. The notes of EVERY heading above the
+ * row, nearest first -- each heading's notes as `rowHeadingNotes` builds the parent's. Read only by the VRF-6 reading rules
+ * (`extras.prepare`); every other reader keeps `headingNotes` (the immediate parent only).
+ */
+export function rowAncestorNotes(row: PricedRow, rows: readonly PricedRow[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<number>();
+  let cur: PricedRow | undefined = row;
+  while (cur) {
+    const parent: number | null | undefined = cur.effective_parent_index;
+    if (typeof parent !== "number" || parent < 0 || parent === cur.row_index || seen.has(parent)) break;
+    seen.add(parent);
+    out.push(...rowHeadingNotes(cur, rows));
+    cur = rows.find((r) => r.row_index === parent);
+  }
   return out;
 }
 
