@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.payee_fixture import delete_each
 from nirmaan_stack.api.po_adjustments.adjustment_logic import execute_adjustment
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 U = "Administrator"
 PE = "Project Expenses"
@@ -26,7 +27,7 @@ NPE = "Non Project Expenses"
 BOTH_LEDGER_TYPES = ("Petty Cash", "Material Transportation Charges")
 
 
-class TestExpenseTypeLedger(FrappeTestCase):
+class TestExpenseTypeLedger(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -110,16 +111,34 @@ class TestExpenseTypeLedger(FrappeTestCase):
         self.assertEqual(frappe.db.get_value(PE, doc.name, "comment"), "edited later")
 
 
-class TestPOAdjustmentAdhocType(FrappeTestCase):
+class TestPOAdjustmentAdhocType(ExpenseTypeFlagGuard, FrappeTestCase):
     """The PO-adjustment ad-hoc expense is a Project Expense, so a non-project type is refused.
 
-    No fixtures here: `execute_adjustment` rolls back on any error, and the refusal comes before it
-    reads a PO, so it is asked against a PO that does not exist."""
+    The type is made up, because a real type's flags are the site's to change (#1677). Otherwise no
+    fixtures: `execute_adjustment` rolls back on any error, and the refusal comes before it reads a PO,
+    so it is asked against a PO that does not exist."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user(U)
+        cls.non_project_type = frappe.get_doc({
+            "doctype": "Expense Type", "expense_name": f"etl_test_adhoc_{frappe.generate_hash(length=5)}",
+            "project": 0, "non_project": 1}).insert(ignore_permissions=True).name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user(U)
+        try:
+            delete_each([("Expense Type", cls.non_project_type)])
+        finally:
+            super().tearDownClass()
 
     def test_an_adhoc_expense_with_a_non_project_type_is_refused_before_anything_is_written(self):
         frappe.set_user(U)
-        entry = {"return_type": "Ad-hoc", "amount": 500, "ad-hoc_type": "Travel Expenses (Bus)",
+        entry = {"return_type": "Ad-hoc", "amount": 500, "ad-hoc_type": self.non_project_type,
                  "ad-hoc_description": "etl test"}
         with self.assertRaisesRegex(frappe.ValidationError,
-                                    "'Travel Expenses \\(Bus\\)' is not an expense type for Project Expenses"):
+                                    f"'{self.non_project_type}' is not an expense type for Project Expenses"):
             execute_adjustment("PO/ETL/NO-SUCH-PO", json.dumps([entry]))

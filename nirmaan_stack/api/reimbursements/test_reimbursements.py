@@ -29,6 +29,7 @@ from nirmaan_stack.services.reimbursements import convert, expense_link, receipt
 from nirmaan_stack.services.reimbursements.month_total import month_totals as totals_of
 from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, PENDING, REJECTED
 from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 NPE = "Non Project Expenses"
 
@@ -125,7 +126,7 @@ class _Storage:
         return url
 
 
-class ReimbursementTestCase(FrappeTestCase):
+class ReimbursementTestCase(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -1078,7 +1079,7 @@ class TestDeletingAPerson(ReimbursementTestCase):
         self.assertEqual(frappe.db.get_value("Nirmaan Users", LEAVER2, "payee"), payee)
 
 
-class TestDoctypeMatchesRules(FrappeTestCase):
+class TestDoctypeMatchesRules(ExpenseTypeFlagGuard, FrappeTestCase):
     def test_type_options_are_the_rules_types(self):
         from nirmaan_stack.services.reimbursements.rules import TYPES
         field = frappe.get_meta("Reimbursement").get_field("reimbursement_type")
@@ -1091,7 +1092,7 @@ class TestDoctypeMatchesRules(FrappeTestCase):
         self.assertEqual(options, list(STATUSES))
 
 
-class TestMergeToPdf(FrappeTestCase):
+class TestMergeToPdf(ExpenseTypeFlagGuard, FrappeTestCase):
     def test_pages_keep_their_order_and_pictures_become_pages(self):
         from pypdf import PdfReader
         merged = receipts.merge_to_pdf([("a.pdf", _pdf(2)), ("b.png", _png()), ("c.pdf", _pdf(1))])

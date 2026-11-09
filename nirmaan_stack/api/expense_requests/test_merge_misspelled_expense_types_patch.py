@@ -14,6 +14,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.patches.v3_0.merge_misspelled_expense_types import MISSPELLED, merge_into
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 
 def _type(name, **fields):
@@ -31,7 +32,7 @@ def _raw(doctype, **fields):
 	return doc.name
 
 
-class TestMergeMisspelledExpenseTypes(FrappeTestCase):
+class TestMergeMisspelledExpenseTypes(ExpenseTypeFlagGuard, FrappeTestCase):
 	def setUp(self):
 		tag = frappe.generate_hash(length=6)
 		self.old = f"Reimbursmnts {tag}"

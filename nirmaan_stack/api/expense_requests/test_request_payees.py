@@ -25,6 +25,7 @@ from nirmaan_stack.api.payees.vendor_payee import get_vendor_account
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.payees.pay_to import OWN_ACCOUNT_REFUSAL, apply_picked_payee
 from nirmaan_stack.services.payees.rules import PAYEE_TYPE_USERS
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_test_pyepm@example.com"
 NOBODY = "exr_test_pyenobody@example.com"
@@ -38,7 +39,7 @@ PM_PROFILE = "Nirmaan Project Manager Profile"
 PROCUREMENT_PROFILE = "Nirmaan Procurement Executive Profile"
 
 
-class TestRequestPayees(FrappeTestCase):
+class TestRequestPayees(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

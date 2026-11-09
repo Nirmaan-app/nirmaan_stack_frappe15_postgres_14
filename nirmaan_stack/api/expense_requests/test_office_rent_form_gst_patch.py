@@ -23,6 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.expense_requests.form_snapshot import governing_form, stamp_live_form
 from nirmaan_stack.patches.v3_0 import office_rent_form_says_gst as patch
 from nirmaan_stack.services.expense_type_seed import seed_rows
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 OFFICE_RENT = "Office Rent"
 V2_SENTENCE = ("Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} "
@@ -51,7 +52,7 @@ def _set_live(source_format: str):
 	frappe.db.set_value("Expense Type", OFFICE_RENT, "source_format", source_format)
 
 
-class TestOfficeRentFormGstPatch(FrappeTestCase):
+class TestOfficeRentFormGstPatch(ExpenseTypeFlagGuard, FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		if not frappe.db.exists("Expense Type", OFFICE_RENT):
