@@ -22,6 +22,7 @@ from nirmaan_stack.api.expense_requests.review import (
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.expense_decision import decide
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_del_pm@example.com"
 PM2_USER = "exr_del_pm2@example.com"
@@ -32,7 +33,7 @@ PM_PROFILE = "Nirmaan Project Manager Profile"
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # raised with no project; its flags are the site's (#1677)
 
 
-class TestDeleteExpenseRequest(FrappeTestCase):
+class TestDeleteExpenseRequest(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

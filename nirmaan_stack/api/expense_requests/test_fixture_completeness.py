@@ -30,7 +30,7 @@ def _listed_fixtures() -> set:
 	return {f if isinstance(f, str) else f.get("dt") for f in frappe.get_hooks("fixtures") or []}
 
 
-class TestExpenseTypeIsNotAFixture(ExpenseTypeFlagGuard, FrappeTestCase):
+class TestExpenseTypeIsNotAFixture(FrappeTestCase):
 	def test_no_migrate_re_imports_the_expense_types(self):
 		self.assertNotIn("Expense Type", _listed_fixtures())
 		self.assertFalse(os.path.exists(_fixture_path("Expense Type")),

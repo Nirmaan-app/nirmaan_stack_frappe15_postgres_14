@@ -1001,6 +1001,7 @@ class TestExpenseRequests(ExpenseTypeFlagGuard, FrappeTestCase):
 		routing.clear_cache()
 
 		def _drop():
+			frappe.db.rollback()
 			frappe.set_user("Administrator")
 			frappe.delete_doc("Expense Type", name, force=True, ignore_permissions=True)
 			frappe.db.commit()

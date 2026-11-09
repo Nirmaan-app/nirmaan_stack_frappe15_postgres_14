@@ -25,6 +25,7 @@ from nirmaan_stack.api.expense_requests.review import (
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.test_records_without_review import _listed, _write_list
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_l1_pm@example.com"
 ADMIN_USER = "exr_l1_admin@example.com"
@@ -37,7 +38,7 @@ HRL_PROFILE = "Nirmaan HR Lead Profile"
 NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # raised with no project; its flags are the site's (#1677)
 
 
-class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):
+class TestAnAdminsReviewIsTheFirstApproval(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

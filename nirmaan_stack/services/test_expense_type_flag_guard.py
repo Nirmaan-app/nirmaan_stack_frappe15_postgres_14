@@ -16,6 +16,7 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.payees.payee_fixture import delete_each
 from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 
@@ -35,15 +36,7 @@ class TestExpenseTypeFlagGuard(FrappeTestCase):
 		frappe.get_doc({"doctype": "Expense Type", "expense_name": self.existing,
 		                "project": 0, "non_project": 1}).insert(ignore_permissions=True)
 		frappe.db.commit()
-		self.addCleanup(self._drop, self.existing)
-
-	@staticmethod
-	def _drop(name):
-		frappe.db.rollback()
-		frappe.set_user("Administrator")
-		if frappe.db.exists("Expense Type", name):
-			frappe.delete_doc("Expense Type", name, force=True, ignore_permissions=True)
-		frappe.db.commit()
+		self.addCleanup(delete_each, [("Expense Type", self.existing)])
 
 	def test_a_suite_that_leaves_a_flag_changed_fails_and_the_flag_is_put_back(self):
 		existing = self.existing
@@ -95,6 +88,19 @@ class TestExpenseTypeFlagGuard(FrappeTestCase):
 				frappe.db.commit()
 
 		result = _run(OwnType)
-		for name in made:
-			self._drop(name)
+		self.addCleanup(lambda: delete_each([("Expense Type", name) for name in made]))
 		self.assertTrue(result.wasSuccessful())
+
+	def test_a_suite_that_deletes_a_type_from_before_it_fails(self):
+		existing = self.existing
+
+		class Deletes(ExpenseTypeFlagGuard, FrappeTestCase):
+			def test_deletes(self):
+				frappe.delete_doc("Expense Type", existing, force=True, ignore_permissions=True)
+				frappe.db.commit()
+
+		result = _run(Deletes)
+
+		self.assertFalse(result.wasSuccessful())
+		self.assertIn(f"{existing}: (project, non_project) was (0, 1), left deleted",
+		              "".join(text for _case, text in result.errors))

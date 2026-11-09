@@ -12,7 +12,8 @@ for a reason none of them caused (`Travel Expenses (Bus)` left at `project = 1`)
     class TestSomething(ExpenseTypeFlagGuard, FrappeTestCase): ...
 
 It reads every type's flags when the class sets up, and when the class is done it puts back any flag that
-changed on a type from before the suite and fails the suite, naming each one. A type the suite made itself
+changed on a type from before the suite and fails the suite, naming each one. A type from before the suite that
+the suite deleted also fails it. A type the suite made itself
 is the suite's to change. Only committed changes count: the guard rolls back before it reads.
 """
 
@@ -22,16 +23,21 @@ FLAGS = ("project", "non_project")
 
 
 def flag_snapshot() -> dict[str, tuple[int, int]]:
-	return {r.name: (r.project, r.non_project)
+	return {r.name: tuple(r[f] for f in FLAGS)
 	        for r in frappe.get_all("Expense Type", fields=["name", *FLAGS])}
 
 
-def restore_changed_flags(before: dict[str, tuple[int, int]]) -> dict[str, tuple[tuple, tuple]]:
-	"""Put back the flags of each type in `before` that changed; returns {name: (was, found)}."""
+def restore_changed_flags(before: dict[str, tuple[int, int]]) -> dict[str, tuple[tuple, tuple | None]]:
+	"""Put back the flags of each type in `before` that changed; returns {name: (was, found)}.
+
+	A type the suite deleted is returned with `found` None and is not put back: only the suite knows
+	what else it held."""
 	frappe.db.rollback()
 	now = flag_snapshot()
-	changed = {name: (was, now[name]) for name, was in before.items() if name in now and now[name] != was}
-	for name, (was, _found) in changed.items():
+	changed = {name: (was, now.get(name)) for name, was in before.items() if now.get(name) != was}
+	for name, (was, found) in changed.items():
+		if found is None:
+			continue
 		# Raw on purpose: the Expense Type `on_update` hook prunes Records without review by ROLES, which
 		# a flag write never changes, and a restore must not stamp `modified` as if a person edited it.
 		frappe.db.set_value("Expense Type", name, dict(zip(FLAGS, was)), update_modified=False)
@@ -49,6 +55,6 @@ class ExpenseTypeFlagGuard:
 	def _check_expense_type_flags(cls, before):
 		changed = restore_changed_flags(before)
 		if changed:
-			lines = "; ".join(f"{name}: (project, non_project) was {was}, left {found}"
+			lines = "; ".join(f"{name}: (project, non_project) was {was}, left {found or 'deleted'}"
 			                  for name, (was, found) in sorted(changed.items()))
 			raise AssertionError(f"{cls.__name__} left Expense Type flags changed (put back now): {lines}")

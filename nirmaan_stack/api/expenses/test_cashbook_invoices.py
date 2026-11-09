@@ -29,6 +29,7 @@ from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
 from nirmaan_stack.api.tds.test_submit import _cloud_url
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PMO = "Nirmaan PMO Executive Profile"
 PROCUREMENT = "Nirmaan Procurement Executive Profile"
@@ -40,7 +41,7 @@ FIXTURE = (
 )
 
 
-class CashbookInvoiceCase(FrappeTestCase):
+class CashbookInvoiceCase(ExpenseTypeFlagGuard, FrappeTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
