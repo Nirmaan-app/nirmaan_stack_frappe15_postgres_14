@@ -26,7 +26,7 @@ from nirmaan_stack.api.expenses.test_cashbook_invoices import PE, CashbookInvoic
 from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_cashbook_late_bills import LATE, LateBillsCase
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, OUTSIDER, _Users
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
@@ -212,7 +212,7 @@ class TestTheCashbookPill(CashbookInvoiceCase):
     def setUp(self):
         super().setUp()
         self.accountant = self.users.make(ACCOUNTANT)
-        self._as(self.accountant, attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"))
+        self._as(self.accountant, attach_cashbook_invoice, self.pe, PE, cloud_url("wallet.pdf"))
         self.bill = bills_of(PE, self.pe)[-1].name
         run_reading(self.bill, FakeReader(ReadFailed("The reader timed out.")))
 
@@ -248,7 +248,7 @@ class TestALateBillAfterARejection(LateBillsCase):
         self.addCleanup(purge_expense_bills, [waiting.name])  # before the batch purge removes the Expense
         accountant = self.users.make(ACCOUNTANT)
         frappe.set_user("Administrator")
-        _as(accountant, attach_cashbook_invoice, waiting.name, waiting.doctype, _cloud_url("wrong-shop.pdf"))
+        _as(accountant, attach_cashbook_invoice, waiting.name, waiting.doctype, cloud_url("wrong-shop.pdf"))
         bill = bills_of(waiting.doctype, waiting.name)[-1].name
         run_reading(bill, FakeReader(BillRead(Decimal("99999.00"))))
         _as(accountant, reject_expense_bill, bill, reason="Bill of another shop")
@@ -259,7 +259,7 @@ class TestALateBillAfterARejection(LateBillsCase):
         after = self._expense(LATE)
         self.assertEqual(after.name, waiting.name)
         self.assertTrue(after.invoice_attachment)
-        self.assertNotEqual(after.invoice_attachment, _cloud_url("wrong-shop.pdf"))
+        self.assertNotEqual(after.invoice_attachment, cloud_url("wrong-shop.pdf"))
         self.assertNotIn(after.name, {row["name"] for row in get_cashbook_invoice_queue()})
 
 

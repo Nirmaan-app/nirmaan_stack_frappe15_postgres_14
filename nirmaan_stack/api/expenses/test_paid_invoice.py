@@ -6,7 +6,7 @@
 Admin, Accounts and HR set a Paid expense's invoice file, number and date, and nothing else. The upload arrives
 unattached (an HR user may not write the expense) and is filed under the expense; any other File URL is refused.
 
-Files are planted as raw `tabFile` rows with fake cloud URLs (`test_submit._cloud_url`): a real upload would go
+Files are planted as raw `tabFile` rows with fake cloud URLs (`cloud_file_fixture.cloud_url`): a real upload would go
 to the production bucket for good. Each test purges its expenses, Files and users.
 """
 
@@ -17,7 +17,7 @@ from frappe.utils import add_days, nowdate
 from nirmaan_stack.api.expenses.paid_invoice import set_paid_expense_invoice
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, OUTSIDER, _Users
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 
 NPE = "Non Project Expenses"
 PE = "Project Expenses"
@@ -77,7 +77,7 @@ class PaidInvoiceCase(FrappeTestCase):
 	def _upload(self, owner, attached_to=None):
 		"""An uploaded File as the storage app leaves it: an `/api/method/...` URL, unattached unless given."""
 		name = frappe.generate_hash(length=10)
-		url = _cloud_url(f"paidinv-{name}.pdf")
+		url = cloud_url(f"paidinv-{name}.pdf")
 		doctype, docname = attached_to or (None, None)
 		frappe.db.sql(
 			"""INSERT INTO "tabFile" (name, creation, modified, modified_by, owner, docstatus, idx, file_name,
@@ -147,7 +147,7 @@ class TestWhatItWrites(PaidInvoiceCase):
 
 	def test_edit_keeps_the_file_already_on_the_expense(self):
 		hr = self.users.make(HR_EXECUTIVE)
-		kept = _cloud_url("paidinv-kept.pdf")
+		kept = cloud_url("paidinv-kept.pdf")
 		expense = self._expense(invoice_attachment=kept, invoice_ref="OLD-1")
 		self._set(hr, NPE, expense, kept, ref="NEW-2")
 		self.assertEqual(frappe.db.get_value(NPE, expense, ["invoice_attachment", "invoice_ref"]), (kept, "NEW-2"))
@@ -181,4 +181,4 @@ class TestWhichFileItTakes(PaidInvoiceCase):
 		hr = self.users.make(HR_EXECUTIVE)
 		expense = self._expense()
 		with self.assertRaisesRegex(frappe.ValidationError, "Upload it again"):
-			self._set(hr, NPE, expense, _cloud_url("paidinv-nowhere.pdf"))
+			self._set(hr, NPE, expense, cloud_url("paidinv-nowhere.pdf"))

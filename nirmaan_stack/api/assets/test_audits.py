@@ -37,10 +37,10 @@ from nirmaan_stack.api.assets.history import get_asset_history
 from nirmaan_stack.patches.v3_0.remove_asset_returns import remove_returns
 from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management import (
     CATEGORY_PREFIX,
-    FAKE_FILE_URL,
     _make_person,
     _purge,
     ensure_departments,
+    fake_file_url,
 )
 from nirmaan_stack.services import asset_audit_open
 from nirmaan_stack.services.asset_audit import audit_month_label, cycle_month
@@ -159,7 +159,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         row = frappe.get_doc({
             "doctype": "Asset Management", "asset": asset, "asset_assigned_to": person or self.holder,
             "asset_assigned_on": today(),
-            "asset_declaration_attachment": FAKE_FILE_URL.format(asset, asset) if declaration else None,
+            "asset_declaration_attachment": fake_file_url(asset) if declaration else None,
         }).insert(ignore_permissions=True)
         return asset, row.name
 
@@ -169,7 +169,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         doc = frappe.new_doc("File")
         doc.update({
             "name": name, "file_name": file_name, "is_private": 1, "owner": owner or self.holder,
-            "file_url": f"/api/method/frappe_gcp_attachment.controller.generate_file?key=test-dept/{name}&file_name={file_name}",
+            "file_url": fake_file_url(f"{name}-{file_name}", "File"),
             "creation": now_datetime(), "modified": now_datetime(),
         })
         if attached_to:
@@ -250,7 +250,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         self.assertFalse(self._row(assignment).audit_status)
         self.assertEqual(open_due_audits(assignment=assignment), [])  # the cron skips it too
         doc = frappe.get_doc("Asset Management", assignment)
-        doc.asset_declaration_attachment = FAKE_FILE_URL.format(asset, "later")
+        doc.asset_declaration_attachment = fake_file_url(asset)
         doc.save(ignore_permissions=True)
         self.assertEqual(self._row(assignment).audit_status, "Pending")
 
@@ -404,7 +404,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         leftover = frappe.new_doc("Asset Management")
         leftover.update({
             "name": frappe.generate_hash(length=10), "asset": asset, "asset_assigned_to": self.holder2,
-            "asset_assigned_on": today(), "asset_declaration_attachment": FAKE_FILE_URL.format(asset, "old"),
+            "asset_assigned_on": today(), "asset_declaration_attachment": fake_file_url(asset),
             "creation": now_datetime(), "modified": now_datetime(), "owner": "Administrator",
         })
         leftover.db_insert()

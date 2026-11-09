@@ -17,7 +17,7 @@ import frappe
 from frappe.utils import add_days, getdate, nowdate
 
 from nirmaan_stack.api.expenses.cashbook_invoices import attach_cashbook_invoice
-from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
 from nirmaan_stack.api.expenses.paid_invoice import set_paid_expense_invoice
 from nirmaan_stack.api.expenses.test_cashbook_invoices import NPE, PE, CashbookInvoiceCase

@@ -20,7 +20,7 @@ from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
 from nirmaan_stack.api.expenses.test_cashbook_invoices import PE, CashbookInvoiceCase
 from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, OUTSIDER
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.expense_bills import BILL_DOCTYPE as BILL
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
@@ -106,7 +106,7 @@ class TestTheCreditCardPill(CardBillsCase):
 class TestTheCashbookPill(CashbookInvoiceCase):
     def test_a_wallet_bill_is_listed_with_its_wallet_holder_and_project(self):
         accountant = self.users.make(ACCOUNTANT)
-        self._as(accountant, attach_cashbook_invoice, self.pe, PE, _cloud_url("wallet.pdf"), "TYPED-1", "2026-09-01")
+        self._as(accountant, attach_cashbook_invoice, self.pe, PE, cloud_url("wallet.pdf"), "TYPED-1", "2026-09-01")
         bill = bills_of(PE, self.pe)[-1].name
         run_reading(bill, FakeReader(ReadFailed("The reader timed out.")))
 

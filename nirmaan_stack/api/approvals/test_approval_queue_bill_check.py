@@ -20,7 +20,7 @@ from nirmaan_stack.api.expenses.expense_bill_approval import reject_expense_bill
 from nirmaan_stack.api.expenses.test_expense_bill_list import CardSpendOnTheListCase
 from nirmaan_stack.api.expenses.test_expense_bills import FakeReader, run_reading
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.expense_bills.bill_check import BillRead, ReadFailed
 
 PAYMENTS = "Project Payments"
@@ -77,12 +77,12 @@ class TestAllPaymentsBillCheck(CardSpendOnTheListCase):
     def test_an_expense_with_a_bill_but_no_expense_bill_keeps_its_file_and_shows_no_bill_check(self):
         # A bill attached before launch: on the Expense, with no Expense bill record. `set_value` skips the
         # Expense's doc_events on purpose: it is the state such an Expense was left in, with nothing to recompute.
-        frappe.db.set_value("Non Project Expenses", self.spend, "invoice_attachment", _cloud_url("old.pdf"))
+        frappe.db.set_value("Non Project Expenses", self.spend, "invoice_attachment", cloud_url("old.pdf"))
         frappe.db.commit()
 
         row = self._rows()[self.spend]
 
-        self.assertEqual(row["invoice"], _cloud_url("old.pdf"))
+        self.assertEqual(row["invoice"], cloud_url("old.pdf"))
         self.assertEqual((row["bill_check"], row["bill_approval"]), (None, None))
 
     def test_a_rejected_bill_leaves_no_invoice_and_shows_rejected(self):
