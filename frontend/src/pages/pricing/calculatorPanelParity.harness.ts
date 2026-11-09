@@ -859,3 +859,58 @@ export function panelQuotesTextWithNoBox(r: HelperResult): boolean {
 export function readJsonFixture<T>(url: URL): T {
   return JSON.parse(readFileSync(url, "utf-8")) as T;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-7 B2 (K2): the v63 keys as the fixture `__fixtures__/vrf7Model.json` declares them, applied to v62's hvac_vrf -- the SAME
+// steps, in the same order, as `scripts/_instruments/mint_hvac_v63_vrf7.py` (test_vrf_v63 proves the minted asset equals them).
+// One copy for the pricer's tests (vrf7Model.test.ts) and the parity blocks, so the two can never apply the fixture differently.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+export type Vrf7Fixture = {
+  prepare_add: Record<string, unknown>; family_words_prepend: unknown[]; family_words_unless: Record<string, string>;
+  safeguard_add: Record<string, unknown> & { lines: Record<string, string> }; safeguard_drop: string[];
+  accessories_patch: Record<string, Record<string, unknown>>; from_model_add: Record<string, unknown>; from_model_drop: string[];
+  lines_add: Record<string, string>; question_drop: string[]; question_add: Array<{ id: string; note?: string; [k: string]: unknown }>;
+  question_notes_append: Record<string, string>; second_opinion: boolean;
+};
+/** The groups of VRF-7 keys `applyVrf7` can leave out (to prove a config without them keeps VRF-6's behaviour). */
+export type Vrf7Group = "prepare" | "family" | "safeguard" | "accessories" | "from_model" | "lines" | "questions";
+type Vrf7Acc = { id: string; electrical?: { match?: Record<string, unknown> }; choice?: Record<string, unknown>; [k: string]: unknown };
+type Vrf7Cfg = { list_spec: { attribute_definitions: Array<{ id: string; note?: string }>; second_opinion?: boolean; pricing: { extras: {
+  accessories: Vrf7Acc[]; from_model: Record<string, unknown>; lines: Record<string, string>;
+  prepare: Record<string, unknown> & { family_words: Array<Record<string, unknown>> }; safeguard: Record<string, unknown> & { lines: Record<string, string> } } } } };
+
+/** PURE. v62's hvac_vrf with the VRF-7 keys applied; `omit` leaves groups out. */
+export function applyVrf7(base: RateCategoryConfig, fx: Vrf7Fixture, omit: Vrf7Group[] = []): RateCategoryConfig {
+  const c = structuredClone(base) as unknown as Vrf7Cfg;
+  const x = c.list_spec.pricing.extras;
+  if (!omit.includes("prepare")) Object.assign(x.prepare, structuredClone(fx.prepare_add));
+  if (!omit.includes("family")) {
+    for (const fw of x.prepare.family_words) { const u = fx.family_words_unless[String(fw.family)]; if (u) fw.unless = u; }
+    x.prepare.family_words = [...(structuredClone(fx.family_words_prepend) as Array<Record<string, unknown>>), ...x.prepare.family_words];
+  }
+  if (!omit.includes("safeguard")) {
+    for (const [k, v] of Object.entries(fx.safeguard_add)) { if (k === "lines") Object.assign(x.safeguard.lines, v); else x.safeguard[k] = structuredClone(v); }
+    for (const k of fx.safeguard_drop) delete x.safeguard[k];
+  }
+  if (!omit.includes("accessories")) {
+    for (const a of x.accessories) {
+      const pt = fx.accessories_patch[a.id];
+      if (!pt) continue;
+      if (pt.step_up_note && a.electrical?.match) a.electrical.match.step_up_note = pt.step_up_note;
+      if (pt.note_words) a.note_words = structuredClone(pt.note_words);
+      if (pt.conflict && a.choice) a.choice.conflict = structuredClone(pt.conflict);
+    }
+  }
+  if (!omit.includes("from_model")) {
+    Object.assign(x.from_model, structuredClone(fx.from_model_add));
+    for (const k of fx.from_model_drop) delete x.from_model[k];
+  }
+  if (!omit.includes("lines")) Object.assign(x.lines, fx.lines_add);
+  if (!omit.includes("questions")) {
+    const defs = c.list_spec.attribute_definitions.filter((q) => !fx.question_drop.includes(q.id))
+      .map((q) => (fx.question_notes_append[q.id] ? { ...q, note: `${q.note ?? ""}${fx.question_notes_append[q.id]}` } : q));
+    c.list_spec.attribute_definitions = [...defs, ...structuredClone(fx.question_add)];
+    c.list_spec.second_opinion = fx.second_opinion;
+  }
+  return c as unknown as RateCategoryConfig;
+}

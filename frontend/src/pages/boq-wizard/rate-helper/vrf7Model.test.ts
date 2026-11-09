@@ -20,69 +20,22 @@ import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-mast
 import { type ExtractedListItem } from "./itemListPricing";
 import { buildExtractionByRow, chainOf, clip, locateWords, makePricingSheetHelper, type ExtraLineView, type ItemListSuggestion, type ItemListView } from "./pricingSheetHelper";
 import { rowChainOf, rowQuantitiesOf, sheetLinesOf } from "./rateSuggestionModel";
-import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
+import { applyVrf7, readJsonFixture, type Vrf7Fixture, type Vrf7Group } from "../../pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
 const h62 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v62.json`, import.meta.url));
 const e72 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_electrical_all_v72.json`, import.meta.url));
-type Q = { id: string; note?: string; [k: string]: unknown };
-type Fx = {
-  prepare_add: Record<string, unknown>; family_words_prepend: unknown[]; family_words_unless: Record<string, string>;
-  safeguard_add: Record<string, unknown> & { lines: Record<string, string> }; safeguard_drop: string[];
-  accessories_patch: Record<string, Record<string, unknown>>; from_model_add: Record<string, unknown>; from_model_drop: string[];
-  lines_add: Record<string, string>; question_drop: string[]; question_add: Q[]; question_notes_append: Record<string, string>; second_opinion: boolean;
-};
-export const FX7 = readJsonFixture<Fx>(new URL("../../pricing/__fixtures__/vrf7Model.json", import.meta.url));
+const FX7 = readJsonFixture<Vrf7Fixture>(new URL("../../pricing/__fixtures__/vrf7Model.json", import.meta.url));
 const toItems = (a: Asset) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
 const ITEMS: RateMasterItem[] = [...toItems(h62), ...toItems(e72)];
 const VRF = "hvac_vrf";
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
-
-type Acc = { id: string; electrical?: { match?: Record<string, unknown> }; choice?: Record<string, unknown>; [k: string]: unknown };
-type Px = { extras: { accessories: Acc[]; from_model: Record<string, unknown>; lines: Record<string, string>;
-  prepare: Record<string, unknown> & { family_words: Array<Record<string, unknown>> }; safeguard: Record<string, unknown> & { lines: Record<string, string> } } };
-type Cfg = { list_spec: { pricing: Px; attribute_definitions: Q[]; second_opinion?: boolean } };
-export type Vrf7Group = "prepare" | "family" | "safeguard" | "accessories" | "from_model" | "lines" | "questions";
-
-/** PURE. v62's hvac_vrf with the VRF-7 keys applied (each group can be left out to prove the config without it is unchanged). */
-export function applyVrf7(base: RateCategoryConfig, fx: Fx = FX7, omit: Vrf7Group[] = []): RateCategoryConfig {
-  const c = structuredClone(base) as unknown as Cfg;
-  const p = c.list_spec.pricing;
-  const x = p.extras;
-  if (!omit.includes("prepare")) Object.assign(x.prepare, structuredClone(fx.prepare_add));
-  if (!omit.includes("family")) {
-    for (const fw of x.prepare.family_words) { const u = fx.family_words_unless[String(fw.family)]; if (u) fw.unless = u; }
-    x.prepare.family_words = [...(structuredClone(fx.family_words_prepend) as Array<Record<string, unknown>>), ...x.prepare.family_words];
-  }
-  if (!omit.includes("safeguard")) {
-    for (const [k, v] of Object.entries(fx.safeguard_add)) { if (k === "lines") Object.assign(x.safeguard.lines, v); else x.safeguard[k] = structuredClone(v); }
-    for (const k of fx.safeguard_drop) delete x.safeguard[k];
-  }
-  if (!omit.includes("accessories")) {
-    for (const a of x.accessories) {
-      const pt = fx.accessories_patch[a.id];
-      if (!pt) continue;
-      if (pt.step_up_note && a.electrical?.match) a.electrical.match.step_up_note = pt.step_up_note;
-      if (pt.note_words) a.note_words = structuredClone(pt.note_words);
-      if (pt.conflict && a.choice) a.choice.conflict = structuredClone(pt.conflict);
-    }
-  }
-  if (!omit.includes("from_model")) {
-    Object.assign(x.from_model, structuredClone(fx.from_model_add));
-    for (const k of fx.from_model_drop) delete x.from_model[k];
-  }
-  if (!omit.includes("lines")) Object.assign(x.lines, fx.lines_add);
-  if (!omit.includes("questions")) {
-    const defs = c.list_spec.attribute_definitions.filter((q) => !fx.question_drop.includes(q.id))
-      .map((q) => (fx.question_notes_append[q.id] ? { ...q, note: `${q.note ?? ""}${fx.question_notes_append[q.id]}` } : q));
-    c.list_spec.attribute_definitions = [...defs, ...structuredClone(fx.question_add)];
-    c.list_spec.second_opinion = fx.second_opinion;
-  }
-  return c as unknown as RateCategoryConfig;
-}
+type Q = { id: string; note?: string; [k: string]: unknown };
+type Cfg = { list_spec: { pricing: { extras: { prepare: { family_words: Array<Record<string, unknown>> } } }; attribute_definitions: Q[]; second_opinion?: boolean } };
 const V62 = () => h62.category_configs.find((x) => x.category_id === VRF)!;
+// K2: the fixture is applied by the parity harness's `applyVrf7` -- one copy for these tests and the parity blocks
 const vrf7 = (omit: Vrf7Group[] = []) => applyVrf7(V62(), FX7, omit);
 const configsOf = (vrf: RateCategoryConfig) => new Map<string, RateCategoryConfig>([
   ...h62.category_configs.map((c) => [c.category_id, c.category_id === VRF ? vrf : c] as [string, RateCategoryConfig]),
