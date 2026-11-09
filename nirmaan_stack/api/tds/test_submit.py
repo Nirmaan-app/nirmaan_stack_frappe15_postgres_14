@@ -34,8 +34,6 @@ def _raw(doctype, **fields):
 	return doc.name
 
 
-
-
 def _make_user(email, profile, roles):
 	"""A test actor on both axes: Frappe Roles (DocPerms) and the Nirmaan role profile (gates).
 	Same shape as `api/expense_requests/test_expense_requests._make_user`."""

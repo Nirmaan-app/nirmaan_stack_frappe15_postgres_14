@@ -34,6 +34,7 @@ from frappe.utils import add_months, getdate, now_datetime, today
 from nirmaan_stack.api.assets import audits as audits_api
 from nirmaan_stack.api.assets.assign import unassign_asset
 from nirmaan_stack.api.assets.history import get_asset_history
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.patches.v3_0.remove_asset_returns import remove_returns
 from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management import (
     CATEGORY_PREFIX,
@@ -169,7 +170,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         doc = frappe.new_doc("File")
         doc.update({
             "name": name, "file_name": file_name, "is_private": 1, "owner": owner or self.holder,
-            "file_url": fake_file_url(f"{name}-{file_name}", "File"),
+            "file_url": cloud_url(f"test-dept-{name}-{file_name}"),
             "creation": now_datetime(), "modified": now_datetime(),
         })
         if attached_to:

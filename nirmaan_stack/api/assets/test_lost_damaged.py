@@ -22,10 +22,10 @@ from nirmaan_stack.api.assets.assign import assign_asset, unassign_asset
 from nirmaan_stack.api.assets.lost_damaged import mark_found_repaired, mark_lost_damaged
 from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management import (
     CATEGORY_PREFIX,
-    FAKE_FILE_URL,
+    ensure_departments,
+    fake_file_url,
     _make_person,
     _purge,
-    ensure_departments,
 )
 from nirmaan_stack.services.asset_audit_open import due_assignments
 from nirmaan_stack.services.asset_history import (
@@ -149,7 +149,7 @@ class TestLostDamaged(FrappeTestCase):
             frappe.get_doc({
                 "doctype": "Asset Management", "asset": asset, "asset_assigned_to": holder,
                 "asset_assigned_on": today(),
-                "asset_declaration_attachment": FAKE_FILE_URL.format(asset, asset) if declaration else None,
+                "asset_declaration_attachment": fake_file_url(asset) if declaration else None,
             }).insert(ignore_permissions=True)
         return asset
 

@@ -31,6 +31,11 @@ class TestCloudUrl(unittest.TestCase):
         url = cloud_url("Tax Invoice 2026-27 March Rent Office Premises (1).pdf", "Non Project Expenses")
         self.assertTrue(200 <= len(url) <= 270, len(url))
 
+    def test_a_very_long_name_is_cut_to_270_and_keeps_its_extension(self):
+        url = cloud_url("Made Up Traders quotation " * 8 + ".pdf", "Non Project Expenses")
+        self.assertTrue(200 <= len(url) <= 270, len(url))
+        self.assertTrue(url.endswith(".pdf"), url)
+
     def test_it_has_the_storage_apps_shape(self):
         url = cloud_url("site photo.jpeg", "Project Expenses")
         match = SHAPE.match(url)
