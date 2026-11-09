@@ -1524,8 +1524,9 @@ export interface CoverChoice {
   picked: number;
 }
 
-/** VRF-6 U11: how many options the toggle offers at most (the helper's pick + four alternatives). */
-export const COVER_OPTIONS_MAX = 5;
+/** VRF-6 U11 (owner 23:51, K1d: "i had specifed only 2, the one which gets selected and the next best option"): the toggle
+ *  offers exactly the helper's pick and the next best -- never a longer list. */
+export const COVER_OPTIONS_MAX = 2;
 
 /**
  * VRF-6 U11 -- PURE. The ranked options: the covering singles (each stocked size at or above the stated one) and the covering
@@ -5237,7 +5238,7 @@ function priceOneItem(
       const cover: CoverChoice | undefined = opts.length > 1 ? { attr, unit: famUnit, total: want, options: opts, picked: pickN } : undefined;
       const lay = (o: { layers: number[] }) => o.layers.map(fmt).join(" + ");
       const userLine = cover && pickN > 0
-        ? `Option ${pickN + 1} of ${opts.length} (chosen by the user): ${lay(opts[pickN])} ${famUnit} = ${fmt(opts[pickN].layers.reduce((x, y) => x + y, 0))} ${famUnit}, `
+        ? `Next-best option (chosen by the user): ${lay(opts[pickN])} ${famUnit} = ${fmt(opts[pickN].layers.reduce((x, y) => x + y, 0))} ${famUnit}, `
           + `${fmt(opts[pickN].excess)} ${famUnit} over the BoQ's ${fmt(want)} ${famUnit}; the helper's pick was ${lay(opts[0])} ${famUnit}.`
         : undefined;
       if (userLine && opts[pickN].layers.length > 1) {

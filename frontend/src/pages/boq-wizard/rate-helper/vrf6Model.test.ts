@@ -17,7 +17,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
-import { ownRowQuotes, readCableKindWords, readStatedSplit, type ExtractedListItem, type NumberReader } from "./itemListPricing";
+import { ownRowQuotes, rankCover, readCableKindWords, readStatedSplit, type ExtractedListItem, type NumberReader } from "./itemListPricing";
 import { coveringSets } from "./ladderResolution";
 import {
   EXTRAS_INCLUDES_KEY, ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, buildExtractionByRow, makePricingSheetHelper,
@@ -486,51 +486,63 @@ describe("VRF-6 QR-1 Q3 -- coveringSets (every covering pair: least excess, then
   });
 });
 
-describe("VRF-6 U11 -- the next-best combination toggle (owner 18:52 / 19:32)", () => {
+describe("VRF-6 U11 -- the helper's pick <-> the next best (owner 18:52 / 19:32; K1d 23:51: exactly two)", () => {
   const cap = (v: ItemListView) => v.items.map((b) => b.fields.find((f) => f.id === "capacity")?.value);
   const row24 = { 9: { items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "24 HP" })] } };
   const step = (v: ItemListView, option: number, er = 9, rows: Record<number, Row> = row24) =>
     sheet(rows)(er, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(applyItemEdit(v.editState, { op: "cover_option", index: 0, option })) });
-  it("24 HP Daikin heat pump (00131 r16): option 1 is the helper's pick 20 + 6; the ranked list offers more", () => {
+  it("24 HP Daikin heat pump (00131 r16): exactly two options - the helper's pick 20 + 6 and the next best; no 'of n' anywhere", () => {
     const v = sheet(row24)(9);
     expect(cap(v)).toEqual(["20", "6"]);
-    expect(v.items[0].cover).toMatchObject({ option: 1, userChosen: false, next: 1 });
-    expect(v.items[0].cover!.of).toBeGreaterThan(1);
-    expect(v.items[0].cover!.label).toMatch(/^Option 1 of \d - the helper's pick: 20 \+ 6 HP for the BoQ's 24 HP$/);
+    expect(v.items[0].cover).toMatchObject({ option: 1, of: 2, userChosen: false, next: 1 });
+    expect(v.items[0].cover!.label).toBe("The helper's pick: 20 + 6 HP for the BoQ's 24 HP");
+    expect(allText(v)).not.toMatch(/Option \d+ of \d+/);
     expect(v.items[1].cover).toBeUndefined();
   });
-  it("stepping to option 2 re-prices the row's lines and the note names the choice, its excess and the helper's pick; back = the automatic price", () => {
+  it("the toggle goes to the next best (re-priced, the note names it, its excess and the helper's pick) and back = the automatic price", () => {
     const v = sheet(row24)(9);
     const s2 = step(v, 1);
-    expect(cap(s2)).not.toEqual(["20", "6"]);
-    expect(s2.split?.note ?? s2.items[0].working?.join(" | ")).toMatch(/Option 2 of \d \(chosen by the user\): [\d .+]+ HP = \d+ HP, \d+(\.\d+)? HP over the BoQ's 24 HP; the helper's pick was 20 \+ 6 HP\./);
-    expect(s2.items[0].cover).toMatchObject({ option: 2, userChosen: true });
+    expect(cap(s2)).toEqual(["20", "8"]);
+    expect(s2.split?.note).toMatch(/^Next-best option \(chosen by the user\): 20 \+ 8 HP = 28 HP, 4 HP over the BoQ's 24 HP; the helper's pick was 20 \+ 6 HP\./);
+    expect(s2.items[0].cover).toMatchObject({ option: 2, of: 2, userChosen: true, next: 0, label: "Next-best option (chosen by you): 20 + 8 HP for the BoQ's 24 HP" });
+    expect(s2.items[0].helperLine).toMatch(/^From the next-best option you chose for 24 HP -> 20 HP/);
     expect(s2.totals).not.toEqual(v.totals);
     const back = step(s2, 0);
     expect(cap(back)).toEqual(["20", "6"]);
     expect(back.totals).toEqual(v.totals);
-    expect(back.items[0].cover).toMatchObject({ option: 1, userChosen: false });
+    expect(back.items[0].cover).toMatchObject({ option: 1, userChosen: false, next: 1 });
+    expect(back.items[0].helperLine).toMatch(/^From the helper's split/);
   });
-  it("a single helper pick (30 HP -> 34) also steps; option 2 is a pair (no larger single)", () => {
+  it("NEGATIVE: an option beyond the second is never offered (a stored 4 falls back to the next best)", () => {
+    const s4 = step(sheet(row24)(9), 4);
+    expect(cap(s4)).toEqual(["20", "8"]);
+    expect(s4.items[0].cover).toMatchObject({ option: 2, of: 2 });
+  });
+  it("a single helper pick (30 HP -> 34) toggles to the next best, a pair (no larger single)", () => {
     const rows = { 9: { items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "30 HP" })] } };
     const v = sheet(rows)(9);
     expect(cap(v)).toEqual(["34"]);
-    expect(v.items[0].cover).toMatchObject({ option: 1, userChosen: false });
+    expect(v.items[0].cover).toMatchObject({ option: 1, of: 2, userChosen: false });
     const s2 = step(v, 1, 9, rows);
     expect(cap(s2).length).toBe(2);
-    expect(s2.split?.note).toMatch(/Option 2 of \d \(chosen by the user\): .* the helper's pick was 34 HP\./);
+    expect(s2.split?.note).toMatch(/^Next-best option \(chosen by the user\): .* the helper's pick was 34 HP\./);
   });
-  it("the calculator shows the same ranking", () => {
+  it("the calculator shows the same two options", () => {
     const panel = sheet(row24)(9);
     const c = calc([{ base: null, family: "Outdoor Unit", attrs: { brand: "Daikin", cooling: "Heat Pump", capacity: "24" }, other: ["capacity"] }]);
     expect(c.items[0].cover?.label).toBe(panel.items[0].cover?.label);
+    expect(c.items[0].cover?.of).toBe(2);
+  });
+  it("rankCover offers at most two; one covering option -> one (and the pricer then shows no control)", () => {
+    expect(rankCover(24, [6, 8, 20, 34], [{ layers: [20, 6], excess: 2, cost: 1 }, { layers: [20, 8], excess: 4, cost: 2 }], () => 5)).toHaveLength(2);
+    expect(rankCover(30, [34], [], () => 5)).toEqual([{ layers: [34], excess: 4, cost: 5 }]);
   });
   it("NEGATIVE: an exact stocked size, an indoor unit and v61's config carry no toggle", () => {
     expect(sheet({ 9: { items: [ODU({ brand: "Daikin", cooling: "Heat Pump", capacity: "20 HP" })] } })(9).items[0].cover).toBeUndefined();
     expect(one({ items: [CAS()] }).items[0].cover).toBeUndefined();
     expect(sheet(row24, V61())(9).items.every((b) => !b.cover)).toBe(true);
   });
-  it("NEGATIVE: Reset to the helper's split drops a stepped option", () => {
+  it("NEGATIVE: Reset to the helper's split drops a chosen option", () => {
     const s2 = step(sheet(row24)(9), 1);
     const r = sheet(row24)(9, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(applyItemEdit(s2.editState, { op: "reset_split" })) });
     expect(cap(r)).toEqual(["20", "6"]);

@@ -2582,7 +2582,7 @@ export interface ItemBlockView {
   helperLine?: string;
   changedByYou?: true;
   /** VRF-6 U11 (owner 18:52): on the unit a stated size no single SKU matched (the first line of its split, or the single) --
-   *  where it sits on the helper's ranked singles / pairs, and the option "Next best option" steps to (`cover_option`). */
+   *  the helper's pick or the next best (K1d: exactly two), and the option the one toggle steps to (`cover_option`). */
   cover?: { option: number; of: number; userChosen: boolean; label: string; next: number };
   /** VRF-3a K2 (U5, board 11): a counted item (a refnet) on a per-Set row -- its three typed fields, the expected-count
    * formula, the case's sentence, the pieces the rule gave (null = withheld: the box blank and red) and whether the
@@ -3468,7 +3468,9 @@ function itemBlockView(
     ...(edit.helper ? {
       helperLine: edit.helper.stated
         ? `From the split ${edit.helper.stated.typed ? "you typed" : "the row states"}: ${edit.helper.size} ${edit.helper.unit}`.trim()
-        : `From the helper's split of ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`.replace(/\s+$/, ""),
+        : (edit.helper.cover && edit.helper.cover.picked > 0
+          ? `From the next-best option you chose for ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`
+          : `From the helper's split of ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`).replace(/\s+$/, ""),
       ...(helperLineChanged(edit) ? { changedByYou: true as const } : {}),
     } : {}),
     ...(() => {
@@ -3476,8 +3478,8 @@ function itemBlockView(
       if (!c || c.options.length < 2) return {};
       const o = c.options[c.picked];
       const u = c.unit ? ` ${c.unit}` : "";
-      return { cover: { option: c.picked + 1, of: c.options.length, userChosen: c.picked > 0, next: (c.picked + 1) % c.options.length,
-        label: `Option ${c.picked + 1} of ${c.options.length}${c.picked > 0 ? " (chosen by you)" : " - the helper's pick"}: ${o.layers.map(fmtN).join(" + ")}${u} for the BoQ's ${fmtN(c.total)}${u}` } };
+      return { cover: { option: c.picked + 1, of: c.options.length, userChosen: c.picked > 0, next: c.picked > 0 ? 0 : 1,
+        label: `${c.picked > 0 ? "Next-best option (chosen by you)" : "The helper's pick"}: ${o.layers.map(fmtN).join(" + ")}${u} for the BoQ's ${fmtN(c.total)}${u}` } };
     })(),
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,

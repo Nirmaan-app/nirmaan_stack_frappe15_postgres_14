@@ -1680,9 +1680,9 @@ function ItemListBlocks({
                   <span className="ml-1 text-[10px] font-normal text-amber-700 dark:text-amber-400">default</span>
                 )}
               </div>
-              {/* VRF-6 U11 (owner 2026-11-09 18:52): the helper's ranked singles / pairs for a stated size no single unit
-                  matched -- where this unit sits, a step to the next-best option and back to the helper's pick. The
-                  automatic price never moves: only a step re-prices the row's lines. */}
+              {/* VRF-6 U11 (owner 2026-11-09 18:52; K1d 23:51 "only 2"): for a stated size no single unit matched, ONE toggle
+                  between the helper's pick and the next best option. The automatic price never moves: only a step re-prices
+                  the row's lines. */}
               {!section && b.cover && (
                 <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px]" data-testid="item-cover">
                   <span className={cn(b.cover.userChosen && "rounded bg-amber-50 px-1 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200")} data-testid="item-cover-label">
@@ -1694,18 +1694,8 @@ function ItemListBlocks({
                     className="h-6 rounded border bg-background px-1.5 text-[11px] font-medium hover:bg-muted"
                     data-testid="item-cover-next"
                   >
-                    {b.cover.next === 0 ? "Back to option 1" : "Next best option"}
+                    {b.cover.userChosen ? "Back to the helper's pick" : "Next best option"}
                   </button>
-                  {b.cover.userChosen && b.cover.next !== 0 && (
-                    <button
-                      type="button"
-                      onClick={() => onEdit({ op: "cover_option", index: i, option: 0 })}
-                      className="h-6 rounded border bg-background px-1.5 text-[11px] font-medium hover:bg-muted"
-                      data-testid="item-cover-reset"
-                    >
-                      Back to the helper&apos;s pick
-                    </button>
-                  )}
                 </div>
               )}
             </div>
