@@ -50788,7 +50788,8 @@ readings agree (3 are capacity format only). Parity (5,098 rows): hvac_vrf 0 fig
 **Commits (desktop; the owner pushes):** K1 `6fbd8485a` feat(boq-pricing) and K2 `93f6d78a9` fix(boq-pricing) were pushed by the
 owner at ~18:20 (origin = `93f6d78a9`); new on top: K1b `cb1c4a1ed` fix(boq-pricing) (the final Q3 rule), K3 `847f0f528`
 feat(hvac-vrf) (asset v62 + config checks + Pricing Inputs schedule + mint + tests / parity / R-39 + pins), K1c `db0918dc6`
-feat(boq-pricing) (U11 next-best toggle), K4 docs.
+feat(boq-pricing) (U11 next-best toggle), K4 `803a92ae1` docs, then K1d `9d6b2292d` fix(boq-pricing) (U11 capped at two options,
+owner 23:51), K1e `0a6ed94f6` fix(boq-pricing) (per-Kg frame rows, owner 00:07), K4b docs.
 
 **Owner answers:** QR-1 18:25 (Q1 ELCB = RCCB 300 mA 4P; Q2 MCB C curve; Q3 the owner's own rule; Q4 a piping row is the copper row
 unless the model read a non-copper pipe); "go" 18:30 with a 17,000,000-token ceiling; 18:52 second opinion OFF as the STANDING rule
@@ -50818,15 +50819,15 @@ refusals that differ in wording only).
 **Cert C1-C12** at :8080 after a full de-stale: all pass under the rulings, with the expectations newer rulings superseded -
 00073 r51 copper and 00093 Option 1 r25 cable are NOT added because those sheets quote them on their own rows (F4 category first);
 00298 r254 shows no copper note because this run's model answer left copper / insulation blank. C10 was certified from data (the
-"vs VRF-5" comparison), not in the browser. C12 (U11) on 00131 / ESTIMATE / 16: Option 1 of 5 = 20 + 6 (817,434) -> Option 2 =
-20 + 8 HP, 4 HP over the BoQ's 24 HP (835,347) -> back = 817,434.
+"vs VRF-5" comparison), not in the browser. C12 (U11, after K1d) on 00131 / ESTIMATE / 16: "The helper's pick: 20 + 6 HP" (817,434) -> the one toggle -> "Next-best option
+(chosen by the user): 20 + 8 HP = 28 HP, 4 HP over the BoQ's 24 HP" (835,347) -> back = 817,434. C13 (K1e) 00102 / HVAC / 22 (Kgs):
+MS Angle Base Frame Structure 140 / 40 per Kg + the rule's note. K1e from the stored answers: 00009 r80 refuse -> 140 / 0,
+00102 r22 refuse -> 140 / 40, 00380 HVAC-3F r268 refuse -> 140 / 40 (VRF-5: 140 / 40, 140 / 0, 140 / 40 - the scope answers of the
+new reads differ); a 1,400-row reprice moves exactly these 3 figures.
 
 **Open (for the owner):**
-- Three frame rows quoted per Kg (00009 r80, 00102 r22, 00380 HVAC-3F r268) now refuse: the model reads the new Nos-only item "MS
-  frame / stand for ODU" on a Kg row (VRF-5 priced them as the per-Kg MS stand). A per-Kg twin of `prepare.family_by_unit` would
-  route them back - not built (no ruling).
+- (Fixed by K1e) the three frame rows quoted per Kg that refused after the run now price on the per-Kg item.
 - 00231 r105, 00243 r105, 00259 r12: 600 x 600 cassettes above the compact's 1.5 TR refuse (Q-pre 7 as ruled).
 - Model readings that changed: 00218 HVAC-2F / 3F r274 ("no item"), 00029 r402 ("no unit"), 00298 r254 (copper / insulation blank).
 - Pricing Inputs: the installation-only uplift's label does not state its new condition (only without a supply row on the sheet).
-- U11 cosmetics: the floating calculator button overlaps the option label; a user-chosen split's lines still say "From the
-  helper's split".
+- U11 cosmetics: the floating calculator button overlaps the option label (K1d fixed the "From the helper's split" wording).

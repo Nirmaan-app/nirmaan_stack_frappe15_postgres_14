@@ -2750,11 +2750,16 @@ is optional: a config without it is byte-identical (the 1,400 stored VRF rows pr
   (10 + 7 has less excess but costs more); a Blue Star 9 HP keeps one 10 HP; a cost nobody read never proves a pair cheaper. The note
   names the pick, its excess and both costs (`splitInto.why` -> `HelperMark.why`); `single_line` says why the single stood; 3+ modules
   noted. Above the largest single the VRF-3a split stands (fewest units -> least excess -> cheapest = the owner's "no single covers" rule).
-- **U11 next-best toggle (owner 18:52, K1c).** On a unit whose stated size no single SKU matched, the panel and the calculator show
-  "Option k of n" on the ranked singles / pairs (`rankCover`: the Q3 rule applied again and again, option 1 = the helper's pick, at
-  most 5) with "Next best option" / "Back to the helper's pick" (`cover_option`; `ItemEdit.cover`, kept by decode; "Reset to the
-  helper's split" drops it). A step re-prices the row's lines and says "Option 2 of 5 (chosen by the user): ... over the BoQ's 24 HP;
-  the helper's pick was 20 + 6 HP." The automatic price never changes.
+- **U11 next-best toggle (owner 18:52, K1c; capped at TWO by K1d, owner 23:51 "only 2, the one which gets selected and the next
+  best option").** On a unit whose stated size no single SKU matched, the panel and the calculator show "The helper's pick: 20 + 6 HP
+  for the BoQ's 24 HP" and ONE toggle, "Next best option" / "Back to the helper's pick" (`rankCover` applies the Q3 rule twice,
+  `COVER_OPTIONS_MAX = 2`; `cover_option`; `ItemEdit.cover`, kept by decode; "Reset to the helper's split" drops it). The chosen
+  option re-prices the row's lines and says "Next-best option (chosen by the user): 20 + 8 HP = 28 HP, 4 HP over the BoQ's 24 HP; the
+  helper's pick was 20 + 6 HP." The automatic price never changes.
+- **Per-Kg frame rows (K1e, owner 2026-11-10 00:07; team rule 11-08 10:45 "a row quoting frames per Kg keeps the per-Kg item").**
+  `prepare.family_by_unit` also routes BACK: its target item (the Nos-only "MS frame / stand for ODU") read on a row of a unit class
+  the target is not stocked in but the source is (Kg) prices on the source item (MS Angle Base Frame Structure), with the rule's
+  note (00009 r80, 00102 r22, 00380 HVAC-3F r268). No config key; the stored answers suffice.
 - **F11 (`lines.length_per_item` / `length_cable_words` / `length_pipe_words` / `cable_kind_always` / `drain_cable_words` /
   `drain_cable_note_words` / `power_cable_words`).** A length inside the cable's own words is that cable's only (00073 r51: the 3 m cord;
   copper / comm keep 30 m); 'AL' / 'Alu' = aluminium (`readCableKindWords(..., {abbrev})`) and the BoQ's armour / conductor apply even
