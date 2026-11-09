@@ -461,8 +461,9 @@ is written to the row; re-opening the panel shows the model's answers again; the
 sides of the existing JSON fields (what the model returned, what was on screen) -- no doctype change. **A list-mode
 category is eligible by the SAME two facts as every other** (non-empty `pipelines` and definitions): its `pipelines`
 hold the shared per-item default that every unit block without pipelines of its own runs, so the switch is real code
-path, never an inert key. **The second opinion is a BUILD-TIME instrument: ON while a category's extraction is being
-built, OFF before it goes live.** The pre-run panel rule is PER ROW (`rowUsesPreRunHelper`): a row with nothing to run
+path, never an inert key. **The second opinion is OFF for every category, building and testing included** (owner
+2026-11-09 18:52: "from now onwards we will keep it off even for testing new categories"; slices up to VRF-5 ran it ON while
+building). The pre-run panel rule is PER ROW (`rowUsesPreRunHelper`): a row with nothing to run
 of its own (no config, an alias, a message-only config) keeps the pre-run helper even when its discipline has something
 to run -- but ONLY in a discipline that DECLARES before-run cards (`disciplineDeclaresPreRunCards`: some fetched config
 of it is an alias or not eligible). That opt-in is load-bearing and names no discipline: HVAC declares cards, so a
@@ -2720,6 +2721,76 @@ byte-identical (v60 and older unchanged; the replay: 0 moves on the old rows).
 - **Derivation:** seven lines (accessories, folded, safeguard, cable words, Side, several makes, scope). The per-HP refusal bar reads
   "PRICED PER HP" (`lot_units.bar_by_unit`); the "read at VRF-4" text is gone. F5 (an automatic split's note) did not reproduce: the
   note already exists.
+
+**VRF-6: THE REMOTE'S TYPE, EVERY UNADDED EXTRA SAID, THE OWN-ROW CHECK BY CATEGORY, SPLITS, CABLE FACTS PER ITEM, ACCESSORIES FOLLOW THE UNIT'S MAKE, THE FRAME / STAND ITEM, GAS KG = HP, MCB + ELCB BY THE HP SCHEDULE, THE READING RULES (owner rulings 2026-11-08 / 09 F1 / F3 / F4 / F8 / F11 / F12, Q1-Q8; team 10:41-10:45; pre-VRF-6 1-13 13:02-13:45; QR-1 18:25 + ANSWER 4 / 5 18:52 / 19:32; HVAC v62).**
+v62 = v61 with only `hvac_vrf` changed, plus: 9 `hvac_pricing_input` rows retired (the Kg frame / Kg gas / MCCB band defaults), 14 new
+ones, and ONE new `hvac_misc_item` "MS frame / stand for ODU" (Nos, BCS 4,000 / install 0, supply markup 40% = 5,600 / 0). Every key
+is optional: a config without it is byte-identical (the 1,400 stored VRF rows priced under v61 with the VRF-6 code: 0 differences).
+- **`second_opinion` is FALSE on hvac_vrf (owner 2026-11-09 18:52: "from now onwards we will keep it off even for testing new
+  categories" -- the STANDING RULE for every category; the VRF-6 run made 0 second-opinion calls).**
+- **F1 remote (`accessories[remote].choice.first_words / model_attr / read_notes`).** Typed > the ambiguous spellings ('corded or
+  cordless', 'cordless/corded', 'corded less' -> Cordless) > the model's own `remote_type` > the words ('corded' / 'wired' alone ->
+  Wired; 'cordless' / 'wireless' -> Cordless) in the row, its notes, its headings and their notes > Cordless (tagged default). A plain
+  'cordless' never beats the model's answer (00003: the heading notes name corded for ductables and cordless for cassettes).
+- **F3 (`safeguard.lines.not_added` + `role_<role>` / `no_extras` / `also_own_row`).** An include the item cannot carry is a review
+  point with its reason (outdoor units only; indoor units only; no extras on a controller / AHU kit -- interim, Q-pre 2; insulation
+  needs copper) and, where the sheet quotes it, those rows; the same for a calculator tick ("stated in your tick").
+- **F4 (`safeguard.match: "category"`, own-row `categories` / `category_words` / `category_not_families`).** The sheet's rows carry
+  their run category (`ROW_CATEGORIES`) and a rate-editable Preamble the run read is kept (`sheetLinesOf` flags Preambles; 00234 r55).
+  A row of a rule's category counts (copper: hvac_piping unless the model read a non-copper pipe -- QR-1 Q4; insulation:
+  hvac_insulation, or a piping row whose words say insulation; cables: hvac_cables); a row of the asking row's own category counts by
+  its item-1 family; WORDS only for an uncategorised row (the remote's words now need 'remote control' / 'handset': 00131's starter
+  rows 'remote operation' are not remotes). Electrical-category rows stay out (owner 18:50).
+- **F8 (`split.stated_times / split_over_top / pair_first / many_line`).** '24HP (12HP x 2NOS)' / '12 HP x 2 Nos' read as n equal
+  modules (`readTimesSplit`); a written module above the variant's largest single unit is split by `composeSize` (00175 r17: 24 ->
+  12 + 12), never refusing; no single SKU at the stated size -> the single that covers it (next size up, a combination SKU counts)
+  STANDS unless a covering PAIR is cheaper, then the cheaper pair with the least excess, ties cheapest (`pair_first.mode:
+  "single_unless_cheaper"`, `max_units: 2`, `coveringSets`; owner QR-1 Q3 final 19:32 "option b", after "least excess" (18:25) and
+  "singles + pairs" (18:52) were superseded). 00131 r17 26 HP -> 20 + 6 (cheaper than the 34 HP SKU); 00098 r15 16.25 HP -> one 18 HP
+  (10 + 7 has less excess but costs more); a Blue Star 9 HP keeps one 10 HP; a cost nobody read never proves a pair cheaper. The note
+  names the pick, its excess and both costs (`splitInto.why` -> `HelperMark.why`); `single_line` says why the single stood; 3+ modules
+  noted. Above the largest single the VRF-3a split stands (fewest units -> least excess -> cheapest = the owner's "no single covers" rule).
+- **U11 next-best toggle (owner 18:52, K1c).** On a unit whose stated size no single SKU matched, the panel and the calculator show
+  "Option k of n" on the ranked singles / pairs (`rankCover`: the Q3 rule applied again and again, option 1 = the helper's pick, at
+  most 5) with "Next best option" / "Back to the helper's pick" (`cover_option`; `ItemEdit.cover`, kept by decode; "Reset to the
+  helper's split" drops it). A step re-prices the row's lines and says "Option 2 of 5 (chosen by the user): ... over the BoQ's 24 HP;
+  the helper's pick was 20 + 6 HP." The automatic price never changes.
+- **F11 (`lines.length_per_item` / `length_cable_words` / `length_pipe_words` / `cable_kind_always` / `drain_cable_words` /
+  `drain_cable_note_words` / `power_cable_words`).** A length inside the cable's own words is that cable's only (00073 r51: the 3 m cord;
+  copper / comm keep 30 m); 'AL' / 'Alu' = aluminium (`readCableKindWords(..., {abbrev})`) and the BoQ's armour / conductor apply even
+  where a size is stated; cabling the BoQ ties to the drain pump is not the power cable (also from a note when no cable words were copied).
+- **F12 (`follow_unit_brand`, `prepare.same_as_outdoor`).** A remote / refnet / drain pump line takes the unit's brand where stocked,
+  else the default with a note (no Daikin drain pump -> the brandless Misc pump, noted); "make same as outdoor" -> the first outdoor
+  row's make that resolves (Blue Star if listed, else the first make stocked for Outdoor Unit) into `brand_as_written` and `brand`.
+- **TEAM (10:41 / 10:45).** Frame: `accessories[frame]` = the new Nos item, `vrf_acc_frame_per_outdoor` 1 per module; a frame row
+  quoted per Nos prices on it (`prepare.family_by_unit`; 00210 r29 / r30). Gas: `qty_per_size` = the module's priced HP x
+  `vrf_acc_gas_kg_per_hp` (1). MCB + ELCB: two accessories reading the one `includes_mccb` answer, `electrical.match` (db_switchgear by
+  attributes: MCB / FP / curve C; RCCB / FP / name '300 mA' = the ELCB, owner QR-1 Q1 "RCCB is same as elcb" / Q2 "C curve") and `electrical.schedule` (12 rows
+  `vrf_acc_mcb_elcb_<hp>_amp`: 16 / 20 / 20 / 25 / 32 / 40 / 40 / 40 / 63 / 63 / 63 / 63 A for <=5 / 6 / 8 / 10 / 12 / 14 / 16 / 18 /
+  20 / 22 / 24 / 26 HP; above the last row -> 63 A); the smallest stocked rating at or above it, noted when it steps up (16 / 20 A -> 25
+  A; ELCB 32 -> 40 A); 'isolator' -> the set. Never on an indoor unit (F3 says so).
+- **Q1 (`builtin`)** built-in drain pump: added + review point. **Q5 (`scope.conflict`)** a 'Supply of' row under words saying the rates
+  include installation: supply only when the sheet has an installation-only row of the same item-1 family (named), else supply +
+  installation, noted. **Installation-only (`scope.supply_row`, `install_only_normal`)**: the uplift only when the sheet has no supply
+  row of that family; else the normal install, the row named, shown as the scope option "Installation only (supply quoted on another
+  row)" -- the calculator's way to price the same. **Q6 (`prepare.row_cooling`)** the row's words win over a heading's (every heading's
+  notes: `rowAncestorNotes`), noted. **Q7 (`safeguard.note_wins`)** a 'cabling ... quantified separately' note wins. **Q-pre 4 / 7**
+  (`prepare.family_words` / `attr_words`): ON/OFF controller -> Touch Screen + note; CSU / ceiling suspended -> Ductable; 600 x 600 /
+  2' x 2' -> FOUR-WAY COMPACT; '1 way' in a heading -> ONE-WAY. **Q-pre 11 (`safeguard.control_wiring`)** -> comm cable + note.
+  **Q-pre 13 (`safeguard.lines.copper_usual`)** copper added from a heading / note -> review point. `prepare.spaced_decimal`: '6 .3TR'
+  = 6.3. **`two_capacities`**: "no capacity stated" on a row whose text states two -> "two capacities stated (a / b) - pick one".
+- **Questions:** the same 53; `item` gains the new family; notes of `item`, `remote_type`, `way`, `includes_gas` (full / first / initial
+  charge = Yes), `includes_mccb` (breakers / protection = Yes), `includes_power` (drain-pump cabling is not it).
+- **Pricing Inputs (U9):** the Accessories table shows the frame per module, gas per HP and the MCB + ELCB schedule ONCE (12 rows,
+  `pricingInputReach.extrasTablesOf`); reach: the schedule row's units by HP. Worked examples VRF-11..16 replaced by twelve (one per row).
+- **Validation:** each new key refused by name when malformed (`config_validation`: `_validate_prepare`, `_validate_vrf6_extras`, the
+  accessory / safeguard / scope / split branches); `accessory_input_ids` reads `qty_per_size` and the schedule inputs.
+- **Derivation:** 13 lines (v61's 33 + 13 = 46), each gated on its key.
+- **Not here:** F2 parenting (the BoQ user's), EA-7 note depth (open), Piping / Insulation pricing, the develop / H2 merge; the team's
+  extras Excel (Q-pre 2 stays interim).
+- **Live-catalogue pins (VRF-6 lesson).** The pin search reads files; a test that compares the LIVE config / counts with an asset
+  (`test_vrf_vNN` 07-09 "live", `test_piping_v34` live_04, `test_rate_master` co_f1_12 / sv_01 input and Misc counts) fails only
+  AFTER the load. Run the asset's live tests right after loading, before the commit; those pins move by the same mechanical rule.
 
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the

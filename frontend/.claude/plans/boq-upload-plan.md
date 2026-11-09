@@ -50782,3 +50782,51 @@ readings agree (3 are capacity format only). Parity (5,098 rows): hvac_vrf 0 fig
   137, hvac_insulation 29, hvac_adp 22 figure divergences + wording-only ones - a calculator-feed limit, no code of those categories
   changed in VRF-5.
 - With the default (unpicked) unit the calculator switches an MS frame to Kg and prices it (K2 keeps only a PICKED unit).
+
+## Slice VRF-6 - fixes and team rules from the VRF-5 review (HVAC v62), then the VRF-rows run - as built 2026-11-09
+
+**Commits (desktop; the owner pushes):** K1 `6fbd8485a` feat(boq-pricing) and K2 `93f6d78a9` fix(boq-pricing) were pushed by the
+owner at ~18:20 (origin = `93f6d78a9`); new on top: K1b `cb1c4a1ed` fix(boq-pricing) (the final Q3 rule), K3 `847f0f528`
+feat(hvac-vrf) (asset v62 + config checks + Pricing Inputs schedule + mint + tests / parity / R-39 + pins), K1c `db0918dc6`
+feat(boq-pricing) (U11 next-best toggle), K4 docs.
+
+**Owner answers:** QR-1 18:25 (Q1 ELCB = RCCB 300 mA 4P; Q2 MCB C curve; Q3 the owner's own rule; Q4 a piping row is the copper row
+unless the model read a non-copper pipe); "go" 18:30 with a 17,000,000-token ceiling; 18:52 second opinion OFF as the STANDING rule
+(every category, testing included), Q3 = singles + pairs, new UI item U11; 19:32 FINAL Q3 "option b" = the covering single stands
+unless a covering pair is cheaper (then the cheaper pair with the least excess). The superseded readings (least excess with any
+set -> 8 + 8 + 6 for 22 HP; singles + pairs least excess -> 00098 r15 10 + 7) were never committed as the rule.
+
+**Asset v62** (`rate_master_hvac_all_v62.json`, sha256 0d393e0f..., 585 items / 11 configs; only hvac_vrf changed + 14 Pricing
+Inputs in / 9 retired + the Misc item "MS frame / stand for ODU" Nos 4,000 / 0 at 40% = 5,600 / 0): mint gate PASS; loaded three
+times on the desktop as the answers moved (rmbulk-655f1114057d 18:41, rmbulk-8707fc5a2dd1 19:07, FINAL rmbulk-fc293d53dcd8 19:41,
+pre-load snapshots BRMS-26-01989 / 01990 / 02026); live == v62 by content; Electrical unchanged (6ddf58a9 / 2c15c116).
+Replay vs the D0 baseline (vrf6d0, 23,239 rows): 216 moved, all hvac_vrf, 0 non-VRF (ac7 94712fab / ac7v2 784ba25a).
+
+**The run** (selected rows on 96 sheets, all with a complete active run; 0 never-read additions; 0 overrides; 0 resumes):
+1,400 hvac_vrf rows, 123 batch calls (= the 123 declared, 0 retries), 0 second opinions, 3,733,866 tokens (in 2,214,081 + out
+1,519,785; expected 3,742,873; cap 5,988,597 / 197 / 0). 96 / 96 runs complete + active. Controls: all 346 runs older than the start
+byte-identical; the only change = 96 active flags 1 -> 0 (their new runs took over). The run script's own END line read 3,712,570 /
+122 because the keeper copies the capture log every 3 s and the last batch landed after the tally; the watcher's final line has the
+full count.
+
+**Payload integrity (1,400 rows):** blocks byte-equal 1,400, ROWS sections equal 1,400, replied 1,400, 0 foreign ids, EA-7 PASS
+1,400; 1 items spec; 123 batch records. Rows workbook `2026-11-09_VRF-6_Rows.xlsx`: SKU id + name resolved for 1,309 items; hand
+check 8 rows; second opinion OFF (0 calls). Priced 1,235 / 1,400 (VRF-5 1,210): 567 totals unchanged, 634 moved (team accessories
+and rulings), 34 newly priced, 9 no longer priced (below). Calculator vs panel: 16 divergences (VRF-5's 13 + 3 two-capacity
+refusals that differ in wording only).
+
+**Cert C1-C12** at :8080 after a full de-stale: all pass under the rulings, with the expectations newer rulings superseded -
+00073 r51 copper and 00093 Option 1 r25 cable are NOT added because those sheets quote them on their own rows (F4 category first);
+00298 r254 shows no copper note because this run's model answer left copper / insulation blank. C10 was certified from data (the
+"vs VRF-5" comparison), not in the browser. C12 (U11) on 00131 / ESTIMATE / 16: Option 1 of 5 = 20 + 6 (817,434) -> Option 2 =
+20 + 8 HP, 4 HP over the BoQ's 24 HP (835,347) -> back = 817,434.
+
+**Open (for the owner):**
+- Three frame rows quoted per Kg (00009 r80, 00102 r22, 00380 HVAC-3F r268) now refuse: the model reads the new Nos-only item "MS
+  frame / stand for ODU" on a Kg row (VRF-5 priced them as the per-Kg MS stand). A per-Kg twin of `prepare.family_by_unit` would
+  route them back - not built (no ruling).
+- 00231 r105, 00243 r105, 00259 r12: 600 x 600 cassettes above the compact's 1.5 TR refuse (Q-pre 7 as ruled).
+- Model readings that changed: 00218 HVAC-2F / 3F r274 ("no item"), 00029 r402 ("no unit"), 00298 r254 (copper / insulation blank).
+- Pricing Inputs: the installation-only uplift's label does not state its new condition (only without a supply row on the sheet).
+- U11 cosmetics: the floating calculator button overlaps the option label; a user-chosen split's lines still say "From the
+  helper's split".
