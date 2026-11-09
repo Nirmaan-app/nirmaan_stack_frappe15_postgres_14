@@ -61,6 +61,7 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_STATUSES,
     SETTLED_BLOCK_PAID,
     SETTLED_BLOCK_RECEIVED,
+    SETTLED_LEDGER_CARD_REFUNDS,
     SETTLED_LEDGER_OTHER,
     ROW_DIRECTION_CREDIT,
     SUMMARY_EXCLUDED_STATUSES,
@@ -2628,26 +2629,58 @@ class TestSettledDirectionBlocks(unittest.TestCase):
         self.assertEqual(blocks[0]["rows"], 5)
         self.assertEqual(blocks[0]["value"], Decimal("500"))
 
-    def test_a_leftover_B7_receipt_lands_in_the_received_Other_slot_never_dropped(self):
-        """⚠️ THE B7 TRAP, PINNED. A leftover non-project RECEIPT is a NEGATIVE `Non Project
-        Expense`, so the target doctype cannot tell you the direction -- the ROW's does. Since
-        `Non Project Expenses` left the received list (2026-09-24) it shows under `Other`, and the
-        block total still includes it."""
+    def test_a_credit_settled_into_Non_Project_Expenses_reads_as_Card_refunds(self):
+        """An *Unpaired card refund* (#1673) is a credit the card import's Create records as a negative
+        `Non Project Expense`. The Received block names it "Card refunds", not `Other` (#1675). The
+        target doctype cannot tell the direction -- the ROW's does -- so a debit into the same book
+        stays a Paid line."""
         blocks = derive_settled_direction_blocks(
             [
                 SettledLedgerEntry("Non Project Expenses", 3, Decimal("300"), "Debit"),
-                SettledLedgerEntry("Non Project Expenses", 1, Decimal("-40"), "Credit"),
+                SettledLedgerEntry("Non Project Expenses", 2, Decimal("1603"), "Credit"),
             ]
         )
         by = self._by_direction(blocks)
         paid_npe = [b for b in by[SETTLED_BLOCK_PAID]["ledgers"] if b["ledger"] == NON_PROJECT_EXPENSE_DOCTYPE]
         received = by[SETTLED_BLOCK_RECEIVED]
-        self.assertNotIn(NON_PROJECT_EXPENSE_DOCTYPE, [b["ledger"] for b in received["ledgers"]])
         self.assertEqual(paid_npe[0]["value"], Decimal("300"))
+        self.assertNotIn(SETTLED_LEDGER_OTHER, [b["ledger"] for b in received["ledgers"]])
         self.assertEqual(
-            received["ledgers"][-1], {"ledger": SETTLED_LEDGER_OTHER, "rows": 1, "value": Decimal("-40")}
+            received["ledgers"][-1],
+            {"ledger": SETTLED_LEDGER_CARD_REFUNDS, "rows": 2, "value": Decimal("1603")},
         )
-        self.assertEqual(received["value"], Decimal("-40"))
+        self.assertEqual(received["value"], Decimal("1603"))
+
+    def test_the_Card_refunds_line_shows_only_when_it_holds_rows(self):
+        """A bank statement's Received block has no card refunds; a zero line there would ask "what
+        card refunds?" on every import."""
+        blocks = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Project Inflows", 1, Decimal("10"), "Credit")]
+        )
+        received = self._by_direction(blocks)[SETTLED_BLOCK_RECEIVED]
+        self.assertNotIn(SETTLED_LEDGER_CARD_REFUNDS, [b["ledger"] for b in received["ledgers"]])
+
+    def test_Card_refunds_sits_after_the_received_books_and_before_Other(self):
+        blocks = derive_settled_direction_blocks(
+            [
+                SettledLedgerEntry("Mystery Book", 1, Decimal("7"), "Credit"),
+                SettledLedgerEntry("Non Project Expenses", 1, Decimal("50"), "Credit"),
+            ]
+        )
+        received = self._by_direction(blocks)[SETTLED_BLOCK_RECEIVED]
+        self.assertEqual(
+            [b["ledger"] for b in received["ledgers"]],
+            [*RECEIVED_LEDGER_DOCTYPES, SETTLED_LEDGER_CARD_REFUNDS, SETTLED_LEDGER_OTHER],
+        )
+
+    def test_the_Paid_block_never_names_Card_refunds(self):
+        """The "Card refunds" name belongs to the Received block alone: the Paid block keeps its own
+        three books, and `Non Project Expenses` is one of them."""
+        blocks = derive_settled_direction_blocks(
+            [SettledLedgerEntry("Non Project Expenses", 1, Decimal("5"), "Debit")]
+        )
+        paid = self._by_direction(blocks)[SETTLED_BLOCK_PAID]
+        self.assertNotIn(SETTLED_LEDGER_CARD_REFUNDS, [b["ledger"] for b in paid["ledgers"]])
 
     def test_the_received_block_zero_fills_its_OWN_two_books(self):
         """Not the three settle ledgers -- a credit can never be a `Project Payment`, and two

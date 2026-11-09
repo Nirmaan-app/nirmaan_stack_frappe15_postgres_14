@@ -137,9 +137,9 @@ INFLOW_DOCTYPES = (INFLOW_DOCTYPE, NON_PROJECT_INFLOW_DOCTYPE, VENDOR_REFUND_DOC
 #
 # ⚠️ `Non Project Expenses` WAS REMOVED FROM THIS LIST (owner ruling 2026-09-24). It was kept for the
 # removed B7 path, which wrote a credit as a NEGATIVE `Non Project Expense`; no receipt reaches that
-# book any more, so it was a permanent ₹0 line on every Received card. A leftover B7 row is NOT
-# lost: its ledger is now unrecognised here, so `derive_settled_ledger_split` folds it into the
-# `Other` slot, which renders only when non-zero and keeps the block's total exact.
+# book any more, so it was a permanent ₹0 line on every Received card. A credit in that book now is
+# an *Unpaired card refund* (#1673), which `status.RECEIVED_NAMED_LEDGERS` shows as "Card refunds"
+# only when non-zero (#1675).
 #
 # ⚠️ IT IS READ AS A DISPLAY ORDER, exactly as `LEDGER_DOCTYPES` is, and by the same function:
 # `status.derive_settled_ledger_split` takes the order as a PARAMETER so there is ONE
