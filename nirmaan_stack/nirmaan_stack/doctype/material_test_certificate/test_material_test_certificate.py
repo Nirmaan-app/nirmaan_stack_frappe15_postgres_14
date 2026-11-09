@@ -19,6 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.material_test_certificates import mtc_api
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.integrations.controllers.material_test_certificate import delete_mtcs_for_po
 from nirmaan_stack.integrations.controllers.procurement_orders import cleanup_po_linked_docs
 from nirmaan_stack.services import mtc_rules
@@ -26,8 +27,8 @@ from nirmaan_stack.services import mtc_rules
 MTC = "Material Test Certificate"
 PROCUREMENT_PROFILE = "Nirmaan Procurement Executive Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
-OLD_URL = "/api/method/frappe_gcp_attachment.controller.generate_file?key=mtc-test-old&file_name=old.pdf"
-NEW_URL = "/api/method/frappe_gcp_attachment.controller.generate_file?key=mtc-test-new&file_name=new.pdf"
+OLD_URL = cloud_url("mtc-test-old.pdf", MTC)
+NEW_URL = cloud_url("mtc-test-new.pdf", MTC)
 
 
 def _raw(doctype, **fields):

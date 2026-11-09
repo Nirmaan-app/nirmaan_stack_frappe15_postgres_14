@@ -17,6 +17,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 
 _HEADER = (
@@ -307,7 +308,7 @@ def _fake_cloud_file(fname, content, dt, dn, is_private=1, **_):
     """`save_file` as the storage app leaves it, with no upload: a File whose URL is a cloud key no bucket holds."""
     doc = frappe.new_doc("File")
     doc.update({"file_name": fname, "is_private": is_private,
-                "file_url": f"/api/method/frappe_gcp_attachment.controller.generate_file?key=test-{fname}"})
+                "file_url": cloud_url(fname, dt)})
     doc.db_insert()
     return doc
 

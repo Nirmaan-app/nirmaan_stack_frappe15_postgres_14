@@ -21,13 +21,18 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.assets.assign import assign_asset, unassign_asset
 from nirmaan_stack.api.users import create_user
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.patches.v3_0.remove_leftover_asset_assignments import find_leftovers, remove_leftover
 
 CATEGORY_PREFIX = "ZZD"
 HR = "Nirmaan HR Executive Profile"
 PM = "Nirmaan Project Manager Profile"
 ACCOUNTANT = "Nirmaan Accountant Profile"
-FAKE_FILE_URL = "/api/method/frappe_gcp_attachment.controller.generate_file?key=test-dept/{}.pdf&file_name={}.pdf"
+
+
+def fake_file_url(tag: str, doctype: str = "Asset Management") -> str:
+    """A stored file URL of real length (#1678); `test-dept` in it is what `_purge` finds the File rows by."""
+    return cloud_url(f"test-dept-{tag}.pdf", doctype)
 
 
 def _make_person(tag, profile, department=None):
@@ -64,7 +69,7 @@ def _purge(category, assets, people, departments=()):
     scopes = [
         ("Asset Management", {"asset": ["in", assets]}),
         ("Asset History", {"parent": ["in", assets], "parenttype": "Asset Master"}),
-        ("File", {"file_url": ["like", "%test-dept/%"]}),
+        ("File", {"file_url": ["like", "%test-dept%"]}),
         ("Version", {"docname": ["in", assets + people]}),
         ("Asset Master", {"name": ["in", assets]}),
         ("Asset Category", {"name": category}),
@@ -239,7 +244,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
     # -- declarations ---------------------------------------------------------------------------
 
     def test_declaration_with_the_assignment_is_logged(self):
-        url = FAKE_FILE_URL.format("with-assign", "with-assign")
+        url = fake_file_url("with-assign")
         self._assign(self.pm, declaration=url)
         events = [(r.event, r.declaration) for r in self._history()]
         self.assertIn(("Declaration Uploaded", url), events)
@@ -247,7 +252,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
 
     def test_declaration_uploaded_later_is_logged(self):
         assignment = self._assign(self.pm)
-        url = FAKE_FILE_URL.format("later", "later")
+        url = fake_file_url("later")
         assignment.asset_declaration_attachment = url
         assignment.save(ignore_permissions=True)
         row = self._history()[-1]
@@ -259,7 +264,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         return frappe.db.get_value("Asset Management", assignment, ["received", "received_on"], as_dict=True)
 
     def test_a_declaration_with_the_assignment_marks_it_received_today(self):
-        assignment = self._assign(self.pm, declaration=FAKE_FILE_URL.format("rcv-now", "rcv-now"))
+        assignment = self._assign(self.pm, declaration=fake_file_url("rcv-now"))
         row = self._received(assignment.name)
         self.assertEqual((row.received, str(row.received_on)), (1, frappe.utils.today()))
 
@@ -269,13 +274,13 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
 
     def test_an_uploaded_declaration_marks_it_received(self):
         assignment = self._assign(self.pm)
-        assignment.asset_declaration_attachment = FAKE_FILE_URL.format("rcv-later", "rcv-later")
+        assignment.asset_declaration_attachment = fake_file_url("rcv-later")
         assignment.save(ignore_permissions=True)
         self.assertEqual(self._received(assignment.name).received, 1)
 
     def test_an_old_signed_assignment_is_not_dated_by_a_later_save(self):
         """Signed before the field existed: a later, unrelated save must not stamp today's date on it."""
-        assignment = self._assign(self.pm, declaration=FAKE_FILE_URL.format("rcv-old", "rcv-old"))
+        assignment = self._assign(self.pm, declaration=fake_file_url("rcv-old"))
         frappe.db.set_value("Asset Management", assignment.name, {"received": 0, "received_on": None})
         frappe.get_doc("Asset Management", assignment.name).save(ignore_permissions=True)
         self.assertEqual((self._received(assignment.name).received, self._received(assignment.name).received_on), (0, None))
@@ -285,7 +290,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
     def test_unassign_logs_frees_the_asset_and_keeps_the_declaration_file(self):
         frappe.db.set_value("Asset Master", self.asset, {"project": None})
         assignment = self._assign(self.pm)
-        url = FAKE_FILE_URL.format("keep", "keep")
+        url = fake_file_url("keep")
         file_doc = frappe.new_doc("File")
         file_doc.update({
             "name": f"zzd-file-{frappe.generate_hash(length=8)}", "file_name": "keep.pdf", "file_url": url,
@@ -439,7 +444,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
     def test_cleanup_removes_only_the_leftover_and_keeps_its_file(self):
         holder_row = self._assign(self.pm).name
         leftover = self._leftover(self.no_dept)
-        url = FAKE_FILE_URL.format("leftover", "leftover")
+        url = fake_file_url("leftover")
         file_doc = frappe.new_doc("File")
         file_doc.update({
             "name": f"zzd-file-{frappe.generate_hash(length=8)}", "file_name": "leftover.pdf", "file_url": url,

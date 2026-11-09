@@ -18,12 +18,12 @@ from nirmaan_stack.api.tds.edit_request import resolve_rejected_tds
 from nirmaan_stack.api.tds.test_edit_request import PMO_USER, STORED
 from nirmaan_stack.api.tds.test_submit import (
 	PM_USER,
-	_cloud_url,
 	_create_project,
 	_delete_project_rows,
 	_make_user,
 	_raw,
 )
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
 
 ROW = "Project TDS Item List"
@@ -65,7 +65,7 @@ class TestResolveRejectedTds(FrappeTestCase):
 		_raw("Makelist", name=self.new_make, make_name=self.new_make)
 		self.sheets = {}
 		for make in ("MakeA", "MakeB", "MakeC"):
-			self.sheets[make] = _cloud_url(f"{self.item}-{make}.pdf")
+			self.sheets[make] = cloud_url(f"{self.item}-{make}.pdf")
 			_raw("TDS Repository", tds_item=self.item, make=make, status="Verified", tds_attachment=self.sheets[make])
 
 	def tearDown(self):
@@ -84,7 +84,7 @@ class TestResolveRejectedTds(FrappeTestCase):
 			tds_make=make,
 			tds_work_package=self.wp,
 			tds_status=status,
-			tds_attachment=self.sheets.get(make) or _cloud_url(f"own-{make}.pdf"),
+			tds_attachment=self.sheets.get(make) or cloud_url(f"own-{make}.pdf"),
 			**{"tds_item_name": "Gate Valve", **fields},
 		)
 
@@ -99,7 +99,7 @@ class TestResolveRejectedTds(FrappeTestCase):
 
 	def _upload(self, owner="Administrator"):
 		"""A datasheet the resolver uploaded and has not attached yet."""
-		url = _cloud_url(f"resolve-{frappe.generate_hash(length=6)}.pdf")
+		url = cloud_url(f"resolve-{frappe.generate_hash(length=6)}.pdf")
 		name = _raw("File", file_name="resolve.pdf", file_url=url, is_private=1)
 		frappe.db.set_value("File", name, "owner", owner, update_modified=False)
 		return name, url
@@ -136,7 +136,7 @@ class TestResolveRejectedTds(FrappeTestCase):
 
 	def test_a_rejected_new_make_loses_its_own_upload(self):
 		row = self._rejected(make="MakeN")  # no Repository Entry: the row carries its own upload
-		own = _raw("File", file_name="own.pdf", file_url=_cloud_url("own-MakeN.pdf"), is_private=1,
+		own = _raw("File", file_name="own.pdf", file_url=cloud_url("own-MakeN.pdf"), is_private=1,
 			attached_to_doctype=ROW, attached_to_name=row, attached_to_field="tds_attachment")
 		entry_sheet = _raw("File", file_name="entry.pdf", file_url=self.sheets["MakeA"], is_private=1,
 			attached_to_doctype="TDS Repository", attached_to_name="entry", attached_to_field="tds_attachment")

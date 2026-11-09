@@ -16,7 +16,7 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.expenses.card_invoices import attach_card_invoice
-from nirmaan_stack.api.expenses.expense_bill_fixture import cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.api.expenses.expense_bill_approval import get_pending_expense_bills
 from nirmaan_stack.api.expenses.test_all_expense_bills import _list
 from nirmaan_stack.api.expenses.test_expense_bills import NPE, CardBillCase, FakeReader, bills_of, run_reading
