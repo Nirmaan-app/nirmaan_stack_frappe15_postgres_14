@@ -8,7 +8,8 @@ untracked files. Affected (the repo CLAUDE.md "Per ticket, run the affected test
   2. every test module that names such a package's dotted path (the package, not the module, so
      `from <package> import <module>` is caught too);
   3. for a doctype change, every test module that names that doctype in quotes;
-  4. changed test modules themselves.
+  4. changed test modules themselves;
+  5. for any doctype change, the checks that read every doctype's JSON (`ON_EVERY_DOCTYPE`).
 Modules go to stdout, one per line; notes go to stderr. Called by devenv.sh (`affected`, `test --affected`).
 """
 
@@ -21,6 +22,8 @@ import sys
 APP = "nirmaan_stack"
 # Naming these would match nearly every test: a change there gets a note instead (consider the full suite).
 TOO_BROAD = {APP, f"{APP}.{APP}", f"{APP}.api", f"{APP}.services"}
+# They name no doctype, yet a doctype change is exactly what they guard (#1678: a URL field stored as Data).
+ON_EVERY_DOCTYPE = {f"{APP}.test_url_fields"}
 
 
 def git(wt, *args):
@@ -71,6 +74,8 @@ def main(wt, base):
     for dt in sorted(doctypes):
         hit = re.compile(r"[\"']" + re.escape(dt) + r"[\"']")
         picked |= {m for m, src in tests.items() if hit.search(src)}
+    if doctypes:
+        picked |= ON_EVERY_DOCTYPE
 
     picked = sorted(m for m in picked if m in tests)  # a deleted test module is not run
     print(

@@ -510,7 +510,8 @@ for url, pat in (("redis://redis-queue:6379", f"task-{task}:*"), ("redis://redis
     if keys: r.delete(*keys)
     print(f"  redis {url.split('//')[1]}: removed {len(keys)} keys matching {pat}")
 PY
-      rm -rf "$B/sites" "$B/logs" "$B/config" "$B/env" "$B/Procfile" "$B/.vite-cache" "$B/tmp"
+      rm -rf "$B/sites" "$B/logs" "$B/config" "$B/env" "$B/Procfile" "$B/.vite-cache" "$B/tmp" \
+        "$B/.migrated-schema" "$B/.migrated-schema.next"
       # Every shared-app link, including those of an app the bench has since dropped.
       find "$B/apps" -maxdepth 1 -type l ! -name nirmaan_stack -delete
       took "dropped DB/role, cleared redis, removed bench files"
