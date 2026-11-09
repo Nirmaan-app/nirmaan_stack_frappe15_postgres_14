@@ -19,6 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.services.expense_type_seed import seed_expense_types, seed_rows
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 
 def _fixture_path(doctype: str) -> str:
@@ -29,7 +30,7 @@ def _listed_fixtures() -> set:
 	return {f if isinstance(f, str) else f.get("dt") for f in frappe.get_hooks("fixtures") or []}
 
 
-class TestExpenseTypeIsNotAFixture(FrappeTestCase):
+class TestExpenseTypeIsNotAFixture(ExpenseTypeFlagGuard, FrappeTestCase):
 	def test_no_migrate_re_imports_the_expense_types(self):
 		self.assertNotIn("Expense Type", _listed_fixtures())
 		self.assertFalse(os.path.exists(_fixture_path("Expense Type")),
@@ -41,7 +42,7 @@ class TestExpenseTypeIsNotAFixture(FrappeTestCase):
 		self.assertNotIn("Expense Category", _listed_fixtures())
 
 
-class TestANewSiteGetsTheSeedTypes(FrappeTestCase):
+class TestANewSiteGetsTheSeedTypes(ExpenseTypeFlagGuard, FrappeTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 

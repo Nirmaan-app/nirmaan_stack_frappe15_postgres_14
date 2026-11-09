@@ -34,7 +34,7 @@ USERS = (PM_USER, ADMIN_USER, HRL_USER, ACC_USER)
 
 PM_PROFILE = "Nirmaan Project Manager Profile"
 HRL_PROFILE = "Nirmaan HR Lead Profile"
-NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
+NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # raised with no project; its flags are the site's (#1677)
 
 
 class TestAnAdminsReviewIsTheFirstApproval(FrappeTestCase):

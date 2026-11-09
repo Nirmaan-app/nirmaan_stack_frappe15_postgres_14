@@ -18,6 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expense_requests.masters import update_expense_type
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_conf_pm@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -30,7 +31,7 @@ def _confirmed(name: str = TYPE) -> int:
 	return frappe.db.get_value("Expense Type", name, FIELD)
 
 
-class TestConfirmedMarker(FrappeTestCase):
+class TestConfirmedMarker(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

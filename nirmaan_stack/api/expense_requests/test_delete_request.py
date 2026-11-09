@@ -29,7 +29,7 @@ HR_USER = "exr_del_hr@example.com"
 USERS = (PM_USER, PM2_USER, HR_USER)
 
 PM_PROFILE = "Nirmaan Project Manager Profile"
-NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
+NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # raised with no project; its flags are the site's (#1677)
 
 
 class TestDeleteExpenseRequest(FrappeTestCase):
