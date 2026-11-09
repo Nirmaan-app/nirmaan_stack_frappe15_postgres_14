@@ -5153,7 +5153,8 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
  * VRF-6 (owner rulings 2026-11-09). PURE. A BoQ row's model items as the reading rules settle them BEFORE pricing, each change with
  * its note (`extras.prepare`; ABSENT => the items as stored, byte-identical):
  *   spaced_decimal  "6 .3TR" reads 6.3 (00197 r318)
- *   family_by_unit  a frame / stand quoted per Nos prices on the per-Nos frame item (team rule; 00210 r29 / r30)
+ *   family_by_unit  a frame / stand quoted per Nos prices on the per-Nos frame item (team rule; 00210 r29 / r30); the per-Nos item
+ *                   read on a row quoted per Kg goes back to the per-Kg item (K1e, owner ANSWER 7)
  *   same_as_outdoor "make same as outdoor" -> the make of the sheet's outdoor units (Q-pre 5)
  *   row_cooling     the row's own "Cooling Type" / "heat pump" wins over the heading, noted when they differ (Q6)
  *   family_words    an ON/OFF central controller is the Touch Screen controller, noted (Q-pre 4)
@@ -5183,6 +5184,14 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     const fam = val(it, fa);
     for (const fb of P.family_by_unit ?? []) {
       if (fam === fb.family && rowClass === fb.unit_class) { it = setVal(it, fa, fb.to); notes.push(fb.line.replace("{unit}", String(ctx.unit ?? "")).replace("{to}", fb.to)); }
+      // VRF-6 K1e (owner ANSWER 7, 2026-11-10 00:07; team rule 2026-11-08 10:45 "a row quoting frames per Kg keeps the per-Kg item"):
+      // the model read the rule's TARGET item on a row quoted in a unit that item is not stocked in, but the rule's own source item
+      // is -> back to the source item (00009 r80, 00102 r22, 00380 HVAC-3F r268: a frame per Kg read as the Nos-only frame item)
+      else if (fam === fb.to && rowClass !== null && rowClass !== fb.unit_class
+        && !familyUnitClasses(spec, fb.to).includes(rowClass) && familyUnitClasses(spec, fb.family).includes(rowClass)) {
+        it = setVal(it, fa, fb.family);
+        notes.push(fb.line.replace("{unit}", String(ctx.unit ?? "")).replace("{to}", fb.family));
+      }
     }
     for (const fw of P.family_words ?? []) {
       const said = find(fw.words, textOf(fw.in));

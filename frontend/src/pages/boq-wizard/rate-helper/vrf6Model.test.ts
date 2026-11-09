@@ -382,6 +382,23 @@ describe("VRF-6 TEAM -- frame / stand, gas by HP, MCB + ELCB by HP", () => {
     const w = one({ items: [{ item: "MS Angle Base Frame Structure", capacity: "6HP" }], unit: "Nos" });
     expect([w.rowPriced, w.totals?.supply_rate, w.totals?.install_rate]).toEqual([true, 5600, 0]);
   });
+  it("K1e (owner ANSWER 7): the Nos-only frame item read on a row quoted per Kg / Kgs (00009 r80, 00102 r22, 00380 3F r268) prices on the per-Kg item, noted", () => {
+    for (const unit of ["Kg", "Kgs"]) {
+      const v = one({ items: [{ item: "MS frame / stand for ODU" }], unit, text: "Supply of MS frame / stand for ODU" });
+      expect([v.rowPriced, v.totals?.supply_rate, v.totals?.install_rate]).toEqual([true, 140, 40]);
+      expect(v.items[0].family).toBe("MS Angle Base Frame Structure");
+      expect(allText(v)).toMatch(/BoQ quotes the frame \/ stand per Kgs? - priced on the .{1,2}MS Angle Base Frame Structure.{1,2} item/);
+    }
+  });
+  it("NEGATIVE (K1e): a frame row per Nos still takes the Nos item either way; an included frame on an outdoor unit is the Nos item per module", () => {
+    for (const item of ["MS frame / stand for ODU", "MS Angle Base Frame Structure"]) {
+      const w = one({ items: [{ item }], unit: "Nos" });
+      expect([w.rowPriced, w.totals?.supply_rate, w.totals?.install_rate, w.items[0].family]).toEqual([true, 5600, 0, "MS frame / stand for ODU"]);
+    }
+    const v = one({ items: [ODU({ capacity: "26 HP", includes_frame: "Yes", includes_frame_where: "Row" })] });
+    expect(val(byId(v, "acc_frame"), "item")).toBe("MS frame / stand for ODU");
+    expect(one({ items: [{ item: "MS frame / stand for ODU" }], unit: "Kg" }, V61()).rowPriced).toBe(false);
+  });
   it("NEGATIVE: an indoor unit never gets gas / frame lines; v61's accessories -> the Kg frame and the MCCB", () => {
     const v = one({ items: [CAS(ALL)] });
     expect(lines(v).map((l) => l.id)).toEqual([]);
