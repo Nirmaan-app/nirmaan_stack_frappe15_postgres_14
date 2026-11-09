@@ -12,14 +12,14 @@ import unittest
 from pathlib import Path
 
 SCHEMA = Path(__file__).resolve().parent / "devenv_schema.py"
-NEEDED = 10  # exit code of `check` when a migrate is needed
+NEEDS_MIGRATE = 10  # exit code of `check` when a migrate is needed
 
 
 class MigrateCheck(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.app = Path(self._tmp.name) / "app"
-        self.stamp = Path(self._tmp.name) / "bench" / ".migrated-schema"
+        self.stamp = Path(self._tmp.name) / ".migrated-schema"
         self.write("nirmaan_stack/hooks.py", "app_name = 'nirmaan_stack'\n")
         self.write("nirmaan_stack/patches.txt", "[post_model_sync]\n")
         self.write("nirmaan_stack/nirmaan_stack/doctype/widget/widget.json", '{"name": "Widget"}')
@@ -46,8 +46,12 @@ class MigrateCheck(unittest.TestCase):
 
     def test_an_env_with_no_record_of_its_last_migrate_needs_one(self):
         r = self.check()
-        self.assertEqual(r.returncode, NEEDED, r.stderr)
+        self.assertEqual(r.returncode, NEEDS_MIGRATE, r.stderr)
         self.assertIn("no record", r.stdout)
+
+    def test_an_unreadable_record_needs_a_migrate(self):
+        self.stamp.write_text("{not json")
+        self.assertEqual(self.check().returncode, NEEDS_MIGRATE)
 
     def test_no_migrate_is_needed_right_after_one(self):
         self.record()
@@ -58,30 +62,30 @@ class MigrateCheck(unittest.TestCase):
         self.record()
         self.write("nirmaan_stack/nirmaan_stack/doctype/widget/widget.json", '{"name": "Widget", "fields": []}')
         r = self.check()
-        self.assertEqual(r.returncode, NEEDED)
+        self.assertEqual(r.returncode, NEEDS_MIGRATE)
         self.assertIn("nirmaan_stack/nirmaan_stack/doctype/widget/widget.json", r.stdout)
 
     def test_a_new_doctype_needs_a_migrate(self):
         self.record()
         self.write("nirmaan_stack/nirmaan_stack/doctype/gadget/gadget.json", '{"name": "Gadget"}')
-        self.assertEqual(self.check().returncode, NEEDED)
+        self.assertEqual(self.check().returncode, NEEDS_MIGRATE)
 
     def test_a_removed_doctype_needs_a_migrate(self):
         self.record()
         (self.app / "nirmaan_stack/nirmaan_stack/doctype/widget/widget.json").unlink()
-        self.assertEqual(self.check().returncode, NEEDED)
+        self.assertEqual(self.check().returncode, NEEDS_MIGRATE)
 
     def test_a_changed_patches_txt_needs_a_migrate(self):
         self.record()
         self.write("nirmaan_stack/patches.txt", "[post_model_sync]\nnirmaan_stack.patches.v3_0.x\n")
         r = self.check()
-        self.assertEqual(r.returncode, NEEDED)
+        self.assertEqual(r.returncode, NEEDS_MIGRATE)
         self.assertIn("nirmaan_stack/patches.txt", r.stdout)
 
     def test_a_changed_hooks_py_needs_a_migrate(self):
         self.record()
         self.write("nirmaan_stack/hooks.py", "app_name = 'nirmaan_stack'\ndoc_events = {}\n")
-        self.assertEqual(self.check().returncode, NEEDED)
+        self.assertEqual(self.check().returncode, NEEDS_MIGRATE)
 
     def test_a_change_to_other_code_needs_no_migrate(self):
         self.record()
