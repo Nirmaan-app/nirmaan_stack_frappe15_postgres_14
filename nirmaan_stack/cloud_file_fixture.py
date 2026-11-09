@@ -4,9 +4,8 @@
 """Test helper: a stored file URL of real length (#1678). Every test that stores an uploaded file's URL uses it,
 never a short hand-made one."""
 
-import random
+import hashlib
 import re
-import string
 from urllib.parse import quote
 
 _SHORTEST = 220
@@ -23,7 +22,9 @@ def cloud_url(file_name: str, doctype: str = "File") -> str:
     stem, dot, ext = file_name.rpartition(".")
     if not dot:
         stem, ext = file_name, ""
-    prefix = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    # The storage app picks 8 random characters; here they come from the name, so one name gives one URL and a
+    # test can build the URL it expects again.
+    prefix = hashlib.sha1(f"{doctype}/{file_name}".encode()).hexdigest()[:8].upper()
     while True:
         name = f"{stem}{dot}{ext}"
         key_name = re.sub(r"[^\w.\-]", "", name.replace(" ", "_"))

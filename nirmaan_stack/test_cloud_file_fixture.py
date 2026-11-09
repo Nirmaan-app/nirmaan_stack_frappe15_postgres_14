@@ -41,8 +41,10 @@ class TestCloudUrl(unittest.TestCase):
         self.assertTrue(stored_name.startswith("site photo"), stored_name)
         self.assertTrue(stored_name.endswith(".jpeg"), stored_name)
 
-    def test_two_uploads_of_one_name_get_two_urls(self):
-        self.assertNotEqual(cloud_url("bill.pdf"), cloud_url("bill.pdf"))
+    def test_one_name_gives_one_url_so_a_test_can_build_it_again(self):
+        self.assertEqual(cloud_url("bill.pdf"), cloud_url("bill.pdf"))
+        self.assertNotEqual(cloud_url("bill.pdf"), cloud_url("bill-2.pdf"))
+        self.assertNotEqual(cloud_url("bill.pdf"), cloud_url("bill.pdf", "Project Expenses"))
 
 
 if __name__ == "__main__":
