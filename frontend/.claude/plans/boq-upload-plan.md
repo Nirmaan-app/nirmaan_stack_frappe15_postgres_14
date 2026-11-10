@@ -50831,3 +50831,44 @@ new reads differ); a 1,400-row reprice moves exactly these 3 figures.
 - Model readings that changed: 00218 HVAC-2F / 3F r274 ("no item"), 00029 r402 ("no unit"), 00298 r254 (copper / insulation blank).
 - Pricing Inputs: the installation-only uplift's label does not state its new condition (only without a supply row on the sheet).
 - U11 cosmetics: the floating calculator button overlaps the option label (K1d fixed the "From the helper's split" wording).
+
+## Slice VRF-7 - fixes from the VRF-6 review (HVAC v63), then a re-run of the rows the fixes touch - as built 2026-11-10
+
+**Commits (desktop; the owner pushes), on 625a7391e:** K1 `5909460b3` feat(boq-pricing) (A1-A6, B7-B11, C12, C13, D1, D2 in the
+pricer), K2 `a1e11bbf8` fix(boq-pricing) (calculator parity for the K1 rules; harness paths), K1b `d9cf5e236` fix(boq-pricing)
+(fresh air beats CSU only for the unit the BoQ describes as one), K3 `8f4f98f02` feat(hvac-vrf) (asset v63 + mint + config checks +
+tests / parity / coverage / R-39 + pins), K2b `ef96fc54a` fix(boq-pricing) (the live calculator fetches the configs its extras price
+through - QR-4), K1c `3dec08249` fix(boq-pricing) (D2 note for the priced type's own words - C8's 00197 r324), K4 docs.
+
+**Owner answers:** ANSWER 1 02:00 (paid run pre-approved, cap <= 4.0M); ANSWER 2 02:39 (QR-1 (a) all 1,110 run-list rows, cap <=
+6.0M, the Rows workbook full for review; QR-2 (a) 00267 r14 = the split rule's 34 HP single + note, 00191 r7 = 20 + 20); ANSWER 3
+09:57 (QR-3 (a) resume after the credit top-up, balance check first; QR-4 (a) K2b now); ANSWER 4 09:59 (C16 calculator extras
+screenshots - read late, 10:43, the message watch had lapsed); ANSWER 5 10:43 (laptop offline - keep working as planned).
+
+**Asset v63** (`rate_master_hvac_all_v63.json`, sha256 d00ddc9d..., only hvac_vrf's list_spec; questions 53 -> 68): mint gate PASS;
+loaded three times as K1b landed (FINAL rmbulk-57da9f87c432, snapshot BRMS-26-02086). B6 declared re-pricing from the stored answers:
+123 moves, 0 non-VRF.
+
+**My mistakes, caught before they shipped:** the first B11 rule read "TFA" anywhere (147 then 22 false fresh-air units on the stored
+answers) - K1b narrowed it to 1 move (00158 r82); my K1 D2 never noted a model-picked type, so C8's named row had no note - K1c, whose
+first try quoted "corded/cordless" as a conflict ("corded/ remote"), caught in the re-pricing and fixed before the commit.
+
+**The run** (selected rows on 91 sheets, one process + one resume): 06:01 start; 07:05 the API refused for credit at sheet 34 / 91
+(32 sheets / 444 rows done; 00149 left unchanged) -> QR-3; 10:00 resume after a 21-token balance check -> 11:37 end. 91 / 91 complete +
+active; 1,110 rows in 115 batches + 2 refused; billed 3,692,018 tokens (cap accounting 3,741,516 of 5,831,752; 117 of 184 attempts;
+0 second opinions). Controls: 442 older runs byte-identical except 91 active flags 1 -> 0. Payload integrity 1,110 / 1,110 (byte-equal,
+replied, EA-7). Rows workbook `2026-11-10_VRF-7_Rows.xlsx` (sha256 bff1b809...); hand check 8 rows, 47 / 47 in substance.
+vs VRF-6: 122 run rows move (B7 own-row 52, A4 comm 27, B10 / C13 remote 10, A2 armour 8, A5 5, ...); calculator divergences 2 (the
+known two-capacity wording). Replay vrf7end (ac7 16cee3f3 / ac7v2 0854b933): 168 moved vs the pre-run replay, all hvac_vrf.
+
+**Cert C1-C16** at :8080 after a de-stale each code change: all PASS (C8 after K1c). AC0: panel 131,890 = calculator 131,890 after
+K2b (126,640 before - QR-4). C16: 28 calculator screenshots of the extras controls (captions file).
+
+**Open (for the owner):**
+- Installation only + an MS frame line: the row refuses (VRF-5 R6, a line with no install rate) but reads "0 of 6 items need a
+  person" and no line says why - wording / visibility on both surfaces.
+- Derivation line 42 ("A built-in drain pump is still added") reads unconditional; line 51 (B7) qualifies it.
+- Removing an extra with its x leaves its tick on in "This row's price includes" (the "You removed" box is the state).
+- K1c's D2 notes also fire on same-template sheets whose notes say both "cordless" and "corded" (00003 / 00298 / 00023, 00363) and
+  on 2 rows quoting "corded/wireless" (a both-types phrase the asset's `first_words` does not list).
+- `first_words` misses the BoQ spelling "coreded" (K1c covers it through the own-words path; the pair list itself is unchanged).

@@ -2797,6 +2797,64 @@ is optional: a config without it is byte-identical (the 1,400 stored VRF rows pr
   (`test_vrf_vNN` 07-09 "live", `test_piping_v34` live_04, `test_rate_master` co_f1_12 / sv_01 input and Misc counts) fails only
   AFTER the load. Run the asset's live tests right after loading, before the commit; those pins move by the same mechanical rule.
 
+**VRF-7: A STATED DISCHARGE WINS, HEAT-PUMP WORDINGS, ARMOURED ONLY WHEN STATED, A LENGTH PER ITEM, THE CONTROL-WIRING RULE DROPPED, STEP-UP NOTES, THE OWN-ROW CHECK FOR EVERY EXTRA, NOTES THAT QUOTE THE BOQ, A STATED MODULE SETUP, OPTIONAL REMOTE / INDIVIDUAL CONTROLLER, FRESH AIR BEATS CSU, STARTER-PANEL AND WIRED-REMOTE NOTES (owner rulings 2026-11-10 01:30-01:53 from the VRF-6 review; QR-2 (a); HVAC v63).**
+v63 = v62 with only `hvac_vrf`'s `list_spec` changed (no item, no Pricing Input). Every key is optional: a config without it keeps
+VRF-6's behaviour (the A1 fix below is the one code-only change).
+- **A1 (regression fix, code only):** the "smallest Top" lookup (`below_smallest`) narrows the SKUs by the FAMILY's own choices
+  (`families[f].needs`) only - a remote type the model put on an outdoor unit had emptied the Top list, so the Side step never ran.
+  **`prepare.discharge_words`** (owner 01:53): "top / side discharge" (any spelling of discharge), "top / side throw / blow"
+  anywhere in the row's chain - the row and its notes FIRST, then each heading up with its notes - sets the discharge when the model
+  gave none, noted; a type not stocked at that size -> the ladder's next size of that type. Side-first applies only when nothing
+  states a type.
+- **A2 (`from_model.armoured` + `prepare.armour_words`):** the model answers armoured Yes / No per cable; "armoured" in a chain clause
+  that names a cable (and not "unarmoured") sets that cable's answer (a clause naming communication / control / signal is the comm
+  cable's), only when that cable is included, noted with the clause; else unarmoured.
+- **A3 (`from_model.length_by_item`):** power / comm / copper read ONLY their own length answer; the shared `length` question is gone
+  (insulation follows its copper); a line with none takes the default length with the field note `lines.length_default`.
+- **A4:** v63 drops `safeguard.control_wiring`; the comm line follows the model's `includes_comm`, whose note says a fault /
+  breakdown sentence is not scope and that every chain level counts (the payload already carries the grandparent, EA-7).
+- **A5 (`prepare.heat_words`):** "cooling/heating", "cooling or heating", "cooling as well as heating" -> Heat Pump on an outdoor unit
+  unless the row itself states Cool Only / Cooling Type; `row_cooling` also reads those words as a heading's heat-pump statement, so
+  the override note appears (00144 r33). **A6 (`electrical.match.step_up_note`):** each breaker step-up is a review note
+  "<label> - <n> HP: schedule says <a> A - not stocked; <b> A used".
+- **B7 (`safeguard.own_row_always`):** the own-row check (F4 rules unchanged: same sheet, category first, words for uncategorised rows)
+  runs for EVERY extra wherever the inclusion is written, the row itself included; added or not, the row says so. A built-in pump
+  with the sheet's own pump row is NOT added.
+- **B8 (`safeguard.words_suffix` + `lines.added_q / excluded_q / not_added_q`):** per include the model copies the BoQ words
+  (`includes_<x>_words`); the note quotes them (clipped) and says where they sit - found in the context's `chainRows` (`rowChainOf`:
+  "this row", "note row n", "heading row n", "sheet note row n"; `locateWords`), else the model's Row / Heading / Note. Without
+  words the VRF-6 line stands.
+- **B9 (`prepare.stated_setup`):** a module make-up the ROW (or its own notes / the model's `module_setup_as_written`) states -
+  "16HP+16HP", "minimum 2 units of at least 20 HP each" - is followed before the split rule when every module is stocked for the
+  unit's make and cooling (the capacity is rewritten "40 HP (20+20)" and the stated-split path prices it); not stocked -> the split
+  rule + `not_stocked` (QR-2 a: 00267 r14 Daikin Heat Pump 16 HP not stocked -> the 34 HP single). A heading's "a + b" is never read.
+- **B10 / C13 (`prepare.implied_includes`):** "with/without ... remote ..." and "individual controller" set includes_remote = Yes on
+  an INDOOR unit, with the words and where they sit, noted; the own-row rule still applies.
+- **B11 (fresh air beats CSU):** two family rules ahead of the CSU rule, on a Ductable item only - 'TFA' / 'treated fresh air' /
+  'fresh air unit(s)' in the ROW (`in: "row"`), and only the phrases in the unit's OWN heading (`in: "parent"`: the row + the parent
+  heading's description and notes); the CSU rule's `unless` reads the same narrow text; a family an earlier rule set is never
+  re-labelled. A 'TFA' further up, or in a heading that lists "cassette, ductable & TFA units", changes nothing (K1b, measured on the
+  stored rows: 147 false moves before, 0 after).
+- **D1 (`accessories[mcb].note_words`):** a unit-mounted starter panel's fused switches keep the MCB + ELCB, with a note to check.
+  **D2 (`choice.conflict`):** a remote type kept although another type's words sit elsewhere in the chain - a note quoting both and
+  where. It fires when the BoQ's words decided the type (the ambiguous pair, or the plain words) AND (K1c, C8's 00197 r324 "coreded/
+  cordless") when the priced type's OWN words sit in the chain, whoever picked it - the model's answer included. A phrase naming both
+  types ("corded/cordless", `first_words`) is one statement, never "the other type"; a long clause is quoted around the matched words.
+- **C12:** interconnecting piping / suction line insulation in a unit heading = copper / insulation stated (question notes only; B7
+  decides).
+- **Questions:** 53 -> 68 (the shared length out; armoured x2, length x3, BoQ words x10, module setup in). **Validation:** every key
+  refused by name when malformed (`_validate_prepare_vrf7`, the accessory / choice / safeguard / from_model branches, the questions
+  they read). **Derivation:** 10 VRF-7 lines, each on its key; the control-wiring line names only "quantified separately" without its
+  key.
+- **The "this row" pin.** `CHAIN_ROW_PLACE` / `CHAIN_ROW_NOTE_PLACE` (rateHelperTypes) are the 4th / 5th sanctioned "this row" in the
+  calculator-wording pin (pricingSheetHelper.test): BoQ-row place labels only, the calculator has no chain.
+- **The calculator holds the configs its extras price through (K2b, QR-4).** An extra priced by ANOTHER discipline's category
+  (`extras.cable`, `accessories[].electrical` - the MCB / ELCB lines by Electrical's `db_switchgear`) needs that config on
+  /hvac-pricing; the screen fetches its own discipline + alias targets + `extrasTargetConfigs`. The parity harness prices the
+  calculator side on `calculatorConfigMap` (what the screen holds), never on every config - handing it every config hid VRF-6's gap
+  (live calculator 126,640 vs panel 131,890 on 00098 r14). A new extra that prices through another discipline's category needs no
+  wiring beyond its config key; a category it names that the registry does not list is still never fetched.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
