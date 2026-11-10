@@ -9,6 +9,10 @@ enqueued, the live pool file is never touched, the database is never written, no
                  missing (a deploy removed it) -> one
   never twice    a second check while the rebuild is queued -> none  /  while the build lock is held -> none  /  the
                  fixed job id, method, queue and timeout equal rate_match.daily_pool_rebuild's
+  retries        (review F1; Nitesh "the pool should exist in production") a failed build is retried until a file is
+                 usable, after 10 min, 30 min, 1 h, 2 h, then every 6 h - never every 5 min / a usable file clears the
+                 count / a failed 06:00 build waits the first step / a failure with no end time is timed from its
+                 enqueue / finished but the file is gone -> one
   never daytime  a usable file -> none, stale or not (older than 24 h, or its pricing stamp changed) / fresh -> none
   cheap          an unchanged file is fully loaded once, then proved by its (size, mtime); a new file is proved again
   runs           a user's run with no file still queues nothing and builds nothing (B8 pin kept)
@@ -20,11 +24,15 @@ import os
 import shutil
 import tempfile
 import time
+from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
 from filelock import FileLock
 from frappe.tests.utils import FrappeTestCase
+from rq.job import JobStatus
+from rq.utils import utcnow
 
 from nirmaan_stack.services.boq_rate_match import pool as P
 from nirmaan_stack.services.boq_rate_match import pool_autobuild as AB
@@ -36,19 +44,29 @@ def _pool(fmt=None):
                    "driving": {"available": True, "reason": None}})
 
 
+def _job(status, ended_ago_sec=None, enqueued_ago_sec=0):
+    """A stand-in for RQ's record of the fixed job id: its status and when it ended / was enqueued."""
+    now = utcnow()
+    return SimpleNamespace(get_status=lambda: status, enqueued_at=now - timedelta(seconds=enqueued_ago_sec),
+                           ended_at=None if ended_ago_sec is None else now - timedelta(seconds=ended_ago_sec))
+
+
 class TestAutobuild(FrappeTestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="pool_autobuild_test_")
         self.path = os.path.join(self.dir, "boq_rate_match", f"match_pool_v{P.POOL_FORMAT}.pkl")
-        self.enqueued, self.memo, self.queued = [], {"v": None}, False
+        self.enqueued, self.memo, self.job = [], {"v": None}, None
+        self.tries_key = f"{AB._TRIES_KEY}_test_{frappe.generate_hash(length=10)}"   # this test's own, short-lived
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def _check(self, **extra):
         with patch.object(P, "pool_path", return_value=self.path), \
+                patch.object(AB, "_TRIES_KEY", self.tries_key), patch.object(AB, "_TRIES_TTL_SEC", 600), \
                 patch.object(frappe, "enqueue", side_effect=lambda *a, **k: self.enqueued.append((a, k))), \
-                patch("frappe.utils.background_jobs.is_job_enqueued", side_effect=lambda jid: self.queued), \
+                patch("frappe.utils.background_jobs.get_job",
+                      side_effect=lambda jid: self.job if jid == AB.REBUILD_JOB_ID else None), \
                 patch.object(AB, "_memo_get", side_effect=lambda: self.memo["v"]), \
                 patch.object(AB, "_memo_set", side_effect=lambda v: self.memo.update(v=v)), \
                 patch.object(P, "build_pool", side_effect=AssertionError("the check never builds inline")):
@@ -99,11 +117,18 @@ class TestAutobuild(FrappeTestCase):
     # ---- never twice ----
     def test_a_second_check_while_the_rebuild_is_queued_queues_none(self):
         self._check()
-        self.queued = True                                                # the first one is now queued
+        self.job = _job(JobStatus.QUEUED)                                 # the first one is now queued
         out = self._check()
         self.assertFalse(out["queued"])
         self.assertIn("already queued", out["why"])
         self.assertEqual(len(self.enqueued), 1)
+
+    def test_a_check_while_the_rebuild_runs_queues_none(self):
+        self.job = _job(JobStatus.STARTED)
+        out = self._check()
+        self.assertFalse(out["queued"])
+        self.assertIn("already queued", out["why"])
+        self.assertEqual(self.enqueued, [])
 
     def test_a_check_while_the_build_lock_is_held_queues_none(self):
         os.makedirs(os.path.dirname(self.path))
@@ -119,6 +144,43 @@ class TestAutobuild(FrappeTestCase):
             rate_match.daily_pool_rebuild()
         self._check()
         self.assertEqual(seen, self.enqueued)                             # same method, queue, timeout, job id, dedupe
+
+    # ---- retries after a failed build ----
+    def test_a_failing_build_is_retried_after_growing_waits_and_never_every_5_minutes(self):
+        self.assertTrue(self._check()["queued"])                          # try 1
+        for try_no, wait_min in enumerate((10, 30, 60, 120, 360, 360), start=2):
+            self.job = _job(JobStatus.FAILED, ended_ago_sec=(wait_min - 5) * 60)   # failed; the file is still missing
+            out = self._check()
+            self.assertFalse(out["queued"], f"try {try_no} came {wait_min - 5} min after a failure")
+            self.assertIn(f"next try {wait_min} min after it", out["why"])
+            self.job = _job(JobStatus.FAILED, ended_ago_sec=wait_min * 60)
+            self.assertTrue(self._check()["queued"], f"try {try_no} is due {wait_min} min after a failure")
+        self.assertEqual(len(self.enqueued), 7)
+
+    def test_a_usable_file_clears_the_try_count(self):
+        frappe.cache().set_value(self.tries_key, 5, expires_in_sec=600)
+        self._write()
+        self.assertEqual(self._check(), {"queued": False, "why": None})
+        self.path = os.path.join(self.dir, "after_next_deploy", os.path.basename(self.path))   # missing again
+        self.job = _job(JobStatus.FAILED, ended_ago_sec=10 * 60)
+        self.assertTrue(self._check()["queued"])                          # back to the 10 min step, not 6 h
+
+    def test_a_failed_0600_build_waits_the_first_step(self):
+        self.job = _job(JobStatus.FAILED, ended_ago_sec=9 * 60)           # no auto-build try yet
+        self.assertFalse(self._check()["queued"])
+        self.job = _job(JobStatus.FAILED, ended_ago_sec=10 * 60)
+        self.assertTrue(self._check()["queued"])
+
+    def test_a_failure_with_no_end_time_waits_from_its_enqueue(self):
+        self.job = _job(JobStatus.FAILED, ended_ago_sec=None, enqueued_ago_sec=60)
+        self.assertFalse(self._check()["queued"])
+        self.job = _job(JobStatus.FAILED, ended_ago_sec=None, enqueued_ago_sec=10 * 60)
+        self.assertTrue(self._check()["queued"])
+
+    def test_a_build_that_finished_but_whose_file_is_gone_is_queued_again(self):
+        self.job = _job(JobStatus.FINISHED, ended_ago_sec=60)            # e.g. a deploy removed the file after 06:00
+        self.assertTrue(self._check()["queued"])
+        self._assert_one_enqueue()
 
     # ---- never daytime while a usable pool exists ----
     def test_a_fresh_file_queues_none(self):

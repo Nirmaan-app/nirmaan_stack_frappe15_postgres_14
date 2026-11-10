@@ -51068,3 +51068,7 @@ Owner rulings this slice:
 - `fill_spec_cards.py` still reads `pool._corpus` (no cut-off): a re-run after late December would card rows the pool no
   longer offers (harmless).
 - The auto-build rides on the match healer: if that Scheduled Job Type is stopped on a site, it does not run.
+- PR #1681 review F1 (fixed after 5b3b49be1): a failed build left no file, so the 5-minute check queued it again at
+  once, all day. `autobuild_pool` now retries after growing waits from RQ's record of `boq_match_pool_daily_rebuild`
+  (FAILED, `ended_at` else `enqueued_at`): 10 min, 30 min, 1 h, 2 h, then every 6 h; try count in the cache, cleared by
+  a usable file. Tests: 5 new in `test_pool_autobuild`, 21 / 21 OK; with every wait set to 0, 3 fail.

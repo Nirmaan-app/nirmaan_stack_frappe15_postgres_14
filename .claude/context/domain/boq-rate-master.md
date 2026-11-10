@@ -160,12 +160,18 @@ answer 3 to B9-Q2 "H").** Production's deploy removes the sites volume and the p
 2026-11-07: Abhishek rebuilt it by hand). `services/boq_rate_match/pool_autobuild.autobuild_pool`, called by the
 existing 5-minute match healer (`tasks/match_run_healer.heal_stale_match_runs`, after its own work; a failure on
 either side never stops the other): with NO usable file (missing, unreadable, another format - `job_pool`'s test), the
-build lock free and the job neither queued nor running, it enqueues ONE `pool.rebuild_pool` on `long` with the 06:00
+build lock free, the job neither queued nor running, and its last failure older than this try's wait, it enqueues ONE `pool.rebuild_pool` on `long` with the 06:00
 job's timeout and FIXED id `boq_match_pool_daily_rebuild`, deduplicated, and logs one line. It NEVER fires while a
 usable pool exists, stale or not (B8's 06:00-only rule for those stands), and a user's run still never builds. An
 existing file is fully loaded once per (size, mtime) and remembered in the cache for two days; every other check is a
 stat and a lock probe. NO new hooks.py line on purpose: Frappe turns a hooks.py cron line into a Scheduled Job Type
 row only in `sync_jobs` (migrate / install), and the fix release has no migrate. Tests: `test_pool_autobuild`.
+RETRIES (PR #1681 review F1; Nitesh 2026-11-10 "the pool should exist in production"): a failed build leaves no file,
+so the check retries until a file is usable, waiting 10 min, 30 min, 1 h, 2 h, then every 6 h after each failure
+(`RETRY_WAITS_SEC`), never every 5 minutes (each try can hold production's one worker for up to 3600 s and writes an
+Error Log). The failure time is RQ's record of the fixed id (`ended_at`, else `enqueued_at`), so a failed 06:00 build
+counts too; the try count is the cache key `boq_match_pool_autobuild_tries` (read with `expires=True`), cleared when a
+usable file is seen. A failure that repeats (a data error) never fixes itself: its Error Log is the signal.
 
 **THE SHOWN MATCHES ARE IN DISPLAY ORDER: GREEN, THEN AMBER, THEN RED; WITHIN A COLOUR THE JUDGE'S OWN ORDER (owner
 2026-11-03 11:06 "yes").** `match_run.display_order` - not `judge.ordered` (SAME > CLOSE > UNCLEAR puts red before
