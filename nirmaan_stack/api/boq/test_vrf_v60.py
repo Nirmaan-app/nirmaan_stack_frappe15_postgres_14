@@ -188,8 +188,8 @@ class TestVrf4AssetV60(FrappeTestCase):
         data = os.path.dirname(_asset_path(V60))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `nums[-1] == 60` and `range(1, 61)`
-        self.assertEqual(nums[-1], 62)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE nums[-1] == 61
-        self.assertEqual(nums, list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
+        self.assertEqual(nums[-1], 63)  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE nums[-1] == 62
+        self.assertEqual(nums, list(range(1, 64)))  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE list(range(1, 63))
         self.assertTrue(os.path.exists(_asset_path(V59)))
 
     def test_07_live_catalogue_is_v60(self):
@@ -199,7 +199,10 @@ class TestVrf4AssetV60(FrappeTestCase):
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `assertEqual(_norm(live), _norm(self.cfg))` (live == v60) and `n == 566`. The live VRF config is v61's
         # (test_vrf_v61 07 pins it whole): v60's twenty questions and second opinion stand inside it
         self.assertNotEqual(_norm(live), _norm(self.cfg))
-        self.assertEqual([q["id"] for q in live["list_spec"]["attribute_definitions"][:20]], [q["id"] for q in self.cfg["list_spec"]["attribute_definitions"]])
+        # INVERTED at VRF-7 (HVAC v63 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE the live
+        # config's first twenty ids == v60's twenty. v63 drops the shared length question (owner A3), so v60's other nineteen stand in it, in order
+        v60ids = [q["id"] for q in self.cfg["list_spec"]["attribute_definitions"]]
+        self.assertEqual([q["id"] for q in live["list_spec"]["attribute_definitions"] if q["id"] in v60ids], [i for i in v60ids if i != "extra_length_as_written"])
         # INVERTED at VRF-6 (owner 2026-11-09 18:52: "run with second opinion off ... from now onwards we will keep it off"; v62 LOADED): BEFORE
         # `assertIs(live["list_spec"]["second_opinion"], True)`
         self.assertIs(live["list_spec"]["second_opinion"], False)

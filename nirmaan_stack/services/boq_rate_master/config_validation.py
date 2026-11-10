@@ -1135,7 +1135,7 @@ _EXTRAS_OPTIONAL_LINES = _EXTRAS_OPTIONAL_LINES | {"cable_words_default", "cable
                                                    "acc_working", "acc_label_item", "acc_label_qty"}
 _EXTRAS_OPTIONAL_PLACEHOLDERS = {"cable_words_default": ["{said}", "{spec}", "{boq}"], "cable_words_boq": ["{list}"],
                                  "length_range": ["{a}", "{b}", "{v}"], "acc_working": ["{what}", "{q}", "{S}", "{I}"], "acc_label_qty": ["{unit}"]}
-_EXTRAS_FROM_MODEL_KEYS = _EXTRAS_FROM_MODEL_KEYS | {"accessory_includes", "scope"}
+_EXTRAS_FROM_MODEL_KEYS = _EXTRAS_FROM_MODEL_KEYS | {"accessory_includes", "scope"} | {"armoured", "length_by_item"}
 _ACCESSORY_KEYS = {"id", "label", "title", "roles", "unit_word"}
 _ACCESSORY_OPTIONAL_KEYS = {"family", "choice", "electrical", "bands", "input"}
 _ACCESSORY_ELECTRICAL_KEYS = {"category", "discipline", "item_attr", "qty_attr", "label", "template", "rating_key"}
@@ -1174,16 +1174,23 @@ _EXTRAS_PLACEHOLDERS = {"follows_size": ["{x}"], "typed_note": ["{typed}", "{use
 # `split.stated_times / split_over_top / pair_first / many_line`.
 _EXTRAS_OPTIONAL_KEYS = _EXTRAS_OPTIONAL_KEYS | {"prepare", "two_capacities"}
 _EXTRAS_PATTERN_LINES = ("length_cable_words", "length_pipe_words", "drain_cable_words", "drain_cable_note_words", "power_cable_words")
-_EXTRAS_OPTIONAL_LINES = _EXTRAS_OPTIONAL_LINES | set(_EXTRAS_PATTERN_LINES) | {"length_per_item", "cable_kind_always", "drain_cable_line"}
-_EXTRAS_OPTIONAL_PLACEHOLDERS = dict(_EXTRAS_OPTIONAL_PLACEHOLDERS, drain_cable_line=["{said}"])
-_ACCESSORY_OPTIONAL_KEYS = _ACCESSORY_OPTIONAL_KEYS | {"qty_per_size", "follow_unit_brand", "builtin"}
+_EXTRAS_OPTIONAL_LINES = _EXTRAS_OPTIONAL_LINES | set(_EXTRAS_PATTERN_LINES) | {"length_per_item", "cable_kind_always", "drain_cable_line"} \
+    | {"length_default", "armour_note", "armoured_value"}
+_EXTRAS_OPTIONAL_PLACEHOLDERS = dict(_EXTRAS_OPTIONAL_PLACEHOLDERS, drain_cable_line=["{said}"], length_default=["{item}", "{n}"])
+_ACCESSORY_OPTIONAL_KEYS = _ACCESSORY_OPTIONAL_KEYS | {"qty_per_size", "follow_unit_brand", "builtin", "note_words"}
 _ACCESSORY_ELECTRICAL_MATCH_KEYS = {"category", "discipline", "item_attr", "qty_attr", "label", "match", "schedule"}
-_CHOICE_OPTIONAL_KEYS = {"first_words", "model_attr", "read_notes"}
-_SAFEGUARD_OPTIONAL_KEYS = {"match", "control_wiring", "note_wins"}
+_CHOICE_OPTIONAL_KEYS = {"first_words", "model_attr", "read_notes", "conflict"}
+_SAFEGUARD_OPTIONAL_KEYS = {"match", "control_wiring", "note_wins", "own_row_always", "words_suffix"}
 _OWN_ROW_OPTIONAL_KEYS = {"categories", "category_words", "category_not_families"}
 _SCOPE_OPTIONAL_KEYS = {"conflict", "supply_row", "install_only_normal"}
 _SPLIT_KEYS = _SPLIT_KEYS | {"stated_times", "split_over_top", "pair_first", "many_line"}
 _PREPARE_KEYS = {"spaced_decimal", "family_by_unit", "same_as_outdoor", "row_cooling", "family_words", "attr_words"}
+
+# VRF-7 (owner rulings 2026-11-10 01:30-01:53, from the VRF-6 review) -- every key OPTIONAL, each refused by name when malformed:
+# `prepare.discharge_words / heat_words / armour_words / implied_includes / stated_setup`, `family_words[].unless`;
+# `safeguard.own_row_always / words_suffix`; per accessory `note_words`, `electrical.match.step_up_note`, `choice.conflict`;
+# `from_model.armoured / length_by_item`; the lines `length_default` / `armour_note` / `armoured_value`.
+_PREPARE_KEYS = _PREPARE_KEYS | {"discharge_words", "heat_words", "armour_words", "implied_includes", "stated_setup"}
 
 
 def _pattern(p, where):
@@ -1236,12 +1243,14 @@ def _validate_prepare(pp, pr, fams, loc):
         _sentence(rc, "line", w, ("{row}", "{heading}", "{value}"))
     for n, fw in enumerate(pp.get("family_words") or []):
         w = f"{loc}.family_words[{n}]"
-        if not isinstance(fw, dict) or not ({"family", "words", "line"} <= set(fw) <= {"family", "words", "line", "from", "in"}):
-            _vthrow(f"{w} needs family, words and line (and optionally from / in).")
+        if not isinstance(fw, dict) or not ({"family", "words", "line"} <= set(fw) <= {"family", "words", "line", "from", "in", "unless"}):
+            _vthrow(f"{w} needs family, words and line (and optionally from / in / unless).")
+        if "unless" in fw:
+            _pattern(fw["unless"], f"{w}.unless")
         if fw["family"] not in fams or any(f not in fams for f in fw.get("from") or []):
             _vthrow(f"{w}: family and from must be families this category prices.")
-        if fw.get("in", "row") not in ("row", "heading", "both"):
-            _vthrow(f"{w}.in must be row, heading or both.")
+        if fw.get("in", "row") not in ("row", "heading", "both", "parent"):
+            _vthrow(f"{w}.in must be row, heading, both or parent.")
         _pattern(fw["words"], f"{w}.words")
         _sentence(fw, "line", w, ("{said}",))
     for n, aw in enumerate(pp.get("attr_words") or []):
@@ -1256,6 +1265,62 @@ def _validate_prepare(pp, pr, fams, loc):
         if "unless_row" in aw:
             _pattern(aw["unless_row"], f"{w}.unless_row")
         _sentence(aw, "line", w, ("{said}",))
+    _validate_prepare_vrf7(pp, fams, loc)
+
+
+def _validate_prepare_vrf7(pp, fams, loc):
+    """VRF-7 -- the reading rules the VRF-6 review asked for (owner 2026-11-10): a stated discharge, the heat-pump wordings, the
+    armour safety net, the implied includes (an optional remote, an individual controller), a stated module setup."""
+    def fam_list(v, w):
+        if not isinstance(v, list) or not v or any(f not in fams for f in v):
+            _vthrow(f"{w} must list families this category prices.")
+    if "discharge_words" in pp:
+        d, w = pp["discharge_words"], f"{loc}.discharge_words"
+        if not isinstance(d, dict) or set(d) != {"attr", "families", "words", "line"} or not _nonempty_str(d.get("attr")) \
+                or not isinstance(d.get("words"), dict) or not d["words"]:
+            _vthrow(f"{w} needs exactly attr, families, words (value -> pattern) and line.")
+        fam_list(d["families"], f"{w}.families")
+        for v, pat in d["words"].items():
+            _pattern(pat, f"{w}.words['{v}']")
+        _sentence(d, "line", w, ("{said}", "{where}", "{value}"))
+    if "heat_words" in pp:
+        h, w = pp["heat_words"], f"{loc}.heat_words"
+        if not isinstance(h, dict) or not ({"attr", "value", "families", "words", "line"} <= set(h) <= {"attr", "value", "families", "words", "line", "unless_row"}) \
+                or not _nonempty_str(h.get("attr")) or not _nonempty_str(h.get("value")):
+            _vthrow(f"{w} needs attr, value, families, words and line (and optionally unless_row).")
+        fam_list(h["families"], f"{w}.families")
+        _pattern(h["words"], f"{w}.words")
+        if "unless_row" in h:
+            _pattern(h["unless_row"], f"{w}.unless_row")
+        _sentence(h, "line", w, ("{said}", "{value}"))
+    if "armour_words" in pp:
+        a, w = pp["armour_words"], f"{loc}.armour_words"
+        keys = {"words", "cable_words", "comm_words", "attrs", "yes", "line"}
+        if not isinstance(a, dict) or not (keys <= set(a) <= keys | {"not_words"}) or not isinstance(a.get("attrs"), dict) \
+                or set(a["attrs"]) != {"power", "comm"} or not all(_nonempty_str(v) for v in a["attrs"].values()) or not _nonempty_str(a.get("yes")):
+            _vthrow(f"{w} needs words, cable_words, comm_words, attrs (power / comm -> question), yes and line (and optionally not_words).")
+        for k in ("words", "cable_words", "comm_words", "not_words"):
+            if k in a:
+                _pattern(a[k], f"{w}.{k}")
+        _sentence(a, "line", w, ("{label}", "{said}"))
+    for n, ii in enumerate(pp.get("implied_includes") or []):
+        w = f"{loc}.implied_includes[{n}]"
+        if not isinstance(ii, dict) or set(ii) != {"question", "words", "role", "yes", "line"} or not _nonempty_str(ii.get("question")) \
+                or ii.get("role") not in ("indoor", "outdoor") or not _nonempty_str(ii.get("yes")):
+            _vthrow(f"{w} needs exactly question, words, role (indoor / outdoor), yes and line.")
+        _pattern(ii["words"], f"{w}.words")
+        _sentence(ii, "line", w, ("{said}",))
+    if "stated_setup" in pp:
+        ss, w = pp["stated_setup"], f"{loc}.stated_setup"
+        if not isinstance(ss, dict) or set(ss) != {"attr", "family", "min_each", "line", "not_stocked"} or not _nonempty_str(ss.get("attr")):
+            _vthrow(f"{w} needs exactly attr, family, min_each, line and not_stocked.")
+        if ss["family"] not in fams:
+            _vthrow(f"{w}.family '{ss['family']}' is not a family this category prices.")
+        _pattern(ss["min_each"], f"{w}.min_each")
+        if re.compile(ss["min_each"]).groups < 2:
+            _vthrow(f"{w}.min_each must capture the count and the size (two groups).")
+        _sentence(ss, "line", w, ("{said}", "{layers}"))
+        _sentence(ss, "not_stocked", w, ("{said}", "{missing}"))
 
 
 def _validate_vrf6_extras(ex, pr, fams, loc):
@@ -1432,13 +1497,16 @@ def _validate_accessories(accs, fams, loc):
             if not (_ACCESSORY_ELECTRICAL_MATCH_KEYS <= set(e) <= _ACCESSORY_ELECTRICAL_MATCH_KEYS | {"alias", "fill"}) or not all(_nonempty_str(e[k]) for k in strs):
                 _vthrow(f"{w}.electrical (by attributes) needs {', '.join(sorted(_ACCESSORY_ELECTRICAL_MATCH_KEYS))} (and optionally alias / fill).")
             m = e["match"]
-            if not isinstance(m, dict) or not ({"attrs", "rating_attr", "step_up_line"} <= set(m) <= {"attrs", "rating_attr", "step_up_line", "kind", "name_words"}) \
+            if not isinstance(m, dict) or not ({"attrs", "rating_attr", "step_up_line"} <= set(m) <= {"attrs", "rating_attr", "step_up_line", "kind", "name_words", "step_up_note"}) \
                     or not isinstance(m["attrs"], dict) or not m["attrs"] or not all(isinstance(k, str) and isinstance(v, str) for k, v in m["attrs"].items()) \
                     or not _nonempty_str(m["rating_attr"]):
                 _vthrow(f"{w}.electrical.match needs attrs (attribute -> value), rating_attr and step_up_line (and optionally kind / name_words).")
             if "name_words" in m:
                 _pattern(m["name_words"], f"{w}.electrical.match.name_words")
             _sentence(m, "step_up_line", f"{w}.electrical.match", ("{want}", "{item}"))
+            if "step_up_note" in m:
+                # VRF-7 (A6): the step up as a review note, with the unit's HP
+                _sentence(m, "step_up_note", f"{w}.electrical.match", ("{hp}", "{want}", "{got}"))
             sch = e["schedule"]
             if not isinstance(sch, list) or not sch:
                 _vthrow(f"{w}.electrical.schedule must be a non-empty list of rows.")
@@ -1494,6 +1562,13 @@ def _validate_accessories(accs, fams, loc):
                 _vthrow(f"{w}.builtin needs exactly words and line.")
             _pattern(bi["words"], f"{w}.builtin.words")
             _sentence(bi, "line", f"{w}.builtin")
+        if "note_words" in a:
+            # VRF-7 (D1): words that ask the reviewer to check the line (kept)
+            nw = a["note_words"]
+            if not isinstance(nw, dict) or set(nw) != {"words", "line"}:
+                _vthrow(f"{w}.note_words needs exactly words and line.")
+            _pattern(nw["words"], f"{w}.note_words.words")
+            _sentence(nw, "line", f"{w}.note_words", ("{said}",))
         if "input" in a and not _nonempty_str(a["input"]):
             _vthrow(f"{w}.input must name a Pricing Input.")
         if "bands" in a:
@@ -1522,6 +1597,12 @@ def _validate_accessories(accs, fams, loc):
                 _vthrow(f"{w}.choice.model_attr must name a question.")
             if "read_notes" in ch and not isinstance(ch["read_notes"], bool):
                 _vthrow(f"{w}.choice.read_notes must be true or false.")
+            if "conflict" in ch:
+                # VRF-7 (D2): a type the BoQ's words decided, kept where another note names another type -- noted
+                cf = ch["conflict"]
+                if not isinstance(cf, dict) or set(cf) != {"line"}:
+                    _vthrow(f"{w}.choice.conflict needs exactly line.")
+                _sentence(cf, "line", f"{w}.choice.conflict", ("{first}", "{said}", "{value}"))
     return ids
 
 
@@ -1533,6 +1614,15 @@ def _validate_safeguard(sg, include_ids, loc):
     # VRF-6 (F4, owner Q-pre 10 / 11, Q7)
     if "match" in sg and sg["match"] != "category":
         _vthrow(f"{loc}.match must be 'category'.")
+    # VRF-7 (B7 / B8): the own-row check for every extra; the per-include words question and the quoting lines
+    if "own_row_always" in sg and sg["own_row_always"] is not True:
+        _vthrow(f"{loc}.own_row_always must be true (leave it out for VRF-6's rule).")
+    if "words_suffix" in sg:
+        if not _nonempty_str(sg["words_suffix"]):
+            _vthrow(f"{loc}.words_suffix must be a non-empty string.")
+        for k, phs in (("added_q", ("{label}", "{words}", "{where}")), ("excluded_q", ("{label}", "{words}", "{where}", "{rows}")),
+                       ("not_added_q", ("{label}", "{words}", "{where}", "{why}"))):
+            _sentence(sg.get("lines"), k, f"{loc}.lines", phs)
     if "control_wiring" in sg:
         cw = sg["control_wiring"]
         if not isinstance(cw, dict) or set(cw) != {"words", "line"}:
@@ -1760,6 +1850,10 @@ def _validate_extras_from_model(fm, loc):
     for k in ("copper_size", "insulation_thickness", "cable_spec", "length", "comm_words", "scope"):
         if k in fm and not _nonempty_str(fm[k]):
             _vthrow(f"{loc}.{k} must be a non-empty string.")
+    # VRF-7 (A2 / A3): the armoured question per cable; the length question per cable / pipe item
+    for k, allowed in (("armoured", {"power", "comm"}), ("length_by_item", {"power", "comm", "copper"})):
+        if k in fm and (not isinstance(fm[k], dict) or not fm[k] or set(fm[k]) - allowed or not all(_nonempty_str(v) for v in fm[k].values())):
+            _vthrow(f"{loc}.{k} must map {' / '.join(sorted(allowed))} to question ids.")
     if "accessory_includes" in fm and (not isinstance(fm["accessory_includes"], dict) or not fm["accessory_includes"]
                                        or not all(_nonempty_str(v) for v in fm["accessory_includes"].values())):
         _vthrow(f"{loc}.accessory_includes must map accessory ids to question ids.")
@@ -1823,12 +1917,35 @@ def _validate_vrf4_reads(cfg, pr, by_id):
                 need(qid + sg["wording_suffix"], f"extras.safeguard (wording, {inc})", "choice")
                 if inc in accs:
                     need(qid + sg["qty_suffix"], f"extras.safeguard (quantity, {inc})", "text")
+        # VRF-7 (A2 / A3 / B8): the armoured Yes / No choices, the per-item length texts, the per-include BoQ-words texts
+        for which, qid in (fm.get("armoured") or {}).items():
+            need(qid, f"extras.from_model.armoured.{which}", "choice", [fm.get("yes")])
+        for which, qid in (fm.get("length_by_item") or {}).items():
+            need(qid, f"extras.from_model.length_by_item.{which}", "text")
+        if isinstance(sg, dict) and sg.get("words_suffix"):
+            for inc, qid in list((fm.get("includes") or {}).items()) + list((fm.get("accessory_includes") or {}).items()):
+                need(qid + sg["words_suffix"], f"extras.safeguard (words, {inc})", "text")
         sc = (pr.get("extras") or {}).get("scope")
         if "scope" in fm:
             # VRF-6 K2: the "installation only, supply quoted on another row" option is the pricer's / the sheet's, never the model's
             need(fm["scope"], "extras.from_model.scope", "choice", [o for o in list((sc or {}).get("options") or []) if o != (sc or {}).get("install_only_normal")])
     if isinstance(pr.get("working_standby"), dict):
         need(pr["working_standby"]["attr"], "working_standby.attr", "text")
+    # VRF-7: the prepare rules' questions (an implied include is a Yes / No choice; the armour safety net sets choices; the stated
+    # setup reads a text)
+    pp = ((pr.get("extras") or {}).get("prepare")) if isinstance(pr.get("extras"), dict) else None
+    if isinstance(pp, dict):
+        for n, ii in enumerate(pp.get("implied_includes") or []):
+            need(ii["question"], f"extras.prepare.implied_includes[{n}].question", "choice", [ii["yes"]])
+        if isinstance(pp.get("armour_words"), dict):
+            for which, qid in pp["armour_words"]["attrs"].items():
+                need(qid, f"extras.prepare.armour_words.attrs.{which}", "choice", [pp["armour_words"]["yes"]])
+        if isinstance(pp.get("stated_setup"), dict):
+            need(pp["stated_setup"]["attr"], "extras.prepare.stated_setup.attr", "text")
+        if isinstance(pp.get("heat_words"), dict):
+            need(pp["heat_words"]["attr"], "extras.prepare.heat_words.attr", "choice", [pp["heat_words"]["value"]])
+        if isinstance(pp.get("discharge_words"), dict):
+            need(pp["discharge_words"]["attr"], "extras.prepare.discharge_words.attr", "choice", list(pp["discharge_words"]["words"]))
     for attr, d in (pr.get("defaults") or {}).items():
         ul = d.get("unlisted") if isinstance(d, dict) else None
         if isinstance(ul, dict) and "from_attr" in ul:

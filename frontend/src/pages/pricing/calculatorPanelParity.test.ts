@@ -3303,3 +3303,112 @@ describe("VRF-7 B2 -- the K1 rules on both paths; panel = calculator on every ca
     expect(q).not.toMatch(/the BoQ says/);
   });
 });
+
+/*
+ * VRF-7 K3 -- THE v63 ASSET (the loaded catalogue, not the fixture): every VRF / Misc SKU priced with every extra its role carries, VRF-6's
+ * named paths and the VRF-7 K2 paths again, panel = calculator on every case, the count asserted.
+ */
+describe("HVAC VRF (VRF-7, v63) -- every SKU with its extras + the VRF-6 and VRF-7 paths; panel = calculator on every case, the count asserted", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A63 = rd("rate_master_hvac_all_v63.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS63 = [...asItems(A63), ...asItems(E72)];
+  const CFG63 = new Map<string, RateCategoryConfig>([...A63.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const ROLES = (CFG63.get("hvac_vrf") as unknown as { list_spec: { pricing: { extras: { roles: Record<string, string> } } } }).list_spec.pricing.extras.roles;
+  const run = (c: ParityCase) => runParity(CFG63, ITEMS63, c, "full");
+  const vc = (unit: string, item: Record<string, string>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const od = (cap: string, more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: cap, ...more });
+  const cas = (cap: string, more: Record<string, string> = {}) => ({ item: "Cassette", brand: "Blue Star", capacity: cap, way: "FOUR-WAY", ...more });
+  const row = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const ALL4 = row(["copper", "insulation", "power", "comm"]);
+  const OUT = row(["frame", "gas", "mccb"]);
+  const IN3 = row(["drain_pump", "remote", "refnet"]);
+  const skuCases: Array<[string, ParityCase]> = A63.items.filter((it) => it.kind === "hvac_vrf_item" || it.kind === "hvac_misc_item").map((sku) => {
+    const a = sku.attributes as Record<string, unknown>;
+    const item: Record<string, string> = { item: String(a.item) };
+    if (sku.brand) item.brand = String(sku.brand);
+    for (const k of ["cooling", "discharge", "compressor", "way", "remote_type"]) if (a[k] !== undefined) item[k] = String(a[k]);
+    if (a.capacity !== undefined) item.capacity = `${String(a.capacity)} ${String(a.capacity_unit ?? "")}`.trim();
+    const unit = String(sku.unit ?? "Nos").toLowerCase().startsWith("kg") ? "Kg" : "Nos";
+    const role = ROLES[String(a.item)];
+    return [`SKU ${sku.item_uid} ${String(a.item)} ${item.capacity ?? ""}`, vc(unit, role ? { ...item, ...ALL4, ...(role === "outdoor" ? OUT : IN3) } : item)];
+  });
+  const named: Array<[string, ParityCase]> = [
+    ...["5 HP", "6 HP", "8 HP", "10 HP", "12 HP", "14 HP", "16 HP", "18 HP", "20 HP", "22 HP", "24 HP", "26 HP"]
+      .map((cap) => [`TEAM ${cap}: frame + gas kg = HP + MCB + ELCB`, vc("Nos", od(cap, OUT))] as [string, ParityCase]),
+    ["TEAM '38HP (20+18)'", vc("Nos", od("38HP (20+18)", OUT))],
+    ["TEAM isolator", vc("Nos", od("20 HP", row(["mccb"])), { desc: "20 HP ODU with isolator" })],
+    ["TEAM frame per Nos", vc("Nos", { item: "MS Angle Base Frame Structure", capacity: "6HP" })],
+    ["F1 model Wired", vc("Nos", cas("2 TR", { ...row(["remote"]), remote_type: "Wired" }))],
+    ["F1 'corded or cordless'", vc("Nos", cas("2 TR", { ...row(["remote"]), remote_type: "Wired" }), { ownNotes: ["corded or cordless remote"] })],
+    ["F12 Daikin cassette accessories", vc("Nos", cas("1 TR", { brand: "Daikin", ...IN3 }))],
+    ["F8 '24HP (12HP x 2NOS)'", vc("Nos", od("24HP (12HP x 2NOS)"))],
+    ["F8 Daikin '60.0 HP (18+18+24)'", vc("Nos", od("60.0 HP (18+18+24)", { brand: "Daikin", cooling: "Cool Only" }))],
+    ["F8 Daikin 26 HP", vc("Nos", od("26 HP", { brand: "Daikin", cooling: "Heat Pump" }))],
+    ["F8 Daikin '32 H.P (16HP+16HP)'", vc("Nos", od("32 H.P (16HP+16HP)", { brand: "Daikin", cooling: "Heat Pump" }))],
+    ["F11 3 m cord", vc("Nos", cas("1.28 TR", { ...row(["copper", "power", "comm"]), extra_cable_spec_as_written: "3 meters long 3 core flexible copper cable", extra_length_as_written: "3 meters long" }))],
+    ["F11 AL armoured", vc("Nos", od("8 HP", { ...row(["power"]), extra_cable_spec_as_written: "power cable (FRLS, XLPE, AL Armoured)" }))],
+    ["F3 gas on a cassette", vc("Nos", cas("2 TR", row(["gas"], "Heading")))],
+    ["F4 piping row on the sheet", vc("Nos", od("6 HP", row(["copper"], "Note")), { sheet: [{ row: 287, text: "5/8 dia with 13 mm insulation", category: "hvac_piping", items: [{ item: "Copper", size: "15.9 mm" }] }] })],
+    ["Q1 built-in drain pump", vc("Nos", cas("2 TR", row(["drain_pump"])), { desc: "cassette with built-in drain pump" })],
+    ["Q5 no installation row", vc("Nos", od("16 HP", { scope: "Supply only" }), { headingNotes: ["The unit rate shall include installation"] })],
+    ["Q5 with an installation row", vc("Nos", od("16 HP", { scope: "Supply only" }), { headingNotes: ["The unit rate shall include installation"], sheet: [{ row: 40, items: [od("16 HP", { scope: "Installation only" })] }] })],
+    ["installation-only + supply row", vc("Nos", od("6 HP", { discharge: "Side", scope: "Installation only" }), { sheet: [{ row: 6, items: [od("6 HP", { discharge: "Side", scope: "Supply only" })] }] })],
+    ["installation-only, no supply row", vc("Nos", od("6 HP", { discharge: "Side", scope: "Installation only" }))],
+    ["Q6 row cooling", vc("Nos", od("20 HP", { cooling: "Heat Pump" }), { desc: "20 HP (Cooling Type)", ancestorNotes: ["(HEAT PUMP)"] })],
+    ["Q7 quantified separately", vc("Nos", cas("1.6TR", row(["power", "comm"], "Heading")), { headingNotes: ["cabling & ODU stands quantified separately"] })],
+    ["Q-pre 7 CSU", vc("Nos", { capacity: "3.0 TR" }, { headings: ["CSU type indoor units"] })],
+    ["Q-pre 7 600x600", vc("Nos", cas("1.0 TR"), { desc: "1.0 TR (600mm X 600mm only)" })],
+    ["Q-pre 11 control wiring", vc("Nos", { item: "Ductable", brand: "Blue Star", capacity: "3.2 TR" }, { headings: ["Ductable units with control wiring"] })],
+    ["'6 .3TR'", vc("Nos", { item: "Ductable", brand: "Blue Star", capacity: "6 .3TR" })],
+  ];
+  const duct = (cap: string, more: Record<string, string> = {}) => ({ item: "Ductable", brand: "Blue Star", capacity: cap, ...more });
+  const ARM = "Price includes armoured copper conductor cabling with end termination from Switch to ODU";
+  // VRF-7 K3: the K2 paths again, on the minted asset
+  const vrf7: Array<[string, ParityCase]> = [
+    ["A1 '3 TR' with the model's remote type on the ODU -> Side 4 HP", vc("Nos", od("3 TR", { remote_type: "Wired", compressor: "Standard", ...row(["frame", "mccb"], "Note") }))],
+    ["A1 a heading 'top discharge' on 6 HP -> Top 7", vc("Nos", od("6 HP", row(["mccb"], "Note")), { headings: ["VRF ODU - top discharge"] })],
+    ["A1 the row 'Side discharge' on 8 HP", vc("Nos", od("8 HP"), { desc: "8 HP Side discharge" })],
+    ["A2 the heading's armoured cabling", vc("Nos", od("6 HP", row(["power"], "Note")), { headingNotes: [ARM] })],
+    ["A2 the model's armoured Yes", vc("Nos", od("10 HP", { ...row(["power"], "Note"), extra_power_armoured: "Yes" }))],
+    ["A3 power 5 m, comm the default", vc("Nos", od("18 HP", { ...row(["power", "comm"], "Note"), extra_power_length_as_written: "around a distance of 5m" }))],
+    ["A3 copper 15 m", vc("Nos", od("10 HP", { ...row(["copper", "power"], "Note"), extra_copper_length_as_written: "up to 15 m" }))],
+    ["A4 a heading's 'control wiring', no comm answer", vc("Nos", od("10 HP", row(["power"], "Note")), { headings: ["During any fault / Breakdown in the control wiring circuit the system must work"] })],
+    ["A5 'suitable for cooling/heating' -> Heat Pump", vc("Nos", od("10 HP", row(["frame"], "Heading")), { headings: ["VRF outdoor units suitable for cooling/heating"] })],
+    ["A5 the row's 'Cooling Type' under 'cooling as well as heating'", vc("Nos", od("26HP", { cooling: "Cool Only" }), { desc: "26HP (Cooling Type) TFA", headings: ["cooling as well as heating mode"] })],
+    ["A6 6 HP MCB + ELCB 20 -> 25 A", vc("Nos", od("6 HP", row(["mccb"], "Note")))],
+    ["A6 12 HP ELCB 32 -> 40 A", vc("Nos", od("12 HP", row(["mccb"], "Note")))],
+    ["B7 a row-stated frame with the sheet's own frame row -> NOT added", vc("Nos", od("10 HP", { ...row(["frame"]), includes_frame_words: "including MS frame" }), { desc: "10 HP including MS frame", sheet: [{ row: 60, text: "MS stand for ODU", items: [{ item: "MS frame / stand for ODU" }] }] })],
+    ["B7 a row-stated frame, no own row -> added", vc("Nos", od("10 HP", { ...row(["frame"]), includes_frame_words: "including MS frame" }), { desc: "10 HP including MS frame" })],
+    ["B8 inbuilt drain pump + the sheet's pump row", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "2 TR", ...row(["drain_pump", "remote"], "Heading"), includes_drain_pump_words: "with inbuilt drain pump" }, { headings: ["Hi-Wall units with inbuilt drain pump"], sheet: [{ row: 50, text: "Drain pump", items: [{ item: "Drain Pump", brand: "Blue Star" }] }] })],
+    ["B9 'minimum 2 units of at least 20 HP each' -> 20 + 20", vc("Nos", od("40 HP (in a combination of minimum 2 units of at least 20 HP each)", { cooling: "Heat Pump", ...row(["gas", "frame"], "Heading") }))],
+    ["B9 Blue Star 32 HP + '16HP+16HP' -> 16 + 16", vc("Nos", od("32 H.P", row(["gas"], "Heading")), { desc: "ODU-01 : 32 H.P", ownNotes: ["16HP+16HP"] })],
+    ["B9 Daikin heat pump '16HP+16HP' not stocked -> the split rule", vc("Nos", od("32 H.P", { brand: "Daikin", cooling: "Heat Pump", ...row(["gas"], "Heading") }), { desc: "ODU-01 : 32 H.P", ownNotes: ["16HP+16HP"] })],
+    ["B10 'with/without wired remote ... client' -> remote", vc("Nos", duct("8.0 TR"), { headingNotes: ["Units to be supplied with/without wired remote controller as per the requirement of the client."] })],
+    ["C13 'individual controller' -> one remote per indoor unit", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "1.5 TR" }, { headings: ["VRF system complete with indoor and outdoor units with individual controller"] })],
+    ["B11 'CSU type ... treated fresh air unit' -> the fresh-air unit", vc("Nos", duct("6.8 TR"), { headings: ["Supply of CSU type VRF / VRV treated fresh air unit"] })],
+    ["D1 the unit's own starter panel", vc("Nos", od("6 HP", row(["mccb"], "Note")), { headingNotes: ["unit mounted starter panel with power disconnecting switches with fuses"] })],
+    ["D2 'coreded/cordless' + a wired-remote note", vc("Nos", duct("2 TR", row(["remote"], "Heading")), { headings: ["scope also covers for suitable coreded/cordless digital thermostat remotes"], ancestorNotes: ["Each indoor unit shall have an LCD wired remote controller"] })],
+  ];
+  const CASES = [...skuCases, ...named, ...vrf7];
+
+  it("every case: 0 divergences -- the count asserted", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    expect(out.filter((o) => o.div.length).map((o) => ({ name: o.name, div: o.div }))).toEqual([]);
+    expect(skuCases).toHaveLength(155);
+    expect(named).toHaveLength(37);
+    expect(vrf7).toHaveLength(23);
+    expect(CASES).toHaveLength(215);
+  }, 600000);
+});
+
+/*
+ * VRF-7 B2 (K2) -- the calculator follows every K1 rule: on the fixture's v63 keys (v62 + `vrf7Model.json`, the file the v63 mint
+ * reads, applied by the harness's `applyVrf7`) the panel and the calculator price each new path the same -- Side below the smallest
+ * Top (a remote type on the ODU), a stated discharge, armour (the model's answer and the words), a length per item, the heat-pump
+ * wordings, the step-up notes, the own-row check for a row-stated extra, the quoting notes, a stated module setup (stocked / not),
+ * the optional remote, the individual controller, fresh air over CSU, the starter-panel and wired-remote notes, no control-wiring
+ * rule. The count asserted.
+ */

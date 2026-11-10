@@ -176,8 +176,8 @@ class TestVrf3bAssetV59(FrappeTestCase):
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `nums[-1] == 59` and `range(1, 60)`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `nums[-1] == 60` and `range(1, 61)`
-        self.assertEqual(nums[-1], 62)  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE nums[-1] == 61
-        self.assertEqual(nums, list(range(1, 63)))  # VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE list(range(1, 62))
+        self.assertEqual(nums[-1], 63)  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE nums[-1] == 62
+        self.assertEqual(nums, list(range(1, 64)))  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE list(range(1, 63))
         self.assertTrue(os.path.exists(_asset_path(V58)))
 
     def test_07_live_catalogue_is_v59(self):

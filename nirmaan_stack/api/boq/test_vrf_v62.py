@@ -253,15 +253,22 @@ class TestVrf6AssetV62(FrappeTestCase):
     def test_06_v62_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V62))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 62)
-        self.assertEqual(nums, list(range(1, 63)))
+        self.assertEqual(nums[-1], 63)  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE nums[-1] == 62
+        self.assertEqual(nums, list(range(1, 64)))  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE list(range(1, 63))
         self.assertTrue(os.path.exists(_asset_path(V61)))
 
     def test_07_live_catalogue_is_v62(self):
         row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", CATEGORY))
         self.assertTrue(row)
         live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-        self.assertEqual(_norm(live), _norm(self.cfg))
+        # INVERTED at VRF-7 (HVAC v63 minted + LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE
+        # `assertEqual(_norm(live), _norm(self.cfg))` (live == v62). The live VRF config is v63's (test_vrf_v63 07 pins it whole): v62's
+        # pricing keys other than `extras` stand unchanged in it, second opinion stays OFF, and no item moved (585)
+        self.assertNotEqual(_norm(live), _norm(self.cfg))
+        for k, v in self.cfg["list_spec"]["pricing"].items():
+            if k != "extras":
+                self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
+        self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
         self.assertEqual(n, 585)
         ids = {r[0] for r in frappe.db.sql("""select attributes::json->>'item' from "tabBoQ Rate Master Item" where active=1 and discipline='HVAC' and kind in ('hvac_pricing_input', 'hvac_misc_item')""")}
