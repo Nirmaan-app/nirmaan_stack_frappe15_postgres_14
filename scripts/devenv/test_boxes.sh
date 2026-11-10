@@ -109,7 +109,7 @@ log_has "orca terminal close --environment test-orca --terminal term_t1" "agent_
 
 # ---- task.sh and handoff.sh, on a temp laptop repo (it holds the task records) and a checkout of it per box
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$HERE/brief_skills.py" "$L/scripts/devenv/"
 cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
 #!/bin/bash
 # Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
@@ -117,7 +117,7 @@ set -e
 wt="$(cd ../.. && pwd)/benches/$2/apps/nirmaan_stack"
 case "$1" in
   create) git worktree add -q "$wt" "$4"; echo "Ready $2" ;;
-  destroy) git -C "$wt" checkout -q --detach; echo "destroyed $2" ;;
+  destroy) git -C "$wt" checkout -q --detach; echo "Destroyed env $2. Commits stay in git." ;;
 esac
 EOF
 printf 'import sys\nprint("ok    test dod", sys.argv[1])\n' > "$L/scripts/devenv/dod.py"
@@ -128,7 +128,7 @@ git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-veri
 git -C "$L" branch box/legacy
 AIR="$T/boxes/me@air-test/work/y/variants/master"
 git clone -q "$L" "$T/boxes/t@contabo-test/work/x/variants/master"; git clone -q "$L" "$AIR"
-echo "the brief" > "$T/brief.md"
+echo "# Task: experiment: the brief" > "$T/brief.md"
 task() { run env ${TASK_ENV:-} /bin/bash "$L/scripts/devenv/task.sh" "$@"; }
 rec() { git -C "$L" config "devbox-task.$1.box" || echo none; }
 branch() { git -C "$L" rev-parse -q --verify "refs/heads/box/$1" >/dev/null && echo yes || echo no; }
@@ -163,7 +163,7 @@ task start t2 --box air --no-agent --brief "$T/brief.md"
 rc_is 0 "start t2 on air"; has "box   air (me@air-test), checkout ~/work/y/variants/master   [--box]" "start prints the box line first"
 same "$(rec t2)" air "start records the box"
 same "$(git -C "$AIR" rev-parse box/t2)" "$(git -C "$L" rev-parse box/t2)" "the branch reached the air box"
-same "$(cat "$T/boxes/me@air-test/claude-artifacts/dod/box-t2/BRIEF.md")" "the brief" "the brief reached the air box"
+same "$(cat "$T/boxes/me@air-test/claude-artifacts/dod/box-t2/BRIEF.md")" "# Task: experiment: the brief" "the brief reached the air box"
 has "ok    test dod start" "the Definition of Done was turned on"
 task start t2 --box contabo --no-agent
 rc_is 1 "a --box that contradicts the record STOPs"; has "task t2 is on box air (git config devbox-task.t2.box)" "the STOP names the recorded box"
