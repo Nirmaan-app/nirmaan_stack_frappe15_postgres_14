@@ -1,5 +1,6 @@
 #!/bin/bash
-# Tests that task.sh start refuses a brief naming a skill only a person can start, before it touches the box or git.
+# Tests that task.sh start refuses a brief whose first line names no issue, and a brief naming a skill only a person
+# can start, before it touches the box or git.
 # A temp laptop repo, a temp registry with one stub box whose ssh only logs and fails, and a fake Claude home.
 # No network, no real box, nothing outside a fresh folder under $TMPDIR, which each run leaves in place.
 # Run: /bin/bash scripts/devenv/test_task_start_brief.sh
@@ -43,7 +44,28 @@ git -C "$L" add -A
 git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base
 start() { : > "$SSH_LOG"; run /bin/bash "$L/scripts/devenv/task.sh" start "$@"; }
 
-echo 'Call the Skill tool with `tools:build-all` to run the build.' > "$T/bad.md"
+untitled() {
+  start "$1" --box air --brief "$2" --no-agent
+  [ "$RC" = 1 ] || fail "$3 exits 1 (exit $RC)"; pass "$3 exits 1"
+  echo "$OUT" | grep -q 'names no issue' || fail "$3: it says why"; pass "$3: it says why"
+  [ ! -s "$SSH_LOG" ] || fail "$3: it never reaches the box ($(cat "$SSH_LOG"))"; pass "$3: it never reaches the box"
+  ! git -C "$L" rev-parse -q --verify "refs/heads/box/$1" >/dev/null || fail "$3: it makes no branch"
+  pass "$3: it makes no branch"
+}
+printf 'Build the thing.\n# Task: build ticket #1234\n' > "$T/no_title.md"
+untitled t0 "$T/no_title.md" "a brief whose first line is no '# Task:' title"
+printf '# Task: fix the experimental filter\n' > "$T/word.md"
+untitled t0b "$T/word.md" "a title with 'experimental' and no issue"
+printf '# Task: redo step #2\n' > "$T/step.md"
+untitled t0c "$T/step.md" "a title with a step number, not an issue"
+
+printf '# Task: experiment: pool walk\nRun the walk twice.\n' > "$T/experiment.md"
+start t3 --box air --brief "$T/experiment.md" --no-agent
+! echo "$OUT" | grep -q 'names no issue' || fail "an experiment's title passes the check"
+pass "an experiment's title passes the check"
+[ -s "$SSH_LOG" ] || fail "and goes on to the box"; pass "and goes on to the box"
+
+printf '# Task: build ticket #1234\nCall the Skill tool with `tools:build-all` to run the build.\n' > "$T/bad.md"
 start t1 --box air --brief "$T/bad.md" --no-agent
 [ "$RC" = 1 ] || fail "a brief naming a user-only skill exits 1 (exit $RC)"; pass "a brief naming a user-only skill exits 1"
 echo "$OUT" | grep -q '^tools:build-all$' || fail "it names the skill"; pass "it names the skill"
@@ -52,7 +74,7 @@ echo "$OUT" | grep -q 'only a person can start' || fail "it says why"; pass "it 
 ! git -C "$L" rev-parse -q --verify refs/heads/box/t1 >/dev/null || fail "it makes no branch"; pass "it makes no branch"
 [ -z "$(git -C "$L" config devbox-task.t1.box || true)" ] || fail "it records no task"; pass "it records no task"
 
-echo 'Call the Skill tool with `tools:test-first` before the first test.' > "$T/good.md"
+printf '# Task: build ticket #1234\nCall the Skill tool with `tools:test-first` before the first test.\n' > "$T/good.md"
 start t2 --box air --brief "$T/good.md" --no-agent
 ! echo "$OUT" | grep -q 'only a person can start' || fail "a brief naming an agent skill passes the check"
 pass "a brief naming an agent skill passes the check"

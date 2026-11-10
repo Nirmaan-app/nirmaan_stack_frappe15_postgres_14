@@ -255,8 +255,9 @@ case "$CMD" in
     # A placeholder left from BRIEF_TEMPLATE.md would hand the agent a wrong base, ticket or env.
     [ -z "$BRIEF" ] || ! grep -n '<<FILL' "$BRIEF" >&2 || die "the brief still holds a <<FILL: …>> from the template (lines above): fill it first"
     # The title names the task's GitHub issue, so its merge and its closing have one to name (fix #1655 had none
-    # until after it was built). An experiment, which never merges, says so instead.
-    [ -z "$BRIEF" ] || head -n 1 "$BRIEF" | grep -Eiq '^# Task:.*(#[0-9]+|experiment)' \
+    # until after it was built). An experiment, which never merges, says so instead. An issue number has three digits
+    # or more, so a step number ("#2") does not pass for one.
+    [ -z "$BRIEF" ] || head -n 1 "$BRIEF" | grep -Eq '^# Task: (experiment: |.*#[0-9]{3,}([^0-9]|$))' \
       || die "the brief's first line names no issue: write '# Task: … #<issue> …' (file the issue first), or '# Task: experiment: …'"
     [ -z "$BRIEF" ] || python3 -I "$SELF_DIR/brief_skills.py" "$BRIEF" "${DEVBOX_CLAUDE_HOME:-$HOME/.claude}" >&2 \
       || die "the brief names a skill only a person can start (above): the box agent's Skill tool refuses it. Name the steps it should take instead"
@@ -332,6 +333,8 @@ case "$CMD" in
     # agent has a path to read.
     REPORT_COPY="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/reports/$NAME.md"
     mkdir -p "$(dirname "$REPORT_COPY")"
+    # box_unreachable exits the shell mid-copy: the half-written file goes with it.
+    trap 'rm -f "$REPORT_COPY.tmp"' EXIT
     echo
     if box_ssh "cat ~/$DIR/REPORT.md 2>/dev/null" > "$REPORT_COPY.tmp" && [ -s "$REPORT_COPY.tmp" ]; then
       mv "$REPORT_COPY.tmp" "$REPORT_COPY"; cat "$REPORT_COPY"; ok "report kept at $REPORT_COPY"
