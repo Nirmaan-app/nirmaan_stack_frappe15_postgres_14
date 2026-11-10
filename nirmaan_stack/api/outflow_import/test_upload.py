@@ -6,7 +6,7 @@
 These exercise `_stage_batch` directly rather than the whitelisted endpoint. The endpoint's own
 work above that call is authorization, a multipart read and two extension/size checks -- none of
 which can be driven without a real HTTP request, and all of which would need `frappe.request` and
-`save_file` faked to the point where the test asserts the fake. What IS worth pinning is everything
+`store_file` faked to the point where the test asserts the fake. What IS worth pinning is everything
 downstream: the staged shape, the duplicate guard, the skip semantics and the derived rollup.
 
 ⚠️ THIS SUITE RUNS AGAINST THE LIVE SITE DATABASE. Every document it creates is tracked and purged
@@ -809,11 +809,11 @@ class TestPreviewAndRefusal(unittest.TestCase):
         self.assertEqual(verdict.new, 1)
 
     def test_the_upload_refuses_before_writing_anything(self):
-        """⚠️ THE REFUSAL MUST PRECEDE `save_file`, which is not rollback-able -- the cloud
+        """⚠️ THE REFUSAL MUST PRECEDE `store_file`, which is not rollback-able -- the cloud
         attachment hook commits inside the request. A refusal after it would leave an orphan File
         behind for a statement we declined.
 
-        Asserted structurally: `save_file` must not be reachable before the refusal check, and the
+        Asserted structurally: `store_file` must not be reachable before the refusal check, and the
         cheapest honest way to state that is that no batch, row or File appears for a refused
         statement. Here the guard is that assessing costs nothing -- it is a pure read.
         """
@@ -1444,7 +1444,7 @@ class TestOneUploadAsksOnce(unittest.TestCase):
     """#1358: an upload plans its lines ONCE -- one earlier-sightings query, one overlap query --
     and the refusal check and the staging both read that one plan.
 
-    Through the real endpoint (the multipart read faked with a `werkzeug` `FileStorage`, `save_file`
+    Through the real endpoint (the multipart read faked with a `werkzeug` `FileStorage`, `store_file`
     stubbed), because the two calls sit in the endpoint and nowhere else."""
 
     def setUp(self):
@@ -1494,7 +1494,7 @@ class TestOneUploadAsksOnce(unittest.TestCase):
             ) as sightings, patch.object(
                 upload, "_find_overlapping_batch", wraps=upload._find_overlapping_batch
             ) as overlaps, patch.object(
-                upload, "save_file",
+                upload, "store_file",
                 return_value=SimpleNamespace(name="no-such-file", file_url=f"/private/files/{filename}"),
             ):
                 result = upload.upload_outflow_statement()

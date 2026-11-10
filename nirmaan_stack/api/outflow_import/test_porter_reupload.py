@@ -228,11 +228,11 @@ class TestDiscardingAValidatedImport(DiscardCase):
         )
 
     def test_a_pdf_whose_bytes_another_file_shares_keeps_its_bytes(self):
-        from frappe.utils.file_manager import save_file
+        from nirmaan_stack.services.stored_files import store_file
 
         bangalore = self.numbers["29SS27A0900001"]
         with _no_bucket_upload():
-            twin = save_file(f"twin-{bangalore}.pdf", _pdf(bangalore), None, None, is_private=1)
+            twin = store_file(f"twin-{bangalore}.pdf", _pdf(bangalore), None, None, is_private=1)
         frappe.db.commit()
         self.addCleanup(lambda: (frappe.db.delete("File", {"name": twin.name}), frappe.db.commit()))
 

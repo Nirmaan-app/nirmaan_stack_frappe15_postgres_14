@@ -291,7 +291,7 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
 
         from nirmaan_stack.api.outflow_import.test_cashbook_reopen import _post
 
-        with patch.object(cb, "_enqueue_worker"), patch("frappe.utils.file_manager.save_file", _fake_cloud_file):
+        with patch.object(cb, "_enqueue_worker"), patch.object(cb, "store_file", _fake_cloud_file):
             result = _post(cb.confirm_cashbook_import, content, "test-it-reupload.xlsx")
         self.addCleanup(_purge, result["batch"])
         self.addCleanup(_purge_statement_file, result["batch"])
@@ -349,7 +349,7 @@ class TestAReuploadFillsAZeroRecord(CashbookStageCase):
 
 
 def _fake_cloud_file(fname, content, dt, dn, is_private=1, **_):
-    """`save_file` as the storage app leaves it, with no upload: a File whose URL is a cloud key no bucket holds."""
+    """`store_file` as the storage app leaves it, with no upload: a File whose URL is a cloud key no bucket holds."""
     doc = frappe.new_doc("File")
     doc.update({"file_name": fname, "is_private": is_private,
                 "file_url": cloud_url(fname, dt)})

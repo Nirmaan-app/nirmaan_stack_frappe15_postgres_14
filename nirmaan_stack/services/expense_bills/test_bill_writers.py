@@ -65,7 +65,7 @@ OTHER_RECORDS = {
 
 KNOWN = {**ENTRY_POINT, **CLEARS, **ROUTES, **HAND_EDITS, **OTHER_RECORDS}
 
-_WRITE_CALLS = {"set_value", "db_set", "save_file"}
+_WRITE_CALLS = {"set_value", "db_set", "store_file"}
 _FIELD_KEYWORDS = {"df", "fieldname", "attached_to_field"}
 _TS_WRITES = (
     re.compile(r"\.invoice_attachment\s*=(?!=)"),  # obj.invoice_attachment = url
@@ -171,7 +171,7 @@ class TestEveryBillWriterGoesThroughTheEntryPoint(unittest.TestCase):
         self.assertTrue(python_writes("doc.invoice_attachment = url"))
         self.assertTrue(python_writes('frappe.db.set_value(dt, name, "invoice_attachment", url)'))
         self.assertTrue(python_writes('doc.update({"invoice_attachment": url})'))
-        self.assertTrue(python_writes('save_file(fname, content, dt, dn, df="invoice_attachment")'))
+        self.assertTrue(python_writes('store_file(fname, content, dt, dn, df="invoice_attachment")'))
         self.assertFalse(python_writes('"""Writes {"invoice_attachment": url}."""\nx = doc.invoice_attachment'))
         self.assertTrue(python_writes('INVOICE_FIELDS = ("invoice_date", "invoice_ref", "invoice_attachment")'))
         self.assertFalse(python_writes('frappe.get_all(dt, fields=["name", "invoice_attachment"])'))

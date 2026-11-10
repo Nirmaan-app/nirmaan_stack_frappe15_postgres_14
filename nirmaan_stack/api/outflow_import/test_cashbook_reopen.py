@@ -22,7 +22,6 @@ from openpyxl import load_workbook
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import file_manager
 
 from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.outflow_import import cashbook as cb
@@ -32,6 +31,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
 from nirmaan_stack.api.outflow_import.test_cashbook_statement_upload import EARLIEST_EXPIRY
 from nirmaan_stack.services.outflow_import.bill_download import BillRefused
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.stored_files import store_file
 
 ROW_DOCTYPE = "Outflow Import Row"
 OWN_BALANCES = "Moves money between our own balances, not a spend"
@@ -56,7 +56,7 @@ def _post(endpoint, content: bytes, filename: str):
 
     class _Request:
         files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
-        host = None  # `save_file` asks the request for its host
+        host = None  # `store_file` asks the request for its host
         headers: dict = {}  # Frappe 15.126 reads the Host header when host is unset
 
     previous = getattr(frappe.local, "request", None)
@@ -308,13 +308,12 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
         self.assertEqual(self._only_line(WALLET_CREDIT).import_batch, self.old)
 
     def test_a_line_taken_while_the_statement_is_saved_falls_back_too(self):
-        """Code review R4: confirm's `save_file` commits, which ends the first claim. A line taken in that window is
+        """Code review R4: confirm's `store_file` commits, which ends the first claim. A line taken in that window is
         found by the claim after the save and follows the ordinary rule; confirm is never refused for it."""
-        real_save_file = file_manager.save_file
         taken = self._only_line(COLLECT_NO_LINK)
 
         def save_then_another_import_takes_the_line(*args, **kwargs):
-            saved = real_save_file(*args, **kwargs)
+            saved = store_file(*args, **kwargs)
             frappe.db.commit()
             frappe.db.set_value(
                 ROW_DOCTYPE,
@@ -325,7 +324,7 @@ class TestALineTakenMeanwhileFallsBackToTheOrdinaryRule(ReopenCase):
             frappe.db.commit()
             return saved
 
-        with patch.object(file_manager, "save_file", save_then_another_import_takes_the_line):
+        with patch.object(cb, "store_file", save_then_another_import_takes_the_line):
             new = self._upload()["batch"]
 
         # Not re-opened by this import (no Comment naming it), and the other wrong skips still are.

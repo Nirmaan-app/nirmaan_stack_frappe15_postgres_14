@@ -431,18 +431,18 @@ class TestConvertRevisionEntry(FrappeTestCase):
         """Run the real upload worker as a NEW BoQ and return its docname.
 
         Creates a real `File` row for the upload, because that is where Revise -> New reads the
-        original filename back from -- in production `save_file(file_name, ...)` always leaves
+        original filename back from -- in production `store_file(file_name, ...)` always leaves
         one. The class-level `_FAKE_FILE_URL` is deliberately NOT reused: it is a fixed URL
         whose basename ('synthetic_simple') has nothing to do with the `file_name` the worker is
         handed, so it would silently exercise the degraded basename fallback instead of the real
         path. Each upload therefore gets its own matching URL.
         """
-        # Store the workbook exactly as the upload endpoint does (`save_file`), so the File row
+        # Store the workbook exactly as the upload endpoint does (`store_file`), so the File row
         # and its URL are consistent and the convert path reads a real one.
-        from frappe.utils.file_manager import save_file  # noqa: PLC0415
+        from nirmaan_stack.services.stored_files import store_file
 
         with open(_SIMPLE_XLSX, "rb") as src:
-            file_doc = save_file(file_name, src.read(), "Projects", self.project.name,
+            file_doc = store_file(file_name, src.read(), "Projects", self.project.name,
                                  is_private=1)
         self._file_rows.append(file_doc.name)
         file_url = file_doc.file_url

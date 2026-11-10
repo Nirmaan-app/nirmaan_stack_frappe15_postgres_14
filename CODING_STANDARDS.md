@@ -152,12 +152,19 @@ checks the diff against that list, and a change that adds a new exit point adds 
 - **Administrator user:** Name is the literal string `"Administrator"`, not an email. Handle explicitly in rename/delete logic (detail: `.claude/context/domain/users.md`).
 - **Email ops:** Use `api/users.create_user` and `api/users.reset_password` — these decouple email from the core operation, so a mail failure cannot fail the user write.
 
+**Storing bytes our code holds as a File (cloud storage):** only through `services/stored_files.store_file`,
+which hands the bytes to a File doc so that the File writes them to disk once. Never Frappe's legacy
+`frappe.utils.file_manager.save_file`: it writes the bytes to disk itself and then inserts a File whose own
+`before_insert` writes them again under a suffixed name; `file_url` names only the second copy, so the storage
+hook uploads and removes only it, and the first stays on the server's disk with no File row (1,301 orphans from
+one Cashbook import, 2026-11-07). `services/test_stored_files_guard` refuses the legacy helper in any module.
+
 **Reading uploaded file bytes (cloud storage):** never construct a local path from `file_url`. The storage
 attachment app (`frappe_gcp_attachment`, S3-compatible) uploads in `File.after_insert`, replaces `file_url` with
 an `/api/method/...` API URL and deletes the local copy, so a built path finds nothing and
 `Frappe File.get_content()`, which reads local disk only, breaks. The same hook calls `frappe.db.commit()` inside
-the request, so `save_file()` cannot be rolled back: parse and validate before saving. Two correct shapes:
-- **In the request that received the upload:** capture the bytes before `save_file()`, write them to a
+the request, so `store_file()` cannot be rolled back: parse and validate before saving. Two correct shapes:
+- **In the request that received the upload:** capture the bytes before `store_file()`, write them to a
   `NamedTemporaryFile`, parse from that, and clean up in a `finally` block
   (`api/snags/file_io.write_bytes_to_tempfile`, `api/outflow_import/upload.py`). Read the werkzeug upload stream
   exactly once; it is consumed on read.

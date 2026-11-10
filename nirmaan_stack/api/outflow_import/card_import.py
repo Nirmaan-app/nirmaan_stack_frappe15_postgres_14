@@ -21,7 +21,7 @@ THE STEPS
 
 ⚠️ IT NEVER RUNS THE MATCHER (`sources.NEVER_MATCHED_SOURCES`). The generic upload refuses this source.
 
-⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `save_file` commits inside the request (the cloud
+⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `store_file` commits inside the request (the cloud
 attachment hook), so every refusal -- a locked PDF, the totals gate, the
 same holder and period, nothing new -- happens before it.
 
@@ -33,7 +33,6 @@ Create as a negative Non-Project Expense, never decided on the main table.
 
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.card_upload import (
     BATCH_DOCTYPE,
@@ -55,6 +54,7 @@ from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
 from nirmaan_stack.services.outflow_import.sources import is_card_refund
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED, ROW_SKIPPED
 from nirmaan_stack.services.stored_files import delete_files
+from nirmaan_stack.services.stored_files import store_file
 
 
 def suggest_job_id(batch: str) -> str:
@@ -128,7 +128,7 @@ def upload_card_statement():
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
     # Stored unlocked: a locked upload is written again with no password, so the statement opens for anyone
     # who may open it, and the password goes no further than this request.
-    saved = save_file(fname=filename, content=unlocked_copy(content, password), dt=None, dn=None, is_private=1)
+    saved = store_file(fname=filename, content=unlocked_copy(content, password), dt=None, dn=None, is_private=1)
     batch, record = stage(statement, new, file_url=saved.file_url, filename=filename, user=user)
     frappe.db.set_value(
         "File",

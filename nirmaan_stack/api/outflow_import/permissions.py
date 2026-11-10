@@ -5,7 +5,7 @@
 
 THIS MODULE IS THE ENFORCEMENT BOUNDARY. The frontend mirrors the same set for UX -- hiding a
 sidebar entry and a button -- but that is convenience only: a custom whitelisted endpoint that does
-its own `save_file` and `insert(ignore_permissions=True)` never runs Frappe's own permission
+its own `store_file` and `insert(ignore_permissions=True)` never runs Frappe's own permission
 machinery, so without this gate the endpoint would be reachable by any logged-in user.
 
 ROLE PROFILE, NOT `frappe.get_roles()`. This app's admin detection reads
