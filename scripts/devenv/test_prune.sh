@@ -72,6 +72,8 @@ esac
 EOF
 chmod +x "$T/bin/"*
 export PATH="$T/bin:$PATH" STUB_BOXES="$T/boxes" XDG_STATE_HOME="$T/state"
+# Every reflog entry (git dates them by the committer date) is two days old unless a step unsets this.
+export GIT_COMMITTER_DATE="@$(( $(date +%s) - 172800 )) +0000"
 
 commit() {   # commit <checkout> <file>: a commit that adds <file>
   echo "$2" > "$1/$2"; git -C "$1" add "$2"; git -C "$1" commit -q --no-verify -m "$2"
@@ -118,6 +120,12 @@ env_create e-files h-files; mkdir -p "$B/e-files/repro"; echo r > "$B/e-files/re
 env_create e-serving h-serve; echo "ports=8001 8081" > "$B/e-serving/.serve"
 mkdir -p "$B/master/apps" "$B/master/sites"; ln -s ../../../nirmaan_stack_variants/master "$B/master/apps/nirmaan_stack"
 mkdir -p "$B/old"; echo n > "$B/old/notes.txt"
+(
+  unset GIT_COMMITTER_DATE
+  env_create e-new "$(G rev-parse master)"
+  G worktree add -q -b h-new "$WT/new" master
+  G worktree add -q -b h-young "$WT/young" master; commit "$WT/young" y1; G update-ref refs/remotes/origin/main h-young
+)
 
 prune() { RC=0; OUT="$(cd "$WT/here" && bash "$M/scripts/devenv/devenv.sh" prune "$@" 2>&1)" || RC=$?; }
 
@@ -148,9 +156,12 @@ line '^KEEP +env +e-serving .*landed:master +serving$' "a serving env holds"
 line '^KEEP +env +master +nirmaan_stack_variants/master .* shared' "the master env is shared"
 line '^KEEP +env +old +benches/old +landed:- +no-worktree bench-files:notes.txt$' "a bench folder with no worktree holds"
 line '^KEEP +worktree +develop +nirmaan_stack_variants/dev .*landed:master +shared$' "the dev checkout, the main worktree, is shared"
+line '^KEEP +env +e-new .*landed:master +new:0h$' "a fresh create env, detached at master, holds"
+line '^KEEP +worktree +h-new .*landed:master +new:0h$' "a fresh worktree on a branch with no commits holds"
+line '^PRUNE +worktree +h-young .*landed:origin/main$' "a fresh worktree whose own commit landed is PRUNE"
 no_line 'KEEP +worktree +master' "the master checkout is one row, under its env"
 same "$(echo "$OUT" | grep -E '^(PRUNE|KEEP)' | head -3 | cut -c1-5 | sort -u)" PRUNE "PRUNE rows come first"
-has "to prune: 2 envs, 1 worktrees (devenv.sh prune --yes removes them; branches stay)" "the total names the envs and worktrees"
+has "to prune: 2 envs, 2 worktrees (devenv.sh prune --yes removes them; branches stay)" "the total names the envs and worktrees"
 same "$(cut -d' ' -f1 "$STUB_LOG" | sort -u | tr '\n' ' ')" "" "listing never calls docker"
 there "$WT/merged" "listing removes nothing"
 

@@ -56,7 +56,8 @@
 #                                     already holds its work (landed.sh: master, upstream/ or origin/ develop and main)
 #                                     and nothing holds it, else KEEP with the holds: shared (dev, master, lab, the
 #                                     main worktree), here (your cwd), missing, no-worktree, locked, serving, agent
-#                                     (a process works in it), bench-files (files destroy would not remove),
+#                                     (a process works in it), new (its worktree is under a day old and has no
+#                                     commit of its own), bench-files (files destroy would not remove),
 #                                     tracked-changes, untracked. --yes destroys each PRUNE env and removes each PRUNE
 #                                     worktree (git worktree remove, never forced); branches stay. --quiet, for the
 #                                     post-merge hook: only the PRUNE lines (nothing when there are none), and landed by
@@ -700,7 +701,7 @@ pick_task() {   # task from the first argument, else from the worktree we are st
 # folder, or empty), R_WT (the worktree, physical, or empty), R_SHA (its HEAD), R_LOCKED and R_GONE (1 or empty),
 # R_STATUS (git status --porcelain). PRUNE iff landed.sh finds a ref holding R_SHA and no hold in PRUNE_HOLDS applies.
 # hold_<name> prints the hold, with a detail after a colon, when it applies to the row.
-PRUNE_HOLDS="shared here missing no-worktree locked serving agent bench-files tracked-changes untracked"
+PRUNE_HOLDS="shared here missing no-worktree locked serving agent new bench-files tracked-changes untracked"
 
 hold_shared() {
   local p; case "$R_TASK" in dev|master|lab) echo shared; return ;; esac
@@ -721,6 +722,16 @@ hold_agent() {
     '(a != "" && ($3 == a || index($3, a "/") == 1)) || (b != "" && ($3 == b || index($3, b "/") == 1)) {print $2 "/" $1}' \
     | sort -u | paste -sd, -)"
   [ -z "$who" ] || echo "agent:$who"
+}
+# A worktree made under a day ago with no commit of its own sits at a commit a ref already holds, so it reads as
+# landed while its user is about to start. Its age is its oldest HEAD reflog entry. Entries that make a commit:
+# commit (merge, amend), cherry-pick, revert, a rebase's pick/squash/fixup/reword, a merge's "Merge made by".
+hold_new() {
+  [ -n "$R_WT" ] && [ -z "$R_GONE" ] || return 0
+  git -C "$R_WT" reflog --date=unix --format='%gd%x09%gs' HEAD 2>/dev/null | awk -F'\t' -v now="$(date +%s)" '
+    match($1, /[0-9]+/) {first = substr($1, RSTART, RLENGTH)}
+    $2 ~ /^(commit|cherry-pick|revert)|\((pick|squash|fixup|reword)\)|: Merge made by/ {own = 1}
+    END {if (first != "" && !own && now - first < 86400) printf "new:%dh\n", (now - first) / 3600}' || true
 }
 # Files destroy leaves, so its rmdir would fail: the owner's reports and repair scripts have sat there.
 hold_bench_files() {
