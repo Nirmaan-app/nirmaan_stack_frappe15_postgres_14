@@ -50883,7 +50883,8 @@ uplift, with the owner's note; code only, no asset change), K4 docs.
 
 **Owner answers:** ANSWER 1 15:13 (paid run pre-approved, cap <= 3,692,018); ANSWER 2 15:42 (correction: the auto-go ceiling is
 VRF-7's 6,000,000); ANSWER 3 18:21 (R-F2 corrected, option a: installation-only + MS frame prices; new commit K2c before the
-cert; echoed late, 20:13, the watch missed it); ANSWER 4 20:09 (laptop offline - keep working as planned).
+cert; echoed late, 20:13, the watch missed it); ANSWER 4 20:09 (laptop offline - keep working as planned); ANSWER 5 23:43 (QR-1 (a): resume after the
+credit top-up, a balance check first, the same cumulative cap).
 
 **Asset v64** (`rate_master_hvac_all_v64.json`, sha256 0177216efdd9..., 761,711 B, only hvac_vrf's list_spec - extras + split; the same 68 questions, ten
 `required`): mint gate PASS; loaded once, 18:10 (rmbulk-9d3aa4461862, snapshot BRMS-26-02201); live == v64; HVAC items unchanged (8af2eec7),
@@ -50897,13 +50898,15 @@ only when nothing describes it); a reply that leaves one out is re-asked once (`
 **The run:** pre-approved go at 19:35:11 (60 sheets / 539 run_list rows / 97 calls / expected 3,153,652 tokens / HARD CAP
 5,045,844 tokens, 156 attempts, 0 second opinions). 20:52: the AI account's usage limit refused BOQ-26-00380 / HVAC-8F (partial, and
 partial again on its one resume; halt_reason "The AI account's usage limit was reached, so the run stopped early.") -> STOP + QR-1.
-56 / 60 sheets run, 55 complete + active (491 rows); 5 sheets / 48 rows left (HVAC-8F 18, 00383 1, 00392 7, 00397 19, 00401 3) keep
-VRF-7's answers (priced by the v64 code). Spent 2,098,882 tokens (cap watch, every generation; 66 attempts, 2 refused); 0 re-asks;
-0 second opinions. Controls: 533 older runs byte-identical except 55 active flags 1 -> 0. Payload integrity 491 / 491 (byte-equal,
-replied, EA-7). Rows workbook `2026-11-10_VRF-8_Rows.xlsx` (509 rows, sha256 601baa70...); hand check 8 rows / 35 readings, 35 agree.
-vs the B6 re-pricing: 10 figure moves from the re-read + 402 notes / fields; vs VRF-7 on the run rows: 54 figure moves, 21 priced ->
-refused (all D12), 1 refused -> priced (00191 r32 TFA + its outdoor unit). Calculator divergences 22 = 21 D12 (named) + 00376 r56
-per-HP (there since VRF-7). Replay vrf8end (ac7 de27948a / ac7v2 68594449): 128 moved vs vrf7end, all hvac_vrf, 0 non-VRF.
+56 / 60 sheets run when it stopped (55 complete + active). RESUME (ANSWER 5) 23:47 after a 21-token balance check: the 5 sheets
+left (HVAC-8F by the product's resume of its partial run, + 00383, 00392, 00397, 00401; 48 rows), one process -> 60 / 60 complete +
+active at 23:54. Spent 2,249,194 tokens in all (cap watch, every generation; the resume 150,312) and 70 attempts (2 refused) of
+5,045,844 / 156; 0 re-asks; 0 second opinions. Controls: 533 older runs byte-identical except 60 active flags 1 -> 0. Payload
+integrity 539 / 539 (byte-equal, replied, EA-7). Rows workbook `2026-11-10_VRF-8_Rows.xlsx` (539 rows, sha256 6c8f7553...); hand check
+8 rows / 35 readings, 35 agree. vs the B6 re-pricing: 10 figure moves from the re-read + 449 notes / fields; vs VRF-7 on the run rows:
+57 figure moves, 21 priced -> refused (all D12), 1 refused -> priced (00191 r32 TFA + its outdoor unit). Calculator divergences 22 =
+21 D12 (named) + 00376 r56 per-HP (there since VRF-7). Replay vrf8end (ac7 5dbe4cc2 / ac7v2 9f6ff9f3): 145 moved vs vrf7end, all
+hvac_vrf, 0 non-VRF.
 21:07 Docker Desktop's WSL engine restarted during the K2c vitest run (every container exited 255): the main stack restarted by name
 (dev2 untouched), postgres recovery clean, controls identical after; vitest re-run with 3 workers.
 
@@ -50916,7 +50919,8 @@ Derivation lines + line 33's K2c wording. 39 screenshots (`2026-11-10_VRF-8_cert
 parity harness on the paid answers (0 divergences on every cert row but D12).
 
 **Open (for the owner):** 
-- QR-1: top up and "resume" (5 sheets / 48 rows / 7 calls / ~234k tokens, same cumulative cap) or "close without them".
+- QR-1 answered (ANSWER 5): resumed and complete, 60 / 60.
+- dev2 was stopped by the Docker engine restart at 21:07 and left exited (the session may not start it).
 - K2c is a code rule on every scope config (no config key): only the MS frame has a stored install of 0 today.
 - The D1 starter-panel note clips its BoQ quote with "..." (a pricer excerpt; D14-7's verified-quote rule covers model quotes only).
 - 00191 r32: the re-read model listed the outdoor unit itself, so D14-1's rule did not have to add it on this run.
