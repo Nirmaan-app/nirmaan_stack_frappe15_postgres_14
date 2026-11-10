@@ -14,8 +14,9 @@
 #                            commits the laptop lacks, unless a laptop ref already holds the box tip: landed.sh)
 #   task.sh prune [--yes]    each recorded task, one line: PRUNE when a laptop ref holds its box tip (landed.sh:
 #                            master, upstream/ or origin/ develop and main) and nothing holds it, else KEEP with the
-#                            holds: unreachable, working (its agent, as watch counts it), tracked-changes, untracked
-#                            (in its env on the box), unfetched (the laptop lacks the box tip: task.sh done first).
+#                            holds: unreachable, working (its agent, as watch counts it), tracked-changes, untracked,
+#                            status-failed (git status failed; these three in its env on the box), unfetched (the
+#                            laptop lacks the box tip: task.sh done first).
 #                            One SSH pair per box, read only. --yes runs task.sh clean on each PRUNE task.
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
 #   task.sh pick             the box the next start without --box would get, and why (one SSH per box, read only)
@@ -187,32 +188,34 @@ box_pick() {
   die "no box in devbox.order ($order) has a free agent (lines above). Pass --box <name> to start on one anyway."
 }
 
-# Runs on a box under bash -s, args <checkout> <task>...: per task "<name>\t<env worktree>\t<tip>\t<tracked>\t<untracked>".
+# Runs on a box under bash -s, args <checkout> <task>...: per task
+# "<name>\t<env worktree>\t<tip>\t<tracked>\t<untracked>\t<status rc>".
 # tip: box/<name>'s commit, else the env worktree's HEAD, else - (nothing of the task is left on the box). The counts
-# are git status lines in the env worktree.
+# are git status lines in the env worktree; status rc is that git status's exit status.
 prune_probe() {
   cat <<'EOF'
 co="$1"; shift
 cd ~/"$co" || exit 4
 root="$(cd ../.. && pwd -P)"
 for n in "$@"; do
-  wt="$root/benches/$n/apps/nirmaan_stack" st=""
+  wt="$root/benches/$n/apps/nirmaan_stack" st="" src=0
   tip="$(git rev-parse -q --verify "refs/heads/box/$n^{commit}" || true)"
   if [ -d "$wt" ]; then
     [ -n "$tip" ] || tip="$(git -C "$wt" rev-parse -q --verify HEAD || true)"
-    st="$(git -C "$wt" status --porcelain 2>/dev/null)"
+    st="$(git -C "$wt" status --porcelain 2>/dev/null)" || src=$?
   fi
-  printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$wt" "${tip:--}" "$(printf '%s\n' "$st" | grep -c '^[^?]')" "$(printf '%s\n' "$st" | grep -c '^??')"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$wt" "${tip:--}" "$(printf '%s\n' "$st" | grep -c '^[^?]')" "$(printf '%s\n' "$st" | grep -c '^??')" "$src"
 done
 EOF
 }
 
 # The holds of a box task, one check per name, each printing the hold when it applies to the task in the T_* globals.
-TASK_HOLDS="unreachable working tracked-changes untracked unfetched"
+TASK_HOLDS="unreachable working tracked-changes untracked status-failed unfetched"
 task_hold_unreachable() { [ -z "$T_NOTE" ] || echo unreachable; }
 task_hold_working() { [ "$T_STATE" != working ] || echo working; }
 task_hold_tracked_changes() { [ "$T_TRACKED" = 0 ] || echo "tracked-changes:$T_TRACKED"; }
 task_hold_untracked() { [ "$T_UNTRACKED" = 0 ] || echo "untracked:$T_UNTRACKED"; }
+task_hold_status_failed() { [ "$T_STATUS_RC" = 0 ] || echo status-failed; }
 task_hold_unfetched() {
   [ -z "$T_NOTE" ] && [ "$T_TIP" != - ] && ! git cat-file -e "$T_TIP^{commit}" 2>/dev/null && echo unfetched || true
 }
@@ -235,9 +238,9 @@ prune_tasks() {
     fi
     [ -z "$T_NOTE" ] || echo "box $box: $T_NOTE"
     for n in $names; do
-      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 alive=- dod=- line=""
+      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 T_STATUS_RC=0 alive=- dod=- line=""
       row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
-      [ -z "$row" ] || IFS=$'\t' read -r _ T_WT T_TIP T_TRACKED T_UNTRACKED <<<"$row"
+      [ -z "$row" ] || IFS=$'\t' read -r _ T_WT T_TIP T_TRACKED T_UNTRACKED T_STATUS_RC <<<"$row"
       row="$(printf '%s\n' "$wout" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
       [ -z "$row" ] || IFS=$'\t' read -r _ alive dod line <<<"$row"
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
@@ -291,7 +294,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,36p' "$0"; exit 1 ;;
+  *) sed -n '2,37p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"

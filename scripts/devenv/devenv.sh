@@ -58,7 +58,8 @@
 #                                     main worktree), here (your cwd), missing, no-worktree, locked, serving, agent
 #                                     (a process works in it), new (its worktree is under a day old and has no
 #                                     commit of its own), bench-files (files destroy would not remove),
-#                                     tracked-changes, untracked. --yes destroys each PRUNE env and removes each PRUNE
+#                                     tracked-changes, untracked, status-failed (git status failed). It stops when
+#                                     it cannot list the processes. --yes destroys each PRUNE env and removes each PRUNE
 #                                     worktree (git worktree remove, never forced); branches stay. --quiet, for the
 #                                     post-merge hook: only the PRUNE lines (nothing when there are none), and landed by
 #                                     ancestry only, which is fast
@@ -699,9 +700,9 @@ pick_task() {   # task from the first argument, else from the worktree we are st
 
 # ---- prune. A row is one candidate: R_KIND (env | worktree), R_NAME, R_TASK (its env, or empty), R_BENCH (the env's
 # folder, or empty), R_WT (the worktree, physical, or empty), R_SHA (its HEAD), R_LOCKED and R_GONE (1 or empty),
-# R_STATUS (git status --porcelain). PRUNE iff landed.sh finds a ref holding R_SHA and no hold in PRUNE_HOLDS applies.
+# R_STATUS (git status --porcelain) and R_STATUS_RC (its exit status). PRUNE iff landed.sh finds a ref holding R_SHA and no hold in PRUNE_HOLDS applies.
 # hold_<name> prints the hold, with a detail after a colon, when it applies to the row.
-PRUNE_HOLDS="shared here missing no-worktree locked serving agent new bench-files tracked-changes untracked"
+PRUNE_HOLDS="shared here missing no-worktree locked serving agent new bench-files tracked-changes untracked status-failed"
 
 hold_shared() {
   local p; case "$R_TASK" in dev|master|lab) echo shared; return ;; esac
@@ -756,6 +757,8 @@ hold_untracked() {
   local n; n="$(printf '%s\n' "$R_STATUS" | grep -c '^??' || true)"
   [ "$n" = 0 ] || echo "untracked:$n"
 }
+# A status git could not read (index.lock held, a broken gitdir) says nothing about changes, so it is not clean.
+hold_status_failed() { [ "$R_STATUS_RC" = 0 ] || echo status-failed; }
 
 phys() { (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
 
@@ -818,7 +821,8 @@ prune() {
   rows="$(prune_rows)"
   while IFS="$US" read -r R_KIND R_NAME R_TASK R_BENCH R_WT R_SHA R_LOCKED R_GONE; do
     [ -n "$R_KIND" ] || continue
-    R_STATUS=""; [ -z "$R_WT" ] || R_STATUS="$(git -C "$R_WT" status --porcelain 2>/dev/null || true)"
+    R_STATUS="" R_STATUS_RC=0
+    [ -z "$R_WT" ] || [ -n "$R_GONE" ] || R_STATUS="$(git -C "$R_WT" status --porcelain 2>/dev/null)" || R_STATUS_RC=$?
     R_HOLDS=""
     for h in $PRUNE_HOLDS; do d="$(hold_${h//-/_})"; [ -z "$d" ] || R_HOLDS="$R_HOLDS $d"; done
     # --quiet runs after every merge into master (the post-merge hook), so it stays fast: a held row is never pruned
@@ -1011,7 +1015,7 @@ case "$CMD" in
     done
     . "$SELF_DIR/landed.sh"
     prune "$YES" "$QUIET" ;;
-  *) sed -n '2,65p' "$0"; exit 1 ;;
+  *) sed -n '2,67p' "$0"; exit 1 ;;
 esac
 exit
 }

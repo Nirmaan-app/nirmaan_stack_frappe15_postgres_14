@@ -103,7 +103,7 @@ G checkout -q --detach master; commit "$M" d0
 G cherry-pick feat/picked~1 feat/picked >/dev/null; commit "$M" d1
 G update-ref refs/remotes/upstream/develop HEAD; G checkout -q master
 G checkout -q -b feat/open; commit "$M" o1; G checkout -q master
-for b in h-dirty h-locked h-agent h-here h-lab h-gone h-untr h-files h-serve; do G branch "$b" master; done
+for b in h-dirty h-locked h-agent h-here h-lab h-gone h-untr h-files h-serve h-broken; do G branch "$b" master; done
 
 WT="$M/.claude/worktrees"
 G worktree add -q "$WT/merged" feat/merged
@@ -114,6 +114,7 @@ G worktree add -q "$WT/agent" h-agent; (cd "$WT/agent" && exec sleep 600 >/dev/n
 G worktree add -q "$WT/here" h-here
 G worktree add -q "$D/nirmaan_stack_variants/lab" h-lab
 G worktree add -q "$WT/gone" h-gone; rm -rf "$WT/gone"
+G worktree add -q "$WT/broken" h-broken; echo "gitdir: $T/nowhere" > "$WT/broken/.git"
 env_create() {   # env_create <task> <ref>: the layout `devenv.sh create` leaves
   mkdir -p "$B/$1/apps" "$B/$1/sites" "$B/$1/logs"; touch "$B/$1/.slot"; ln -s ../../../frappe-bench/apps/frappe "$B/$1/apps/frappe"
   G worktree add -q "$B/$1/apps/nirmaan_stack" "$2"
@@ -156,6 +157,7 @@ line "^KEEP +worktree +h-agent .*landed:master +agent:sleep/$AGENT_PID\$" "a pro
 line '^KEEP +worktree +h-here .*landed:master +here$' "the caller's cwd holds"
 line '^KEEP +worktree +h-lab +nirmaan_stack_variants/lab .*landed:master +shared$' "the lab checkout is shared"
 line '^KEEP +worktree +h-gone .*landed:master +missing:git-worktree-prune$' "a worktree whose folder is gone holds"
+line '^KEEP +worktree +h-broken .*landed:master +status-failed$' "a worktree git status cannot read holds"
 line '^KEEP +env +e-untracked .*landed:master +untracked:1$' "an untracked file holds"
 line '^KEEP +env +e-files .*landed:master +bench-files:repro$' "a file in the bench folder holds, named"
 line '^KEEP +env +e-serving .*landed:master +serving$' "a serving env holds"
@@ -275,9 +277,10 @@ bwt() { echo "$CROOT/benches/$1/apps/nirmaan_stack"; }
 task() { RC=0; OUT="$(bash "$L/scripts/devenv/task.sh" "$@" 2>&1)" || RC=$?; }
 rec() { git -C "$L" config "devbox-task.$1.box" || echo none; }
 
-for n in ta tb tc td te tf; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
+for n in ta tb tc td te tf tg; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
 commit "$(bwt ta)" a1; commit "$(bwt tb)" b1; commit "$(bwt tc)" c1
 echo x > "$(bwt td)/stray.txt"; echo "# changed" >> "$(bwt tf)/scripts/devenv/handoff.sh"
+echo "gitdir: $T/nowhere" > "$(bwt tg)/.git"
 echo "4101 claude $(bwt te)" > "$CH/.stub/procs"
 # ta: merged on the laptop under another name, so no laptop box/ta (contabo's bulk-tds-1571 on 2026-11-10)
 git -C "$L" fetch -q "$CO" box/ta; git -C "$L" merge -q --ff-only FETCH_HEAD; git -C "$L" branch -D box/ta >/dev/null
@@ -297,6 +300,7 @@ line '^KEEP +box-task +tc .*landed:- *$' "an unmerged task is KEEP, not landed"
 line '^KEEP +box-task +td .*landed:master +untracked:1$' "an untracked file in the box env holds"
 line '^KEEP +box-task +te .*landed:master +working$' "a working agent holds"
 line '^KEEP +box-task +tf .*landed:master +tracked-changes:1$' "a tracked change in the box env holds"
+line '^KEEP +box-task +tg .*landed:master +status-failed$' "a box env git status cannot read holds"
 has "to prune: ta (task.sh prune --yes cleans them; laptop branches stay)" "the total names the tasks"
 same "$(rec ta)" contabo "listing cleans nothing"
 
