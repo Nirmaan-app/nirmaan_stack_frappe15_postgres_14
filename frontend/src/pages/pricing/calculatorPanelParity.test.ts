@@ -3567,6 +3567,22 @@ describe("VRF-8 B2 -- the K1 rules on both paths; panel = calculator on every ca
     expect(C(22).reason ?? "").toMatch(/two capacities stated \(2.6 TR \/ 1.3 TR\) - pick one/);
   });
 
+  it("K2c (R-F2 corrected, owner 18:21 'option a'): installation only + the MS frame PRICES on both paths -- frame 5,600 + the note, 0 divergences", () => {
+    const K2C = vc("Nos", od("10 HP", { scope: "Installation only", ...row(["frame"]) }), { desc: "10 HP outdoor unit - installation only" });
+    const r = run(K2C);
+    expect(r.divergences).toEqual([]);
+    for (const s of [r.panel, r.calculator]) {
+      const v = (s as ItemListSuggestion).itemList!;
+      expect(v.rowPriced).toBe(true);
+      expect(v.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toEqual({ supply_rate: 0, install_rate: 5600, combined_rate: 5600 });
+      expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us (owner R-F2)");
+    }
+    // NEGATIVE: supply + installation -- the frame stays 5,600 supply / 0 install, no R-F2 note, on both paths
+    const full = run(vc("Nos", od("10 HP", row(["frame"]))));
+    expect(full.divergences).toEqual([]);
+    expect(((full.panel as ItemListSuggestion).itemList!.scope?.note ?? "")).not.toMatch(/owner R-F2/);
+  });
+
   it("D12 (several unit types) is the named panel-only refusal: the panel refuses; the calculator prices the type it is given", () => {
     const r = run(D12);
     expect((r.panel as ItemListSuggestion).itemList!.reason).toBe("several unit types under this heading - fix the headings or pick the type (owner D12)");

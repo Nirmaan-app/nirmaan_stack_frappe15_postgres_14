@@ -1285,7 +1285,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   if (ex5 && ex5.scope) {
     add("Supply only / installation only, from the BoQ",
-        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
+        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line whose catalogue install is 0 (the MS frame / stand, made and fixed on site) charges its full cost, no uplift, with a note (owner R-F2); a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
   }
   // ── 13h. VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- ADDED LAST, each only where its key is
   // in the config (v61 and older add nothing)

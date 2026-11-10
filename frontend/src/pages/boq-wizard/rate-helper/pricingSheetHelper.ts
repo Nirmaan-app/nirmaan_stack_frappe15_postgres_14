@@ -50,6 +50,7 @@ import {
 // DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
 // it rather than repeating it (see derivedAttrIds below).
 import { derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type {
   AttributeDefinition,
   ModuleFitLadderOutcome,
@@ -5299,11 +5300,22 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
     && sumOf("supply_rate") === view.totals.supply_rate;
   const points: string[] = [];
   let refuse: string | undefined;
-  const adj = (f: Partial<Record<RateKind, number>>, title: string): Partial<Record<RateKind, number>> => {
+  // VRF-8 K2c (owner 18:21 "option a", ANSWER 3, correcting R-F2): on an installation-only row a LINE whose catalogue install is a
+  // stored 0 (the MS frame / stand: supply 5,600, install 0 -- the stand is made and fixed on site by us) is not "missing": it
+  // charges its full cost (its final supply figure) in the install column, no uplift, with a note; the row prices. A line with no
+  // install figure at all still refuses. Panel and calculator share this path (parity).
+  const onSite = (f: Partial<Record<RateKind, number>>) => f.install_rate === 0 && (f.supply_rate ?? 0) > 0;
+  // the owner's note reads the figure without the rupee sign ("charged at 5,600"); the formatting is the app's own (residence R1)
+  const figureText = (n: number) => formatToRoundedIndianRupee(n).replace(/^₹/, "");
+  const onSiteNote = (title: string, fig: number) => (/^MS frame/i.test(title)
+    ? `Installation-only row: MS frame charged at ${figureText(fig)} - the stand is made and fixed on site by us (owner R-F2)`
+    : `Installation-only row: ${title} charged at ${figureText(fig)} - its catalogue installation rate is 0, so its full cost is charged (owner R-F2)`);
+  const adj = (f: Partial<Record<RateKind, number>>, title: string, line = false): Partial<Record<RateKind, number>> => {
     const s0 = f.supply_rate ?? 0;
     const i0 = f.install_rate ?? 0;
     if (supplyOnly) return { supply_rate: s0, install_rate: 0, combined_rate: s0 };
     if (uplift === null) { refuse = L.uplift_missing; return f; }
+    if (line && onSite(f)) { points.push(onSiteNote(title, s0)); return { supply_rate: 0, install_rate: s0, combined_rate: s0 }; }
     if (!(i0 > 0)) { refuse ??= L.no_install.replace("{title}", title); return { supply_rate: 0, install_rate: 0, combined_rate: 0 }; }
     const i1 = Math.ceil(i0 * (1 + uplift) - 1e-9);
     if (uplift > 0) points.push(L.install_only_line.replace("{title}", title).replace("{rate}", String(i0)).replace("{pct}", pct).replace("{figure}", String(i1)));
@@ -5315,8 +5327,8 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
     if (perLine) {
       items2 = view.items.map((b) => ({
         ...b,
-        ...(b.state === "priced" ? { figures: adj(b.figures, b.family ?? "item") } : {}),
-        ...(b.extras ? { extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" ? { ...l, figures: adj(l.figures, l.title) } : l)) } } : {}),
+        ...(b.state === "priced" ? { figures: adj(b.figures, b.family ?? "item", true) } : {}),
+        ...(b.extras ? { extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" ? { ...l, figures: adj(l.figures, l.title, true) } : l)) } } : {}),
       }));
       const all = items2.flatMap((b) => [...(b.state === "priced" ? [b.figures] : []), ...(b.extras?.lines ?? []).filter((l) => l.state === "priced").map((l) => l.figures)]);
       const sum = (k: RateKind) => all.reduce((a, f) => a + (f[k] ?? 0), 0);
@@ -5334,7 +5346,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
     // VRF-8 (R-F2, owner 13:56; U4 / U8): the line with no installation rate says why, and is counted among the lines that need a
     // person -- the row total then names the reason (the calculator's installation-only MS frame read "0 of 6 items need a person")
     let bad = 0;
-    const flag = (title: string, f: Partial<Record<RateKind, number>>) => !(supplyOnly) && uplift !== null && !((f.install_rate ?? 0) > 0) && !!title;
+    const flag = (title: string, f: Partial<Record<RateKind, number>>) => !(supplyOnly) && uplift !== null && !((f.install_rate ?? 0) > 0) && !onSite(f) && !!title;
     const items3 = perLine ? view.items.map((b) => {
       const blk = b.state === "priced" && flag(b.family ?? "item", b.figures) ? (bad++, { ...b, state: "blank" as const, reason: L.no_install.replace("{title}", b.family ?? "item") }) : b;
       if (!b.extras) return blk;

@@ -1,8 +1,8 @@
 /**
  * VRF-8 K2 (owner rulings 2026-11-10 13:56 "we need to fix 2 to 4", 14:15 W6) -- THE CALCULATOR, through its own entry point
  * (`makePricingSheetHelper(...).compute(calculatorCtx(...), overrides)`), positive AND negative:
- *   R-F2  installation only + a line with no installation rate (the MS frame): that line says why, it counts among the lines that
- *         need a person, and the row's reason names it (U4 / U8) -- it used to read "0 of 6 items need a person" with no line saying why
+ *   R-F2  K2c (owner 18:21 "option a", ANSWER 3, correcting K2's refusal): installation only + the MS frame (catalogue install a
+ *         stored 0) PRICES -- the frame charges its full 5,600 with the owner's note; a line with no install figure is never charged
  *   R-F3  an extra removed with its x on every unit is no longer ticked in "This row's price includes"; "Put it back" ticks it again (U5)
  *   R-F4  Derivation line 42 states its condition on a config with VRF-7's own-row check (U6)
  *   R-W6  a capacity typed with two values ("2.6 TR / 1.3 TR", the panel's case) refuses with the panel's sentence (U3)
@@ -36,21 +36,44 @@ const run = (blocks: Array<Record<string, unknown>>, inc = "", scope?: string): 
 const ODU = (capacity: string, more: Record<string, unknown> = {}) => ({ base: null, family: "Outdoor Unit", attrs: { brand: "Blue Star", capacity }, ...more });
 const tick = (v: ItemListView, id: string) => v.extrasIncludes?.options.find((o) => o.id === id);
 
-describe("VRF-8 R-F2 -- installation only + a line with no installation rate says why", () => {
-  it("an outdoor unit with the MS frame, installation only: the frame line says it has no installation rate, it is counted, the row's reason names it", () => {
+describe("VRF-8 K2c (R-F2 corrected, owner 18:21 'option a', ANSWER 3) -- installation only + the MS frame PRICES", () => {
+  // BEFORE (K2 e131c8f91, R-F2 as first specified): the frame line went blank "BoQ says installation only, but MS frame / stand for
+  // ODU has no installation rate - price this row by hand" and the row refused. The owner corrected it: the stand is made and fixed
+  // on site by us, so it charges its full 5,600 and the row prices.
+  it("an outdoor unit with the MS frame, installation only: the frame charges 5,600 (install column, no uplift), the row prices, the note says why", () => {
     const v = run([ODU("10")], "frame", "Installation only");
-    expect(v.rowPriced).toBe(false);
+    expect(v.rowPriced).toBe(true);
+    const frame = v.items[0].extras?.lines.find((l) => l.id === "acc_frame");
+    expect(frame?.state).toBe("priced");
+    expect(frame?.figures).toEqual({ supply_rate: 0, install_rate: 5600, combined_rate: 5600 });
+    expect(v.scope?.note).toContain("Installation-only row: MS frame charged at 5,600 - the stand is made and fixed on site by us (owner R-F2)");
+    expect(v.totals?.supply_rate).toBe(0);
+    // the unit itself keeps install x 1.5 (rounded up once): the row = the unit's uplifted install + 5,600
+    const unitOnly = run([ODU("10")], "", "Installation only");
+    expect(v.totals?.install_rate).toBe((unitOnly.totals?.install_rate ?? 0) + 5600);
+    expect(v.reason ?? "").not.toMatch(/has no installation rate/);
+  });
+  it("NEGATIVE: supply + installation keeps the frame at supply 5,600 / install 0 and says nothing about R-F2; supply only = 5,600 / 0", () => {
+    const full = run([ODU("10")], "frame");
+    expect(full.rowPriced).toBe(true);
+    expect(full.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toMatchObject({ supply_rate: 5600, install_rate: 0 });
+    expect(full.scope?.note ?? "").not.toMatch(/owner R-F2/);
+    const so = run([ODU("10")], "frame", "Supply only");
+    expect(so.items[0].extras?.lines.find((l) => l.id === "acc_frame")?.figures).toMatchObject({ supply_rate: 5600, install_rate: 0 });
+    expect(so.scope?.note ?? "").not.toMatch(/owner R-F2/);
+  });
+  it("NEGATIVE: a frame item with NO install figure (not a stored 0) is never charged -- the line stays blank with its own reason, no R-F2 note, 5,600 not in the row", () => {
+    const items2 = ITEMS.map((it) => (it.attributes?.item === "MS frame / stand for ODU"
+      ? { ...it, rates: Object.fromEntries(Object.entries(it.rates ?? {}).filter(([k]) => !/install/.test(k))) } as RateMasterItem : it));
+    const C2 = makePricingSheetHelper({ configsByCategory: CFG, items: items2, extractionByRow: new Map() });
+    const v = (C2.compute(calculatorCtx("HVAC", VRF), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [ODU("10")] }), [ROW_UNIT_OVERRIDE_KEY]: "Nos", [EXTRAS_INCLUDES_KEY]: "frame", [SCOPE_OVERRIDE_KEY]: "Installation only",
+    }) as unknown as ItemListSuggestion).itemList!;
     const frame = v.items[0].extras?.lines.find((l) => l.id === "acc_frame");
     expect(frame?.state).toBe("blank");
-    expect(frame?.reason).toBe("BoQ says installation only, but MS frame / stand for ODU has no installation rate - price this row by hand");
-    expect(v.lineCount?.bad).toBeGreaterThanOrEqual(1);
-    expect(v.reason).toMatch(/has no installation rate/);
-  });
-  it("NEGATIVE: without the frame the installation-only row prices (install only, supply 0); supply + installation with the frame prices", () => {
-    const v = run([ODU("10")], "", "Installation only");
-    expect(v.rowPriced).toBe(true);
-    expect(v.totals?.supply_rate).toBe(0);
-    expect(run([ODU("10")], "frame").rowPriced).toBe(true);
+    expect(frame?.reason).toMatch(/cost_install not on the matched row/);
+    expect(v.scope?.note ?? "").not.toMatch(/owner R-F2/);
+    expect(v.totals?.install_rate).toBe(run([ODU("10")], "", "Installation only").totals?.install_rate);
   });
 });
 
