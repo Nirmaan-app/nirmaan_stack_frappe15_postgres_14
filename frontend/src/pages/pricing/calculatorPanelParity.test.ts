@@ -61,7 +61,8 @@ import {
   skuCasesForCategory,
   type ParityCase,
 } from "./calculatorPanelParity.harness";
-import { calculatorCtx } from "./PricingCalculator";
+import { aliasTargetConfigs, calculatorConfigMap, calculatorCtx, crossTargetDisciplines, extrasTargetConfigs } from "./PricingCalculator";
+import { readFileSync } from "node:fs";
 import { itemListRuleOrder } from "./rate-master/itemListRuleOrder";
 import { applyAdp1 } from "@/pages/boq-wizard/rate-helper/adp1.harness";
 import { applyAdp2 } from "@/pages/boq-wizard/rate-helper/adp2.harness";
@@ -3405,10 +3406,77 @@ describe("HVAC VRF (VRF-7, v63) -- every SKU with its extras + the VRF-6 and VRF
 });
 
 /*
- * VRF-7 B2 (K2) -- the calculator follows every K1 rule: on the fixture's v63 keys (v62 + `vrf7Model.json`, the file the v63 mint
- * reads, applied by the harness's `applyVrf7`) the panel and the calculator price each new path the same -- Side below the smallest
- * Top (a remote type on the ODU), a stated discharge, armour (the model's answer and the words), a length per item, the heat-pump
- * wordings, the step-up notes, the own-row check for a row-stated extra, the quoting notes, a stated module setup (stocked / not),
- * the optional remote, the individual controller, fresh air over CSU, the starter-panel and wired-remote notes, no control-wiring
- * rule. The count asserted.
+ * VRF-7 K2b (QR-4 (a), owner 2026-11-10 09:56) -- THE LIVE CALCULATOR HOLDS THE CONFIGS ITS EXTRAS PRICE THROUGH. VRF-6's MCB / ELCB
+ * lines price by Electrical's `db_switchgear` rules; nothing aliases it, so /hvac-pricing never fetched it and the breaker lines said
+ * "coming soon" (00098 VRF r14: panel 131,890, live calculator 126,640). The parity harness handed the calculator EVERY config, so it
+ * could not see that; `runParity` now prices the calculator side on `calculatorConfigMap` (the screen's own + alias + extras
+ * targets), the same fetches the component mounts.
  */
+describe("VRF-7 K2b -- the calculator fetches the configs its extras price through; the harness holds what the screen holds", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A63 = rd("rate_master_hvac_all_v63.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS = [...asItems(A63), ...asItems(E72)];
+  const ALL = new Map<string, RateCategoryConfig>([...A63.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const HVAC_OWN = new Map<string, RateCategoryConfig>(A63.category_configs.map((c) => [c.category_id, c]));
+  const ELEC_OWN = new Map<string, RateCategoryConfig>(E72.category_configs.map((c) => [c.category_id, c]));
+  const row = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  // AC0's shape: 00098 VRF r14, 3 TR, power from its own 5 m, frame, MCB + ELCB
+  const AC0: ParityCase = { cat: "hvac_vrf", unit: "No.", desc: "3 TR at 43°C ambient & 22°C indoor", attrs: {},
+    items: [{ item: "Outdoor Unit", brand: "Blue Star", capacity: "3 TR", ...row(["power", "frame", "mccb"], "Note"), extra_power_length_as_written: "around a distance of 5m" }] };
+  const SIX: ParityCase = { cat: "hvac_vrf", unit: "Nos", desc: "", attrs: {}, items: [{ item: "Outdoor Unit", brand: "Blue Star", capacity: "6 HP", ...row(["mccb"], "Note") }] };
+  const lineOf = (r: HelperResult, id: string) => (r as ItemListSuggestion).itemList?.items[0]?.extras?.lines.find((l) => l.id === id);
+
+  it("extrasTargetConfigs: HVAC v63 names Electrical db_switchgear (MCB / ELCB) and wiring_cabling (cable); NEGATIVE: the alias targets alone never name db_switchgear", () => {
+    expect(extrasTargetConfigs(HVAC_OWN, "HVAC")).toEqual([
+      { discipline: "Electrical", categoryId: "db_switchgear" },
+      { discipline: "Electrical", categoryId: "wiring_cabling" },
+    ]);
+    expect(aliasTargetConfigs(HVAC_OWN).map((t) => t.categoryId)).not.toContain("db_switchgear");   // the VRF-6 gap
+    expect(extrasTargetConfigs(ELEC_OWN, "Electrical")).toEqual([]);                                  // Electrical has no extras
+    expect(extrasTargetConfigs(HVAC_OWN, "Electrical")).toEqual([]);                                  // own-discipline targets left out
+    expect(crossTargetDisciplines(HVAC_OWN, "HVAC")).toEqual(["Electrical"]);
+  });
+
+  it("calculatorConfigMap holds what the screen fetches: HVAC's own + the alias + the extras targets -- and NOT every Electrical config", () => {
+    const m = calculatorConfigMap(ALL, "HVAC");
+    for (const id of ["hvac_vrf", "hvac_piping", "hvac_insulation", "wiring_cabling", "cabletray_raceway", "db_switchgear"]) expect(m.has(id)).toBe(true);
+    const notHeld = E72.category_configs.map((c) => c.category_id).filter((id) => !m.has(id));
+    expect(notHeld.length).toBeGreaterThan(0);                                                        // the screen never holds every Electrical config
+    expect(calculatorConfigMap(ALL, "Electrical").size).toBe(E72.category_configs.length);
+  });
+
+  it("AC0 (00098 r14 shape): the calculator on the screen's configs prices the breaker lines -- panel = calculator to the rupee", () => {
+    const r = runParity(ALL, ITEMS, AC0, "full");
+    expect(r.divergences).toEqual([]);
+    expect(lineOf(r.calculator, "acc_mcb")?.state).toBe("priced");
+    expect(lineOf(r.calculator, "acc_elcb")?.state).toBe("priced");
+    expect(lineOf(r.calculator, "acc_mcb")?.figures).toEqual(lineOf(r.panel, "acc_mcb")?.figures);
+    expect((r.calculator as ItemListSuggestion).itemList?.items[0]?.fields?.find((f) => f.id === "discharge")?.value).toBe("Side");
+    const six = runParity(ALL, ITEMS, SIX, "full");                                                   // one more breaker row (6 HP, 20 -> 25 A)
+    expect(six.divergences).toEqual([]);
+    expect(lineOf(six.calculator, "acc_elcb")?.state).toBe("priced");
+  });
+
+  it("⚠️ NEGATIVE, the gap itself: on the configs the screen held BEFORE K2b (own + alias, no extras) the breaker lines refuse 'coming soon' and the parity diverges", () => {
+    const before = new Map(calculatorConfigMap(ALL, "HVAC"));
+    before.delete("db_switchgear");
+    const r = runParity(ALL, ITEMS, AC0, "full");
+    const calc = calculatorHelper(before, ITEMS).compute(calculatorCtx("HVAC", "hvac_vrf"), r.feed.overrides);
+    expect(lineOf(calc, "acc_mcb")?.state).toBe("blank");
+    expect(lineOf(calc, "acc_mcb")?.reason).toBe(COMING_SOON_REASON);
+    expect(compareResults(r.panel, calc).length).toBeGreaterThan(0);
+  });
+
+  it("source: the component mounts one fetch per extras target and holds their items; runParity prices the calculator on calculatorConfigMap", () => {
+    const src = readFileSync(new URL("./PricingCalculator.tsx", import.meta.url), "utf-8");
+    expect(src).toContain("extrasTargetConfigs(configsByCategory, discipline).filter(");
+    expect(src).toContain("{extrasConfigTargets.map((t) => (");
+    expect(src).toContain("key={`calc-extras-cfg-${t.discipline}-${t.categoryId}`}");
+    expect(src).toContain("const aliasDisciplines = useMemo(() => crossTargetDisciplines(configsByCategory, discipline), [configsByCategory, discipline]);");
+    const h = readFileSync(new URL("./calculatorPanelParity.harness.ts", import.meta.url), "utf-8");
+    expect(h).toContain("calculatorHelper(discipline ? calculatorConfigMap(configsByCategory, discipline) : configsByCategory, items)");
+  });
+});

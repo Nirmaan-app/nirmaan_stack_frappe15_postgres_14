@@ -42,7 +42,7 @@
 import { readFileSync } from "node:fs";
 import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
-import { calculatorCtx } from "./PricingCalculator";
+import { calculatorConfigMap, calculatorCtx } from "./PricingCalculator";
 import {
   ITEM_LIST_OVERRIDE_KEY,
   ROW_QTY_OVERRIDE_KEY,
@@ -601,8 +601,11 @@ export function runParity(
   const panel = c.panelEdits ? ph.compute(panelCtx(c), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(c.panelEdits) }) : ph.compute(panelCtx(c));
   const config = configsByCategory.get(c.cat) ?? null;
   const feed = feedFromPanel(panel, config, c, mode);
-  const ch = calculatorHelper(configsByCategory, items);
   const discipline = disciplineOf(c.cat) ?? "";
+  // VRF-7 K2b (QR-4): the calculator side prices on the configs the SCREEN holds (its discipline's own + alias + extras targets),
+  // never on every config -- handing it every config hid VRF-6's unfetched db_switchgear. A category outside the registry (a
+  // synthetic fixture) keeps the whole map, as before.
+  const ch = calculatorHelper(discipline ? calculatorConfigMap(configsByCategory, discipline) : configsByCategory, items);
   const calculator = ch.compute(calculatorCtx(discipline, c.cat), feed.overrides);
   return { panel, calculator, feed, divergences: compareResults(panel, calculator) };
 }

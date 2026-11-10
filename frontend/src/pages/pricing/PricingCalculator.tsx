@@ -107,6 +107,70 @@ export function aliasTargetConfigs(
   return [...out.values()].sort((x, y) => (x.discipline + x.categoryId).localeCompare(y.discipline + y.categoryId));
 }
 
+/**
+ * VRF-7 K2b (QR-4 (a), owner 2026-11-10 09:56 "fix now") -- PURE. The (discipline, categoryId) CONFIG targets that a config's
+ * EXTRAS price through in ANOTHER discipline: `list_spec.pricing.extras.cable` and each accessory's `electrical`. VRF-6's MCB /
+ * ELCB lines price by Electrical's `db_switchgear` rules; nothing aliases that category, so this screen never fetched its config
+ * and the breaker lines said "coming soon" while the BoQ page (every target of every discipline) priced them -- a gap the parity
+ * harness could not see, because it handed the calculator every config. Each target is fetched like an alias target. Own-discipline
+ * targets are left out (this screen already fetches them). Sorted, deduplicated; [] when no extra prices elsewhere.
+ */
+export function extrasTargetConfigs(
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  ownDiscipline: string,
+): Array<{ discipline: string; categoryId: string }> {
+  const out = new Map<string, { discipline: string; categoryId: string }>();
+  const add = (t: unknown) => {
+    const r = t as { discipline?: unknown; category?: unknown } | null | undefined;
+    if (r && typeof r.discipline === "string" && r.discipline.trim() !== "" && r.discipline !== ownDiscipline
+        && typeof r.category === "string" && r.category.trim() !== "") {
+      out.set(`${r.discipline}\u0000${r.category}`, { discipline: r.discipline, categoryId: r.category });
+    }
+  };
+  configsByCategory.forEach((cfg) => {
+    const ex = (cfg as unknown as { list_spec?: { pricing?: { extras?: { cable?: unknown; accessories?: Array<{ electrical?: unknown }> } } } }).list_spec?.pricing?.extras;
+    if (!ex) return;
+    add(ex.cable);
+    for (const a of Array.isArray(ex.accessories) ? ex.accessories : []) add(a?.electrical);
+  });
+  return [...out.values()].sort((x, y) => (x.discipline + x.categoryId).localeCompare(y.discipline + y.categoryId));
+}
+
+/**
+ * VRF-7 K2b -- PURE. The disciplines whose ITEMS this screen must hold besides its own: every alias target's and every extras
+ * target's. (Electrical already arrived through HVAC's cable alias; an extra that priced in a discipline nothing aliases would
+ * otherwise find no item.)
+ */
+export function crossTargetDisciplines(
+  configsByCategory: ReadonlyMap<string, RateCategoryConfig>,
+  ownDiscipline: string,
+): string[] {
+  return [...new Set([...aliasTargetDisciplines(configsByCategory, ownDiscipline),
+    ...extrasTargetConfigs(configsByCategory, ownDiscipline).map((t) => t.discipline)])].sort();
+}
+
+/**
+ * VRF-7 K2b -- PURE. The config map this screen ends up holding, built from a map of EVERY config (the parity harness's): its own
+ * discipline's registry targets, then each alias target and each extras target those configs name -- the same fetches the
+ * component mounts. The harness prices its calculator side on THIS map, so a config the screen never fetches shows as a divergence.
+ */
+export function calculatorConfigMap(
+  allConfigs: ReadonlyMap<string, RateCategoryConfig>,
+  discipline: string,
+): Map<string, RateCategoryConfig> {
+  const own = new Map<string, RateCategoryConfig>();
+  for (const t of RATE_MASTER_CONFIG_TARGETS) {
+    const c = t.discipline === discipline ? allConfigs.get(t.categoryId) : undefined;
+    if (c) own.set(t.categoryId, c);
+  }
+  const out = new Map(own);
+  for (const t of [...aliasTargetConfigs(own), ...extrasTargetConfigs(own, discipline)]) {
+    const c = allConfigs.get(t.categoryId);
+    if (c) out.set(t.categoryId, c);
+  }
+  return out;
+}
+
 // SLICE 6: `mergeItemsByName` and `RateItemsFetcher` moved into the shared plumbing (the BoQ page now
 // needs both); re-exported here so every existing importer of the calculator's merge keeps working.
 export { mergeItemsByName };
@@ -267,8 +331,15 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
   // SLICE 3 (L6): an aliased category prices with its TARGET discipline's items, so every alias target
   // discipline is fetched too (one child per discipline) and merged behind the own set, deduplicated by
   // item name. A discipline with no alias elsewhere mounts no extra fetch and `items` IS `ownItems`.
-  const aliasDisciplines = useMemo(() => aliasTargetDisciplines(configsByCategory, discipline), [configsByCategory, discipline]);
+  // VRF-7 K2b: the item disciplines include every extras target's too (crossTargetDisciplines)
+  const aliasDisciplines = useMemo(() => crossTargetDisciplines(configsByCategory, discipline), [configsByCategory, discipline]);
   const aliasConfigTargets = useMemo(() => aliasTargetConfigs(configsByCategory), [configsByCategory]);
+  // VRF-7 K2b (QR-4): the configs the extras price through (Electrical's db_switchgear for the MCB / ELCB lines), minus any an
+  // alias already fetches (wiring_cabling)
+  const extrasConfigTargets = useMemo(() => {
+    const seen = new Set(aliasConfigTargets.map((t) => `${t.discipline}\u0000${t.categoryId}`));
+    return extrasTargetConfigs(configsByCategory, discipline).filter((t) => !seen.has(`${t.discipline}\u0000${t.categoryId}`));
+  }, [configsByCategory, discipline, aliasConfigTargets]);
   const [extraItems, setExtraItems] = useState<Map<string, RateMasterItem[]>>(() => new Map());
   const onExtraItemsLoaded = useCallback((disc: string, list: RateMasterItem[]) => {
     setExtraItems((prev) => {
@@ -332,6 +403,15 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
       {aliasConfigTargets.map((t) => (
         <RateConfigFetcher
           key={`calc-alias-cfg-${t.discipline}-${t.categoryId}`}
+          discipline={t.discipline}
+          categoryId={t.categoryId}
+          onLoaded={onConfigLoaded}
+        />
+      ))}
+      {/* VRF-7 K2b: one CONFIG fetch per extras target no alias reaches */}
+      {extrasConfigTargets.map((t) => (
+        <RateConfigFetcher
+          key={`calc-extras-cfg-${t.discipline}-${t.categoryId}`}
           discipline={t.discipline}
           categoryId={t.categoryId}
           onLoaded={onConfigLoaded}
