@@ -1,7 +1,8 @@
 // The hand actions on an Internal Transfer (#1626, spec #1619): which line offers Mark as Internal Transfer and Send
 // back to Mismatched, the "by hand" line, and the heading the Cashbook preview and the card Review share. The places,
-// the line's own side and the may-mark rule are the server's (`hand_mark`, pinned by `test_internal_transfer_actions`
-// against `internal_transfers.PLACES`); nothing here copies them.
+// the line's own side, the may-mark rule and the may-send-back rule are the server's (`hand_mark` and
+// `can_send_back`, pinned by `test_internal_transfer_actions` and `test_internal_transfer_cashbook`); nothing here
+// copies them.
 import { describe, expect, it } from "vitest";
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
@@ -29,9 +30,10 @@ describe("Mark as Internal Transfer", () => {
 });
 
 describe("Send back to Mismatched", () => {
-    it("is offered on an Internal Transfer line only", () => {
-        expect(canSendBack(row({ row_status: "Internal Transfer" }))).toBe(true);
-        expect(canSendBack(row({ row_status: "Mismatched" }))).toBe(false);
+    it("is offered exactly when the server says the line may be sent back", () => {
+        expect(canSendBack(row({ row_status: "Internal Transfer", can_send_back: true }))).toBe(true);
+        expect(canSendBack(row({ row_status: "Internal Transfer", can_send_back: false }))).toBe(false);
+        expect(canSendBack(row({ row_status: "Internal Transfer" }))).toBe(false);
     });
 
     it("a hand-marked record says who, when and why; a rule's says nothing", () => {

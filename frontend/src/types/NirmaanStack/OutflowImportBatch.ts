@@ -323,6 +323,13 @@ export interface OutflowImportRow {
      */
     hand_mark?: HandMarkOffer | null;
     /**
+     * Whether the line offers Send back to Mismatched (`internal_transfer_rules.send_back_refusal`): an Internal
+     * Transfer line, unless it is a Cashbook move (its Type, or on an old line with no stored Type its Txn Id, says
+     * Bank → VA, VA → Wallet or Wallet → VA). The screen keeps no copy of the rule; the endpoint asks it again under
+     * the line's lock.
+     */
+    can_send_back?: boolean;
+    /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only

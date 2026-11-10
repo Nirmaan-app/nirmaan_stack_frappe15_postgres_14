@@ -15,7 +15,7 @@ from decimal import Decimal
 
 import frappe
 
-from nirmaan_stack.services.outflow_import.internal_transfer_rules import hand_mark_offer
+from nirmaan_stack.services.outflow_import.internal_transfer_rules import hand_mark_offer, send_back_refusal
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CASHBOOK_INTERNAL_KINDS,
     TransferEnds,
@@ -195,3 +195,10 @@ def hand_mark_of_row(row) -> dict | None:
         added_by_raw=row.get("added_by_raw"),
         beneficiary_name=row.get("beneficiary_name"),
     )
+
+
+def can_send_back(row) -> bool:
+    """Whether a page row offers Send back to Mismatched (`internal_transfer_rules.send_back_refusal`): the screen
+    keeps no copy of the rule, and the endpoint asks it again under the line's row lock."""
+    return send_back_refusal(row_status=row.get("row_status"), source=row.get("source"),
+                             row_kind=row.get("row_kind"), transfer_id=row.get("transfer_id")) is None

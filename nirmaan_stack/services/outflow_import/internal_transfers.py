@@ -175,6 +175,24 @@ CASHBOOK_INTERNAL_KINDS = {
 }
 
 
+#: A Cashbook line staged before the statement's Type was stored is read by its Txn Id (spec #1619).
+CASHBOOK_KIND_BY_TXN_PREFIX = (
+    ("VALOAD-", CASHBOOK_BANK_TO_VA),
+    ("BUSINESS_USER-", CASHBOOK_VA_TO_WALLET),
+    ("C2B-", CASHBOOK_WALLET_TO_VA),
+)
+
+
+def cashbook_line_kind(row_kind: str | None, transfer_id: str | None) -> str:
+    """A Cashbook line's Type: the one stored, or, on a line staged before the Type was stored, the move its Txn Id
+    names. Blank when neither says."""
+    kind = (row_kind or "").strip()
+    if kind:
+        return kind
+    txn = (transfer_id or "").strip()
+    return next((named for prefix, named in CASHBOOK_KIND_BY_TXN_PREFIX if txn.startswith(prefix)), "")
+
+
 def cashbook_line_transfer(row_kind: str, *, from_party: str, to_party: str) -> TransferEnds | None:
     """The transfer a Cashbook line is, by its Type (the statement's `From` and `To` name the employee), or `None`
     for every other Type (a spend, a refund, a wallet credit, a collect payment keep their own handling).

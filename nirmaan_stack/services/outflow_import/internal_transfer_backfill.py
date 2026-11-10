@@ -17,13 +17,11 @@ from nirmaan_stack.services.outflow_import.bank_exclusions import NEFT_RETURN_FA
 from nirmaan_stack.services.outflow_import.card_credits import auto_debit_words
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     CARD_AUTO_DEBIT_RULE,
-    CASHBOOK_BANK_TO_VA,
     CASHBOOK_INTERNAL_KINDS,
-    CASHBOOK_VA_TO_WALLET,
-    CASHBOOK_WALLET_TO_VA,
     TransferEnds,
     bank_line_transfer,
     card_auto_debit_transfer,
+    cashbook_line_kind,
     cashbook_line_transfer,
 )
 from nirmaan_stack.services.outflow_import.skip_kinds import (
@@ -39,12 +37,6 @@ UNPLACED = "unplaced"
 #: A Cashbook move the wallet did not complete: re-filed as Bank refused, as the import skips it (owner decision 3).
 REFUSED = "refused"
 
-#: A Cashbook line staged before the statement's Type was stored is placed by its Txn Id (spec #1619).
-CASHBOOK_KIND_BY_TXN_PREFIX = (
-    ("VALOAD-", CASHBOOK_BANK_TO_VA),
-    ("BUSINESS_USER-", CASHBOOK_VA_TO_WALLET),
-    ("C2B-", CASHBOOK_WALLET_TO_VA),
-)
 CASHBOOK_REFUND_PREFIX = "REF-"
 
 #: The bank-rule kinds every one of whose lines the rules now read as internal.
@@ -110,9 +102,7 @@ def _cashbook(transfer_id: str, row_kind: str, status_raw: str, who_from: str, w
     txn = (transfer_id or "").strip()
     if txn.startswith(CASHBOOK_REFUND_PREFIX):
         return Placement(LEFT, why="a Cashbook refund (REF-), never a transfer")
-    kind = (row_kind or "").strip() or next(
-        (named for prefix, named in CASHBOOK_KIND_BY_TXN_PREFIX if txn.startswith(prefix)), ""
-    )
+    kind = cashbook_line_kind(row_kind, txn)
     ends = cashbook_line_transfer(kind, from_party=who_from, to_party=who_to)
     if ends is None:
         return Placement(UNPLACED, why=f"no Type, and its Txn Id ({txn[:14] or 'blank'}) names no Cashbook move")
