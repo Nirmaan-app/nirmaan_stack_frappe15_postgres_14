@@ -115,7 +115,8 @@ def send_back_refusal(
     (`CASHBOOK_INTERNAL_KINDS`; an old line with no stored Type is read by its Txn Id, `cashbook_line_kind`, as the
     patch placed it): the Type alone names both its ends, so one rule covers all three. A top-up's money (`Bank → VA`,
     `VA → Wallet`) sits in the Credit column, which the line does not keep, so marked again by hand it would come back
-    from the wrong ends and with Rs 0 (the #1619 review; owner decision 2026-11-10). The screen's Send back button reads this same rule (`can_send_back` on each row).
+    from the wrong ends and with Rs 0 (the #1619 review; owner decision 2026-11-10). The screen's Send back button
+    reads this same rule (`can_send_back` on each row).
     """
     if (row_status or "").strip() != ROW_INTERNAL_TRANSFER:
         return SEND_BACK_REFUSED
