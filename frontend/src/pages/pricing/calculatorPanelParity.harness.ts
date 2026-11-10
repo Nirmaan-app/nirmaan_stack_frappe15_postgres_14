@@ -419,6 +419,24 @@ export function feedFromPanel(
       // panel, never splits it again (a module the pair-first rule could otherwise split once more)
       const tag = spec?.split?.pair_first ? view.editState?.items?.[i]?.helper : undefined;
       const helperFeed = tag ? { helper: tag } : {};
+      // VRF-9 (S1 / R4): a unit the panel refused for several unit types under its heading, or as a Fan Coil Unit, is typed into the
+      // calculator as the BoQ shows it -- the heading's unit types ("Hi-Wall / Cassette / Ductable"), the Fan Coil words -- what a
+      // pricer copying the row would type; the calculator then refuses with the panel's sentence (no named exception)
+      const p9 = spec?.extras?.prepare;
+      if (p9 && b.state !== "priced" && typeof b.reason === "string") {
+        const reOf = (w: string) => { try { return new RegExp(w, "i"); } catch { return null; } };
+        let typedFamily: string | null = null;
+        if (p9.several_types?.typed && p9.unit_words && b.reason === p9.several_types.refusal) {
+          const short = (c.headingNotes ?? []).filter((n) => n.trim().length <= p9.several_types!.note_max);
+          const fams = [...new Set(short.flatMap((n) => Object.entries(p9.unit_words!).filter(([, w]) => reOf(w)?.test(n)).map(([f]) => f)))];
+          if (fams.length >= 2) typedFamily = fams.join(" / ");
+        }
+        const fr = (p9.family_refusals ?? []).find((f) => f.refusal === b.reason);
+        if (!typedFamily && fr) {
+          for (const t of [c.desc, ...[...(c.headings ?? [])].reverse(), ...(c.headingNotes ?? [])]) { const m = reOf(fr.words)?.exec(t ?? ""); if (m) { typedFamily = m[0].trim(); break; } }
+        }
+        if (typedFamily) return { base: null, family: typedFamily, attrs, qty: b.qty, other: [...other, famId], ...extrasFeed, ...sectionsFeed, ...helperFeed };
+      }
       if (b.familyControl?.otherMode) {
         other.push(famId);
         return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed, ...sectionsFeed, ...helperFeed };

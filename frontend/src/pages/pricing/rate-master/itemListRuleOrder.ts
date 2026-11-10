@@ -1487,6 +1487,66 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("Only verified BoQ quotes are shown",
         "a note quotes the BoQ only where the whole quoted clause is found in the row's chain, with its row number; a quote the model shortened with '...' or that is not found is not shown");
   }
+  // -- 13k. VRF-9 (the VRF-8 review S1-S10, owner rulings R1-R4 2026-11-11; QR-3 4b: one line per rule) -- ADDED LAST, each only
+  // where its key is in the config (v64 and older add nothing)
+  type Prep9 = { several_types?: { typed?: unknown }; feeder_length?: { every_module?: unknown }; family_refusals?: unknown; not_includes?: unknown;
+    tfa_capacity?: unknown; row_family?: unknown; implied_includes?: Array<{ question?: unknown; only_blank?: unknown }> };
+  const prep9: Prep9 | null = ex5?.prepare && typeof ex5.prepare === "object" ? (ex5.prepare as Prep9) : null;
+  const sc9 = ex5?.scope && typeof ex5.scope === "object" ? (ex5.scope as { always_note?: unknown; any_level?: unknown; always_both?: unknown }) : null;
+  const ps9 = pr.per_set && typeof pr.per_set === "object" ? (pr.per_set as { counted?: { defined?: unknown } }) : null;
+  const lu9 = pr.lot_units && typeof pr.lot_units === "object" ? (pr.lot_units as { calculator_refuses?: unknown }) : null;
+  if (prep9?.several_types?.typed) {
+    add("Several unit types: only when the row names none",
+        "a row naming its own unit type ('Wall Mounted Type') is priced as it under a several-types heading; a row naming none is refused 'several unit types under this heading' with no unit type shown (the panel does not pick one)");
+  }
+  if (sc9?.always_note) {
+    add("A 'Supply of' row with installation said above: the scope note always",
+        "a supply + installation row whose own text says 'Supply of' / 'Supply & providing', under a heading or note that says installation, is priced as supply + installation with a note quoting both and the row they sit in -- whatever the model answered for the scope");
+  }
+  if (sc9?.any_level) {
+    add("Installation said at any level wins over a supply-only reading",
+        "a row read as supply only while a heading or note at any level above it says installation (a grandparent's 'Supply, Installation, testing & commissioning') is priced as supply + installation, noted; the row's own 'supply only', or an installation row of the same kind on the sheet, keeps supply only");
+  }
+  if (sg8 && (sg8 as { exact_quotes?: unknown }).exact_quotes) {
+    add("The panel's own notes quote the BoQ word for word, with their rows",
+        "a note the panel writes itself (the starter-panel breaker note, the two remote wordings, the gas / frame / cabling quotes) quotes an exact stretch of the BoQ -- never an added '...' -- and names the row each quote sits in");
+  }
+  if (prep9?.feeder_length?.every_module) {
+    add("The feeder-length note on every module",
+        "where a split row's power cable length comes from 'single feeder ... within N m of the ODU', the note is said on every module of the split, not only on the first");
+  }
+  if (prep9?.tfa_capacity) {
+    add("A fresh-air unit with no capacity read takes the row's",
+        "a fresh-air (TFA) unit the model gave no capacity takes the row's stated CFM / TR (the next size up), else its stated HP by the conversion factors, so the row prices (TFA + its outdoor unit), noted");
+  }
+  if (lu9?.calculator_refuses) {
+    add("A per-HP row refuses in the calculator too",
+        "a row priced per HP (a whole-lot unit) is not a VRF unit: the panel and the calculator both refuse it with the same sentence, never priced per Nos");
+  }
+  if ((prep9?.implied_includes ?? []).some((i) => i?.question === "includes_gas" && !i?.only_blank)) {
+    add("A first / factory charge of refrigerant is the gas charge",
+        "'factory charged with first charge of refrigerant', 'initial charge' or 'full charge' means the gas charge is included (kg = the module's HP), even where the model read No -- unless the sheet quotes the gas on its own row");
+  }
+  if (prep9?.not_includes) {
+    add("BMS-interface cables and civil supports are not extras",
+        "cables for a BMS interface (BACnet / Modbus / third-party integration) are not the VRF communication cable, and a civil pedestal / foundation / plinth is not the MS frame: an include read from those words is not added, with a note quoting them");
+  }
+  if (prep9?.family_refusals) {
+    add("A Fan Coil Unit with no type told is refused",
+        "a row under 'Fan Coil Units' whose unit type the BoQ does not tell is refused 'Fan Coil Unit - pick the indoor type', not 'no item could be told'");
+  }
+  if (ps9?.counted?.defined) {
+    add("A Set the BoQ defines is one refnet",
+        "a row priced per Set that says what one Set holds ('Liquid and Gas considered as one Set') is priced at 1 refnet per Set, never rounded up by the expected joints; the note names the quantity and the joints expected when it is below");
+  }
+  if (sc9?.always_both) {
+    add("Gas charging is always supply + installation",
+        "a refrigerant gas charging / topping-up / additional-refrigerant row is priced supply + installation whatever its scope words (installation only or supply only), noted");
+  }
+  if (prep9?.row_family) {
+    add("A gas-charging or ODU-frame row with no item read",
+        "a row the model read no item for, whose own text names refrigerant gas charging (quoted per kg) or the outdoor units' MS base frame / stand / structure (never a civil pedestal), is priced on that item -- a frame quoted per Kg on the per-Kg frame item");
+  }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};

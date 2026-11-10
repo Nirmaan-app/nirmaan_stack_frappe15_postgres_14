@@ -3866,7 +3866,10 @@ function computeItemListOwn(
    * shows the unit the row is priced in. Every other config keeps 12c-S's rule (a pick no longer offered is not honoured).
    */
   const keepPick = unitPickable && !!spec.extras && picked !== undefined && picked !== "" && !unitChoices.includes(picked) && unitClassOf(spec, picked) !== null;
-  if (keepPick) unitChoices.push(picked!);
+  // VRF-9 (S7): on a config with `lot_units.calculator_refuses` a picked whole-lot unit ("per HP") stays -- the row then refuses
+  // with the panel's own lot line instead of pricing per Nos
+  const keepLot = unitPickable && !!spec.lot_units?.calculator_refuses && picked !== undefined && picked !== "" && !unitChoices.includes(picked) && isLotUnit(spec, picked);
+  if (keepPick || keepLot) unitChoices.push(picked!);
   const unit = unitPickable
     ? ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? "")
     : ctx.unit!;
@@ -5983,13 +5986,46 @@ function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: stri
 
 /** VRF-8 (D12, owner 14:50). A row the reading rules refuse (several unit types under its heading): no figure, every unit says why,
  *  the row's reason names it (U8). The notes stay. Absent `refuse` => the result as is. */
-function withPrepRefusal(res: HelperResult, refuse: string | undefined): HelperResult {
+function withPrepRefusal(res: HelperResult, refuse: string | undefined, noType = false): HelperResult {
   const r = res as ItemListSuggestion;
   if (!refuse || !r.itemList) return res;
   const { totals: _t, ...v } = r.itemList;
-  const items = v.items.map((b) => ({ ...b, state: "blank" as const, reason: refuse, figures: {} }));
+  // VRF-9 (S1, QR-2 (a)): with `several_types.typed` a unit refused for several unit types shows no inherited type -- the panel does
+  // not pick one (the calculator's typed case then matches it block for block)
+  const items = v.items.map((b) => ({ ...b, state: "blank" as const, reason: refuse, figures: {}, ...(noType ? { family: null, ...(b.extras ? { extras: { ...b.extras, lines: [], removed: [] } } : {}) } : {}) }));
   return { ...r, values: {}, workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [refuse], finalValues: {} },
            itemList: { ...v, rowPriced: false, reason: refuse, items, lineCount: { lines: v.lineCount?.lines ?? items.length, bad: v.lineCount?.lines ?? items.length } } } as HelperResult;
+}
+
+/** VRF-9 (S1, owner R-D12; R4, owner "option C"). THE CALCULATOR (no heading tree): a unit whose TYPED item names two or more unit
+ *  types (`prepare.unit_words`; the panel's "several unit types" case typed in) refuses with `several_types.refusal`; a typed item
+ *  naming a `family_refusals` word refuses with that rule's sentence. The unit shows no type; the row is not priced. Never on a
+ *  BoQ row (the panel reads the heading tree itself). Absent keys => the result as is. */
+function withTypedRefusals(spec: ItemListPricingSpec, ctx: RowContextWithUnit, res: HelperResult): HelperResult {
+  const P = spec.extras?.prepare;
+  const r = res as ItemListSuggestion;
+  const v = r.itemList;
+  if (!P || !v || !(v.unitPickable || ctx.noRow)) return res;
+  const st = P.several_types?.typed && P.unit_words ? P.several_types : undefined;
+  const frs = P.family_refusals ?? [];
+  if (!st && !frs.length) return res;
+  const test = (w: string, t: string) => { try { return new RegExp(w, "i").test(t); } catch { return false; } };
+  let line: string | null = null;
+  const items = v.items.map((b, i) => {
+    const e = v.editState?.items?.[i];
+    const typed = typeof e?.family === "string" && e.family.trim() !== "" && !spec.families[e.family] ? e.family : "";
+    if (!typed) return b;
+    let why: string | null = null;
+    if (st && new Set(Object.entries(P.unit_words!).filter(([, w]) => test(w, typed)).map(([f]) => f)).size >= 2) why = st.refusal;
+    if (!why) for (const fr of frs) if (test(fr.words, typed)) { why = fr.refusal; break; }
+    if (!why) return b;
+    line ??= why;
+    return { ...b, family: null, state: "blank" as const, reason: why, figures: {} };
+  });
+  if (line === null) return res;
+  const { totals: _t, ...rest } = v;
+  return { ...r, values: {}, workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [line], finalValues: {} },
+           itemList: { ...rest, items, rowPriced: false, reason: line, lineCount: { lines: rest.lineCount?.lines ?? items.length, bad: rest.lineCount?.lines ?? items.length } } } as HelperResult;
 }
 
 /** VRF-6 (00352 r150, 00368 r45, 00370 r8). A unit refused for "no capacity stated" whose own row text states two different
@@ -6079,7 +6115,8 @@ function computeItemList(
     const probe: OwnPassProbe = {};
     const own = computeItemListOwn(category, spec, items, ctx, prep.ext, inRun, overrides, probe) as ItemListSuggestion;
     const done = own.itemList ? withExtras(spec, items, ctx, prep.ext, overrides, configOf, cableRate, own, probe, category) : own;
-    return withPrepRefusal(withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes)), prep.refuse);
+    const noType = !!prep.refuse && !!spec.extras.prepare?.several_types?.typed && prep.refuse === spec.extras.prepare.several_types.refusal;
+    return withPrepRefusal(withTypedRefusals(spec, ctx, withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes))), prep.refuse, noType);
   }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);

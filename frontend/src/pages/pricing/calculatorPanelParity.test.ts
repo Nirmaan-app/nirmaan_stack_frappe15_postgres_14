@@ -46,6 +46,7 @@ import {
 import {
   applyVrf7,
   applyVrf8,
+  applyVrf9,
   calculatorHelper,
   classifyDivergence,
   compareResults,
@@ -61,6 +62,7 @@ import {
   runParity,
   skuCasesForCategory,
   type ParityCase,
+  type Vrf9Fixture,
 } from "./calculatorPanelParity.harness";
 import { aliasTargetConfigs, calculatorConfigMap, calculatorCtx, crossTargetDisciplines, extrasTargetConfigs } from "./PricingCalculator";
 import { readFileSync } from "node:fs";
@@ -3588,5 +3590,89 @@ describe("VRF-8 B2 -- the K1 rules on both paths; panel = calculator on every ca
     expect((r.panel as ItemListSuggestion).itemList!.reason).toBe("several unit types under this heading - fix the headings or pick the type (owner D12)");
     expect(hasPrice(r.panel)).toBe(false);
     expect(r.divergences.map((d) => d.what)).toContain("item row reason");
+  });
+});
+
+/**
+ * VRF-9 B2 (S1 / R4 / S7 calculator, owner 2026-11-11; parity for every K1 rule) -- panel = calculator on every case, the count
+ * asserted, ZERO named exceptions. A unit the panel refuses for several unit types under its heading (R-D12) or as a Fan Coil Unit
+ * (R4) is typed into the calculator as the BoQ shows it ("Hi-Wall / Cassette / Ductable", "Fan Coil Units") and the calculator
+ * refuses with the same sentence -- never the inherited type; a per-HP row refuses with the panel's lot line in both. Every other
+ * VRF-9 rule (S2-S10, R1-R3) prices the same on both paths.
+ */
+describe("VRF-9 B2 -- the calculator refuses wherever the panel refuses; panel = calculator on every case, zero exceptions", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const FX9 = readJsonFixture<Vrf9Fixture>(new URL("./__fixtures__/vrf9Model.json", import.meta.url));
+  const base64 = A64.category_configs.find((x) => x.category_id === "hvac_vrf")!;
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS = [...asItems(A64), ...asItems(E72)];
+  const cfgs = (vrf: RateCategoryConfig) => new Map<string, RateCategoryConfig>([...A64.category_configs.map((c) => (c.category_id === "hvac_vrf" ? vrf : c)), ...E72.category_configs].map((c) => [c.category_id, c]));
+  const CFG65 = cfgs(applyVrf9(base64, FX9));
+  const CFG64 = cfgs(base64);
+  const run = (c: ParityCase, m = CFG65) => runParity(m, ITEMS, c, "full");
+  const vc = (unit: string, item: Record<string, string | null>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const od = (cap: string, more: Record<string, string | null> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: cap, ...more });
+  const row = (ids: string[], where = "Note") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const D12N = ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"];
+  const H12 = "SITC of BMS Compatible VRF Indoor air conditioning units, drain pumps for cassette, ductable & TFA units, suitable plug top, control wiring";
+  const D12 = "several unit types under this heading - fix the headings or pick the type (owner D12)";
+  const SP = "The unit mouted starter panel shall be complete with IP-55 protection consisting of power disconnecting switches with fuses, soft starters";
+  const N3 = "Notes 9.The unit rate for all Items shall include all costs - packing, forwarding, freight, insurance and transport to site, storage, installation, testing, balancing, commissioning";
+  const N20 = "Supply, Installation,testing & commissioning of Variable Refrigerant volume - modular type air-conditioning system complete with indoor units";
+  const N50 = "Supply, port clearance, transport of AIR COOLED Variable Refrigerant Flow Modular type Outdoor units suitable with high efficiency";
+  const W2 = "Suitable provison for BMS interface bacnet / Modbus for thrid party system integration, communication cables, etc.";
+  const CIV = "Including Civil pedestal supports for outdoor units with rubber pads";
+  const CASES: Array<[string, ParityCase]> = [
+    ["S1 D12 several unit types, no type read (00380 2F r209)", vc("Nos", { item: null, capacity: "2.0 TR" }, { desc: "2.0 TR", headings: [H12], headingNotes: D12N })],
+    ["S1 D12 the inherited CSU type from the heading", vc("Nos", { item: null, capacity: "2.0 TR", ...row(["remote"], "Heading") }, { desc: "2.0 TR", headings: ["SITC of Ceiling Suspended VRF indoor units with corded remote"], headingNotes: D12N })],
+    ["S2 'Wall Mounted Type' under several types -> Hi-Wall", vc("No.", { item: "Hi-Wall", capacity: "2.0TR" }, { desc: "Wall Mounted Type (2.0TR)", headings: [H12], headingNotes: D12N })],
+    ["R4 Fan Coil Unit, no type read", vc("Nos", { item: null, capacity: "1.0 TR", scope: "Supply + installation" }, { desc: "1.0 TR", headings: ["VRF SYSTEM", "Fan Coil Units"] })],
+    ["S7 a per-HP row", vc("per HP", od("10 HP to 12 HP", { cooling: "Heat Pump", scope: "Supply + installation" }), { desc: "Supplying, Installation, Testing & Commissioning of Modular type VRF air cooled Outdoor units" })],
+    ["S3 'Supply of' row + installation in the heading", vc("nos.", od("16 HP"), { desc: "VRV/VRF - 50HP | Supply of VRV/VRF outdoor unit as per the specification", headings: [N3] })],
+    ["S4 supply only + installation at a higher level", vc("Nos", od("14 HP", { scope: "Supply only" }), { desc: "38 HP - Out door unit", headings: ["VRV HIGHSIDE WORKS", "OUTDOOR UNITS"], ancestorNotes: [N50, N20] })],
+    ["S5 the D1 starter-panel note, exact + its row", vc("Nos", od("6HP"), { headingNotes: [SP] })],
+    ["S6 the make fallback keeps the drain pump", vc("Nos", { item: "Ductable", brand_as_written: "TOSHIBA / DAIKIN / PANASONIC", remote_type: "Wired", capacity: "1.59 TR", ...row(["drain_pump"], "Heading"), includes_drain_pump_words: "The rate shall be inclusive of drain pump of suitable capacity." },
+      { desc: "1.59 TR/441 CFM", headings: ["Ceiling suspended units. The rate shall be inclusive of drain pump of suitable capacity."] })],
+    ["S7 the feeder note on both modules", vc("Nos", od("38HP (20+18)", { cooling: "Heat Pump", ...row(["power"], "Heading") }), { headingNotes: ["Note: Single feeder shall be provided for all VRF ODU within 5 mtr distance from ODU"] })],
+    ["S7 a TFA with no capacity read", { cat: "hvac_vrf", unit: "Nos.", desc: "Supply, installation, testing and commissioning of 741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit", attrs: {},
+      items: [{ item: "Single Skin Treated Fresh Air", capacity: null }, { item: "Outdoor Unit", capacity: "6 HP" }] }],
+    ["S8 liquid + gas = one Set", vc("Set", { item: "Refnet/Y-Joint", set_contents_as_written: "Liquid and Gas considered as a one Set", set_covers: "Indoor side only", set_idu: "8" },
+      { desc: "Refrigerant joints to connect copper piping of the indoor unit onto the main circuit line. (Liquid and Gas considered as a one Set)", qty: 2 })],
+    ["S9 gas charging read 'Installation only'", vc("kg", { item: "Refrigerant Gas Filling (R-410)", scope: "Installation only" }, { desc: "Installation, testing, commissioning of Refrigerant gas - R-410 A including topping up of Refrigerant R-410A" })],
+    ["S10 a frame row with no item read (Nos)", vc("Nos", { scope: "Supply + installation" }, { desc: "Supply and installation of MS base frames coated with anti corrosive paint as per site requirements for outdoor units" })],
+    ["S10 a frame row with no item read (Kgs)", vc("Kgs", { scope: "Supply + installation" }, { desc: "Supply & Installation of MS structural work with railling arrangement for outdoor unit positioning" })],
+    ["R1 factory charged with first charge", vc("Nos", od("12 HP"), { headingNotes: ["The unit shall be factory charged with first charge of refrigerant and oil"] })],
+    ["R2 BMS-interface cables", vc("Nos", od("8 HP", { ...row(["comm"]), includes_comm_words: W2 }), { headingNotes: [W2] })],
+    ["R3 a civil pedestal", vc("Nos", od("8HP", { ...row(["frame"]), includes_frame_words: CIV }), { headingNotes: [CIV] })],
+  ];
+
+  it("every case: 0 divergences -- the count asserted, no named exception", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    expect(out.filter((o) => o.div.length).map((o) => ({ name: o.name, div: o.div }))).toEqual([]);
+    expect(CASES).toHaveLength(18);
+  }, 600000);
+
+  it("the refusals reach the calculator with the panel's sentence: several unit types, Fan Coil, per HP -- never priced", () => {
+    const reasons = (i: number) => {
+      const r = run(CASES[i][1]);
+      return [r.panel, r.calculator].map((s) => { const v = (s as ItemListSuggestion).itemList!; return [v.rowPriced, v.reason, v.items.map((b) => b.family)]; });
+    };
+    expect(reasons(0)).toEqual([[false, D12, [null]], [false, D12, [null]]]);
+    expect(reasons(1)).toEqual([[false, D12, [null]], [false, D12, [null]]]);
+    expect(reasons(3)).toEqual([[false, "Fan Coil Unit - pick the indoor type", [null]], [false, "Fan Coil Unit - pick the indoor type", [null]]]);
+    const ph = reasons(4);
+    expect(ph[0][0]).toBe(false);
+    expect(ph[1]).toEqual(ph[0]);
+    expect(String(ph[0][1])).toMatch(/^Unit "per HP" is not a VRF unit/);
+  });
+
+  it("NEGATIVE: on v64 (no `several_types.typed`, no `lot_units.calculator_refuses`) the calculator prices the inherited type and the per-HP row (VRF-8)", () => {
+    const d12 = run(CASES[1][1], CFG64);
+    expect((d12.panel as ItemListSuggestion).itemList!.reason).toBe(D12);
+    expect((d12.calculator as ItemListSuggestion).itemList!.rowPriced).toBe(true);
+    expect(run(CASES[4][1], CFG64).divergences.map((d) => d.what)).toContain("item row reason");
   });
 });

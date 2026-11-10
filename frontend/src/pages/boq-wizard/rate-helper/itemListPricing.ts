@@ -680,6 +680,8 @@ export interface ItemListPricingSpec {
   /** VRF-3a K2 (owner LOT "Refuse + review list", O-7): unit spellings that name a whole-lot price (Lot, LS, Job, per HP,
    * "complete system") -- the row refuses with `line` ({unit} as written) and the panel shows the red `bar`. */
   lot_units?: { units: string[]; bar: string; line: string;
+    /** VRF-9 (S7): the calculator honours a picked whole-lot unit ("per HP") and refuses with `line`, as the panel does */
+    calculator_refuses?: boolean;
     /** VRF-5 (owner wording, brief B3): a unit's own bar title ("per HP" -> "PRICED PER HP ..."); absent = `bar` */
     bar_by_unit?: Record<string, string> };
   /**
