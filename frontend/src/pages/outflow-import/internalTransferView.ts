@@ -2,22 +2,21 @@
 //
 // The hand actions on an Internal Transfer (#1626, spec #1619, ADR-0044): Mark as Internal Transfer on an open line,
 // and Send back to Mismatched on an Internal Transfer line. Pure: no React. The server decides: it sends each open
-// line's offer (`row.hand_mark`: its own side, the places to choose from, the Detail to start with) and asks the same
-// rules again under the line's row lock (`services/outflow_import/internal_transfer_rules.py`). This keeps no copy of
-// the places or the rule (frontend F1); it only decides which button a row shows.
+// line's offer (`row.hand_mark`: its own side, the places to choose from, the Detail to start with), says whether the
+// line may be sent back (`row.can_send_back`), and asks the same rules again under the line's row lock
+// (`services/outflow_import/internal_transfer_rules.py`). This keeps no copy of the places or the rules (frontend
+// F1); it only decides which button a row shows.
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 
-import { ROW_INTERNAL_TRANSFER } from "./outflowImportStatus";
 import { amountToneClass } from "./outflowTableModel";
 
 /** Whether the row offers Mark as Internal Transfer: exactly when the server sent its offer. */
 export const canMarkInternalTransfer = (row: Pick<OutflowImportRow, "hand_mark">): boolean => row.hand_mark != null;
 
-/** Whether the row offers Send back to Mismatched: an Internal Transfer line, whoever made it. */
-export const canSendBack = (row: Pick<OutflowImportRow, "row_status">): boolean =>
-    row.row_status === ROW_INTERNAL_TRANSFER;
+/** Whether the row offers Send back to Mismatched: exactly when the server says it may be. */
+export const canSendBack = (row: Pick<OutflowImportRow, "can_send_back">): boolean => row.can_send_back === true;
 
 /**
  * "Marked by hand · who · date · why" for a record a person made, or `null` for one a rule made. Only a hand mark

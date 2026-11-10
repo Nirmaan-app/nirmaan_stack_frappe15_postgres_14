@@ -48,6 +48,7 @@ from nirmaan_stack.api.outflow_import.card_refund_pairs import unskip_refund_pai
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     INTERNAL_TRANSFER_COLUMNS,
     INTERNAL_TRANSFER_JOIN,
+    can_send_back,
     hand_mark_of_row,
     internal_transfer_fields,
 )
@@ -3087,6 +3088,7 @@ def get_outflow_rows(
                 "amount": float(row.get("amount") or 0),
                 **internal_transfer_fields(row),
                 "hand_mark": hand_mark_of_row(row),
+                "can_send_back": can_send_back(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of

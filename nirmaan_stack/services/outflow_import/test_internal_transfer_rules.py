@@ -68,8 +68,21 @@ class TestTheLinesOwnSide(unittest.TestCase):
 
 class TestSendBack(unittest.TestCase):
     def test_only_an_internal_transfer_line_may_be_sent_back(self):
-        self.assertIsNone(send_back_refusal("Internal Transfer"))
-        self.assertIn("not an Internal Transfer", send_back_refusal("Mismatched"))
+        self.assertIsNone(send_back_refusal(row_status="Internal Transfer", source="ICICI Bank Statement", row_kind=""))
+        self.assertIn("not an Internal Transfer",
+                      send_back_refusal(row_status="Mismatched", source="ICICI Bank Statement", row_kind=""))
+
+    def test_a_cashbook_move_is_refused_by_its_type_and_a_hand_marked_cashbook_line_is_not(self):
+        """The #1619 review: a Cashbook move's money is in the Credit column the line does not keep, so sent back and
+        marked again it would record the wrong ends and Rs 0 (owner decision 2026-11-10)."""
+        for kind in CASHBOOK_INTERNAL_KINDS:
+            with self.subTest(kind=kind):
+                refusal = send_back_refusal(row_status="Internal Transfer", source="Cashbook", row_kind=kind)
+                self.assertIn(f"Cashbook's own Type ({kind}) says this line is a move between our own places", refusal)
+        self.assertIsNone(send_back_refusal(row_status="Internal Transfer", source="Cashbook", row_kind="Wallet Spend"))
+        self.assertIsNone(send_back_refusal(row_status="Internal Transfer", source="Cashbook", row_kind=None))
+        self.assertIsNone(send_back_refusal(row_status="Internal Transfer", source="ICICI Bank Statement",
+                                            row_kind="Bank → VA"))
 
 
 class TestTheHandMarkOffer(unittest.TestCase):
