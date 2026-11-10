@@ -187,6 +187,11 @@ STUB_UNAME=Linux DEVENV_PROC="$T/proc" prune
 chmod 755 "$T/proc/99999"
 rc_is 0 "prune on Linux, past a pid it cannot read"
 line '^KEEP +worktree +h-agent .*landed:master +agent:claude/4242$' "on Linux a process's /proc cwd holds"
+for p in 4243 4244 4245 4246; do mkdir -p "$T/proc/$p"; echo node > "$T/proc/$p/comm"; ln -s "$WT/agent" "$T/proc/$p/cwd"; done
+STUB_UNAME=Linux DEVENV_PROC="$T/proc" prune
+chmod 000 "$T/proc/99999"
+line '^KEEP +worktree +h-agent .*landed:master +agent:claude/4242,node/4243,node/4244,\.\.\.\(\+2\)$' "many processes in a worktree: the first three and a count"
+rm -rf "$T/proc/4243" "$T/proc/4244" "$T/proc/4245" "$T/proc/4246"; chmod 755 "$T/proc/99999"
 STUB_LSOF_FAIL=1 prune
 rc_is 1 "prune stops when the process listing fails"; has "could not list" "the stop says why"; no_line '^PRUNE' "nothing is listed for removal"
 STUB_UNAME=Linux DEVENV_PROC="$T/no-proc" prune

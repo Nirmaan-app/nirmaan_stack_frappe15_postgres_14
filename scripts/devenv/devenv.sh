@@ -722,7 +722,7 @@ hold_agent() {
   local who
   who="$(printf '%s\n' "$PROCS" | awk -F'\t' -v a="$R_WT" -v b="$R_BENCH" \
     '(a != "" && ($3 == a || index($3, a "/") == 1)) || (b != "" && ($3 == b || index($3, b "/") == 1)) {print $2 "/" $1}' \
-    | sort -u | paste -sd, -)"
+    | sort -u | awk 'NR <= 3 {s = s (NR > 1 ? "," : "") $0} END {if (NR > 3) s = s ",...(+" NR - 3 ")"; if (NR) print s}')"
   [ -z "$who" ] || echo "agent:$who"
 }
 # A worktree made under a day ago with no commit of its own sits at a commit a ref already holds, so it reads as
