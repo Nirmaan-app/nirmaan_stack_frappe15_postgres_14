@@ -101,7 +101,7 @@ report "$AH" b1 "BLOCKED. The owner must pick the rate source."
 report "$AH" x1 "TODO: DONE or BLOCKED, then one line on the outcome"
 
 L="$T/laptop"; mkdir -p "$L/scripts/devenv"
-cp "$HERE/boxes.sh" "$HERE/task.sh" "$L/scripts/devenv/"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/landed.sh" "$L/scripts/devenv/"
 git -C "$L" init -q -b master
 git -C "$L" add -A
 git -C "$L" -c user.name=test -c user.email=test@example.com commit -q --no-verify -m base

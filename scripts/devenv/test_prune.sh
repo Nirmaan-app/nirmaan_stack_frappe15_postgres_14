@@ -180,4 +180,74 @@ no_line '^PRUNE' "a second run finds nothing to prune"; has "to prune: 0 envs, 0
 prune --quiet
 rc_is 0 "--quiet with nothing to prune"; same "$OUT" "" "--quiet prints nothing when nothing can go"
 
+# ---- task.sh prune and clean, on a temp laptop repo and a stub Linux box
+R="$T/boxes.conf"; export DEVBOX_REGISTRY="$R"
+git config -f "$R" devbox.default contabo
+git config -f "$R" box.contabo.ssh t@contabo-test
+git config -f "$R" box.contabo.checkout work/x/variants/master
+L="$T/laptop"; mkdir -p "$L/scripts/devenv"
+cp "$HERE/boxes.sh" "$HERE/task.sh" "$HERE/handoff.sh" "$HERE/landed.sh" "$L/scripts/devenv/"
+cat > "$L/scripts/devenv/devenv.sh" <<'EOF'
+#!/bin/bash
+# Stands in for devenv.sh on a test box: an env is a worktree of the box's checkout.
+set -e
+wt="$(cd ../.. && pwd)/benches/$2/apps/nirmaan_stack"
+case "$1" in
+  create) git worktree add -q "$wt" "$4"; echo "Ready $2" ;;
+  stop) ;;
+  destroy) git -C "$wt" checkout -q --detach; echo "destroyed $2" ;;
+esac
+EOF
+printf 'import sys\nprint("ok    test dod", sys.argv[1])\n' > "$L/scripts/devenv/dod.py"
+chmod +x "$L/scripts/devenv/devenv.sh"
+git -C "$L" init -q -b master; git -C "$L" config user.name test; git -C "$L" config user.email test@example.com
+git -C "$L" config core.hooksPath "$T/no-hooks"
+git -C "$L" add -A; git -C "$L" commit -q --no-verify -m base
+CH="$T/boxes/t@contabo-test"; CO="$CH/work/x/variants/master"
+git clone -q "$L" "$CO"; git -C "$CO" config user.name box; git -C "$CO" config user.email box@example.com
+mkdir -p "$CH/.stub"; echo Linux > "$CH/.stub/uname"; : > "$CH/.stub/procs"
+CROOT="$(cd "$CH/work/x" && pwd -P)"
+bwt() { echo "$CROOT/benches/$1/apps/nirmaan_stack"; }
+task() { RC=0; OUT="$(bash "$L/scripts/devenv/task.sh" "$@" 2>&1)" || RC=$?; }
+rec() { git -C "$L" config "devbox-task.$1.box" || echo none; }
+
+for n in ta tb tc td te tf; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
+commit "$(bwt ta)" a1; commit "$(bwt tb)" b1; commit "$(bwt tc)" c1
+echo x > "$(bwt td)/stray.txt"; echo "# changed" >> "$(bwt tf)/scripts/devenv/handoff.sh"
+echo "4101 claude $(bwt te)" > "$CH/.stub/procs"
+# ta: merged on the laptop under another name, so no laptop box/ta (contabo's bulk-tds-1571 on 2026-11-10)
+git -C "$L" fetch -q "$CO" box/ta; git -C "$L" merge -q --ff-only FETCH_HEAD; git -C "$L" branch -D box/ta >/dev/null
+git -C "$L" branch -D box/tb >/dev/null
+task done tc; rc_is 0 "done tc brings its commit to the laptop"
+has "After the merge: task.sh prune" "done ends by naming task.sh prune"
+
+task clean tb
+rc_is 1 "clean refuses ONLY_BOX when no laptop ref holds the box tip"; has "ONLY_BOX: the box has commits on box/tb the laptop lacks" "the refusal says why"
+same "$(rec tb)" contabo "a refused clean keeps the record"
+
+task prune
+rc_is 0 "task.sh prune lists"
+line "^PRUNE +box-task +ta +contabo:$(bwt ta) +landed:master\$" "a task merged under another name is PRUNE"
+line '^KEEP +box-task +tb .*landed:- +unfetched$' "a box tip the laptop lacks is KEEP"
+line '^KEEP +box-task +tc .*landed:- *$' "an unmerged task is KEEP, not landed"
+line '^KEEP +box-task +td .*landed:master +untracked:1$' "an untracked file in the box env holds"
+line '^KEEP +box-task +te .*landed:master +working$' "a working agent holds"
+line '^KEEP +box-task +tf .*landed:master +tracked-changes:1$' "a tracked change in the box env holds"
+has "to prune: ta (task.sh prune --yes cleans them; laptop branches stay)" "the total names the tasks"
+same "$(rec ta)" contabo "listing cleans nothing"
+
+task prune --yes
+rc_is 0 "task.sh prune --yes"
+has "ok    ONLY_BOX, but the box tip" "clean accepts ONLY_BOX when a laptop ref holds the box tip"
+has "cleaned ta on box contabo" "--yes cleans the PRUNE task"
+same "$(rec ta) $(rec tc)" "none contabo" "--yes cleans only the PRUNE task"
+git -C "$CO" rev-parse -q --verify refs/heads/box/ta >/dev/null && fail "the box still has box/ta"; pass "the box branch of ta is gone"
+task prune
+rc_is 0 "a second task.sh prune"; no_line '^PRUNE' "a second task.sh prune finds nothing"; has "to prune: 0 tasks" "a second run totals zero"
+
+touch "$CH/.stub/down"
+task prune
+rc_is 3 "an unreachable box is exit 3"; has "box contabo: did not answer over SSH" "the unreachable box is named"
+line '^KEEP +box-task +tc .*unreachable$' "an unreachable box's tasks are KEEP"
+
 echo; echo "all $N checks passed"

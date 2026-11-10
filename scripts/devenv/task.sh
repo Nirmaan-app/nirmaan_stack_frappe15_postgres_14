@@ -11,7 +11,12 @@
 #                            ${XDG_STATE_HOME:-~/.local/state}/devbox/reports/<name>.md (review, merge and
 #                            push stay with you)
 #   task.sh clean <name>     after you merged: remove the env and the branch on the box (refused while the box has
-#                            commits the laptop lacks)
+#                            commits the laptop lacks, unless a laptop ref already holds the box tip: landed.sh)
+#   task.sh prune [--yes]    each recorded task, one line: PRUNE when a laptop ref holds its box tip (landed.sh:
+#                            master, upstream/ or origin/ develop and main) and nothing holds it, else KEEP with the
+#                            holds: unreachable, working (its agent, as watch counts it), tracked-changes, untracked
+#                            (in its env on the box), unfetched (the laptop lacks the box tip: task.sh done first).
+#                            One SSH pair per box, read only. --yes runs task.sh clean on each PRUNE task.
 #   task.sh list             every task branch on the laptop and the box it is on (no SSH)
 #   task.sh pick             the box the next start without --box would get, and why (one SSH per box, read only)
 #   task.sh watch [--every <seconds>]
@@ -40,6 +45,7 @@ step() { echo; echo "== $*"; }
 SELF_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 cd "$(git -C "$SELF_DIR" rev-parse --show-toplevel)"
 . "$SELF_DIR/boxes.sh"
+. "$SELF_DIR/landed.sh"
 
 # The one rule for a task's state: task_state <alive> <report word> <dod>. alive: 1 or 0 for a claude process whose
 # folder is the task's env, - when the box did not answer. A finished Claude session stays alive waiting for input,
@@ -181,9 +187,91 @@ box_pick() {
   die "no box in devbox.order ($order) has a free agent (lines above). Pass --box <name> to start on one anyway."
 }
 
+# Runs on a box under bash -s, args <checkout> <task>...: per task "<name>\t<env worktree>\t<tip>\t<tracked>\t<untracked>".
+# tip: box/<name>'s commit, else the env worktree's HEAD, else - (nothing of the task is left on the box). The counts
+# are git status lines in the env worktree.
+prune_probe() {
+  cat <<'EOF'
+co="$1"; shift
+cd ~/"$co" || exit 4
+root="$(cd ../.. && pwd -P)"
+for n in "$@"; do
+  wt="$root/benches/$n/apps/nirmaan_stack" st=""
+  tip="$(git rev-parse -q --verify "refs/heads/box/$n^{commit}" || true)"
+  if [ -d "$wt" ]; then
+    [ -n "$tip" ] || tip="$(git -C "$wt" rev-parse -q --verify HEAD || true)"
+    st="$(git -C "$wt" status --porcelain 2>/dev/null)"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$wt" "${tip:--}" "$(printf '%s\n' "$st" | grep -c '^[^?]')" "$(printf '%s\n' "$st" | grep -c '^??')"
+done
+EOF
+}
+
+# The holds of a box task, one check per name, each printing the hold when it applies to the task in the T_* globals.
+TASK_HOLDS="unreachable working tracked-changes untracked unfetched"
+task_hold_unreachable() { [ -z "$T_NOTE" ] || echo unreachable; }
+task_hold_working() { [ "$T_STATE" != working ] || echo working; }
+task_hold_tracked_changes() { [ "$T_TRACKED" = 0 ] || echo "tracked-changes:$T_TRACKED"; }
+task_hold_untracked() { [ "$T_UNTRACKED" = 0 ] || echo "untracked:$T_UNTRACKED"; }
+task_hold_unfetched() {
+  [ -z "$T_NOTE" ] && [ "$T_TIP" != - ] && ! git cat-file -e "$T_TIP^{commit}" 2>/dev/null && echo unfetched || true
+}
+
+# prune_tasks <yes>: one row per recorded task (see the header). Exit 3 when a box did not answer.
+prune_tasks() {
+  local yes="$1" recs box names n out wout rc row alive dod line word h d where rows="" keep="" todo="" down=0 failed=0
+  recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
+  echo "== $(date '+%Y-%m-%d %H:%M:%S')  task prune: box tasks whose box tip a laptop ref holds"
+  [ -n "$recs" ] || echo "no task records (task.sh start makes them)"
+  for box in $(printf '%s\n' "$recs" | awk 'NF {print $2}' | sort -u); do
+    names="$(printf '%s\n' "$recs" | awk -v b="$box" '$2 == b {print $1}')"
+    out="" wout="" T_NOTE=""
+    if ! T_NOTE="$(box_load "$box" 2>&1)"; then T_NOTE="${T_NOTE#STOP  }"
+    else
+      box_load "$box"; rc=0
+      out="$(prune_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
+      [ "$rc" != 0 ] || wout="$(watch_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
+      case "$rc" in 0) ;; 255) T_NOTE="did not answer over SSH"; down=1 ;; *) T_NOTE="the probe failed on the box (exit $rc)" ;; esac
+    fi
+    [ -z "$T_NOTE" ] || echo "box $box: $T_NOTE"
+    for n in $names; do
+      T_WT="" T_TIP=- T_TRACKED=0 T_UNTRACKED=0 alive=- dod=- line=""
+      row="$(printf '%s\n' "$out" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
+      [ -z "$row" ] || IFS=$'\t' read -r _ T_WT T_TIP T_TRACKED T_UNTRACKED <<<"$row"
+      row="$(printf '%s\n' "$wout" | awk -F'\t' -v n="$n" '$1 == n {print; exit}')"
+      [ -z "$row" ] || IFS=$'\t' read -r _ alive dod line <<<"$row"
+      word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
+      T_STATE="$(task_state "$alive" "$word" "$dod")"
+      d=""; for h in $TASK_HOLDS; do d="$d $(task_hold_${h//-/_})"; done; d="$(echo $d)"
+      where=""
+      if [ -z "$T_NOTE" ]; then
+        if [ "$T_TIP" = - ]; then where="nothing-on-box"; else where="$(landed "$T_TIP")" || where=""; fi
+      fi
+      if [ -n "$where" ] && [ -z "$d" ]; then
+        rows="$rows$(printf 'PRUNE  box-task %-28s %-60s landed:%s' "$n" "$box:$T_WT" "$where")"$'\n'
+        todo="$todo $n"
+      else
+        keep="$keep$(printf 'KEEP   box-task %-28s %-60s landed:%-18s %s' "$n" "$box:${T_WT:-?}" "${where:--}" "$d")"$'\n'
+      fi
+    done
+  done
+  printf '%s%s' "$rows" "$keep"
+  if [ -z "$todo" ]; then echo "to prune: 0 tasks"
+  elif [ "$yes" = 0 ]; then echo "to prune:$todo (task.sh prune --yes cleans them; laptop branches stay)"
+  else
+    for n in $todo; do echo; echo "== clean $n"; bash "$SELF_DIR/task.sh" clean "$n" </dev/null || failed=1; done
+  fi
+  [ "$down" = 0 ] || exit 3
+  return "$failed"
+}
+
 CMD="${1:-}"
 case "$CMD" in
   start|status|done|clean) ;;
+  prune)
+    [ $# = 1 ] || { [ $# = 2 ] && [ "$2" = --yes ]; } || die "usage: task.sh prune [--yes]"
+    prune_tasks "$([ $# = 2 ] && echo 1 || echo 0)"
+    exit ;;
   watch)
     [ $# = 1 ] || { [ $# = 3 ] && [ "$2" = --every ] && [[ "$3" =~ ^[1-9][0-9]*$ ]]; } \
       || die "usage: task.sh watch [--every <seconds>]"
@@ -203,7 +291,7 @@ case "$CMD" in
       printf '%-28s %s\n' "$n" "$b"
     done
     exit 0 ;;
-  *) sed -n '2,30p' "$0"; exit 1 ;;
+  *) sed -n '2,36p' "$0"; exit 1 ;;
 esac
 NAME="${2:-}"
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "name: lowercase letters, digits and dashes, at most 31 (got '$NAME')"
@@ -358,14 +446,18 @@ case "$CMD" in
     BASE="$(box_ssh "cd $ROOT/benches/$NAME/apps/nirmaan_stack 2>/dev/null && python3 scripts/devenv/dod.py base" 2>/dev/null || true)"
     git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$(git merge-base master "$BRANCH")"
     echo "Separate review (fills the report's ## Review): /mattpocock-skills:code-review ${BASE:0:9}, on $BRANCH"
-    echo "Then merge and push yourself. Afterwards: task.sh clean $NAME"
+    echo "Then merge and push yourself. After the merge: task.sh prune (lists what can go; --yes cleans it)"
     ;;
 
   clean)
-    V="$("$SELF_DIR/handoff.sh" status "$BOX_NAME" "$BRANCH" | sed -n 's/^verdict: //p')"
+    S="$("$SELF_DIR/handoff.sh" status "$BOX_NAME" "$BRANCH")"
+    V="$(printf '%s\n' "$S" | sed -n 's/^verdict: //p')"
     case "$V" in
       IN_SYNC|LAPTOP_AHEAD|ONLY_LAPTOP|NOWHERE) ;;
-      *) die "$V: the box has commits on $BRANCH the laptop lacks. Run task.sh done $NAME first." ;;
+      *) # The verdict compares with the laptop's $BRANCH only: a task merged under another branch name has none.
+        R="$(printf '%s\n' "$S" | sed -n "s|^box    $BRANCH: \([0-9a-f]*\) .*|\1|p")"
+        WHERE="$(landed "$R")" || die "$V: the box has commits on $BRANCH the laptop lacks. Run task.sh done $NAME first."
+        ok "$V, but the box tip ${R:0:9} is already in $WHERE" ;;
     esac
     ROOT="$(box_root)"; WT="$ROOT/benches/$NAME/apps/nirmaan_stack"
     export BOX_STARTED=1
