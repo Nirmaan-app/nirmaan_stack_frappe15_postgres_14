@@ -22,7 +22,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { describeFrappeError, isCreditRow } from "../outflowTableModel";
 
 /** Which hand action the dialog takes: `mark` an open line as an Internal Transfer, or `sendBack` an Internal
- * Transfer line (and the other lines of its move) to Mismatched. */
+ * Transfer line to Mismatched. */
 export type InternalTransferAction = "mark" | "sendBack";
 
 const ENDPOINT = "nirmaan_stack.api.outflow_import.internal_transfer_actions";

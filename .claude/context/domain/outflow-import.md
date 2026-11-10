@@ -944,6 +944,23 @@ needs one vocabulary rather than one per writer.
     cheque payment up front in its verdict ("Paid by cheque", `unreconcile.leg_verdict`), so one paid by hand
     before #1552 is never offered as revertible. ⚠️ A new settle path that skips `pay_alone_problem` still
     fails at the save, with the save's message: ask the service first.
+19. **An Internal Transfer line is final, holds at most one record, and its record is never edited** (spec #1619,
+    ADR-0044). A line the rules or a person decide is the company's own move gets `row_status` Internal Transfer
+    and one `Internal Transfer` record (unique `import_row`), inserted only by
+    `api/outflow_import/internal_transfers.record_for_line`. A status-changed repeat of a move already recorded is
+    an Internal Transfer line with no record of its own (`upload._stage_batch`, `recorded_line_of_move`): the move
+    is recorded once. The record's `validate` refuses every save after insert. The one change is
+    `internal_transfers.fill_zero_records`, which gives a ₹0 Cashbook record its amount from a re-uploaded SUCCESS
+    line, by a raw `set_value`; no stored figure is built from that amount, so nothing needs a recompute. Only
+    Send back to Mismatched deletes a record. The status is terminal: the match run, Skip, Unskip, Unreconcile,
+    Allocate, Create and Link all refuse such a line, and it is in no expense, inflow, payment or open-work figure
+    (Still open, Total Unreconciled Outflow). Gross Outflow and Gross Inflow still include it. ⚠️ **A Cashbook move
+    is never sent back** (`Bank → VA`, `VA → Wallet`, `Wallet → VA`, `internal_transfers.CASHBOOK_INTERNAL_KINDS`;
+    owner 2026-11-10). Its Type names both ends, and its money is in the Credit column, which the line does not
+    keep. Sent back and marked again, it came back from the wrong ends with ₹0. `internal_transfer_rules.send_back_refusal`
+    refuses it in words, and the row's `can_send_back` hides the button. An old line with no stored Type is read by
+    its Txn Id (`internal_transfers.cashbook_line_kind`: `VALOAD-`, `BUSINESS_USER-`, `C2B-`), as the patch placed it;
+    all 922 Cashbook Internal Transfer lines in the 2026-11-07 data are such lines.
 
 ---
 
