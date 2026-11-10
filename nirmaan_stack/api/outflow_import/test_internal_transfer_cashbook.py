@@ -207,10 +207,10 @@ class TestEveryInternalTransferLineHoldsOneRecord(CashbookStageCase):
 
 
 class TestACashbookMoveIsNeverSentBack(CashbookStageCase):
-    """Review finding (#1619): a Cashbook move's Type names both its ends, and its money is in the Credit column,
-    which the line does not keep. Sent back and marked again, it came back from the wrong ends and with Rs 0. So a
-    line whose own Cashbook Type says it is our move stays an Internal Transfer: Send back is refused in words, and
-    the screen does not offer it (owner decision, 2026-11-10)."""
+    """Review finding (#1619): a Cashbook move's Type names both its ends, and a top-up's money is in the Credit
+    column, which the line does not keep. Sent back and marked again, it came back from the wrong ends and with
+    Rs 0. So a line whose own Cashbook Type says it is our move stays an Internal Transfer: Send back is refused in
+    words, and the screen does not offer it (owner decision, 2026-11-10)."""
 
     def _move(self, kind, who_from, who_to, debit, credit, txn):
         return self._lines(self._stage([_line("01/08/2026", kind, who_from, who_to, debit, credit, "SUCCESS",

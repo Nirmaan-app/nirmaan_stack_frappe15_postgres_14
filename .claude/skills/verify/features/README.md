@@ -59,7 +59,7 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   into rent, GST, TDS and what the landlord gets, paid by an Accountant. Walked end to end by
   `BIN/walk_office_rent.py`.
 - [Internal Transfers](./internal-transfers.md): the Internal Transfers tab, the summary's Internal transfers figure,
-  the Skipped popup without the moved lines, Mark as Internal Transfer and Send back to Mismatched (one line), Made by
+  the Skipped popup without the moved lines, Mark as Internal Transfer and Send back to Mismatched (one line; never on a Cashbook move), Made by
   in words, the Cashbook preview's and the card Review's Internal transfers lists, and the preview's sentence on the
   old ₹0 records it fills. Walked end to end by `BIN/walk_internal_transfers.py`.
 - [Vendor Invoice Recon](./vendor_invoice_recon.md): the Pending Invoice Approvals and All Invoices tabs, and their

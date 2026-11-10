@@ -956,11 +956,12 @@ needs one vocabulary rather than one per writer.
     Allocate, Create and Link all refuse such a line, and it is in no expense, inflow, payment or open-work figure
     (Still open, Total Unreconciled Outflow). Gross Outflow and Gross Inflow still include it. ⚠️ **A Cashbook move
     is never sent back** (`Bank → VA`, `VA → Wallet`, `Wallet → VA`, `internal_transfers.CASHBOOK_INTERNAL_KINDS`;
-    owner 2026-11-10). Its Type names both ends, and its money is in the Credit column, which the line does not
-    keep. Sent back and marked again, it came back from the wrong ends with ₹0. `internal_transfer_rules.send_back_refusal`
-    refuses it in words, and the row's `can_send_back` hides the button. An old line with no stored Type is read by
-    its Txn Id (`internal_transfers.cashbook_line_kind`: `VALOAD-`, `BUSINESS_USER-`, `C2B-`), as the patch placed it;
-    all 922 Cashbook Internal Transfer lines in the 2026-11-07 data are such lines.
+    owner 2026-11-10). Its Type alone names both ends, so one rule covers all three. For the two top-ups
+    (`Bank → VA`, `VA → Wallet`) the money is in the Credit column, which the line does not keep: sent back and
+    marked again, such a line came back from the wrong ends with ₹0. `internal_transfer_rules.send_back_refusal`
+    refuses it in words, and the row's `can_send_back` hides the button. A Cashbook line staged before the Type was
+    stored is read by its Txn Id (`internal_transfers.cashbook_line_kind`: `VALOAD-`, `BUSINESS_USER-`, `C2B-`), as
+    the patch placed it.
 
 ---
 
