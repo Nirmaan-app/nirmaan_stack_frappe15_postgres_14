@@ -1,5 +1,5 @@
 """Tests for the pure parts of pr_review.py: state, numbering, merging, the comment, the PR body, commands and
-routing, the budget, reruns, walk reports and decisions.
+routing, the budget, failure reasons, reruns, walk reports and decisions.
 
 Stdlib only, like the script:  python3 -m unittest scripts.test_pr_review -v
 """
@@ -31,6 +31,7 @@ from pr_review import (  # noqa: E402
     cost_notices,
     dismiss,
     empty_state,
+    failure_reason,
     fence,
     incremental_diff,
     merge,
@@ -42,6 +43,7 @@ from pr_review import (  # noqa: E402
     parse_state,
     parse_walk_report,
     propose,
+    redact,
     refuse_secrets,
     render_brief,
     render_comment,
@@ -450,6 +452,85 @@ class Budget(unittest.TestCase):
         self.assertIn("spent $2.50 of $2.50", body)
 
 
+INIT = {"type": "system", "subtype": "init", "session_id": "s1", "model": "claude-opus-5-5"}
+
+
+def error_result(text=None, **fields):
+    """The result message of the three failed runs: success subtype, yet is_error, one turn and no cost."""
+    result = {"type": "result", "subtype": "success", "is_error": True, "duration_ms": 412, "num_turns": 1,
+              "total_cost_usd": 0, "session_id": "s1", **fields}
+    if text is not None:
+        result["result"] = text
+    return result
+
+
+def api_error_assistant(text):
+    return {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+
+def execution_file(*messages):
+    return json.dumps([INIT, *messages])
+
+
+NO_ENV = {}
+
+
+class FailureReason(unittest.TestCase):
+    def test_the_error_results_text_is_the_reason(self):
+        log = execution_file(api_error_assistant("API Error: 401 something"),
+                             error_result("Invalid API key · Fix external API key"))
+        self.assertEqual(failure_reason(log, NO_ENV), "Invalid API key · Fix external API key")
+
+    def test_without_result_text_the_last_assistant_api_error_is_the_reason(self):
+        text = ('API Error: 400 {"type":"error","error":{"type":"invalid_request_error",\n'
+                '"message":"Your credit balance is too low to access the Anthropic API."}}')
+        for log in (execution_file(api_error_assistant(text), error_result()),
+                    execution_file(api_error_assistant(text))):
+            self.assertEqual(failure_reason(log, NO_ENV), " ".join(text.split()))
+
+    def test_ordinary_assistant_text_is_not_an_api_error(self):
+        log = execution_file(api_error_assistant("I read the diff and found two issues."), error_result())
+        self.assertEqual(failure_reason(log, NO_ENV), "")
+
+    def test_without_text_the_results_errors_are_the_reason(self):
+        log = execution_file(error_result(subtype="error_during_execution",
+                                          errors=["Tool permission denied", "Stream closed"]))
+        self.assertEqual(failure_reason(log, NO_ENV), "Tool permission denied; Stream closed")
+
+    def test_a_run_that_did_not_fail_or_left_nothing_has_no_reason(self):
+        ok = {**error_result("All done."), "is_error": False, "total_cost_usd": 0.8}
+        for log in (execution_file(ok), execution_file(error_result()), execution_file(), "[]", "{not json", "",
+                    None):
+            self.assertEqual(failure_reason(log, NO_ENV), "", log)
+
+    def test_a_key_shaped_string_and_a_live_credential_are_redacted_and_the_rest_kept(self):
+        key = "sk-ant-api03-" + "x" * 40
+        env = {"ANTHROPIC_API_KEY": "live-key-value-777", "GH_TOKEN": "", "GITHUB_TOKEN": "short"}
+        log = execution_file(error_result(f"API Error: 401 invalid x-api-key {key} live-key-value-777 short"))
+        reason = failure_reason(log, env)
+        self.assertEqual(reason, "API Error: 401 invalid x-api-key [redacted] [redacted] short")
+        refuse_secrets(reason, env)
+        self.assertEqual(redact("token ghs_" + "A1" * 18, {}), "token [redacted]")
+
+    def test_a_long_reason_is_cut_to_300_characters_after_redaction(self):
+        key = "sk-ant-api03-" + "k" * 40
+        reason = failure_reason(execution_file(error_result("e" * 280 + " " + key + " tail" * 50)), NO_ENV)
+        self.assertEqual(len(reason), 300)
+        self.assertTrue(reason.startswith("e" * 280 + " [redacted]"))
+        self.assertTrue(reason.endswith("…"))
+
+    def test_the_failure_comment_quotes_the_reason_and_falls_back_without_one(self):
+        state = state_with(shown("F1"), run=2)
+        reason = failure_reason(execution_file(error_result("Invalid API key · Fix external API key")), NO_ENV)
+        with_reason = render_comment("asha", state, [], RUN_URL, failed=True, reason=reason)
+        self.assertEqual(with_reason.splitlines()[1],
+                         "This review run failed: `Invalid API key · Fix external API key`. "
+                         f"[See the log]({RUN_URL}). The list below is from run 2.")
+        self.assertEqual(parse_state(with_reason), state)
+        self.assertEqual(render_comment("asha", state, [], RUN_URL, failed=True).splitlines()[1],
+                         f"This review run failed, [see the log]({RUN_URL}). The list below is from run 2.")
+
+
 class StateUpgrade(unittest.TestCase):
     def test_a_live_version_1_state_reads_as_version_2(self):
         v1 = {"version": 1, "run": 3, "findings": [shown("F1", "should", "fixed")]}
@@ -747,6 +828,27 @@ class AuthorNotice(unittest.TestCase):
         for name, (old, new) in cases.items():
             self.assertEqual(author_notice(old, new, "asha", FAILING_CI, CHECKLIST), "", name)
 
+
+
+class InertReasonTest(unittest.TestCase):
+    def test_reason_cannot_hide_the_comment_or_ping(self):
+        from pr_review import _inert
+        self.assertEqual(_inert("bad <!-- hide --> @someone `x` [l](u)"), "`bad <!-- hide --> @someone 'x' [l](u)`")
+
+    def test_an_error_subtype_is_the_reason_when_there_is_no_text(self):
+        from pr_review import failure_reason
+        log = json.dumps([{"type": "result", "subtype": "error_max_turns", "is_error": True, "num_turns": 60,
+                           "total_cost_usd": 1.2}])
+        self.assertEqual(failure_reason(log, {}), "error_max_turns")
+
+
+class ScreenCodeTest(unittest.TestCase):
+    def test_frontend_docs_need_no_walk(self):
+        from pr_review import touches_screens
+        self.assertFalse(touches_screens(["frontend/.claude/plans/boq-upload-plan.md", "nirmaan_stack/api/x.py"]))
+        self.assertFalse(touches_screens(["frontend/CODING_STANDARDS.md", "frontend/.claude/context/x.json"]))
+        self.assertTrue(touches_screens(["frontend/package.json"]))
+        self.assertTrue(touches_screens(["docs/a.md", "frontend/src/pages/Payments.tsx"]))
 
 if __name__ == "__main__":
     unittest.main()
