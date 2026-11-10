@@ -500,6 +500,9 @@ PY
     reset)
       check_task "$1"
       PW="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["db_password"])' "$B/sites/$SITE/site_config.json")"
+      # A fresh clone is unmigrated: its old record goes first, so a reset stopped before its migrate leaves the next
+      # `test` to migrate.
+      rm -f "$B/.migrated-schema"
       clone_db "$PW"; took "re-cloned $DB"
       guard; migrate >"$B/logs/migrate.log" 2>&1 || die "migrate failed, see benches/$TASK/logs/migrate.log"
       took "migrated"
