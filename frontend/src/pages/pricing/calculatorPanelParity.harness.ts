@@ -977,3 +977,55 @@ export function applyVrf8(base: RateCategoryConfig, fx: Vrf8Fixture, omit: Vrf8G
   return c as unknown as RateCategoryConfig;
 }
 
+
+/** VRF-9: the hvac_vrf keys HVAC v65 adds over v64 (`pricing/__fixtures__/vrf9Model.json`; the mint reads the same file). */
+export type Vrf9Fixture = {
+  prepare_patch: Record<string, Record<string, unknown>>; prepare_add: Record<string, unknown>; implied_includes_add: unknown[];
+  implied_not_words_append: Record<string, string>; scope_add: Record<string, unknown>; safeguard_add: Record<string, unknown>;
+  accessories_patch: Record<string, Record<string, string>>; per_set_counted_add: Record<string, unknown>;
+  pricing_patch?: Record<string, Record<string, unknown>>; question_notes_append: Record<string, string>; second_opinion: boolean;
+};
+export type Vrf9Group = "prepare" | "implied" | "scope" | "safeguard" | "accessories" | "per_set" | "pricing" | "questions";
+type Ii9 = { question: string; not_words?: string; [k: string]: unknown };
+type Cfg9 = { list_spec: { attribute_definitions: Q8[]; second_opinion?: boolean; pricing: Record<string, unknown> & {
+  per_set?: { counted?: Record<string, unknown> }; extras: {
+  accessories: Acc8[]; scope: Record<string, unknown>; prepare: Record<string, unknown> & { implied_includes?: Ii9[] }; safeguard: Record<string, unknown> } } } };
+/** PURE. v64's hvac_vrf with the VRF-9 keys applied (the steps mint_hvac_v65_vrf9.py takes, in its order); `omit` leaves groups out. */
+export function applyVrf9(base: RateCategoryConfig, fx: Vrf9Fixture, omit: Vrf9Group[] = []): RateCategoryConfig {
+  const c = structuredClone(base) as unknown as Cfg9;
+  const p = c.list_spec.pricing;
+  const x = p.extras;
+  if (!omit.includes("prepare")) {
+    for (const [k, v] of Object.entries(fx.prepare_patch)) x.prepare[k] = { ...((x.prepare[k] as Record<string, unknown>) ?? {}), ...structuredClone(v) };
+    Object.assign(x.prepare, structuredClone(fx.prepare_add));
+  }
+  if (!omit.includes("implied")) {
+    x.prepare.implied_includes = [...(x.prepare.implied_includes ?? []), ...(structuredClone(fx.implied_includes_add) as Ii9[])].map((ii) => {
+      const add = fx.implied_not_words_append[ii.question];
+      return add && typeof ii.not_words === "string" ? { ...ii, not_words: ii.not_words + add } : ii;
+    });
+  }
+  if (!omit.includes("scope")) Object.assign(x.scope, structuredClone(fx.scope_add));
+  if (!omit.includes("safeguard")) Object.assign(x.safeguard, structuredClone(fx.safeguard_add));
+  if (!omit.includes("accessories")) {
+    for (const a of x.accessories) {
+      const pt = fx.accessories_patch[a.id];
+      if (!pt) continue;
+      if ((pt.note_words_line || pt.note_words_words) && a.note_words) {
+        a.note_words = { ...(a.note_words as Record<string, unknown>), ...(pt.note_words_words ? { words: pt.note_words_words } : {}), ...(pt.note_words_line ? { line: pt.note_words_line } : {}) };
+      }
+      if (a.choice?.conflict && (pt.conflict_line || pt.conflict_both_line)) {
+        a.choice.conflict = { ...a.choice.conflict, ...(pt.conflict_line ? { line: pt.conflict_line } : {}), ...(pt.conflict_both_line ? { both_line: pt.conflict_both_line } : {}) };
+      }
+    }
+  }
+  if (!omit.includes("per_set") && p.per_set?.counted) Object.assign(p.per_set.counted, structuredClone(fx.per_set_counted_add));
+  if (!omit.includes("pricing")) {
+    for (const [k, v] of Object.entries(fx.pricing_patch ?? {})) p[k] = { ...((p[k] as Record<string, unknown>) ?? {}), ...structuredClone(v) };
+  }
+  if (!omit.includes("questions")) {
+    c.list_spec.attribute_definitions = c.list_spec.attribute_definitions.map((q0) => (fx.question_notes_append[q0.id] ? { ...q0, note: `${q0.note ?? ""}${fx.question_notes_append[q0.id]}` } : q0));
+    c.list_spec.second_opinion = fx.second_opinion;
+  }
+  return c as unknown as RateCategoryConfig;
+}

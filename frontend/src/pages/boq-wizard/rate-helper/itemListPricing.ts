@@ -777,6 +777,12 @@ export interface CountedSpec {
    * editable (a typed count wins). The calculator has no sheet and is unchanged. ABSENT => typed only, as before.
    */
   from_sheet?: { sides: Record<string, string[]>; line: string; none: string };
+  /**
+   * VRF-9 (S8, owner 01:01 "these are normal refnets. option a"): the row itself says what one Set holds ("Liquid and Gas
+   * considered as one Set") -- the answer `attr` (the copied set contents) carries `words` -> 1 Set = 1 piece, never rounded up
+   * by the expected count; `line` ({q}, {E}) when the BoQ quantity is below the expected count, else `line_plain`.
+   */
+  defined?: { attr: string; words: string; line: string; line_plain: string };
 }
 
 /** VRF-3a K2: the unit is one of the config's per-Set spellings. PURE. */
@@ -876,7 +882,9 @@ export interface PrepareSpec {
   stated_setup?: { attr: string; family: string; min_each: string; line: string; not_stocked: string };
   /** VRF-8 (D4, owner 14:30): "single feeder / DB ... within N m of the ODU" -> the outdoor unit's power cable length is N m
    *  (group 1 of `words`); noted ({said}, {where}, {n}) where the power cable is included */
-  feeder_length?: { words: string; attr: string; line: string };
+  feeder_length?: { words: string; attr: string; line: string;
+    /** VRF-9 (S7, R-D4): the note is said on EVERY module of the row (a split's each line), not only on the first */
+    every_module?: boolean };
   /** VRF-8 (D5, owner 14:37 "as a safe choice, note 1 wins"): "breaker (if required)" includes the MCB + ELCB set (`question`
    *  set to `yes`), noted with the electrical-contractor wording (`ec_words`) when that is stated too (`line_both`); the
    *  electrical-contractor wording alone = NOT added (`line_ec_only`) */
@@ -896,8 +904,26 @@ export interface PrepareSpec {
   /** VRF-8 (D12, owner 14:50): the unit's own heading carries SEVERAL short notes each naming a unit type (sub-headings saved as
    *  notes) and the row names none -> the row refuses `refusal`. `unit_words`: family -> words (regex); also read by the D2
    *  note to tell a sibling unit type's text (K1c). A note longer than `note_max` is no sub-heading. */
-  several_types?: { note_max: number; refusal: string };
+  several_types?: { note_max: number; refusal: string;
+    /** VRF-9 (S1, owner R-D12): in the calculator (no heading tree) a unit whose TYPED item names two or more unit types
+     *  (`unit_words`) -- the panel's case typed in -- refuses with the same `refusal`; never priced as one of them */
+    typed?: boolean };
   unit_words?: Record<string, string>;
+  /** VRF-9 (R4, owner "option C"): a row whose units have NO unit type told, under a chain text naming `words` ("Fan Coil
+   *  Units"), refuses `refusal` (not the generic "no item could be told"); in the calculator a TYPED item naming `words`
+   *  refuses the same */
+  family_refusals?: Array<{ words: string; refusal: string }>;
+  /** VRF-9 (R2 BMS cables / R3 civil supports): an include the model answered Yes FROM words naming `words` (its quoted BoQ
+   *  words) -- and none of `unless` -- is not that include: set to `no`, noted ({label}, {said}, {where}). `role` limits it. */
+  not_includes?: Array<{ question: string; words: string; unless?: string; role?: "indoor" | "outdoor"; no: string; line: string }>;
+  /** VRF-9 (S7, owner R-D14-1): a fresh-air unit (`family`) with no capacity answered takes the row's stated CFM / TR
+   *  (`words`, the whole match), else its stated HP (`hp_words`, group 1, as "N HP"); the capacity reader then converts and
+   *  takes the next size up. Noted ({said}). */
+  tfa_capacity?: { family: string; words: string; hp_words: string; line: string };
+  /** VRF-9 (S9 gas row / S10 frame row safety nets, owner 00:59-01:06): a unit with NO type told (blank / "None" / "none of
+   *  these") whose row's OWN text names `words` in a clause without `not_words` takes `family` (then `family_by_unit` maps it
+   *  to the item stocked in the row's unit), noted ({said}, {family}); `unit_classes` limits it to rows quoted in those */
+  row_family?: Array<{ family: string; words: string; not_words?: string; unit_classes?: string[]; line: string }>;
   /** VRF-8 (D13, owner 14:52-14:54): an extra question the model left OUT (no answer at all) whose BoQ words sit in the chain
    *  (the own-row rule's words, in a clause with none of `exclude_words`) is treated as stated -- the normal rules then decide */
   missing_answers?: { exclude_words: string };
@@ -931,6 +957,18 @@ export interface ScopeSpec {
    *  heading (`heading_words`) whose notes say installation (`install_words`) stays supply + installation, with `note`
    *  ({heading}, {said}, {where}) */
   supply_heading?: { heading_words: string; install_words: string; note: string };
+  /** VRF-9 (S3, owner R-D1 "scope note always"): a supply + installation row (the model's answer, or none) whose OWN text starts
+   *  a clause with "Supply of" / "Supply & providing" (`row_words`) and names no installation itself, under a chain text that
+   *  says installation (`install_words`, the nearest clause without `not_words`) -> supply + installation with `note`
+   *  ({row}, {said}, {where}), written whatever the model answered */
+  always_note?: { row_words: string; install_words: string; not_words?: string; note: string };
+  /** VRF-9 (S4, owner: VRF-7 ruled S+I): a SUPPLY-ONLY answer while a text at ANY level of the chain says installation
+   *  (`install_words`, nearest clause without `not_words`) -> supply + installation with `note` ({said}, {where}) -- unless the
+   *  row's own text states supply only (`keep_words`) or the sheet quotes installation of this kind on its own row (Q5) */
+  any_level?: { install_words: string; not_words?: string; keep_words?: string; note: string };
+  /** VRF-9 (S9, owner 00:59 "gas charging is always both"): a row priced on one of `families` (refrigerant gas charging /
+   *  topping up) is supply + installation whatever its scope words, with `note` ({said} = the scope read) */
+  always_both?: { families: string[]; note: string };
 }
 
 /** VRF-5: one accessory line (see `ExtrasSpec.accessories`). */
@@ -1019,6 +1057,10 @@ export interface ExtrasSafeguard {
   /** VRF-8 (D14-7): a quote the model copied is shown only when the WHOLE quote is found in the row's chain (then with its
    *  row); otherwise the line without the quote */
   verified_quotes?: boolean;
+  /** VRF-9 (S5, owner R-D14-7): the notes the panel composes itself (the D1 starter-panel note, the two-wordings remote note,
+   *  the gas / frame / never-silent / armour quotes) quote ONE exact stretch of the BoQ text -- never an added "..." -- and name
+   *  the row each quote sits in (`{first_where}` in the two-wordings line, `{where}` in the D1 note) */
+  exact_quotes?: boolean;
   /** VRF-7 (B7, owner 01:36): the own-row check runs for EVERY extra wherever it is stated -- the row itself included */
   own_row_always?: boolean;
   /** VRF-7 (B8): the per-include question (`<includes question>` + suffix) holding the BoQ words that state it; the notes then
@@ -1359,7 +1401,7 @@ export function workingStandbyWords(ws: ItemListPricingSpec["working_standby"], 
 }
 
 export interface CountedPieces {
-  state: "match" | "below" | "rounded" | "misfit" | "counts_missing" | "qty_missing";
+  state: "match" | "below" | "rounded" | "misfit" | "counts_missing" | "qty_missing" | "defined";
   pieces: number | null;
   expected: number | null;
   formula?: string;
@@ -1377,6 +1419,18 @@ export function countedPieces(c: CountedSpec, answers: Record<string, string | u
   const fill = (t: string, vals: Record<string, string>) => t.replace(/\{(\w+)\}/g, (m, k) => (k in vals ? vals[k] : m));
   const covers = c.covers.options.find((o) => o.value === (answers[c.covers.id] ?? "").trim());
   const sides = covers ? covers.sides : [];
+  // VRF-9 (S8): the BoQ says what one Set holds (liquid + gas = one Set) -> 1 piece per Set; the expected count only feeds the note
+  if (c.defined) {
+    let said = false;
+    try { said = new RegExp(c.defined.words, "i").test(String(answers[c.defined.attr] ?? "")); } catch { said = false; }
+    if (said) {
+      const ns = sides.map((sd) => { const def = c.counts.find((x) => x.side === sd); const raw = def ? (answers[def.id] ?? "").trim() : ""; return raw === "" ? NaN : Number(raw); });
+      const E = ns.length && ns.every((n) => Number.isInteger(n) && n >= 1) ? ns.reduce((a, n) => a + (n - 1), 0) : null;
+      const q = typeof rowQty === "number" && Number.isFinite(rowQty) && rowQty > 0 ? rowQty : null;
+      const below = E !== null && q !== null && q < E;
+      return { state: "defined", pieces: 1, expected: E, sentence: below ? fill(c.defined.line, { q: fmtq(q!), E: String(E) }) : c.defined.line_plain };
+    }
+  }
   const counts = sides.map((sd) => {
     const def = c.counts.find((x) => x.side === sd);
     const raw = def ? (answers[def.id] ?? "").trim() : "";

@@ -4000,7 +4000,7 @@ function computeItemListOwn(
       const e = edits.items[i];
       // the three answers as the item carries them -- typed by the pricer or read from the row (a model item's attributes)
       const said = (id: string) => { const v = a.attributes[id]?.value; return v === null || v === undefined ? undefined : String(v); };
-      const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id)].map((id) => [id, said(id)]));
+      const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id), ...(counted.defined ? [counted.defined.attr] : [])].map((id) => [id, said(id)]));
       // VRF-4 (q2): a count the row did not answer is added up from the sheet (a typed count -- even blank -- stays the pricer's)
       for (const c of counted.counts) {
         const sheet = ctx.sheetUnits?.[c.side];
@@ -4335,6 +4335,8 @@ function withExtras(
   // plus an accessory the model listed as an item of its own on the unit row (folded off it: every unit of its role carries it)
   const accs = x.accessories ?? [];
   const sg = x.safeguard;
+  // VRF-9 (S5): with `exact_quotes` a quoted text is an exact stretch (cut on a word, never an added "...")
+  const xq = (t: string, n = 120) => (sg?.exact_quotes ? cutExact(t, Math.max(n, 160)) : clip(t, n));
   const onAcc = new Set<string>(calculator ? String(overrides?.[EXTRAS_INCLUDES_KEY] ?? "").split(",").map((t) => t.trim()).filter((t) => accs.some((a) => a.id === t)) : []);
   const inclOf = (i: number) => {
     const e = edits0.items[i];
@@ -4519,7 +4521,7 @@ function withExtras(
     // VRF-7 (B8, owner 01:36): the BoQ words that state it, and where they sit ("heading row 12"; else the model's answer)
     // VRF-8 (D14-7): with `verified_quotes` a quote is shown only when the WHOLE quote is found in the chain (then with its row)
     const strict = sg?.verified_quotes && inc.words[id] ? locateWordsStrict(inc.words[id], chain) : null;
-    const words = sg?.words_suffix && inc.words[id] && (!sg.verified_quotes || strict !== null) ? clip(inc.words[id]) : "";
+    const words = sg?.words_suffix && inc.words[id] && (!sg.verified_quotes || strict !== null) ? xq(inc.words[id]) : "";
     const located = words ? (strict ?? locateWords(inc.words[id], chain) ?? (where !== "" ? `the ${whereWord}` : whereWord)) : "";
     return { where, whereWord, wording, words, located };
   };
@@ -4668,6 +4670,8 @@ function withExtras(
           const clauseAt = (t: string, m: string) => {
             const cl = t.split(/[.;|]+/).find((x) => x.includes(m))?.trim() ?? m;
             if (cl.length <= 90) return cl;
+            // VRF-9 (S5): one exact stretch of the clause around the words, never an added "..."
+            if (sg?.exact_quotes) return exactAround(cl, m, 120);
             const at = Math.max(0, cl.indexOf(m) - 40);
             return at > 0 ? `...${clip(cl.slice(at).trim(), 87)}` : clip(cl, 90);
           };
@@ -4713,6 +4717,8 @@ function withExtras(
             const firstText = firstWhere ? clauseAt(texts.find((e) => e.where === firstWhere)?.text ?? mine, mine) : mine;
             const o = (other ?? both)!;
             pts.push((other ? c.conflict.line : c.conflict.both_line!).replace("{first}", firstText).replace("{said}", o.said)
+              // VRF-9 (S5): the first quote names ITS row too (00197 r358: the cordless words sit in note row 357, not 312)
+              .replace("{first_where}", firstWhere ? ` (${firstWhere})` : "")
               .replace("{where}", o.where ? ` (${o.where})` : "").replace("{value}", decidedBy[0]));
           }
         }
@@ -4829,7 +4835,7 @@ function withExtras(
         const qs = quotesOf("power");
         if (qs.length && qs.every((q) => reTest(L.drain_cable_words, q.text))) {
           const w = whereOf(i, "power");
-          reviewPts.push(L.drain_cable_row_line.replace("{said}", w.words || clip(cableWords || label)).replace("{rows}", rowsText(qs)));
+          reviewPts.push(L.drain_cable_row_line.replace("{said}", w.words || xq(cableWords || label)).replace("{rows}", rowsText(qs)));
           return false;
         }
       }
@@ -4844,12 +4850,12 @@ function withExtras(
     if (noteSilent && nw0?.line_silent) {
       for (const id of nw0.ids) {
         if (itemOn0.has(id as ExtraIncludeId)) continue;
-        reviewPts.push(nw0.line_silent.replace("{label}", incSpec.get(id as ExtraIncludeId)?.label ?? id).replace("{said}", clip(noteSilent.said)).replace("{where}", noteSilent.where));
+        reviewPts.push(nw0.line_silent.replace("{label}", incSpec.get(id as ExtraIncludeId)?.label ?? id).replace("{said}", xq(noteSilent.said)).replace("{where}", noteSilent.where));
       }
     }
     // VRF-8 (D6, owner 14:40): cabling the BoQ ties to the drain pump, where the model read no power cable -- no line, said
     if (drainSilent && L.drain_cable_line_silent && !itemOn0.has("power")) {
-      reviewPts.push(L.drain_cable_line_silent.replace("{said}", clip(drainSilent.said)).replace("{where}", drainSilent.where));
+      reviewPts.push(L.drain_cable_line_silent.replace("{said}", xq(drainSilent.said)).replace("{where}", drainSilent.where));
     }
     // VRF-6 (F3): an include that needs another (insulation needs copper) and lost it is said, never dropped silently
     if (sg?.lines.not_added) {
@@ -5140,7 +5146,13 @@ function withExtras(
       // VRF-7 (D1, owner 01:36 "its ok..just make a suitable note"): words asking the reviewer to check the line (kept)
       if (perItem && acc.note_words) {
         const m = execIn(acc.note_words.words, allWords);
-        if (m) reviewPts.push(acc.note_words.line.replace("{said}", clip(m)));
+        // VRF-9 (S5): with `exact_quotes` the note quotes the exact stretch of the clause holding the words, and names its row
+        const at = m && sg?.exact_quotes ? (() => {
+          const n0 = (t: string) => t.replace(/\s+/g, " ").toLowerCase();
+          const e = chain.find((x) => n0(x.text).includes(n0(m)));
+          return { said: cutExact(m, 160).replace(/[\s,;:]+$/, ""), where: e?.where ?? "the BoQ" };
+        })() : null;
+        if (m) reviewPts.push(at ? acc.note_words.line.replace("{said}", at.said).replace("{where}", at.where) : acc.note_words.line.replace("{said}", clip(m)).replace(" ({where})", ""));
       }
       // VRF-6 (owner Q1): a unit the BoQ says has the item built in still gets the line, with a review point
       if (acc.builtin && reTest(acc.builtin.words, allWords)) reviewPts.push(acc.builtin.line);
@@ -5232,6 +5244,13 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
     && l.family1 === fam0 && typeof l.scope1 === "string" && pred(l.scope1)).map((l) => l.row).sort((a, b) => a - b);
   const rowsWord = (rs: number[]) => rs.slice(0, 4).map((r) => `row ${r}`).join(", ") + (rs.length > 4 ? ` and ${rs.length - 4} more` : "");
   let extraNote: string | undefined;
+  // VRF-9 (S9, owner 00:59 "gas charging is always both"): a refrigerant gas charging / topping-up row is supply + installation,
+  // whatever its scope words
+  const ab = sc.always_both;
+  if (!calculator && ab && (value === sc.supply_only || value === sc.install_only || (!!sc.install_only_normal && value === sc.install_only_normal))
+    && view.items.some((b) => !!b.family && ab.families.includes(b.family))) {
+    return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: ab.note.replace("{said}", value) } } };
+  }
   if (!calculator && sc.conflict && value === sc.supply_only) {
     const text = [...(ctx.headings ?? []), ...(ctx.headingNotes ?? []), ...(ctx.ownNotes ?? [])].join(" | ");
     let said: string | null = null;
@@ -5245,6 +5264,17 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
         return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
       }
     }
+  }
+  // VRF-9 (S4, VRF-7 ruled S+I): a supply-only answer while installation is said at ANY level of the chain (a grandparent's note,
+  // a top heading) -> supply + installation, noted -- unless the row itself says supply only, or the sheet quotes installation of
+  // this kind on its own row (Q5 above keeps supply only then)
+  const al = sc.any_level;
+  if (!calculator && al && value === sc.supply_only && extraNote === undefined && !sameKind((s) => s === sc.install_only).length) {
+    const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+    let keep = false;
+    try { keep = !!al.keep_words && new RegExp(al.keep_words, "i").test(own); } catch { keep = false; }
+    const hit = keep ? null : nearestClause(al.install_words, al.not_words, chainOf(ctx));
+    if (hit) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: al.note.replace("{said}", hit.said).replace("{where}", hit.where) } } };
   }
   // VRF-8 (D1, owner 14:2x "this is supply + installation. the note belongs to the parent. option b"): a supply + installation row
   // under a "Supply of ..." heading whose notes say installation keeps supply + installation, with a note quoting both
@@ -5269,6 +5299,23 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
         const note = sh.note.replace("{heading}", cutExact(hs, 80)).replace("{said}", cutExact(inst.said, 120)).replace("{where}", inst.where);
         return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
       }
+    }
+  }
+  // VRF-9 (S3, owner R-D1 "scope note always"): a supply + installation row whose own level starts with "Supply of" / "Supply &
+  // providing" and whose own text names no installation, under a text that says installation -> the note quoting both, written
+  // whatever the model answered for the scope (blank included)
+  const an = sc.always_note;
+  if (!calculator && an && value !== sc.supply_only && value !== sc.install_only && !(sc.install_only_normal && value === sc.install_only_normal)) {
+    const ch = chainOf(ctx);
+    const isOwn = (w: string) => w === CHAIN_ROW_PLACE || w === CHAIN_ROW_NOTE_PLACE;
+    const own = ch.filter((e) => isOwn(e.where));
+    const ownInstall = own.some((e) => nearestClause(an.install_words, an.not_words, [e]) !== null);
+    let lvlEnd = ch.length; { let seen = 0; for (let k = 0; k < ch.length; k++) { if (/heading/.test(ch[k].where) && !/note/.test(ch[k].where) && ++seen === 2) { lvlEnd = k; break; } } }
+    const sup = ownInstall ? null : nearestClause(an.row_words, undefined, ch.slice(0, lvlEnd));
+    const inst = sup ? nearestClause(an.install_words, an.not_words, ch.filter((e) => !isOwn(e.where))) : null;
+    if (sup && inst) {
+      const note = an.note.replace("{row}", sup.said).replace("{said}", inst.said).replace("{where}", inst.where);
+      return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
     }
   }
   // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
@@ -5380,10 +5427,12 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
 function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
   /** VRF-7 (B9): the catalogue, for "is every stated module stocked" */
   catalogue: readonly RateMasterItem[] = []):
-  { ext: ExtractionRowWithItems | undefined; notes: string[]; refuse?: string } {
+  { ext: ExtractionRowWithItems | undefined; notes: string[]; refuse?: string; unitNotes?: string[] } {
   const P = spec.extras?.prepare;
   if (!P || !ext?.items?.length) return { ext, notes: [] };
   const notes: string[] = [];
+  // VRF-9 (S7): notes said on EVERY unit block of the row (each module of a split), not only on the first
+  const unitNotes: string[] = [];
   const fa = familyAttr(spec);
   const rowText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
   // every heading above the row and every heading's notes (00114: "(HEAT PUMP)" sits on the grandparent)
@@ -5423,7 +5472,7 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
   const around = (h: { clause: string; said: string }, n = 120) => {
     if (h.clause.length <= n) return h.clause;
     const at = h.clause.indexOf(h.said);
-    if (at < 0) return clip(h.said, n);
+    if (at < 0) return sg0?.exact_quotes ? cutExact(h.said, n) : clip(h.said, n);
     const from = Math.max(0, h.clause.lastIndexOf(" ", Math.max(0, at - 40)) + 1);
     const to = Math.min(h.clause.length, at + h.said.length + 30);
     const end = h.clause.indexOf(" ", to);
@@ -5483,6 +5532,18 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       const fmtR = (n: number) => `${fmtNum(n)} ${repeated.unit}`;
       if (!said || Number(said[1]) !== repeated.n) it = setVal(it, rs.attr, fmtR(repeated.n));
       notes.push(rs.line.split("{kept}").join(fmtR(repeated.n)).replace("{other}", repeated.others.map(fmtR).join(" / ")));
+    }
+    // VRF-9 (S9 / S10 safety nets): no unit type told, the row's own text names the gas charging / the ODU frame -> that item (the
+    // per-unit mapping just below then picks the one stocked in the row's unit)
+    for (const rf of P.row_family ?? []) {
+      const f0 = val(it, fa);
+      if (!(blankAns(f0) || /^none of these$/i.test(f0))) break;
+      if (rf.unit_classes && (rowClass === null || !rf.unit_classes.includes(rowClass))) continue;
+      let said: string | null = null;
+      for (const cl of rowText.split(/[.;|\n]+/)) { const m = find(rf.words, cl); if (m && !(rf.not_words && find(rf.not_words, cl))) { said = m; break; } }
+      if (!said) continue;
+      it = setVal(it, fa, rf.family);
+      notes.push(rf.line.replace("{said}", said).replace("{family}", rf.family));
     }
     const fam = val(it, fa);
     for (const fb of P.family_by_unit ?? []) {
@@ -5590,7 +5651,7 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
           if (val(it, aw2.attrs[which]).toLowerCase() === aw2.yes.toLowerCase()) continue;
           it = setVal(it, aw2.attrs[which], aw2.yes);
           const label = spec.extras?.includes.find((i) => i.id === which)?.label ?? which;
-          notes.push(aw2.line.replace("{label}", label).replace("{said}", clip(clause.trim())).replace("{where}", c.where));
+          notes.push(aw2.line.replace("{label}", label).replace("{said}", sg0?.exact_quotes ? cutExact(clause.trim(), 160) : clip(clause.trim())).replace("{where}", c.where));
         }
       }
     }
@@ -5661,6 +5722,18 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
         }
       }
     }
+    // VRF-9 (R2 / R3, owner 00:36-00:41): an include the model answered Yes FROM words that are not that include -- the BMS
+    // interface's "communication cables" (not the VRF comm cable), a civil pedestal / foundation (not the MS frame) -- is set back
+    // to No and said; the model's quote decides (it is what the Yes was read from)
+    for (const ni of P.not_includes ?? []) {
+      if (!role8 || (ni.role && ni.role !== role8) || !isYes(ni.question)) continue;
+      const mw = (sg0?.words_suffix ? val(it, ni.question + sg0.words_suffix) : "").trim();
+      if (mw === "" || find(ni.words, mw) === null || (ni.unless && find(ni.unless, mw) !== null)) continue;
+      it = setVal(it, ni.question, ni.no);
+      const id = Object.entries({ ...(fm8?.includes as Record<string, string> | undefined), ...(fm8?.accessory_includes ?? {}) }).find(([, q]) => q === ni.question)?.[0];
+      const label = (id && (spec.extras?.includes.find((i) => i.id === id)?.label ?? spec.extras?.accessories?.find((a) => a.id === id)?.label)) || ni.question;
+      notes.push(ni.line.replace("{label}", label).replace("{said}", cutExact(mw, 160)).replace("{where}", locateWords(mw, chain) ?? "the BoQ"));
+    }
     // VRF-8 (D4, owner 14:30): "single feeder / DB ... within N m of the ODU" = the outdoor unit's power cable length N m
     const fl = P.feeder_length;
     if (fl && role8 === "outdoor") {
@@ -5669,7 +5742,7 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       if (hit && Number.isFinite(n) && n > 0) {
         const len = `${fmtNum(n)} m`;
         if (val(it, fl.attr) !== len) it = setVal(it, fl.attr, len);
-        if (fm8?.includes?.power && isYes(fm8.includes.power)) notes.push(fl.line.replace("{said}", around(hit, 140)).replace("{where}", hit.where).replace("{n}", fmtNum(n)));
+        if (fm8?.includes?.power && isYes(fm8.includes.power)) (fl.every_module ? unitNotes : notes).push(fl.line.replace("{said}", around(hit, 140)).replace("{where}", hit.where).replace("{n}", fmtNum(n)));
       }
     }
     // VRF-7 (B9): a module setup the BoQ states, followed before the split rule when every module is stocked
@@ -5731,6 +5804,15 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       const hp = said ? (() => { try { return new RegExp(to.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })() : null;
       if (said && hp) { it = setVal(it, "capacity", `${hp} HP`); notes.push(to.line.replace("{said}", said).replace("{hp}", hp)); }
     }
+    // VRF-9 (S7, owner R-D14-1): a fresh-air unit with no capacity answered takes the row's stated CFM / TR, else its stated HP --
+    // the capacity reader converts it and takes the next size up, so the row prices (TFA + its outdoor unit)
+    const tcp = P.tfa_capacity;
+    if (tcp && val(it, fa) === tcp.family && blankAns(val(it, "capacity"))) {
+      const said = find(tcp.words, rowText);
+      const hp = said ? null : (() => { try { return new RegExp(tcp.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })();
+      const cap = said ?? (hp ? `${hp} HP` : null);
+      if (cap) { it = setVal(it, "capacity", cap); notes.push(tcp.line.replace("{said}", cap)); }
+    }
     // VRF-8 (D10, owner 14:47): an installation-only row with no make takes the make of its matching supply row (same item-1 family
     // and capacity) on this sheet; the split follows from the make. No match -> the defaults, as before.
     const inf = P.install_follows;
@@ -5789,7 +5871,12 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       notes.push(to8.line.replace("{said}", said).replace("{hp}", hp));
     }
   }
-  return { ext: { ...ext, items: out }, notes: [...new Set(notes)], ...(refuse ? { refuse } : {}) };
+  // VRF-9 (R4, owner "option C"): no unit type told on any unit, under a chain text naming one of `family_refusals` ("Fan Coil
+  // Units") -> the row refuses with that rule's own sentence instead of the generic "no item could be told"
+  if (!refuse && P.family_refusals?.length && out.every((x) => blankAns(val(x, fa)) || /^none of these$/i.test(val(x, fa)))) {
+    for (const fr of P.family_refusals) { if (chainFind(fr.words)) { refuse = fr.refusal; break; } }
+  }
+  return { ext: { ...ext, items: out }, notes: [...new Set(notes)], ...(refuse ? { refuse } : {}), ...(unitNotes.length ? { unitNotes: [...new Set(unitNotes)] } : {}) };
 }
 
 const x2Role = (spec: ItemListPricingSpec, fam: string): "indoor" | "outdoor" | undefined => spec.extras?.roles?.[fam];
@@ -5801,6 +5888,34 @@ export function cutExact(t: string, n = 120): string {
   const cut = s.slice(0, n);
   const sp = cut.lastIndexOf(" ");
   return (sp > n * 0.6 ? cut.slice(0, sp) : cut).trim();
+}
+
+/** VRF-9 (S5). An EXACT stretch of `clause` around the words `m` -- the clause itself when short, else from a word ~40 characters
+ *  before the match to a word ~60 after it; never an added "...". */
+export function exactAround(clause: string, m: string, n = 140): string {
+  const cl = clause.replace(/\s+/g, " ").trim();
+  if (cl.length <= n) return cl;
+  const at = cl.toLowerCase().indexOf(m.replace(/\s+/g, " ").trim().toLowerCase());
+  if (at < 0) return cutExact(cl, n);
+  const from = at > 40 ? cl.lastIndexOf(" ", at - 40) + 1 : 0;
+  const to = Math.min(cl.length, at + m.length + 60);
+  const end = cl.indexOf(" ", to);
+  return cl.slice(from, end < 0 ? cl.length : end).trim();
+}
+
+/** VRF-9 (S3 / S4). PURE. The nearest clause of `chain` (nearest first, split on . ; | and new lines) that carries `words` and none
+ *  of `notWords`: an exact stretch of it around the match and where it sits; null when none. */
+export function nearestClause(words: string, notWords: string | undefined, chain: ReadonlyArray<{ where: string; text: string }>): { said: string; where: string } | null {
+  for (const e of chain) {
+    for (const cl of e.text.split(/[.;|\n]+/)) {
+      let m: RegExpExecArray | null = null;
+      try { m = new RegExp(words, "i").exec(cl); } catch { return null; }
+      if (!m) continue;
+      try { if (notWords && new RegExp(notWords, "i").test(cl)) continue; } catch { /* a bad pattern never excludes */ }
+      return { said: exactAround(cl, m[0]), where: e.where };
+    }
+  }
+  return null;
 }
 
 /** VRF-7. A quoted text cut to `n` characters (on a word where it can), for a note. */
@@ -5849,14 +5964,18 @@ export function locateWordsStrict(words: string, chain: ReadonlyArray<{ where: s
 }
 
 /** VRF-6. The notes `prepareModelItems` made, as review points on the row's first item (its own extras block when it has none). */
-function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: string[]): HelperResult {
+function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: string[], unitNotes: string[] = []): HelperResult {
   const r = res as ItemListSuggestion;
-  if (!notes.length || !r.itemList || !r.itemList.items.length) return res;
+  if ((!notes.length && !unitNotes.length) || !r.itemList || !r.itemList.items.length) return res;
   const title = spec.extras?.safeguard?.lines.review_title ?? "Please review";
+  // VRF-9 (S7): `unitNotes` go on every unit block of the outdoor role (each module of a split), the rest on the first block
+  const roleOf = (b: { family?: string | null }) => (b.family ? spec.extras?.roles?.[b.family] : undefined);
   const items = r.itemList.items.map((b, i) => {
-    if (i !== 0) return b;
+    const mine = unitNotes.length && roleOf(b) === "outdoor" ? unitNotes : [];
+    if (i !== 0 && !mine.length) return b;
     const ex = b.extras ?? { lines: [], removed: [] };
-    const points = [...notes, ...(ex.review?.points ?? [])];
+    const lead = i === 0 ? notes : [];
+    const points = [...lead, ...mine.filter((n) => !lead.includes(n)), ...(ex.review?.points ?? [])];
     return { ...b, extras: { ...ex, review: { title: ex.review?.title ?? title, points } } };
   });
   return { ...r, itemList: { ...r.itemList, items } } as HelperResult;
@@ -5960,7 +6079,7 @@ function computeItemList(
     const probe: OwnPassProbe = {};
     const own = computeItemListOwn(category, spec, items, ctx, prep.ext, inRun, overrides, probe) as ItemListSuggestion;
     const done = own.itemList ? withExtras(spec, items, ctx, prep.ext, overrides, configOf, cableRate, own, probe, category) : own;
-    return withPrepRefusal(withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes)), prep.refuse);
+    return withPrepRefusal(withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes)), prep.refuse);
   }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);
