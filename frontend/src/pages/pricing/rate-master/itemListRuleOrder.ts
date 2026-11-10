@@ -1403,6 +1403,83 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("Starter-panel and wired-remote notes",
         "a unit-mounted starter panel with fused switches keeps the MCB + ELCB, with a note to check; a remote the BoQ's words priced Cordless keeps Cordless where another note says wired, with a note quoting both");
   }
+  // -- 13j. VRF-8 (owner rulings 2026-11-10 13:56-15:05, from the VRF-7 review) -- ADDED LAST, each only where its key is in the
+  // config (v63 and older add nothing)
+  type Prep8 = { implied_includes?: Array<{ only_blank?: unknown }>; feeder_length?: unknown; breaker_words?: unknown; connection_only?: unknown;
+    mode_nearest?: unknown; install_follows?: unknown; repeated_size?: unknown; several_types?: unknown; missing_answers?: unknown; tfa_outdoor?: unknown;
+    first_make_close?: unknown };
+  const prep8: Prep8 | null = ex5?.prepare && typeof ex5.prepare === "object" ? (ex5.prepare as Prep8) : null;
+  type Acc8 = { choice?: { conflict?: { both_line?: unknown; head?: unknown } } };
+  const accs8: Acc8[] = ex5 && Array.isArray(ex5.accessories) ? (ex5.accessories as Acc8[]) : [];
+  const sg8 = ex5?.safeguard && typeof ex5.safeguard === "object" ? (ex5.safeguard as { note_wins?: { line_silent?: unknown }; verified_quotes?: unknown }) : null;
+  if (sp6 && (sp6 as { stated_not_stocked?: unknown }).stated_not_stocked) {
+    add("A written module setup that is not stocked -> the split rule on the total",
+        "'60 HP (18+18+24)' with a module the unit's make and type does not stock is not followed: the stated total is priced by the split rule (60 -> 20 + 20 + 20), never module by module, and the note says the setup could not be followed");
+  }
+  if ((prep8?.implied_includes ?? []).some((i) => i?.only_blank)) {
+    add("Starter-panel breakers, ODU supports and plug-top power cable",
+        "where the model left the question unanswered: a unit-mounted starter panel with fused switches -> the MCB + ELCB set (with the starter-panel note); 'supports' in an outdoor unit's rate / heading -> the MS frame / stand; 'inclusive of plug top & necessary power cable' on a unit -> its power cable (default length); the own-row rule applies");
+  }
+  if (sg8?.note_wins?.line_silent) {
+    add("'Quantified separately' is always said",
+        "a note saying the cabling is quantified separately is written on the unit even where the model read no cable included -- the cable is not added and the note is quoted");
+  }
+  if (accs8.some((a) => a?.choice?.conflict?.both_line || a?.choice?.conflict?.head !== undefined)) {
+    add("Remote notes read only this unit's own words",
+        "the wired / cordless note fires only when both wordings describe THIS unit (its row or its own headings); a sub-note naming another unit type ('Ductable Unit - ... corded remote') is never read for it; a type the BoQ's plain words decided keeps its price where a note elsewhere offers both types ('cordless/corded'), with a note quoting both");
+  }
+  if ((ex5?.scope as { supply_heading?: unknown } | undefined)?.supply_heading) {
+    add("A 'Supply of' heading with an installation note stays supply + installation",
+        "a supply + installation row under a 'Supply of ...' heading whose notes say 'installation, testing and commissioning' keeps supply + installation, with a note quoting both");
+  }
+  if (prep8?.feeder_length) {
+    add("A feeder within N m of the ODU sets the power cable length",
+        "'single feeder / DB ... within N m(tr) distance from ODU' -> the outdoor unit's power cable is N m long, noted; the communication cable keeps its own default");
+  }
+  if (prep8?.breaker_words) {
+    add("'Breaker (if required)' includes the MCB + ELCB",
+        "'breaker (if required)' in the outdoor unit's notes adds the MCB + ELCB set per module even where another note puts the isolator in the electrical contractor's scope (both quoted); that electrical-contractor wording alone -> not added, with a note");
+  }
+  if ((ex5?.lines as Record<string, unknown> | undefined)?.drain_cable_line_silent || (ex5?.lines as Record<string, unknown> | undefined)?.drain_cable_row_line) {
+    add("Drain-pump cabling is never the unit's power cable",
+        "cabling the BoQ ties to the drain pump ('plug top ... for the drain pump', or a cable quoted only on the sheet's drain-pump row) adds no power line, and the note says the cabling is the pump's");
+  }
+  if (prep8?.connection_only) {
+    add("'Interconnections with power supply' are connection work",
+        "'necessary interconnections with power supply / earthing / refrigerant connections' is connection work only: no power cable and no copper line from those words, with a note quoting them");
+  }
+  if (prep8?.mode_nearest) {
+    add("The nearer heading wins on cooling / heating",
+        "when the headings above an outdoor unit disagree ('cooling & heating' vs 'cooling mode even during peak winter'), the heading nearer the row decides Cool Only / Heat Pump, with a note quoting both");
+  }
+  if (prep8?.install_follows) {
+    add("An installation-only row follows its supply row",
+        "an installation-only row with no make takes the make of the same sheet's supply row of the same item and capacity (named in the note), so its module split follows too; no such row -> the defaults");
+  }
+  if (prep8?.repeated_size) {
+    add("A capacity stated twice wins",
+        "a row stating one capacity twice and another once is priced at the repeated one, with a note naming the other");
+  }
+  if (prep8?.several_types) {
+    add("Several unit types under one heading refuse",
+        "a heading whose notes list several unit types (Hi-Wall, 4-way compact, 4-way cassette, ductable) while the row names none is not priced: 'several unit types under this heading - fix the headings or pick the type'");
+  }
+  if (prep8?.missing_answers) {
+    add("An extra the model left unanswered follows the BoQ's words",
+        "every extra question is answered Yes / No (a row left unanswered is asked once more); an extra still unanswered whose words sit in the row's chain is treated as stated, and the normal rules decide (outdoor / indoor only, own row, else added) with the normal note");
+  }
+  if (prep8?.tfa_outdoor) {
+    add("A fresh-air unit complete with its outdoor unit",
+        "'TFA unit complete with suitable outdoor unit' prices the fresh-air unit AND an outdoor unit of the HP the row states, noted");
+  }
+  if (prep8?.first_make_close) {
+    add("A stated make with no size close enough gives way",
+        "several makes stated: when the first stocked one's smallest size is above the catalogue's next size up for the stated capacity (1.59 TR vs a 4 TR smallest), the next stated make with a close size is used, else Blue Star, noted");
+  }
+  if (sg8?.verified_quotes) {
+    add("Only verified BoQ quotes are shown",
+        "a note quotes the BoQ only where the whole quoted clause is found in the row's chain, with its row number; a quote the model shortened with '...' or that is not found is not shown");
+  }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {
     const rulings = DERIVATION_RULINGS[String(pr.kind ?? "")] ?? {};

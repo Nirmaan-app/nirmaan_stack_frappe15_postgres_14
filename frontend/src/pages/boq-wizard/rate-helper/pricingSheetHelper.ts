@@ -1518,7 +1518,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
             const base = l.family1 !== undefined ? l : { ...l, family1: typeof v === "string" && v !== "" ? v : null };
             if (!catFirst) return base;
             const sc = scopeQ ? it0?.attributes?.[scopeQ]?.value : undefined;
-            return { ...base, category: rowCats?.get(l.row) ?? null, ...(typeof sc === "string" && sc.trim() !== "" ? { scope1: sc.trim() } : {}) };
+            // VRF-8 (D10): item 1's capacity and make, for an installation-only row to find its supply row (same family + capacity)
+            const iv = (a: string) => { const x = it0?.attributes?.[a]?.value; return typeof x === "string" && x.trim() !== "" && x.trim() !== "None" ? x.trim() : undefined; };
+            const follows = listSpec.extras?.prepare?.install_follows;
+            const cap1 = follows ? iv("capacity") : undefined;
+            const attrs1 = follows ? Object.fromEntries(follows.attrs.map((a) => [a, iv(a)]).filter(([, x]) => x !== undefined)) as Record<string, string> : undefined;
+            return { ...base, category: rowCats?.get(l.row) ?? null, ...(typeof sc === "string" && sc.trim() !== "" ? { scope1: sc.trim() } : {}),
+              ...(cap1 !== undefined ? { cap1 } : {}), ...(attrs1 && Object.keys(attrs1).length ? { attrs1 } : {}) };
           }) }
         : onSheet;
       // VRF-6 (owner Q-pre 5): "make same as outdoor" -> the make of this sheet's outdoor units (the first such row whose stated
@@ -4348,7 +4354,20 @@ function withExtras(
     || (!!sg?.lines.not_added && (perItem ? view.items.some((_b, i) => inclOf(i).accessories.size > 0) : onAcc.size > 0))
     // VRF-6 (owner Q-pre 11): "control wiring" in a heading includes the communication cable even when the model read no include
     || (perItem && !!sg?.control_wiring && (() => { try { return new RegExp(sg.control_wiring!.words, "i").test([...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | ")); } catch { return false; } })());
-  if (!anyOn || !rowClassOk || view.items.length === 0) {
+  // VRF-8 (W5 / D6): a "quantified separately" note, and cabling the BoQ ties to the drain pump, are said even where the model read
+  // no such include (never silent) -- found here so a row with nothing else on still says them
+  const nw0 = sg?.note_wins;
+  const chain0 = perItem ? chainOf(ctx) : [];
+  const noteSilent = perItem && nw0?.line_silent ? (() => {
+    for (const e of chain0) { try { const m = new RegExp(nw0.words, "i").exec(e.text); if (m) return { said: m[0].trim(), where: e.where }; } catch { return null; } }
+    return null;
+  })() : null;
+  const drainSilent = perItem && L.drain_cable_line_silent && L.drain_cable_note_words ? (() => {
+    for (const e of chain0) { try { const m = new RegExp(L.drain_cable_note_words, "i").exec(e.text); if (m) return { said: m[0].trim(), where: e.where }; } catch { return null; } }
+    return null;
+  })() : null;
+  const silentOn = (noteSilent !== null || drainSilent !== null) && view.items.some((b) => !!b.family && !!x.roles[b.family]);
+  if ((!anyOn && !silentOn) || !rowClassOk || view.items.length === 0) {
     return withScope(spec, items, ctx, ext, overrides, includesView ? { ...own, itemList: { ...view, extrasIncludes: includesView } } : own, probe);
   }
 
@@ -4481,8 +4500,10 @@ function withExtras(
     const whereWord = where !== "" ? where.toLowerCase() : (sg?.lines.where_unknown ?? "a heading or note");
     const wording = inc.wording[id] ? (sg?.lines.wording ?? " ({wording})").replace("{wording}", inc.wording[id].toLowerCase()) : "";
     // VRF-7 (B8, owner 01:36): the BoQ words that state it, and where they sit ("heading row 12"; else the model's answer)
-    const words = sg?.words_suffix && inc.words[id] ? clip(inc.words[id]) : "";
-    const located = words ? (locateWords(inc.words[id], chain) ?? (where !== "" ? `the ${whereWord}` : whereWord)) : "";
+    // VRF-8 (D14-7): with `verified_quotes` a quote is shown only when the WHOLE quote is found in the chain (then with its row)
+    const strict = sg?.verified_quotes && inc.words[id] ? locateWordsStrict(inc.words[id], chain) : null;
+    const words = sg?.words_suffix && inc.words[id] && (!sg.verified_quotes || strict !== null) ? clip(inc.words[id]) : "";
+    const located = words ? (strict ?? locateWords(inc.words[id], chain) ?? (where !== "" ? `the ${whereWord}` : whereWord)) : "";
     return { where, whereWord, wording, words, located };
   };
   /** VRF-7 (B8): a safeguard line in its quoting form (`<key>_q`) when the BoQ words are known; else the VRF-5 / VRF-6 form */
@@ -4525,7 +4546,7 @@ function withExtras(
   const accessoryLine = (acc: AccessorySpec, lineId: ExtraLineId, i: number, role: "indoor" | "outdoor", bandValue: number | null,
                          typed: Record<string, string>, boqQty: string | undefined,
                          /** VRF-6: the unit's priced size in its band unit, its brand and its model item */
-                         unit: { size: number | null; brand: string | null; model?: ExtractedListItem },
+                         unit: { size: number | null; brand: string | null; model?: ExtractedListItem; family?: string | null },
                          /** VRF-7 (A6 / D2): review notes the line raises */
                          pts?: string[]): ExtraLineView => {
     lineNo++;
@@ -4615,8 +4636,18 @@ function withExtras(
         const ownWords: [string, string] | null = said !== null && c.words[said] && reTest(c.words[said], words) ? [said, c.words[said]] : null;
         const decidedBy = first ?? (modelSaid === null && hit ? hit : ownWords);
         if (decidedBy && c.conflict && pts && typed[c.attr] === undefined) {
-          const mine = execIn(decidedBy[1], words);
-          const texts = chain.length ? chain : [{ where: "", text: words }];
+          // VRF-8 K1c (owner 15:05 "option a"): only words that describe THIS unit -- a text naming another unit type at its head (a
+          // sibling unit's sub-note: "Ductable Unit - ... corded remote") is never read for the note
+          const uw = spec.extras?.prepare?.unit_words;
+          const sibling = (t: string) => {
+            if (!uw || c.conflict?.head === undefined || !unit.family) return false;
+            const head = t.slice(0, c.conflict.head);
+            const named = Object.entries(uw).filter(([, w]) => reTest(w, head)).map(([f]) => f);
+            return named.length > 0 && !named.includes(unit.family);
+          };
+          const texts0 = chain.length ? chain : [{ where: "", text: words }];
+          const texts = texts0.filter((e) => !sibling(e.text));
+          const mine = execIn(decidedBy[1], c.conflict.head !== undefined && chain.length ? texts.map((e) => e.text).join(" | ") : words);
           // VRF-7 K1c: a long clause is quoted AROUND the words that matched (it was cut 90 characters from its start, often before them)
           const clauseAt = (t: string, m: string) => {
             const cl = t.split(/[.;|]+/).find((x) => x.includes(m))?.trim() ?? m;
@@ -4627,7 +4658,9 @@ function withExtras(
           // VRF-7 K1c: a phrase that names BOTH types on purpose ("corded/cordless", first_words) is one statement, never "the other
           // type" -- every such phrase is taken out before the other type's words are looked for, and the quote comes from the text
           // as written (taking only `mine` out once left "corded/ remote" behind and quoted it as a conflict)
-          const stripPairs = (s: string) => Object.values(c.first_words ?? {}).reduce((x, w) => {
+          // VRF-8 (K1c): `pairs` -- more both-type spellings ("corded/wireless") taken out the same way
+          const pairWords = [...Object.values(c.first_words ?? {}), ...(c.conflict.pairs ? [c.conflict.pairs] : [])];
+          const stripPairs = (s: string) => pairWords.reduce((x, w) => {
             try { return x.replace(new RegExp(w, "gi"), " "); } catch { return x; }
           }, s);
           let other: { said: string; where: string } | null = null;
@@ -4640,11 +4673,25 @@ function withExtras(
               if (m) { other = { said: clauseAt(e.text, m), where: e.where }; break; }
             }
           }
-          if (mine && other) {
-            const firstWhere = chain.length ? locateWords(mine, chain) : null;
+          const firstWhere = mine && chain.length ? locateWords(mine, texts) : null;
+          // VRF-8 (W7 / D14-4, owner 14:15): a type decided by plain words while a phrase naming BOTH types sits elsewhere in this
+          // unit's chain -- the price stays, the note quotes both wordings
+          let both: { said: string; where: string } | null = null;
+          if (mine && !other && c.conflict.both_line && decidedBy !== first) {
+            for (const e of texts) {
+              for (const w of pairWords) {
+                const m = execIn(w, e.text);
+                if (m && !(e.where === firstWhere && m.toLowerCase().includes(mine.toLowerCase()) && e.text.toLowerCase().indexOf(mine.toLowerCase()) >= e.text.toLowerCase().indexOf(m.toLowerCase())
+                  && e.text.toLowerCase().indexOf(mine.toLowerCase()) < e.text.toLowerCase().indexOf(m.toLowerCase()) + m.length)) { both = { said: clauseAt(e.text, m), where: e.where }; break; }
+              }
+              if (both) break;
+            }
+          }
+          if (mine && (other || both)) {
             const firstText = firstWhere ? clauseAt(texts.find((e) => e.where === firstWhere)?.text ?? mine, mine) : mine;
-            pts.push(c.conflict.line.replace("{first}", firstText).replace("{said}", other.said)
-              .replace("{where}", other.where ? ` (${other.where})` : "").replace("{value}", decidedBy[0]));
+            const o = (other ?? both)!;
+            pts.push((other ? c.conflict.line : c.conflict.both_line!).replace("{first}", firstText).replace("{said}", o.said)
+              .replace("{where}", o.where ? ` (${o.where})` : "").replace("{value}", decidedBy[0]));
           }
         }
         attrs[c.attr] = typed[c.attr] ?? said ?? c.default;
@@ -4755,12 +4802,33 @@ function withExtras(
       const label = incSpec.get(id)?.label ?? id;
       if (noteSaid !== null && nw && nw.ids.includes(id)) { reviewPts.push(nw.line.replace("{label}", label).replace("{said}", noteSaid)); return false; }
       if (drainCable && id === "power" && L.drain_cable_line) { reviewPts.push(L.drain_cable_line.replace("{said}", drainSaid)); return false; }
+      // VRF-8 (D7, owner 15:05): the only rows quoting the power cable are the sheet's drain-pump rows -- the cabling is the pump's
+      if (id === "power" && L.drain_cable_row_line && L.drain_cable_words) {
+        const qs = quotesOf("power");
+        if (qs.length && qs.every((q) => reTest(L.drain_cable_words, q.text))) {
+          const w = whereOf(i, "power");
+          reviewPts.push(L.drain_cable_row_line.replace("{said}", w.words || clip(cableWords || label)).replace("{rows}", rowsText(qs)));
+          return false;
+        }
+      }
       const d = decide(i, id, label);
       // the control-wiring note already says why the communication cable is in; an "added" point would repeat it
       if (d.point && !(cwFired && id === "comm" && d.add)) reviewPts.push(d.point);
       if (d.add && d.extra) reviewPts.push(d.extra);
       return d.add;
     })) as Set<ExtraIncludeId>;
+    // VRF-8 (W5, owner 14:15 "never silent, even when the model answers None"): the "quantified separately" note for every include
+    // it covers that the model did not read as included
+    if (noteSilent && nw0?.line_silent) {
+      for (const id of nw0.ids) {
+        if (itemOn0.has(id as ExtraIncludeId)) continue;
+        reviewPts.push(nw0.line_silent.replace("{label}", incSpec.get(id as ExtraIncludeId)?.label ?? id).replace("{said}", clip(noteSilent.said)).replace("{where}", noteSilent.where));
+      }
+    }
+    // VRF-8 (D6, owner 14:40): cabling the BoQ ties to the drain pump, where the model read no power cable -- no line, said
+    if (drainSilent && L.drain_cable_line_silent && !itemOn0.has("power")) {
+      reviewPts.push(L.drain_cable_line_silent.replace("{said}", clip(drainSilent.said)).replace("{where}", drainSilent.where));
+    }
     // VRF-6 (F3): an include that needs another (insulation needs copper) and lost it is said, never dropped silently
     if (sg?.lines.not_added) {
       for (const inc of x.includes) {
@@ -5034,7 +5102,7 @@ function withExtras(
     const pricedSize = typeof pricedRaw === "number" || (typeof pricedRaw === "string" && pricedRaw.trim() !== "" && Number.isFinite(Number(pricedRaw)))
       ? convertUnit(Number(pricedRaw), famUnit, x.band_unit[role]) : null;
     const brandRaw = res?.selection?.brand;
-    const unitInfo = { size: pricedSize, brand: typeof brandRaw === "string" && brandRaw !== "" && brandRaw !== "None" ? brandRaw : null, model: modelItem };
+    const unitInfo = { size: pricedSize, brand: typeof brandRaw === "string" && brandRaw !== "" && brandRaw !== "None" ? brandRaw : null, model: modelItem, family: b.family };
     for (const acc of accs) {
       const lineId = `acc_${acc.id}` as ExtraLineId;
       if (!acc.roles.includes(role)) {
@@ -5156,6 +5224,27 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
       }
     }
   }
+  // VRF-8 (D1, owner 14:2x "this is supply + installation. the note belongs to the parent. option b"): a supply + installation row
+  // under a "Supply of ..." heading whose notes say installation keeps supply + installation, with a note quoting both
+  const sh = sc.supply_heading;
+  if (!calculator && sh && value !== sc.supply_only && value !== sc.install_only && value !== sc.install_only_normal) {
+    const ch = chainOf(ctx);
+    const k = ch.findIndex((e) => /heading/.test(e.where));
+    const head = k >= 0 ? ch[k] : null;
+    let hs: string | null = null;
+    try { hs = head && new RegExp(sh.heading_words, "i").test(head.text) ? head.text : null; } catch { hs = null; }
+    if (head && hs !== null) {
+      let inst: { said: string; where: string } | null = null;
+      for (const e of ch.slice(k + 1)) {
+        if (/heading/.test(e.where)) break;
+        try { const m = new RegExp(sh.install_words, "i").exec(e.text); if (m) { inst = { said: m[0].trim(), where: e.where }; break; } } catch { break; }
+      }
+      if (inst) {
+        const note = sh.note.replace("{heading}", cutExact(hs, 80)).replace("{said}", cutExact(inst.said, 120)).replace("{where}", inst.where);
+        return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+      }
+    }
+  }
   // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
   const installNormal = !!sc.install_only_normal && value === sc.install_only_normal;
   if (value !== sc.supply_only && value !== sc.install_only && !installNormal) {
@@ -5243,7 +5332,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
 function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
   /** VRF-7 (B9): the catalogue, for "is every stated module stocked" */
   catalogue: readonly RateMasterItem[] = []):
-  { ext: ExtractionRowWithItems | undefined; notes: string[] } {
+  { ext: ExtractionRowWithItems | undefined; notes: string[]; refuse?: string } {
   const P = spec.extras?.prepare;
   if (!P || !ext?.items?.length) return { ext, notes: [] };
   const notes: string[] = [];
@@ -5266,12 +5355,86 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
   const val = (it: ExtractedListItem, a: string) => { const v = it.attributes?.[a]?.value; return typeof v === "string" ? v : v === null || v === undefined ? "" : String(v); };
   const setVal = (it: ExtractedListItem, a: string, v: string): ExtractedListItem => ({ ...it, attributes: { ...it.attributes, [a]: { ...(it.attributes?.[a] ?? { confidence: 1 }), value: v } } });
   const rowClass = typeof ctx.unit === "string" ? unitClassOf(spec, ctx.unit) : null;
+  // -- VRF-8 helpers --
+  const blankAns = (v: string) => v.trim() === "" || v.trim() === "None";
+  // the unit's own level: the row, its notes, its heading and that heading's notes (everything before the second heading)
+  const parentEnd = (() => { let seen = 0; for (let k = 0; k < chain.length; k++) { if (/heading/.test(chain[k].where) && ++seen === 2) return k; } return chain.length; })();
+  /** VRF-8: the first CLAUSE of the chain (nearest first) carrying `w` and none of `notW`; the match, the clause and where */
+  const chainFindClause = (w: string, notW?: string, upTo = chain.length): { said: string; clause: string; where: string; m: RegExpExecArray } | null => {
+    for (const c of chain.slice(0, upTo)) {
+      for (const cl of c.text.split(/[.;|\n]+/)) {
+        let m: RegExpExecArray | null = null;
+        try { m = new RegExp(w, "i").exec(cl); } catch { m = null; }
+        if (!m || (notW && find(notW, cl))) continue;
+        return { said: m[0].trim(), clause: cl.trim(), where: c.where, m };
+      }
+    }
+    return null;
+  };
+  /** VRF-8: the words a note quotes -- the clause when short, else an exact stretch of it around the match (never cut before it) */
+  const around = (h: { clause: string; said: string }, n = 120) => {
+    if (h.clause.length <= n) return h.clause;
+    const at = h.clause.indexOf(h.said);
+    if (at < 0) return clip(h.said, n);
+    const from = Math.max(0, h.clause.lastIndexOf(" ", Math.max(0, at - 40)) + 1);
+    const to = Math.min(h.clause.length, at + h.said.length + 30);
+    const end = h.clause.indexOf(" ", to);
+    return h.clause.slice(from, end < 0 ? h.clause.length : end).trim();
+  };
+  const placeOf = (where: string) => (where === CHAIN_ROW_PLACE ? (spec.extras?.safeguard?.row_value ?? "Row") : /^heading/.test(where) ? "Heading" : "Note");
+  const sg0 = spec.extras?.safeguard;
+  /** VRF-8: an include set by a reading rule -- the answer, where it sits and the BoQ words (the B8 note then quotes them) */
+  const setInclude = (it: ExtractedListItem, q: string, yes: string, where: string, words: string): ExtractedListItem => {
+    let r = setVal(it, q, yes);
+    if (sg0) {
+      r = setVal(r, q + sg0.where_suffix, placeOf(where));
+      if (sg0.words_suffix) r = setVal(r, q + sg0.words_suffix, words);
+    }
+    return r;
+  };
+  let refuse: string | undefined;
+  // VRF-8 (D12, owner 14:50): sub-headings saved as notes -- the unit's own heading carries several short notes each naming a unit
+  // type and the row names none: the panel does not pick one
+  const st8 = P.several_types;
+  if (st8 && P.unit_words) {
+    const famsIn = (t: string) => Object.entries(P.unit_words!).filter(([, w]) => find(w, t) !== null).map(([f]) => f);
+    const subs = new Set((ctx.headingNotes ?? []).filter((n) => n.trim().length <= st8.note_max).flatMap((n) => famsIn(n)));
+    if (subs.size >= 2 && famsIn(rowText).length === 0) refuse = st8.refusal;
+  }
+  // VRF-8 (D11, owner 14:48): the capacity the row states twice (same unit) wins over one stated once
+  const rs = P.repeated_size;
+  const repeated = rs ? (() => {
+    const byUnit = new Map<string, Map<number, number>>();
+    try {
+      for (const m of String(ctx.description ?? "").matchAll(new RegExp(rs.words, "gi"))) {
+        const u = String(m[2]).toUpperCase(); const n = Number(m[1]);
+        if (!Number.isFinite(n)) continue;
+        const mm = byUnit.get(u) ?? new Map<number, number>(); mm.set(n, (mm.get(n) ?? 0) + 1); byUnit.set(u, mm);
+      }
+    } catch { return null; }
+    for (const [u, mm] of byUnit) {
+      if (mm.size < 2) continue;
+      const top = Math.max(...mm.values());
+      const winners = [...mm].filter(([, c]) => c === top);
+      if (top >= 2 && winners.length === 1 && [...mm].every(([n, c]) => n === winners[0][0] || c === 1)) {
+        return { n: winners[0][0], unit: u, others: [...mm.keys()].filter((n) => n !== winners[0][0]) };
+      }
+    }
+    return null;
+  })() : null;
   const out = ext.items.map((it0, idx) => {
     let it = it0;
     if (P.spaced_decimal) {
       const c = val(it, P.spaced_decimal.attr);
       const j = c.replace(/(\d)\s+\.(\d)/g, "$1.$2");
       if (j !== c) it = setVal(it, P.spaced_decimal.attr, j);
+    }
+    // VRF-8 (D11): the repeated capacity, on the row's unit item(s)
+    if (rs && repeated && x2Role(spec, val(it, fa))) {
+      const said = /(\d+(?:\.\d+)?)/.exec(val(it, rs.attr));
+      const fmtR = (n: number) => `${fmtNum(n)} ${repeated.unit}`;
+      if (!said || Number(said[1]) !== repeated.n) it = setVal(it, rs.attr, fmtR(repeated.n));
+      notes.push(rs.line.split("{kept}").join(fmtR(repeated.n)).replace("{other}", repeated.others.map(fmtR).join(" / ")));
     }
     const fam = val(it, fa);
     for (const fb of P.family_by_unit ?? []) {
@@ -5320,9 +5483,34 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
         if (headSaid) notes.push(rc.line.replace("{row}", rowSaid[1]!).replace("{heading}", headSaid[1]!).replace("{value}", rowSaid[0]));
       }
     }
+    // VRF-8 (D9, owner 14:46): headings that disagree on cooling / heating -- the one NEARER the row wins, noted (the row's own words
+    // are Q6's, above). A text naming heating is a heat-pump statement; else one naming cooling only / cooling mode is cooling only.
+    const mn = P.mode_nearest;
+    let modeDone = false;
+    if (mn && mn.families.includes(val(it, fa)) && !(P.row_cooling && Object.values(P.row_cooling.words).some((w) => find(w, rowText) !== null))
+      && !(hw?.unless_row && find(hw.unless_row, rowText))) {
+      let heat: { k: number; said: string; where: string } | null = null;
+      let cool: { k: number; said: string; where: string } | null = null;
+      for (let k = firstHeading; k < chain.length; k++) {
+        const t = chain[k].text;
+        const h = find(mn.heat_words, t) ?? (hw ? find(hw.words, t) : null);
+        const cw = h === null ? find(mn.cool_words, t) : null;
+        if (h !== null && !heat) heat = { k, said: h, where: chain[k].where };
+        if (cw !== null && !cool) cool = { k, said: cw, where: chain[k].where };
+      }
+      if (heat && cool) {
+        const [near, far] = heat.k < cool.k ? [heat, cool] : [cool, heat];
+        const value = near === heat ? mn.heat : mn.cool;
+        const clauseOf = (e: { k: number; said: string }) => around({ clause: chain[e.k].text.split(/[.;|\n]+/).find((cl) => cl.includes(e.said))?.trim() ?? e.said, said: e.said }, 100);
+        if (val(it, mn.attr) !== value) it = setVal(it, mn.attr, value);
+        notes.push(mn.line.replace("{near}", clauseOf(near)).replace("{near_where}", near.where).replace("{far}", clauseOf(far))
+          .replace("{far_where}", far.where).replace("{value}", value));
+        modeDone = true;
+      }
+    }
     // VRF-7 (A5, owner 01:3x): "suitable for cooling/heating", "for cooling or heating or both", "cooling as well as heating"
     // = Heat Pump -- unless the row itself says otherwise (its own "Cooling Type" wins, Q6, with its note above)
-    if (hw && hw.families.includes(val(it, fa)) && val(it, hw.attr) !== hw.value && !(hw.unless_row && find(hw.unless_row, rowText))) {
+    if (!modeDone && hw && hw.families.includes(val(it, fa)) && val(it, hw.attr) !== hw.value && !(hw.unless_row && find(hw.unless_row, rowText))) {
       const hit = chainFind(hw.words);
       if (hit) {
         it = setVal(it, hw.attr, hw.value);
@@ -5360,8 +5548,12 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     }
     // VRF-7 (B10 / C13): words that mean an include (an optional remote, an individual controller) on a unit of the rule's role
     for (const ii of P.implied_includes ?? []) {
-      if (x2Role(spec, val(it, fa)) !== ii.role || val(it, ii.question).toLowerCase() === ii.yes.toLowerCase()) continue;
-      const hit = chainFind(ii.words);
+      const role = x2Role(spec, val(it, fa));
+      if ((ii.role === "any" ? !role : role !== ii.role) || val(it, ii.question).toLowerCase() === ii.yes.toLowerCase()) continue;
+      // VRF-8 (W1 / D2 / D6): a safety net only where the model left the question unanswered -- its explicit No stands
+      if (ii.only_blank && !blankAns(val(it, ii.question))) continue;
+      // VRF-8: with `not_words` the words are read clause by clause on the unit's own level (its row and its heading)
+      const hit = ii.not_words !== undefined ? chainFindClause(ii.words, ii.not_words, parentEnd) : chainFind(ii.words);
       if (!hit) continue;
       const sg = spec.extras?.safeguard;
       it = setVal(it, ii.question, ii.yes);
@@ -5369,7 +5561,68 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
         it = setVal(it, ii.question + sg.where_suffix, hit.where === CHAIN_ROW_PLACE ? sg.row_value : /^heading/.test(hit.where) ? "Heading" : "Note");
         if (sg.words_suffix) it = setVal(it, ii.question + sg.words_suffix, hit.said);
       }
-      notes.push(ii.line.replace("{said}", hit.said).replace("{where}", hit.where));
+      if (ii.line) notes.push(ii.line.replace("{said}", hit.said).replace("{where}", hit.where));
+    }
+    const role8 = x2Role(spec, val(it, fa));
+    const fm8 = spec.extras?.from_model;
+    const yes8 = fm8?.yes ?? "Yes";
+    const isYes = (q: string) => val(it, q).trim().toLowerCase() === yes8.toLowerCase();
+    // VRF-8 (D13, owner 14:52-14:54): an extra question the model left OUT entirely (no answer, not even "None") whose words sit in
+    // the chain is treated as stated -- the normal rules (role, own row, else add) decide and the normal note says so
+    const ma = P.missing_answers;
+    if (ma && role8 && fm8 && sg0) {
+      const qIds = new Map<string, string[]>();
+      for (const [id, q] of Object.entries({ ...(fm8.includes as Record<string, string>), ...(fm8.accessory_includes ?? {}) })) qIds.set(q, [...(qIds.get(q) ?? []), id]);
+      for (const [q, ids] of qIds) {
+        const cell = it.attributes?.[q];
+        if (cell !== undefined && cell.value !== null && cell.value !== undefined) continue;
+        const ws = ids.flatMap((id) => sg0.own_row[id]?.words ?? []);
+        let hit: ReturnType<typeof chainFindClause> = null;
+        for (const w of ws) { const h = chainFindClause(w, ma.exclude_words); if (h && (!hit || chain.findIndex((c) => c.where === h.where) < chain.findIndex((c) => c.where === hit!.where))) hit = h; }
+        if (hit) it = setInclude(it, q, yes8, hit.where, around(hit, 160));
+      }
+    }
+    // VRF-8 (D5, owner 14:37 "as a safe choice, note 1 wins. we include the mccb/elcb price"): "breaker (if required)" includes the
+    // MCB + ELCB set, noted with the electrical-contractor wording when that is stated too; that wording alone = NOT added + note
+    const bw = P.breaker_words;
+    if (bw && role8 === "outdoor") {
+      const b = chainFindClause(bw.words);
+      const e = chainFindClause(bw.ec_words);
+      if (b) {
+        if (!isYes(bw.question)) it = setInclude(it, bw.question, bw.yes, b.where, around(b, 160));
+        if (e) notes.push(bw.line_both.replace("{said}", around(b)).replace("{where}", b.where).replace("{ec}", around(e)).replace("{ec_where}", e.where));
+      } else if (e) {
+        const mw = sg0?.words_suffix ? val(it, bw.question + sg0.words_suffix) : "";
+        if (isYes(bw.question) && (mw.trim() === "" || find(bw.ec_words, mw) !== null)) it = setVal(it, bw.question, bw.no);
+        if (!isYes(bw.question)) notes.push(bw.line_ec_only.replace("{ec}", around(e)).replace("{ec_where}", e.where));
+      }
+    }
+    // VRF-8 (D8, owner 14:41): "necessary interconnections with power supply / refrigerant connections" is connection work -- an
+    // include the model answered from those words is not added, and the words are quoted either way
+    const co = P.connection_only;
+    if (co && role8 && fm8) {
+      const hit = chainFindClause(co.words);
+      if (hit) {
+        for (const [id, q] of Object.entries(co.questions)) {
+          const mw = sg0?.words_suffix ? val(it, q + sg0.words_suffix) : "";
+          const fromIt = mw.trim() === "" || find(co.words, mw) !== null || hit.clause.toLowerCase().includes(mw.trim().toLowerCase());
+          if (isYes(q) && !fromIt) continue;
+          if (isYes(q)) it = setVal(it, q, co.no);
+          const label = spec.extras?.includes.find((i) => i.id === id)?.label ?? id;
+          notes.push(co.line.replace("{label}", label).replace("{said}", around(hit, 140)).replace("{where}", hit.where));
+        }
+      }
+    }
+    // VRF-8 (D4, owner 14:30): "single feeder / DB ... within N m of the ODU" = the outdoor unit's power cable length N m
+    const fl = P.feeder_length;
+    if (fl && role8 === "outdoor") {
+      const hit = chainFindClause(fl.words);
+      const n = hit ? Number(hit.m[1]) : NaN;
+      if (hit && Number.isFinite(n) && n > 0) {
+        const len = `${fmtNum(n)} m`;
+        if (val(it, fl.attr) !== len) it = setVal(it, fl.attr, len);
+        if (fm8?.includes?.power && isYes(fm8.includes.power)) notes.push(fl.line.replace("{said}", around(hit, 140)).replace("{where}", hit.where).replace("{n}", fmtNum(n)));
+      }
     }
     // VRF-7 (B9): a module setup the BoQ states, followed before the split rule when every module is stocked
     const ss = P.stated_setup;
@@ -5423,12 +5676,84 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
         notes.push(so.line.replace("{said}", said).replace("{brand}", ctx.sheetOutdoorBrand.brand).replace("{row}", String(ctx.sheetOutdoorBrand.row)));
       }
     }
+    // VRF-8 (D14-1): a fresh-air unit "complete with suitable outdoor unit" -- the outdoor unit item takes the HP the row states
+    const to = P.tfa_outdoor;
+    if (to && val(it, fa) === to.outdoor_family && blankAns(val(it, "capacity"))) {
+      const said = find(to.words, rowText);
+      const hp = said ? (() => { try { return new RegExp(to.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })() : null;
+      if (said && hp) { it = setVal(it, "capacity", `${hp} HP`); notes.push(to.line.replace("{said}", said).replace("{hp}", hp)); }
+    }
+    // VRF-8 (D10, owner 14:47): an installation-only row with no make takes the make of its matching supply row (same item-1 family
+    // and capacity) on this sheet; the split follows from the make. No match -> the defaults, as before.
+    const inf = P.install_follows;
+    if (inf && inf.scope_values.includes(val(it, spec.extras?.from_model?.scope ?? "scope").trim()) && inf.attrs.every((a) => blankAns(val(it, a)))) {
+      const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+      const cap = norm(val(it, "capacity"));
+      const hit = cap === "" ? undefined : (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined && l.family1 === val(it, fa)
+        && typeof l.scope1 === "string" && !inf.scope_values.includes(l.scope1) && l.scope1 !== spec.extras?.scope?.install_only_normal
+        && norm(String(l.cap1 ?? "")) === cap && inf.attrs.some((a) => !blankAns(String(l.attrs1?.[a] ?? "")))).sort((a, b) => a.row - b.row)[0];
+      if (hit) {
+        for (const a of inf.attrs) { const v = String(hit.attrs1?.[a] ?? ""); if (!blankAns(v)) it = setVal(it, a, v); }
+        const made = inf.attrs.map((a) => String(hit.attrs1?.[a] ?? "")).find((v) => !blankAns(v)) ?? "";
+        notes.push(inf.line.replace("{row}", String(hit.row)).split("{make}").join(made).replace("{family}", val(it, fa)).replace("{capacity}", val(it, "capacity")));
+      }
+    }
+    // VRF-8 (D14-2): several makes stated, the first stocked one has no size close enough -> the next stated make with one; else
+    // the default. "Close enough": its smallest size is not above the catalogue's next size up for the stated capacity.
+    const fmc = P.first_make_close;
+    if (fmc && x2Role(spec, val(it, fa)) && blankAns(val(it, fmc.attr))) {
+      const said = val(it, fmc.from_attr).trim();
+      const nrm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const parts = [...new Set(said.split(/\s*(?:\/|,|;|&|\+|\band\b|\bor\b)\s*/i).map((x) => x.trim()).filter((x) => x !== ""))];
+      const listed = spec.choice_defs?.[fmc.attr]?.values ?? [];
+      const capM = /(\d+(?:\.\d+)?)\s*(tr|hp)\b/i.exec(val(it, "capacity"));
+      const famU = familyUnitOf(spec, catalogue as RateMasterItem[], val(it, fa), spec.numbers.capacity);
+      if (parts.length >= 2 && !parts.some((p) => nrm(p) === nrm(fmc.default)) && capM && famU && famU.toLowerCase() === capM[2].toLowerCase()) {
+        const want = Number(capM[1]);
+        const fattr = familyAttr(spec);
+        const rowsOf = (make?: string) => catalogue.filter((k) => kindIn(spec, k.kind) && k.attributes?.[fattr] === val(it, fa)
+          && (make === undefined || nrm(String((k as { brand?: unknown }).brand ?? k.attributes?.brand ?? "")) === nrm(make)))
+          .map((k) => Number(k.attributes?.capacity)).filter((n) => Number.isFinite(n));
+        const up = rowsOf().filter((n) => n >= want - 1e-9).sort((a, b) => a - b)[0];
+        const makes = parts.map((p) => listed.find((v) => nrm(v) === nrm(p))).filter((v): v is string => !!v).filter((m) => rowsOf(m).length > 0);
+        if (up !== undefined && makes.length && Math.min(...rowsOf(makes[0])) > up + 1e-9) {
+          const first = makes[0]; const min0 = Math.min(...rowsOf(first));
+          const next = makes.slice(1).find((m) => Math.min(...rowsOf(m)) <= up + 1e-9);
+          const pick = next ?? fmc.default;
+          it = setVal(setVal(it, fmc.attr, pick), fmc.from_attr, pick);
+          notes.push((next ? fmc.line_next : fmc.line_default).replace("{said}", said).replace("{first}", first).replace("{min}", fmtNum(min0))
+            .split("{unit}").join(famU).replace("{want}", fmtNum(want)).replace("{make}", pick));
+        }
+      }
+    }
     return it;
   });
-  return { ext: { ...ext, items: out }, notes: [...new Set(notes)] };
+  // VRF-8 (D14-1): no outdoor unit item at all on such a row -> one is added at the stated HP
+  const to8 = P.tfa_outdoor;
+  if (to8 && !out.some((x) => val(x, fa) === to8.outdoor_family) && out.some((x) => x2Role(spec, val(x, fa)) === "indoor")) {
+    const said = find(to8.words, rowText);
+    const hp = said ? (() => { try { return new RegExp(to8.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })() : null;
+    if (said && hp) {
+      const scopeQ = spec.extras?.from_model?.scope;
+      const add: ExtractedListItem = { attributes: { [fa]: { value: to8.outdoor_family, confidence: 1 }, capacity: { value: `${hp} HP`, confidence: 1 },
+        ...(scopeQ && out[0]?.attributes?.[scopeQ] ? { [scopeQ]: out[0].attributes[scopeQ] } : {}) } };
+      out.push(add);
+      notes.push(to8.line.replace("{said}", said).replace("{hp}", hp));
+    }
+  }
+  return { ext: { ...ext, items: out }, notes: [...new Set(notes)], ...(refuse ? { refuse } : {}) };
 }
 
 const x2Role = (spec: ItemListPricingSpec, fam: string): "indoor" | "outdoor" | undefined => spec.extras?.roles?.[fam];
+
+/** VRF-8 (D14-7). A quoted text cut to `n` characters on a word, WITHOUT an ellipsis -- what is shown stays a word-for-word stretch. */
+export function cutExact(t: string, n = 120): string {
+  const s = t.replace(/\s+/g, " ").trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > n * 0.6 ? cut.slice(0, sp) : cut).trim();
+}
 
 /** VRF-7. A quoted text cut to `n` characters (on a word where it can), for a note. */
 export function clip(t: string, n = 120): string {
@@ -5465,6 +5790,16 @@ export function locateWords(words: string, chain: ReadonlyArray<{ where: string;
   return null;
 }
 
+/** VRF-8 (D14-7). PURE. Where the WHOLE quote sits in the chain (case, spacing and punctuation aside); null when it is not found
+ *  whole, or when the model wrote an ellipsis ("...") inside it -- a quote that is not ONE exact clause is never shown. */
+export function locateWordsStrict(words: string, chain: ReadonlyArray<{ where: string; text: string }>): string | null {
+  if (/\.\.\.|\u2026/.test(words)) return null;
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const q = norm(words);
+  if (q.length < 3) return null;
+  return chain.find((c) => norm(c.text).includes(q))?.where ?? null;
+}
+
 /** VRF-6. The notes `prepareModelItems` made, as review points on the row's first item (its own extras block when it has none). */
 function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: string[]): HelperResult {
   const r = res as ItemListSuggestion;
@@ -5477,6 +5812,17 @@ function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: stri
     return { ...b, extras: { ...ex, review: { title: ex.review?.title ?? title, points } } };
   });
   return { ...r, itemList: { ...r.itemList, items } } as HelperResult;
+}
+
+/** VRF-8 (D12, owner 14:50). A row the reading rules refuse (several unit types under its heading): no figure, every unit says why,
+ *  the row's reason names it (U8). The notes stay. Absent `refuse` => the result as is. */
+function withPrepRefusal(res: HelperResult, refuse: string | undefined): HelperResult {
+  const r = res as ItemListSuggestion;
+  if (!refuse || !r.itemList) return res;
+  const { totals: _t, ...v } = r.itemList;
+  const items = v.items.map((b) => ({ ...b, state: "blank" as const, reason: refuse, figures: {} }));
+  return { ...r, values: {}, workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [refuse], finalValues: {} },
+           itemList: { ...v, rowPriced: false, reason: refuse, items, lineCount: { lines: v.lineCount?.lines ?? items.length, bad: v.lineCount?.lines ?? items.length } } } as HelperResult;
 }
 
 /** VRF-6 (00352 r150, 00368 r45, 00370 r8). A unit refused for "no capacity stated" whose own row text states two different
@@ -5540,7 +5886,7 @@ function computeItemList(
     const probe: OwnPassProbe = {};
     const own = computeItemListOwn(category, spec, items, ctx, prep.ext, inRun, overrides, probe) as ItemListSuggestion;
     const done = own.itemList ? withExtras(spec, items, ctx, prep.ext, overrides, configOf, cableRate, own, probe, category) : own;
-    return withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes));
+    return withPrepRefusal(withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes)), prep.refuse);
   }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);

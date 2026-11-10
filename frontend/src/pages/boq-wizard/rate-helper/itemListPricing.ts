@@ -664,6 +664,10 @@ export interface ItemListPricingSpec {
     pair_first?: { mode: "cheaper" | "always" | "single_unless_cheaper"; line: string; single_line?: string; max_units?: number };
     /** VRF-6 (F8 / Q4): the note added when a split has three or more modules ({n}) */
     many_line?: string;
+    /** VRF-8 (W2 / W3, owner 14:15): a WRITTEN split with a module the make / type does not stock is not followed: the split rule
+     *  prices the stated TOTAL, and `line` says so ({written}, {missing}, {unit}, {make}, {total}). ABSENT => VRF-6's per-module
+     *  next size up / `split_over_top`. */
+    stated_not_stocked?: { line: string };
   };
   /**
    * VRF-3a K2 (owner SET 2026-11-04 17:00 / 17:37 / 17:39 / 18:49, boards 9 / 11) -- A ROW PRICED PER SET. `units` are the
@@ -863,10 +867,45 @@ export interface PrepareSpec {
   armour_words?: { words: string; not_words?: string; cable_words: string; comm_words: string; attrs: { power: string; comm: string }; yes: string; line: string };
   /** VRF-7 (B10 / C13): words that mean an include the model may have left unanswered -- the question set to `yes`, its
    *  `_where` / `_words` answers filled from where the words sit, only on a unit of `role`, noted */
-  implied_includes?: Array<{ question: string; words: string; role: "indoor" | "outdoor"; yes: string; line: string }>;
+  implied_includes?: Array<{ question: string; words: string; role: "indoor" | "outdoor" | "any"; yes: string; line: string;
+    /** VRF-8 (W1 / D2 / D6 safety nets): only where the model left the question unanswered (blank / "None"); its explicit No
+     *  stands. `not_words`: the clause holding the words must not carry these (a ceiling / pipe support is no ODU stand). */
+    only_blank?: boolean; not_words?: string }>;
   /** VRF-7 (B9): a module setup the BoQ states ("16HP+16HP"; "minimum 2 units of at least 20 HP each") is followed BEFORE the
    *  split rule when every module is stocked for the unit's make and type; else the split rule, noted */
   stated_setup?: { attr: string; family: string; min_each: string; line: string; not_stocked: string };
+  /** VRF-8 (D4, owner 14:30): "single feeder / DB ... within N m of the ODU" -> the outdoor unit's power cable length is N m
+   *  (group 1 of `words`); noted ({said}, {where}, {n}) where the power cable is included */
+  feeder_length?: { words: string; attr: string; line: string };
+  /** VRF-8 (D5, owner 14:37 "as a safe choice, note 1 wins"): "breaker (if required)" includes the MCB + ELCB set (`question`
+   *  set to `yes`), noted with the electrical-contractor wording (`ec_words`) when that is stated too (`line_both`); the
+   *  electrical-contractor wording alone = NOT added (`line_ec_only`) */
+  breaker_words?: { question: string; yes: string; no: string; words: string; ec_words: string; line_both: string; line_ec_only: string };
+  /** VRF-8 (D8, owner 14:41): "necessary interconnections with power supply / refrigerant connections" = connection work only --
+   *  an include the model answered from those words is not added; noted ({label}, {said}, {where}) */
+  connection_only?: { words: string; questions: Record<string, string>; no: string; line: string };
+  /** VRF-8 (D9, owner 14:46): headings that disagree on cooling / heating -- the heading NEARER the row wins, noted. A text
+   *  naming heating is a heat-pump statement (`heat_words`, plus `heat_words` of A5); else `cool_words` names cooling only. */
+  mode_nearest?: { attr: string; families: string[]; cool: string; heat: string; cool_words: string; heat_words: string; line: string };
+  /** VRF-8 (D10, owner 14:47 "default should be used if this cannot be determined"): an installation-only row takes the make of
+   *  its matching supply row on the same sheet (same item-1 family and capacity); its module split then follows; noted */
+  install_follows?: { scope_values: string[]; attrs: string[]; line: string };
+  /** VRF-8 (D11, owner 14:48): one capacity stated twice in the row and another once -> the repeated one, noted
+   *  (`words`: a regex with the number and the unit as groups 1 and 2) */
+  repeated_size?: { attr: string; words: string; line: string };
+  /** VRF-8 (D12, owner 14:50): the unit's own heading carries SEVERAL short notes each naming a unit type (sub-headings saved as
+   *  notes) and the row names none -> the row refuses `refusal`. `unit_words`: family -> words (regex); also read by the D2
+   *  note to tell a sibling unit type's text (K1c). A note longer than `note_max` is no sub-heading. */
+  several_types?: { note_max: number; refusal: string };
+  unit_words?: Record<string, string>;
+  /** VRF-8 (D13, owner 14:52-14:54): an extra question the model left OUT (no answer at all) whose BoQ words sit in the chain
+   *  (the own-row rule's words, in a clause with none of `exclude_words`) is treated as stated -- the normal rules then decide */
+  missing_answers?: { exclude_words: string };
+  /** VRF-8 (D14-1): a fresh-air unit "complete with suitable outdoor unit" -> the outdoor unit item takes the HP the row states */
+  tfa_outdoor?: { words: string; hp_words: string; outdoor_family: string; line: string };
+  /** VRF-8 (D14-2): several makes stated and the first stocked one has no size close enough (its smallest is above the
+   *  catalogue's next size up for the stated capacity) -> the next stated make that has one; else the default; noted */
+  first_make_close?: { attr: string; from_attr: string; default: string; line_next: string; line_default: string };
 }
 
 /** VRF-5: see `ExtrasSpec.scope`. `options` = the choice values in order (the first = supply + installation). */
@@ -888,6 +927,10 @@ export interface ScopeSpec {
   /** VRF-6 K2 (parity): the option meaning "installation only, its supply quoted on another row" -- the normal install, no uplift;
    *  the calculator's way to say what the panel reads off the sheet (the panel shows it as the row's scope when it applies) */
   install_only_normal?: string;
+  /** VRF-8 (D1, owner 14:2x "the note belongs to the parent. option b"): a supply + installation row under a "Supply of"
+   *  heading (`heading_words`) whose notes say installation (`install_words`) stays supply + installation, with `note`
+   *  ({heading}, {said}, {where}) */
+  supply_heading?: { heading_words: string; install_words: string; note: string };
 }
 
 /** VRF-5: one accessory line (see `ExtrasSpec.accessories`). */
@@ -909,7 +952,12 @@ export interface AccessorySpec {
     read_notes?: boolean;
     /** VRF-7 (D2): a type the BoQ's words decided (not the model's answer) kept although another type's words sit elsewhere in
      *  the chain -- noted ({first}, {said}, {where}, {value}) */
-    conflict?: { line: string } };
+    conflict?: { line: string;
+      /** VRF-8 (W7 / D14-4): a phrase naming BOTH types ("cordless/corded") elsewhere in the chain is the other wording when the
+       *  type was decided by plain words (`both_line`: {first}, {said}, {where}, {value}); `pairs` adds both-type spellings
+       *  ("corded/wireless") taken out before the other type is looked for. K1c (owner 15:05 "option a"): a text naming another
+       *  unit type at its head (`prepare.unit_words`, first `head` characters) is a sibling unit's, never read. */
+      both_line?: string; pairs?: string; head?: number } };
   /** borrowed from Electrical (read only): the item text built from the band's rating, priced by Electrical's own rules */
   electrical?: { category: string; discipline: string; item_attr: string; qty_attr: string; label: string; template?: string; rating_key?: string;
     /** VRF-5 (owner ANSWER 6): words (regex) naming a device priced as this one ("isolator" -> the default MCCB), and the line saying so */
@@ -965,7 +1013,12 @@ export interface ExtrasSafeguard {
   control_wiring?: { words: string; line: string };
   /** VRF-6 (owner Q7): words in a note saying an item is quantified separately -- it wins over a heading's inclusion; the
    *  includes it covers, and the note ({label}, {said}) */
-  note_wins?: { words: string; ids: string[]; line: string };
+  note_wins?: { words: string; ids: string[]; line: string;
+    /** VRF-8 (W5): the note is said also where the model read no such include (never silent): {label}, {said}, {where} */
+    line_silent?: string };
+  /** VRF-8 (D14-7): a quote the model copied is shown only when the WHOLE quote is found in the row's chain (then with its
+   *  row); otherwise the line without the quote */
+  verified_quotes?: boolean;
   /** VRF-7 (B7, owner 01:36): the own-row check runs for EVERY extra wherever it is stated -- the row itself included */
   own_row_always?: boolean;
   /** VRF-7 (B8): the per-include question (`<includes question>` + suffix) holding the BoQ words that state it; the notes then
@@ -5082,7 +5135,8 @@ function priceOneItem(
     // hinting that a display field was the cause. ABSENT => "item_detail", so ADP is byte-identical.
     const rungs = buildModuleLadder(familyRows, { kind: familyKindOf(spec, familyRows, family), where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
     const name = reasonName(spec, attr);
-    const want = Number(sel[attr]);
+    // VRF-8 (W2): `let` -- an unstocked written split hands its stated TOTAL to the split rule below
+    let want = Number(sel[attr]);
     /**
      * ⚠️ A FAMILY WHOSE ROWS CARRY THIS ATTRIBUTE AT ALL IS LADDERING ON IT; ONE WHOSE ROWS CARRY IT
      * NOWHERE IS NOT. For the second, the stated value is an INPUT TO A FORMULA, not a choice between
@@ -5117,7 +5171,26 @@ function priceOneItem(
       }
       return null;
     };
-    const st = statedSplits[attr];
+    let st: (typeof statedSplits)[string] | undefined = statedSplits[attr];
+    // VRF-8 (W2 / W3, owner 14:15 "the split rule on the TOTAL, never a per-module bump / re-split"): a written module setup with
+    // a module this make / type does not stock (a size between rungs, or above the largest) is NOT followed -- the stated total
+    // goes to the split rule like any capacity, and the line says the setup could not be followed
+    const sns = spec.split?.stated_not_stocked;
+    if (st && sns) {
+      const missing = [...new Set(st.modules.filter((m) => !sizes.some((s) => Math.abs(s - m) < 1e-9)))];
+      if (missing.length) {
+        const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+        const total = st.total ?? st.sum;
+        const make = [where.brand, where.cooling].filter((v) => v !== undefined && v !== null && String(v) !== "").join(" ");
+        const line = sns.line.replace("{written}", st.modules.map(fmt).join("+")).replace("{missing}", missing.map(fmt).join(" / "))
+          .split("{unit}").join(famUnit).replace("{make}", make || "this make").replace("{total}", fmt(total));
+        (out.unitReads ??= {})[attr] = [st.note, line].filter((x): x is string => !!x).join("; ");
+        out.working.push(line);
+        want = total;
+        sel[attr] = total;
+        st = undefined;
+      }
+    }
     if (st) {
       const top = rungs[rungs.length - 1];
       const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");

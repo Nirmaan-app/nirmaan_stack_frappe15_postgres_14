@@ -591,7 +591,9 @@ export interface RateHelperRowContext {
    */
   sheetLines?: ReadonlyArray<{ row: number; text: string; family1?: string | null; sheet?: string;
     /** VRF-6 (F4): a rate-editable Preamble (kept only where the run read it); the row's category; its item 1's scope answer */
-    preamble?: boolean; category?: string | null; scope1?: string }>;
+    preamble?: boolean; category?: string | null; scope1?: string;
+    /** VRF-8 (D10): item 1's capacity and the make answers an installation-only row follows (only with `prepare.install_follows`) */
+    cap1?: string; attrs1?: Record<string, string> }>;
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.
