@@ -261,7 +261,8 @@ wt="$(cd ../.. && pwd)/benches/$2/apps/nirmaan_stack"
 case "$1" in
   create) git worktree add -q "$wt" "$4"; echo "Ready $2" ;;
   stop) ;;
-  destroy) git -C "$wt" checkout -q --detach; echo "destroyed $2" ;;
+  destroy) [ -z "$(git -C "$wt" status --porcelain)" ] || { echo "ERROR: worktree has uncommitted changes." >&2; exit 1; }
+    git worktree remove "$wt"; echo "Destroyed env $2. Commits stay in git." ;;
 esac
 EOF
 printf 'import sys\nprint("ok    test dod", sys.argv[1])\n' > "$L/scripts/devenv/dod.py"
@@ -314,6 +315,12 @@ same "$(rec ta) $(rec tc)" "none contabo" "--yes cleans only the PRUNE task"
 git -C "$CO" rev-parse -q --verify refs/heads/box/ta >/dev/null && fail "the box still has box/ta"; pass "the box branch of ta is gone"
 task prune
 rc_is 0 "a second task.sh prune"; no_line '^PRUNE' "a second task.sh prune finds nothing"; has "to prune: 0 tasks" "a second run totals zero"
+
+task clean td
+rc_is 1 "clean fails when the box refuses destroy"; has "uncommitted changes" "the box's refusal is shown"
+no_line '^ok +cleaned' "a refused destroy is not reported cleaned"
+same "$(rec td)" contabo "a refused destroy keeps the record"; there "$(bwt td)" "a refused destroy leaves the env"
+git -C "$CO" rev-parse -q --verify refs/heads/box/td >/dev/null || fail "a refused destroy deleted box/td"; pass "a refused destroy keeps the box branch"
 
 touch "$CH/.stub/down"
 task prune

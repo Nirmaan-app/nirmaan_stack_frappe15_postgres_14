@@ -117,7 +117,7 @@ set -e
 wt="$(cd ../.. && pwd)/benches/$2/apps/nirmaan_stack"
 case "$1" in
   create) git worktree add -q "$wt" "$4"; echo "Ready $2" ;;
-  destroy) git -C "$wt" checkout -q --detach; echo "destroyed $2" ;;
+  destroy) git -C "$wt" checkout -q --detach; echo "Destroyed env $2. Commits stay in git." ;;
 esac
 EOF
 printf 'import sys\nprint("ok    test dod", sys.argv[1])\n' > "$L/scripts/devenv/dod.py"

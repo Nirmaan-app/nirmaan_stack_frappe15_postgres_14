@@ -474,7 +474,18 @@ case "$CMD" in
     export BOX_STARTED=1
     # Close the task's Orca terminals first: a finished agent would otherwise keep running in a deleted folder.
     agent_stop "$WT"
-    box_ssh "cd ~/$BOX_CO && { [ ! -d $WT ] || { scripts/devenv/devenv.sh stop $NAME >/dev/null 2>&1; scripts/devenv/devenv.sh destroy $NAME | tail -1; }; } && { git branch -D $BRANCH 2>/dev/null && echo 'deleted the box branch $BRANCH' || true; }"
+    # No pipe after destroy: its status is what stops the branch delete. The login shell may be zsh (air).
+    RC=0; OUT="$(box_ssh "cd ~/$BOX_CO || exit 1
+      if [ -d $WT ]; then
+        scripts/devenv/devenv.sh stop $NAME >/dev/null 2>&1
+        o=\"\$(scripts/devenv/devenv.sh destroy $NAME 2>&1)\" || { printf '%s\n' \"\$o\"; exit 1; }
+        printf '%s\n' \"\$o\" | tail -1
+      else echo 'No env $NAME on the box.'; fi
+      git branch -D $BRANCH 2>/dev/null && echo 'deleted the box branch $BRANCH' || true")" || RC=$?
+    [ -z "$OUT" ] || printf '%s\n' "$OUT"
+    [ "$RC" != 3 ] || exit 3
+    [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -qE "^(Destroyed env|No env) $NAME[ .]" \
+      || die "the box did not destroy env $NAME (above). The record stays: fix it there, then run task.sh clean $NAME again."
     # Last, so a clean that stopped on the box can be rerun and still finds its box.
     git config --unset "$RECORD"
     ok "cleaned $NAME on box $BOX_NAME. The report stays at $BOX_SSH:~/$DIR/ ; the laptop branch $BRANCH is yours to keep or delete."
