@@ -322,6 +322,20 @@ no_line '^ok +cleaned' "a refused destroy is not reported cleaned"
 same "$(rec td)" contabo "a refused destroy keeps the record"; there "$(bwt td)" "a refused destroy leaves the env"
 git -C "$CO" rev-parse -q --verify refs/heads/box/td >/dev/null || fail "a refused destroy deleted box/td"; pass "a refused destroy keeps the box branch"
 
+# Picked into the laptop's master by equal patch: ti after the box went on past the laptop's box/ti (BOX_AHEAD), tj
+# while the laptop's box/tj has a commit of its own (DIVERGED)
+for n in ti tj; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
+commit "$(bwt ti)" i1; task done ti; rc_is 0 "done ti"; commit "$(bwt ti)" i2
+commit "$(bwt tj)" j1
+git -C "$L" update-ref refs/heads/box/tj "$(git -C "$L" commit-tree -p box/tj -m jl 'box/tj^{tree}')"
+for n in ti tj; do git -C "$L" fetch -q "$CO" "box/$n"; git -C "$L" cherry-pick "master..FETCH_HEAD" >/dev/null; done
+task clean ti
+rc_is 0 "clean ti"; has "ok    BOX_AHEAD, but the box tip" "clean accepts BOX_AHEAD when a laptop ref holds the box tip"
+same "$(rec ti)" none "clean ti unsets the record"
+task clean tj
+rc_is 0 "clean tj"; has "ok    DIVERGED, but the box tip" "clean accepts DIVERGED when a laptop ref holds the box tip"
+same "$(rec tj)" none "clean tj unsets the record"
+
 touch "$CH/.stub/down"
 task prune
 rc_is 3 "an unreachable box is exit 3"; has "box contabo: did not answer over SSH" "the unreachable box is named"
