@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tests devenv.sh prune and landed.sh on a fake dev root (DEVENV_ROOT) holding a real temp git repo with worktrees and
 # envs; the post-merge hook on real merges in that repo; task.sh prune and clean's landed check on a temp laptop repo
-# and a stub Linux box. Stub docker, ssh, scp, uname, pgrep and readlink on PATH. No network, no real env or box,
-# nothing outside a fresh folder under $TMPDIR, which each run leaves in place.
+# and a stub Linux box. Stub docker, ssh, scp, uname, pgrep, readlink and lsof on PATH, and a fake /proc. No network,
+# no real env or box, nothing outside a fresh folder under $TMPDIR, which each run leaves in place.
 # Run: /bin/bash scripts/devenv/test_prune.sh
 set -euo pipefail
 

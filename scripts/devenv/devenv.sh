@@ -700,7 +700,8 @@ pick_task() {   # task from the first argument, else from the worktree we are st
 
 # ---- prune. A row is one candidate: R_KIND (env | worktree), R_NAME, R_TASK (its env, or empty), R_BENCH (the env's
 # folder, or empty), R_WT (the worktree, physical, or empty), R_SHA (its HEAD), R_LOCKED and R_GONE (1 or empty),
-# R_STATUS (git status --porcelain) and R_STATUS_RC (its exit status). PRUNE iff landed.sh finds a ref holding R_SHA and no hold in PRUNE_HOLDS applies.
+# R_STATUS (git status --porcelain) and R_STATUS_RC (its exit status). PRUNE iff landed.sh finds a ref holding R_SHA
+# and no hold in PRUNE_HOLDS applies.
 # hold_<name> prints the hold, with a detail after a colon, when it applies to the row.
 PRUNE_HOLDS="shared here missing no-worktree locked serving agent new bench-files tracked-changes untracked status-failed"
 

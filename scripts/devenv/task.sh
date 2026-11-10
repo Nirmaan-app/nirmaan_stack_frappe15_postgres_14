@@ -225,7 +225,8 @@ task_hold_unfetched() {
 # The env worktree's HEAD away from box/<name> (a side branch, a detached commit): clean's destroy removes the worktree
 # and its HEAD reflog, so commits only that HEAD reaches would be lost unless a laptop ref already holds them.
 task_hold_off_branch() {
-  [ -z "$T_NOTE" ] && [ "$T_HEAD" != - ] && [ "$T_HEAD" != "$T_TIP" ] && ! landed "$T_HEAD" >/dev/null     && echo "off-branch:${T_HEAD:0:9}" || true
+  [ -z "$T_NOTE" ] && [ "$T_HEAD" != - ] && [ "$T_HEAD" != "$T_TIP" ] && ! landed "$T_HEAD" >/dev/null \
+    && echo "off-branch:${T_HEAD:0:9}" || true
 }
 
 # prune_tasks <yes>: one row per recorded task (see the header). Exit 3 when a box did not answer.
@@ -484,7 +485,7 @@ case "$CMD" in
       git branch -D $BRANCH 2>/dev/null && echo 'deleted the box branch $BRANCH' || true")" || RC=$?
     [ -z "$OUT" ] || printf '%s\n' "$OUT"
     [ "$RC" != 3 ] || exit 3
-    [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -qE "^(Destroyed env|No env) $NAME[ .]" \
+    [ "$RC" = 0 ] && grep -qE "^(Destroyed env|No env) $NAME[ .]" <<<"$OUT" \
       || die "the box did not destroy env $NAME (above). The record stays: fix it there, then run task.sh clean $NAME again."
     # Last, so a clean that stopped on the box can be rerun and still finds its box.
     git config --unset "$RECORD"
