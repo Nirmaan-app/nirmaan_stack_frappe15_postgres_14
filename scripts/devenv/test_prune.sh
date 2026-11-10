@@ -54,7 +54,13 @@ cp "$(at "${args[0]}")" "$(at "${args[1]}")"
 EOF
 cat > "$T/bin/uname" <<'EOF'
 #!/bin/bash
+[ -z "${STUB_UNAME:-}" ] || { echo "$STUB_UNAME"; exit; }
 [ -s "$HOME/.stub/uname" ] && cat "$HOME/.stub/uname" || exec /usr/bin/uname "$@"
+EOF
+cat > "$T/bin/lsof" <<'EOF'
+#!/bin/bash
+[ -z "${STUB_LSOF_FAIL:-}" ] || exit 1
+exec /usr/sbin/lsof "$@"
 EOF
 # <home>/.stub/procs: one process per line, "<pid> <comm> <cwd>"
 cat > "$T/bin/pgrep" <<'EOF'
@@ -171,6 +177,18 @@ same "$(echo "$OUT" | grep -c '^KEEP' || true)" 0 "--quiet prints no KEEP row"
 line '^PRUNE +worktree +feat/merged' "--quiet prints the PRUNE rows"
 line '^PRUNE +env +e-up ' "--quiet finds work landed in upstream/develop by ancestry"
 no_line '^PRUNE +env +e-create ' "--quiet skips the slow equal-patch check"
+
+# A fake Linux /proc: a process in a worktree, then a pid of another user, whose cwd readlink refuses (EACCES)
+mkdir -p "$T/proc/4242" "$T/proc/99999"; echo claude > "$T/proc/4242/comm"; ln -s "$WT/agent" "$T/proc/4242/cwd"
+chmod 000 "$T/proc/99999"
+STUB_UNAME=Linux DEVENV_PROC="$T/proc" prune
+chmod 755 "$T/proc/99999"
+rc_is 0 "prune on Linux, past a pid it cannot read"
+line '^KEEP +worktree +h-agent .*landed:master +agent:claude/4242$' "on Linux a process's /proc cwd holds"
+STUB_LSOF_FAIL=1 prune
+rc_is 1 "prune stops when the process listing fails"; has "could not list" "the stop says why"; no_line '^PRUNE' "nothing is listed for removal"
+STUB_UNAME=Linux DEVENV_PROC="$T/no-proc" prune
+rc_is 1 "prune stops when the process listing is empty"
 
 # ---- devenv.sh prune --yes
 prune --yes

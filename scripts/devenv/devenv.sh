@@ -761,15 +761,18 @@ phys() { (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
 
 # "<pid>\t<command>\t<cwd>" per process this user can see, except this shell and its parents (the caller's own
 # shell is the `here` hold). Call it in $(...): it moves to /, so the listing's own processes match no row.
+# DEVENV_PROC stands in for /proc in test_prune.sh. On Linux a pid of another user has a cwd readlink refuses.
 proc_cwds() {
-  local skip=" " p=$$
+  local skip=" " p=$$ proc="${DEVENV_PROC:-/proc}"
   cd /
   while [ -n "$p" ] && [ "$p" -gt 1 ]; do skip="$skip$p "; p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; done
   case "$(uname)" in
-    Linux) for d in /proc/[0-9]*; do
-             c="$(readlink "$d/cwd" 2>/dev/null)" && printf '%s\t%s\t%s\n' "${d#/proc/}" "$(cat "$d/comm" 2>/dev/null)" "$c"
+    Linux) for d in "$proc"/[0-9]*; do
+             if c="$(readlink "$d/cwd" 2>/dev/null)"; then
+               printf '%s\t%s\t%s\n' "${d#"$proc"/}" "$(cat "$d/comm" 2>/dev/null)" "$c"
+             fi
            done ;;
-    *) lsof -a -d cwd -Fpcn 2>/dev/null \
+    *) lsof -b -w -n -a -d cwd -Fpcn 2>/dev/null \
          | awk '/^p/ {p = substr($0, 2)} /^c/ {c = substr($0, 2)} /^n/ {print p "\t" c "\t" substr($0, 2)}' ;;
   esac | awk -F'\t' -v skip="$skip" 'index(skip, " " $1 " ") == 0'
 }
@@ -810,7 +813,8 @@ prune() {
   HP="$(phys "$HERE")"; CALLER="$(pwd -P)"
   SHARED_WTS="$(phys "$HERE/nirmaan_stack_variants/dev") $(phys "$HERE/nirmaan_stack_variants/master")"
   SHARED_WTS="$SHARED_WTS $(phys "$HERE/nirmaan_stack_variants/lab") $(phys "$(git -C "$MAIN_GIT" worktree list --porcelain | sed -n '1s/^worktree //p')")"
-  PROCS="$(proc_cwds)"
+  PROCS="$(proc_cwds)" && [ -n "$PROCS" ] \
+    || die "could not list the processes and their folders (lsof, or /proc on Linux), so nothing can be listed: a process working in an env would go unseen"
   rows="$(prune_rows)"
   while IFS="$US" read -r R_KIND R_NAME R_TASK R_BENCH R_WT R_SHA R_LOCKED R_GONE; do
     [ -n "$R_KIND" ] || continue
