@@ -848,8 +848,9 @@ export interface PrepareSpec {
   family_by_unit?: Array<{ family: string; unit_class: string; to: string; line: string }>;
   same_as_outdoor?: { words: string; attr: string; outdoor_family: string; line: string; also_attr?: string };
   row_cooling?: { attr: string; words: Record<string, string>; line: string };
-  /** VRF-7 (B11): `unless` -- words (regex) in the same text that stop the rule (a treated fresh air unit is not a Ductable) */
-  family_words?: Array<{ family: string; words: string; from?: string[]; line: string; in?: "row" | "heading" | "both"; unless?: string }>;
+  /** VRF-7 (B11): `unless` -- words (regex) in the row or its own heading that stop the rule (a treated fresh air unit is not a
+   *  Ductable); `in: "parent"` reads the row and its OWN heading (description + notes) only, never a heading further up */
+  family_words?: Array<{ family: string; words: string; from?: string[]; line: string; in?: "row" | "heading" | "both" | "parent"; unless?: string }>;
   attr_words?: Array<{ attr: string; value: string; families: string[]; words: string; line: string; in?: "row" | "heading" | "both"; unless_row?: string }>;
   /** VRF-7 (A1, owner 01:53): a discharge type the BoQ states anywhere in the row's chain (nearest level first: the row, its
    *  notes, then each heading up with its notes) decides when the model gave none, noted ({said}, {where}, {value}) */

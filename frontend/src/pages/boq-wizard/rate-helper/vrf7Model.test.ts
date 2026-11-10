@@ -300,6 +300,21 @@ describe("VRF-7 B10 / C13 / B11 / D1 / D2", () => {
     expect(review(v)).toMatch(/fresh air beats CSU \(owner B11\)/);
     expect(one({ items: [DUCT({ capacity: "3 TR" })], headings: ["Supply of CSU type indoor unit"] }).items[0].family).toBe("Ductable");
   });
+  it("B11 NEGATIVE (K1b): 'TFA' further up (a grandparent heading, another unit's note) leaves a Ductable and a cassette alone; a cassette under a TFA heading stays a cassette", () => {
+    const up = { headings: ["VRF system - ODU 26HP for the TFA units", "Ductable units"], ancestorNotes: ["the TFA is on the terrace"] };
+    expect(one({ items: [DUCT({ capacity: "3 TR" })], ...up }).items[0].family).toBe("Ductable");
+    expect(one({ items: [{ item: "Cassette", brand: "Blue Star", capacity: "2 TR", way: "FOUR-WAY" }], headings: ["Treated fresh air units"] }).items[0].family).toBe("Cassette");
+    // a CSU row with 'TFA' only further up: the CSU rule still applies (its 'unless' reads the row and its own heading only)
+    expect(one({ items: [{ capacity: "3 TR" }], text: "CSU 3 TR", headings: ["VRF system for the TFA units", "Indoor units"] }).items[0].family).toBe("Ductable");
+    // 00218 HVAC-2F r225 (K1b): the unit's own heading LISTS "drain pumps for cassette, ductable & TFA units" -- that names other units
+    expect(one({ items: [DUCT({ capacity: "2 TR" })], headings: ["VRF SYSTEM", "SITC of VRF indoor units ... drain pumps for cassette, ductable & TFA units"], ownNotes: ["Ceiling Suspended Ductable Units"] }).items[0].family).toBe("Ductable");
+    // 'TFA' in the row itself with 'CSU' -> the fresh-air unit, and no CSU note re-labels it
+    const rowTfa = one({ items: [DUCT({ capacity: "6.8 TR" })], text: "6.8 TR TFA (CSU type)" });
+    expect(rowTfa.items[0].family).toBe("Single Skin Treated Fresh Air");
+    expect(review(rowTfa)).not.toMatch(/priced as a Ductable unit/);
+    // the unit's OWN heading saying TFA still wins over CSU (00158 r82, its heading row 79)
+    expect(one({ items: [DUCT({ capacity: "6.8 TR" })], headings: ["INDOOR UNIT", "Supply of CSU type VRF / VRV treated fresh air unit"] }).items[0].family).toBe("Single Skin Treated Fresh Air");
+  });
   it("B11: the Ductable rule's own 'unless' holds even without the fresh-air rule (an item with no family under 'CSU ... treated fresh air' is not made a Ductable)", () => {
     const cfg = vrf7();
     const fw = (cfg as unknown as Cfg).list_spec.pricing.extras.prepare.family_words;

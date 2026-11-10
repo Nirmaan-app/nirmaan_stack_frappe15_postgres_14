@@ -54,14 +54,21 @@
  "family_words_prepend": [
   {
    "family": "Single Skin Treated Fresh Air",
-   "words": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+unit\\b|\\bTFA\\b",
-   "from": ["Ductable", "Concealed Split", "Cassette", "Hi-Wall", "Floor-cum-Ceiling Mounted", "Packaged Unit"],
-   "in": "both",
+   "words": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+units?\\b|\\bTFA\\b",
+   "from": ["Ductable"],
+   "in": "row",
+   "line": "BoQ says \"{said}\" - priced as the {family} unit: fresh air beats CSU (owner B11)"
+  },
+  {
+   "family": "Single Skin Treated Fresh Air",
+   "words": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+units?\\b",
+   "from": ["Ductable"],
+   "in": "parent",
    "line": "BoQ says \"{said}\" - priced as the {family} unit: fresh air beats CSU (owner B11)"
   }
  ],
  "family_words_unless": {
-  "Ductable": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+unit\\b|\\bTFA\\b"
+  "Ductable": "\\btreated\\s+fresh\\s+air\\b|\\bfresh\\s+air\\s+units?\\b"
  },
  "safeguard_add": {
   "own_row_always": true,

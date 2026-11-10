@@ -5235,7 +5235,10 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
   // every heading above the row and every heading's notes (00114: "(HEAT PUMP)" sits on the grandparent)
   const headText = [...(ctx.headings ?? []), ...(ctx.ancestorNotes ?? ctx.headingNotes ?? [])].join(" | ");
   const find = (w: string | undefined, t: string): string | null => { if (!w) return null; try { const m = new RegExp(w, "i").exec(t); return m ? m[0].trim() : null; } catch { return null; } };
-  const textOf = (where: "row" | "heading" | "both" | undefined) => (where === "heading" ? headText : where === "both" ? `${rowText} | ${headText}` : rowText);
+  // VRF-7 (B11): the row and its OWN heading (its description and notes) -- a word further up describes other units as often as this one
+  const parentText = [rowText, (ctx.headings ?? [])[(ctx.headings ?? []).length - 1] ?? "", ...(ctx.headingNotes ?? [])].join(" | ");
+  const textOf = (where: "row" | "heading" | "both" | "parent" | undefined) => (where === "heading" ? headText : where === "both" ? `${rowText} | ${headText}`
+    : where === "parent" ? parentText : rowText);
   // VRF-7: the row's chain nearest first, each text with where it sits (`chainOf`)
   const chain = chainOf(ctx);
   const firstHeading = (() => { const k = chain.findIndex((c) => /heading/.test(c.where)); return k === -1 ? chain.length : k; })();
@@ -5268,7 +5271,9 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     for (const fw of P.family_words ?? []) {
       const said = find(fw.words, textOf(fw.in));
       // VRF-7 (B11): a rule whose `unless` words sit in the same text gives way (a treated fresh air unit is no Ductable)
-      if (said && fw.unless && find(fw.unless, textOf(fw.in))) continue;
+      if (said && fw.unless && find(fw.unless, parentText)) continue;
+      // VRF-7 (B11): a family an earlier rule of this row set (the fresh-air unit) is not re-labelled by a later rule (CSU)
+      if (said && val(it, fa) !== fam && val(it, fa) !== fw.family) continue;
       if (said && (fam === fw.family || fam === "" || fam === "None" || /^none of these$/i.test(fam) || (fw.from ?? []).includes(fam))) {
         if (fam !== fw.family) it = setVal(it, fa, fw.family);
         notes.push(fw.line.replace("{said}", said).replace("{family}", fw.family));
