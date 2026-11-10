@@ -12,17 +12,19 @@ Only the review uses Claude, inside BUDGET_USD per PR. The workflow runs these s
   route     reads the command and the state and prints the action: review, or one the act job does for $0
             (a rerun whose new commits change none of the PR's files only refreshes)
   prepare   writes .pr-review-run/brief.md (and new-changes.diff on a rerun), the schemas and step 1's budget
-  cost      adds one Claude step's measured cost to .pr-review-run/costs.json and gives step 2's budget
+  cost      adds one Claude step's measured cost, and why it failed, to .pr-review-run/costs.json and gives step
+            2's budget
   number    gives step 1's new findings their ids and writes .pr-review-run/verify-brief.md for step 2
   publish   posts or edits the one review comment and rewrites the PR description
-  fail      marks that comment as failed, keeping the last checklist
+  fail      marks that comment as failed with the reason `cost` found, keeping the last checklist
   act       carries out refresh, dismiss, decide, merge, or a stop with its reason
 
 The review comment is edited in place, and GitHub notifies nobody of an edit, so a send-back, or a rerun that adds
 must or should findings to an existing comment, also posts one short new comment that tags the author.
 
 Stdlib only. Environment: GITHUB_REPOSITORY and PR_NUMBER; COMMENT_BODY for route and act; REVIEW_OUTPUT (step 1)
-for number and publish; VERIFY_OUTPUT (step 2) for publish; EXECUTION_FILE and STEP_CAP for cost. With --dry-run
+for number and publish; VERIFY_OUTPUT (step 2) for publish; EXECUTION_FILE and STEP_CAP for cost.
+ANTHROPIC_API_KEY, where set, is only read to keep it out of what is printed or posted. With --dry-run
 nothing is written to GitHub: the comment and the body go to .pr-review-run/ and stdout, and a merge or close is
 printed instead of run. --state-from <file> reads the state from a saved comment instead of the PR's.
 """
@@ -38,7 +40,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable, NamedTuple, TypedDict
+from typing import Callable, NamedTuple, TypedDict, Iterable
 
 RUN_DIR = Path(".pr-review-run")
 PROMPT_DIR = Path(__file__).resolve().parent.parent / ".github" / "pr-review"
@@ -166,6 +168,11 @@ class StepCost(TypedDict):
     usd: float
     basis: str
     cut_off: bool
+
+
+class RecordedCost(StepCost):
+    """A StepCost as `cost` writes it to costs.json: reason is why the step failed, redacted, or ""."""
+    reason: str
 
 
 class Command(NamedTuple):
@@ -403,6 +410,15 @@ def route(cmd: Command, state: ReviewState, head_sha: str, pr_open: bool,
     return ROUTERS[cmd.kind](cmd, state, head_sha, files_since_review)
 
 
+def _log_messages(log: str) -> list[dict] | None:
+    """The messages in an execution file's text, or None when it is not JSON."""
+    try:
+        parsed = json.loads(log)
+    except json.JSONDecodeError:
+        return None
+    return [m for m in (parsed if isinstance(parsed, list) else [parsed]) if isinstance(m, dict)]
+
+
 def step_cost(step: str, log: str | None, cap: float) -> StepCost:
     """One Claude step's cost from the text of the action's execution file (the run's messages, ending in a
     result), or None when the step wrote none."""
@@ -413,17 +429,61 @@ def step_cost(step: str, log: str | None, cap: float) -> StepCost:
     charged_cap: StepCost = {"step": step, "usd": cap, "basis": "cap", "cut_off": False}
     if log is None:
         return not_started
-    try:
-        parsed = json.loads(log)
-    except json.JSONDecodeError:
+    messages = _log_messages(log)
+    if messages is None:
         return charged_cap
-    messages = [m for m in (parsed if isinstance(parsed, list) else [parsed]) if isinstance(m, dict)]
     results = [m for m in messages if m.get("type") == "result" and isinstance(m.get("total_cost_usd"), (int, float))]
     if results:
         last = results[-1]
         return {"step": step, "usd": float(last["total_cost_usd"]), "basis": "measured",
                 "cut_off": last.get("subtype") == "error_max_budget_usd"}
     return charged_cap if any(m.get("type") in ("assistant", "result") for m in messages) else not_started
+
+
+MAX_REASON_CHARS = 300
+API_ERROR_TEXT = re.compile(r"API Error|API key|x-api-key|credit balance|_error\b", re.I)
+
+
+def _assistant_text(message: dict) -> str:
+    content = (message.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content
+    return " ".join(b["text"] for b in content or [] if isinstance(b, dict) and isinstance(b.get("text"), str))
+
+
+def _failure_text(messages: list[dict]) -> str:
+    results = [m for m in messages if m.get("type") == "result"]
+    last = results[-1] if results else {}
+    if results and last.get("is_error") is not True:
+        return ""
+    if isinstance(last.get("result"), str) and last["result"].strip():
+        return last["result"]
+    assistants = [m for m in messages if m.get("type") == "assistant"]
+    if assistants and API_ERROR_TEXT.search(text := _assistant_text(assistants[-1])):
+        return text
+    errors = "; ".join(e for e in last.get("errors") or [] if isinstance(e, str))
+    subtype = last.get("subtype")
+    return errors or (subtype if isinstance(subtype, str) and subtype.startswith("error_") else "")
+
+
+def redact(text: str, env: dict[str, str]) -> str:
+    """text with this job's credentials and anything shaped like a token replaced by [redacted]."""
+    for name in SECRET_ENV_VARS:
+        if len(env.get(name) or "") >= 8:
+            text = text.replace(env[name], "[redacted]")
+    for pattern in SECRET_PATTERNS.values():
+        text = pattern.sub("[redacted]", text)
+    return text
+
+
+def failure_reason(log: str | None, env: dict[str, str]) -> str:
+    """Why a Claude step failed, from its execution file: the error result's text, else the last assistant message
+    when it reads as an API error, else the result's errors. One line, redacted, at most 300 characters; "" when
+    the step did not fail or the file says nothing."""
+    # The action logs only a summary of the result message, without its text, and the repo's logs are public.
+    messages = _log_messages(log) if log else None
+    reason = redact(_one_line(_failure_text(messages or [])), env)
+    return reason if len(reason) <= MAX_REASON_CHARS else reason[:MAX_REASON_CHARS - 1] + "…"
 
 
 def cost_notices(costs: list[StepCost]) -> list[str]:
@@ -513,10 +573,17 @@ def trusted_walk_reports(comments: list[dict]) -> list[WalkReport]:
     return reports
 
 
+def touches_screens(paths: Iterable[str]) -> bool:
+    """Whether any path can change what a screen shows: anything under frontend/ except Markdown and the agent
+    notes in frontend/.claude/. A dependency bump in package.json still counts."""
+    return any(path.startswith("frontend/") and not path.startswith("frontend/.claude/") and not path.endswith(".md")
+               for path in paths)
+
+
 def walk_blocker(reports: list[WalkReport], head_sha: str, changes_frontend: bool,
                  frontend_changed_since: Callable[[str], bool | None]) -> str:
     """Why the owner's walk does not cover the PR's screens, or "" when it does or the PR changes none.
-    frontend_changed_since(sha) says whether commits after sha change frontend/, or None when sha is not behind
+    frontend_changed_since(sha) says whether commits after sha change screen code, or None when sha is not behind
     the head (the branch was rewritten)."""
     if not changes_frontend:
         return ""
@@ -749,12 +816,19 @@ def author_notice(before: ReviewState, after: ReviewState, author: str, checks: 
     return f"@{author}, review run {after['run']} found {len(added)} new {noun} to fix: {', '.join(added)}. See {link}."
 
 
+def _inert(text: str) -> str:
+    """Error text as a code span, where GitHub renders no mention, link, image or HTML comment."""
+    return "`" + text.replace("`", "'") + "`"
+
+
 def _headline(author: str, state: ReviewState, blocking: int, head_sha: str | None, failed: bool,
-              out_of_budget: bool, run_url: str) -> str:
+              out_of_budget: bool, run_url: str, reason: str) -> str:
     if out_of_budget:
         return f"This review run stopped: the ${BUDGET_USD:.2f} budget ran out, [see the log]({run_url})."
     if failed:
         earlier = f" The list below is from run {state['run']}." if state["run"] else ""
+        if reason:
+            return f"This review run failed: {_inert(reason)}. [See the log]({run_url}).{earlier}"
         return f"This review run failed, [see the log]({run_url}).{earlier}"
     if state["locked"]:
         return f"This PR is locked: {OPTION_BY_KEY[state['decision']['choice']].done} by the owner's decision."
@@ -787,12 +861,13 @@ def _footer(state: ReviewState, run_url: str, failed: bool, notice: str) -> str:
 
 
 def render_comment(author: str, state: ReviewState, checks: list[Check], run_url: str, failed: bool = False, *,
-                   head_sha: str | None = None, notice: str = "", out_of_budget: bool = False) -> str:
-    """The one review comment: headline, plain checks, findings, decision, footer and the hidden state."""
+                   head_sha: str | None = None, notice: str = "", out_of_budget: bool = False, reason: str = "") -> str:
+    """The one review comment: headline, plain checks, findings, decision, footer and the hidden state. reason is
+    why a failed run's Claude step failed, already redacted."""
     items = author_items(state, checks)
     failed = failed or out_of_budget
 
-    lines = [COMMENT_MARKER, _headline(author, state, len(items), head_sha, failed, out_of_budget, run_url), ""]
+    lines = [COMMENT_MARKER, _headline(author, state, len(items), head_sha, failed, out_of_budget, run_url, reason), ""]
     if checks:
         lines += ["**Checks**", ""]
         lines += [f"- [{'x' if c['ok'] else ' '}] {CHECK_LABELS[c['name']]}: {c['detail']}" for c in checks]
@@ -1112,7 +1187,7 @@ def _reviewed_head(pr: dict) -> str:
     return result.stdout.strip() if result.returncode == 0 else pr["headRefOid"]
 
 
-def _read_costs() -> list[StepCost]:
+def _read_costs() -> list[RecordedCost]:
     path = RUN_DIR / "costs.json"
     return json.loads(path.read_text()) if path.exists() else []
 
@@ -1156,13 +1231,15 @@ def cmd_cost(args: argparse.Namespace) -> None:
             log = path.read_text()
         except OSError:
             log = ""
-    cost = step_cost(args.step, log, cap)
+    cost: RecordedCost = {**step_cost(args.step, log, cap), "reason": failure_reason(log, dict(os.environ))}
     RUN_DIR.mkdir(exist_ok=True)
     (RUN_DIR / "costs.json").write_text(json.dumps(_read_costs() + [cost]))
     _set_outputs(next_cap=step_cap(cap - cost["usd"]))
     basis = {"measured": "", "cap": " (no cost in the log: charged its cap)",
              "not_started": " (no log: cost unknown, charged nothing)"}[cost["basis"]]
     print(f"{args.step}: ${cost['usd']:.4f}{basis}" + (" (cut off by its cap)" if cost["cut_off"] else ""))
+    if cost["reason"]:
+        print(f"{args.step} failed: {cost['reason']}")
 
 
 def cmd_number(args: argparse.Namespace) -> None:
@@ -1209,21 +1286,22 @@ def cmd_fail(args: argparse.Namespace) -> None:
     costs = _read_costs()
     body = render_comment(ctx.pr["author"]["login"], add_spent(ctx.state, costs), checks_from_pr(ctx.pr),
                           ctx.run_url, failed=True, notice=" · ".join(cost_notices(costs)),
-                          out_of_budget=any(c["cut_off"] for c in costs))
+                          out_of_budget=any(c["cut_off"] for c in costs),
+                          reason=next((c["reason"] for c in costs if c["reason"]), ""))
     _publish_comment(ctx, body, args.dry_run)
 
 
 def merge_facts(ctx: Context) -> MergeFacts:
     """Read what option A needs from GitHub: the checks, the changed files and the owner's walk reports."""
     head = ctx.pr["headRefOid"]
-    changes_frontend = any(path.startswith("frontend/") for path in fetch_pr_files(ctx.repo, ctx.number))
+    changes_frontend = touches_screens(fetch_pr_files(ctx.repo, ctx.number))
 
     def frontend_changed_since(sha: str) -> bool | None:
         compare = fetch_compare(ctx.repo, sha, head)
         if not compare or compare.get("status") not in ("ahead", "identical"):
             return None
         files = compare.get("files") or []
-        return len(files) >= 300 or any(f["filename"].startswith("frontend/") for f in files)
+        return len(files) >= 300 or touches_screens(f["filename"] for f in files)
 
     walk = walk_blocker(trusted_walk_reports(ctx.comments), head, changes_frontend, frontend_changed_since)
     return MergeFacts(base=ctx.pr.get("baseRefName", ""), mergeable=ctx.pr.get("mergeable", ""), ci=ci_tally(ctx.pr),

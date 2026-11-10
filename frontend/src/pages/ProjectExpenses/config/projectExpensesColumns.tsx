@@ -20,6 +20,7 @@
 //   - Paid      -> Edit (where the server allows: Admin, Accountant Lead), Delete
 
 import { ColumnDef } from "@tanstack/react-table";
+import { getExpenseBillCheckColumns } from "@/components/common/expenseBillCheckColumns";
 import { Pencil, CheckCircle2, IndianRupee, Trash2, FileText, Download } from "lucide-react";
 
 import SITEURL from "@/constants/siteURL";
@@ -566,6 +567,9 @@ export const getProjectExpenseColumns = ({
     invoiceDateColumn,
     invoiceRefColumn,
     ...(!invoiceRefClickable ? [invoiceAttachColumn] : []),
+    // The latest Expense bill's Bill check and approval, with its two filters (#1640): the standalone Paid and All
+    // tabs only, not the read-only embedded / report view.
+    ...(invoiceRefClickable && !disableActions ? getExpenseBillCheckColumns<ProjectExpenses>() : []),
     // Payment details only once settled (Paid) or on the mixed All tab.
     ...(statusTab === "Paid" || statusTab === "All"
       ? [paymentDateColumn, paymentRefColumn, paymentAttachColumn]

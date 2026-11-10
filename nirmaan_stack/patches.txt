@@ -211,3 +211,5 @@ nirmaan_stack.patches.v3_0.merge_misspelled_expense_types
 nirmaan_stack.patches.v3_0.switch_off_exited_employee_logins
 nirmaan_stack.patches.v3_0.office_rent_form_says_gst
 nirmaan_stack.patches.v3_0.internal_transfers_from_old_skips
+nirmaan_stack.patches.v3_0.mark_this_year_cashbook_expenses
+nirmaan_stack.patches.v3_0.card_credits_to_unpaired_refunds

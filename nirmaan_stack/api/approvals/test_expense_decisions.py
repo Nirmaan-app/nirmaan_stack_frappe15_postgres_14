@@ -17,6 +17,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.approvals.expense_actions import decide_expenses, get_expense_edit_access
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
@@ -29,7 +30,7 @@ PMO = "xdec_test_pmo@example.com"
 ACCOUNTANT_LEAD = "xdec_test_accountant_lead@example.com"
 
 
-class TestExpenseDecisions(FrappeTestCase):
+class TestExpenseDecisions(ExpenseTypeFlagGuard, FrappeTestCase):
 	def setUp(self):
 		self._commit = frappe.db.commit
 		self._publish = frappe.publish_realtime

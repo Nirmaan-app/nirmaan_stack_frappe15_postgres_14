@@ -28,6 +28,7 @@ from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.test_records_without_review import _listed, _write_list
 from nirmaan_stack.api.expense_requests.update import update_expense_request
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 HR_USER = "exr_rent_test_hr@example.com"
 HR_PROFILE = "Nirmaan HR Executive Profile"
@@ -46,7 +47,7 @@ def _rent(**overrides):
     return _answers(**detail)
 
 
-class TestOfficeRentForm(FrappeTestCase):
+class TestOfficeRentForm(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

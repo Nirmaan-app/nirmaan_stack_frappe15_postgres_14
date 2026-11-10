@@ -65,7 +65,26 @@ def _live_match_jobs() -> tuple[set, set] | None:
 
 def heal_stale_match_runs(boqs: list[str] | None = None) -> list[str]:
     """Mark every dead queued / running match run `halted`. Returns the names it healed. `boqs` narrows the sweep to
-    those BoQs (how a test stays inside its own fixtures); the scheduler passes none."""
+    those BoQs (how a test stays inside its own fixtures); the scheduler passes none.
+    DEV2-B9 (owner answer 3 to B9-Q2, "H"): the scheduler's call then runs the pool's auto-build check
+    (services/boq_rate_match/pool_autobuild), after the healing and whatever it raised; a failing check is logged and
+    never stops the healing. This registered job carries it so that no new hooks.py line (which needs a migrate) is."""
+    try:
+        return _heal(boqs)
+    finally:
+        if boqs is None:
+            _pool_autobuild_check()
+
+
+def _pool_autobuild_check():
+    try:
+        from nirmaan_stack.services.boq_rate_match.pool_autobuild import autobuild_pool
+        autobuild_pool()
+    except Exception:
+        frappe.log_error(title="Match pool auto-build check failed", message=frappe.get_traceback())
+
+
+def _heal(boqs):
     from frappe.utils.background_jobs import create_job_id
 
     cutoff = add_to_date(now_datetime(), seconds=-stale_after_sec())

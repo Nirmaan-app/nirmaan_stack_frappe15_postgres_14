@@ -53,6 +53,7 @@ def _invoice(status="Pending", reasons="nothing_delivered_yet", approved_by=None
         vendor="VEN-TEST",
         auto_approve_skip_reasons=reasons,
         approved_by=approved_by,
+        flags=frappe._dict(),  # a real Document's flags: the system's decision is marked there (#1638)
     )
 
 
@@ -126,6 +127,7 @@ class TestOutcomes(RecheckTestCase):
 
         self.assertEqual(self.doc.status, "Approved")
         self.assertEqual(self.doc.approved_by, "System")
+        self.assertTrue(self.doc.flags.system_invoice_decision, "the system's decision passes the PO guard (#1638)")
         self.recompute.assert_called_once_with("PO/TEST/RECHECK")
         self.assertIn("by accounts@test.local", self.doc.comments[0])
 

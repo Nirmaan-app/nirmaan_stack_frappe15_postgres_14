@@ -2,26 +2,30 @@
 # For license information, please see license.txt
 
 """The Credit Card Statement import's Create step: one *Paid* Non-Project Expense per card spend (#1568,
-spec #1565, ADR-0039 rulings 1, 6, 7).
+spec #1565, ADR-0039 rulings 1, 6, 7), and one of MINUS its amount per *Unpaired card refund* (#1673, spec #1653,
+ADR-0039 Amendment D).
 
 Cashbook's and Porter's job are the prior art (`cashbook._write_one`, `porter_create._create_one`): the same
 per-line transaction, the same writer (`settle.create_expense_from_row`).
 
-EACH SPEND, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
---------------------------------------------------------
-    1. its Expense, at Paid: the line amount, the transaction date, payment_ref = the line's
-       `settlement_reference` ("{details} - {SerNo}", staged), the type the line holds (as staged, or as
-       Review left it), the description "Card spend at {merchant}, {holder}'s card", and the
-       `credit_card_statement` link. No vendor; the type's extra form fields are left empty.
+EACH LINE, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
+-------------------------------------------------------
+    1. its Expense, at Paid: the line amount (a refund: minus it), the transaction date, payment_ref = the
+       line's `settlement_reference` ("{details} - {SerNo}", staged), the type the line holds (as staged, or
+       as Review left it), the description "Card spend at {merchant}, {holder}'s card" (a refund: "Card
+       refund from {merchant}, {holder}'s card"), and the `credit_card_statement` link. No vendor; the type's
+       extra form fields are left empty. A refund is linked to no spend (ADR-0039 Amendment D).
     2. a Settled `Outflow Row Match`: `card_upload.MATCH_BASIS`, `created_by_import`
     3. the line -> Settled
-    4. the merchant's memory: this type, confirmed by the actor (`card_memory.remember`, #1569)
+    4. a SPEND only: the merchant's memory, this type, confirmed by the actor (`card_memory.remember`, #1569).
+       A refund reads the memory (through the suggestion) but never teaches it.
 
 ⚠️ NO PAID BY. Non Project Expenses has no such field (README ruling 1): the holder is carried by the
 `credit_card_statement` link and named in the description.
 
-⚠️ SPENDS ONLY. A credit line is open at `Mismatched` too, the status Unreconcile reopens a spend to, so
-every read here asks the direction as well: a credit is decided in the main table (#1567), never created.
+⚠️ PLANNED LINES ONLY. A credit decided on the main table is open at `Mismatched` too, the status
+Unreconcile reopens a line to, so every read here asks the plan as well (`match_basis` =
+`card_upload.MATCH_BASIS`): a spend, or an unpaired refund (#1673).
 
 ⚠️ IT RESUMES, AND IT RE-CREATES WHAT WAS UNRECONCILED. The job writes every spend whose status is in
 `card_types.CREATE_LINE_STATUSES` and nothing else; each is re-read under its row lock and skipped once it
@@ -53,12 +57,15 @@ from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.card_memory import remember
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
-from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, spend_description
+from nirmaan_stack.services.outflow_import.card_types import (
+    CREATE_LINE_STATUSES,
+    refund_description,
+    spend_description,
+)
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
-from nirmaan_stack.services.outflow_import.parser import DIRECTION_DEBIT
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup, target_snapshot
 from nirmaan_stack.services.outflow_import.settle import create_expense_from_row
-from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
+from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE, is_card_refund
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 
 _JOB = "nirmaan_stack.api.outflow_import.card_create.create_card_import"
@@ -73,7 +80,8 @@ def create_card_expenses(batch: str):
 
     URL: /api/method/nirmaan_stack.api.outflow_import.card_create.create_card_expenses  (POST `batch`)
 
-    Admin, Accountant Lead and Accountant (the Bulk Import gate). Refused once no spend is left to create.
+    Admin, Accountant Lead and Accountant (the Bulk Import gate). Refused once no spend or refund is left to
+    create.
     Otherwise enqueues the job, de-duplicated per import (`card-create-<batch>`, which Discard waits for):
     pressing it twice, or while it runs, queues it once. Pressing it again after a run that left a spend in
     Error, or after a spend was unreconciled, creates only those. Refused while the type suggestion (#1569)
@@ -86,8 +94,8 @@ def create_card_expenses(batch: str):
             f"Expense types for {batch} are still being suggested. Create when Review shows them.",
             title="Types not ready",
         )
-    if not _spends_to_create(batch):
-        frappe.throw(f"Every spend of {batch} is already created.", title="Already created")
+    if not _lines_to_create(batch):
+        frappe.throw(f"Every spend and refund of {batch} is already created.", title="Already created")
     frappe.enqueue(
         _JOB,
         queue="long",
@@ -101,16 +109,16 @@ def create_card_expenses(batch: str):
 
 
 def create_card_import(batch: str, actor: str) -> None:
-    """THE JOB: create every spend Create still owes, one transaction per spend.
+    """THE JOB: create every spend and refund Create still owes, one transaction per line.
 
-    A failing spend is rolled back, marked Error with a sentence, and the run carries on: one bad line must
+    A failing line is rolled back, marked Error with a sentence, and the run carries on: one bad line must
     not strand the rest. Re-running finishes it.
     """
     statement = frappe.db.get_value(STATEMENT_DOCTYPE, {"import_batch": batch}, ["name", "holder"], as_dict=True)
     if not statement:
         frappe.log_error(title="Card Create: no Credit Card Statement", message=f"{batch}: nothing was written.")
         return
-    for line in _spends_to_create(batch):
+    for line in _lines_to_create(batch):
         try:
             _create_one(line, batch, actor, statement)
             frappe.db.commit()
@@ -127,25 +135,27 @@ def create_card_import(batch: str, actor: str) -> None:
     frappe.db.commit()
 
 
-def _spends_to_create(batch: str) -> list[str]:
+def _lines_to_create(batch: str) -> list[str]:
     return frappe.db.sql(
         """
         SELECT name FROM "tabOutflow Import Row"
-        WHERE import_batch = %s AND direction = %s AND row_status IN %s
+        WHERE import_batch = %s AND match_basis = %s AND row_status IN %s
         ORDER BY name
         """,
-        (batch, DIRECTION_DEBIT, CREATE_LINE_STATUSES),
+        (batch, MATCH_BASIS, CREATE_LINE_STATUSES),
         pluck=True,
     )
 
 
 def _create_one(name: str, batch: str, actor: str, statement) -> None:
-    """One spend -> its Expense -> its match -> Settled. Writes nothing when the line is no longer one Create
-    owes (another run took it)."""
+    """One spend or refund -> its Expense -> its match -> Settled. Writes nothing when the line is no longer one
+    Create owes (another run took it)."""
     rows = frappe.db.sql("""SELECT * FROM "tabOutflow Import Row" WHERE name = %s FOR UPDATE""", (name,), as_dict=True)
-    if not rows or rows[0].row_status not in CREATE_LINE_STATUSES or rows[0].direction != DIRECTION_DEBIT:
+    if not rows or rows[0].row_status not in CREATE_LINE_STATUSES or rows[0].match_basis != MATCH_BASIS:
         return
     row = rows[0]
+    refund = is_card_refund(row.direction, row.match_basis)
+    describe = refund_description if refund else spend_description
 
     # ⚠️ THE ADAPTER, NOT THE RAW ROW: the writer reads `added_on_date` and a Decimal `amount` by attribute.
     result = create_expense_from_row(
@@ -153,11 +163,12 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
         doctype=SPEND_DOCTYPE,
         expense_type=row.suggested_expense_type,
         actor=actor,
-        description=spend_description(row.remarks, statement.holder),
+        description=describe(row.remarks, statement.holder),
         comment=import_comment(None, batch),
         # The PDF names the holder and the card: it stays the statement's one File.
         statement_file_url=None,
         credit_card_statement=statement.name,
+        card_refund=refund,
     )
 
     match = frappe.new_doc(MATCH_DOCTYPE)
@@ -169,6 +180,8 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
             "source": CARD_STATEMENT_SOURCE,
             "target_doctype": result.doctype,
             "target_name": result.name,
+            # The Expense's own amount, as on every match record: a refund's is negative. Unreconcile and the
+            # Expense's own amount guard compare the record with this figure.
             "target_amount": float(result.amount),
             "match_kind": MATCH_SETTLED,
             "match_basis": MATCH_BASIS,
@@ -181,8 +194,10 @@ def _create_one(name: str, batch: str, actor: str, statement) -> None:
     )
     match.insert(ignore_permissions=True)
 
-    # The type is confirmed by Create: next month's statement suggests it for this merchant (#1569).
-    remember(merchant_key(row.remarks), row.suggested_expense_type, actor)
+    # The type is confirmed by Create: next month's statement suggests it for this merchant (#1569). Only a
+    # spend teaches the memory: one odd refund must not retype the merchant's spends (#1673).
+    if not refund:
+        remember(merchant_key(row.remarks), row.suggested_expense_type, actor)
 
     # Raw: `Outflow Import Row` has no doc_events; the batch rollup is recomputed from the rows at the end.
     frappe.db.set_value(

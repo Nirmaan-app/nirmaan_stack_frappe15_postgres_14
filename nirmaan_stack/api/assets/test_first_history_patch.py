@@ -18,12 +18,12 @@ from frappe.utils import get_datetime
 
 from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management import (
     CATEGORY_PREFIX,
-    FAKE_FILE_URL,
     HR,
     PM,
+    ensure_departments,
+    fake_file_url,
     _make_person,
     _purge,
-    ensure_departments,
 )
 from nirmaan_stack.patches.v3_0 import backfill_first_asset_history as backfill
 from nirmaan_stack.services.asset_history import (
@@ -94,7 +94,7 @@ class TestBackfillFirstAssetHistory(FrappeTestCase):
     def _form(self, uploaded_on=UPLOADED_ON, with_file=True) -> str:
         """A scanned declaration's URL; with_file: also its File record, uploaded by HR on `uploaded_on`."""
         tag = frappe.generate_hash(length=8)
-        url = FAKE_FILE_URL.format(tag, tag)
+        url = fake_file_url(tag)
         if with_file:
             file = frappe.new_doc("File")
             file.update({

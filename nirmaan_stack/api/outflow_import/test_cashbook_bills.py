@@ -22,6 +22,7 @@ from frappe.tests.utils import FrappeTestCase
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import import cashbook_bills as bills
 from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purge
@@ -87,6 +88,8 @@ def _fake_bills(overrides: dict | None = None):
 class CashbookBillsCase(FrappeTestCase):
     def setUp(self):
         super().setUp()
+        # #1641: a copied bill queues its reading; the queue is shared with the main bench.
+        self.jobs = capture_jobs(self)
         self.suffix = "T" + frappe.generate_hash(length=6).upper()
         parsed = parse_statement(STATEMENT.read_bytes(), source="Cashbook")
         self.parsed = dataclasses.replace(
@@ -207,8 +210,11 @@ class TestABillThatCannotBeCopied(CashbookBillsCase):
         self.assertEqual(frappe.db.count("File") - before, self._copied_files())
 
     def _copied_files(self) -> int:
-        """Every bill copied: onto an Expense, or onto an open Collect payment's line (#1595)."""
-        return sum(
+        """Every bill copied: onto an Expense (with the File row its Expense bill holds, #1641), or onto an open
+        Collect payment's line (#1595)."""
+        expenses = [name for _, name in self._targets().values()]
+        bills = frappe.get_all("Expense Bill", filters={"expense": ["in", expenses]}, pluck="name") or [""]
+        return frappe.db.count("File", {"attached_to_doctype": "Expense Bill", "attached_to_name": ["in", bills]}) + sum(
             1
             for doctype, name in self._targets().values()
             if frappe.db.exists("File", {"attached_to_doctype": doctype, "attached_to_name": name})

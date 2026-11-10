@@ -25,7 +25,7 @@ The one invariant that holds on both surfaces is what the commits actually enfor
 ## Amendment A — the edit gap is closed for Work Order invoices (2026-10-21)
 
 **Accepted** (owner, decision record *Work Order Life After Creation*, Q3-A, T1-B and T2-B; spec #1528, #1531).
-Purchase Order invoices are unchanged: everything above still describes them.
+Purchase Order invoices were unchanged by it; Amendment B below gives them the approve and reject rule.
 
 ### Context
 
@@ -66,3 +66,46 @@ the edit set, because a re-save with the same figures can still swap the attache
 - No screen offers *Reject* on an Approved Work Order invoice yet; the server allows it for the approval roles.
 - A new path that writes a Work Order invoice (the generated-invoice upload, #1547) runs as the session user and
   passes the same hook.
+
+## Amendment B — approve and reject of a Purchase Order invoice take the same role (2026-11-08)
+
+**Accepted** (owner, 2026-11-08; #1638). This reverses Amendment A's "Purchase Order invoices are unchanged" for
+approve and reject, and takes up its option T2-A for that part only.
+
+### Context
+
+The approve endpoint checked only that the caller was logged in, then saved with `ignore_permissions=True`, and the
+Work Order guard let a Purchase Order invoice through. So any logged-in user (an HR or Sales user too) could approve
+or reject a PO invoice with one request. An approved PO invoice counts toward the PO's Total Amount Invoiced and its
+invoiced quantities, and drives billing status. Found while building spec #1637, whose own expense bill approval
+checks the role on the server.
+
+### Decision
+
+1. **Approve and reject of a Purchase Order invoice** take an invoice-approval role (`role_profiles.
+   INVOICE_APPROVAL_PROFILES`: Admin, Accountant, Accountant Lead, the Pending queue's roles). So does a new PO
+   invoice saved straight past Pending. Anyone else is refused with "Only Admin and Accountants can approve or reject
+   a Purchase Order invoice."
+2. **The system's own decision passes.** Auto-approval (`_auto_approve.apply_auto_approval`, used by the upload, the
+   daily re-check and the Re-check button) runs as whoever uploaded or pressed Re-check, so it marks the document with
+   a server-only flag (`purchase_order_invoice_access.SYSTEM_DECISION_FLAG`). A request cannot set `flags`, because
+   Frappe reserves that key.
+3. **Edit of a PO invoice is unchanged**: the rules above Amendment A still describe it.
+
+The rule is the pure `services/purchase_order_invoice_access.decision_problem`, applied by the Vendor Invoices
+`validate` hook `integrations/controllers/vendor_invoices.guard_purchase_order_decision`, next to the Work Order
+guard. So the endpoints, Desk and REST obey one check.
+
+### Considered options
+
+- **Trust `approved_by = "System"` or `auto_approved` as the system mark.** Rejected: a request payload can set both
+  fields, so anyone could fake an auto-approval.
+- **One guard for both document types**, dispatching on `document_type`. Not now: the Work Order rule stays untouched,
+  and the two guards name each other.
+
+### Consequences
+
+- For PO invoices, "only the approval roles decide" is enforced on every surface, as for Work Orders.
+- The system flag lets any status change through, not only to Approved. Today only `apply_auto_approval` sets it; a
+  new path that sets it takes on that trust.
+- Patches that run as Administrator, or write with `db.set_value` (no hooks), are not affected.

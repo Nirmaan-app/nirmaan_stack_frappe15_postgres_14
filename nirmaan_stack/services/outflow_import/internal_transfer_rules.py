@@ -10,12 +10,14 @@ Each refusal is the sentence the screen shows, or `None` when the action may go 
 from __future__ import annotations
 
 from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CASHBOOK_INTERNAL_KINDS,
     PLACE_CASHBOOK_WALLET,
     PLACE_CASHFREE,
     PLACE_ICICI_CURRENT,
     PLACES,
     TRANSFER_IN,
     TransferEnds,
+    cashbook_line_kind,
     record_direction,
 )
 from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
@@ -52,6 +54,10 @@ MARK_REFUSED_ALREADY = "This line is already an Internal Transfer."
 MARK_REFUSED_NOT_OPEN = "This line is {status}, so it can't be marked as an Internal Transfer."
 OTHER_END_REFUSED = "Choose where the money came from or went to: one of {places}, other than the line's own {own}."
 SEND_BACK_REFUSED = "This line is not an Internal Transfer, so there is nothing to send back."
+SEND_BACK_REFUSED_CASHBOOK_MOVE = (
+    "Cashbook's own Type ({kind}) says this line is a move between our own places, so it cannot be sent back to "
+    "Mismatched."
+)
 
 
 def own_place(source: str | None) -> str | None:
@@ -60,12 +66,17 @@ def own_place(source: str | None) -> str | None:
 
 
 def mark_refusal(
-    *, row_status: str | None, source: str | None, direction: str | None, import_batch: str | None = None
+    *,
+    row_status: str | None,
+    source: str | None,
+    direction: str | None,
+    import_batch: str | None = None,
+    match_basis: str | None = None,
 ) -> str | None:
     """Why this line may NOT be marked as an Internal Transfer by hand, or `None` when it may.
 
-    Open lines only (Pending match run, Matched, Mismatched, Error), so money is never recorded twice. A Porter line
-    and a card spend wait for their own import, and a Cashbook line its job still owns is refused with the same
+    Open lines only (Pending match run, Matched, Mismatched, Error), so money is never recorded twice. A Porter line,
+    a card spend and a card refund wait for their own import, and a Cashbook line its job still owns is refused with the same
     sentences every main-table write uses (`skip_origin.own_import_refusal`). Any other source but ICICI, Cashfree
     and Cashbook (a card credit) is refused by name.
     """
@@ -77,7 +88,9 @@ def mark_refusal(
             ROW_SKIPPED: MARK_REFUSED_SKIPPED,
             ROW_INTERNAL_TRANSFER: MARK_REFUSED_ALREADY,
         }.get(status, MARK_REFUSED_NOT_OPEN.format(status=status or "in no known state"))
-    owned = own_import_refusal(source=source, direction=direction, row_status=status, import_batch=import_batch)
+    owned = own_import_refusal(
+        source=source, direction=direction, row_status=status, import_batch=import_batch, match_basis=match_basis
+    )
     if owned:
         return owned
     if own_place(source) is None:
@@ -93,9 +106,24 @@ def other_end_refusal(source: str | None, other_end: str | None) -> str | None:
     return None
 
 
-def send_back_refusal(row_status: str | None) -> str | None:
-    """Why this line may NOT be sent back to Mismatched, or `None` when it may: only an Internal Transfer line."""
-    return None if (row_status or "").strip() == ROW_INTERNAL_TRANSFER else SEND_BACK_REFUSED
+def send_back_refusal(
+    *, row_status: str | None, source: str | None, row_kind: str | None, transfer_id: str | None
+) -> str | None:
+    """Why this line may NOT be sent back to Mismatched, or `None` when it may.
+
+    Only an Internal Transfer line, and never a Cashbook line whose own Type is one of our moves
+    (`CASHBOOK_INTERNAL_KINDS`; an old line with no stored Type is read by its Txn Id, `cashbook_line_kind`, as the
+    patch placed it): the Type alone names both its ends, so one rule covers all three. A top-up's money (`Bank → VA`,
+    `VA → Wallet`) sits in the Credit column, which the line does not keep, so marked again by hand it would come back
+    from the wrong ends and with Rs 0 (the #1619 review; owner decision 2026-11-10). The screen's Send back button
+    reads this same rule (`can_send_back` on each row).
+    """
+    if (row_status or "").strip() != ROW_INTERNAL_TRANSFER:
+        return SEND_BACK_REFUSED
+    kind = cashbook_line_kind(row_kind, transfer_id)
+    if (source or "").strip() == CASHBOOK_SOURCE and kind in CASHBOOK_INTERNAL_KINDS:
+        return SEND_BACK_REFUSED_CASHBOOK_MOVE.format(kind=kind)
+    return None
 
 
 def hand_mark_ends(source: str | None, line_direction: str | None, other_end: str, detail: str = "") -> TransferEnds:

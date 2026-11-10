@@ -1,3 +1,4 @@
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 /**
  * Bulk Import Outflow -- the uploaded bank statement batch.
  *
@@ -322,6 +323,13 @@ export interface OutflowImportRow {
      */
     hand_mark?: HandMarkOffer | null;
     /**
+     * Whether the line offers Send back to Mismatched (`internal_transfer_rules.send_back_refusal`): an Internal
+     * Transfer line, unless it is a Cashbook move (its Type, or on an old line with no stored Type its Txn Id, says
+     * Bank → VA, VA → Wallet or Wallet → VA). The screen keeps no copy of the rule; the endpoint asks it again under
+     * the line's lock.
+     */
+    can_send_back?: boolean;
+    /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
@@ -352,6 +360,13 @@ export interface OutflowImportRow {
      * (`outflowImportStatus.isCollectPaymentLine`). Blank on every other source and on older Cashbook lines.
      */
     row_kind?: string | null;
+    /**
+     * An open Collect payment's bill, copied at import (#1595), and its Bill check kept on the line (#1642:
+     * Checking / Matched / Mismatched / Not read / Not checked). The decide screen says "Invoice already available"
+     * and what Create will lead to (`cashbookCollect.collectBillOutcome`). Blank on every other line.
+     */
+    stored_bill?: string | null;
+    bill_check?: BillCheck | null;
     /**
      * Cashbook Statement only: on a line skipped as a Paired wallet refund, the other line's Txn Id (the spend
      * the refund gives back, or the refund that gives back this spend), stored at staging (#1602). The Skipped

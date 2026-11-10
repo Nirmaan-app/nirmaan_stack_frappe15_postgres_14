@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Review a Credit Card Statement import's spend types before Create (#1568, spec #1565, ADR-0039 ruling 5).
+"""Review a Credit Card Statement import's spend and refund types before Create (#1568, spec #1565, ADR-0039
+ruling 5; refunds #1673, ADR-0039 Amendment D).
 
 Review lists every line (`card_import.get_card_import`); this module writes the one thing Review changes: a
 spend's expense type, chosen from the live Non-Project list.
@@ -9,8 +10,9 @@ spend's expense type, chosen from the live Non-Project list.
 ⚠️ AN EDIT IS THE PLAN CREATE READS. It writes the line's `suggested_expense_type` -- what the Create job
 turns into the Expense's type -- the moment it is made, so closing the browser loses nothing.
 
-⚠️ ONLY A SPEND CREATE WOULD STILL WRITE (`card_types.CREATE_LINE_STATUSES`, direction Debit). A created
-spend is refused under its row lock: its type is changed on the Expense. A credit has no type at all.
+⚠️ ONLY A LINE CREATE WOULD STILL WRITE (`card_types.CREATE_LINE_STATUSES`, carrying Create's plan: a spend or
+an unpaired refund). A created line is refused under its row lock: its type is changed on the Expense. Any
+other credit has no type at all.
 """
 
 import frappe
@@ -21,18 +23,19 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import line_names
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, TYPE_SOURCE_REVIEW
 from nirmaan_stack.services.outflow_import.parser import DIRECTION_DEBIT
+from nirmaan_stack.services.outflow_import.sources import is_card_refund
 
 
 @frappe.whitelist(methods=["POST"])
 def set_card_expense_type(batch: str, rows, expense_type: str):
-    """Give one or more spends of a card import an expense type. Returns the import as `get_card_import` does.
+    """Give one or more spends or refunds of a card import an expense type. Returns the import as `get_card_import` does.
 
     URL: /api/method/nirmaan_stack.api.outflow_import.card_review.set_card_expense_type
     Body: `batch`, `rows` (line names: a JSON list, or one name), `expense_type` (a live Non-Project type).
 
     Writes each line's type and marks it chosen on Review (no longer "Check"). Refused, writing nothing: not a
-    card import; no lines; a type that is not a live Non-Project type; a line of another import, a credit,
-    or a spend already created.
+    card import; no lines; a type that is not a live Non-Project type; a line of another import, a credit
+    that is no refund, or a line already created.
     """
     require_outflow_access()
     names = line_names(rows)
@@ -45,7 +48,7 @@ def set_card_expense_type(batch: str, rows, expense_type: str):
 
     lines = frappe.db.sql(
         """
-        SELECT name, import_batch, direction, row_status FROM "tabOutflow Import Row"
+        SELECT name, import_batch, direction, row_status, match_basis FROM "tabOutflow Import Row"
         WHERE name IN %s ORDER BY name FOR UPDATE
         """,
         (tuple(names),),
@@ -56,8 +59,10 @@ def set_card_expense_type(batch: str, rows, expense_type: str):
         line = found.get(name)
         if not line or line.import_batch != batch:
             frappe.throw(f"{name} is not a line of {batch}.", title="Not this import")
-        if line.direction != DIRECTION_DEBIT:
-            frappe.throw(f"{name} is a credit: only a spend has an expense type.", title="Not a spend")
+        if line.direction != DIRECTION_DEBIT and not is_card_refund(line.direction, line.match_basis):
+            frappe.throw(
+                f"{name} is a credit: only a spend or a refund has an expense type.", title="Not a spend or a refund"
+            )
         if line.row_status not in CREATE_LINE_STATUSES:
             frappe.throw(
                 f"{name} is {line.row_status}: its Expense is already created. Change the type on the Expense.",

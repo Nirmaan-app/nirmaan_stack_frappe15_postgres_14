@@ -17,6 +17,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.internal_transfers import INTERNAL_TRANSFER_DOCTYPE
 from nirmaan_stack.api.outflow_import.test_cashbook_import import _purge
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 
 _HEADER = (
@@ -159,21 +160,6 @@ class TestACashbookImportRecordsItsOwnMoves(CashbookStageCase):
         self.assertEqual(again["row_status"], "Internal Transfer")
         self.assertIsNotNone(self._record(again["name"]))
 
-    def test_a_failed_repeat_of_a_move_sent_back_to_mismatched_is_no_internal_transfer(self):
-        """Every Internal Transfer line keeps exactly one record. The SUCCESS line was sent back; a later REVERSED
-        sighting moved no money: Bank refused, as every not-successful move is (owner decision 3, #1619)."""
-        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
-
-        tag = frappe.generate_hash(length=6).upper()
-        txn = f"VALOAD-{tag}"
-        first = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "",
-                                               "700", "SUCCESS", txn)]))[0]
-        send_back_to_mismatched(first["name"], reason="Not our own move")
-        again = self._lines(self._stage([_line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "",
-                                               "700", "REVERSED", txn)]))[0]
-        self.assertEqual((again["row_status"], again["skip_kind"]), ("Skipped", "Bank refused"))
-        self.assertIsNone(self._record(again["name"]))
-
     def test_a_top_up_into_the_virtual_account_is_money_in_and_money_back_out_is_money_out(self):
         """Review finding: the record's direction is the column the statement filled -- Credit is In, Debit is Out."""
         tag = frappe.generate_hash(length=6).upper()
@@ -218,6 +204,65 @@ class TestEveryInternalTransferLineHoldsOneRecord(CashbookStageCase):
         records = frappe.db.count(INTERNAL_TRANSFER_DOCTYPE, {"import_row": ["in", lines]})
         self.assertEqual((len(tab["rows"]), chip, records), (2, 2, 2))
         self.assertTrue(all(row["internal_transfer"] for row in tab["rows"]))
+
+
+class TestACashbookMoveIsNeverSentBack(CashbookStageCase):
+    """Review finding (#1619): a Cashbook move's Type names both its ends, and a top-up's money is in the Credit
+    column, which the line does not keep. Sent back and marked again, it came back from the wrong ends and with
+    Rs 0. So a line whose own Cashbook Type says it is our move stays an Internal Transfer: Send back is refused in
+    words, and the screen does not offer it (owner decision, 2026-11-10)."""
+
+    def _move(self, kind, who_from, who_to, debit, credit, txn):
+        return self._lines(self._stage([_line("01/08/2026", kind, who_from, who_to, debit, credit, "SUCCESS",
+                                              txn)]))[0]["name"]
+
+    def test_send_back_is_refused_in_words_and_the_record_stays(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+
+        tag = frappe.generate_hash(length=6).upper()
+        moves = [
+            ("Bank → VA", self._move("Bank → VA", "Test Company", "Virtual Account", "", "50000", f"VALOAD-{tag}1")),
+            ("VA → Wallet", self._move("VA → Wallet", "Virtual Account", "Test Employee A", "", "4000",
+                                       f"BUSINESS_USER-{tag}2")),
+            ("Wallet → VA", self._move("Wallet → VA", "Test Employee B", "Virtual Account", "300", "",
+                                       f"C2B-{tag}3")),
+        ]
+        for kind, line in moves:
+            with self.subTest(kind=kind):
+                imported = self._record(line)
+                with self.assertRaises(frappe.ValidationError) as caught:
+                    send_back_to_mismatched(line, reason="Checking it")
+                frappe.db.rollback()
+                self.assertIn(f"Cashbook's own Type ({kind}) says this line is a move between our own places",
+                              str(caught.exception))
+                self.assertEqual(frappe.db.get_value("Outflow Import Row", line, "row_status"), "Internal Transfer")
+                self.assertEqual(self._record(line), imported)
+
+    def test_an_old_move_staged_before_the_type_was_stored_is_refused_too(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows
+
+        tag = frappe.generate_hash(length=6).upper()
+        line = self._move("VA → Wallet", "Virtual Account", "Test Employee A", "", "4000", f"BUSINESS_USER-{tag}")
+        frappe.db.set_value("Outflow Import Row", line, "row_kind", None)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            send_back_to_mismatched(line, reason="Checking it")
+        frappe.db.rollback()
+        self.assertIn("Cashbook's own Type (VA → Wallet) says this line is a move", str(caught.exception))
+        batch = frappe.db.get_value("Outflow Import Row", line, "import_batch")
+        rows = get_outflow_rows(scope="internal_transfers", batch=batch, limit=50)["rows"]
+        self.assertEqual([row["can_send_back"] for row in rows], [False])
+
+    def test_the_screen_offers_send_back_on_every_other_internal_transfer_line_only(self):
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows
+
+        tag = frappe.generate_hash(length=6).upper()
+        batch = self._stage([
+            _line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "500", "SUCCESS", f"VALOAD-{tag}"),
+        ])
+        rows = get_outflow_rows(scope="internal_transfers", batch=batch, limit=50)["rows"]
+        self.assertEqual([row["can_send_back"] for row in rows], [False])
 
 
 def _xlsx(lines) -> bytes:
@@ -307,7 +352,7 @@ def _fake_cloud_file(fname, content, dt, dn, is_private=1, **_):
     """`save_file` as the storage app leaves it, with no upload: a File whose URL is a cloud key no bucket holds."""
     doc = frappe.new_doc("File")
     doc.update({"file_name": fname, "is_private": is_private,
-                "file_url": f"/api/method/frappe_gcp_attachment.controller.generate_file?key=test-{fname}"})
+                "file_url": cloud_url(fname, dt)})
     doc.db_insert()
     return doc
 

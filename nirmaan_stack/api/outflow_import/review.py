@@ -48,6 +48,7 @@ from nirmaan_stack.api.outflow_import.card_refund_pairs import unskip_refund_pai
 from nirmaan_stack.api.outflow_import.internal_transfers import (
     INTERNAL_TRANSFER_COLUMNS,
     INTERNAL_TRANSFER_JOIN,
+    can_send_back,
     hand_mark_of_row,
     internal_transfer_fields,
 )
@@ -57,6 +58,8 @@ from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
 )
 from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
+from nirmaan_stack.services.expense_bills.bill_list import stopped_sql
+from nirmaan_stack.services.expense_bills.reading import stopped_before
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -136,10 +139,11 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CARD_PLAN_BASIS,
     CARD_STATEMENT_SOURCE,
     CASHBOOK_SOURCE,
     CREATE_GATED_SOURCES,
-    CREDITS_DECIDED_ON_THE_MAIN_TABLE,
+    CREDITS_WAIT_ONLY_WITH_A_PLAN,
     PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
     source_runs_the_matcher,
@@ -1483,19 +1487,20 @@ def skip_row(row: str, reason: str):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
-            ["name", "import_batch", "row_status", "direction", "source", "row_kind"],
+            ["name", "import_batch", "row_status", "direction", "source", "row_kind", "match_basis"],
             as_dict=True,
             for_update=True,
         )
         if not current:
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
         # The BATCH's source, as `match_line` reads it -- the run-level fact, not the denormalised copy.
-        # The direction: a card credit may be skipped here, a card spend may not (#1567).
+        # The direction and plan: a card credit may be skipped here, a card spend or refund may not (#1567, #1673).
         refusal = manual_skip_refusal(
             row_status=current.row_status,
             source=_batch_source(current.import_batch),
             direction=current.direction,
             import_batch=current.import_batch,
+            match_basis=current.match_basis,
         )
         if refusal:
             frappe.throw(refusal, title="Cannot skip this transfer")
@@ -2991,6 +2996,13 @@ def get_outflow_rows(
                -- Cashbook Statement only: a Paired wallet refund's other line, by Txn Id (#1602). The Skipped
                -- popup shows "Paired with <it>" under the tag.
                r.cashbook_refund_partner,
+               -- An open Collect payment's stored bill and its Bill check (#1642): the decide screen says
+               -- "Invoice already available" and what Create will lead to. A line left Checking by a reading
+               -- that stopped (`expense_bills.bill_list.stopped_sql`; the cutoff is the FIRST parameter of this
+               -- query) has no result for Create to carry, so it ships none, as a line stored before #1642
+               -- does: the dialog then says "Will be read on Create", which is what Create does.
+               r.stored_bill,
+               CASE WHEN {stopped_sql("r", "%s")} THEN NULL ELSE r.bill_check END AS bill_check,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,
@@ -3032,7 +3044,7 @@ def get_outflow_rows(
         ORDER BY {column} {direction}, r.name ASC
         LIMIT %s OFFSET %s
         """,
-        tuple(all_params) + (limit, offset),
+        (stopped_before(), *all_params, limit, offset),
         as_dict=True,
     )
 
@@ -3076,6 +3088,7 @@ def get_outflow_rows(
                 "amount": float(row.get("amount") or 0),
                 **internal_transfer_fields(row),
                 "hand_mark": hand_mark_of_row(row),
+                "can_send_back": can_send_back(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
@@ -3162,19 +3175,22 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # the facets, the summary panel's *Still open* and the Payments card's *Total Unreconciled Outflow*
     # (`not_matched_totals`). One clause here keeps all of them equal to each other. A Porter line comes
     # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
-    # ⚠️ PER LINE, NOT PER SOURCE (#1567, README ruling 4): a card CREDIT is decided here, so an open one is
-    # in the population; a card spend waits like a Porter line. `sources.line_waits_for_its_own_create`
-    # is the same rule in Python.
+    # ⚠️ PER LINE, NOT PER SOURCE (#1567, #1673): a card spend waits like a Porter line, and so does a card
+    # refund (a credit carrying its import's Create plan, `CARD_PLAN_BASIS`); any other card CREDIT is
+    # decided here, so an open one is in the population. `sources.is_card_refund` and
+    # `sources.line_waits_for_its_own_create` are the same rule in Python.
     where.append(
         "NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s"
-        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s))"
+        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s"
+        " AND COALESCE(r.match_basis, '') != %s))"
     )
     params.extend(
         [
             tuple(sorted(CREATE_GATED_SOURCES)),
             (ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER),
-            tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
+            tuple(sorted(CREDITS_WAIT_ONLY_WITH_A_PLAN)),
             DIRECTION_CREDIT,
+            CARD_PLAN_BASIS,
         ]
     )
 

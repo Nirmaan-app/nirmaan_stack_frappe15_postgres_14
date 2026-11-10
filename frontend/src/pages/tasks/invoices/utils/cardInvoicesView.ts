@@ -24,6 +24,8 @@ export interface CardInvoiceRow {
     period_to: string;
     /** Every "YYYY-MM" the statement's period overlaps, oldest first (GLOSSARY *Statement month*). */
     statement_months: string[];
+    /** Why its latest Expense bill was rejected, when it was (#1644); the spend then waits here again. */
+    last_bill_rejected?: string | null;
 }
 
 /** The filter value that means "any". */

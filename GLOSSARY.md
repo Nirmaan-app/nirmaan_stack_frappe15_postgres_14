@@ -76,6 +76,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Records without review** — the role profiles whose Expense Requests are approved on submit, with no Reviewer. Admin always records without review; the others are chosen by Admin, only from profiles allowed to raise at least one expense type. It skips the Reviewer, never the amount rule: an HR raiser's ₹40,000 expense still waits for an Admin. Such a request is marked *Approved on submit (no review)*. *Avoid*: trusted recorder, direct access, skip list. (Owner, 2026-10-19.)
 
+- **Expense type** — what an Expense was spent on (Office Rent, Travel Expenses (Bus), Petty Cash …). Admin keeps the list in **Packages Settings → Expense Packages**. Each type says which ledgers it may be recorded on — Project Expenses, Non-Project Expenses, or both — who may raise it, its **Request form**, and whether its **Expense payee** is asked. These belong to each site and Admin may change them at any time: no type is a project or a non-project type for good (Travel Expenses (Bus) began non-project only and is on both ledgers on some sites). *Avoid*: category (removed 2026-10-27). (Owner, 2026-11-02: the list is no longer shipped with the app; #1677.)
+
 - **Request form (source format)** — the extra questions a particular expense type asks. Hotel and accommodation ask for the occupant, the property and the rent period; travel asks where and when. Most types ask nothing extra and use the plain form — that is normal, not a gap. Set up in **Packages Settings → Expense Packages**. When a request is approved, its answers are written onto the created Expense in readable form, so the accountant sees them where they already look.
 
 - **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
@@ -238,18 +240,19 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Paired card refund** — a credit from a merchant on the same Credit Card Statement as a spend from that same merchant of exactly the same amount. Both lines are skipped, each naming the other: the money came back, so nothing was spent. One credit cancels one spend, the latest one before it. (Owner, 2026-10-25.)
 
-- **Unpaired card credit** — a merchant credit with no spend of the same amount on the same statement (a partial refund, or a refund of an earlier month). It is never skipped silently: it is kept as an open line for someone to decide. (Owner, 2026-10-25.)
+- **Unpaired card refund** — a merchant credit on a Credit Card Statement with no spend of the same merchant and exactly the same amount on that statement (a partial refund, a refund of an earlier month, or a charge reversed). It gives back money a card spend already took, so it is recorded as a *Paid* **Non-Project** Expense of minus its amount, with an expense type chosen as a card spend's is, no bill, and no link to any one spend. It is not income: income with no project is a *Non Project Inflow*. (Owner, 2026-11-08; replaces *Unpaired card credit*, owner 2026-10-25.)
+  *Avoid*: unpaired card credit, card credit, card inflow.
 
 ## Petty-cash wallet (Cashbook)
 
 - **Cashbook Statement** — the petty-cash wallet provider's export of every movement in the company's wallets over a period, one line per movement, with links to the bills employees attached to their spends. Only the export that carries those links is accepted; the older export without them is refused. Its links stop working a week after export, so a statement is uploaded within that week. (Owner, 2026-11-02.)
   *Avoid*: wallet statement, Obopay report, cashbook upload.
 
-- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet. Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. (Owner, 2026-11-02.)
+- **Wallet spend** — a Cashbook line where an employee paid a shop from their wallet. Each one is recorded as exactly one *Paid* Expense, Project or Non-Project, and then waits for its invoice unless its bill came with it. A wallet spend recorded before invoices were chased (#1592) waits only when it is dated in this financial year, from 1 April 2026; older ones never wait. (Owner, 2026-11-02; this financial year, 2026-11-07.)
 
 - **Collect payment** — a Cashbook line where a shop asked for money and the employee approved it in their payment app. Money left the company, so it is never treated as a move between the company's own balances. It may not be a company spend, so it is never recorded on its own: it is kept as an open line, shown for checking, until someone records it as an Expense or skips it by hand with a reason. One refunded in full on the same statement needs no decision (see *Paired wallet refund*). (Owner, 2026-11-02.)
 
-- **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported arrives with a later statement and is attached then. (Owner, 2026-11-02.)
+- **Bill link** — a link on a wallet spend to a bill the employee attached in the wallet app. The bill becomes the Expense's invoice; two or more bills on one spend become one invoice of several pages. A bill added after the spend was imported (a **late bill**) arrives with a later statement and is attached then. Each becomes an *Expense bill* with its *Bill check*, a late bill too; one of several pages is Not checked. (Owner, 2026-11-02; Bill check, 2026-11-07.)
 
 - **Paired wallet refund** — a refund on a Cashbook Statement that gives back the whole of a spend on the same statement. Both lines are skipped, each naming the other. (Owner, 2026-11-02.)
 
@@ -263,9 +266,29 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Wallet credit** — money paid into an employee's wallet from outside the company (a person, a shop's refund, a sale of site scrap). It is not a move between the company's own balances, so it is kept as an open line for someone to decide. (Owner, 2026-11-02.)
 
+## Expense bills
+
+- **Expense bill** — the bill attached to a wallet spend or a card spend, kept as its own record with its own approval. A replaced or rejected bill stays as history; only the latest one counts. Expense bills are kept apart from *Vendor Invoices* for now and are meant to join them in one place later (ADR-0045). (Owner, 2026-11-07.)
+  *Avoid*: expense invoice, wallet invoice, card invoice.
+
+- **Bill check** — the reading of an expense bill to see whether its total (incl. GST) equals the amount on the statement line that recorded the spend. Its result is **Matched** (within ₹1), **Mismatched**, **Not read** (the bill could not be read; the reason is kept), or **Not checked** (the spend carries several bills, so its total is taken as the line amount). While the reading runs, the bill is **Checking**. A Bill check never stops a bill from being attached. The bill's number and date are taken from the bill only when it is Matched, and never over what a person typed. (Owner, 2026-11-07.) A *Collect payment*'s bill gets its Bill check while the line is still open, against the line's amount; recording the line as an Expense carries a finished result to its expense bill without reading the bill again, and skipping the line makes no expense bill. (#1642.) A line still Checking, or whose reading stopped, has no result to carry: its expense bill is read afresh. (Spec #1637 review.)
+  *Avoid*: invoice validation, autofill (that is the Vendor Invoice upload's form filling), AI check.
+
+- **Expense bill approval** — an expense bill is *Pending*, *Approved* or *Rejected*, as a Vendor Invoice is. A Matched bill is approved by the system when its Bill check ends (**auto-approved**); any other result waits in Pending Approval for Admin or an Accountant. A bill an Admin or Accountant Lead puts on a paid Expense from Payment Done is approved in that person's name. A rejected bill keeps its reason, and its Expense waits for a new bill again. (Owner, 2026-11-07.) Only an Expense's latest bill, once its Bill check has a result, waits for a decision; whoever approves it may first correct its number and date, which the Expense then carries too. (#1644.) A bill put on a paid Expense from Payment Done by anyone else waits like any other. The one an Admin or Accountant Lead puts there is still read, and its Bill check is kept beside the approval; it never replaces the number and date they typed. Changing only the number or date there is not a new bill. (#1643.) Who approved or rejected a bill, and when, is recorded on the bill; the rejecter's fields are the Expense bill's own, since a Vendor Invoice records no rejecter. (Story 35, spec #1637 review.)
+  An Expense's Bill check and approval are those of its latest Expense bill. An Expense with no Expense bill (its bill came before launch, or it has none) has neither, shown as "—". Where an approval is shown, an auto-approved bill reads **Auto-approved**, apart from one a person approved. (#1640.)
+  A PO or WO *payment* has no Bill check and shows no single bill, not even "—": one payment can cover many Vendor Invoices. (#1648.)
+
+- **All Invoices** — Vendor Invoice Recon's list of every bill the company holds, one pill per kind: **PO** and **WO** (Vendor Invoices), **Cashbook** and **Credit Card** (Expense bills of wallet spends and card spends), and **Porter** (Porter Invoices, one row per invoice however many orders it bills). An Expense bill there is **Latest** (its Expense's latest bill, the one that counts) or **Replaced** (history). Porter Invoices show their own Validate result, never a Bill check or an approval. Admin and the Accountant profiles see every pill; anyone else who sees All Invoices sees PO and WO only. (#1646.)
+  *Avoid*: invoice history, task history (its old names).
+
+- **Read again** — an Admin or Accountant Lead sends a Not read expense bill back to its Bill check: the bill is Checking again until the new result, which is treated as any first result (Matched is auto-approved; anything else waits in Pending Approval). A Bill check whose reading **stopped** part-way (it never came back) counts as Not read, with that as its reason, so it can be read again or decided. (#1645.)
+  *Avoid*: retry, re-validate, re-run.
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.
+
+- **Invoice uploader** — the person who entered a Vendor Invoice, shown as **Invoice Added By** in Vendor Invoice Recon's Pending Invoice Approvals and All Invoices, and as **Invoice Uploaded By** on its PO and WO Invoices 2B Recon tabs. It is the invoice's own *uploaded by*, never the record's creator, which is Administrator on many old invoices loaded in bulk. Shown by the person's full name, or by their email when they have no name (#1647). *Avoid*: owner, created by (for this).
 
 - **Invoice amounts (base, GST, total)** — every Vendor Invoice carries three figures: the **Invoice Base Amount** (the taxable value before GST), the **Invoice GST Amount** (all GST on the bill), and the **Invoice Amount** (the grand total incl. GST, which is what *Total Amount Invoiced* sums). All three are read from the bill by extraction and confirmed by the user, on Purchase Order and Work Order invoices alike. Base + GST need not equal the total exactly — round-off, other charges and TCS sit in the gap. The GST is IGST, or CGST + SGST, or a plain Tax line — exactly one of the three on any bill. *Avoid*: net amount, taxable amount, invoice value.
 
@@ -282,7 +305,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Current Liabilities** — a **third, separate** figure: `max(0, po_amount_delivered − amount_paid)`, per PO before summing. Based on what physically **arrived**, not what was billed, and clamped at zero so an overpayment never reads as a negative liability. It is *not* Amount Due and the two disagree on roughly half of all POs. It feeds the CEO-Hold cashflow gap. **Merged, Cancelled and Inactive POs are left out**: what they delivered is counted on the PO that replaced them (owner, 2026-10-15).
 
-- **Approved invoice** — a Vendor Invoice at status *Approved*: treated as financially committed (it counts toward the invoiced total and drives billing status). Editing or deleting one is restricted to an *Admin* — the rationale and the (deliberately uneven) enforcement live in [ADR-0014](docs/adr/0014-invoice-mutation-permissions.md). On a **Work Order** the server enforces all of it (ADR-0014 Amendment A): only the invoice-approval roles approve or reject, only Accountants and Admin edit, and only Admin changes an Approved one's amount, number or date; anyone else rejects it and uploads it again.
+- **Approved invoice** — a Vendor Invoice at status *Approved*: treated as financially committed (it counts toward the invoiced total and drives billing status). Editing or deleting one is restricted to an *Admin* — the rationale and the (deliberately uneven) enforcement live in [ADR-0014](docs/adr/0014-invoice-mutation-permissions.md). On a **Work Order** the server enforces all of it (ADR-0014 Amendment A): only the invoice-approval roles approve or reject, only Accountants and Admin edit, and only Admin changes an Approved one's amount, number or date; anyone else rejects it and uploads it again. On a **Purchase Order** only an *Invoice approver* approves or rejects, on every surface (#1638); its edits keep the rule above.
+
+- **Invoice approver** — a person who may approve or reject a Vendor Invoice, on a Purchase Order or a Work Order: *Admin*, an Accountant or an Accountant Lead, the people who work Pending Invoice Approvals. Anyone else is refused, on the screen, in Desk and through the API. **Auto-approval** (an invoice that clears every check at upload or on a re-check is approved by the system, recorded as approved by "System") is the system's decision, not a person's, so it does not need one, whoever uploaded the invoice or pressed Re-check (#1638). *Avoid*: approver role, invoice admin.
 
 - **Credit Note** — a **Purchase-Order-only** Vendor Invoice variant recording a vendor credit: its amount is stored negative and it is excluded from the PO's invoiced quantity. Work Orders (Service Requests) have no credit notes.
 
@@ -322,9 +347,9 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 Two separate holds sit on a Vendor. They share the word "hold" and nothing else — never merge them in UI copy, code or reports.
 
-- **Vendor Hold** — the *credit* hold: `vendor_status` = On-Hold when the vendor's available credit is used up. Blocks dispatch and payments on "PO Approved" POs. Set by the daily credit job; cleared automatically when credit frees up.
+- **Vendor Hold** — the *credit* hold: `vendor_status` = On-Hold when the vendor's available credit is used up. Blocks dispatch and payments on "PO Approved" POs. Set by the daily credit cron job; cleared automatically when credit frees up.
 
-- **GST Hold** — the *GST* hold: the `gst_hold` checkbox. The daily job turns it ON for a Service or Material & Service vendor with **no GST number** whose **GST-off Work Orders** created this financial year (not Rejected) total **more than ₹15,00,000**, summed on their Work Order total. A vendor on GST Hold **cannot get a new Work Order**, nor be swapped into one by an *Amendment*; its existing Work Orders carry on. The job only ever turns it ON — it stays ON when the total drops, when the vendor gets a GST number and into the next financial year. Only *Remove GST Hold* (Admin) takes it off. A change by hand on the field switches no Work Order; an untick on a vendor that still qualifies is put back ON the next morning. *Avoid*: "vendor on hold" for this — that phrase means Vendor Hold. ([ADR-0028](docs/adr/0028-gst-hold.md).)
+- **GST Hold** — the *GST* hold: the `gst_hold` checkbox. The daily GST cron job turns it ON for a Service or Material & Service vendor with **no GST number** whose **GST-off Work Orders** created this financial year (not Rejected) total **more than ₹15,00,000**, summed on their Work Order total. A vendor on GST Hold **cannot get a new Work Order**, nor be swapped into one by an *Amendment*; its existing Work Orders carry on. The cron job only ever turns it ON — it stays ON when the total drops, when the vendor gets a GST number and into the next financial year. Only *Remove GST Hold* (Admin) takes it off. A change by hand on the field switches no Work Order; an untick on a vendor that still qualifies is put back ON the next morning. *Avoid*: "vendor on hold" for this — that phrase means Vendor Hold. ([ADR-0028](docs/adr/0028-gst-hold.md).)
 
 - **Remove GST Hold** — the Admin action on the Vendor page. It only clears GST Hold: it changes no Work Order, and no GST number is needed. If the vendor has registered, someone enters its GST number; its new Work Orders are then approved GST-on and its old GST-off ones appear on the GST mismatch list for *Match GST to vendor*. A vendor that still qualifies is put back on GST Hold the next morning. ([ADR-0028 Amendment A](docs/adr/0028-gst-hold.md).)
 
@@ -632,3 +657,32 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
   back. Taking one back on (rehiring) is not supported yet
   ([ADR-0043](docs/adr/0043-an-exited-employees-login-is-switched-off-and-stripped-not-deleted.md)). *Avoid*:
   deleted user, inactive user. (Owner, 2026-11-05.)
+
+## Background operations
+
+- **Background operation** — a unit of work the system carries out after the screen that started it already has its
+  answer back: a TDS export, a BoQ upload's parse, a sheet's classification, a rate suggestion, a daily check. It waits
+  in a queue, runs, and ends *finished*, *failed* or *lost* (the server stopped while running it). One started from a
+  screen belongs to the user who started it, and only that user follows it or collects its result. A **run** (such as a
+  BoQ AI Run Log or a Rate Suggestion Run) is the business record; one run can span several background operations
+  (suggest, then match). *Avoid*: job (a construction project), task (the Task records and Action Center tasks),
+  request, batch, reading; "worker" for the operation (a worker is the server process that runs operations).
+  ([ADR-0047](docs/adr/0047-a-screen-follows-a-background-operation-by-reading-its-status-record.md).)
+  (Owner, 2026-11-08.)
+
+- **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
+  owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
+  (Owner, 2026-11-08.)
+
+## Pasted links
+
+- **Pasted link** — the address of a document kept outside the app (mostly a shared Google Drive file, sheet or
+  folder) that a person pastes in, instead of uploading the file: a project's **Drive link**, a Customer PO's link, a
+  Design Tracker task's design file link, a Commission Report task's report link and a client bill's **bill document
+  link**. It is kept whole, however long, and opens at that address. *Avoid*: attachment (an uploaded file), "bill
+  link" for a client bill's document (a *Bill link* is a wallet spend's bill, see *Petty-cash wallet*).
+  (Owner, 2026-11-09, #1680.)
+
+- **Cut link** — a pasted link stored shortened by the old 140-character limit, so it no longer opens. It cannot be
+  rebuilt from what was stored; its owner pastes it again. A link that looks long is not cut: Google's own share links
+  end in `&rtpof=true&sd=true`. (#1680, 2026-11-10.)

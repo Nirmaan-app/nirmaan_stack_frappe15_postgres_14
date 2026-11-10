@@ -16,12 +16,12 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.tds.edit_request import edit_tds_pick, edit_tds_request
 from nirmaan_stack.api.tds.test_submit import (
-	_cloud_url,
 	_create_project,
 	_delete_project_rows,
 	_make_user,
 	_raw,
 )
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
 
 ROW = "Project TDS Item List"
@@ -75,7 +75,7 @@ class TestEditTdsRequest(FrappeTestCase):
 			"Category", name=f"Valves {self.other_wp}", category_name=f"Valves {self.other_wp}", work_package=self.other_wp
 		)
 		self.item = _raw("TDS Items", tds_item_name="Gate Valve", work_package=self.wp)
-		self.sheet = _cloud_url("request.pdf")
+		self.sheet = cloud_url("request.pdf")
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -136,7 +136,7 @@ class TestEditTdsRequest(FrappeTestCase):
 
 	def _upload(self, owner="Administrator"):
 		"""A datasheet the editor uploaded and has not attached yet."""
-		url = _cloud_url(f"edit-{frappe.generate_hash(length=6)}.pdf")
+		url = cloud_url(f"edit-{frappe.generate_hash(length=6)}.pdf")
 		name = _raw("File", file_name="edit.pdf", file_url=url, is_private=1)
 		frappe.db.set_value("File", name, "owner", owner, update_modified=False)
 		return url
@@ -268,7 +268,7 @@ class TestEditTdsRequest(FrappeTestCase):
 
 	def test_a_datasheet_that_is_neither_the_rows_nor_the_editors_upload_is_refused(self):
 		row = self._new_make_row()
-		for url in ("", _cloud_url("never-uploaded.pdf"), self._upload(owner=PMO_USER)):
+		for url in ("", cloud_url("never-uploaded.pdf"), self._upload(owner=PMO_USER)):
 			with self.subTest(url=url):
 				self._assert_refused(row, self._as_new_make(tds_attachment=url))
 
@@ -353,7 +353,7 @@ class TestEditTdsPick(FrappeTestCase):
 		self.other_item = _raw("TDS Items", tds_item_name="Ball Valve", work_package=self.wp)
 		self.sheets = {}
 		for item, make in ((self.item, "MakeA"), (self.item, "MakeB"), (self.other_item, "MakeC")):
-			self.sheets[(item, make)] = _cloud_url(f"{item}-{make}.pdf")
+			self.sheets[(item, make)] = cloud_url(f"{item}-{make}.pdf")
 			_raw("TDS Repository", tds_item=item, make=make, status="Verified", tds_attachment=self.sheets[(item, make)])
 
 	def tearDown(self):
@@ -373,7 +373,7 @@ class TestEditTdsPick(FrappeTestCase):
 			tds_make=make,
 			tds_work_package=self.wp,
 			tds_status=status,
-			tds_attachment=self.sheets.get((item, make)) or _cloud_url("legacy.pdf"),
+			tds_attachment=self.sheets.get((item, make)) or cloud_url("legacy.pdf"),
 			**fields,
 		)
 

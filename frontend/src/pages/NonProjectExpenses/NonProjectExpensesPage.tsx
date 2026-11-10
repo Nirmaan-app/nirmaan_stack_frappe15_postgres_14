@@ -65,6 +65,7 @@ import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDia
 import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { officeRentNames, useWithheldTds, WithheldTdsContext } from "@/hooks/useWithheldTds";
+import { BILL_APPROVAL_COLUMN_HIDDEN, EXPENSE_BILL_CHECK_FIELDS } from "@/components/common/expenseBillCheckColumns";
 
 const DOCTYPE = "Non Project Expenses";
 
@@ -405,7 +406,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   } = useServerDataTable<NonProjectExpensesType>({
     doctype: DOCTYPE,
     columns: columnsDefinition, // *** PASS THE DEFINED COLUMNS HERE ***
-    fetchFields: DEFAULT_NPE_FIELDS_TO_FETCH,
+    // The latest Expense bill's Bill check and approval, filled in by the list endpoint (#1640).
+    fetchFields: [...DEFAULT_NPE_FIELDS_TO_FETCH, ...EXPENSE_BILL_CHECK_FIELDS],
+    initialState: { columnVisibility: BILL_APPROVAL_COLUMN_HIDDEN },
     searchableFields: NPE_SEARCHABLE_FIELDS,
     urlSyncKey: urlSyncKey,
     defaultSort: "payment_date desc",

@@ -44,8 +44,8 @@ SEND_BACK_REASON_REQUIRED = "A reason is required to send a line back to Mismatc
 MARKED_NOTE = "Marked as Internal Transfer by {actor} on {day}: {reason}"
 SENT_BACK_NOTE = "Sent back to Mismatched by {actor} on {day}: {reason}"
 
-_LINE_FIELDS = ["name", "import_batch", "row_status", "source", "direction", "amount", "added_on", "remarks",
-                "settlement_reference", "transfer_id"]
+_LINE_FIELDS = ["name", "import_batch", "row_status", "source", "row_kind", "direction", "match_basis", "amount",
+                "added_on", "remarks", "settlement_reference", "transfer_id"]
 
 
 @frappe.whitelist(methods=["POST"])
@@ -70,7 +70,11 @@ def mark_internal_transfer(row: str, other_end: str, reason: str, detail: str | 
     with concurrent_writer_refusal_as_sentence("mark_internal_transfer", row):
         line = _locked_line(row)
         refusal = mark_refusal(
-            row_status=line.row_status, source=line.source, direction=line.direction, import_batch=line.import_batch
+            row_status=line.row_status,
+            source=line.source,
+            direction=line.direction,
+            import_batch=line.import_batch,
+            match_basis=line.match_basis,
         ) or other_end_refusal(line.source, other_end)
         if refusal:
             frappe.throw(refusal, title="Cannot mark as Internal Transfer")
@@ -89,6 +93,7 @@ def mark_internal_transfer(row: str, other_end: str, reason: str, detail: str | 
 def send_back_to_mismatched(row: str, reason: str) -> dict:
     """Send an Internal Transfer line back to Mismatched, with a reason: its record is deleted, the line reopens.
     Every Internal Transfer line holds its own record (owner decision 3, #1619), so no other line goes with it.
+    A Cashbook line whose own Type is one of our moves is refused (`internal_transfer_rules.send_back_refusal`).
 
     URL: /api/method/nirmaan_stack.api.outflow_import.internal_transfer_actions.send_back_to_mismatched
     (POST `row`, `reason`)
@@ -102,7 +107,9 @@ def send_back_to_mismatched(row: str, reason: str) -> dict:
 
     with concurrent_writer_refusal_as_sentence("send_back_to_mismatched", row):
         line = _locked_line(row)
-        refusal = send_back_refusal(line.row_status)
+        refusal = send_back_refusal(
+            row_status=line.row_status, source=line.source, row_kind=line.row_kind, transfer_id=line.transfer_id
+        )
         if refusal:
             frappe.throw(refusal, title="Cannot send back")
         for name in frappe.get_all(INTERNAL_TRANSFER_DOCTYPE, filters={"import_row": row}, pluck="name"):

@@ -8,6 +8,8 @@ Writes to the env DB only, and is idempotent: a line already seeded (remarks WAL
 - `cashbook_line:` one open Cashbook spend (From `WALK-IT Test Employee`), whose Mark dialog pre-fills Detail;
 - `zero_line:` one old Cashbook top-up, an Internal Transfer line whose record holds ₹0 (as imports before #1623
   left them), which the statement below repeats: its preview says one old record gets its amount;
+- `old_move:` one Cashbook `VA → Wallet` Internal Transfer line with no stored Type (as every Cashbook line staged
+  before the Type was stored), read by its Txn Id; it and `zero_line` offer no Send back (#1619 review);
 - `statement:` a made-up Cashbook statement (.xlsx, fresh Txn Ids each run) with one `Bank → VA` top-up, one spend
   and the old top-up again with its Credit, for the upload preview. It is written under the bench's `tmp/`, which
   the host sees at `benches/<task>/tmp/`. Never confirmed by the walk.
@@ -25,6 +27,7 @@ from openpyxl import Workbook
 from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
 from nirmaan_stack.services.outflow_import.internal_transfers import (
     PLACE_CASHBOOK_VA,
+    PLACE_CASHBOOK_WALLET,
     PLACE_ICICI_CURRENT,
     TransferEnds,
 )
@@ -35,6 +38,7 @@ CASHBOOK_REMARKS = "WALK-IT made-up cashbook spend"
 RETIRED_REPEAT_REMARKS = "WALK-IT made-up wallet move seen twice"
 ZERO_REMARKS = "WALK-IT made-up old top-up with a zero record"
 ZERO_TXN = "VALOAD-WALKITZERO"
+OLD_MOVE_REMARKS = "WALK-IT made-up old move with no stored Type"
 
 
 def batch(source: str, filename: str) -> str:
@@ -78,6 +82,15 @@ zero = line(ZERO_REMARKS, {"transfer_id": ZERO_TXN, "amount": 0.0, "direction": 
 record_for_line(frappe.get_doc(ROW, zero), TransferEnds(PLACE_ICICI_CURRENT, PLACE_CASHBOOK_VA),
                 made_by="cashbook_bank_to_va", amount=0, direction="In")
 
+old_move = line(OLD_MOVE_REMARKS, {"transfer_id": "BUSINESS_USER-WALKITOLD", "amount": 0.0, "direction": "",
+                                   "status_raw": "SUCCESS", "added_on": "2026-10-02 10:00:00", "row_kind": None,
+                                   "added_by_raw": "Virtual Account", "beneficiary_name": "WALK-IT Test Employee",
+                                   **moved},
+                source="Cashbook", filename="walk-it-cashbook-old.xlsx", reset=moved)
+record_for_line(frappe.get_doc(ROW, old_move), TransferEnds(PLACE_CASHBOOK_VA, PLACE_CASHBOOK_WALLET,
+                                                           "WALK-IT Test Employee"),
+                made_by="cashbook_va_to_wallet", amount=2500, direction="In")
+
 header = ["Date", "Time", "Type", "From", "To", "Debit", "Credit", "Affected Wallet Balance", "VA Balance", "Remark",
           "Note", "Employee ID", "Reporting Manager", "Reporting Manager Employee ID", "Payment Status", "Txn Id",
           "Category", "Category Code", "Location", "Location Code", "Department", "Department Code", "Title",
@@ -105,4 +118,5 @@ frappe.db.commit()
 print(f"line: {cashfree}")
 print(f"cashbook_line: {cashbook}")
 print(f"zero_line: {zero}")
+print(f"old_move: {old_move}")
 print(f"statement: {path}")

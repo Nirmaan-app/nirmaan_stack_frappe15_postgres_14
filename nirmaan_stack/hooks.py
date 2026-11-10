@@ -413,8 +413,12 @@ doc_events = {
         # No `after_insert`: Document.insert() runs after_insert AND then
         # run_post_save_methods() -> on_update, so binding both fired the recompute
         # TWICE per saved invoice. on_update alone covers insert.
-        # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A).
-        "validate": "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
+        # Who may approve, reject or edit a Work Order invoice (#1531, ADR-0014 Amendment A),
+        # and who may approve or reject a Purchase Order invoice (#1638).
+        "validate": [
+            "nirmaan_stack.integrations.controllers.vendor_invoices.guard_work_order_invoice",
+            "nirmaan_stack.integrations.controllers.vendor_invoices.guard_purchase_order_decision",
+        ],
         # A generated invoice's Vendor Invoice moves its record (#1547), and its delete deletes the record too.
         "on_update": [
             "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
@@ -514,6 +518,8 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_tds.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
+            # Its Expense bills stay as history, no longer latest (spec #1637 review).
+            "nirmaan_stack.integrations.controllers.expense_bills.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
@@ -546,6 +552,8 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
             # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
             "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
+            # Its Expense bills stay as history, no longer latest (spec #1637 review).
+            "nirmaan_stack.integrations.controllers.expense_bills.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the
@@ -770,7 +778,12 @@ scheduler_events = {
 # Ignore links to specified DocTypes when deleting documents
 # -----------------------------------------------------------
 
-# ignore_links_on_delete = ["Communication", "ToDo"]
+# An Expense bill is history (GLOSSARY *Expense bills*, ADR-0045): a deleted Expense's bills stay, retired by
+# `integrations/controllers/expense_bills.on_trash`, never deleted, and never hold the Expense in place. Without
+# this, Frappe's dynamic-link check refused every ordinary delete of an Expense with a bill (only Unreconcile's
+# `force=True` got through), so `on_trash` was unreachable. The bill's other link, `statement_line`, is ignored
+# with it: the bill keeps the line's amount of its own. Every other doctype's links still guard a delete.
+ignore_links_on_delete = ["Expense Bill"]
 
 # Request Events
 # ----------------

@@ -97,6 +97,9 @@ ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `ignore_permissions=True` and a bare `@frappe.whitelist()` would otherwise be
 # reachable by any logged-in user. Keep the two lists in sync.
 #
+# The same set decides a Purchase Order invoice on every surface (#1638): the Vendor Invoices validate
+# hook `guard_purchase_order_decision` checks it, so Desk and REST obey it too.
+#
 # PMO Executive was REMOVED on 2026-09-17 (PMO access review), on both sides.
 INVOICE_APPROVAL_PROFILES = (
     ADMIN_PROFILE,
@@ -113,6 +116,11 @@ PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PRO
 # May mark a card spend *No invoice* (ADR-0039 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
 # `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
 CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# May press Read again on an Expense bill whose Bill check is Not read (#1645, spec #1637): Admin and Accountant
+# Lead. ENFORCEMENT boundary of `api/expenses/expense_bill_approval.read_expense_bill_again`; mirrored by
+# `canReadExpenseBillAgain` in `constants/roles.ts`.
+READ_AGAIN_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
@@ -170,6 +178,11 @@ USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFIL
 # Mirrored client-side by `PAID_INVOICE_PROFILES` in
 # `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` -- keep the two lists in sync.
 PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# Of those, the ones whose new bill on a paid wallet spend or card spend is approved at once in their name (#1643,
+# spec #1637, GLOSSARY *Expense bill approval*): Admin and Accountant Lead. Anyone else's new bill there waits like
+# any other (auto-approved when Matched). Enforced in `expense_decision.save_paid_invoice`; no screen reads it.
+PAID_BILL_APPROVER_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
@@ -341,8 +354,8 @@ def can_action_invoice_approvals(user: str) -> bool:
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
 
 
-# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). Purchase Order invoices keep
-# their old rules. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
+# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). A Purchase Order invoice's approve
+# and reject take INVOICE_APPROVAL_PROFILES (#1638); its other rules are the old ones. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
 # (`integrations/controllers/vendor_invoices.guard_work_order_invoice`, rule in
 # `services/work_order_invoice_access.py`), so Desk and the API obey it as the screens do.
 #

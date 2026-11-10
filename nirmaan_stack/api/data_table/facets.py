@@ -5,7 +5,7 @@ from frappe.desk.reportview import execute as reportview_execute
 import re
 import traceback
 
-from .constants import LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
+from .constants import LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP, NOT_SET_FACET_VALUE
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field,
@@ -13,16 +13,6 @@ from .utils import (
     append_search_filter, json_facet_empty_condition
 )
 from .token_search import tokenize
-
-# Sentinel value for the "blank"/"not set" facet bucket. Surfaced as a facet
-# option (the frontend renders it with a caller-supplied label, e.g. "Not
-# Linked") only when `include_blank_bucket` is true.
-# `_process_filters_for_query` (utils.py) recognises this exact string in an
-# `in` filter and rewrites it to `is not set` so it matches both NULL and ''.
-#
-# MUST stay byte-identical to `NOT_LINKED_FACET_VALUE` in
-# `frontend/src/pages/Items/items.constants.ts`.
-NOT_SET_FACET_VALUE = "__NOT_SET__"
 
 
 def get_facet_values_impl(

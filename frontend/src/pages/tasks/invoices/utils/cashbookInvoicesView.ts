@@ -28,6 +28,8 @@ export interface CashbookInvoiceRow {
     project: string | null;
     project_name: string | null;
     cashbook_batch: string;
+    /** Why its latest Expense bill was rejected, when it was (#1644); the spend then waits here again. */
+    last_bill_rejected?: string | null;
 }
 
 /** The two narrowings applied before the table: they are not one column's value. */

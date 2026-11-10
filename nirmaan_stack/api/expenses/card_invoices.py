@@ -17,7 +17,14 @@ sub-tab (`cashbook_invoices.py`, #1592) and live in `services/expense_invoices.p
 
 import frappe
 
-from nirmaan_stack.services.card_invoices import CardExpenseFacts, card_line_details, statement_months
+from nirmaan_stack.services.card_invoices import (
+    CARD_SPEND_SQL,
+    CardExpenseFacts,
+    card_line_details,
+    is_card_spend,
+    statement_months,
+)
+from nirmaan_stack.services.expense_bills.approval import last_rejection_sql
 from nirmaan_stack.services.expense_invoices import (
     require_profile,
     require_upload_access,
@@ -36,20 +43,22 @@ def get_card_invoice_queue() -> list[dict]:
 
     Each row: `name`, `payment_date`, `amount`, `expense_type`, `details` (the statement line), `merchant` (its
     merchant key), `holder`, `credit_card_statement`, `statement_date`, `period_from`, `period_to` and
-    `statement_months` (every "YYYY-MM" its period overlaps, GLOSSARY *Statement month*; a statement always
+    `last_bill_rejected` (the reason its latest Expense bill was rejected, else None) and `statement_months` (every "YYYY-MM" its period overlaps, GLOSSARY *Statement month*; a statement always
     has both period dates, the doctype requires them). The screen filters by holder and statement month itself: the list is one or two statements' worth of spends.
     """
     require_upload_access()
     rows = frappe.db.sql(
         """
         SELECT e.name, e.payment_date, e.amount, e.type AS expense_type, e.payment_ref,
-               e.credit_card_statement, s.holder, s.statement_date, s.period_from, s.period_to
+               e.credit_card_statement, s.holder, s.statement_date, s.period_from, s.period_to,
+               {last_bill_rejected} AS last_bill_rejected
         FROM "tabNon Project Expenses" e
         JOIN "tabCredit Card Statement" s ON s.name = e.credit_card_statement
-        WHERE COALESCE(e.invoice_attachment, '') = ''
+        WHERE {card_spend}
+          AND COALESCE(e.invoice_attachment, '') = ''
           AND COALESCE(e.no_invoice_by, '') = ''
         ORDER BY e.payment_date DESC, e.name DESC
-        """,
+        """.format(card_spend=CARD_SPEND_SQL, last_bill_rejected=last_rejection_sql("e", f"'{EXPENSE_DOCTYPE}'")),
         as_dict=True,
     )
     for row in rows:
@@ -63,7 +72,7 @@ def _locked_facts(expense: str):
     doc = frappe.get_doc(EXPENSE_DOCTYPE, expense, for_update=True)
     facts = CardExpenseFacts(
         name=doc.name,
-        is_card=bool(doc.credit_card_statement),
+        is_card=is_card_spend(doc.credit_card_statement, doc.amount),
         invoice_attachment=doc.invoice_attachment,
         no_invoice_by=doc.no_invoice_by,
     )
@@ -80,9 +89,9 @@ def attach_card_invoice(
 
     Example: `{"expense": "NPE-0042", "invoice_attachment": "/private/files/zomato.pdf"}` -> `{"name": "NPE-0042"}`.
     """
-    require_upload_access()
+    user = require_upload_access()
     doc, facts = _locked_facts(expense)
-    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date)
+    return save_invoice(doc, facts, invoice_attachment, invoice_ref, invoice_date, user)
 
 
 @frappe.whitelist(methods=["POST"])

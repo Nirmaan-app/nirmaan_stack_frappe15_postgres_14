@@ -8,7 +8,9 @@ with that spend as a pair: both lines Skipped, kind *Card refund pair*, each lin
 `Outflow Import Row.card_refund_partner`. A person who disagrees with the pairing unskips EITHER line, and
 both come back in one transaction:
 
-    the credit   -> `Mismatched`: an unpaired card credit, decided on the main table (README ruling 4)
+    the credit   -> `Mismatched`. A pair staged since #1673 kept Create's plan under its skip, so the credit is
+                    an *Unpaired card refund* on the card import's Review, recorded by its Create. A pair staged
+                    before #1673 carries no plan: its credit is decided on the main table (README ruling 4)
     the spend    -> `Pending match run`: Create's work again; its Create plan was kept while it was skipped
 
 `review.unskip_row` routes here, after `skip_origin.unskip_refusal` and under its row lock and

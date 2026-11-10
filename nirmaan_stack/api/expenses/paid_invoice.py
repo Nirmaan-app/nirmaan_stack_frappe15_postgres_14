@@ -8,7 +8,8 @@ URL: /api/method/nirmaan_stack.api.expenses.paid_invoice.set_paid_expense_invoic
 WHO: `role_profiles.PAID_INVOICE_PROFILES` (Admin, Accountant, Accountant Lead, HR Executive, HR Lead). Only
 Admin and the Accountant Lead may edit a Paid expense by hand (`expense_decision.edit_access`); this changes
 the invoice file, number and date and nothing else, so it is open to more people. The rules are
-`expense_decision.save_paid_invoice`.
+`expense_decision.save_paid_invoice`. A new bill on a wallet spend or card spend is an Expense bill, approved at once
+when an Admin or Accountant Lead puts it there (#1643).
 """
 
 import frappe
@@ -32,10 +33,6 @@ def set_paid_expense_invoice(
     if not has_role_profile(user, PAID_INVOICE_PROFILES):
         frappe.throw("Only Admin, Accounts or HR can add a paid expense's invoice.", frappe.PermissionError,
                      title="Not permitted")
-    save_paid_invoice(doctype, expense, {
-        "invoice_attachment": invoice_attachment,
-        "invoice_ref": invoice_ref,
-        "invoice_date": invoice_date,
-    }, user)
+    save_paid_invoice(doctype, expense, invoice_attachment, invoice_ref, invoice_date, user)
     frappe.db.commit()
     return {"name": expense}

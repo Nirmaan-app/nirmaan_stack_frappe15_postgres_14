@@ -23,11 +23,13 @@ from nirmaan_stack.api.expenses.cashbook_invoices import (
     get_cashbook_invoice_queue,
     mark_cashbook_no_invoice,
 )
+from nirmaan_stack.api.expenses.expense_bill_fixture import capture_jobs, purge_expense_bills
 from nirmaan_stack.api.outflow_import import cashbook as cb
 from nirmaan_stack.api.outflow_import.test_card_import import purge_records
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, ADMIN, OUTSIDER, _Users
-from nirmaan_stack.api.tds.test_submit import _cloud_url
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PMO = "Nirmaan PMO Executive Profile"
 PROCUREMENT = "Nirmaan Procurement Executive Profile"
@@ -39,7 +41,7 @@ FIXTURE = (
 )
 
 
-class CashbookInvoiceCase(FrappeTestCase):
+class CashbookInvoiceCase(ExpenseTypeFlagGuard, FrappeTestCase):
     def setUp(self):
         super().setUp()
         frappe.set_user("Administrator")
@@ -48,6 +50,7 @@ class CashbookInvoiceCase(FrappeTestCase):
         self.project = None
         self.batch = None
         self.addCleanup(self._purge)
+        self.jobs = capture_jobs(self)
         self.project = self._project()
         self.batch = self._import()
         self.created = self._created()
@@ -105,12 +108,14 @@ class CashbookInvoiceCase(FrappeTestCase):
         if self.batch:
             for doctype in (PE, NPE):
                 names = frappe.get_all(doctype, filters={"cashbook_batch": self.batch}, pluck="name")
+                purge_expense_bills(names)
                 purge_records(doctype, names)
             frappe.db.sql("""DELETE FROM "tabOutflow Row Match" WHERE import_batch = %s""", (self.batch,))
             purge_internal_transfers(self.batch)
             frappe.db.sql("""DELETE FROM "tabOutflow Import Row" WHERE import_batch = %s""", (self.batch,))
             frappe.db.sql("""DELETE FROM "tabOutflow Import Batch" WHERE name = %s""", (self.batch,))
             frappe.db.commit()
+        purge_expense_bills([name for _, name in self.extra])
         for doctype, name in self.extra:
             purge_records(doctype, [name])
         if self.project:
@@ -169,7 +174,7 @@ class TestTheList(CashbookInvoiceCase):
         self.assertIsNone(npe_row["project"])
 
     def test_an_invoiced_or_marked_spend_is_not_listed(self):
-        frappe.db.set_value(PE, self.pe, "invoice_attachment", _cloud_url("inv.pdf"), update_modified=False)
+        frappe.db.set_value(PE, self.pe, "invoice_attachment", cloud_url("inv.pdf"), update_modified=False)
         frappe.db.set_value(NPE, self.npe, "no_invoice_by", "Administrator", update_modified=False)
         frappe.db.commit()
         listed = set(self._queue())
@@ -194,7 +199,7 @@ class TestTheList(CashbookInvoiceCase):
         self.assertNotIn(doc.name, {r["name"] for r in get_cashbook_invoice_queue()})
         self.assertRaisesRegex(
             frappe.ValidationError, "not a wallet spend from a Cashbook Statement import",
-            attach_cashbook_invoice, doc.name, NPE, _cloud_url("f.pdf"),
+            attach_cashbook_invoice, doc.name, NPE, cloud_url("f.pdf"),
         )
 
     def test_every_pending_invoices_upload_profile_may_read_it(self):
@@ -207,15 +212,15 @@ class TestTheList(CashbookInvoiceCase):
 
 class TestAttachingTheInvoice(CashbookInvoiceCase):
     def test_a_file_alone_files_it_and_the_spend_leaves_the_list(self):
-        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, _cloud_url("chai.pdf"))
+        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, cloud_url("chai.pdf"))
         doc = frappe.get_doc(PE, self.pe)
-        self.assertEqual(doc.invoice_attachment, _cloud_url("chai.pdf"))
+        self.assertEqual(doc.invoice_attachment, cloud_url("chai.pdf"))
         self.assertFalse(doc.invoice_ref)
         self.assertFalse(doc.invoice_date)
         self.assertNotIn(self.pe, self._queue())
 
     def test_number_and_date_are_kept_when_given(self):
-        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.npe, NPE, _cloud_url("b.pdf"),
+        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.npe, NPE, cloud_url("b.pdf"),
                  "INV-9", "2026-08-02")
         doc = frappe.get_doc(NPE, self.npe)
         self.assertEqual((doc.invoice_ref, str(doc.invoice_date)), ("INV-9", "2026-08-02"))
@@ -224,7 +229,7 @@ class TestAttachingTheInvoice(CashbookInvoiceCase):
         self.assertRaisesRegex(frappe.ValidationError, "Attach the invoice file", attach_cashbook_invoice, self.pe, PE, "")
         self.assertRaisesRegex(
             frappe.ValidationError, "cannot be in the future",
-            attach_cashbook_invoice, self.pe, PE, _cloud_url("f.pdf"), None, add_days(nowdate(), 1),
+            attach_cashbook_invoice, self.pe, PE, cloud_url("f.pdf"), None, add_days(nowdate(), 1),
         )
         self.assertFalse(frappe.db.get_value(PE, self.pe, "invoice_attachment"))
 
@@ -232,24 +237,24 @@ class TestAttachingTheInvoice(CashbookInvoiceCase):
         self._as(self.users.make(ACCOUNTANT_LEAD), mark_cashbook_no_invoice, self.pe, PE, "No bill at the stall")
         self.assertRaisesRegex(
             frappe.ValidationError, "already marked No invoice by",
-            self._as, self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, _cloud_url("f.pdf"),
+            self._as, self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.pe, PE, cloud_url("f.pdf"),
         )
-        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.npe, NPE, _cloud_url("a.pdf"))
+        self._as(self.users.make(ACCOUNTANT), attach_cashbook_invoice, self.npe, NPE, cloud_url("a.pdf"))
         self.assertRaisesRegex(
             frappe.ValidationError, "already has its invoice",
-            attach_cashbook_invoice, self.npe, NPE, _cloud_url("b.pdf"),
+            attach_cashbook_invoice, self.npe, NPE, cloud_url("b.pdf"),
         )
 
     def test_a_doctype_that_is_not_an_expense_ledger_is_refused(self):
         self.assertRaisesRegex(
             frappe.ValidationError, "not an expense ledger",
-            attach_cashbook_invoice, self.npe, "Projects", _cloud_url("f.pdf"),
+            attach_cashbook_invoice, self.npe, "Projects", cloud_url("f.pdf"),
         )
 
     def test_a_user_outside_pending_invoices_upload_is_refused(self):
         self.assertRaises(
             frappe.PermissionError, self._as, self.users.make(OUTSIDER),
-            attach_cashbook_invoice, self.npe, NPE, _cloud_url("f.pdf"),
+            attach_cashbook_invoice, self.npe, NPE, cloud_url("f.pdf"),
         )
         self.assertFalse(frappe.db.get_value(NPE, self.npe, "invoice_attachment"))
 
@@ -277,7 +282,7 @@ class TestMarkingNoInvoice(CashbookInvoiceCase):
 
     def test_a_blank_reason_and_an_already_resolved_spend_are_refused(self):
         self.assertRaisesRegex(frappe.ValidationError, "Type the reason", mark_cashbook_no_invoice, self.pe, PE, "  ")
-        attach_cashbook_invoice(self.npe, NPE, _cloud_url("inv.pdf"))
+        attach_cashbook_invoice(self.npe, NPE, cloud_url("inv.pdf"))
         self.assertRaisesRegex(
             frappe.ValidationError, "already has its invoice", mark_cashbook_no_invoice, self.npe, NPE, "x"
         )

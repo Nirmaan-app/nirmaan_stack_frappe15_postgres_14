@@ -242,6 +242,14 @@ class TestTheRowCarriesWhatTheScreenShows(ActionFixture):
     def test_a_line_that_may_not_be_marked_carries_no_offer(self):
         self.assertIsNone(self._row(self._line(self._batch(), status="Settled"))["hand_mark"])
 
+    def test_a_line_says_whether_it_may_be_sent_back(self):
+        """The screen keeps no copy of the send-back rule either (`internal_transfer_rules.send_back_refusal`): an
+        Internal Transfer line may be, an open line may not. A Cashbook move is pinned by
+        `test_internal_transfer_cashbook.TestACashbookMoveIsNeverSentBack`."""
+        batch = self._batch()
+        self.assertTrue(self._row(self._line(batch))["can_send_back"])
+        self.assertFalse(self._row(self._line(batch, status="Mismatched"))["can_send_back"])
+
     def test_the_tab_and_the_summary_chip_count_a_line_marked_by_hand_whatever_its_bank_status(self):
         """Every Internal Transfer line holds one record (owner decision 3, #1619), so the chip counts what the tab
         lists: a person's mark on a line the bank called FAILED (unskipped first) counts in both."""
