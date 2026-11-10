@@ -277,10 +277,11 @@ bwt() { echo "$CROOT/benches/$1/apps/nirmaan_stack"; }
 task() { RC=0; OUT="$(bash "$L/scripts/devenv/task.sh" "$@" 2>&1)" || RC=$?; }
 rec() { git -C "$L" config "devbox-task.$1.box" || echo none; }
 
-for n in ta tb tc td te tf tg; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
+for n in ta tb tc td te tf tg th; do task start "$n" --box contabo --no-agent; rc_is 0 "start $n"; done
 commit "$(bwt ta)" a1; commit "$(bwt tb)" b1; commit "$(bwt tc)" c1
 echo x > "$(bwt td)/stray.txt"; echo "# changed" >> "$(bwt tf)/scripts/devenv/handoff.sh"
 echo "gitdir: $T/nowhere" > "$(bwt tg)/.git"
+git -C "$(bwt th)" checkout -q -b side; commit "$(bwt th)" h1   # the agent committed off box/th
 echo "4101 claude $(bwt te)" > "$CH/.stub/procs"
 # ta: merged on the laptop under another name, so no laptop box/ta (contabo's bulk-tds-1571 on 2026-11-10)
 git -C "$L" fetch -q "$CO" box/ta; git -C "$L" merge -q --ff-only FETCH_HEAD; git -C "$L" branch -D box/ta >/dev/null
@@ -301,6 +302,7 @@ line '^KEEP +box-task +td .*landed:master +untracked:1$' "an untracked file in t
 line '^KEEP +box-task +te .*landed:master +working$' "a working agent holds"
 line '^KEEP +box-task +tf .*landed:master +tracked-changes:1$' "a tracked change in the box env holds"
 line '^KEEP +box-task +tg .*landed:master +status-failed$' "a box env git status cannot read holds"
+line '^KEEP +box-task +th .*landed:master +off-branch:[0-9a-f]{9}$' "a commit in the box env off its box branch holds"
 has "to prune: ta (task.sh prune --yes cleans them; laptop branches stay)" "the total names the tasks"
 same "$(rec ta)" contabo "listing cleans nothing"
 
