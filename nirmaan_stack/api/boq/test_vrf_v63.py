@@ -243,8 +243,8 @@ class TestVrf7AssetV63(FrappeTestCase):
     def test_06_v63_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V63))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 64)  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE nums[-1] == 63
-        self.assertEqual(nums, list(range(1, 65)))  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE list(range(1, 64))
+        self.assertEqual(nums[-1], 65)  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE nums[-1] == 64
+        self.assertEqual(nums, list(range(1, 66)))  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE list(range(1, 65))
         self.assertTrue(os.path.exists(_asset_path(V62)))
 
     def test_07_live_catalogue_is_v63(self):
@@ -257,7 +257,9 @@ class TestVrf7AssetV63(FrappeTestCase):
         self.assertNotEqual(_norm(live), _norm(self.cfg))
         self.assertEqual([q["id"] for q in live["list_spec"]["attribute_definitions"]], [q["id"] for q in self.cfg["list_spec"]["attribute_definitions"]])
         for k, v in self.cfg["list_spec"]["pricing"].items():
-            if k not in ("extras", "split"):
+            # VRF-9 (HVAC v65 LOADED; mechanical authority): BEFORE `k not in ("extras", "split")` -- v65 also moves per_set
+            # (counted.defined, S8) and lot_units (calculator_refuses, S7)
+            if k not in ("extras", "split", "per_set", "lot_units"):
                 self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
         self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]

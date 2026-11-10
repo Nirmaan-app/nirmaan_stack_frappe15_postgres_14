@@ -5541,7 +5541,9 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     for (const rf of P.row_family ?? []) {
       const f0 = val(it, fa);
       if (!(blankAns(f0) || /^none of these$/i.test(f0))) break;
-      if (rf.unit_classes && (rowClass === null || !rf.unit_classes.includes(rowClass))) continue;
+      // QR-3 5a (00029 r402): a row with NO unit gets no safety-net item -- it stays refused for its unit (the BoQ user sets it)
+      if (rowClass === null) break;
+      if (rf.unit_classes && !rf.unit_classes.includes(rowClass)) continue;
       let said: string | null = null;
       for (const cl of rowText.split(/[.;|\n]+/)) { const m = find(rf.words, cl); if (m && !(rf.not_words && find(rf.not_words, cl))) { said = m; break; } }
       if (!said) continue;

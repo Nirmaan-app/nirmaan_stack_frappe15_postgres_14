@@ -267,19 +267,19 @@ class TestVrf2aAssetV56(FrappeTestCase):
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 56)`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(max(ns), 57)`
-        self.assertEqual(max(ns), 64)   # VRF-8: v64 (BEFORE: 63, VRF-7)
+        self.assertEqual(max(ns), 65)   # VRF-9: v65 (BEFORE: 64, VRF-8)
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 57)))`
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 58)))`
         # INVERTED at VRF-3b (HVAC v59; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 59)))`
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertEqual(sorted(ns), list(range(1, 60)))`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `list(range(1, 61))`
-        self.assertEqual(sorted(ns), list(range(1, 65)))  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE list(range(1, 64))
+        self.assertEqual(sorted(ns), list(range(1, 66)))  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE list(range(1, 65))
         self.assertTrue(os.path.exists(_asset_path(V55)))
         # INVERTED at VRF-2b (HVAC v57; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v57.json")))
         # INVERTED at VRF-3a (HVAC v58; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))`
         self.assertTrue(os.path.exists(_asset_path("rate_master_hvac_all_v58.json")))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v65.json")))   # VRF-8 (BEFORE: v64, VRF-7)
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v66.json")))   # VRF-9 (BEFORE: v65, VRF-8)
 
     # ---- 09 LIVE ---------------------------------------------------------------------------------------------------
     def test_09_live_the_loaded_vrf_config_is_v56s_and_not_eligible(self):
@@ -302,7 +302,8 @@ class TestVrf2aAssetV56(FrappeTestCase):
         # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE `_asset_path("rate_master_hvac_all_v61.json")` -- the live VRF config is v62's (test_vrf_v62 07 pins it whole)
         # INVERTED at VRF-7 (HVAC v63 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE `_asset_path("rate_master_hvac_all_v62.json")` -- the live VRF config is v63's (test_vrf_v63 07 pins it whole)
         # INVERTED at VRF-8 (HVAC v64 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE `_asset_path("rate_master_hvac_all_v63.json")` -- the live VRF config is v64's (test_vrf_v64 07 pins it whole)
-        with open(_asset_path("rate_master_hvac_all_v64.json"), "r", encoding="utf-8") as fh:
+        # INVERTED at VRF-9 (HVAC v65 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE `_asset_path("rate_master_hvac_all_v64.json")` -- the live VRF config is v65's (test_vrf_v65 07 pins it whole)
+        with open(_asset_path("rate_master_hvac_all_v65.json"), "r", encoding="utf-8") as fh:
             v57cfg = next(c for c in json.load(fh)["category_configs"] if c["category_id"] == CATEGORY)
         self.assertEqual(_norm(cfg.get("list_spec")), _norm(v57cfg["list_spec"]))
         self.assertNotEqual(_norm(cfg.get("list_spec")), _norm(self.cfg["list_spec"]))

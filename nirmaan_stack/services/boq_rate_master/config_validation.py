@@ -1210,6 +1210,15 @@ _EXTRAS_OPTIONAL_LINES = _EXTRAS_OPTIONAL_LINES | {"drain_cable_line_silent", "d
 _EXTRAS_OPTIONAL_PLACEHOLDERS = dict(_EXTRAS_OPTIONAL_PLACEHOLDERS, drain_cable_line_silent=["{said}"], drain_cable_row_line=["{said}", "{rows}"])
 _LIST_DEF_KEYS = _LIST_DEF_KEYS | {"required"}
 
+# VRF-9 (the VRF-8 review S1-S7, owner rulings R1-R4 2026-11-11 00:36-00:43, ANSWER 2 S8-S10) -- every key OPTIONAL, each refused by
+# name when malformed: `prepare.family_refusals / not_includes / tfa_capacity / row_family`, `several_types.typed`,
+# `feeder_length.every_module`; `scope.always_note / any_level / always_both`; `safeguard.exact_quotes`;
+# `per_set.counted.defined`; `lot_units.calculator_refuses`.
+_PREPARE_KEYS = _PREPARE_KEYS | {"family_refusals", "not_includes", "tfa_capacity", "row_family"}
+_SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"always_note", "any_level", "always_both", "panel_pick"}
+_SAFEGUARD_OPTIONAL_KEYS = _SAFEGUARD_OPTIONAL_KEYS | {"exact_quotes"}
+_LOT_OPTIONAL_KEYS = _LOT_OPTIONAL_KEYS | {"calculator_refuses"}
+
 
 def _pattern(p, where):
     if not _nonempty_str(p):
@@ -1285,6 +1294,7 @@ def _validate_prepare(pp, pr, fams, loc):
         _sentence(aw, "line", w, ("{said}",))
     _validate_prepare_vrf7(pp, fams, loc)
     _validate_prepare_vrf8(pp, fams, loc)
+    _validate_prepare_vrf9(pp, pr, fams, loc)
 
 
 def _validate_prepare_vrf7(pp, fams, loc):
@@ -1351,6 +1361,65 @@ def _validate_prepare_vrf7(pp, fams, loc):
         _sentence(ss, "not_stocked", w, ("{said}", "{missing}"))
 
 
+def _validate_prepare_vrf9(pp, pr, fams, loc):
+    """VRF-9 -- Fan Coil refusals (R4), includes that are not that include (R2 BMS cables / R3 civil supports), the TFA capacity (S7)
+    and a family read from the row's own words where none was told (S9 gas / S10 frame). Each shape exact, each pattern compiles,
+    each family priced here, each line names what it fills in."""
+    def shape(d, w, need, opt=()):
+        if not isinstance(d, dict) or not (set(need) <= set(d) <= set(need) | set(opt)):
+            _vthrow(f"{w} needs exactly {', '.join(sorted(need))}" + (f" (and optionally {', '.join(sorted(opt))})" if opt else "") + ".")
+
+    def listed(k):
+        v = pp[k]
+        if not isinstance(v, list) or not v:
+            _vthrow(f"{loc}.{k} must be a non-empty list.")
+        return v
+
+    if "family_refusals" in pp:
+        for n, d in enumerate(listed("family_refusals")):
+            w = f"{loc}.family_refusals[{n}]"
+            shape(d, w, ("words", "refusal"))
+            _pattern(d["words"], f"{w}.words")
+            if not _nonempty_str(d["refusal"]):
+                _vthrow(f"{w}.refusal must be a non-empty sentence.")
+    if "not_includes" in pp:
+        for n, d in enumerate(listed("not_includes")):
+            w = f"{loc}.not_includes[{n}]"
+            shape(d, w, ("question", "words", "no", "line"), ("unless", "role"))
+            for k in ("question", "no"):
+                if not _nonempty_str(d[k]):
+                    _vthrow(f"{w}.{k} must be a non-empty string.")
+            _pattern(d["words"], f"{w}.words")
+            if "unless" in d:
+                _pattern(d["unless"], f"{w}.unless")
+            if "role" in d and d["role"] not in ("indoor", "outdoor"):
+                _vthrow(f"{w}.role must be indoor or outdoor.")
+            _sentence(d, "line", w, ("{label}", "{said}"))
+    if "tfa_capacity" in pp:
+        d, w = pp["tfa_capacity"], f"{loc}.tfa_capacity"
+        shape(d, w, ("family", "words", "hp_words", "line"))
+        if d["family"] not in fams:
+            _vthrow(f"{w}.family '{d['family']}' is not a family this category prices.")
+        _pattern(d["words"], f"{w}.words")
+        _pattern(d["hp_words"], f"{w}.hp_words")
+        if re.compile(d["hp_words"]).groups < 1:
+            _vthrow(f"{w}.hp_words must capture 1 group(s).")
+        _sentence(d, "line", w, ("{said}",))
+    if "row_family" in pp:
+        classes = set((pr or {}).get("unit_classes") or {})
+        for n, d in enumerate(listed("row_family")):
+            w = f"{loc}.row_family[{n}]"
+            shape(d, w, ("family", "words", "line"), ("not_words", "unit_classes"))
+            if d["family"] not in fams:
+                _vthrow(f"{w}.family '{d['family']}' is not a family this category prices.")
+            _pattern(d["words"], f"{w}.words")
+            if "not_words" in d:
+                _pattern(d["not_words"], f"{w}.not_words")
+            if "unit_classes" in d and (not isinstance(d["unit_classes"], list) or not d["unit_classes"] or any(u not in classes for u in d["unit_classes"])):
+                _vthrow(f"{w}.unit_classes must list unit classes this config declares.")
+            _sentence(d, "line", w, ("{said}",))
+
+
 def _validate_prepare_vrf8(pp, fams, loc):
     """VRF-8 -- the reading rules the VRF-7 review asked for (owner 2026-11-10 13:56-15:05): the feeder length, breaker (if
     required), interconnections, the nearer heading on mode, install-only following its supply row, the repeated size, several unit
@@ -1372,7 +1441,9 @@ def _validate_prepare_vrf8(pp, fams, loc):
 
     if "feeder_length" in pp:
         d, w = pp["feeder_length"], f"{loc}.feeder_length"
-        shape(d, w, ("words", "attr", "line"))
+        shape(d, w, ("words", "attr", "line"), ("every_module",))
+        if "every_module" in d and d["every_module"] is not True:
+            _vthrow(f"{w}.every_module must be true (leave it out otherwise).")
         groups(d["words"], 1, f"{w}.words")
         texts(d, w, ("attr",))
         _sentence(d, "line", w, ("{said}", "{n}"))
@@ -1422,7 +1493,9 @@ def _validate_prepare_vrf8(pp, fams, loc):
             _pattern(pat, f"{w}['{f}']")
     if "several_types" in pp:
         d, w = pp["several_types"], f"{loc}.several_types"
-        shape(d, w, ("note_max", "refusal"))
+        shape(d, w, ("note_max", "refusal"), ("typed",))
+        if "typed" in d and d["typed"] is not True:
+            _vthrow(f"{w}.typed must be true (leave it out otherwise).")
         if not isinstance(d["note_max"], int) or isinstance(d["note_max"], bool) or d["note_max"] <= 0:
             _vthrow(f"{w}.note_max must be a positive whole number.")
         texts(d, w, ("refusal",))
@@ -1774,6 +1847,9 @@ def _validate_safeguard(sg, include_ids, loc):
     # VRF-8 (D14-7): only verified quotes are shown
     if "verified_quotes" in sg and sg["verified_quotes"] is not True:
         _vthrow(f"{loc}.verified_quotes must be true (leave it out otherwise).")
+    # VRF-9 (S5): the panel's own notes quote exact stretches and name each quote's row
+    if "exact_quotes" in sg and sg["exact_quotes"] is not True:
+        _vthrow(f"{loc}.exact_quotes must be true (leave it out otherwise).")
     for k in ("where_suffix", "wording_suffix", "qty_suffix", "row_value"):
         if not _nonempty_str(sg[k]):
             _vthrow(f"{loc}.{k} must be a non-empty string.")
@@ -1834,6 +1910,33 @@ def _validate_scope(sc, loc):
         _pattern(sh["heading_words"], f"{loc}.supply_heading.heading_words")
         _pattern(sh["install_words"], f"{loc}.supply_heading.install_words")
         _sentence(sh, "note", f"{loc}.supply_heading", ("{heading}", "{said}"))
+    # VRF-9 (S3 / S4 / S9): the scope note always; installation at any level; gas charging always both
+    if "always_note" in sc:
+        an, w = sc["always_note"], f"{loc}.always_note"
+        if not isinstance(an, dict) or not ({"row_words", "install_words", "note"} <= set(an) <= {"row_words", "install_words", "not_words", "note"}):
+            _vthrow(f"{w} needs exactly row_words, install_words and note (and optionally not_words).")
+        for k in ("row_words", "install_words") + (("not_words",) if "not_words" in an else ()):
+            _pattern(an[k], f"{w}.{k}")
+        _sentence(an, "note", w, ("{row}", "{said}", "{where}"))
+    if "any_level" in sc:
+        al, w = sc["any_level"], f"{loc}.any_level"
+        if not isinstance(al, dict) or not ({"install_words", "note"} <= set(al) <= {"install_words", "not_words", "keep_words", "note"}):
+            _vthrow(f"{w} needs exactly install_words and note (and optionally not_words, keep_words).")
+        for k in ("install_words",) + tuple(k for k in ("not_words", "keep_words") if k in al):
+            _pattern(al[k], f"{w}.{k}")
+        _sentence(al, "note", w, ("{said}", "{where}"))
+    # VRF-9 (S11, ANSWER 11): the scope pick on a BoQ row's helper panel -- the note when the user changed the helper's scope
+    if "panel_pick" in sc:
+        pk, w = sc["panel_pick"], f"{loc}.panel_pick"
+        if not isinstance(pk, dict) or set(pk) != {"note"}:
+            _vthrow(f"{w} needs exactly note.")
+        _sentence(pk, "note", w, ("{helper}",))
+    if "always_both" in sc:
+        ab, w = sc["always_both"], f"{loc}.always_both"
+        if not isinstance(ab, dict) or set(ab) != {"families", "note"} or not isinstance(ab["families"], list) or not ab["families"] \
+                or not all(_nonempty_str(f) for f in ab["families"]):
+            _vthrow(f"{w} needs exactly families (a non-empty list) and note.")
+        _sentence(ab, "note", w)
     if "supply_row" in sc:
         sr = sc["supply_row"]
         if not isinstance(sr, dict) or set(sr) != {"normal_note", "with_row", "no_row"}:
@@ -2142,8 +2245,16 @@ def _validate_per_set(ps, pr, fams):
     if c is None:
         return
     cl = f"{loc}.counted"
-    if not isinstance(c, dict) or not (_COUNTED_KEYS <= set(c) <= _COUNTED_KEYS | {"from_sheet"}):
-        _vthrow(f"{cl} needs exactly {', '.join(sorted(_COUNTED_KEYS))} (and optionally from_sheet).")
+    if not isinstance(c, dict) or not (_COUNTED_KEYS <= set(c) <= _COUNTED_KEYS | {"from_sheet", "defined"}):
+        _vthrow(f"{cl} needs exactly {', '.join(sorted(_COUNTED_KEYS))} (and optionally from_sheet, defined).")
+    # VRF-9 (S8): the row defines what one Set holds -> 1 piece per Set
+    if "defined" in c:
+        df = c["defined"]
+        if not isinstance(df, dict) or set(df) != {"attr", "words", "line", "line_plain"} or not _nonempty_str(df.get("attr")):
+            _vthrow(f"{cl}.defined needs exactly attr, words, line and line_plain.")
+        _pattern(df["words"], f"{cl}.defined.words")
+        _sentence(df, "line", f"{cl}.defined", ("{q}", "{E}"))
+        _sentence(df, "line_plain", f"{cl}.defined")
     if not isinstance(c["families"], list) or not c["families"] or any(f not in fams for f in c["families"]):
         _vthrow(f"{cl}.families must be a non-empty list of families this category prices.")
     counts = c["counts"]
@@ -2200,7 +2311,10 @@ def _validate_lot_units(lu, pr):
     the line naming {unit}."""
     loc = "list_spec.pricing.lot_units"
     if not isinstance(lu, dict) or not (_LOT_KEYS <= set(lu) <= _LOT_KEYS | _LOT_OPTIONAL_KEYS):
-        _vthrow(f"{loc} needs exactly units, bar and line (and optionally bar_by_unit).")
+        _vthrow(f"{loc} needs exactly units, bar and line (and optionally bar_by_unit, calculator_refuses).")
+    # VRF-9 (S7): the calculator honours a picked whole-lot unit ("per HP") and refuses with the panel's line
+    if "calculator_refuses" in lu and lu["calculator_refuses"] is not True:
+        _vthrow(f"{loc}.calculator_refuses must be true (leave it out otherwise).")
     if "bar_by_unit" in lu and (not isinstance(lu["bar_by_unit"], dict) or not lu["bar_by_unit"] or not all(
             k in (lu.get("units") or []) and _nonempty_str(v) for k, v in lu["bar_by_unit"].items())):
         _vthrow(f"{loc}.bar_by_unit must map units of the list to a non-empty title.")

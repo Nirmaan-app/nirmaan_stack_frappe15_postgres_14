@@ -291,6 +291,15 @@
     "tabBoQ Rate Suggestion Run"
    ]
   },
+  "nirmaan_stack.api.boq.test_vrf_v65": {
+   "seconds": 15.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
   "nirmaan_stack.api.boq.wizard.test_ai_assist": {
    "seconds": 38.0,
    "series": [

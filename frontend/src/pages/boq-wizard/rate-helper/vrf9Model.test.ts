@@ -273,6 +273,12 @@ describe("VRF-9 S10 -- an ODU frame row with no item read gets the frame item", 
     expect(v.items[0].family).toBe("MS Angle Base Frame Structure");
     expect(v.totals).toEqual({ supply_rate: 140, install_rate: 40, combined_rate: 180 });
   });
+  it("NEGATIVE (QR-3 5a): a frame row with NO unit (00029 r402) gets no item -- it stays refused for its unit", () => {
+    const t = "Supply, Fabrication and Installation of MS frame using channels/angle iron sections as required for mounting of air cooled remote condensers";
+    const v = one({ items: [{ scope: "Supply + installation" }], unit: "", text: t });
+    expect(v.rowPriced).toBe(false);
+    expect(v.items[0].family ?? null).toBeNull();
+  });
   it("NEGATIVE: a civil pedestal row stays unread; v64 leaves the frame row unread", () => {
     expect(one({ items: [{ scope: "Supply + installation" }], text: "Construction of civil pedestal for outdoor units" }).reason).toMatch(/could be told/);
     expect(one({ items: [{ scope: "Supply + installation" }], text: T58 }, v64()).reason).toMatch(/could be told/);

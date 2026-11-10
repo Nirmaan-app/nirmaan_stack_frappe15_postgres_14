@@ -255,15 +255,25 @@ class TestVrf8AssetV64(FrappeTestCase):
     def test_06_v64_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V64))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 64)
-        self.assertEqual(nums, list(range(1, 65)))
+        self.assertEqual(nums[-1], 65)  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE nums[-1] == 64
+        self.assertEqual(nums, list(range(1, 66)))  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE list(range(1, 65))
         self.assertTrue(os.path.exists(_asset_path(V63)))
 
     def test_07_live_catalogue_is_v64(self):
         row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", CATEGORY))
         self.assertTrue(row)
         live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-        self.assertEqual(_norm(live), _norm(self.cfg))
+        # INVERTED at VRF-9 (HVAC v65 minted + LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE
+        # `assertEqual(_norm(live), _norm(self.cfg))` (live == v64). The live VRF config is v65's (test_vrf_v65 07 pins it whole): v64's
+        # questions stand in it in order with their required / allow_none flags, every v64 pricing key but `extras` / `per_set` /
+        # `lot_units` is unchanged, second opinion stays OFF, 585 items
+        self.assertNotEqual(_norm(live), _norm(self.cfg))
+        self.assertEqual([(q["id"], q.get("required"), q.get("allow_none")) for q in live["list_spec"]["attribute_definitions"]],
+                         [(q["id"], q.get("required"), q.get("allow_none")) for q in self.cfg["list_spec"]["attribute_definitions"]])
+        for k, v in self.cfg["list_spec"]["pricing"].items():
+            if k not in ("extras", "per_set", "lot_units"):
+                self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
+        self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
         self.assertEqual(n, 585)
 

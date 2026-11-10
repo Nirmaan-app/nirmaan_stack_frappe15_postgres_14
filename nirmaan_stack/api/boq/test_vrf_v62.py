@@ -253,8 +253,8 @@ class TestVrf6AssetV62(FrappeTestCase):
     def test_06_v62_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V62))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 64)  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE nums[-1] == 63
-        self.assertEqual(nums, list(range(1, 65)))  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE list(range(1, 64))
+        self.assertEqual(nums[-1], 65)  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE nums[-1] == 64
+        self.assertEqual(nums, list(range(1, 66)))  # VRF-9 (HVAC v65 minted + loaded; mechanical authority): BEFORE list(range(1, 65))
         self.assertTrue(os.path.exists(_asset_path(V61)))
 
     def test_07_live_catalogue_is_v62(self):
@@ -271,6 +271,12 @@ class TestVrf6AssetV62(FrappeTestCase):
         for k, v in self.cfg["list_spec"]["pricing"].items():
             if k == "split":
                 self.assertEqual(_norm({kk: vv for kk, vv in live["list_spec"]["pricing"][k].items() if kk != "stated_not_stocked"}), _norm(v), k)
+            # VRF-9 (HVAC v65 LOADED; mechanical authority): BEFORE `elif k != "extras"` -- v65 adds per_set.counted.defined (S8) and
+            # lot_units.calculator_refuses (S7); every other key of both stands unchanged
+            elif k in ("per_set", "lot_units"):
+                strip = {"per_set": lambda d: {**d, "counted": {kk: vv for kk, vv in (d.get("counted") or {}).items() if kk != "defined"}},
+                         "lot_units": lambda d: {kk: vv for kk, vv in d.items() if kk != "calculator_refuses"}}[k]
+                self.assertEqual(_norm(strip(live["list_spec"]["pricing"][k])), _norm(v), k)
             elif k != "extras":
                 self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
         self.assertIs(live["list_spec"]["second_opinion"], False)

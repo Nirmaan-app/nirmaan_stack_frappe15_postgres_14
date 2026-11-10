@@ -2453,3 +2453,113 @@ describe("VRF-8 (v64) -- R-39: every VRF Derivation-tab rule v64 adds fires from
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
   });
 });
+
+/**
+ * VRF-9 (v65) -- R-39 on the MINTED asset: every Derivation-tab rule v65 adds fires from the panel's entry point (the calculator's for
+ * the calculator rules), positive AND negative. THE VRF GUARD (QR-3 4b): v65's titles = v64's 73 + the 13 VRF-9 lines.
+ */
+describe("VRF-9 (v65) -- R-39: every VRF Derivation-tab rule v65 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  type V = NonNullable<ItemListSuggestion["itemList"]>;
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A65 = rd("rate_master_hvac_all_v65.json");
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  type R = { items: Array<Record<string, string | null>>; unit?: string; text?: string; headings?: string[]; headingNotes?: string[]; ancestorNotes?: string[]; qty?: number };
+  const on = (a: A) => {
+    const items = [...asItems(a), ...asItems(E72)];
+    const cfgs = new Map<string, RateCategoryConfig>([...a.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+    const panel = (r: R): V => {
+      const results = [{ excel_row: 9, description: r.text ?? "", category_id: VRF, attributes: {}, items: r.items.map((x) => ({ attributes: Object.fromEntries(Object.entries(x).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }];
+      const h = makePricingSheetHelper({ configsByCategory: cfgs, items, extractionByRow: buildExtractionByRow(results as never) });
+      return (h.compute({ excelRow: 9, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+        unit: r.unit ?? "Nos", quantity: r.qty ?? 1, headings: r.headings ?? [], ownNotes: [], headingNotes: r.headingNotes ?? [], ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}) } as never, {}) as unknown as ItemListSuggestion).itemList!;
+    };
+    const calc = (unit: string, family: string, attrs: Record<string, string> = {}): V => {
+      const h = makePricingSheetHelper({ configsByCategory: cfgs, items, extractionByRow: new Map() });
+      return (h.compute({ excelRow: 1, description: "", nodeType: "", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"] } as never,
+        { [ROW_UNIT_OVERRIDE_KEY]: unit, [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family, attrs }] }) }) as unknown as ItemListSuggestion).itemList!;
+    };
+    return { panel, calc };
+  };
+  const v65 = on(A65);
+  const v64 = on(A64);
+  const pts = (v: V) => v.items.flatMap((b) => b.extras?.review?.points ?? []).join("\n");
+  const line = (v: V, id: string) => v.items[0]?.extras?.lines.find((l) => l.id === id);
+  const D12N = ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"];
+  const SP = ["The unit mouted starter panel shall be complete with IP-55 protection consisting of power disconnecting switches with fuses, soft starters, for compressor motors"];
+  const VT = {
+    types: "Several unit types: only when the row names none",
+    note: "A 'Supply of' row with installation said above: the scope note always",
+    level: "Installation said at any level wins over a supply-only reading",
+    quotes: "The panel's own notes quote the BoQ word for word, with their rows",
+    feeder: "The feeder-length note on every module",
+    tfa: "A fresh-air unit with no capacity read takes the row's",
+    hp: "A per-HP row refuses in the calculator too",
+    gas: "A first / factory charge of refrigerant is the gas charge",
+    not: "BMS-interface cables and civil supports are not extras",
+    fcu: "A Fan Coil Unit with no type told is refused",
+    set: "A Set the BoQ defines is one refnet",
+    both: "Gas charging is always supply + installation",
+    rowfam: "A gas-charging or ODU-frame row with no item read",
+  };
+  type C = { rule: string; kind: "pos" | "neg"; ok: () => boolean };
+  const wm = (s: typeof v65) => s.panel({ items: [{ item: "Hi-Wall", capacity: "2.0TR" }], text: "Wall Mounted Type (2.0TR)", headings: ["SITC of indoor units"], headingNotes: D12N });
+  const sup = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "16 HP" }], text: "VRV - 50HP | Supply of VRV outdoor unit", headings: ["The unit rate for all items shall include installation, testing, commissioning"] });
+  const lvl = (s: typeof v65, text = "14 HP ODU") => s.panel({ items: [{ item: "Outdoor Unit", capacity: "14 HP", scope: "Supply only" }], text, headings: ["VRV HIGHSIDE", "OUTDOOR UNITS"], ancestorNotes: ["Supply, port clearance, transport of units", "Supply, Installation, testing & commissioning of the VRV system"] });
+  const fdr = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "38HP (20+18)", cooling: "Heat Pump", includes_power: "Yes", includes_power_where: "Heading" }], headingNotes: ["Single feeder shall be provided for all VRF ODU within 5 mtr distance from ODU"] });
+  const tfa = (s: typeof v65) => s.panel({ items: [{ item: "Single Skin Treated Fresh Air", capacity: null }, { item: "Outdoor Unit", capacity: "6 HP" }], text: "741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit" });
+  const gas = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "12 HP", includes_gas: "No" }], headingNotes: ["factory charged with first charge of refrigerant"] });
+  const bms = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "8 HP", includes_comm: "Yes", includes_comm_where: "Note", includes_comm_words: "provision for BMS interface bacnet / Modbus, communication cables" }], headingNotes: ["provision for BMS interface bacnet / Modbus, communication cables"] });
+  const civ = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "8HP", includes_frame: "Yes", includes_frame_where: "Note", includes_frame_words: "Including Civil pedestal supports for outdoor units" }], headingNotes: ["Including Civil pedestal supports for outdoor units"] });
+  const fcu = (s: typeof v65) => s.panel({ items: [{ capacity: "1.0 TR" }], text: "1.0 TR", headings: ["VRF SYSTEM", "Fan Coil Units"] });
+  const set = (s: typeof v65) => s.panel({ items: [{ item: "Refnet/Y-Joint", set_contents_as_written: "Liquid and Gas considered as a one Set", set_covers: "Indoor side only", set_idu: "8" }], unit: "Set", qty: 2 });
+  const chg = (s: typeof v65) => s.panel({ items: [{ item: "Refrigerant Gas Filling (R-410)", scope: "Installation only" }], unit: "kg", text: "Installation of refrigerant gas including topping up of Refrigerant R-410A" });
+  const frm = (s: typeof v65) => s.panel({ items: [{ scope: "Supply + installation" }], text: "Supply and installation of MS base frames for outdoor units" });
+  const CASES: C[] = [
+    { rule: VT.types, kind: "pos", ok: () => wm(v65).rowPriced === true && v65.calc("Nos", "Hi-Wall / Cassette / Ductable", { capacity: "2" }).reason === "several unit types under this heading - fix the headings or pick the type (owner D12)" },
+    { rule: VT.types, kind: "neg", ok: () => wm(v64).rowPriced === false },
+    { rule: VT.note, kind: "pos", ok: () => /owner R-D1/.test(sup(v65).scope?.note ?? "") },
+    { rule: VT.note, kind: "neg", ok: () => !sup(v64).scope?.note },
+    { rule: VT.level, kind: "pos", ok: () => lvl(v65).scope?.value === "Supply + installation" },
+    { rule: VT.level, kind: "neg", ok: () => lvl(v65, "14 HP ODU - supply only").scope?.value === "Supply only" && lvl(v64).scope?.value === "Supply only" },
+    { rule: VT.quotes, kind: "pos", ok: () => { const q = pts(v65.panel({ items: [{ item: "Outdoor Unit", capacity: "6HP" }], headingNotes: SP })); return /MCB \+ ELCB: the BoQ says "[^"]*fuses" \(/.test(q) && !/\.\.\."/.test(q); } },
+    { rule: VT.quotes, kind: "neg", ok: () => /\.\.\."/.test(pts(v64.panel({ items: [{ item: "Outdoor Unit", capacity: "6HP" }], headingNotes: SP }))) },
+    { rule: VT.feeder, kind: "pos", ok: () => { const v = fdr(v65); return v.items.length === 2 && v.items.every((b) => (b.extras?.review?.points ?? []).some((q) => /owner D4/.test(q))); } },
+    { rule: VT.feeder, kind: "neg", ok: () => !(fdr(v64).items[1]?.extras?.review?.points ?? []).some((q) => /owner D4/.test(q)) },
+    { rule: VT.tfa, kind: "pos", ok: () => tfa(v65).rowPriced === true },
+    { rule: VT.tfa, kind: "neg", ok: () => tfa(v64).rowPriced === false },
+    { rule: VT.hp, kind: "pos", ok: () => /^Unit "per HP" is not a VRF unit/.test(v65.calc("per HP", "Outdoor Unit", { capacity: "10" }).reason ?? "") },
+    { rule: VT.hp, kind: "neg", ok: () => !/^Unit "per HP"/.test(v64.calc("per HP", "Outdoor Unit", { capacity: "10" }).reason ?? "") },
+    { rule: VT.gas, kind: "pos", ok: () => line(gas(v65), "acc_gas")?.state === "priced" },
+    { rule: VT.gas, kind: "neg", ok: () => line(gas(v64), "acc_gas") === undefined },
+    { rule: VT.not, kind: "pos", ok: () => line(bms(v65), "comm") === undefined && line(civ(v65), "acc_frame") === undefined },
+    { rule: VT.not, kind: "neg", ok: () => line(bms(v64), "comm")?.state === "priced" && line(civ(v64), "acc_frame")?.state === "priced" },
+    { rule: VT.fcu, kind: "pos", ok: () => fcu(v65).reason === "Fan Coil Unit - pick the indoor type" && v65.calc("Nos", "Fan Coil Units", { capacity: "1" }).reason === "Fan Coil Unit - pick the indoor type" },
+    { rule: VT.fcu, kind: "neg", ok: () => /no item could be told/.test(fcu(v64).reason ?? "") },
+    { rule: VT.set, kind: "pos", ok: () => set(v65).items[0].qty === "1" },
+    { rule: VT.set, kind: "neg", ok: () => set(v64).items[0].qty === "4" },
+    { rule: VT.both, kind: "pos", ok: () => chg(v65).totals?.supply_rate === 1020 },
+    { rule: VT.both, kind: "neg", ok: () => chg(v64).totals?.supply_rate === 0 },
+    { rule: VT.rowfam, kind: "pos", ok: () => frm(v65).totals?.supply_rate === 5600 },
+    { rule: VT.rowfam, kind: "neg", ok: () => frm(v64).rowPriced === false },
+  ];
+  it("every VRF-9 rule fires on v65 and not on v64 (positive AND negative per Derivation line)", () => {
+    expect(CASES.filter((c) => !c.ok()).map((c) => `${c.rule} (${c.kind})`)).toEqual([]);
+    for (const t of Object.values(VT)) {
+      expect({ t, pos: CASES.some((c) => c.rule === t && c.kind === "pos"), neg: CASES.some((c) => c.rule === t && c.kind === "neg") }).toEqual({ t, pos: true, neg: true });
+    }
+    expect(CASES).toHaveLength(26);
+  });
+  it("THE VRF GUARD: v65's VRF rules = v64's 73 + the 13 VRF-9 lines", () => {
+    const t65 = titles(A65);
+    const t64 = titles(A64);
+    expect(t64).toHaveLength(73);
+    expect(t65).toHaveLength(86);
+    expect(t65.slice(0, 73)).toEqual(t64);
+    expect(t65.slice(73)).toEqual(Object.values(VT));
+  });
+});

@@ -74,6 +74,9 @@
    "keep_words": "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b",
    "note": "BoQ: the row reads as supply only, but \"{said}\" ({where}) says installation - priced as supply + installation (owner S4; VRF-7 ruled S+I)"
   },
+  "panel_pick": {
+   "note": "Scope changed by user (the helper chose {helper}{because})"
+  },
   "always_both": {
    "families": ["Refrigerant Gas Filling (R-410)"],
    "note": "BoQ: refrigerant gas charging / topping up is always supply + installation (the row read \"{said}\") - priced as supply + installation (owner S9)"
