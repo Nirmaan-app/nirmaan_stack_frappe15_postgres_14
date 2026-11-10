@@ -2271,7 +2271,13 @@ describe("VRF-7 (v63) -- R-39: every VRF Derivation-tab rule v63 adds or rewords
     const t63 = titles(A63);
     const t62 = titles(A62);
     expect(t63).toHaveLength(56);
-    expect(t63.slice(0, 43)).toEqual(t62.slice(0, 43));
+    // VRF-8 K2 (R-F4, owner 13:56) -- MOVED UNDER MECHANICAL AUTHORITY, nothing deleted. BEFORE: `expect(t63.slice(0, 43)).toEqual(t62.slice(0, 43))`.
+    // Line 42 (index 41) now states its condition on a config with VRF-7's own-row check (v63 has it, v62 does not); every other
+    // line of the first 43 is unchanged.
+    const L42 = t62.indexOf("A built-in drain pump is still added, with a review point");
+    expect(L42).toBe(41);
+    expect(t63[L42]).toBe("A built-in drain pump is added only when the sheet has no pump row of its own, with a review point");
+    expect([...t63.slice(0, L42), ...t63.slice(L42 + 1, 43)]).toEqual([...t62.slice(0, L42), ...t62.slice(L42 + 1, 43)]);
     expect(t62[43]).toBe("'Control wiring' and 'quantified separately'");
     expect(t63[43]).toBe(REWORDED);
     expect(t63.slice(44, 46)).toEqual(t62.slice(44, 46));

@@ -1594,7 +1594,8 @@ function ItemListBlocks({
                   disabled={o.disabled}
                   data-testid={`extras-include-${o.id}`}
                   onChange={(e) => {
-                    const ids = new Set(view.extrasIncludes!.options.filter((x) => x.checked).map((x) => x.id as string));
+                    // VRF-8 (R-F3): an include whose lines were removed with their x stays in the list (unticked), so "Put it back" works
+                    const ids = new Set(view.extrasIncludes!.options.filter((x) => x.checked || x.removed).map((x) => x.id as string));
                     if (e.target.checked) ids.add(o.id); else ids.delete(o.id);
                     onIncludes?.([...ids].join(","));
                   }}
@@ -2192,6 +2193,8 @@ function ItemListBlocks({
         ) : (
           <div className="mt-0.5 text-xs">
             {n === 0 ? "No items yet." : needPersonSentence(bad, n)}
+            {/* VRF-8 (U8, owner 13:56 / 14:50): a refused row names its reason in the row total */}
+            {view.reason && <div className="mt-0.5" data-testid="item-row-total-reason">{view.reason}</div>}
           </div>
         )}
       </div>}

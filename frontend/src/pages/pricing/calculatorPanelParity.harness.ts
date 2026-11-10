@@ -349,6 +349,13 @@ export function feedFromPanel(
         if (v !== "") attrs[f.id] = v;
         if (f.otherMode) other.push(f.id);
       }
+      // VRF-8 (W6): a unit the panel refused for two stated capacities is typed into the calculator as the row states them
+      // ("2.6 TR / 1.3 TR") -- what a pricer copying the row would type; the calculator then refuses with the same sentence
+      const tcl = spec?.extras?.two_capacities?.line;
+      if (tcl && b.state !== "priced" && typeof b.reason === "string" && tcl.includes("{list}")) {
+        const [pre, post] = tcl.split("{list}");
+        if (b.reason.startsWith(pre) && b.reason.endsWith(post)) attrs.capacity = b.reason.slice(pre.length, b.reason.length - post.length);
+      }
       /**
        * A PER-ITEM FACT WITH NO CONTROL ON THIS BLOCK. `itemFieldDefs` decides which of the model's
        * answers a family's block renders, so an answer the model gave that this family does not ask
@@ -917,3 +924,56 @@ export function applyVrf7(base: RateCategoryConfig, fx: Vrf7Fixture, omit: Vrf7G
   }
   return c as unknown as RateCategoryConfig;
 }
+
+// =================================================================================================================
+// VRF-8 B2 (K2): the v64 keys as the fixture `__fixtures__/vrf8Model.json` declares them, applied to v63's hvac_vrf -- the SAME
+// steps, in the same order, as `scripts/_instruments/mint_hvac_v64_vrf8.py` (test_vrf_v64 proves the minted asset equals them).
+// One copy for the pricer's tests (vrf8Model.test.ts) and the parity blocks.
+// =================================================================================================================
+export type Vrf8Fixture = {
+  prepare_add: Record<string, unknown>; implied_includes_add: unknown[]; split_add: Record<string, unknown>; safeguard_add: Record<string, unknown>;
+  note_wins_add: Record<string, unknown>; scope_add: Record<string, unknown>; accessories_patch: Record<string, Record<string, unknown>>;
+  lines_add: Record<string, string>; question_required: string[]; question_notes_append: Record<string, string>; second_opinion: boolean;
+};
+export type Vrf8Group = "prepare" | "implied" | "split" | "safeguard" | "scope" | "accessories" | "lines" | "questions";
+type Q8 = { id: string; note?: string; allow_none?: boolean; required?: boolean; [k: string]: unknown };
+type Acc8 = { id: string; note_words?: unknown; choice?: Record<string, unknown> & { conflict?: Record<string, unknown> }; [k: string]: unknown };
+type Cfg8 = { list_spec: { attribute_definitions: Q8[]; second_opinion?: boolean; pricing: { split: Record<string, unknown>; extras: {
+  accessories: Acc8[]; lines: Record<string, string>; scope: Record<string, unknown>;
+  prepare: Record<string, unknown> & { implied_includes?: unknown[] }; safeguard: Record<string, unknown> & { note_wins: Record<string, unknown> } } } } };
+/** PURE. v63's hvac_vrf with the VRF-8 keys applied (the steps mint_hvac_v64_vrf8.py takes, in its order); `omit` leaves groups out. */
+export function applyVrf8(base: RateCategoryConfig, fx: Vrf8Fixture, omit: Vrf8Group[] = []): RateCategoryConfig {
+  const c = structuredClone(base) as unknown as Cfg8;
+  const x = c.list_spec.pricing.extras;
+  if (!omit.includes("prepare")) Object.assign(x.prepare, structuredClone(fx.prepare_add));
+  if (!omit.includes("implied")) x.prepare.implied_includes = [...(x.prepare.implied_includes ?? []), ...structuredClone(fx.implied_includes_add)];
+  if (!omit.includes("split")) Object.assign(c.list_spec.pricing.split, structuredClone(fx.split_add));
+  if (!omit.includes("safeguard")) { Object.assign(x.safeguard, structuredClone(fx.safeguard_add)); Object.assign(x.safeguard.note_wins, structuredClone(fx.note_wins_add)); }
+  if (!omit.includes("scope")) Object.assign(x.scope, structuredClone(fx.scope_add));
+  if (!omit.includes("accessories")) {
+    for (const a of x.accessories) {
+      const pt = fx.accessories_patch[a.id];
+      if (!pt) continue;
+      if (pt.note_words) a.note_words = structuredClone(pt.note_words);
+      if (pt.conflict_add && a.choice?.conflict) a.choice.conflict = { ...a.choice.conflict, ...structuredClone(pt.conflict_add as Record<string, unknown>) };
+    }
+  }
+  if (!omit.includes("lines")) Object.assign(x.lines, fx.lines_add);
+  if (!omit.includes("questions")) {
+    const req = new Set(fx.question_required);
+    const words = new Set(fx.question_required.map((q) => `${q}_words`));
+    c.list_spec.attribute_definitions = c.list_spec.attribute_definitions.map((q0) => {
+      const q: Q8 = { ...q0 };
+      if (req.has(q.id)) {
+        q.required = true;
+        q.note = `${q.note ?? ""}${fx.question_notes_append["*required"] ?? ""}`;
+      }
+      if (words.has(q.id)) q.note = `${q.note ?? ""}${fx.question_notes_append["*words"] ?? ""}`;
+      if (fx.question_notes_append[q.id]) q.note = `${q.note ?? ""}${fx.question_notes_append[q.id]}`;
+      return q;
+    });
+    c.list_spec.second_opinion = fx.second_opinion;
+  }
+  return c as unknown as RateCategoryConfig;
+}
+

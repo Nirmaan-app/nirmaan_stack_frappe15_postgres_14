@@ -28,60 +28,17 @@ import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-mast
 import { type ExtractedListItem } from "./itemListPricing";
 import { buildExtractionByRow, locateWordsStrict, makePricingSheetHelper, type ExtraLineView, type ItemListSuggestion, type ItemListView } from "./pricingSheetHelper";
 import { rowQuantitiesOf, sheetLinesOf } from "./rateSuggestionModel";
-import { readJsonFixture } from "../../pricing/calculatorPanelParity.harness";
+import { applyVrf8, readJsonFixture, type Vrf8Fixture, type Vrf8Group } from "../../pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
 const h63 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v63.json`, import.meta.url));
 const e72 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_electrical_all_v72.json`, import.meta.url));
-export type Vrf8Fixture = {
-  prepare_add: Record<string, unknown>; implied_includes_add: unknown[]; split_add: Record<string, unknown>; safeguard_add: Record<string, unknown>;
-  note_wins_add: Record<string, unknown>; scope_add: Record<string, unknown>; accessories_patch: Record<string, Record<string, unknown>>;
-  lines_add: Record<string, string>; question_required: string[]; question_notes_append: Record<string, string>; second_opinion: boolean;
-};
+// K2: the fixture is applied by the parity harness's `applyVrf8` -- one copy for these tests and the parity blocks
 const FX8 = readJsonFixture<Vrf8Fixture>(new URL("../../pricing/__fixtures__/vrf8Model.json", import.meta.url));
-export type Vrf8Group = "prepare" | "implied" | "split" | "safeguard" | "scope" | "accessories" | "lines" | "questions";
 type Q8 = { id: string; note?: string; allow_none?: boolean; required?: boolean; [k: string]: unknown };
-type Acc8 = { id: string; note_words?: unknown; choice?: Record<string, unknown> & { conflict?: Record<string, unknown> }; [k: string]: unknown };
-type Cfg8 = { list_spec: { attribute_definitions: Q8[]; second_opinion?: boolean; pricing: { split: Record<string, unknown>; extras: {
-  accessories: Acc8[]; lines: Record<string, string>; scope: Record<string, unknown>;
-  prepare: Record<string, unknown> & { implied_includes?: unknown[] }; safeguard: Record<string, unknown> & { note_wins: Record<string, unknown> } } } } };
-/** PURE. v63's hvac_vrf with the VRF-8 keys applied (the steps mint_hvac_v64_vrf8.py takes, in its order); `omit` leaves groups out. */
-export function applyVrf8(base: RateCategoryConfig, fx: Vrf8Fixture, omit: Vrf8Group[] = []): RateCategoryConfig {
-  const c = structuredClone(base) as unknown as Cfg8;
-  const x = c.list_spec.pricing.extras;
-  if (!omit.includes("prepare")) Object.assign(x.prepare, structuredClone(fx.prepare_add));
-  if (!omit.includes("implied")) x.prepare.implied_includes = [...(x.prepare.implied_includes ?? []), ...structuredClone(fx.implied_includes_add)];
-  if (!omit.includes("split")) Object.assign(c.list_spec.pricing.split, structuredClone(fx.split_add));
-  if (!omit.includes("safeguard")) { Object.assign(x.safeguard, structuredClone(fx.safeguard_add)); Object.assign(x.safeguard.note_wins, structuredClone(fx.note_wins_add)); }
-  if (!omit.includes("scope")) Object.assign(x.scope, structuredClone(fx.scope_add));
-  if (!omit.includes("accessories")) {
-    for (const a of x.accessories) {
-      const pt = fx.accessories_patch[a.id];
-      if (!pt) continue;
-      if (pt.note_words) a.note_words = structuredClone(pt.note_words);
-      if (pt.conflict_add && a.choice?.conflict) a.choice.conflict = { ...a.choice.conflict, ...structuredClone(pt.conflict_add as Record<string, unknown>) };
-    }
-  }
-  if (!omit.includes("lines")) Object.assign(x.lines, fx.lines_add);
-  if (!omit.includes("questions")) {
-    const req = new Set(fx.question_required);
-    const words = new Set(fx.question_required.map((q) => `${q}_words`));
-    c.list_spec.attribute_definitions = c.list_spec.attribute_definitions.map((q0) => {
-      const q: Q8 = { ...q0 };
-      if (req.has(q.id)) {
-        q.required = true;
-        q.note = `${q.note ?? ""}${fx.question_notes_append["*required"] ?? ""}`;
-      }
-      if (words.has(q.id)) q.note = `${q.note ?? ""}${fx.question_notes_append["*words"] ?? ""}`;
-      if (fx.question_notes_append[q.id]) q.note = `${q.note ?? ""}${fx.question_notes_append[q.id]}`;
-      return q;
-    });
-    c.list_spec.second_opinion = fx.second_opinion;
-  }
-  return c as unknown as RateCategoryConfig;
-}
+type Cfg8 = { list_spec: { attribute_definitions: Q8[]; second_opinion?: boolean } };
 
 const toItems = (a: Asset) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
 const ITEMS: RateMasterItem[] = [...toItems(h63), ...toItems(e72)];

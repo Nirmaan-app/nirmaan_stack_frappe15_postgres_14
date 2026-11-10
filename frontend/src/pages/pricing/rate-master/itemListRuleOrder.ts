@@ -1332,8 +1332,15 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         "per OUTDOOR module when included: one MS frame / stand (its own Nos item; a BoQ row quoting stands per Nos prices on it), gas kg = the module's HP, one MCB 4-pole + one ELCB 300 mA 4-pole rated by the HP schedule in Pricing Inputs (an HP not in it -> the next row; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked one, noted; 'isolator' -> this set); never on an indoor unit");
   }
   if (accs6.some((a) => a?.builtin)) {
-    add("A built-in drain pump is still added, with a review point",
-        "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it");
+    // VRF-8 (R-F4, owner 13:56 "we need to fix 2 to 4"): with VRF-7's own-row check for every extra the line states its condition --
+    // read alone it said the pump is always added, while line 51 (B7) leaves it out where the sheet quotes the pump on its own row
+    if (ex5?.safeguard?.own_row_always) {
+      add("A built-in drain pump is added only when the sheet has no pump row of its own, with a review point",
+          "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it -- only when the same sheet does not quote the pump on a row of its own; with its own row the pump is NOT added and the note names that row");
+    } else {
+      add("A built-in drain pump is still added, with a review point",
+          "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it");
+    }
   }
   if (ex5?.scope?.conflict || ex5?.scope?.supply_row) {
     add("Supply / installation settled by the sheet's own rows",

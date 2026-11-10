@@ -2758,7 +2758,9 @@ export interface ItemListView {
   rowQtyField?: { label: string; value: string };
   /** VRF-3b (U6): the calculator's "This row's price includes" tick boxes ("Insulation needs copper piping"). Present
    * only in the calculator, on a config that declares `extras`. */
-  extrasIncludes?: { title: string; options: Array<{ id: ExtraIncludeId; label: string; checked: boolean; disabled?: boolean; note?: string }> };
+  extrasIncludes?: { title: string; options: Array<{ id: ExtraIncludeId; label: string; checked: boolean; disabled?: boolean; note?: string;
+    /** VRF-8 (R-F3): included, but its lines were removed with their x on every unit -- shown unticked, kept in the include list */
+    removed?: boolean }> };
   /** VRF-3b (U4): on a row with extras every LINE counts for "n of m items need a person" -- each unit, each extra */
   lineCount?: { lines: number; bad: number };
   /** VRF-5 (owner R4-R8, U5): the row's scope -- supply only (install 0 on every line) / installation only (supply 0, install x
@@ -4340,11 +4342,25 @@ function withExtras(
   const foldedPts = probe.folded ?? [];
   const foldedAcc = new Set<string>(foldedPts.map((p) => accs.find((a) => a.family && a.family === p.family)?.id).filter((t): t is string => !!t));
   const accOnFor = (i: number): Set<string> => (perItem ? new Set([...inclOf(i).accessories, ...foldedAcc]) : onAcc);
+  // VRF-8 (R-F3, owner 13:56): an extra the pricer removed with its x on EVERY unit that carries it is no longer ticked in "This row's
+  // price includes" ("Put it back" restores the line and so the tick); it stays in the include list (`removed`) so "Put it back" works
+  const editsR = probe.edits ?? view.editState;
+  const carriers = (role?: "indoor" | "outdoor") => view.items.map((b, i) => ({ b, i })).filter(({ b }) => !!b.family && !!x.roles[b.family] && (!role || x.roles[b.family] === role));
+  const linesOfInc: Record<string, ExtraLineId[]> = { copper: ["copper_supply", "copper_return"], insulation: ["ins_supply", "ins_return"], power: ["power"], comm: ["comm"] };
+  const removedEverywhere = (lineIds: ExtraLineId[], role?: "indoor" | "outdoor") => {
+    const cs = carriers(role);
+    return cs.length > 0 && cs.every(({ i }) => { const rm = new Set(editsR?.items?.[i]?.extras?.removed ?? []);
+      return lineIds.every((l) => rm.has(l) || (l === "ins_supply" && rm.has("copper_supply")) || (l === "ins_return" && rm.has("copper_return"))); });
+  };
   const includesView: ItemListView["extrasIncludes"] = calculator
     ? { title: L.includes_title, options: [...x.includes.map((i) => {
         const blocked = !!i.needs && !on.has(i.needs);
-        return { id: i.id, label: i.label, checked: on.has(i.id) && !blocked, ...(blocked ? { disabled: true, note: i.needs_line } : {}) };
-      }), ...accs.map((a) => ({ id: a.id as ExtraIncludeId, label: a.label, checked: onAcc.has(a.id) }))] }
+        const gone = on.has(i.id) && !blocked && removedEverywhere(linesOfInc[i.id] ?? []);
+        return { id: i.id, label: i.label, checked: on.has(i.id) && !blocked && !gone, ...(blocked ? { disabled: true, note: i.needs_line } : {}), ...(gone ? { removed: true } : {}) };
+      }), ...accs.map((a) => {
+        const gone = onAcc.has(a.id) && removedEverywhere([`acc_${a.id}` as ExtraLineId], a.roles.length === 1 ? a.roles[0] : undefined);
+        return { id: a.id as ExtraIncludeId, label: a.label, checked: onAcc.has(a.id) && !gone, ...(gone ? { removed: true } : {}) };
+      })] }
     : undefined;
   const rowClassOk = !isLotUnit(spec, view.unit) && view.unitClass === x.row_class;
   const anyAcc = view.items.some((b, i) => !!b.family && !!x.roles[b.family] && accs.some((a) => a.roles.includes(x.roles[b.family!]) && accOnFor(i).has(a.id)));
@@ -5306,8 +5322,19 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
   if (refuse) {
     const { totals: _t, ...rest } = view;
+    // VRF-8 (R-F2, owner 13:56; U4 / U8): the line with no installation rate says why, and is counted among the lines that need a
+    // person -- the row total then names the reason (the calculator's installation-only MS frame read "0 of 6 items need a person")
+    let bad = 0;
+    const flag = (title: string, f: Partial<Record<RateKind, number>>) => !(supplyOnly) && uplift !== null && !((f.install_rate ?? 0) > 0) && !!title;
+    const items3 = perLine ? view.items.map((b) => {
+      const blk = b.state === "priced" && flag(b.family ?? "item", b.figures) ? (bad++, { ...b, state: "blank" as const, reason: L.no_install.replace("{title}", b.family ?? "item") }) : b;
+      if (!b.extras) return blk;
+      return { ...blk, extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" && flag(l.title, l.figures)
+        ? (bad++, { ...l, state: "blank" as const, reason: L.no_install.replace("{title}", l.title) }) : l)) } };
+    }) : view.items;
     return { ...res, values: {}, workings: { ...res.workings, derivation: [refuse], finalValues: {} },
-             itemList: { ...rest, rowPriced: false, reason: refuse, scope: scopeView } };
+             itemList: { ...rest, items: items3, rowPriced: false, reason: refuse, scope: scopeView,
+                         ...(rest.lineCount && bad ? { lineCount: { ...rest.lineCount, bad: Math.max(rest.lineCount.bad, bad) } } : {}) } };
   }
   const values: Record<string, number> = { supply_rate: totals.supply_rate ?? 0, install_rate: totals.install_rate ?? 0, combined_rate: (totals.supply_rate ?? 0) + (totals.install_rate ?? 0) };
   return {
@@ -5831,7 +5858,30 @@ function withTwoCapacities(spec: ItemListPricingSpec, ctx: RowContextWithUnit, r
   const tc = spec.extras?.two_capacities;
   const r = res as ItemListSuggestion;
   const v = r.itemList;
-  if (!tc || !v || v.rowPriced || ctx.noRow) return res;
+  if (!tc || !v || v.rowPriced) return res;
+  // VRF-8 (W6, owner 14:15 "the calculator shows the panel's refusal reason"): the calculator has no row text -- a unit whose TYPED
+  // capacity states two different capacities ("2.6 TR / 1.3 TR", the panel's case typed in) refuses with the panel's sentence
+  if (v.unitPickable || ctx.noRow) {
+    const capsOf = (t: string) => {
+      const out: string[] = [];
+      try { for (const m of t.matchAll(new RegExp(tc.words, "gi"))) { const x = `${Number(m[1])} ${String(m[2]).toUpperCase()}`; if (!out.includes(x)) out.push(x); } } catch { return []; }
+      return out;
+    };
+    let line: string | null = null;
+    const items = v.items.map((b, i) => {
+      if (b.state === "priced") return b;
+      const typed = String(v.editState?.items?.[i]?.attrs?.capacity ?? "");
+      const found = capsOf(typed);
+      if (found.length < 2) return b;
+      const l = tc.line.replace("{list}", found.join(" / "));
+      line ??= l;
+      return { ...b, reason: l };
+    });
+    if (line === null) return res;
+    const one = v.items.length === 1;
+    return { ...r, itemList: { ...v, items, ...(one || !v.reason ? { reason: line } : {}) },
+             workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [line] } } as HelperResult;
+  }
   const found: string[] = [];
   try {
     for (const m of String(ctx.description ?? "").matchAll(new RegExp(tc.words, "gi"))) {

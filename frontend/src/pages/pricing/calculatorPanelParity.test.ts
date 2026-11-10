@@ -45,6 +45,7 @@ import {
 } from "./calculatorPanelParity.awaiting";
 import {
   applyVrf7,
+  applyVrf8,
   calculatorHelper,
   classifyDivergence,
   compareResults,
@@ -3142,11 +3143,17 @@ describe("VRF-6 B2 -- the K1 rules on both paths; panel = calculator on every ca
     expect(r.feed.overrides["__scope__"]).toBe("Installation only (supply quoted on another row)");
   });
 
-  it("NAMED wording-only: two capacities in the row text -- both refuse; only the panel can name them (the calculator has no row text)", () => {
+  // VRF-8 K2 (R-W6, owner 2026-11-10 14:15 "the calculator shows the panel's refusal reason") -- INVERTED UNDER MECHANICAL AUTHORITY,
+  // nothing deleted. BEFORE: "NAMED wording-only ... only the panel can name them (the calculator has no row text)" with
+  // `expect(r.divergences.map((d) => d.what)).toEqual(["item row reason", "item blocks"])` (the calculator said "no capacity stated").
+  // The harness now types the panel's two capacities in (what a pricer copying the row types) and the calculator refuses with the
+  // panel's sentence. The negative half stands: both still refuse.
+  it("NAMED (VRF-8 R-W6, was wording-only): two capacities in the row text -- both refuse, with the same sentence", () => {
     const r = run(vc("Nos", { item: "Cassette", brand: "Blue Star", way: "FOUR-WAY" }, { desc: "Cassette 2.6 Tr Capacity ... 1.3 TR capacity" }));
     expect((r.panel as ItemListSuggestion).itemList!.rowPriced).toBe(false);
-    expect(r.divergences.filter((d) => !/reason|blocks/.test(d.what))).toEqual([]);
-    expect(r.divergences.map((d) => d.what)).toEqual(["item row reason", "item blocks"]);
+    expect((r.calculator as ItemListSuggestion).itemList!.rowPriced).toBe(false);
+    expect((r.calculator as ItemListSuggestion).itemList!.reason).toBe("two capacities stated (2.6 TR / 1.3 TR) - pick one");
+    expect(r.divergences).toEqual([]);
   });
 
   it("the harness carries a split line's hidden tag on a pair-first config: the calculator never splits it again", () => {
@@ -3478,5 +3485,92 @@ describe("VRF-7 K2b -- the calculator fetches the configs its extras price throu
     expect(src).toContain("const aliasDisciplines = useMemo(() => crossTargetDisciplines(configsByCategory, discipline), [configsByCategory, discipline]);");
     const h = readFileSync(new URL("./calculatorPanelParity.harness.ts", import.meta.url), "utf-8");
     expect(h).toContain("calculatorHelper(discipline ? calculatorConfigMap(configsByCategory, discipline) : configsByCategory, items)");
+  });
+});
+
+/*
+ * VRF-8 B2 (K2) -- the calculator follows every K1 rule: on the fixture's v64 keys (v63 + `vrf8Model.json`, the file the v64 mint
+ * reads, applied by the harness's `applyVrf8`) the panel and the calculator price each new path the same -- the unstocked written
+ * setup (W2 / W3), the starter panel (W1), "quantified separately" (W5), the remote notes (W7 / K1c), the supply-heading note (D1),
+ * supports (D2), the feeder length (D4), breaker (if required) / the contractor's scope (D5), plug-top cabling (D6 / D7),
+ * interconnections (D8), the nearer heading (D9), install-only following its supply row (D10), the repeated size (D11), a missing
+ * answer (D13), TFA + its outdoor unit (D14-1), the first make too big (D14-2), verified quotes (D14-7), the two-capacities refusal
+ * typed in (W6). The count asserted. D12 (several unit types under one heading) is a reading of the BoQ's TREE: the panel refuses,
+ * the calculator -- which has no heading -- prices the type the pricer picks; asserted as that named exception, never smoothed.
+ */
+describe("VRF-8 B2 -- the K1 rules on both paths; panel = calculator on every case, the count asserted", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A63 = rd("rate_master_hvac_all_v63.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const v64 = applyVrf8(A63.category_configs.find((x) => x.category_id === "hvac_vrf")!, readJsonFixture(new URL("./__fixtures__/vrf8Model.json", import.meta.url)));
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS = [...asItems(A63), ...asItems(E72)];
+  const CFG64 = new Map<string, RateCategoryConfig>([...A63.category_configs.map((c) => (c.category_id === "hvac_vrf" ? v64 : c)), ...E72.category_configs].map((c) => [c.category_id, c]));
+  const run = (c: ParityCase) => runParity(CFG64, ITEMS, c, "full");
+  const vc = (unit: string, item: Record<string, string | null>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const od = (cap: string, more: Record<string, string | null> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: cap, ...more });
+  const row = (ids: string[], where = "Note") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const SP = "The unit mouted starter panel shall be complete with IP-55 protection consisting of power disconnecting switches with fuses, soft starters";
+  const B = "The cost of the unit shall include all necessary cabling, gland, cable tray and breaker (if required) to distribute power from single source";
+  const EC = "MCCB / MCB isolator & incoming power supply for VRV/VRF ODU unit will be in Electrical contractor scope of work";
+  const H12 = "SITC of BMS Compatible VRF Indoor air conditioning units, drain pumps for cassette, ductable & TFA units, suitable plug top, control wiring";
+  const CASES: Array<[string, ParityCase]> = [
+    ["W2 Daikin '60.0 HP (18+18+24)' -> 20 + 20 + 20", vc("Nos", od("60.0 HP (18+18+24)", { brand: "Daikin", cooling: "Cool Only", ...row(["frame"]) }))],
+    ["W3 Daikin '34 HP (16+18)' -> 20 + 16", vc("Nos", od("34 HP (16+18)", { brand: "Daikin", cooling: "Cool Only" }))],
+    ["W1 the starter panel, includes_mccb blank -> MCB + ELCB", vc("Nos", od("6 HP"), { headingNotes: [SP] })],
+    ["W5 a cassette under 'cabling ... quantified separately'", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "1.6TR", ...row(["remote"], "Heading") }, { headingNotes: ["3) All piping, cabling & ODU stands quantified separately."] })],
+    ["W7 Wired from the unit heading, a general 'cordless/ Corded remote'", vc("Nos", { item: "Cassette", way: "ONE-WAY", brand: "Blue Star", capacity: "1.28 TR", remote_type: "Wired", ...row(["remote"], "Heading") },
+      { headings: ["VRF SYSTEM", "Indoor Units (Cassette): Supply of Cassette indoor units with wall mounted corded remote with LCD display"], ancestorNotes: ["The system should be complete with controls, control panel, cordless/ Corded remote, power and control wiring"] })],
+    ["K1c a Hi-Wall's Cordless, the 'corded' in the Ductable sub-note", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "1.0TR", remote_type: "Cordless", ...row(["remote"]) },
+      { desc: "Hi wall unit type 1 -1.0TR", headings: ["VRF LOW SIDE WORKS"], headingNotes: ["Ductable Unit -SITC of Ceiling Suspended Ductable unit with washable filter and corded remote controller", "Hi wall Unit- SITC of Hi wall Type VRV Indoor Unit with drain pump and cordless remote controller to be considered"] })],
+    ["D1 'Supply of' heading + an installation note", vc("Set", od("18 HP", { scope: "Supply + installation", ...row(["power"]) }), { desc: "18HP Top discharge", headings: ["Supply of VRV ODU System"], headingNotes: ["Installation, testing and commissioning of VRV Condensor Units. The Quoted rate to include charges"] })],
+    ["D2 'supports' in the outdoor units' heading", vc("Nos", od("8 HP"), { desc: "8 HP", headings: ["SITC of Outdoor units.The Rate shall be inclusive of R-410A refrigerant & oil pre charging, vibration isolators, supports, etc."] })],
+    ["D4 a feeder within 5 mtr of the ODU", vc("Nos", od("10 HP", row(["power", "comm"], "Heading")), { headingNotes: ["Note: Single feeder shall be provided for all VRF ODU within 5 mtr distance from ODU. IP 65 rated DB"] })],
+    ["D5 breaker (if required) + the contractor's scope -> added", vc("Nos", od("24 HP", { brand: "Daikin", cooling: "Cool Only", includes_mccb: "No" }), { headingNotes: [B, EC] })],
+    ["D5 the contractor's scope alone -> not added", vc("Nos", od("12 HP", { includes_mccb: "No" }), { headingNotes: [EC] })],
+    ["D6 'inclusive of Plug Top & necessary power cable' -> power 30 m", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", cooling: "Cool Only", capacity: "2.56TR", includes_power: "None" }, { headings: ["INDOOR UNITS"], headingNotes: ["Quoted price shall be inclusive of Plug Top & necessary power cable."] })],
+    ["D6 drain-pump cabling -> no power line", vc("Nos", { item: "Hi-Wall", brand: "Blue Star", capacity: "1.6 TR", ...row(["remote"]) }, { headingNotes: ["Necessary cabling including plug top from nearest power point for the drain pump."] })],
+    ["D7 the cable's only own row is the drain-pump row", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "3.2TR", ...row(["power"], "Heading"), includes_power_words: "Scope includes providing plug top with 3 Rmt of multi core cable till AC unit" },
+      { desc: "3.2TR", headings: ["Installation of Cassette ACs. Scope includes providing plug top with 3 Rmt of multi core cable till AC unit."], sheet: [{ row: 102, text: "SITC of compact drain pump with necessary controls; power cable from the nearest point" }] })],
+    ["D8 interconnections with power supply", vc("Nos", { item: "Ductable", brand: "Blue Star", capacity: "3.0 TR", ...row(["power"], "Heading"), includes_power_words: "necessary interconnections with Power supply / earthing / Refrigerant Connections" },
+      { headings: ["The scope includes required supports with necessary Panels, cordless remote, and necessary interconnections with Power supply / earthing / Refrigerant Connections Complete as required"] })],
+    ["D9 the nearer heading 'cooling mode' over 'cooling & heating'", vc("Nos", od("18 HP"), { desc: "18HP", ancestorNotes: ["The condensing units shall be suitable to work on cooling mode even during peak winter season", "individual controller for cooling & heating application"] })],
+    ["D10 install-only 12HP Side follows the Daikin supply row", vc("Nos", { item: "Outdoor Unit", discharge: "Side", capacity: "12HP", scope: "Installation only" },
+      { desc: "12HP Side Discharge Outdoor unit", sheet: [{ row: 7, text: "12HP Side Discharge Outdoor unit", category: "hvac_vrf", items: [{ item: "Outdoor Unit", brand: "Daikin", brand_as_written: "Daikin", discharge: "Side", capacity: "12HP", scope: "Supply only" }] }] })],
+    ["D11 4.0 TR stated twice, 5.5 TR once", vc("nos.", { item: "Ductable", remote_type: "Wired", capacity: "5.5TR" }, { desc: "VRV/VRF-CSU high static ductable type indoor-4.0 TR capacity | Supply of CSU ductable indoor unit as per the capacity belo5.5 TR capacity 4.0TR capacity" })],
+    ["D13 includes_drain_pump left out, the heading names drain pumps", vc("Nos", { item: "Cassette", brand: "Blue Star", capacity: "3.0TR", includes_drain_pump: null }, { headings: [H12] })],
+    ["D14-1 TFA 'complete with suitable Outdoor unit'", { cat: "hvac_vrf", unit: "Nos.", desc: "Supply, installation of 741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit double-skin", attrs: {},
+      items: [{ item: "Single Skin Treated Fresh Air", capacity: "741 CFM (6 HP)" }, { item: "Outdoor Unit" }] }],
+    ["D14-2 '1.59 TR', Daikin's smallest Ductable 4 TR", vc("Nos", { item: "Ductable", brand_as_written: "TOSHIBA / DAIKIN / PANASONIC", capacity: "1.59 TR" })],
+    ["D14-7 a quote shortened with '...'", vc("Nos", od("10 HP", { ...row(["frame"]), includes_frame_words: "The cost of the unit ... MS plate structure" }), { headingNotes: ["The cost of the unit shall include a necessary MS angle base frame and an MS plate structure"] })],
+    ["W6 two capacities stated (the panel's case typed in)", vc("Nos.", { item: "Cassette", way: "FOUR-WAY", scope: "Supply only" }, { desc: "VRV/VRF- Ceiling 4-WAY Cassette Type- 2.6 Tr Capacity | Supply of indoor unit as per the capacity below 1.3 TR" })],
+  ];
+  const D12: ParityCase = vc("Nos", { item: null, capacity: "2.0 TR" }, { desc: "2.0 TR", headings: [H12], headingNotes: ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"] });
+
+  it("every case: 0 divergences -- the count asserted", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    expect(out.filter((o) => o.div.length).map((o) => ({ name: o.name, div: o.div }))).toEqual([]);
+    expect(CASES).toHaveLength(23);
+  }, 600000);
+
+  it("the panel's VRF-8 readings reach the calculator: 20 + 20 + 20, MCB + ELCB, 5 m, Daikin 6 + 6, 6 HP outdoor unit", () => {
+    const P = (i: number) => (run(CASES[i][1]).panel as ItemListSuggestion).itemList!;
+    const C = (i: number) => (run(CASES[i][1]).calculator as ItemListSuggestion).itemList!;
+    const caps = (v: ItemListView) => v.items.map((b) => b.fields?.find((f) => f.id === "capacity")?.value);
+    expect(caps(P(0))).toEqual(["20", "20", "20"]);
+    expect(caps(C(0))).toEqual(["20", "20", "20"]);
+    expect(C(2).items[0].extras?.lines.map((l) => l.id)).toEqual(expect.arrayContaining(["acc_mcb", "acc_elcb"]));
+    expect(C(8).items[0].extras?.lines.find((l) => l.id === "power")?.fields.find((f) => f.id === "length")?.value).toBe("5");
+    expect(C(16).items.map((b) => `${b.fields?.find((f) => f.id === "brand")?.value} ${b.fields?.find((f) => f.id === "capacity")?.value}`)).toEqual(["Daikin 6", "Daikin 6"]);
+    expect(caps(C(19))[1]).toBe("6");
+    expect(C(22).reason ?? "").toMatch(/two capacities stated \(2.6 TR \/ 1.3 TR\) - pick one/);
+  });
+
+  it("D12 (several unit types) is the named panel-only refusal: the panel refuses; the calculator prices the type it is given", () => {
+    const r = run(D12);
+    expect((r.panel as ItemListSuggestion).itemList!.reason).toBe("several unit types under this heading - fix the headings or pick the type (owner D12)");
+    expect(hasPrice(r.panel)).toBe(false);
+    expect(r.divergences.map((d) => d.what)).toContain("item row reason");
   });
 });
