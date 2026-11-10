@@ -1,12 +1,13 @@
-"""Does an env's DB need a migrate before a test run? Compares the app's schema files with the ones its last migrate saw.
+"""Does an env's DB need a migrate before a test run? Compares the schema files with what its last migrate saw.
 
     python3 -I devenv_schema.py record <app-root> <stamp-file>   after a migrate: remember the schema files
     python3 -I devenv_schema.py check  <app-root> <stamp-file>   exit 0 when nothing changed since, 10 when a migrate
                                                                   is needed (stdout says why: no record, or the files)
 
 The schema files are what `bench migrate` applies: every doctype JSON, patches.txt and hooks.py. The stamp holds each
-one's sha256 as the files stood on disk (committed or not), since that is what a migrate reads. Called by devenv.sh
-(`migrate` records, `test` checks).
+one's sha256 as the files stood on disk (committed or not), since that is what a migrate reads. Fixtures
+(fixtures/*.json) are not watched: issue #1679 names only these three. Called by devenv.sh (`migrate` records into a
+.next file it moves in place once the migrate succeeded, `test` checks).
 """
 
 import hashlib
@@ -15,7 +16,7 @@ import os
 import sys
 
 APP = "nirmaan_stack"
-NEEDED = 10
+NEEDS_MIGRATE = 10
 SKIP_DIRS = {"public", "node_modules", "__pycache__", ".git"}
 
 
@@ -38,10 +39,8 @@ def schema_files(root):
 def main(cmd, root, stamp):
     now = schema_files(root)
     if cmd == "record":
-        os.makedirs(os.path.dirname(os.path.abspath(stamp)), exist_ok=True)
-        with open(stamp + ".tmp", "w") as f:
+        with open(stamp, "w") as f:
             json.dump(now, f, indent=0, sort_keys=True)
-        os.replace(stamp + ".tmp", stamp)
         return 0
     if cmd != "check":
         sys.exit(f"devenv_schema: unknown command {cmd!r}")
@@ -50,13 +49,13 @@ def main(cmd, root, stamp):
             then = json.load(f)
     except (OSError, ValueError):
         print("no record of this env's last migrate")
-        return NEEDED
+        return NEEDS_MIGRATE
     changed = sorted(p for p in now.keys() | then.keys() if now.get(p) != then.get(p))
     if not changed:
         return 0
     shown = changed[:5] + ([f"and {len(changed) - 5} more"] if len(changed) > 5 else [])
     print(f"changed since the env's last migrate: {', '.join(shown)}")
-    return NEEDED
+    return NEEDS_MIGRATE
 
 
 if __name__ == "__main__":

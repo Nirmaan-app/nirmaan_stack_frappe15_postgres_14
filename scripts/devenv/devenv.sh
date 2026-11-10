@@ -165,9 +165,14 @@ db_state() {
 migrate() {    # frappe migrate, after clearing locks a killed or failed run left behind (else DocumentLockedError)
   pgrep -f -- "--site $SITE migrate" >/dev/null && die "a migrate is already running on $SITE"
   rm -f "$B/sites/$SITE/locks/"*.lock
-  # The schema files are read before the migrate, and become the env's record only once it succeeded.
-  schema record "$B/.migrated-schema.next"
-  frappe_cmd migrate "$@" && make_safe && mv "$B/.migrated-schema.next" "$B/.migrated-schema"
+  # The schema files are read before the migrate, and become the env's record only once it succeeded. The record is
+  # best-effort: when it cannot be made, the next `test` simply migrates again, and the migrate itself still runs.
+  # The old record goes first: a migrate that fails (e.g. reset's, on a fresh clone) leaves the next test to migrate.
+  local next="$B/.migrated-schema.next"
+  rm -f "$B/.migrated-schema"
+  schema record "$next" || rm -f "$next"
+  frappe_cmd migrate "$@" && make_safe || return
+  if [ -f "$next" ]; then mv "$next" "$B/.migrated-schema"; fi
 }
 
 # The env's schema files (every doctype JSON, patches.txt, hooks.py) against what its last migrate saw:
@@ -185,7 +190,8 @@ migrate_if_needed() {
   case "$rc" in
     0)  echo "  migrate: none needed (doctype JSON, patches.txt and hooks.py unchanged since the env's last migrate)" ;;
     10) echo "  migrate: $why; migrating first (log: benches/$TASK/logs/migrate.log)"
-        ( migrate ) >"$B/logs/migrate.log" 2>&1 || { tail -30 "$B/logs/migrate.log"; die "migrate failed, so no test ran"; }
+        ( migrate ) >"$B/logs/migrate.log" 2>&1 \
+          || { tail -30 "$B/logs/migrate.log"; die "migrate failed, so no test ran"; }
         echo "  migrate: done" ;;
     *)  die "could not tell whether $TASK needs a migrate (devenv_schema.py exited $rc)" ;;
   esac
