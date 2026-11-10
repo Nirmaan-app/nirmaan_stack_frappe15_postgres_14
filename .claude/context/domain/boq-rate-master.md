@@ -2855,6 +2855,61 @@ VRF-6's behaviour (the A1 fix below is the one code-only change).
   (live calculator 126,640 vs panel 131,890 on 00098 r14). A new extra that prices through another discipline's category needs no
   wiring beyond its config key; a category it names that the registry does not list is still never fetched.
 
+**VRF-8: STARTER-PANEL BREAKERS, AN UNSTOCKED STATED SETUP BY THE SPLIT RULE, NEVER-SILENT NOTES, REMOTE NOTES FROM THIS UNIT'S OWN WORDS, THE SUPPLY-HEADING NOTE, SUPPORTS = MS STAND, FEEDER DISTANCE = POWER LENGTH, BREAKER (IF REQUIRED) WINS, PLUG-TOP / DRAIN-PUMP CABLING, INTERCONNECTIONS = CONNECTION WORK, THE NEARER HEADING WINS ON MODE, INSTALL-ONLY FOLLOWS ITS SUPPLY ROW, THE REPEATED SIZE, SEVERAL UNIT TYPES REFUSE, EVERY EXTRA QUESTION REQUIRED, TFA + ITS OUTDOOR UNIT, THE FIRST MAKE TOO BIG, VERIFIED QUOTES (owner rulings 2026-11-10 13:56-15:05 from the VRF-7 review; HVAC v64).**
+v64 = v63 with only `hvac_vrf`'s `list_spec` changed (no item, no Pricing Input). Every key is optional: a config without it keeps
+VRF-7's behaviour (the 1,901 stored VRF rows priced under live v63 with the VRF-8 code: 0 differences).
+- **W2 / W3 (`split.stated_not_stocked`):** a written setup ("60 HP (18+18+24)") with a module the unit's make and type does not stock
+  (between rungs or above the largest) is NOT followed: its stated total goes to the split rule like any capacity (60 -> 20 + 20 + 20;
+  34 -> 20 + 16), and the split note says the setup could not be followed. Replaces VRF-6's per-module next size up / split_over_top
+  for such rows.
+- **W1 / D2 / D6 (implied includes with `only_blank`, `not_words`, role `any`):** where the model left the question unanswered --
+  "unit mou(n)ted starter panel ... switches with fuses" -> the MCB + ELCB set (with VRF-7's D1 note; the line itself empty);
+  "supports" in a clause of the outdoor unit's own level (row + its heading and notes), not an indoor / ceiling / pipe / cable / BMS
+  clause -> the MS frame / stand; "inclusive of plug top & necessary power cable" on a unit -> its power cable (default length). The
+  model's explicit No stands; the own-row rule applies.
+- **W5 (`note_wins.line_silent`), D6 (`lines.drain_cable_line_silent`), D7 (`lines.drain_cable_row_line`):** "quantified separately"
+  and drain-pump cabling are said on the unit even where the model read no such include (found row-level, before the anyOn gate); a
+  power cable whose only own rows are the sheet's drain-pump rows is the pump's cabling -- not added, the note names the row.
+- **K1c / W7 / D14-4 (`choice.conflict.head / pairs / both_line`, `prepare.unit_words`):** the D2 note reads only this unit's words: a
+  chain text naming another unit type in its first 60 characters ("Ductable Unit - ... corded remote") is a sibling's, never read;
+  "corded/wireless" and "wired/cordless" are both-type phrases; a type decided by plain words keeps its price where a both-type phrase
+  sits elsewhere in this unit's chain, with a note quoting both (00073 r51).
+- **D1 (`scope.supply_heading`):** a supply + installation row under a "Supply of ..." heading whose notes say installation, testing and
+  commissioning stays supply + installation, with a note quoting both.
+- **D4 (`prepare.feeder_length`):** "single feeder / DB ... within N m(tr) ... ODU" -> the outdoor unit's power cable length N m, noted.
+- **D5 (`prepare.breaker_words`):** "breaker (if required)" -> MCB + ELCB on every module, noted with the electrical-contractor wording
+  when that is there too; that wording alone -> not added, noted (a model Yes read from it is set back to No).
+- **D8 (`prepare.connection_only`):** "necessary interconnections with power supply / refrigerant connections" is connection work: an
+  include the model read from those words is not added; the words are quoted either way.
+- **D9 (`prepare.mode_nearest`):** headings that disagree on cooling / heating -> the nearer heading decides (heat words: cooling &
+  heating, heating mode, heat pump, plus A5's; cool words: cooling only / cooling mode), noted; runs before A5 and the row's own words
+  (Q6) still win.
+- **D10 (`prepare.install_follows`):** an installation-only row with no make takes the make of the same sheet's supply row of the same
+  item-1 family and capacity (`sheetLines` carry `cap1` / `attrs1`); the module split follows from the make (00210 r23 -> Daikin 6 + 6).
+- **D11 (`prepare.repeated_size`):** one capacity stated twice in the row (same unit) and another once -> the repeated one, noted.
+- **D12 (`prepare.several_types`):** the unit's own heading carries two or more SHORT notes (<= 60 characters) naming different unit
+  types and the row names none -> the row refuses "several unit types under this heading - fix the headings or pick the type"; the
+  row total names it (U8). PANEL-ONLY: the calculator has no heading tree and prices the type the pricer picks (a named parity exception).
+- **D13 (`prepare.missing_answers`; `required` questions; the extraction re-ask):** the ten extra questions are `required` (never left
+  out; `allow_none` kept -- the item-list prompt leaves out a non-allow_none attribute the text does not state). A reply leaving one out
+  (value null) is asked ONCE more in the same run (`extraction.rows_missing_required`; a `reask` capture batch); still missing and the
+  own-row words name the extra in a clause with no exclusion words -> treated as stated, the normal rules decide.
+- **D14-1 (`prepare.tfa_outdoor`):** a fresh-air unit "complete with suitable outdoor unit" -> the outdoor unit item takes the HP the
+  row states (an outdoor item is added if the model gave none).
+- **D14-2 (`prepare.first_make_close`):** several makes stated, the first stocked one's smallest size above the catalogue's next size up
+  for the stated capacity -> the next stated make with a close size, else Blue Star, noted.
+- **D14-7 (`safeguard.verified_quotes`):** a model quote is shown only when the WHOLE quote is found in the chain (then with its row);
+  a quote with "..." or not found falls back to the line without it. VRF-8's own quotes are exact excerpts (no ellipsis).
+- **Calculator (K2):** W6 -- a capacity typed with two values refuses with the panel's sentence; R-F2 (corrected by K2c, owner 18:21
+  "option a") -- on an installation-only row a line whose catalogue install is a stored 0 (the MS frame / stand, 5,600 / 0) charges its
+  full cost in the install column, no uplift, with the note "Installation-only row: MS frame charged at 5,600 - the stand is made and
+  fixed on site by us (owner R-F2)"; the row prices; a line with NO install figure still refuses (code rule, every scope config; K2's
+  refusal was the first spec); R-F3 -- an extra removed with its x on every unit is
+  unticked (kept in the include list as `removed`, so "Put it back" ticks it again); R-F4 -- Derivation line 42 states its condition on
+  a config with VRF-7's own-row check. **Derivation:** 17 VRF-8 lines (13j), each on its key.
+- **Validation:** every key refused by name when malformed (`_validate_prepare_vrf8`, the implied-include / conflict / note_wins /
+  safeguard / scope / split / lines branches, a question's `required`); the questions they read checked by `need()`.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
