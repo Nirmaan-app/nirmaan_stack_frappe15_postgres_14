@@ -238,6 +238,22 @@ class TestACashbookMoveIsNeverSentBack(CashbookStageCase):
                 self.assertEqual(frappe.db.get_value("Outflow Import Row", line, "row_status"), "Internal Transfer")
                 self.assertEqual(self._record(line), imported)
 
+    def test_an_old_move_staged_before_the_type_was_stored_is_refused_too(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows
+
+        tag = frappe.generate_hash(length=6).upper()
+        line = self._move("VA → Wallet", "Virtual Account", "Test Employee A", "", "4000", f"BUSINESS_USER-{tag}")
+        frappe.db.set_value("Outflow Import Row", line, "row_kind", None)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            send_back_to_mismatched(line, reason="Checking it")
+        frappe.db.rollback()
+        self.assertIn("Cashbook's own Type (VA → Wallet) says this line is a move", str(caught.exception))
+        batch = frappe.db.get_value("Outflow Import Row", line, "import_batch")
+        rows = get_outflow_rows(scope="internal_transfers", batch=batch, limit=50)["rows"]
+        self.assertEqual([row["can_send_back"] for row in rows], [False])
+
     def test_the_screen_offers_send_back_on_every_other_internal_transfer_line_only(self):
         from nirmaan_stack.api.outflow_import.review import get_outflow_rows
 
