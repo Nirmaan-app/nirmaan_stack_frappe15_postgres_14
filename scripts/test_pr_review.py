@@ -841,5 +841,14 @@ class InertReasonTest(unittest.TestCase):
                            "total_cost_usd": 1.2}])
         self.assertEqual(failure_reason(log, {}), "error_max_turns")
 
+
+class ScreenCodeTest(unittest.TestCase):
+    def test_frontend_docs_need_no_walk(self):
+        from pr_review import touches_screens
+        self.assertFalse(touches_screens(["frontend/.claude/plans/boq-upload-plan.md", "nirmaan_stack/api/x.py"]))
+        self.assertFalse(touches_screens(["frontend/CODING_STANDARDS.md", "frontend/.claude/context/x.json"]))
+        self.assertTrue(touches_screens(["frontend/package.json"]))
+        self.assertTrue(touches_screens(["docs/a.md", "frontend/src/pages/Payments.tsx"]))
+
 if __name__ == "__main__":
     unittest.main()

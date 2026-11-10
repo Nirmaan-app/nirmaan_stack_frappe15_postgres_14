@@ -40,7 +40,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable, NamedTuple, TypedDict
+from typing import Callable, NamedTuple, TypedDict, Iterable
 
 RUN_DIR = Path(".pr-review-run")
 PROMPT_DIR = Path(__file__).resolve().parent.parent / ".github" / "pr-review"
@@ -573,10 +573,17 @@ def trusted_walk_reports(comments: list[dict]) -> list[WalkReport]:
     return reports
 
 
+def touches_screens(paths: Iterable[str]) -> bool:
+    """Whether any path can change what a screen shows: anything under frontend/ except Markdown and the agent
+    notes in frontend/.claude/. A dependency bump in package.json still counts."""
+    return any(path.startswith("frontend/") and not path.startswith("frontend/.claude/") and not path.endswith(".md")
+               for path in paths)
+
+
 def walk_blocker(reports: list[WalkReport], head_sha: str, changes_frontend: bool,
                  frontend_changed_since: Callable[[str], bool | None]) -> str:
     """Why the owner's walk does not cover the PR's screens, or "" when it does or the PR changes none.
-    frontend_changed_since(sha) says whether commits after sha change frontend/, or None when sha is not behind
+    frontend_changed_since(sha) says whether commits after sha change screen code, or None when sha is not behind
     the head (the branch was rewritten)."""
     if not changes_frontend:
         return ""
@@ -1287,14 +1294,14 @@ def cmd_fail(args: argparse.Namespace) -> None:
 def merge_facts(ctx: Context) -> MergeFacts:
     """Read what option A needs from GitHub: the checks, the changed files and the owner's walk reports."""
     head = ctx.pr["headRefOid"]
-    changes_frontend = any(path.startswith("frontend/") for path in fetch_pr_files(ctx.repo, ctx.number))
+    changes_frontend = touches_screens(fetch_pr_files(ctx.repo, ctx.number))
 
     def frontend_changed_since(sha: str) -> bool | None:
         compare = fetch_compare(ctx.repo, sha, head)
         if not compare or compare.get("status") not in ("ahead", "identical"):
             return None
         files = compare.get("files") or []
-        return len(files) >= 300 or any(f["filename"].startswith("frontend/") for f in files)
+        return len(files) >= 300 or touches_screens(f["filename"] for f in files)
 
     walk = walk_blocker(trusted_walk_reports(ctx.comments), head, changes_frontend, frontend_changed_since)
     return MergeFacts(base=ctx.pr.get("baseRefName", ""), mergeable=ctx.pr.get("mergeable", ""), ci=ci_tally(ctx.pr),
