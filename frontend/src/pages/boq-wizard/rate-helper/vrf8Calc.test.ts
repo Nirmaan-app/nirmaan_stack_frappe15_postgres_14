@@ -84,6 +84,13 @@ describe("VRF-8 R-W6 -- the two-capacities refusal in the calculator", () => {
   it("NEGATIVE: one capacity typed prices", () => {
     expect(run([CAS("2.6 TR")]).rowPriced).toBe(true);
   });
+  it("NEGATIVE (K3): a unit refused for ANOTHER reason keeps it -- a Lot unit with two capacities typed still says it is a Lot", () => {
+    const v = (CALC.compute(calculatorCtx("HVAC", VRF), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Outdoor Unit", attrs: { brand: "Blue Star", capacity: "22.5 TR / 18 HP" } }] }), [ROW_UNIT_OVERRIDE_KEY]: "Lot",
+    }) as unknown as ItemListSuggestion).itemList!;
+    expect(v.rowPriced).toBe(false);
+    expect(v.reason ?? "").not.toMatch(/two capacities stated/);
+  });
 });
 
 describe("VRF-8 R-F4 -- Derivation line 42 states its condition", () => {

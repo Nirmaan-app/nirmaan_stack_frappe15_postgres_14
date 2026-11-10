@@ -2296,3 +2296,160 @@ describe("VRF-7 (v63) -- R-39: every VRF Derivation-tab rule v63 adds or rewords
     if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
   });
 });
+
+/*
+ * VRF-8 (owner rulings 2026-11-10 13:56-15:05, from the VRF-7 review) -- R-39 ON v64: the 17 lines v64 adds each fire from the PANEL's
+ * entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v64's titles = v63's 56 (line 42 states its condition,
+ * K2) + the 17 VRF-8 lines.
+ */
+describe("VRF-8 (v64) -- R-39: every VRF Derivation-tab rule v64 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const A63 = rd("rate_master_hvac_all_v63.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items64 = [...asItems(A64), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A64.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    setup: "A written module setup that is not stocked -> the split rule on the total",
+    nets: "Starter-panel breakers, ODU supports and plug-top power cable",
+    qs: "'Quantified separately' is always said",
+    remote: "Remote notes read only this unit's own words",
+    supply: "A 'Supply of' heading with an installation note stays supply + installation",
+    feeder: "A feeder within N m of the ODU sets the power cable length",
+    breaker: "'Breaker (if required)' includes the MCB + ELCB",
+    drain: "Drain-pump cabling is never the unit's power cable",
+    inter: "'Interconnections with power supply' are connection work",
+    mode: "The nearer heading wins on cooling / heating",
+    install: "An installation-only row follows its supply row",
+    repeated: "A capacity stated twice wins",
+    types: "Several unit types under one heading refuse",
+    missing: "An extra the model left unanswered follows the BoQ's words",
+    tfa: "A fresh-air unit complete with its outdoor unit",
+    make: "A stated make with no size close enough gives way",
+    quotes: "Only verified BoQ quotes are shown",
+  };
+  // VRF-8: a case may also carry every heading's notes above the row (`ancestorNotes`, what the page builds) -- a note two levels up
+  type Row = { items?: Array<Record<string, string | null>>; text?: string; category?: string; headings?: string[]; headingNotes?: string[]; ownNotes?: string[]; ancestorNotes?: string[] };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string | null> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const W = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const SP = "The unit mouted starter panel shall be complete with IP-55 protection consisting of power disconnecting switches with fuses";
+  const EC = "MCCB / MCB isolator & incoming power supply for VRV/VRF ODU unit will be in Electrical contractor scope of work";
+  const TYPES = ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"];
+  const TFA = "Supply of 741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit";
+  const VCASES: VCase[] = [
+    { id: "K1a", rule: VT.setup, kind: "pos", rows: { 9: { items: [OD({ brand: "Daikin", cooling: "Cool Only", capacity: "60.0 HP (18+18+24)" })] } }, at: 9, re: [/could not be followed/, "capacity:20"], not: ["capacity:12"], priced: true },
+    { id: "K1b-neg", rule: VT.setup, kind: "neg", rows: { 9: { items: [OD({ brand: "Daikin", cooling: "Cool Only", capacity: "40HP (20+20)" })] } }, at: 9, re: ["capacity:20"], not: [/could not be followed/], priced: true },
+    { id: "K2a", rule: VT.nets, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP" })], headingNotes: [SP] } }, at: 9, re: ["line:acc_mcb", "line:acc_elcb", /owner D1/], priced: true },
+    { id: "K2b-neg", rule: VT.nets, kind: "neg", rows: { 9: { items: [OD({ capacity: "6 HP", includes_mccb: "No" })], headingNotes: [SP] } }, at: 9, re: [], not: ["line:acc_mcb"], priced: true },
+    { id: "K3a", rule: VT.qs, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.6TR", ...W(["remote"], "Heading") }], headingNotes: ["All piping, cabling & ODU stands quantified separately."] } }, at: 9,
+      re: [/Power cable: not added - the BoQ note says/], not: ["line:power"], priced: true },
+    { id: "K3b-neg", rule: VT.qs, kind: "neg", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.6TR", ...W(["remote"], "Heading") }] } }, at: 9, re: [], not: [/quantified separately/], priced: true },
+    { id: "K4a", rule: VT.remote, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.28 TR", remote_type: "Wired", ...W(["remote"], "Heading") }],
+      headings: ["VRF SYSTEM", "Indoor Units (Cassette): Supply of Cassette units with wall mounted corded remote with LCD display"], ancestorNotes: ["The system should be complete with controls, cordless/ Corded remote, power and control wiring"] } }, at: 9,
+      // the plain words that decided are quoted from where they sit as plain words (the unit heading), never the "Corded" inside the pair
+      re: ["remote_type:Wired", /owner W7/, /the BoQ says "[^"]*wall mounted corded remote with LCD display[^"]*" and also "[^"]*cordless\/ Corded remote/], priced: true },
+    { id: "K4b-neg", rule: VT.remote, kind: "neg", rows: { 9: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1.0TR", remote_type: "Cordless", ...W(["remote"], "Note") }], text: "Hi wall unit type 1 -1.0TR",
+      headings: ["VRF LOW SIDE WORKS"], headingNotes: ["Ductable Unit -SITC of Ceiling Suspended Ductable unit with corded remote controller", "Hi wall Unit- SITC of Hi wall Type VRV Indoor Unit with cordless remote controller to be considered"] } }, at: 9,
+      re: ["remote_type:Cordless"], not: [/owner D2/, /owner W7/], priced: true },
+    { id: "K5a", rule: VT.supply, kind: "pos", rows: { 9: { items: [OD({ capacity: "18 HP", scope: "Supply + installation" })], headings: ["Supply of VRV ODU System"], headingNotes: ["Installation, testing and commissioning of VRV Condensor Units"] } }, at: 9,
+      re: [/priced as supply \+ installation \(owner D1\)/], priced: true },
+    { id: "K5b-neg", rule: VT.supply, kind: "neg", rows: { 9: { items: [OD({ capacity: "18 HP", scope: "Supply + installation" })], headings: ["SITC of VRV ODU System"], headingNotes: ["Installation, testing and commissioning of VRV Condensor Units"] } }, at: 9,
+      re: [], not: [/owner D1\)/], priced: true },
+    { id: "K6a", rule: VT.feeder, kind: "pos", rows: { 9: { items: [OD(W(["power"], "Heading"))], headingNotes: ["Note: Single feeder shall be provided for all VRF ODU within 5 mtr distance from ODU."] } }, at: 9, re: ["power length:5", /owner D4/], priced: true },
+    { id: "K6b-neg", rule: VT.feeder, kind: "neg", rows: { 9: { items: [OD(W(["power"], "Heading"))] } }, at: 9, re: ["power length:30"], not: [/owner D4/], priced: true },
+    { id: "K7a", rule: VT.breaker, kind: "pos", rows: { 9: { items: [OD({ capacity: "12 HP", includes_mccb: "No" })], headingNotes: ["The cost of the unit shall include cabling, gland, cable tray and breaker (if required) to distribute power", EC] } }, at: 9,
+      re: ["line:acc_mcb", /added as the safe choice \(owner D5\)/], priced: true },
+    { id: "K7b-neg", rule: VT.breaker, kind: "neg", rows: { 9: { items: [OD({ capacity: "12 HP", includes_mccb: "No" })], headingNotes: [EC] } }, at: 9, re: [/NOT added - the BoQ says/], not: ["line:acc_mcb"], priced: true },
+    { id: "K8a", rule: VT.drain, kind: "pos", rows: { 9: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1.6 TR", ...W(["remote"], "Note") }], headingNotes: ["Necessary cabling including plug top from nearest power point for the drain pump."] } }, at: 9,
+      re: [/is for the drain pump/], not: ["line:power"], priced: true },
+    { id: "K8b-neg", rule: VT.drain, kind: "neg", rows: { 9: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1.6 TR", includes_power: "None" }], headingNotes: ["Quoted price shall be inclusive of Plug Top & necessary power cable."] } }, at: 9,
+      re: ["line:power"], not: [/drain pump/], priced: true },
+    { id: "K9a", rule: VT.inter, kind: "pos", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.0 TR", ...W(["power"], "Heading"), includes_power_words: "necessary interconnections with Power supply / earthing / Refrigerant Connections" }],
+      headings: ["The scope includes necessary interconnections with Power supply / earthing / Refrigerant Connections Complete as required"] } }, at: 9, re: [/connection work only \(owner D8\)/], not: ["line:power"], priced: true },
+    { id: "K9b-neg", rule: VT.inter, kind: "neg", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.0 TR", ...W(["power"], "Heading"), includes_power_words: "power cable from the DB" }], headings: ["Indoor units with power cable from the DB"] } }, at: 9,
+      re: ["line:power"], not: [/owner D8/], priced: true },
+    { id: "K10a", rule: VT.mode, kind: "pos", rows: { 9: { items: [OD({ capacity: "18 HP" })], headings: ["VRV SYSTEM with individual controller for cooling & heating application", "OUTDOOR UNITS"], headingNotes: ["The condensing units shall be suitable to work on cooling mode even during peak winter season"] } }, at: 9,
+      re: ["cooling:Cool Only", /the nearer heading wins: priced as Cool Only \(owner D9\)/], priced: true },
+    { id: "K10b-neg", rule: VT.mode, kind: "neg", rows: { 9: { items: [OD({ capacity: "18 HP" })], headings: ["OUTDOOR UNITS"], headingNotes: ["The condensing units shall be suitable to work on cooling mode even during peak winter season"] } }, at: 9,
+      re: ["cooling:Cool Only"], not: [/owner D9/], priced: true },
+    { id: "K11a", rule: VT.install, kind: "pos", rows: { 7: { items: [{ item: "Outdoor Unit", brand: "Daikin", brand_as_written: "Daikin", discharge: "Side", capacity: "12HP", scope: "Supply only" }], text: "12HP Side" },
+      9: { items: [{ item: "Outdoor Unit", discharge: "Side", capacity: "12HP", scope: "Installation only" }], text: "12HP Side" } }, at: 9, re: ["brand:Daikin", "capacity:6", /quoted on row 7 as Daikin/], priced: true },
+    { id: "K11b-neg", rule: VT.install, kind: "neg", rows: { 9: { items: [{ item: "Outdoor Unit", discharge: "Side", capacity: "8HP", scope: "Installation only" }], text: "8HP Side" } }, at: 9, re: ["brand:Blue Star"], not: [/owner D10/], priced: true },
+    { id: "K12a", rule: VT.repeated, kind: "pos", rows: { 9: { items: [{ item: "Ductable", remote_type: "Wired", capacity: "5.5TR" }], text: "CSU ductable indoor-4.0 TR capacity | as per the capacity belo5.5 TR capacity 4.0TR capacity" } }, at: 9,
+      re: ["capacity:4", /twice and 5.5 TR once/], priced: true },
+    { id: "K12b-neg", rule: VT.repeated, kind: "neg", rows: { 9: { items: [{ item: "Ductable", remote_type: "Wired", capacity: "4.0TR" }], text: "CSU ductable indoor-4.0 TR capacity" } }, at: 9, re: ["capacity:4"], not: [/owner D11/], priced: true },
+    { id: "K13a", rule: VT.types, kind: "pos", rows: { 9: { items: [{ item: null, capacity: "2.0 TR" }], text: "2.0 TR", headings: ["VRF indoor units"], headingNotes: TYPES } }, at: 9, re: [/several unit types under this heading/], priced: false },
+    { id: "K13b-neg", rule: VT.types, kind: "neg", rows: { 9: { items: [{ item: "Cassette", capacity: "2.0 TR" }], text: "2.0 TR 4 way cassette", headings: ["VRF indoor units"], headingNotes: TYPES } }, at: 9, re: [], not: [/several unit types/], priced: true },
+    { id: "K14a", rule: VT.missing, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "3.0TR", includes_drain_pump: null }], headings: ["VRF Indoor units with drain pumps for cassette, ductable & TFA units"] } }, at: 9,
+      re: ["line:acc_drain_pump", /- added \(the BoQ has no row of its own for it\)/], priced: true },
+    { id: "K14b-neg", rule: VT.missing, kind: "neg", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "3.0TR", includes_drain_pump: "None" }], headings: ["VRF Indoor units with drain pumps for cassette, ductable & TFA units"] } }, at: 9,
+      re: [], not: ["line:acc_drain_pump"], priced: true },
+    { id: "K15a", rule: VT.tfa, kind: "pos", rows: { 9: { items: [{ item: "Single Skin Treated Fresh Air", capacity: "741 CFM (6 HP)" }, { item: "Outdoor Unit" }], text: TFA } }, at: 9, re: [/owner D14-1/, "capacity:6"], priced: true },
+    { id: "K15b-neg", rule: VT.tfa, kind: "neg", rows: { 9: { items: [{ item: "Single Skin Treated Fresh Air", capacity: "741 CFM (6 HP)" }, { item: "Outdoor Unit" }], text: "741 CFM (6 HP) TFA unit" } }, at: 9, re: [/no capacity stated/], not: [/owner D14-1/], priced: false },
+    { id: "K16a", rule: VT.make, kind: "pos", rows: { 9: { items: [{ item: "Ductable", brand_as_written: "TOSHIBA / DAIKIN / PANASONIC", capacity: "1.59 TR" }] } }, at: 9, re: [/Daikin's smallest is 4 TR/], not: ["brand:Daikin"], priced: true },
+    { id: "K16b-neg", rule: VT.make, kind: "neg", rows: { 9: { items: [{ item: "Ductable", brand_as_written: "TOSHIBA / DAIKIN / PANASONIC", capacity: "4 TR" }] } }, at: 9, re: ["brand:Daikin"], not: [/owner D14-2/], priced: true },
+    { id: "K17a", rule: VT.quotes, kind: "pos", rows: { 9: { items: [OD({ ...W(["frame"], "Note"), includes_frame_words: "The cost of the unit ... MS plate structure" })], headingNotes: ["The cost of the unit shall include a necessary MS angle base frame and an MS plate structure"] } }, at: 9,
+      re: [/MS frame \/ stand: stated in note/], not: [/the BoQ says "The cost of the unit \.\.\./], priced: true },
+    { id: "K17b-neg", rule: VT.quotes, kind: "neg", rows: { 9: { items: [OD({ ...W(["frame"], "Note"), includes_frame_words: "a necessary MS angle base frame" })], headingNotes: ["The cost of the unit shall include a necessary MS angle base frame and an MS plate structure"] } }, at: 9,
+      re: [/the BoQ says "a necessary MS angle base frame"/], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: v === null ? 0 : 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er]) => [Number(er), 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "" }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items64, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [], ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}),
+      unit: "Nos", quantity: 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.split?.note) out.push(v.split.note);
+    if (v.scope?.note) out.push(v.scope.note);
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      for (const f of b.fields) if (["capacity", "brand", "discharge", "cooling"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+      for (const l of b.extras?.lines ?? []) {
+        out.push(`line:${l.id}`);
+        for (const f of l.fields) {
+          if (["item", "qty", "remote_type", "armour"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+          if (f.id === "length") out.push(`${l.id} length:${f.value}`);
+          if (f.note) out.push(f.note);
+        }
+        out.push(...l.working);
+      }
+      if (b.extras?.review) out.push(...b.extras.review.points);
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v64's VRF rules = v63's 56 + the 17 VRF-8 lines; each line this block names has a positive AND a negative case", () => {
+    const t64 = titles(A64);
+    const t63 = titles(A63);
+    expect(t63).toHaveLength(56);
+    expect(t64).toHaveLength(73);
+    expect(t64.slice(0, 56)).toEqual(t63);
+    expect(t64.slice(56)).toEqual(Object.values(VT));
+    for (const t of Object.values(VT)) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(34);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});

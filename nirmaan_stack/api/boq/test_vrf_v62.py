@@ -253,8 +253,8 @@ class TestVrf6AssetV62(FrappeTestCase):
     def test_06_v62_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V62))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 63)  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE nums[-1] == 62
-        self.assertEqual(nums, list(range(1, 64)))  # VRF-7 (HVAC v63 minted + loaded; mechanical authority): BEFORE list(range(1, 63))
+        self.assertEqual(nums[-1], 64)  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE nums[-1] == 63
+        self.assertEqual(nums, list(range(1, 65)))  # VRF-8 (HVAC v64 minted + loaded; mechanical authority): BEFORE list(range(1, 64))
         self.assertTrue(os.path.exists(_asset_path(V61)))
 
     def test_07_live_catalogue_is_v62(self):
@@ -265,8 +265,13 @@ class TestVrf6AssetV62(FrappeTestCase):
         # `assertEqual(_norm(live), _norm(self.cfg))` (live == v62). The live VRF config is v63's (test_vrf_v63 07 pins it whole): v62's
         # pricing keys other than `extras` stand unchanged in it, second opinion stays OFF, and no item moved (585)
         self.assertNotEqual(_norm(live), _norm(self.cfg))
+        # VRF-8 (HVAC v64 LOADED; mechanical authority -- fails solely because it reads the live catalogue): BEFORE every pricing key
+        # but `extras` equal to v62's. v64 adds `split.stated_not_stocked` (owner W2 / W3); every other split key and every other
+        # pricing key stands unchanged
         for k, v in self.cfg["list_spec"]["pricing"].items():
-            if k != "extras":
+            if k == "split":
+                self.assertEqual(_norm({kk: vv for kk, vv in live["list_spec"]["pricing"][k].items() if kk != "stated_not_stocked"}), _norm(v), k)
+            elif k != "extras":
                 self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
         self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]

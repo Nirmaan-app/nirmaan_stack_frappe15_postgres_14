@@ -4663,7 +4663,6 @@ function withExtras(
           };
           const texts0 = chain.length ? chain : [{ where: "", text: words }];
           const texts = texts0.filter((e) => !sibling(e.text));
-          const mine = execIn(decidedBy[1], c.conflict.head !== undefined && chain.length ? texts.map((e) => e.text).join(" | ") : words);
           // VRF-7 K1c: a long clause is quoted AROUND the words that matched (it was cut 90 characters from its start, often before them)
           const clauseAt = (t: string, m: string) => {
             const cl = t.split(/[.;|]+/).find((x) => x.includes(m))?.trim() ?? m;
@@ -4679,6 +4678,10 @@ function withExtras(
           const stripPairs = (s: string) => pairWords.reduce((x, w) => {
             try { return x.replace(new RegExp(w, "gi"), " "); } catch { return x; }
           }, s);
+          // VRF-8 (K1c / W7): the words that decided -- read in this unit's own texts; a type decided by PLAIN words is never found
+          // inside a both-types phrase ("Corded" in "cordless/ Corded" is not the plain word "corded")
+          const mineText = c.conflict.head !== undefined && chain.length ? texts.map((e) => e.text).join(" | ") : words;
+          const mine = execIn(decidedBy[1], c.conflict.both_line && decidedBy !== first ? stripPairs(mineText) : mineText);
           let other: { said: string; where: string } | null = null;
           for (const [v, w] of Object.entries(c.words)) {
             if (v === decidedBy[0] || other) continue;
@@ -4689,7 +4692,9 @@ function withExtras(
               if (m) { other = { said: clauseAt(e.text, m), where: e.where }; break; }
             }
           }
-          const firstWhere = mine && chain.length ? locateWords(mine, texts) : null;
+          // ... and located where it sits as a plain word (not inside a both-types phrase), the same way it was found
+          const plainTexts = c.conflict.both_line && decidedBy !== first ? texts.map((e) => ({ ...e, text: stripPairs(e.text) })) : texts;
+          const firstWhere = mine && chain.length ? locateWords(mine, plainTexts) : null;
           // VRF-8 (W7 / D14-4, owner 14:15): a type decided by plain words while a phrase naming BOTH types sits elsewhere in this
           // unit's chain -- the price stays, the note quotes both wordings
           let both: { said: string; where: string } | null = null;
@@ -5245,14 +5250,18 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   const sh = sc.supply_heading;
   if (!calculator && sh && value !== sc.supply_only && value !== sc.install_only && value !== sc.install_only_normal) {
     const ch = chainOf(ctx);
-    const k = ch.findIndex((e) => /heading/.test(e.where));
+    // the unit's own heading (a heading entry, never a heading's NOTE) and the notes of that level -- `chainRows` lists a heading
+    // before its notes; a context built without them lists the notes first, so both sides of the heading are read, up to the next one
+    const isHead = (w: string) => /^heading row \d+$|^a heading$/.test(w);
+    const k = ch.findIndex((e) => isHead(e.where));
     const head = k >= 0 ? ch[k] : null;
+    const k2 = k >= 0 ? ch.findIndex((e, i) => i > k && isHead(e.where)) : -1;
     let hs: string | null = null;
     try { hs = head && new RegExp(sh.heading_words, "i").test(head.text) ? head.text : null; } catch { hs = null; }
     if (head && hs !== null) {
       let inst: { said: string; where: string } | null = null;
-      for (const e of ch.slice(k + 1)) {
-        if (/heading/.test(e.where)) break;
+      for (const e of ch.slice(0, k2 === -1 ? ch.length : k2)) {
+        if (isHead(e.where) || !/note/.test(e.where)) continue;
         try { const m = new RegExp(sh.install_words, "i").exec(e.text); if (m) { inst = { said: m[0].trim(), where: e.where }; break; } } catch { break; }
       }
       if (inst) {
@@ -5870,6 +5879,9 @@ function withTwoCapacities(spec: ItemListPricingSpec, ctx: RowContextWithUnit, r
     let line: string | null = null;
     const items = v.items.map((b, i) => {
       if (b.state === "priced") return b;
+      // only the capacity reader's OWN refusal of such a box ("several values stated for capacity ..." / "no capacity stated") is
+      // re-worded -- a unit refused for anything else (a Lot unit, a size above the largest) keeps its own reason
+      if (!(b.reason === tc.refusal || /^several values stated for /.test(String(b.reason ?? "")))) return b;
       const typed = String(v.editState?.items?.[i]?.attrs?.capacity ?? "");
       const found = capsOf(typed);
       if (found.length < 2) return b;

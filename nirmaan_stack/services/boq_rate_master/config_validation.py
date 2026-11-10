@@ -253,6 +253,10 @@ def _validate_list_spec(cfg):
         unknown_def = set(d.keys()) - _LIST_DEF_KEYS
         if unknown_def:
             _vthrow(f"list_spec item attribute '{did}': unknown key(s) {', '.join(sorted(unknown_def))}.")
+        # VRF-8 (R-D13): a REQUIRED question is a choice answered on every item (never left out; a reply that leaves it out is
+        # asked once more -- extraction.rows_missing_required)
+        if "required" in d and (d["required"] is not True or d.get("type") != "choice"):
+            _vthrow(f"list_spec item attribute '{did}': required must be true, on a choice question.")
         if not isinstance(d.get("label"), str) or not d.get("label"):
             _vthrow(f"list_spec item attribute '{did}' needs a label.")
         if d.get("type") not in _LIST_DEF_TYPES:
@@ -1192,6 +1196,20 @@ _PREPARE_KEYS = {"spaced_decimal", "family_by_unit", "same_as_outdoor", "row_coo
 # `from_model.armoured / length_by_item`; the lines `length_default` / `armour_note` / `armoured_value`.
 _PREPARE_KEYS = _PREPARE_KEYS | {"discharge_words", "heat_words", "armour_words", "implied_includes", "stated_setup"}
 
+# VRF-8 (owner rulings 2026-11-10 13:56-15:05, from the VRF-7 review) -- every key OPTIONAL, each refused by name when malformed:
+# `prepare.feeder_length / breaker_words / connection_only / mode_nearest / install_follows / repeated_size / several_types /
+# unit_words / missing_answers / tfa_outdoor / first_make_close`; an implied include's `only_blank` / `not_words` / role "any";
+# `safeguard.verified_quotes`, `note_wins.line_silent`; `scope.supply_heading`; `split.stated_not_stocked`; the remote's
+# `choice.conflict.both_line / pairs / head`; the lines `drain_cable_line_silent` / `drain_cable_row_line`; a question's `required`.
+_PREPARE_KEYS = _PREPARE_KEYS | {"feeder_length", "breaker_words", "connection_only", "mode_nearest", "install_follows", "repeated_size",
+                                 "several_types", "unit_words", "missing_answers", "tfa_outdoor", "first_make_close"}
+_SAFEGUARD_OPTIONAL_KEYS = _SAFEGUARD_OPTIONAL_KEYS | {"verified_quotes"}
+_SCOPE_OPTIONAL_KEYS = _SCOPE_OPTIONAL_KEYS | {"supply_heading"}
+_SPLIT_KEYS = _SPLIT_KEYS | {"stated_not_stocked"}
+_EXTRAS_OPTIONAL_LINES = _EXTRAS_OPTIONAL_LINES | {"drain_cable_line_silent", "drain_cable_row_line"}
+_EXTRAS_OPTIONAL_PLACEHOLDERS = dict(_EXTRAS_OPTIONAL_PLACEHOLDERS, drain_cable_line_silent=["{said}"], drain_cable_row_line=["{said}", "{rows}"])
+_LIST_DEF_KEYS = _LIST_DEF_KEYS | {"required"}
+
 
 def _pattern(p, where):
     if not _nonempty_str(p):
@@ -1266,6 +1284,7 @@ def _validate_prepare(pp, pr, fams, loc):
             _pattern(aw["unless_row"], f"{w}.unless_row")
         _sentence(aw, "line", w, ("{said}",))
     _validate_prepare_vrf7(pp, fams, loc)
+    _validate_prepare_vrf8(pp, fams, loc)
 
 
 def _validate_prepare_vrf7(pp, fams, loc):
@@ -1305,10 +1324,19 @@ def _validate_prepare_vrf7(pp, fams, loc):
         _sentence(a, "line", w, ("{label}", "{said}"))
     for n, ii in enumerate(pp.get("implied_includes") or []):
         w = f"{loc}.implied_includes[{n}]"
-        if not isinstance(ii, dict) or set(ii) != {"question", "words", "role", "yes", "line"} or not _nonempty_str(ii.get("question")) \
-                or ii.get("role") not in ("indoor", "outdoor") or not _nonempty_str(ii.get("yes")):
+        # VRF-8: optionally `only_blank` (true) and `not_words` (a pattern); role "any" and an empty line only with only_blank
+        base = {"question", "words", "role", "yes", "line"}
+        if not isinstance(ii, dict) or not (base <= set(ii) <= base | {"only_blank", "not_words"}) or not _nonempty_str(ii.get("question")) \
+                or ii.get("role") not in ("indoor", "outdoor", "any") or not _nonempty_str(ii.get("yes")) \
+                or (ii.get("role") == "any" and ii.get("only_blank") is not True):
             _vthrow(f"{w} needs exactly question, words, role (indoor / outdoor), yes and line.")
+        if "only_blank" in ii and ii["only_blank"] is not True:
+            _vthrow(f"{w}.only_blank must be true (leave it out otherwise).")
+        if "not_words" in ii:
+            _pattern(ii["not_words"], f"{w}.not_words")
         _pattern(ii["words"], f"{w}.words")
+        if ii.get("line") == "" and ii.get("only_blank") is True:
+            continue
         _sentence(ii, "line", w, ("{said}",))
     if "stated_setup" in pp:
         ss, w = pp["stated_setup"], f"{loc}.stated_setup"
@@ -1321,6 +1349,103 @@ def _validate_prepare_vrf7(pp, fams, loc):
             _vthrow(f"{w}.min_each must capture the count and the size (two groups).")
         _sentence(ss, "line", w, ("{said}", "{layers}"))
         _sentence(ss, "not_stocked", w, ("{said}", "{missing}"))
+
+
+def _validate_prepare_vrf8(pp, fams, loc):
+    """VRF-8 -- the reading rules the VRF-7 review asked for (owner 2026-11-10 13:56-15:05): the feeder length, breaker (if
+    required), interconnections, the nearer heading on mode, install-only following its supply row, the repeated size, several unit
+    types, missing answers, TFA + its outdoor unit, the first make too big. Each shape exact, each pattern compiles, each line names
+    what it fills in."""
+    def shape(d, w, need, opt=()):
+        if not isinstance(d, dict) or not (set(need) <= set(d) <= set(need) | set(opt)):
+            _vthrow(f"{w} needs exactly {', '.join(sorted(need))}" + (f" (and optionally {', '.join(sorted(opt))})" if opt else "") + ".")
+
+    def texts(d, w, ks):
+        for k in ks:
+            if not _nonempty_str(d.get(k)):
+                _vthrow(f"{w}.{k} must be a non-empty string.")
+
+    def groups(pat, n, w):
+        _pattern(pat, w)
+        if re.compile(pat).groups < n:
+            _vthrow(f"{w} must capture {n} group(s).")
+
+    if "feeder_length" in pp:
+        d, w = pp["feeder_length"], f"{loc}.feeder_length"
+        shape(d, w, ("words", "attr", "line"))
+        groups(d["words"], 1, f"{w}.words")
+        texts(d, w, ("attr",))
+        _sentence(d, "line", w, ("{said}", "{n}"))
+    if "breaker_words" in pp:
+        d, w = pp["breaker_words"], f"{loc}.breaker_words"
+        shape(d, w, ("question", "yes", "no", "words", "ec_words", "line_both", "line_ec_only"))
+        texts(d, w, ("question", "yes", "no"))
+        _pattern(d["words"], f"{w}.words")
+        _pattern(d["ec_words"], f"{w}.ec_words")
+        _sentence(d, "line_both", w, ("{said}", "{ec}"))
+        _sentence(d, "line_ec_only", w, ("{ec}",))
+    if "connection_only" in pp:
+        d, w = pp["connection_only"], f"{loc}.connection_only"
+        shape(d, w, ("words", "questions", "no", "line"))
+        _pattern(d["words"], f"{w}.words")
+        if not isinstance(d["questions"], dict) or not d["questions"] or not all(_nonempty_str(v) for v in d["questions"].values()):
+            _vthrow(f"{w}.questions must map includes to their Yes / No questions.")
+        texts(d, w, ("no",))
+        _sentence(d, "line", w, ("{label}", "{said}"))
+    if "mode_nearest" in pp:
+        d, w = pp["mode_nearest"], f"{loc}.mode_nearest"
+        shape(d, w, ("attr", "families", "cool", "heat", "cool_words", "heat_words", "line"))
+        texts(d, w, ("attr", "cool", "heat"))
+        if not isinstance(d["families"], list) or not d["families"] or any(f not in fams for f in d["families"]):
+            _vthrow(f"{w}.families must list families this category prices.")
+        _pattern(d["cool_words"], f"{w}.cool_words")
+        _pattern(d["heat_words"], f"{w}.heat_words")
+        _sentence(d, "line", w, ("{near}", "{far}", "{value}"))
+    if "install_follows" in pp:
+        d, w = pp["install_follows"], f"{loc}.install_follows"
+        shape(d, w, ("scope_values", "attrs", "line"))
+        for k in ("scope_values", "attrs"):
+            if not isinstance(d[k], list) or not d[k] or not all(_nonempty_str(v) for v in d[k]):
+                _vthrow(f"{w}.{k} must be a non-empty list of names.")
+        _sentence(d, "line", w, ("{row}", "{make}"))
+    if "repeated_size" in pp:
+        d, w = pp["repeated_size"], f"{loc}.repeated_size"
+        shape(d, w, ("attr", "words", "line"))
+        texts(d, w, ("attr",))
+        groups(d["words"], 2, f"{w}.words")
+        _sentence(d, "line", w, ("{kept}", "{other}"))
+    if "unit_words" in pp:
+        uw, w = pp["unit_words"], f"{loc}.unit_words"
+        if not isinstance(uw, dict) or not uw or any(f not in fams for f in uw):
+            _vthrow(f"{w} must map families this category prices to patterns.")
+        for f, pat in uw.items():
+            _pattern(pat, f"{w}['{f}']")
+    if "several_types" in pp:
+        d, w = pp["several_types"], f"{loc}.several_types"
+        shape(d, w, ("note_max", "refusal"))
+        if not isinstance(d["note_max"], int) or isinstance(d["note_max"], bool) or d["note_max"] <= 0:
+            _vthrow(f"{w}.note_max must be a positive whole number.")
+        texts(d, w, ("refusal",))
+        if "unit_words" not in pp:
+            _vthrow(f"{w} needs prepare.unit_words (the words naming each unit type).")
+    if "missing_answers" in pp:
+        d, w = pp["missing_answers"], f"{loc}.missing_answers"
+        shape(d, w, ("exclude_words",))
+        _pattern(d["exclude_words"], f"{w}.exclude_words")
+    if "tfa_outdoor" in pp:
+        d, w = pp["tfa_outdoor"], f"{loc}.tfa_outdoor"
+        shape(d, w, ("words", "hp_words", "outdoor_family", "line"))
+        _pattern(d["words"], f"{w}.words")
+        groups(d["hp_words"], 1, f"{w}.hp_words")
+        if d["outdoor_family"] not in fams:
+            _vthrow(f"{w}.outdoor_family '{d['outdoor_family']}' is not a family this category prices.")
+        _sentence(d, "line", w, ("{said}", "{hp}"))
+    if "first_make_close" in pp:
+        d, w = pp["first_make_close"], f"{loc}.first_make_close"
+        shape(d, w, ("attr", "from_attr", "default", "line_next", "line_default"))
+        texts(d, w, ("attr", "from_attr", "default"))
+        _sentence(d, "line_next", w, ("{first}", "{make}"))
+        _sentence(d, "line_default", w, ("{first}", "{make}"))
 
 
 def _validate_vrf6_extras(ex, pr, fams, loc):
@@ -1600,9 +1725,16 @@ def _validate_accessories(accs, fams, loc):
             if "conflict" in ch:
                 # VRF-7 (D2): a type the BoQ's words decided, kept where another note names another type -- noted
                 cf = ch["conflict"]
-                if not isinstance(cf, dict) or set(cf) != {"line"}:
+                if not isinstance(cf, dict) or not ({"line"} <= set(cf) <= {"line", "both_line", "pairs", "head"}):
                     _vthrow(f"{w}.choice.conflict needs exactly line.")
                 _sentence(cf, "line", f"{w}.choice.conflict", ("{first}", "{said}", "{value}"))
+                # VRF-8 (W7 / K1c): the both-types note, more both-type spellings, the head a sibling unit type is read in
+                if "both_line" in cf:
+                    _sentence(cf, "both_line", f"{w}.choice.conflict", ("{first}", "{said}", "{value}"))
+                if "pairs" in cf:
+                    _pattern(cf["pairs"], f"{w}.choice.conflict.pairs")
+                if "head" in cf and (not isinstance(cf["head"], int) or isinstance(cf["head"], bool) or cf["head"] <= 0):
+                    _vthrow(f"{w}.choice.conflict.head must be a positive whole number.")
     return ids
 
 
@@ -1631,11 +1763,17 @@ def _validate_safeguard(sg, include_ids, loc):
         _sentence(cw, "line", f"{loc}.control_wiring")
     if "note_wins" in sg:
         nw = sg["note_wins"]
-        if not isinstance(nw, dict) or set(nw) != {"words", "ids", "line"} or not isinstance(nw["ids"], list) or not nw["ids"] \
-                or set(nw["ids"]) - set(include_ids):
+        if not isinstance(nw, dict) or not ({"words", "ids", "line"} <= set(nw) <= {"words", "ids", "line", "line_silent"}) \
+                or not isinstance(nw["ids"], list) or not nw["ids"] or set(nw["ids"]) - set(include_ids):
             _vthrow(f"{loc}.note_wins needs exactly words, ids (includes the config declares) and line.")
         _pattern(nw["words"], f"{loc}.note_wins.words")
         _sentence(nw, "line", f"{loc}.note_wins", ("{label}", "{said}"))
+        # VRF-8 (W5): the note said also where the model read no such include
+        if "line_silent" in nw:
+            _sentence(nw, "line_silent", f"{loc}.note_wins", ("{label}", "{said}"))
+    # VRF-8 (D14-7): only verified quotes are shown
+    if "verified_quotes" in sg and sg["verified_quotes"] is not True:
+        _vthrow(f"{loc}.verified_quotes must be true (leave it out otherwise).")
     for k in ("where_suffix", "wording_suffix", "qty_suffix", "row_value"):
         if not _nonempty_str(sg[k]):
             _vthrow(f"{loc}.{k} must be a non-empty string.")
@@ -1688,6 +1826,14 @@ def _validate_scope(sc, loc):
         _vthrow(f"{loc}.install_only_normal must be an option of its own after the first.")
     if "install_only_normal" in sc and "supply_row" not in sc:
         _vthrow(f"{loc}.install_only_normal needs supply_row (its note).")
+    # VRF-8 (D1): a supply + installation row under a "Supply of" heading with an installation note -- noted
+    if "supply_heading" in sc:
+        sh = sc["supply_heading"]
+        if not isinstance(sh, dict) or set(sh) != {"heading_words", "install_words", "note"}:
+            _vthrow(f"{loc}.supply_heading needs exactly heading_words, install_words and note.")
+        _pattern(sh["heading_words"], f"{loc}.supply_heading.heading_words")
+        _pattern(sh["install_words"], f"{loc}.supply_heading.install_words")
+        _sentence(sh, "note", f"{loc}.supply_heading", ("{heading}", "{said}"))
     if "supply_row" in sc:
         sr = sc["supply_row"]
         if not isinstance(sr, dict) or set(sr) != {"normal_note", "with_row", "no_row"}:
@@ -1946,6 +2092,25 @@ def _validate_vrf4_reads(cfg, pr, by_id):
             need(pp["heat_words"]["attr"], "extras.prepare.heat_words.attr", "choice", [pp["heat_words"]["value"]])
         if isinstance(pp.get("discharge_words"), dict):
             need(pp["discharge_words"]["attr"], "extras.prepare.discharge_words.attr", "choice", list(pp["discharge_words"]["words"]))
+        # VRF-8: the questions the review's reading rules read or set
+        if isinstance(pp.get("feeder_length"), dict):
+            need(pp["feeder_length"]["attr"], "extras.prepare.feeder_length.attr", "text")
+        if isinstance(pp.get("breaker_words"), dict):
+            need(pp["breaker_words"]["question"], "extras.prepare.breaker_words.question", "choice", [pp["breaker_words"]["yes"], pp["breaker_words"]["no"]])
+        if isinstance(pp.get("connection_only"), dict):
+            for inc, qid in pp["connection_only"]["questions"].items():
+                need(qid, f"extras.prepare.connection_only.questions.{inc}", "choice", [pp["connection_only"]["no"]])
+        if isinstance(pp.get("mode_nearest"), dict):
+            need(pp["mode_nearest"]["attr"], "extras.prepare.mode_nearest.attr", "choice", [pp["mode_nearest"]["cool"], pp["mode_nearest"]["heat"]])
+        if isinstance(pp.get("repeated_size"), dict):
+            need(pp["repeated_size"]["attr"], "extras.prepare.repeated_size.attr", "text")
+        if isinstance(pp.get("install_follows"), dict):
+            for a in pp["install_follows"]["attrs"]:
+                if a not in by_id:
+                    _vthrow(f"extras.prepare.install_follows.attrs reads '{a}', which is not a question (list_spec.attribute_definitions).")
+        if isinstance(pp.get("first_make_close"), dict):
+            need(pp["first_make_close"]["attr"], "extras.prepare.first_make_close.attr", "choice", [pp["first_make_close"]["default"]])
+            need(pp["first_make_close"]["from_attr"], "extras.prepare.first_make_close.from_attr", "text")
     for attr, d in (pr.get("defaults") or {}).items():
         ul = d.get("unlisted") if isinstance(d, dict) else None
         if isinstance(ul, dict) and "from_attr" in ul:
@@ -2094,6 +2259,12 @@ def _validate_split(sp, pr, fams):
     # VRF-6 (F8 / Q4, QR-1 Q3)
     if "stated_times" in sp and not isinstance(sp["stated_times"], bool):
         _vthrow(f"{loc}.stated_times must be true or false.")
+    # VRF-8 (W2 / W3): a written setup with an unstocked module -> the split rule on the total, said
+    if "stated_not_stocked" in sp:
+        sn = sp["stated_not_stocked"]
+        if not isinstance(sn, dict) or set(sn) != {"line"}:
+            _vthrow(f"{loc}.stated_not_stocked needs exactly line.")
+        _sentence(sn, "line", f"{loc}.stated_not_stocked", ("{written}", "{missing}", "{total}"))
     if "split_over_top" in sp:
         so = sp["split_over_top"]
         if not isinstance(so, dict) or set(so) != {"line"}:
