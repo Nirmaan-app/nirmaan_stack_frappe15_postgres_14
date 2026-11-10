@@ -339,8 +339,31 @@ describe("VRF-7 B10 / C13 / B11 / D1 / D2", () => {
     expect(val(byId(v, "acc_remote"), "remote_type")).toBe("Cordless");
     expect(review(v)).toMatch(/Remote: the BoQ says ".*coreded\/cordless.*" and also ".*LCD wired remote controller" \(note row 312\) - priced as Cordless, please check \(owner D2\)/);
   });
-  it("NEGATIVE: the model's own Wired -> no D2 note; v62's keys -> no remote on B10 / C13 rows, Ductable on 00158 r82", () => {
-    expect(review(one({ items: [DUCT({ includes_remote: "Yes", remote_type: "Wired" })], headings: ["coreded/cordless remotes"], headingNotes: ["wired remote"] }))).not.toMatch(/owner D2/);
+  it("K1c (00197 r324 as read): the MODEL's Cordless under 'coreded/cordless' + a wired-remote note -> Cordless kept, the note quotes both", () => {
+    const chainRows = [{ row: 324, where: "this row", text: "2.0 TR" },
+      { row: 311, where: "heading row 311", text: "scope also covers for suitable coreded/cordless digital thermostat remotes with LCD screen for all the indoor units" },
+      { row: 312, where: "note row 312", text: "Each unit to be with LCD wired remote controller" }];
+    const v = one({ items: [DUCT({ capacity: "2 TR", includes_remote: "Yes", remote_type: "Cordless", includes_remote_words: "scope also covers for suitable coreded/cordless digital thermostat remotes" })],
+      headings: [chainRows[1].text], ancestorNotes: [chainRows[2].text], chainRows });
+    expect(val(byId(v, "acc_remote"), "remote_type")).toBe("Cordless");
+    expect(review(v)).toMatch(/Remote: the BoQ says ".*coreded\/cordless.*" and also ".*LCD wired remote controller" \(note row 312\) - priced as Cordless, please check \(owner D2\)/);
+  });
+  it("NEGATIVE (K1c): the model's own Wired with no Wired words in the chain -> no D2 note; v62's keys -> no remote on B10 / C13 rows, Ductable on 00158 r82", () => {
+    // K1c (BEFORE: the same case WITH a heading note "wired remote" -- the priced type's own words now decide, so that case is a
+    // real conflict and is noted; the negative keeps its point: a type nothing in the BoQ names is never noted)
+    expect(review(one({ items: [DUCT({ includes_remote: "Yes", remote_type: "Wired" })], headings: ["coreded/cordless remotes"] }))).not.toMatch(/owner D2/);
+    expect(review(one({ items: [DUCT({ includes_remote: "Yes", remote_type: "Cordless" })], headings: ["cordless remotes"] }))).not.toMatch(/owner D2/);
+    // K1c: a long clause is quoted around the words that matched, not cut before them
+    const longH = "Supply installation testing and commissioning of ductable indoor units designed with fan low noise motor washable filter and cordless remote controller";
+    expect(review(one({ items: [DUCT({ includes_remote: "Yes", remote_type: "Cordless" })], headings: [longH], headingNotes: ["each unit with corded remote controller"] })))
+      .toMatch(/the BoQ says "\.\.\..*cordless remote controller" and also/);
+    // K1c: a phrase naming BOTH types ("corded/cordless") elsewhere is one statement, not a conflict
+    // (the phrase sits in the row's CHAIN only -- a sheet note, as on 00363 -- where first_words never read it)
+    const pairChain = [{ row: 34, where: "this row", text: "4 way cassette with cordless remote" },
+      { row: 21, where: "sheet note row 21", text: "these units to be supplied along with corded/cordless remote controller" }];
+    expect(review(one({ items: [DUCT({ includes_remote: "Yes", remote_type: "Cordless" })], text: pairChain[0].text, chainRows: pairChain }))).not.toMatch(/owner D2/);
+    expect(review(one({ items: [DUCT({ includes_remote: "Yes", remote_type: "Cordless" })], headings: ["units with cordless remote"],
+      headingNotes: ["units to be supplied along with corded remote controller"] }))).toMatch(/and also ".*corded remote controller".*priced as Cordless, please check \(owner D2\)/);
     const old = vrf7(["prepare", "family"]);
     expect(byId(one({ items: [DUCT()], headingNotes: ["supplied with/without wired remote controller as per the requirement of the client"] }, old), "acc_remote")).toBeUndefined();
     expect(one({ items: [DUCT({ capacity: "6.8 TR" })], headings: ["CSU type treated fresh air unit"] }, old).items[0].family).toBe("Ductable");

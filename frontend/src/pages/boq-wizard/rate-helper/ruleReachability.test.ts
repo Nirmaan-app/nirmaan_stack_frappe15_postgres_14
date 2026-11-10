@@ -2228,7 +2228,9 @@ describe("VRF-7 (v63) -- R-39: every VRF Derivation-tab rule v63 adds or rewords
     { id: "J9b-neg", rule: VT.tfa, kind: "neg", rows: { 9: { items: [DU({ capacity: "3 TR" })], headings: ["Supply of CSU type indoor unit"] } }, at: 9, re: ["family:Ductable"], not: [/owner B11/], priced: true },
     { id: "J10a", rule: VT.notes, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP", ...W(["mccb"], "Note") })], headingNotes: ["unit mounted starter panel with power disconnecting switches with fuses"] } }, at: 9,
       re: ["line:acc_mcb", /MCB \+ ELCB still added, please check \(owner D1\)/], priced: true },
-    { id: "J10b-neg", rule: VT.notes, kind: "neg", rows: { 9: { items: [DU({ capacity: "2 TR", ...W(["remote"], "Heading"), remote_type: "Wired" })], headings: ["coreded/cordless remotes"], headingNotes: ["wired remote"] } }, at: 9,
+    // VRF-7 K1c (BEFORE: the same case WITH headingNotes ["wired remote"] -- the priced type's own words now decide the D2 note, so
+    // that case is a real conflict and is noted; the negative keeps its point: a type no BoQ words name gets no note)
+    { id: "J10b-neg", rule: VT.notes, kind: "neg", rows: { 9: { items: [DU({ capacity: "2 TR", ...W(["remote"], "Heading"), remote_type: "Wired" })], headings: ["coreded/cordless remotes"] } }, at: 9,
       re: ["remote_type:Wired"], not: [/owner D2/, /owner D1/], priced: true },
     { id: "J11a", rule: REWORDED, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.6TR", way: "FOUR-WAY", ...W(["power", "comm"], "Heading") }], headingNotes: ["cabling & ODU stands quantified separately"] } }, at: 9,
       re: [/NOT added - the BoQ note says/], not: ["line:power"], priced: true },

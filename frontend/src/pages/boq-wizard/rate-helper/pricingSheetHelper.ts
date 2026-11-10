@@ -4609,18 +4609,35 @@ function withExtras(
         const said = first ? first[0] : modelSaid ?? (hit ? hit[0] : null);
         // VRF-7 (D2, owner 01:36 "let it be - just make a suitable note"): a type the BoQ's WORDS decided (the ambiguous spelling, or
         // the plain words; never the model's own answer) is kept although other words anywhere in the chain name another type -- noted
-        const decidedBy = first ?? (modelSaid === null && hit ? hit : null);
+        // VRF-7 K1c (C8's named row 00197 r324): the BoQ wrote "coreded/cordless" -- a spelling first_words misses -- so the MODEL's
+        // Cordless priced it and no note came. The priced type's OWN words in the chain decide too, whoever picked the type: the note
+        // still quotes only the BoQ's words, both of them
+        const ownWords: [string, string] | null = said !== null && c.words[said] && reTest(c.words[said], words) ? [said, c.words[said]] : null;
+        const decidedBy = first ?? (modelSaid === null && hit ? hit : ownWords);
         if (decidedBy && c.conflict && pts && typed[c.attr] === undefined) {
           const mine = execIn(decidedBy[1], words);
           const texts = chain.length ? chain : [{ where: "", text: words }];
-          const clauseAt = (t: string, m: string) => clip(t.split(/[.;|]+/).find((cl) => cl.includes(m))?.trim() ?? m, 90);
+          // VRF-7 K1c: a long clause is quoted AROUND the words that matched (it was cut 90 characters from its start, often before them)
+          const clauseAt = (t: string, m: string) => {
+            const cl = t.split(/[.;|]+/).find((x) => x.includes(m))?.trim() ?? m;
+            if (cl.length <= 90) return cl;
+            const at = Math.max(0, cl.indexOf(m) - 40);
+            return at > 0 ? `...${clip(cl.slice(at).trim(), 87)}` : clip(cl, 90);
+          };
+          // VRF-7 K1c: a phrase that names BOTH types on purpose ("corded/cordless", first_words) is one statement, never "the other
+          // type" -- every such phrase is taken out before the other type's words are looked for, and the quote comes from the text
+          // as written (taking only `mine` out once left "corded/ remote" behind and quoted it as a conflict)
+          const stripPairs = (s: string) => Object.values(c.first_words ?? {}).reduce((x, w) => {
+            try { return x.replace(new RegExp(w, "gi"), " "); } catch { return x; }
+          }, s);
           let other: { said: string; where: string } | null = null;
           for (const [v, w] of Object.entries(c.words)) {
             if (v === decidedBy[0] || other) continue;
             for (const e of texts) {
-              const t = mine ? e.text.replace(mine, " ") : e.text;
+              const t0 = stripPairs(e.text);
+              const t = mine ? t0.replace(mine, " ") : t0;
               const m = execIn(w, t);
-              if (m) { other = { said: clauseAt(t, m), where: e.where }; break; }
+              if (m) { other = { said: clauseAt(e.text, m), where: e.where }; break; }
             }
           }
           if (mine && other) {
