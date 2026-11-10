@@ -52,6 +52,15 @@
 #                                     refuse a task name with no env; destroy refuses dev/master/lab without --shared
 #   ./devenv.sh list                  show task benches, which one is serving, their DBs and Postgres disk free
 #   ./devenv.sh gc [--yes]            find envs whose worktree is gone and DBs with no bench; --yes removes them
+#   ./devenv.sh prune [--yes] [--quiet]  every env and worktree of this machine, one line each: PRUNE when a ref
+#                                     already holds its work (landed.sh: master, upstream/ or origin/ develop and main)
+#                                     and nothing holds it, else KEEP with the holds: shared (dev, master, lab, the
+#                                     main worktree), here (your cwd), missing, no-worktree, locked, serving, agent
+#                                     (a process works in it), bench-files (files destroy would not remove),
+#                                     tracked-changes, untracked. --yes destroys each PRUNE env and removes each PRUNE
+#                                     worktree (git worktree remove, never forced); branches stay. --quiet, for the
+#                                     post-merge hook: only the PRUNE lines (nothing when there are none), and landed by
+#                                     ancestry only, which is fast
 #
 # [task] may be left out when you run the command from inside the task's worktree.
 #
@@ -686,6 +695,153 @@ pick_task() {   # task from the first argument, else from the worktree we are st
   t="$(task_for "$(cd "$wt" && pwd -P)")" || die "no env for $wt yet: run '$0 up' first"
   check_task "$t"
 }
+
+# ---- prune. A row is one candidate: R_KIND (env | worktree), R_NAME, R_TASK (its env, or empty), R_BENCH (the env's
+# folder, or empty), R_WT (the worktree, physical, or empty), R_SHA (its HEAD), R_LOCKED and R_GONE (1 or empty),
+# R_STATUS (git status --porcelain). PRUNE iff landed.sh finds a ref holding R_SHA and no hold in PRUNE_HOLDS applies.
+# hold_<name> prints the hold, with a detail after a colon, when it applies to the row.
+PRUNE_HOLDS="shared here missing no-worktree locked serving agent bench-files tracked-changes untracked"
+
+hold_shared() {
+  local p; case "$R_TASK" in dev|master|lab) echo shared; return ;; esac
+  for p in $SHARED_WTS; do [ "$R_WT" != "$p" ] || { echo shared; return; }; done
+}
+hold_here() {
+  local p; for p in "$R_WT" "$R_BENCH"; do
+    [ -z "$p" ] || case "$CALLER/" in "$p"/*) echo here; return ;; esac
+  done
+}
+hold_missing() { [ -z "$R_GONE" ] || echo "missing:git-worktree-prune"; }
+hold_no_worktree() { [ -n "$R_WT$R_GONE" ] || echo no-worktree; }
+hold_locked() { [ -z "$R_LOCKED" ] || echo locked; }
+hold_serving() { [ -z "$R_BENCH" ] || [ ! -f "$R_BENCH/.serve" ] || echo serving; }
+hold_agent() {
+  local who
+  who="$(printf '%s\n' "$PROCS" | awk -F'\t' -v a="$R_WT" -v b="$R_BENCH" \
+    '(a != "" && ($3 == a || index($3, a "/") == 1)) || (b != "" && ($3 == b || index($3, b "/") == 1)) {print $2 "/" $1}' \
+    | sort -u | paste -sd, -)"
+  [ -z "$who" ] || echo "agent:$who"
+}
+# Files destroy leaves, so its rmdir would fail: the owner's reports and repair scripts have sat there.
+hold_bench_files() {
+  [ -n "$R_BENCH" ] || return 0
+  local f extra=""
+  for f in "$R_BENCH"/* "$R_BENCH"/.[!.]* "$R_BENCH"/apps/* "$R_BENCH"/apps/.[!.]*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    case "${f#"$R_BENCH"/}" in
+      sites|logs|config|env|Procfile|.vite-cache|tmp|.migrated-schema|.migrated-schema.next|.slot|.serve|apps) ;;
+      apps/nirmaan_stack) ;;
+      apps/*) [ -L "$f" ] || extra="$extra,${f#"$R_BENCH"/}" ;;
+      *) extra="$extra,${f#"$R_BENCH"/}" ;;
+    esac
+  done
+  [ -z "$extra" ] || echo "bench-files:${extra#,}"
+}
+hold_tracked_changes() {
+  local n; n="$(printf '%s\n' "$R_STATUS" | grep -c '^[^?]' || true)"
+  [ "$n" = 0 ] || echo "tracked-changes:$n"
+}
+hold_untracked() {
+  local n; n="$(printf '%s\n' "$R_STATUS" | grep -c '^??' || true)"
+  [ "$n" = 0 ] || echo "untracked:$n"
+}
+
+phys() { (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
+
+# "<pid>\t<command>\t<cwd>" per process this user can see, except this shell and its parents (the caller's own
+# shell is the `here` hold). Call it in $(...): it moves to /, so the listing's own processes match no row.
+proc_cwds() {
+  local skip=" " p=$$
+  cd /
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do skip="$skip$p "; p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; done
+  case "$(uname)" in
+    Linux) for d in /proc/[0-9]*; do
+             c="$(readlink "$d/cwd" 2>/dev/null)" && printf '%s\t%s\t%s\n' "${d#/proc/}" "$(cat "$d/comm" 2>/dev/null)" "$c"
+           done ;;
+    *) lsof -a -d cwd -Fpcn 2>/dev/null \
+         | awk '/^p/ {p = substr($0, 2)} /^c/ {c = substr($0, 2)} /^n/ {print p "\t" c "\t" substr($0, 2)}' ;;
+  esac | awk -F'\t' -v skip="$skip" 'index(skip, " " $1 " ") == 0'
+}
+
+# One line per row, fields split by US (\037; read merges empty fields split by a tab): kind, name, task, bench,
+# worktree, sha, locked, gone. Every env, then every worktree of the repo no env claims (an env's worktree is
+# benches/<task>/apps/nirmaan_stack, made by create or linked by up).
+US=$'\037'
+prune_rows() {
+  local wts d t l wt e
+  wts="$(git -C "$MAIN_GIT" worktree list --porcelain | awk -v OFS="$US" '
+    function out() { if (p != "") print p, h, b, l, x }
+    /^worktree / {out(); p = substr($0, 10); h = ""; b = ""; l = ""; x = ""}
+    /^HEAD / {h = $2} /^branch / {b = substr($0, 8); sub(/^refs\/heads\//, "", b)}
+    /^locked/ {l = 1} /^prunable/ {x = 1} END {out()}' | while IFS="$US" read -r p h b l x; do
+      echo "$(phys "$p")$US$h$US${b:-detached}$US$l$US$x"; done)"
+  for d in "$BENCHES"/*/; do
+    [ -d "$d" ] || continue
+    t="$(basename "$d")"; l="$BENCHES/$t/apps/nirmaan_stack"
+    if [ -e "$l" ]; then
+      wt="$(phys "$l")"
+      e="$(printf '%s\n' "$wts" | awk -F"$US" -v w="$wt" '$1 == w {print; exit}')"
+      echo "env$US$t$US$t$US$(phys "$d")$US$wt$US$(echo "$e" | cut -d"$US" -f2)$US$(echo "$e" | cut -d"$US" -f4)$US"
+      wts="$(printf '%s\n' "$wts" | awk -F"$US" -v w="$wt" '$1 != w')"
+    else
+      echo "env$US$t$US$t$US$(phys "$d")$US$US$US$US$([ -L "$l" ] && echo 1)"
+    fi
+  done
+  printf '%s\n' "$wts" | while IFS="$US" read -r p h b l x; do
+    [ -z "$p" ] || echo "worktree$US$b$US$US$US$p$US$h$US$l$US$x"
+  done
+}
+
+# prune <yes> <quiet>. Lists, then with yes removes each PRUNE row: destroy for an env (it removes a create worktree),
+# then git worktree remove for a worktree still there. Never forced and never rm -rf, so a second run finds nothing.
+prune() {
+  local yes="$1" quiet="$2" HP rows h d line rel prune_lines="" keep_lines="" todo="" n_env=0 n_wt=0 failed=0
+  HP="$(phys "$HERE")"; CALLER="$(pwd -P)"
+  SHARED_WTS="$(phys "$HERE/nirmaan_stack_variants/dev") $(phys "$HERE/nirmaan_stack_variants/master")"
+  SHARED_WTS="$SHARED_WTS $(phys "$HERE/nirmaan_stack_variants/lab") $(phys "$(git -C "$MAIN_GIT" worktree list --porcelain | sed -n '1s/^worktree //p')")"
+  PROCS="$(proc_cwds)"
+  rows="$(prune_rows)"
+  while IFS="$US" read -r R_KIND R_NAME R_TASK R_BENCH R_WT R_SHA R_LOCKED R_GONE; do
+    [ -n "$R_KIND" ] || continue
+    R_STATUS=""; [ -z "$R_WT" ] || R_STATUS="$(git -C "$R_WT" status --porcelain 2>/dev/null || true)"
+    R_HOLDS=""
+    for h in $PRUNE_HOLDS; do d="$(hold_${h//-/_})"; [ -z "$d" ] || R_HOLDS="$R_HOLDS $d"; done
+    # --quiet runs after every merge into master (the post-merge hook), so it stays fast: a held row is never pruned
+    # and is not checked, and a merge lands work by ancestry, so it skips the slow equal-patch check.
+    R_LANDED=""
+    if [ "$quiet" = 0 ]; then
+      [ -z "$R_SHA" ] || R_LANDED="$(cd "$MAIN_GIT" && landed "$R_SHA")" || R_LANDED=""
+    elif [ -n "$R_SHA" ] && [ -z "$R_HOLDS" ]; then
+      R_LANDED="$(cd "$MAIN_GIT" && landed "$R_SHA" --ancestry-only)" || R_LANDED=""
+    fi
+    rel="${R_WT:-$R_BENCH}"; rel="${rel#"$HP"/}"
+    if [ -n "$R_LANDED" ] && [ -z "$R_HOLDS" ]; then
+      line="$(printf 'PRUNE  %-8s %-34s %-52s landed:%s' "$R_KIND" "$R_NAME" "$rel" "$R_LANDED")"
+      prune_lines="$prune_lines$line"$'\n'
+      todo="$todo$R_TASK$US$R_WT"$'\n'
+      if [ -n "$R_TASK" ]; then n_env=$((n_env + 1)); else n_wt=$((n_wt + 1)); fi
+    else
+      line="$(printf 'KEEP   %-8s %-34s %-52s landed:%-18s%s' "$R_KIND" "$R_NAME" "$rel" "${R_LANDED:--}" "$R_HOLDS")"
+      keep_lines="$keep_lines$line"$'\n'
+    fi
+  done <<<"$rows"
+  [ "$quiet" = 0 ] || [ -n "$prune_lines" ] || return 0
+  echo "== prune on $(hostname -s): envs and worktrees whose work has landed in a ref"
+  printf '%s' "$prune_lines"
+  [ "$quiet" = 1 ] || printf '%s' "$keep_lines"
+  echo "to prune: $n_env envs, $n_wt worktrees$([ "$yes" = 1 ] || [ -z "$prune_lines" ] || echo " (devenv.sh prune --yes removes them; branches stay)")"
+  [ "$yes" = 1 ] || return 0
+  while IFS="$US" read -r t wt; do
+    [ -n "$t$wt" ] || continue
+    if [ -n "$t" ]; then
+      bash "$SELF_DIR/devenv.sh" destroy "$t" </dev/null || { echo "FAILED destroy $t"; failed=1; continue; }
+    fi
+    if [ -n "$wt" ] && [ -d "$wt" ]; then
+      git -C "$MAIN_GIT" worktree remove "$wt" && echo "removed worktree $wt" || { echo "FAILED git worktree remove $wt"; failed=1; }
+    fi
+  done <<<"$todo"
+  return "$failed"
+}
 CMD="${1:-}"; shift || true
 case "$CMD" in
   template-build|template-drop)
@@ -833,7 +989,14 @@ case "$CMD" in
     [ $found = 1 ] && [ $YES = 0 ] && echo "(dry run: add --yes to remove the above)"
     true
     ;;
-  *) sed -n '2,56p' "$0"; exit 1 ;;
+  prune)
+    YES=0 QUIET=0
+    for a in "$@"; do
+      case "$a" in --yes) YES=1 ;; --quiet) QUIET=1 ;; *) die "usage: $0 prune [--yes] [--quiet]" ;; esac
+    done
+    . "$SELF_DIR/landed.sh"
+    prune "$YES" "$QUIET" ;;
+  *) sed -n '2,65p' "$0"; exit 1 ;;
 esac
 exit
 }
