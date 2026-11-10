@@ -114,7 +114,7 @@ class TestLinkFieldsHoldLongLinks(FrappeTestCase):
         )
         self.assertEqual(stored, [LONG_LINK])
 
-    def test_a_bill_document_link_is_stored_whole(self):
+    def _billing_tracker(self):
         project = self._project()
         package = frappe.get_doc(
             {"doctype": "Project Billing Packages", "package_name": f"TEST LINKS {frappe.generate_hash(length=6)}"}
@@ -129,10 +129,28 @@ class TestLinkFieldsHoldLongLinks(FrappeTestCase):
             }
         ).insert(ignore_permissions=True)
         self._keep("Project Billing Tracker", tracker.name)
+        return tracker
 
+    def test_a_bill_document_link_is_stored_whole(self):
+        tracker = self._billing_tracker()
         bill = save_bill(
             {"billing_tracker": tracker.name, "bill_type": "NA", "status": "NA", "bill_document_link": LONG_LINK}
         )
         self._keep("Project Billing", bill["name"])
 
         self.assertEqual(frappe.db.get_value("Project Billing", bill["name"], "bill_document_link"), LONG_LINK)
+
+    def test_a_bill_document_link_without_a_scheme_is_refused(self):
+        # As a Data field with options URL, Frappe refused a link with no `https://`; Small Text checks nothing, so
+        # the bill keeps that check itself. A link with no scheme would open inside the app as a relative path.
+        tracker = self._billing_tracker()
+        with self.assertRaises(frappe.ValidationError):
+            save_bill(
+                {
+                    "billing_tracker": tracker.name,
+                    "bill_type": "NA",
+                    "status": "NA",
+                    "bill_document_link": LONG_LINK.removeprefix("https://"),
+                }
+            )
+        self.assertFalse(frappe.db.exists("Project Billing", {"billing_tracker": tracker.name}))

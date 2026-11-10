@@ -20,7 +20,7 @@ class TestWhyCut(unittest.TestCase):
                 self.assertIsNone(why_cut(value))
 
     def test_a_google_sheets_share_link_of_138_characters_is_whole(self):
-        # The longest values on the 2026-10-28 data: whole links that end in Google's own `&rtpof=true&sd=true`.
+        # The longest values on the 2026-11-07 data: whole links that end in Google's own `&rtpof=true&sd=true`.
         value = (
             "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/edit"
             "?usp=drive_link&ouid=000000000000000000000&rtpof=true&sd=true"
@@ -31,6 +31,10 @@ class TestWhyCut(unittest.TestCase):
     def test_a_value_of_exactly_140_characters_looks_cut(self):
         value = (DRIVE + "?usp=sharing&x=" + "a" * 200)[:140]
         self.assertEqual(len(value), 140)
+        self.assertEqual(why_cut(value), "exactly 140 characters, the old limit")
+
+    def test_a_stored_value_of_140_characters_ending_in_a_space_looks_cut(self):
+        value = (DRIVE + "?usp=sharing&x=" + "a" * 200)[:139] + " "
         self.assertEqual(why_cut(value), "exactly 140 characters, the old limit")
 
     def test_a_value_that_stops_mid_parameter_looks_cut(self):
