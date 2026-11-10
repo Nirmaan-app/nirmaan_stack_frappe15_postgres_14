@@ -54,7 +54,7 @@ def check(ok: bool, what: str) -> None:
 
 seeded = dict(re.findall(r"^(\w+): (\S+)$", script("internal_transfers_seed.py"), re.M))
 line, cashbook_line = seeded["line"], seeded["cashbook_line"]
-zero_line = seeded["zero_line"]
+zero_line, old_move = seeded["zero_line"], seeded["old_move"]
 # The container's /workspace/development is the host's development folder, four levels above this app.
 statement = Path("../../../..").resolve() / seeded["statement"].removeprefix("/workspace/development/")
 before = db()
@@ -155,6 +155,21 @@ with session(a.task, a.lead, a.password) as (page, out):
     row.wait_for()
     check(row.get_by_text(re.compile("Sent back to Mismatched")).count() > 0, "the open row says who sent it back")
     save(page, out, "07-sent-back-line-open-again")
+
+    # The #1619 review (owner 2026-11-10): a Cashbook move is never sent back, whether its Type is stored or, on an
+    # old line, read from its Txn Id. Step 05 showed the button on a line marked by hand.
+    page.get_by_role("button", name=re.compile(r"^Internal Transfers \d+$")).click()
+    page.get_by_placeholder(re.compile("Search remarks")).fill("WALK-IT made-up old")
+    for remarks in ("WALK-IT made-up old top-up with a zero record", "WALK-IT made-up old move with no stored Type"):
+        row = page.get_by_role("row").filter(has_text=remarks)
+        row.wait_for(timeout=60_000)
+        check(row.get_by_role("button", name="Send back to Mismatched").count() == 0,
+              f"a Cashbook move offers no Send back: {remarks}")
+    settle(page)
+    save(page, out, "10-cashbook-moves-offer-no-send-back")
+    for moved_line in (zero_line, old_move):
+        check(db(moved_line)["line"]["row_status"] == "Internal Transfer", f"DB: {moved_line} is still an Internal Transfer")
+    page.get_by_role("button", name=re.compile(r"^Not Matched – Outflow \d+$")).click()
 
     # Owner decision 8a (#1619): on a Cashbook line the Detail starts as the wallet holder (From, money out).
     page.get_by_placeholder(re.compile("Search remarks")).fill("WALK-IT made-up cashbook")

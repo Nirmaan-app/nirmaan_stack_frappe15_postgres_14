@@ -17,6 +17,7 @@ from nirmaan_stack.services.outflow_import.internal_transfers import (
     PLACES,
     TRANSFER_IN,
     TransferEnds,
+    cashbook_line_kind,
     record_direction,
 )
 from nirmaan_stack.services.outflow_import.skip_origin import own_import_refusal
@@ -105,17 +106,20 @@ def other_end_refusal(source: str | None, other_end: str | None) -> str | None:
     return None
 
 
-def send_back_refusal(*, row_status: str | None, source: str | None, row_kind: str | None) -> str | None:
+def send_back_refusal(
+    *, row_status: str | None, source: str | None, row_kind: str | None, transfer_id: str | None
+) -> str | None:
     """Why this line may NOT be sent back to Mismatched, or `None` when it may.
 
     Only an Internal Transfer line, and never a Cashbook line whose own Type is one of our moves
-    (`CASHBOOK_INTERNAL_KINDS`): the Type names both its ends and its money sits in the Credit column, which the line
+    (`CASHBOOK_INTERNAL_KINDS`; an old line with no stored Type is read by its Txn Id, `cashbook_line_kind`, as the
+    patch placed it): the Type names both its ends and its money sits in the Credit column, which the line
     does not keep, so marked again by hand it would come back from the wrong ends and with Rs 0 (the #1619 review;
     owner decision 2026-11-10). The screen's Send back button reads this same rule (`can_send_back` on each row).
     """
     if (row_status or "").strip() != ROW_INTERNAL_TRANSFER:
         return SEND_BACK_REFUSED
-    kind = (row_kind or "").strip()
+    kind = cashbook_line_kind(row_kind, transfer_id)
     if (source or "").strip() == CASHBOOK_SOURCE and kind in CASHBOOK_INTERNAL_KINDS:
         return SEND_BACK_REFUSED_CASHBOOK_MOVE.format(kind=kind)
     return None

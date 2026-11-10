@@ -201,4 +201,4 @@ def can_send_back(row) -> bool:
     """Whether a page row offers Send back to Mismatched (`internal_transfer_rules.send_back_refusal`): the screen
     keeps no copy of the rule, and the endpoint asks it again under the line's row lock."""
     return send_back_refusal(row_status=row.get("row_status"), source=row.get("source"),
-                             row_kind=row.get("row_kind")) is None
+                             row_kind=row.get("row_kind"), transfer_id=row.get("transfer_id")) is None

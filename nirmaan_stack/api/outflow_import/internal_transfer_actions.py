@@ -107,7 +107,9 @@ def send_back_to_mismatched(row: str, reason: str) -> dict:
 
     with concurrent_writer_refusal_as_sentence("send_back_to_mismatched", row):
         line = _locked_line(row)
-        refusal = send_back_refusal(row_status=line.row_status, source=line.source, row_kind=line.row_kind)
+        refusal = send_back_refusal(
+            row_status=line.row_status, source=line.source, row_kind=line.row_kind, transfer_id=line.transfer_id
+        )
         if refusal:
             frappe.throw(refusal, title="Cannot send back")
         for name in frappe.get_all(INTERNAL_TRANSFER_DOCTYPE, filters={"import_row": row}, pluck="name"):

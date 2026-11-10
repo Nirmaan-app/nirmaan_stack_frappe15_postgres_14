@@ -23,6 +23,9 @@ an open line as one, or send one back to Mismatched. The card import's Review li
 - `it-send-back` `Send back to Mismatched` on an Internal Transfer line (Admin, Accountant Lead): a dialog with
   `Reason`; the line returns to `Not Matched – Outflow` with `Sent back to Mismatched by … : <reason>`, and its own
   record is deleted. It takes no other line: every Internal Transfer line holds its own record (owner decision 3).
+  It is never offered on a Cashbook move (`Bank → VA`, `VA → Wallet`, `Wallet → VA`; on an old line with no stored
+  Type, read from its Txn Id `VALOAD-` / `BUSINESS_USER-` / `C2B-`), and the server refuses it there in words
+  (#1619 review, owner 2026-11-10): the server sends `can_send_back` with each row.
 - `it-cashbook-preview` the Cashbook upload preview (`Import statement` → Source `Cashbook (petty cash)` → file →
   `Read statement`) lists Cashbook's own moves under `Internal transfers · <n> line(s)`, each with the money it moved
   and `Internal Transfer from … to …`, not under `Not importing` (owner decision 7). When the file repeats an old
@@ -43,8 +46,9 @@ an open line as one, or send one back to Mismatched. The card import's Review li
 
 `BIN/walk_internal_transfers.py --task <task> --lead <accountant lead> --accountant <accountant> --password <pw>`
 walks every sub-feature above and exits 1 on a miss. It seeds made-up lines (`BIN/internal_transfers_seed.py`): an
-open Cashfree line it marks and sends back, an open Cashbook spend whose Mark dialog it opens and cancels, and an
-old Cashbook top-up whose record holds ₹0; and a made-up Cashbook statement (under the bench's `tmp/`) that repeats
+open Cashfree line it marks and sends back, an open Cashbook spend whose Mark dialog it opens and cancels, an
+old Cashbook top-up whose record holds ₹0, and an old Cashbook `VA → Wallet` move with no stored Type (both moves
+must show no Send back); and a made-up Cashbook statement (under the bench's `tmp/`) that repeats
 that top-up, whose preview the Accountant reads and never confirms. It reads the DB beside each write
 (`BIN/internal_transfers_db.py`: the tab, the chip and the records counts among it), saving `db.txt` beside the
 screenshots. The result-after-Create line is not walked (the walk never confirms); `internalTransferView.test.ts`
