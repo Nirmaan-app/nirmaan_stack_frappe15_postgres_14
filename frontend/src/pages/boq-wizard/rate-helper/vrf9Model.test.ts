@@ -351,3 +351,23 @@ describe("VRF-9 R4 -- a Fan Coil Unit with no type told refuses with its own rea
     expect(v.rowPriced).toBe(true);
   });
 });
+
+describe("VRF-9 post-run fixes (the paid run's answers)", () => {
+  const T32 = "Supply, installation, testing and commissioning of 741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit double-skin insulated casing";
+  it("00191 r32: the TFA came back as an airflow only ('741 CFM') -> the row's '741 CFM (6 HP)' is used and the row prices", () => {
+    const v = one({ items: [{ item: "Single Skin Treated Fresh Air", capacity: "741 CFM" }, { item: "Outdoor Unit", capacity: "6 HP" }], text: T32 });
+    expect(v.rowPriced).toBe(true);
+    expect(review(v)).toMatch(/the row states "741 CFM \(6 HP\)"/);
+  });
+  it("00393 r42: a 'none of these' item beside the gas item is not made a second gas item", () => {
+    const t = "Installation, testing, commissioning of Imported Equipment including topping up of Refrigerant R-410A";
+    const v = one({ items: [{ item: "none of these", includes_gas: "Yes", scope: "Installation only" }, { item: "Refrigerant Gas Filling (R-410)", scope: "Installation only" }], unit: "kg", text: t });
+    expect(v.items.filter((b) => b.family === "Refrigerant Gas Filling (R-410)")).toHaveLength(1);
+    expect(v.totals?.combined_rate).toBe(1370);
+  });
+  it("R4: a Fan Coil unit the model called 'none of these' shows no type, refused with the Fan Coil reason", () => {
+    const v = one({ items: [{ item: "none of these", capacity: "1.0 TR" }], text: "1.0 TR", chainRows: ch([221, "this row", "1.0 TR"], [211, "heading row 211", "Fan Coil Units"]) });
+    expect(v.reason).toBe("Fan Coil Unit - pick the indoor type");
+    expect(v.items[0].family ?? null).toBeNull();
+  });
+});

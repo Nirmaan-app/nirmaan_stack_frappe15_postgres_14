@@ -5522,7 +5522,9 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     }
     return null;
   })() : null;
-  const out = ext.items.map((it0, idx) => {
+  // (post-run) unnamed items the row-family net found to repeat another item of the row
+  const dropUnnamed = new Set<number>();
+  const out0 = ext.items.map((it0, idx) => {
     let it = it0;
     if (P.spaced_decimal) {
       const c = val(it, P.spaced_decimal.attr);
@@ -5547,6 +5549,13 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       let said: string | null = null;
       for (const cl of rowText.split(/[.;|\n]+/)) { const m = find(rf.words, cl); if (m && !(rf.not_words && find(rf.not_words, cl))) { said = m; break; } }
       if (!said) continue;
+      // (post-run, 00393 r42): never a second copy -- another unit of this row already IS that item: this unnamed one is the same
+      // reading twice, so it is dropped (noted)
+      if ((ext.items ?? []).some((o, j) => j !== idx && val(o, fa) === rf.family)) {
+        dropUnnamed.add(idx);
+        notes.push(`BoQ says "${said}" - an item the model could not name, beside the ${rf.family} item, is the same reading and is left out`);
+        break;
+      }
       it = setVal(it, fa, rf.family);
       notes.push(rf.line.replace("{said}", said).replace("{family}", rf.family));
     }
@@ -5812,11 +5821,16 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     // VRF-9 (S7, owner R-D14-1): a fresh-air unit with no capacity answered takes the row's stated CFM / TR, else its stated HP --
     // the capacity reader converts it and takes the next size up, so the row prices (TFA + its outdoor unit)
     const tcp = P.tfa_capacity;
-    if (tcp && val(it, fa) === tcp.family && blankAns(val(it, "capacity"))) {
+    // (post-run: also an AIRFLOW-only answer, "741 CFM" -- the reader never converts an airflow; the row's own phrase with TR / HP is used)
+    const airflowOnly = (c: string) => /^\s*\d+(?:\.\d+)?\s*CFM\s*$/i.test(c);
+    if (tcp && val(it, fa) === tcp.family && (blankAns(val(it, "capacity")) || airflowOnly(val(it, "capacity")))) {
       const said = find(tcp.words, rowText);
       const hp = said ? null : (() => { try { return new RegExp(tcp.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })();
-      const cap = said ?? (hp ? `${hp} HP` : null);
-      if (cap) { it = setVal(it, "capacity", cap); notes.push(tcp.line.replace("{said}", cap)); }
+      const cap0 = said ?? (hp ? `${hp} HP` : null);
+      // an airflow answer is replaced only by a phrase that carries TR / HP (else the row's HP)
+      const hpOf = (() => { try { return new RegExp(tcp.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })();
+      const cap = cap0 && airflowOnly(cap0) ? (hpOf ? `${hpOf} HP` : null) : cap0;
+      if (cap && cap !== val(it, "capacity")) { it = setVal(it, "capacity", cap); notes.push(tcp.line.replace("{said}", cap)); }
     }
     // VRF-8 (D10, owner 14:47): an installation-only row with no make takes the make of its matching supply row (same item-1 family
     // and capacity) on this sheet; the split follows from the make. No match -> the defaults, as before.
@@ -5863,6 +5877,7 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
     }
     return it;
   });
+  const out = out0.filter((_x, i) => !dropUnnamed.has(i));
   // VRF-8 (D14-1): no outdoor unit item at all on such a row -> one is added at the stated HP
   const to8 = P.tfa_outdoor;
   if (to8 && !out.some((x) => val(x, fa) === to8.outdoor_family) && out.some((x) => x2Role(spec, val(x, fa)) === "indoor")) {
@@ -6117,7 +6132,10 @@ function computeItemList(
     const probe: OwnPassProbe = {};
     const own = computeItemListOwn(category, spec, items, ctx, prep.ext, inRun, overrides, probe) as ItemListSuggestion;
     const done = own.itemList ? withExtras(spec, items, ctx, prep.ext, overrides, configOf, cableRate, own, probe, category) : own;
-    const noType = !!prep.refuse && !!spec.extras.prepare?.several_types?.typed && prep.refuse === spec.extras.prepare.several_types.refusal;
+    // the panel does not pick a type on a unit refused for several unit types, nor on a Fan Coil unit with no type told (post-run:
+    // "none of these" is no type either)
+    const noType = !!prep.refuse && ((!!spec.extras.prepare?.several_types?.typed && prep.refuse === spec.extras.prepare.several_types.refusal)
+      || (spec.extras.prepare?.family_refusals ?? []).some((f) => f.refusal === prep.refuse));
     return withPrepRefusal(withTypedRefusals(spec, ctx, withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes))), prep.refuse, noType);
   }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it

@@ -433,7 +433,8 @@ export function feedFromPanel(
         }
         const fr = (p9.family_refusals ?? []).find((f) => f.refusal === b.reason);
         if (!typedFamily && fr) {
-          for (const t of [c.desc, ...[...(c.headings ?? [])].reverse(), ...(c.headingNotes ?? [])]) { const m = reOf(fr.words)?.exec(t ?? ""); if (m) { typedFamily = m[0].trim(); break; } }
+          // the whole chain, as the panel reads it (post-run: 00218 r221's Fan Coil words sit on a grandparent's note)
+          for (const t of [c.desc, ...(c.ownNotes ?? []), ...(c.headingNotes ?? []), ...(c.ancestorNotes ?? []), ...[...(c.headings ?? [])].reverse()]) { const m = reOf(fr.words)?.exec(t ?? ""); if (m) { typedFamily = m[0].trim(); break; } }
         }
         if (typedFamily) return { base: null, family: typedFamily, attrs, qty: b.qty, other: [...other, famId], ...extrasFeed, ...sectionsFeed, ...helperFeed };
       }
