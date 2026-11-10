@@ -82,7 +82,7 @@ commit() {   # commit <checkout> <file>: a commit that adds <file>
 D="$T/dev"; DEV="$D/nirmaan_stack_variants/dev"; M="$D/nirmaan_stack_variants/master"; B="$D/benches"
 mkdir -p "$DEV/scripts/devenv" "$DEV/.githooks" "$B" "$D/frappe-bench/apps/frappe"
 export DEVENV_ROOT="$D"
-cp "$HERE/devenv.sh" "$HERE/landed.sh" "$DEV/scripts/devenv/"
+cp "$HERE/devenv.sh" "$HERE/landed.sh" "$DEV/scripts/devenv/"; cp "$SRC/.githooks/post-merge" "$DEV/.githooks/"
 git -C "$DEV" init -q -b master
 git -C "$DEV" config user.name test; git -C "$DEV" config user.email test@example.com
 git -C "$DEV" config core.hooksPath "$T/no-hooks"
@@ -179,6 +179,41 @@ rc_is 0 "a second --yes"
 no_line '^PRUNE' "a second run finds nothing to prune"; has "to prune: 0 envs, 0 worktrees" "a second run totals zero"
 prune --quiet
 rc_is 0 "--quiet with nothing to prune"; same "$OUT" "" "--quiet prints nothing when nothing can go"
+
+# ---- the post-merge hook, on real merges
+G config core.hooksPath .githooks
+G worktree lock "$WT/here"   # the hook runs from the master checkout, so `here` no longer holds it
+merge_in() {   # merge_in <checkout> <commit>, as the owner would (no DEVENV_ROOT)
+  RC=0; OUT="$(cd "$1" && env -u DEVENV_ROOT git merge --no-ff --no-edit "$2" 2>&1)" || RC=$?
+}
+c1="$(G commit-tree -p master -m h1 'master^{tree}')"
+merge_in "$M" "$c1"
+rc_is 0 "a merge into master with the hook"; no_line 'PRUNE|KEEP|to prune|==' "the hook is silent when nothing can go"
+G worktree add -q -b feat/h2 "$WT/h2" master; commit "$WT/h2" h2
+G worktree add -q --detach "$WT/first" "$(G rev-list --max-parents=0 master)"
+merge_in "$M" feat/h2
+rc_is 0 "merging feat/h2 into master"
+line '^PRUNE +worktree +feat/h2 .*landed:master$' "after a merge into master the hook lists what it landed"
+# git sets GIT_DIR for a hook in a linked worktree; read against master's index, this older worktree looks changed.
+line '^PRUNE +worktree +detached .*worktrees/first +landed:master$' "the hook reads each worktree's own status"
+no_line '^KEEP' "the hook lists only PRUNE rows"
+there "$WT/h2" "the hook removes nothing"
+c3="$(G commit-tree -p h-here -m h3 'h-here^{tree}')"
+merge_in "$WT/here" "$c3"
+rc_is 0 "a merge on another branch"; no_line 'PRUNE' "the hook is silent off master"
+if PATH=/usr/bin:/bin command -v docker >/dev/null; then echo "skip  no-docker case: /usr/bin or /bin has docker"
+else
+  c4="$(G commit-tree -p master -m h4 'master^{tree}')"
+  RC=0; OUT="$(cd "$M" && env -u DEVENV_ROOT PATH=/usr/bin:/bin git merge --no-ff --no-edit "$c4" 2>&1)" || RC=$?
+  rc_is 0 "a merge without docker"; no_line 'PRUNE' "the hook is silent without docker"
+fi
+E="$T/elsewhere"; mkdir -p "$E/scripts/devenv" "$E/.githooks"
+cp "$HERE/devenv.sh" "$HERE/landed.sh" "$E/scripts/devenv/"; cp "$SRC/.githooks/post-merge" "$E/.githooks/"
+git -C "$E" init -q -b master; git -C "$E" config user.name test; git -C "$E" config user.email test@example.com
+git -C "$E" config core.hooksPath .githooks; git -C "$E" add -A; git -C "$E" commit -q --no-verify -m base
+c5="$(git -C "$E" commit-tree -p master -m h5 'master^{tree}')"
+merge_in "$E" "$c5"
+rc_is 0 "a merge in a checkout with no dev root"; same "$(echo "$OUT" | grep -cvE '^(Merge made|$)' || true)" 0 "the hook is silent with no dev root"
 
 # ---- task.sh prune and clean, on a temp laptop repo and a stub Linux box
 R="$T/boxes.conf"; export DEVBOX_REGISTRY="$R"
