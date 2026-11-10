@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import flt, validate_url
 
 from nirmaan_stack.services.project_billing.rules import first_submission_date, missing_bill_fields
 
@@ -38,6 +38,11 @@ class ProjectBilling(Document):
 		)
 		if missing:
 			frappe.throw(_("Fill in before saving: {0}.").format(", ".join(missing)))
+
+		# A web link with its scheme. Frappe checked this while the field was Data with options URL; as Small Text
+		# (#1680, so a long Drive link fits) nothing does, and a link with no `https://` opens inside the app.
+		if self.get("bill_document_link"):
+			validate_url(self.bill_document_link.strip(), throw=True)
 
 		# The bill document is a link OR an attachment, never both (owner, 2026-10-03).
 		if self.get("bill_document_link") and self.get("bill_attachment"):

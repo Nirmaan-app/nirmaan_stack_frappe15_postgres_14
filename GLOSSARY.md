@@ -673,3 +673,16 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Cron job** — a background operation the system starts on a fixed schedule (such as daily), not a user; it has no
   owner and no screen follows it. Always the two words. *Avoid*: bare "job" (a construction project), "daily job".
   (Owner, 2026-11-08.)
+
+## Pasted links
+
+- **Pasted link** — the address of a document kept outside the app (mostly a shared Google Drive file, sheet or
+  folder) that a person pastes in, instead of uploading the file: a project's **Drive link**, a Customer PO's link, a
+  Design Tracker task's design file link, a Commission Report task's report link and a client bill's **bill document
+  link**. It is kept whole, however long, and opens at that address. *Avoid*: attachment (an uploaded file), "bill
+  link" for a client bill's document (a *Bill link* is a wallet spend's bill, see *Petty-cash wallet*).
+  (Owner, 2026-11-09, #1680.)
+
+- **Cut link** — a pasted link stored shortened by the old 140-character limit, so it no longer opens. It cannot be
+  rebuilt from what was stored; its owner pastes it again. A link that looks long is not cut: Google's own share links
+  end in `&rtpof=true&sd=true`. (#1680, 2026-11-10.)

@@ -45,6 +45,10 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
 - [Purchase Orders](./purchase-orders.md): the PO list tabs, a PO's page, its figures against the DB. Walked
   end to end by `BIN/walk_purchase_orders.py`.
 - [Procurement Requests](./procurement-requests.md): the PR list tabs, items, Add New PR.
+- [Pasted link fields](./link_fields.md): a project's Drive links, a Customer PO link, a Design Tracker task's file
+  link, a Commission Report task's report link (shown only in a handover document's Sources) and a bill's document
+  link each save a link of any length whole, show it and open it (#1680). Walked by `BIN/walk_link_fields.py`
+  (`--part drive|cpo|design|commission|billing`).
 - [Bulk Import Transactions](./bulk-import-transactions.md): bank, card and cashbook statement lines and their
   matches.
 - [Credit Card Statement import](./card-import.md): upload, Review with its Refunds list, Create, and the refund
