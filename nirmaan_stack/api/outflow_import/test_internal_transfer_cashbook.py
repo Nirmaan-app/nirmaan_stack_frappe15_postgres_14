@@ -221,6 +221,49 @@ class TestEveryInternalTransferLineHoldsOneRecord(CashbookStageCase):
         self.assertTrue(all(row["internal_transfer"] for row in tab["rows"]))
 
 
+class TestACashbookMoveIsNeverSentBack(CashbookStageCase):
+    """Review finding (#1619): a Cashbook move's Type names both its ends, and its money is in the Credit column,
+    which the line does not keep. Sent back and marked again, it came back from the wrong ends and with Rs 0. So a
+    line whose own Cashbook Type says it is our move stays an Internal Transfer: Send back is refused in words, and
+    the screen does not offer it (owner decision, 2026-11-10)."""
+
+    def _move(self, kind, who_from, who_to, debit, credit, txn):
+        return self._lines(self._stage([_line("01/08/2026", kind, who_from, who_to, debit, credit, "SUCCESS",
+                                              txn)]))[0]["name"]
+
+    def test_send_back_is_refused_in_words_and_the_record_stays(self):
+        from nirmaan_stack.api.outflow_import.internal_transfer_actions import send_back_to_mismatched
+
+        tag = frappe.generate_hash(length=6).upper()
+        moves = [
+            ("Bank → VA", self._move("Bank → VA", "Test Company", "Virtual Account", "", "50000", f"VALOAD-{tag}1")),
+            ("VA → Wallet", self._move("VA → Wallet", "Virtual Account", "Test Employee A", "", "4000",
+                                       f"BUSINESS_USER-{tag}2")),
+            ("Wallet → VA", self._move("Wallet → VA", "Test Employee B", "Virtual Account", "300", "",
+                                       f"C2B-{tag}3")),
+        ]
+        for kind, line in moves:
+            with self.subTest(kind=kind):
+                imported = self._record(line)
+                with self.assertRaises(frappe.ValidationError) as caught:
+                    send_back_to_mismatched(line, reason="Checking it")
+                frappe.db.rollback()
+                self.assertIn(f"Cashbook's own Type ({kind}) says this line is a move between our own places",
+                              str(caught.exception))
+                self.assertEqual(frappe.db.get_value("Outflow Import Row", line, "row_status"), "Internal Transfer")
+                self.assertEqual(self._record(line), imported)
+
+    def test_the_screen_offers_send_back_on_every_other_internal_transfer_line_only(self):
+        from nirmaan_stack.api.outflow_import.review import get_outflow_rows
+
+        tag = frappe.generate_hash(length=6).upper()
+        batch = self._stage([
+            _line("01/08/2026", "Bank → VA", "Test Company", "Virtual Account", "", "500", "SUCCESS", f"VALOAD-{tag}"),
+        ])
+        rows = get_outflow_rows(scope="internal_transfers", batch=batch, limit=50)["rows"]
+        self.assertEqual([row["can_send_back"] for row in rows], [False])
+
+
 def _xlsx(lines) -> bytes:
     """The made-up statement as the .xlsx the Cashbook import takes."""
     import csv
