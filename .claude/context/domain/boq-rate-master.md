@@ -2965,6 +2965,51 @@ v64 with the VRF-9 code: 0 differences). The keys come from ONE fixture, `fronte
 - **Validation:** every key refused by name when malformed (`_validate_prepare_vrf9`; the scope / safeguard / counted / lot_units /
   feeder_length / several_types branches).
 
+**VRF-10: A ROW WITH NO UNIT IS REFUSED, SUPPLY + INSTALLATION IS THE DEFAULT SCOPE, MS FRAME / STAND ROWS ARE SUPPLY + INSTALLATION, THE SCOPE NOTE QUOTES ANY SUPPLY-TYPE WORDING, A REFUSED UNIT SHOWS ONLY THE REFUSAL (the VRF-9 review F1-F6; owner rulings 2026-11-11 08:41-09:10, ANSWER 1 "supply + install is the general principle", QR-1 1a 2a 3a; code only, HVAC v65 unchanged).**
+No mint, so there are no new config keys. Every VRF-10 rule switches on from a key only v65 has, VRF-9's S11 `scope.panel_pick`
+(`vrf10On`, itemListPricing.ts; on hvac_vrf alone). v64 and every other category keep VRF-9's behaviour. The words and notes are code
+constants (`VRF10_SCOPE`, `VRF10_ONOFF`, `VRF10_NO_UNIT_REFUSAL`); the next mint can move them into the config under their own keys.
+- **F1 (blank unit):** a VRF row with a blank unit refuses "no unit on this row". It is never priced by assuming a unit; the 12c-U /
+  owner U2 default unit stays for every other category and for a rate-only unit (R/O). All 14 such VRF rows refuse (QR-1 1a). The
+  calculator matches when the unit is typed BLANK (`blankKept`; the screen's picker never sends ""), so parity holds.
+- **Scope order in `withScopeCore` (a BoQ row; the calculator keeps the pricer's pick):** S9 (gas, now also on the model's raw family
+  when no block priced, F5b) -> Q5 -> S4 (keeps supply only on the F6 plain words too) -> F3 -> D1 -> S3, then F2 -> F6. A rule that
+  settles a row keeps its own note: F3 and F6 write their note only where Q5 / S4 / S3 / S9 did not fire (QR-1 3a).
+- **F3 (MS frame / stand):** a row priced on "MS frame / stand for ODU" or "MS Angle Base Frame Structure" is supply + installation
+  whatever its scope words, unless the sheet quotes the frame's supply and its installation on SEPARATE rows (same-family scope
+  answers). Then each row keeps its own scope and the note names the other row. The per-Nos frame item has a catalogue install of 0,
+  so only per-Kg rows move a figure (00009 r80: 140 + 40).
+- **F2 (any supply-type wording):** where installation is said at any level FARTHER up than a nearer clause that reads as supply,
+  the row is supply + installation with a note quoting both and where each sits. Such a clause starts "Supply" and names no
+  installation / fixing / commissioning in the clause: "Supply, port clearance, transport of ...", not only "Supply of". A row with no
+  supply-type wording anywhere gets no note (QR-3 1a).
+- **F6 (the default):** a stored "Supply only" that no earlier rule settled becomes supply + installation, with a note quoting the
+  nearest supply-type wording and pointing to the scope pick. Two exceptions keep supply only:
+  - (i) the sheet quotes installation on its own rows. This is item-level (Q5), or sheet-level (QR-1 2a): any VRF installation-only
+    answer, or a line of any category whose text starts with installation work and names no supply ("Shifting, Assembly,
+    Installation ... of Cassette ACs"). The note names those rows.
+  - (ii) the row or its chain says supply only plainly ("supply only", "excluding installation", "without installation",
+    "installation by others / by the client", "installation not included").
+
+  The S11 pick defaults to the result.
+- **F4:** a unit refused for several unit types / as a Fan Coil Unit carries only the refusal: no SKU line, working, fields, extras
+  or review notes. On an unpriced row an extra line under a blank item stays (its review note and the row's item count still name it)
+  but carries no figure: "not priced - the unit it belongs to is not priced" (`withBlankBare`, `VRF10_BLANK_LINE_REASON`; panel and
+  calculator). Dropping the line instead left its "- added" note pointing at nothing (cert finding).
+- **F5:**
+  - (a) the "ON / OFF controller" review note only where ON / OFF is the controller's only function (`onOffAmongOthers`); the family
+    is set as before.
+  - (b) see S9 above.
+  - (c) the panel's 12e-2 sentence 'BoQ says "X": priced as Y (your rule).' never on a block with no family, nor on a refused block
+    whose raw item is "None" (`showFamilyRawLine`, RateHelperPanel.tsx).
+- **Derivation (13l):** the unit line says a blank unit refuses (v65 only), plus 3 lines: "Supply + installation is the default
+  scope", "An MS frame / stand row is supply + installation" and "Installation said higher up beats any supply-type wording: the note
+  quotes both". R-39's VRF guard: v65 = v64's 73 + 13 (VRF-9) + 3.
+- **The replay harness and the page differ on scope:** the tracked replay harnesses (`ac7` / `ac7v2`) build a thinner row context
+  than the page: no sheet scope answers, fewer chain notes. A scope rule that reads those can move a row in the replay that the page
+  does not move (VRF-10: 41 rows, F6 in the harness only). Declare scope moves from the faithful row pricer (the page's own endpoints
+  and context) and explain the replay's extra rows.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds

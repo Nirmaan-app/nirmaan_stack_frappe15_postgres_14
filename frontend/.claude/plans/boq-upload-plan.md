@@ -50987,3 +50987,60 @@ baseline. Logs: `BoQ main lane\VRF-9\logs\`.
 - 00164 VRV-BOQ r74 refuses on capacity (Packaged Unit 11 TR above the sheet's largest 10), not on scope.
 - The Rows workbook's SKU column says 'ambiguous 2' for 429 items (two catalogue rows match the panel's SKU fields; never guessed).
 - second_opinion stays OFF (standing); the push, the laptop sync and the db-pull are the owner's.
+
+## Slice VRF-10 - small fixes from the VRF-9 review (code only, HVAC v65 unchanged, no paid run) - as built 2026-11-11
+
+**Commits (desktop; the owner pushes), on 6e148c3a2:**
+- K1 `b1b4fcd50` fix(boq-pricing): F1-F6, parity, tests. It was amended once, before LAPTOP NOTE 1, to fold in the cert's F4 finding.
+  The first K1 `624cf3e39` had been synced to the laptop at 11:27, so the laptop realigns to `b1b4fcd50`.
+- K2 docs.
+
+**Owner answers (relayed by the laptop):**
+- ANSWER 1 09:25: F6 final, "supply + install is the general principle"; final prompt af0b3f80.
+- ANSWER 2 09:55: QR-1 1a / 2a / 3a. All 14 blank-unit rows refuse; sheet-level separate installation rows of ANY category; keep the
+  S4 / S3 / Q5 / S9 notes.
+- ANSWER 3 10:30: cert adds the installation-only Row total box.
+- ANSWER 4 10:32: the laptop goes offline - work to DONE, new questions take the recommended option.
+- LAPTOP NOTE 1 11:59: no more amends.
+
+**P0 corrections:**
+- F1 reaches 14 priced blank-unit rows, not 1. VRF-8 had priced 13 of them under owner U2.
+- The two C7 rows the brief named (00169 r122, 00352 r147) were already supply + installation by S4.
+- 00149's cassette installation rows are `hvac_dx_unit`.
+- No VRF sheet quotes an MS frame's supply and its installation on separate rows.
+
+**Built (no config key; the rules ride v65's `scope.panel_pick` - `vrf10On`):**
+- F1: a blank unit refuses, and the calculator matches when the unit is typed blank.
+- F2: the scope note quotes any supply-type wording beaten by installation said higher up.
+- F3: an MS frame / stand row is supply + installation unless the sheet quotes them on separate rows.
+- F4: a refused unit carries only the refusal. An extra line under a blank item stays, unpriced.
+- F5: (a) the ON / OFF note only for a single-function controller; (b) a gas row per Lot shows S+I (S9); (c) no 'BoQ says "None"'
+  sentence on a family-less / refused "None" block.
+- F6: a stored "Supply only" on supply-type wording only becomes supply + installation, noted. It is kept on a sheet with its own
+  installation rows (any category, by text) or where the BoQ says supply only plainly.
+- Derivation: the unit line on v65, plus 3 lines (13l). R-39 guard 86 -> 89.
+
+**Declared re-pricing (faithful row pricer, all 1,901 VRF rows, stored answers, live v65; no model call):**
+- 177 panel moves, of which 68 move a figure:
+  - F1 14 refuse: 00003 r318; 00029 r384 / 392 / 393 / 397 / 402 / 405 / 431; 00234 / 00273 r12 / r13; 00351 r193 / 220.
+  - F3: 00009 r80 140 -> 180 per Kg.
+  - F6 53: install added; 00197 21, 00075 8, 00091 6, 00108 4, ...
+- Notes / display only: F6 sheet note 12, F2 11, F5a 11, F5b 1, F4 31, F4 line 41. Plus 491 calculator-only F1 parity rows (the panel
+  is unchanged).
+- Calculator divergences: 507 -> 10. The 10 left are pre-existing "none of these" rows.
+- Replay vrf10end vs vrf10d0 (= vrf9end): 119 moved, all hvac_vrf, 0 non-VRF. 78 are declared rows; 41 are F6 inside the replay
+  harness only, unchanged on the page (the harness's thinner context: no sheet scope answers, fewer chain notes).
+- Moves workbook: `2026-11-11_VRF-10_Moves.xlsx`.
+
+**Cert (read only, C1-C7 + ANSWER 3, screenshots `BoQ main lane\VRF-10\screenshots\`):** every figure = the faithful pricer.
+- C4 found the F4 dropped-line inconsistency, fixed mid-cert and re-certified after a full re-de-stale.
+- Open cosmetic: that line reads "Not priced - not priced - the unit it belongs to is not priced" (the panel's prefix doubles it).
+
+**Tests:** the Python K3 set 31 / 31 OK (test_rate_master 776); vitest related 100 files 5,241 / 5,241 (after the fix: PSH-related 89
+files 4,479 / 4,479); tsc 0 new; vacuity 24 breaks red, sources sha-equal.
+
+**Open:**
+- the doubled "Not priced" wording;
+- the next mint (v66) can give the VRF-10 rules their own keys and move the note texts into the config;
+- second_opinion stays OFF;
+- the push, the laptop realign / sync and the db-pull are the owner's / laptop's (PENDING-LAPTOP).
