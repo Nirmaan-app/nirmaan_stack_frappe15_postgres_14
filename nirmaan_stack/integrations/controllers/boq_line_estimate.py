@@ -48,7 +48,14 @@ def _project_status(project: str | None) -> str | None:
 def _fill_from_items(doc) -> None:
     """Copy name, unit and category from the Items record onto each Normal row that is new or now points to
     another item (decision: an estimate keeps what was chosen even if the Items record changes later). A saved row
-    that still points to the same item keeps its stored name, unit and category, whatever the request sent."""
+    that still points to the same item keeps its stored name, unit and category, whatever the request sent.
+
+    A Re-attach copy (`doc.flags.reattach_copy`, set only by `estimate_writes.reattach_estimates`, never by a request)
+    keeps the backup's saved name, unit and category as they are: refreshing them from today's Items record could turn
+    10 NOS into 10 SQM, and the copy would no longer match its backup (review issue 5). Every rule still runs on it.
+    An item whose Items record is gone keeps its saved text too (the fields are text, not links)."""
+    if doc.flags.get("reattach_copy"):
+        return
     before = doc.get_doc_before_save()
     saved = {row.name: row for row in (before.items if before else [])}
     for row in doc.items:
