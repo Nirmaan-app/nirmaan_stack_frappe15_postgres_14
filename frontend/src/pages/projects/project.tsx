@@ -90,6 +90,7 @@ const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
 const ProjectTransferMemosTab = React.lazy(() => import("./components/ProjectTransferMemosTab"));
 const BoqProjectTab = React.lazy(() => import("@/pages/boq-wizard/BoqProjectTab"));
+const EstimatesProjectTab = React.lazy(() => import("@/pages/estimations/EstimatesProjectTab"));
 const ProjectBillingTab = React.lazy(() => import("@/pages/ProjectBilling/ProjectBillingTab"));
 
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
@@ -331,6 +332,9 @@ export const PROJECT_PAGE_TABS = {
   COMMISSION_REPORT: 'commission-report',
   HANDOVER_DOCUMENTS: 'handover-documents',
   BOQ: 'boq',
+  // BOQ line-item material estimates (plan "BOQ Estimates"): one tab holding BOQ View, Line Item View and
+  // Estimate Items (sub-tab in `estTab`). Shown wherever the BoQ tab is shown.
+  ESTIMATES: 'estimates',
   BILLING: 'billing',
 } as const;
 
@@ -524,6 +528,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
     PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
     PROJECT_PAGE_TABS.BOQ,
+    PROJECT_PAGE_TABS.ESTIMATES,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     ...(canSeeBilling ? [PROJECT_PAGE_TABS.BILLING] : []),
   ]), [canSeeBilling]);
@@ -544,6 +549,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
     PROJECT_PAGE_TABS.BOQ,
+    PROJECT_PAGE_TABS.ESTIMATES,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -565,6 +571,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.BULK_DOWNLOAD,
       PROJECT_PAGE_TABS.COMMISSION_REPORT,
       PROJECT_PAGE_TABS.BOQ,
+      PROJECT_PAGE_TABS.ESTIMATES,
       ...(canSeeBilling ? [PROJECT_PAGE_TABS.BILLING] : []),
     ]);
     // Billing Executive KEEPS the BoQ tab (owner request). This used to delete it, with the
@@ -664,6 +671,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.BOQ,
         },
         {
+          label: "Estimates",
+          key: PROJECT_PAGE_TABS.ESTIMATES,
+        },
+        {
           label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
@@ -729,6 +740,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "BoQ",
           key: PROJECT_PAGE_TABS.BOQ,
+        },
+        {
+          label: "Estimates",
+          key: PROJECT_PAGE_TABS.ESTIMATES,
         },
         {
           label: "Bulk Download",
@@ -800,6 +815,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "BoQ",
           key: PROJECT_PAGE_TABS.BOQ,
+        },
+        {
+          label: "Estimates",
+          key: PROJECT_PAGE_TABS.ESTIMATES,
         },
         {
           label: "Bulk Download",
@@ -895,6 +914,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "BoQ",
         key: PROJECT_PAGE_TABS.BOQ,
+      }, {
+        // Shown wherever BoQ is shown, so hidden from Accountant too.
+        label: "Estimates",
+        key: PROJECT_PAGE_TABS.ESTIMATES,
       }] : []),
       {
         label: "Bulk Download",
@@ -1554,6 +1577,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         // BELOW the pre-Won early return, so a project reaching here IS the Won page -- including
         // a legacy row with a BLANK tendering_status, which `isOperational` would call pre-Won.
         return <BoqProjectTab projectId={projectId} surface="won" />;
+      case PROJECT_PAGE_TABS.ESTIMATES:
+        return <Suspense fallback={<LoadingFallback />}><EstimatesProjectTab projectId={projectId} projectStatus={data?.status} /></Suspense>;
       case PROJECT_PAGE_TABS.BULK_DOWNLOAD:
         return <Suspense fallback={<LoadingFallback />}><BulkDownloadPage scope={{ kind: "project", id: projectId, name: data?.project_name }} /></Suspense>;
       default:
