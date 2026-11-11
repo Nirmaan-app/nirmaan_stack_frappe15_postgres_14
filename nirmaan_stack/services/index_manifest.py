@@ -43,6 +43,9 @@ PG_NAME_MAX = 63
 INDEXES: tuple[tuple[str, tuple[str, ...], str, bool], ...] = (
     ('Asset History', ('parent',), 'asset_history_parent_index', False),
     ('Asset Master', ('project',), 'Asset_Master_project_idx', False),
+    ('BOQ Line Estimate', ('boq',), 'BOQ_Line_Estimate_boq_idx', False),
+    ('BOQ Line Estimate', ('boq_sheet',), 'BOQ_Line_Estimate_boq_sheet_idx', False),
+    ('BOQ Line Estimate Item', ('parent',), 'BOQ_Line_Estimate_Item_parent_idx', False),
     ('BOQ Nodes', ('boq',), 'BOQ_Nodes_boq_idx', False),
     ('BOQ Nodes', ('parent_node',), 'BOQ_Nodes_parent_node_idx', False),
     ('BOQ Nodes', ('path',), 'BOQ_Nodes_path_idx', False),

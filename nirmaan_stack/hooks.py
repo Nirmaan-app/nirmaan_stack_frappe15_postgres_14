@@ -670,6 +670,11 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.boq_nodes.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.boq_nodes.on_trash",
     },
+    # New Estimations: the materials one BOQ line item needs. Reads the BOQ tables, never writes them.
+    "BOQ Line Estimate": {
+        "validate": "nirmaan_stack.integrations.controllers.boq_line_estimate.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.boq_line_estimate.on_trash",
+    },
 }
 
 # Scheduled Tasks
@@ -783,7 +788,10 @@ scheduler_events = {
 # this, Frappe's dynamic-link check refused every ordinary delete of an Expense with a bill (only Unreconcile's
 # `force=True` got through), so `on_trash` was unreachable. The bill's other link, `statement_line`, is ignored
 # with it: the bill keeps the line's amount of its own. Every other doctype's links still guard a delete.
-ignore_links_on_delete = ["Expense Bill"]
+# A BOQ Line Estimate (New Estimations) only references a BOQ line item; its links to BOQs, BoQ Sheet and BOQ
+# Nodes must never change how a BOQ delete behaves (plan "BOQ Estimates", scope rule). Its child rows' links
+# (Items, Category, Makelist) are not ignored: an Items record in use still cannot be deleted.
+ignore_links_on_delete = ["Expense Bill", "BOQ Line Estimate"]
 
 # Request Events
 # ----------------
