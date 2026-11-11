@@ -1,0 +1,114 @@
+{
+ "_about": "VRF-9 (fixes from the VRF-8 review S1-S7 + owner rulings R1-R4, 2026-11-11 00:36-00:43; ANSWER 2 S8-S10, 00:59-01:06): the hvac_vrf keys and question notes HVAC v65 adds over v64. Read by vrf9Model.test.ts, the parity harness (applyVrf9) and scripts/_instruments/mint_hvac_v65_vrf9.py (test_vrf_v65 proves the asset equals it). Every key is optional: v64 without them is unchanged.",
+ "prepare_patch": {
+  "unit_words": {
+   "Hi-Wall": "\\bhi[\\s-]*wall|\\bhigh[\\s-]*wall|\\bwall[\\s-]*mount(?:ed)?\\s+(?:type|split|units?|indoor|a\\.?c\\.?(?![a-z])|air[\\s-]*condition)"
+  },
+  "several_types": { "typed": true },
+  "feeder_length": { "every_module": true }
+ },
+ "prepare_add": {
+  "family_refusals": [
+   { "words": "\\bfan[\\s-]*coil(?:\\s+units?)?\\b|\\bFCUs?\\b", "refusal": "Fan Coil Unit - pick the indoor type" }
+  ],
+  "not_includes": [
+   {
+    "question": "includes_comm",
+    "words": "\\bBMS\\b|\\bbacnet\\b|\\bmodbus\\b|\\bthi?r?i?d[\\s-]*party\\b",
+    "unless": "\\bindoor\\b[^.|;]{0,40}\\boutdoor\\b|\\boutdoor\\b[^.|;]{0,40}\\bindoor\\b|\\bIDUs?\\b[^.|;]{0,30}\\bODUs?\\b|\\bODUs?\\b[^.|;]{0,30}\\bIDUs?\\b",
+    "no": "No",
+    "line": "{label}: NOT added - the BoQ says \"{said}\" ({where}): cables for the BMS interface are not the VRF communication cable (owner R2)"
+   },
+   {
+    "question": "includes_frame",
+    "words": "\\bcivil\\b|\\bpedestals?\\b|\\bfoundations?\\b|\\bplinths?\\b",
+    "unless": "\\bM\\.?S\\.?(?![a-z])|\\bsteel\\b|\\bangles?\\b|\\bchannels?\\b|\\bframes?\\b|\\bstands?\\b",
+    "role": "outdoor",
+    "no": "No",
+    "line": "{label}: NOT added - the BoQ says \"{said}\" ({where}): civil pedestal / foundation work, not the MS frame (owner R3)"
+   }
+  ],
+  "tfa_capacity": {
+   "family": "Single Skin Treated Fresh Air",
+   "words": "\\b\\d+(?:\\.\\d+)?\\s*CFM\\b(?:\\s*\\(\\s*\\d+(?:\\.\\d+)?\\s*(?:TR|HP)\\s*\\))?|\\b\\d+(?:\\.\\d+)?\\s*TR\\b",
+   "hp_words": "\\b(\\d+(?:\\.\\d+)?)\\s*HP\\b",
+   "line": "Fresh-air unit: no capacity was read - the row states \"{said}\", used as its capacity (next size up) (owner D14-1 / S7)"
+  },
+  "row_family": [
+   {
+    "family": "MS frame / stand for ODU",
+    "words": "\\bM\\.?S\\.?(?![a-z])[^.|;]{0,60}?\\b(?:base\\s+)?(?:frames?|stands?|structur\\w*)\\b|\\bbase\\s+frames?\\b|\\bmounting\\s+stands?\\b|\\b(?:frames?|stands?)\\b[^.|;]{0,60}?\\b(?:outdoor|ODUs?|condens\\w*)\\b",
+    "not_words": "\\bcivil\\b|\\bpedestals?\\b|\\bfoundations?\\b|\\bplinths?\\b|\\bindoor\\b|\\bIDUs?\\b|\\bduct|\\bpip(?:e|es|ing)\\b|\\bAHUs?\\b",
+    "line": "BoQ says \"{said}\" - no item was read; priced as the MS frame / stand (owner S10)"
+   },
+   {
+    "family": "Refrigerant Gas Filling (R-410)",
+    "words": "\\btopping[\\s-]*up\\b[^.|;]{0,40}?\\brefrigerant\\b|\\brefrigerant\\s+gas\\b|\\bgas\\s+(?:charging|filling|top(?:ping)?[\\s-]*up)\\b|\\b(?:charging|filling)\\s+of\\s+(?:the\\s+)?refrigerant\\b|\\badditional\\s+refrigerant\\b",
+    "unit_classes": ["weight"],
+    "line": "BoQ says \"{said}\" - no item was read; priced as the refrigerant gas charge (owner S9)"
+   }
+  ]
+ },
+ "implied_includes_add": [
+  {
+   "question": "includes_gas",
+   "words": "\\b(?:first|initial|full)\\s+charg(?:e|ing)\\b[^.|;]{0,60}|\\bfactory[\\s-]*charged\\b[^.|;]{0,60}",
+   "role": "outdoor",
+   "yes": "Yes",
+   "line": "Gas charge: the BoQ says \"{said}\" ({where}) - a first / factory charge of refrigerant counts as the gas charge (owner R1)"
+  }
+ ],
+ "implied_not_words_append": {
+  "includes_frame": "|\\bcivil\\b|\\bpedestals?\\b|\\bfoundations?\\b|\\bplinths?\\b"
+ },
+ "scope_add": {
+  "always_note": {
+   "row_words": "^\\s*supply(?:ing)?\\s+(?:of\\b|&\\s*provid|and\\s+provid)",
+   "install_words": "\\binstall(?:ation|ed|ing)?\\b|\\bSITC\\b|\\berect(?:ion|ing)\\b",
+   "not_words": "\\bexclud\\w*|\\bby\\s+others\\b|\\bnot\\s+(?:in|included|part)\\b|\\bwithout\\b|\\binstallation\\s+only\\b",
+   "note": "BoQ: the row says \"{row}\" and \"{said}\" ({where}) - priced as supply + installation (owner R-D1)"
+  },
+  "any_level": {
+   "install_words": "\\binstall(?:ation|ed|ing)?\\b|\\bSITC\\b|\\berect(?:ion|ing)\\b",
+   "not_words": "\\bexclud\\w*|\\bby\\s+others\\b|\\bnot\\s+(?:in|included|part)\\b|\\bwithout\\b|\\binstallation\\s+only\\b|\\bsupply\\s+only\\b",
+   "keep_words": "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b",
+   "note": "BoQ: the row reads as supply only, but \"{said}\" ({where}) says installation - priced as supply + installation (owner S4; VRF-7 ruled S+I)"
+  },
+  "panel_pick": {
+   "note": "Scope changed by user (the helper chose {helper}{because})"
+  },
+  "always_both": {
+   "families": ["Refrigerant Gas Filling (R-410)"],
+   "note": "BoQ: refrigerant gas charging / topping up is always supply + installation (the row read \"{said}\") - priced as supply + installation (owner S9)"
+  }
+ },
+ "safeguard_add": { "exact_quotes": true },
+ "accessories_patch": {
+  "mcb": { "note_words_words": "\\bunit\\s+mou?n?t?ed\\s+starter\\s+panel\\b[^.|]{0,160}?\\bfuses?\\b|\\bunit\\s+mou?n?t?ed\\s+starter\\s+panel\\b[^.|]{0,160}|\\bdisconnecting\\s+switch(?:es)?\\s+with\\s+fuses?\\b", "note_words_line": "MCB + ELCB: the BoQ says \"{said}\" ({where}) - the unit's own starter panel has switches with fuses; MCB + ELCB still added, please check (owner D1)" },
+  "remote": {
+   "conflict_line": "Remote: the BoQ says \"{first}\"{first_where} and also \"{said}\"{where} - priced as {value}, please check (owner D2)",
+   "conflict_both_line": "Remote: the BoQ says \"{first}\"{first_where} and also \"{said}\"{where} - priced as {value}, please check (owner W7)"
+  }
+ },
+ "per_set_counted_add": {
+  "defined": {
+   "attr": "set_contents_as_written",
+   "words": "\\b(?:liquid|gas)\\b[^.|;]{0,30}?(?:\\band\\b|&|\\+|/)\\s*(?:liquid|gas)\\b[^.|;]{0,40}?\\b(?:as\\s+)?(?:a\\s+)?(?:one|1|single)\\s*sets?\\b|\\b(?:one|1)\\s*set\\b[^.|;]{0,30}?\\b(?:liquid|gas)\\b",
+   "line": "BoQ says liquid + gas = one Set - priced as 1 refnet per Set; BoQ quantity ({q}) is below the {E} joints expected - check the quantity.",
+   "line_plain": "BoQ says liquid + gas = one Set - priced as 1 refnet per Set."
+  }
+ },
+ "pricing_patch": {
+  "lot_units": { "calculator_refuses": true }
+ },
+ "question_notes_append": {
+  "includes_gas": " VRF-9 (R1): 'factory charged with first charge of refrigerant', 'initial charge' or 'full charge' means the gas charge IS included -- answer Yes (the own-row rule still decides).",
+  "includes_comm": " VRF-9 (R2): cables for a BMS interface / BACnet / Modbus / third-party integration are NOT this unit's communication cable -- never answer Yes from them.",
+  "includes_frame": " VRF-9 (R3): civil pedestal supports, a suitable foundation or a plinth are civil work, NOT the MS frame -- never answer Yes from them.",
+  "scope": " VRF-9 (S4): an installation wording at ANY level above the row (a grandparent heading's note, the top heading) wins over a supply-only reading of a nearer note -- answer 'Supply + installation'.",
+  "capacity": " VRF-9 (S7): a fresh-air (TFA) unit takes the capacity the row states (CFM / TR, else HP) -- copy it.",
+  "item": " VRF-9 (S9 / S10): a row that only charges / tops up refrigerant gas is 'Refrigerant Gas Filling (R-410)'; a row for the outdoor units' MS base frame / stand / structure is 'MS frame / stand for ODU' -- never leave the item out.",
+  "set_contents_as_written": " VRF-9 (S8): copy what one Set holds even when it is only 'Liquid and Gas considered as one Set'."
+ },
+ "second_opinion": false
+}

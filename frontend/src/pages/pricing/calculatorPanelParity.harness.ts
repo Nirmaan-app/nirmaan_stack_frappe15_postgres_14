@@ -42,22 +42,30 @@
 import { readFileSync } from "node:fs";
 import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
-import { calculatorCtx } from "./PricingCalculator";
+import { calculatorConfigMap, calculatorCtx } from "./PricingCalculator";
 import {
   ITEM_LIST_OVERRIDE_KEY,
+  ROW_QTY_OVERRIDE_KEY,
+  EXTRAS_INCLUDES_KEY,
   ROW_UNIT_OVERRIDE_KEY,
+  SCOPE_OVERRIDE_KEY,
+  buildExtractionByRow,
   makePricingSheetHelper,
+  type ItemBlockView,
   type ItemListSuggestion,
   type ItemListView,
   type RowContextWithUnit,
 } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { rowQuantitiesOf, sheetLinesOf } from "@/pages/boq-wizard/rate-helper/rateSuggestionModel";
 import {
+  boqExtrasOf,
   familyAttr,
   familyUnitClasses,
   fieldOptionsFromSkus,
   itemFieldDefs,
   itemListPricingSpec,
   listSpecDefs,
+  isPerSetUnit,
   unitClassOf,
   unitFactorOf,
 } from "@/pages/boq-wizard/rate-helper/itemListPricing";
@@ -96,6 +104,23 @@ export interface ParityCase {
   /** SLICE 12d-4a (owner D3): the row's OWN notes, as the PANEL's context carries them. OPTIONAL -- every
    * existing case omits it and its context is byte-identical. */
   ownNotes?: string[];
+  /** VRF-3a (QR-1 (a)): the BoQ row's QUANTITY, as the PANEL's row context carries it (a refnet on a Set row reads it);
+   * fed to the calculator as its "BoQ quantity of this row". OPTIONAL -- every existing case omits it, byte-identical. */
+  qty?: number | null;
+  /** VRF-3b (the extras feed, VRF-R3 §R6): the extras the row's price includes ("copper,insulation,power,comm") -- the model's
+   *  flags on the PANEL (the row's `includes` cell, VRF-4's path), the tick boxes in the CALCULATOR. OPTIONAL -- absent on
+   *  every existing case, byte-identical. */
+  includes?: string;
+  /** VRF-3b: the pricer's edits on the PANEL (an `ItemListEditState`: a removed extra, a typed size) -- fed to the calculator
+   *  as the same edits. OPTIONAL -- absent on every existing case, byte-identical. */
+  panelEdits?: Record<string, unknown>;
+  /** VRF-6: the heading's notes and every heading's notes above the row, as the PANEL's context carries them. OPTIONAL. */
+  headingNotes?: string[];
+  ancestorNotes?: string[];
+  /** VRF-6 (F4 / Q5 / installation-only): the OTHER rows of the sheet -- each its excel row, text, node type, and (a row the run
+   *  read) its category and model items -- so the panel's own-row and same-sheet rules see a sheet. OPTIONAL -- absent on every
+   *  existing case: the panel's extraction map holds the one row, byte-identical. */
+  sheet?: Array<{ row: number; text?: string; node?: string; category?: string; items?: Array<Record<string, string | number | null>> }>;
 }
 
 type Cells = ExtractionRow["attributes"];
@@ -106,14 +131,22 @@ function toCells(attrs: Record<string, string | number | null>): Cells {
   return out;
 }
 
+/** VRF-4 (owner "q1 ok"): the case's includes as the model answers them on a v60 item (`includes_<id>: Yes`) -- fed beside the
+ * row cell, so a config reading the item (v60) and one reading the row cell (v59) both see them. An item that states its own
+ * `includes_<id>` keeps it. */
+function includesPerItem(c: ParityCase): Record<string, string> {
+  if (typeof c.includes !== "string") return {};
+  return Object.fromEntries(c.includes.split(",").map((x) => x.trim()).filter((x) => x !== "").map((x) => [`includes_${x}`, "Yes"]));
+}
+
 /** The stored extraction row the PANEL path reads -- the shape `buildExtractionByRow` produces. */
 export function extractionRowFor(c: ParityCase): ExtractionRow {
   const row = {
     excelRow: PANEL_ROW,
     description: c.desc,
-    attributes: toCells(c.attrs),
+    attributes: toCells({ ...c.attrs, ...(typeof c.includes === "string" ? { includes: c.includes } : {}) }),
   } as ExtractionRow & { items?: Array<{ attributes: Cells }> };
-  if (c.items) row.items = c.items.map((a) => ({ attributes: toCells(a) }));
+  if (c.items) row.items = c.items.map((a) => ({ attributes: toCells({ ...includesPerItem(c), ...a }) }));
   return row;
 }
 
@@ -128,11 +161,26 @@ export function panelHelper(
   items: RateMasterItem[],
   c: ParityCase,
 ): RateHelper {
+  if (c.sheet) {
+    // VRF-6: the run's results for the whole sheet, through the page's own builder (it keeps each row's category beside the map)
+    const own = extractionRowFor(c) as ExtractionRow & { items?: Array<{ attributes: Cells }> };
+    const results = [
+      { excel_row: PANEL_ROW, description: c.desc, attributes: own.attributes, ...(own.items ? { items: own.items } : {}), category_id: c.cat },
+      ...c.sheet.filter((r) => r.items).map((r) => ({ excel_row: r.row, description: r.text ?? "", attributes: {}, items: r.items!.map((a) => ({ attributes: toCells(a) })), category_id: r.category ?? c.cat })),
+    ];
+    return makePricingSheetHelper({ configsByCategory, items, extractionByRow: buildExtractionByRow(results as never) });
+  }
   return makePricingSheetHelper({
     configsByCategory,
     items,
     extractionByRow: new Map([[PANEL_ROW, extractionRowFor(c)]]),
   });
+}
+
+/** VRF-6: the sheet's priced rows as the page holds them (the panel row and the case's other rows) -- for the sheet lines. */
+function sheetRowsOf(c: ParityCase) {
+  return [{ source_row_number: PANEL_ROW, qty_total: typeof c.qty === "number" ? c.qty : 1, node_type: "Line Item", description: c.desc },
+    ...(c.sheet ?? []).map((r) => ({ source_row_number: r.row, qty_total: 1, node_type: r.node ?? "Line Item", description: r.text ?? "" }))];
 }
 
 /** The CALCULATOR helper -- `PricingCalculator`'s construction, verbatim (an EMPTY extraction map). */
@@ -159,6 +207,10 @@ export function panelCtx(c: ParityCase): RowContextWithUnit {
     unit: c.unit,
     ...(c.headings ? { headings: c.headings } : {}),
     ...(c.ownNotes ? { ownNotes: c.ownNotes } : {}),
+    ...(typeof c.qty === "number" ? { quantity: c.qty } : {}),
+    ...(c.headingNotes ? { headingNotes: c.headingNotes } : {}),
+    ...(c.ancestorNotes ? { ancestorNotes: c.ancestorNotes } : {}),
+    ...(c.sheet ? { sheetLines: sheetLinesOf(sheetRowsOf(c) as never), rowQuantities: rowQuantitiesOf(sheetRowsOf(c) as never) } : {}),
   };
 }
 
@@ -210,6 +262,10 @@ function unitForCalculator(
   if (!spec) return { unit: view.unit, unitFeed: "exact" };
   if (view.unit.trim() === "") return { unit: view.unit, unitFeed: "row has no unit" };
   if (view.unitChoices.includes(view.unit)) return { unit: view.unit, unitFeed: "exact" };
+  // VRF-3a (U4): a per-Set spelling ("Sets", "set") is the picker's per-Set choice, never the class's first spelling (Nos)
+  if (isPerSetUnit(spec, view.unit) && spec.per_set && view.unitChoices.includes(spec.per_set.units[0])) {
+    return { unit: spec.per_set.units[0], unitFeed: "spelling mapped to the class" };
+  }
   const factor = unitFactorOf(spec, view.unit);
   if (factor) {
     /**
@@ -228,6 +284,21 @@ function unitForCalculator(
   const offered = cls ? view.unitChoices.find((ch) => unitClassOf(spec, ch) === cls) : undefined;
   if (offered !== undefined) return { unit: offered, unitFeed: "spelling mapped to the class" };
   return { unit: view.unit, unitFeed: "unit belongs to no declared class" };
+}
+
+/** VRF-5 B2: ONE section block as the pricer would set it in the calculator -- the family and every field value, but not a size
+ * it mirrors from the pipe above (`mirrorTag`), which the calculator mirrors on its own. */
+function sectionEdit(sb: ItemBlockView | undefined): Record<string, unknown> {
+  if (!sb) return { base: null, family: null, attrs: {} };
+  const attrs: Record<string, string> = {};
+  const other: string[] = [];
+  for (const f of sb.fields) {
+    if (f.mirrorTag) continue;
+    const v = f.otherMode ? f.typedValue : f.value;
+    if (v !== "") attrs[f.id] = v;
+    if (f.otherMode) other.push(f.id);
+  }
+  return { base: null, family: sb.family, attrs, ...(sb.qtyMirrorTag ? {} : { qty: sb.qty }), ...(other.length ? { other } : {}) };
 }
 
 /**
@@ -278,6 +349,13 @@ export function feedFromPanel(
         if (v !== "") attrs[f.id] = v;
         if (f.otherMode) other.push(f.id);
       }
+      // VRF-8 (W6): a unit the panel refused for two stated capacities is typed into the calculator as the row states them
+      // ("2.6 TR / 1.3 TR") -- what a pricer copying the row would type; the calculator then refuses with the same sentence
+      const tcl = spec?.extras?.two_capacities?.line;
+      if (tcl && b.state !== "priced" && typeof b.reason === "string" && tcl.includes("{list}")) {
+        const [pre, post] = tcl.split("{list}");
+        if (b.reason.startsWith(pre) && b.reason.endsWith(post)) attrs.capacity = b.reason.slice(pre.length, b.reason.length - post.length);
+      }
       /**
        * A PER-ITEM FACT WITH NO CONTROL ON THIS BLOCK. `itemFieldDefs` decides which of the model's
        * answers a family's block renders, so an answer the model gave that this family does not ask
@@ -295,13 +373,105 @@ export function feedFromPanel(
        * (the box's own binding), never the resolved family -- so the calculator path runs the same reader.
        */
       const famId = spec ? familyAttr(spec) : "family";
+      // VRF-3a (U5): a refnet on a Set row -- its three typed fields are typed in the calculator too; the pieces the rule
+      // gave are NOT typed (the calculator runs the same rule on its own "BoQ quantity of this row"), a typed one is
+      if (b.setCount) {
+        for (const f of b.setCount.fields) if (f.value !== "") attrs[f.id] = f.value;
+        if (!b.setCount.typed) return { base: null, family: b.family, attrs, ...(other.length ? { other } : {}) };
+      }
+      // VRF-3b: the unit's extras as the pricer would set them in the calculator -- every value the panel shows that the
+      // pricer did not leave on its default (a BoQ value, a pick) typed into its box, and the removed lines removed
+      const extrasFeed = b.extras ? (() => {
+        const set: Record<string, Record<string, string>> = {};
+        for (const l of b.extras!.lines) for (const f of l.fields) {
+          if (f.readOnly || (f.tag !== "boq" && f.tag !== "picked")) continue;
+          (set[l.id] ??= {})[f.id] = f.otherMode ? f.typedValue : f.value;
+        }
+        // what the BoQ itself stated for an extra (`extra_<line>_<field>`, VRF-4's path) is typed as the BoQ wrote it -- an unreadable
+        // or unstocked value included, so the calculator meets the same text and holds the line the same way
+        for (const [k, v] of Object.entries(c.items?.[i] ?? {})) {
+          const m = /^extra_([a-z]+_[a-z]+|power|comm)_([a-z]+)$/.exec(k);
+          if (!m || v === null || v === undefined || v === "") continue;
+          (set[m[1]] ??= {})[m[2]] = String(v);
+        }
+        // VRF-4 (owner "q1 ok"): what the model COPIED (`*_as_written`, v60) is typed as written too -- the same raw text the panel
+        // read through `boqExtrasOf`, so the calculator meets Piping's / Insulation's / Electrical's rules on the same words
+        const fm = itemListPricingSpec(config)?.extras?.from_model;
+        // VRF-6 (F11): on a config whose BoQ length reaches only its own line, a line the panel kept on its default is not typed
+        const perItemLength = !!itemListPricingSpec(config)?.extras?.lines?.length_per_item;
+        if (fm && c.items?.[i]) {
+          const said = boqExtrasOf({ attributes: Object.fromEntries(Object.entries(c.items[i]).map(([k, v]) => [k, { value: v }])) }, fm).values;
+          for (const [k, v] of Object.entries(said)) {
+            const m = /^(copper_supply|copper_return|ins_supply|ins_return|power|comm)_([a-z]+)$/.exec(k);
+            const shown = b.extras!.lines.find((l) => l.id === m?.[1])?.fields.find((f) => f.id === m?.[2]);
+            if (perItemLength && m?.[2] === "length" && shown?.tag !== "boq") continue;
+            if (m && shown?.tag !== "picked") (set[m[1]] ??= {})[m[2]] = v;   // a pricer's own pick stays theirs
+          }
+        }
+        const removed = b.extras!.removed.map((r) => r.id);
+        return Object.keys(set).length || removed.length ? { extras: { ...(Object.keys(set).length ? { set } : {}), ...(removed.length ? { removed } : {}) } } : {};
+      })() : {};
+      // VRF-5 B2 (the VRF-4 review §2: 11 Piping rows priced on the panel, unpriced in the calculator): an ATTACHED section (a pipe's
+      // own insulation) is typed into the calculator as the same section edit -- its family and every field the pricer could set,
+      // but never the size it MIRRORS from the pipe (the calculator mirrors it too)
+      const sectionsFeed = b.sections?.length ? { sections: Object.fromEntries(b.sections.map((sv) => [sv.sectionId, sectionEdit(sv.view.items[0])])) } : {};
+      // VRF-6 (F8): a line of the helper's split keeps its hidden tag, as the panel's own state does -- so the calculator, like the
+      // panel, never splits it again (a module the pair-first rule could otherwise split once more)
+      const tag = spec?.split?.pair_first ? view.editState?.items?.[i]?.helper : undefined;
+      const helperFeed = tag ? { helper: tag } : {};
+      // VRF-9 (S1 / R4): a unit the panel refused for several unit types under its heading, or as a Fan Coil Unit, is typed into the
+      // calculator as the BoQ shows it -- the heading's unit types ("Hi-Wall / Cassette / Ductable"), the Fan Coil words -- what a
+      // pricer copying the row would type; the calculator then refuses with the panel's sentence (no named exception)
+      const p9 = spec?.extras?.prepare;
+      if (p9 && b.state !== "priced" && typeof b.reason === "string") {
+        const reOf = (w: string) => { try { return new RegExp(w, "i"); } catch { return null; } };
+        let typedFamily: string | null = null;
+        if (p9.several_types?.typed && p9.unit_words && b.reason === p9.several_types.refusal) {
+          const short = (c.headingNotes ?? []).filter((n) => n.trim().length <= p9.several_types!.note_max);
+          const fams = [...new Set(short.flatMap((n) => Object.entries(p9.unit_words!).filter(([, w]) => reOf(w)?.test(n)).map(([f]) => f)))];
+          if (fams.length >= 2) typedFamily = fams.join(" / ");
+        }
+        const fr = (p9.family_refusals ?? []).find((f) => f.refusal === b.reason);
+        if (!typedFamily && fr) {
+          // the whole chain, as the panel reads it (post-run: 00218 r221's Fan Coil words sit on a grandparent's note)
+          for (const t of [c.desc, ...(c.ownNotes ?? []), ...(c.headingNotes ?? []), ...(c.ancestorNotes ?? []), ...[...(c.headings ?? [])].reverse()]) { const m = reOf(fr.words)?.exec(t ?? ""); if (m) { typedFamily = m[0].trim(); break; } }
+        }
+        if (typedFamily) return { base: null, family: typedFamily, attrs, qty: b.qty, other: [...other, famId], ...extrasFeed, ...sectionsFeed, ...helperFeed };
+      }
       if (b.familyControl?.otherMode) {
         other.push(famId);
-        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other };
+        return { base: null, family: b.familyControl.typedValue, attrs, qty: b.qty, other, ...extrasFeed, ...sectionsFeed, ...helperFeed };
       }
-      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}) };
+      return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...extrasFeed, ...sectionsFeed, ...helperFeed };
     });
-    overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits });
+    // VRF-5 B2: the INDEPENDENT sections (insulation that belongs to no pipe), each as the pricer would add it in the calculator
+    const indep: Record<string, unknown[]> = {};
+    for (const sv of view.sections?.independent ?? []) (indep[sv.sectionId] ??= []).push(sectionEdit(sv.view.items[0]));
+    overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: edits, ...(Object.keys(indep).length ? { sections: indep } : {}) });
+    // VRF-5 (owner R1 SAFEGUARD): on a config whose safeguard decides what is added, the calculator ticks exactly the extras the
+    // PANEL added (its lines: copper / insulation / power / comm and each accessory) -- the pricer sees those lines, never the
+    // model's raw answers (an inclusion the safeguard left out is not typed in)
+    const sg = spec?.extras?.safeguard;
+    if (sg && typeof c.includes !== "string") {
+      const on = new Set<string>();
+      for (const b of view.items) for (const l of b.extras?.lines ?? []) {
+        on.add(l.id.startsWith("acc_") ? l.id.slice(4) : l.id.startsWith("copper") ? "copper" : l.id.startsWith("ins_") ? "insulation" : l.id);
+      }
+      overrides[EXTRAS_INCLUDES_KEY] = [...on].join(",");
+    }
+    // VRF-5 (owner R4-R8): the row's scope, chosen in the calculator's "BoQ scope" box
+    if (view.scope?.value) overrides[SCOPE_OVERRIDE_KEY] = view.scope.value;
+    // VRF-3b: the include switches -- the panel's model flags, ticked in the calculator
+    if (sg && typeof c.includes !== "string") { /* set above from the panel's lines */ }
+    else if (typeof c.includes === "string") overrides[EXTRAS_INCLUDES_KEY] = c.includes;
+    // VRF-4: a case stating per-item includes only (v60's model answers) ticks the calculator's row-level boxes with their union
+    else if (c.items?.some((a) => Object.keys(a).some((k) => /^includes_/.test(k)))) {
+      const on = new Set<string>();
+      for (const a of c.items ?? []) for (const [k, v] of Object.entries(a)) if (/^includes_/.test(k) && String(v).toLowerCase() === "yes") on.add(k.slice("includes_".length));
+      overrides[EXTRAS_INCLUDES_KEY] = [...on].join(",");
+    }
+    // VRF-3a (QR-1 (a), U9): the row's quantity, typed into the calculator's own field where a counted item needs it
+    if (view.items.some((b) => b.setCount)) overrides[ROW_QTY_OVERRIDE_KEY] = typeof c.qty === "number" ? String(c.qty) : "";
     const { unit, unitFeed } = unitForCalculator(config, view);
     overrides[ROW_UNIT_OVERRIDE_KEY] = unit;
     return { overrides, hiddenFacts, unitFeed };
@@ -360,6 +530,8 @@ export interface ItemBlockFacts {
   reason: string;
   figures: string;
   qty: string;
+  /** VRF-3b: the unit's extra lines (id, state, reason, figures, each field's value) -- present only on a block with extras */
+  extras?: string;
 }
 
 function itemFacts(s: HelperResult): { view: ItemListView; blocks: ItemBlockFacts[]; totals: string; unit: string; unitClass: string | null; rowPriced: boolean; reason: string } | null {
@@ -379,6 +551,8 @@ function itemFacts(s: HelperResult): { view: ItemListView; blocks: ItemBlockFact
       reason: b.reason ?? "",
       figures: figuresText(b.figures),
       qty: b.qty,
+      ...(b.extras && (b.extras.lines.length || b.extras.removed.length) ? { extras: JSON.stringify({ lines: b.extras.lines.map((l) => [l.id, l.state, l.reason ?? "", figuresText(l.figures), l.fields.map((f) => `${f.id}=${f.value}`).join(" ")]),
+                                                 removed: b.extras.removed.map((r) => r.id) }) } : {}),
     })),
   };
 }
@@ -449,11 +623,15 @@ export function runParity(
   mode: FeedMode = "full",
 ): ParityRun {
   const ph = panelHelper(configsByCategory, items, c);
-  const panel = ph.compute(panelCtx(c));
+  // VRF-3b: the pricer's panel edits, when the case carries them (absent on every existing case: the call is unchanged)
+  const panel = c.panelEdits ? ph.compute(panelCtx(c), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(c.panelEdits) }) : ph.compute(panelCtx(c));
   const config = configsByCategory.get(c.cat) ?? null;
   const feed = feedFromPanel(panel, config, c, mode);
-  const ch = calculatorHelper(configsByCategory, items);
   const discipline = disciplineOf(c.cat) ?? "";
+  // VRF-7 K2b (QR-4): the calculator side prices on the configs the SCREEN holds (its discipline's own + alias + extras targets),
+  // never on every config -- handing it every config hid VRF-6's unfetched db_switchgear. A category outside the registry (a
+  // synthetic fixture) keeps the whole map, as before.
+  const ch = calculatorHelper(discipline ? calculatorConfigMap(configsByCategory, discipline) : configsByCategory, items);
   const calculator = ch.compute(calculatorCtx(discipline, c.cat), feed.overrides);
   return { panel, calculator, feed, divergences: compareResults(panel, calculator) };
 }
@@ -709,4 +887,164 @@ export function panelQuotesTextWithNoBox(r: HelperResult): boolean {
  */
 export function readJsonFixture<T>(url: URL): T {
   return JSON.parse(readFileSync(url, "utf-8")) as T;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-7 B2 (K2): the v63 keys as the fixture `__fixtures__/vrf7Model.json` declares them, applied to v62's hvac_vrf -- the SAME
+// steps, in the same order, as `scripts/_instruments/mint_hvac_v63_vrf7.py` (test_vrf_v63 proves the minted asset equals them).
+// One copy for the pricer's tests (vrf7Model.test.ts) and the parity blocks, so the two can never apply the fixture differently.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+export type Vrf7Fixture = {
+  prepare_add: Record<string, unknown>; family_words_prepend: unknown[]; family_words_unless: Record<string, string>;
+  safeguard_add: Record<string, unknown> & { lines: Record<string, string> }; safeguard_drop: string[];
+  accessories_patch: Record<string, Record<string, unknown>>; from_model_add: Record<string, unknown>; from_model_drop: string[];
+  lines_add: Record<string, string>; question_drop: string[]; question_add: Array<{ id: string; note?: string; [k: string]: unknown }>;
+  question_notes_append: Record<string, string>; second_opinion: boolean;
+};
+/** The groups of VRF-7 keys `applyVrf7` can leave out (to prove a config without them keeps VRF-6's behaviour). */
+export type Vrf7Group = "prepare" | "family" | "safeguard" | "accessories" | "from_model" | "lines" | "questions";
+type Vrf7Acc = { id: string; electrical?: { match?: Record<string, unknown> }; choice?: Record<string, unknown>; [k: string]: unknown };
+type Vrf7Cfg = { list_spec: { attribute_definitions: Array<{ id: string; note?: string }>; second_opinion?: boolean; pricing: { extras: {
+  accessories: Vrf7Acc[]; from_model: Record<string, unknown>; lines: Record<string, string>;
+  prepare: Record<string, unknown> & { family_words: Array<Record<string, unknown>> }; safeguard: Record<string, unknown> & { lines: Record<string, string> } } } } };
+
+/** PURE. v62's hvac_vrf with the VRF-7 keys applied; `omit` leaves groups out. */
+export function applyVrf7(base: RateCategoryConfig, fx: Vrf7Fixture, omit: Vrf7Group[] = []): RateCategoryConfig {
+  const c = structuredClone(base) as unknown as Vrf7Cfg;
+  const x = c.list_spec.pricing.extras;
+  if (!omit.includes("prepare")) Object.assign(x.prepare, structuredClone(fx.prepare_add));
+  if (!omit.includes("family")) {
+    for (const fw of x.prepare.family_words) { const u = fx.family_words_unless[String(fw.family)]; if (u) fw.unless = u; }
+    x.prepare.family_words = [...(structuredClone(fx.family_words_prepend) as Array<Record<string, unknown>>), ...x.prepare.family_words];
+  }
+  if (!omit.includes("safeguard")) {
+    for (const [k, v] of Object.entries(fx.safeguard_add)) { if (k === "lines") Object.assign(x.safeguard.lines, v); else x.safeguard[k] = structuredClone(v); }
+    for (const k of fx.safeguard_drop) delete x.safeguard[k];
+  }
+  if (!omit.includes("accessories")) {
+    for (const a of x.accessories) {
+      const pt = fx.accessories_patch[a.id];
+      if (!pt) continue;
+      if (pt.step_up_note && a.electrical?.match) a.electrical.match.step_up_note = pt.step_up_note;
+      if (pt.note_words) a.note_words = structuredClone(pt.note_words);
+      if (pt.conflict && a.choice) a.choice.conflict = structuredClone(pt.conflict);
+    }
+  }
+  if (!omit.includes("from_model")) {
+    Object.assign(x.from_model, structuredClone(fx.from_model_add));
+    for (const k of fx.from_model_drop) delete x.from_model[k];
+  }
+  if (!omit.includes("lines")) Object.assign(x.lines, fx.lines_add);
+  if (!omit.includes("questions")) {
+    const defs = c.list_spec.attribute_definitions.filter((q) => !fx.question_drop.includes(q.id))
+      .map((q) => (fx.question_notes_append[q.id] ? { ...q, note: `${q.note ?? ""}${fx.question_notes_append[q.id]}` } : q));
+    c.list_spec.attribute_definitions = [...defs, ...structuredClone(fx.question_add)];
+    c.list_spec.second_opinion = fx.second_opinion;
+  }
+  return c as unknown as RateCategoryConfig;
+}
+
+// =================================================================================================================
+// VRF-8 B2 (K2): the v64 keys as the fixture `__fixtures__/vrf8Model.json` declares them, applied to v63's hvac_vrf -- the SAME
+// steps, in the same order, as `scripts/_instruments/mint_hvac_v64_vrf8.py` (test_vrf_v64 proves the minted asset equals them).
+// One copy for the pricer's tests (vrf8Model.test.ts) and the parity blocks.
+// =================================================================================================================
+export type Vrf8Fixture = {
+  prepare_add: Record<string, unknown>; implied_includes_add: unknown[]; split_add: Record<string, unknown>; safeguard_add: Record<string, unknown>;
+  note_wins_add: Record<string, unknown>; scope_add: Record<string, unknown>; accessories_patch: Record<string, Record<string, unknown>>;
+  lines_add: Record<string, string>; question_required: string[]; question_notes_append: Record<string, string>; second_opinion: boolean;
+};
+export type Vrf8Group = "prepare" | "implied" | "split" | "safeguard" | "scope" | "accessories" | "lines" | "questions";
+type Q8 = { id: string; note?: string; allow_none?: boolean; required?: boolean; [k: string]: unknown };
+type Acc8 = { id: string; note_words?: unknown; choice?: Record<string, unknown> & { conflict?: Record<string, unknown> }; [k: string]: unknown };
+type Cfg8 = { list_spec: { attribute_definitions: Q8[]; second_opinion?: boolean; pricing: { split: Record<string, unknown>; extras: {
+  accessories: Acc8[]; lines: Record<string, string>; scope: Record<string, unknown>;
+  prepare: Record<string, unknown> & { implied_includes?: unknown[] }; safeguard: Record<string, unknown> & { note_wins: Record<string, unknown> } } } } };
+/** PURE. v63's hvac_vrf with the VRF-8 keys applied (the steps mint_hvac_v64_vrf8.py takes, in its order); `omit` leaves groups out. */
+export function applyVrf8(base: RateCategoryConfig, fx: Vrf8Fixture, omit: Vrf8Group[] = []): RateCategoryConfig {
+  const c = structuredClone(base) as unknown as Cfg8;
+  const x = c.list_spec.pricing.extras;
+  if (!omit.includes("prepare")) Object.assign(x.prepare, structuredClone(fx.prepare_add));
+  if (!omit.includes("implied")) x.prepare.implied_includes = [...(x.prepare.implied_includes ?? []), ...structuredClone(fx.implied_includes_add)];
+  if (!omit.includes("split")) Object.assign(c.list_spec.pricing.split, structuredClone(fx.split_add));
+  if (!omit.includes("safeguard")) { Object.assign(x.safeguard, structuredClone(fx.safeguard_add)); Object.assign(x.safeguard.note_wins, structuredClone(fx.note_wins_add)); }
+  if (!omit.includes("scope")) Object.assign(x.scope, structuredClone(fx.scope_add));
+  if (!omit.includes("accessories")) {
+    for (const a of x.accessories) {
+      const pt = fx.accessories_patch[a.id];
+      if (!pt) continue;
+      if (pt.note_words) a.note_words = structuredClone(pt.note_words);
+      if (pt.conflict_add && a.choice?.conflict) a.choice.conflict = { ...a.choice.conflict, ...structuredClone(pt.conflict_add as Record<string, unknown>) };
+    }
+  }
+  if (!omit.includes("lines")) Object.assign(x.lines, fx.lines_add);
+  if (!omit.includes("questions")) {
+    const req = new Set(fx.question_required);
+    const words = new Set(fx.question_required.map((q) => `${q}_words`));
+    c.list_spec.attribute_definitions = c.list_spec.attribute_definitions.map((q0) => {
+      const q: Q8 = { ...q0 };
+      if (req.has(q.id)) {
+        q.required = true;
+        q.note = `${q.note ?? ""}${fx.question_notes_append["*required"] ?? ""}`;
+      }
+      if (words.has(q.id)) q.note = `${q.note ?? ""}${fx.question_notes_append["*words"] ?? ""}`;
+      if (fx.question_notes_append[q.id]) q.note = `${q.note ?? ""}${fx.question_notes_append[q.id]}`;
+      return q;
+    });
+    c.list_spec.second_opinion = fx.second_opinion;
+  }
+  return c as unknown as RateCategoryConfig;
+}
+
+
+/** VRF-9: the hvac_vrf keys HVAC v65 adds over v64 (`pricing/__fixtures__/vrf9Model.json`; the mint reads the same file). */
+export type Vrf9Fixture = {
+  prepare_patch: Record<string, Record<string, unknown>>; prepare_add: Record<string, unknown>; implied_includes_add: unknown[];
+  implied_not_words_append: Record<string, string>; scope_add: Record<string, unknown>; safeguard_add: Record<string, unknown>;
+  accessories_patch: Record<string, Record<string, string>>; per_set_counted_add: Record<string, unknown>;
+  pricing_patch?: Record<string, Record<string, unknown>>; question_notes_append: Record<string, string>; second_opinion: boolean;
+};
+export type Vrf9Group = "prepare" | "implied" | "scope" | "safeguard" | "accessories" | "per_set" | "pricing" | "questions";
+type Ii9 = { question: string; not_words?: string; [k: string]: unknown };
+type Cfg9 = { list_spec: { attribute_definitions: Q8[]; second_opinion?: boolean; pricing: Record<string, unknown> & {
+  per_set?: { counted?: Record<string, unknown> }; extras: {
+  accessories: Acc8[]; scope: Record<string, unknown>; prepare: Record<string, unknown> & { implied_includes?: Ii9[] }; safeguard: Record<string, unknown> } } } };
+/** PURE. v64's hvac_vrf with the VRF-9 keys applied (the steps mint_hvac_v65_vrf9.py takes, in its order); `omit` leaves groups out. */
+export function applyVrf9(base: RateCategoryConfig, fx: Vrf9Fixture, omit: Vrf9Group[] = []): RateCategoryConfig {
+  const c = structuredClone(base) as unknown as Cfg9;
+  const p = c.list_spec.pricing;
+  const x = p.extras;
+  if (!omit.includes("prepare")) {
+    for (const [k, v] of Object.entries(fx.prepare_patch)) x.prepare[k] = { ...((x.prepare[k] as Record<string, unknown>) ?? {}), ...structuredClone(v) };
+    Object.assign(x.prepare, structuredClone(fx.prepare_add));
+  }
+  if (!omit.includes("implied")) {
+    x.prepare.implied_includes = [...(x.prepare.implied_includes ?? []), ...(structuredClone(fx.implied_includes_add) as Ii9[])].map((ii) => {
+      const add = fx.implied_not_words_append[ii.question];
+      return add && typeof ii.not_words === "string" ? { ...ii, not_words: ii.not_words + add } : ii;
+    });
+  }
+  if (!omit.includes("scope")) Object.assign(x.scope, structuredClone(fx.scope_add));
+  if (!omit.includes("safeguard")) Object.assign(x.safeguard, structuredClone(fx.safeguard_add));
+  if (!omit.includes("accessories")) {
+    for (const a of x.accessories) {
+      const pt = fx.accessories_patch[a.id];
+      if (!pt) continue;
+      if ((pt.note_words_line || pt.note_words_words) && a.note_words) {
+        a.note_words = { ...(a.note_words as Record<string, unknown>), ...(pt.note_words_words ? { words: pt.note_words_words } : {}), ...(pt.note_words_line ? { line: pt.note_words_line } : {}) };
+      }
+      if (a.choice?.conflict && (pt.conflict_line || pt.conflict_both_line)) {
+        a.choice.conflict = { ...a.choice.conflict, ...(pt.conflict_line ? { line: pt.conflict_line } : {}), ...(pt.conflict_both_line ? { both_line: pt.conflict_both_line } : {}) };
+      }
+    }
+  }
+  if (!omit.includes("per_set") && p.per_set?.counted) Object.assign(p.per_set.counted, structuredClone(fx.per_set_counted_add));
+  if (!omit.includes("pricing")) {
+    for (const [k, v] of Object.entries(fx.pricing_patch ?? {})) p[k] = { ...((p[k] as Record<string, unknown>) ?? {}), ...structuredClone(v) };
+  }
+  if (!omit.includes("questions")) {
+    c.list_spec.attribute_definitions = c.list_spec.attribute_definitions.map((q0) => (fx.question_notes_append[q0.id] ? { ...q0, note: `${q0.note ?? ""}${fx.question_notes_append[q0.id]}` } : q0));
+    c.list_spec.second_opinion = fx.second_opinion;
+  }
+  return c as unknown as RateCategoryConfig;
 }

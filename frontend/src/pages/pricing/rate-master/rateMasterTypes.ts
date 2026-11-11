@@ -835,7 +835,8 @@ export interface RateCategoryConfig {
    */
   rate_composition?: Record<"supply" | "install", RateComposition | undefined>;
   // SLICE 12d-2: the 12c FINISH / FA7 `calculator_only` key is RETIRED (the server refuses it as an
-  // unknown key); an item-list category is eligible through `pricingSheetHelper.isEligibleConfig`.
+  // unknown key); an item-list category is eligible through `pricingSheetHelper.isEligibleConfig`. VRF-2a re-admitted it
+  // for hvac_vrf temporarily; VRF-4 removed it again (v60), so no served config carries it.
   [k: string]: unknown;
 }
 

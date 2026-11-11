@@ -71,6 +71,9 @@ export interface ReachedColumn {
 export interface InputReach {
   /** distinct catalogue rows -- the badge and the list length (owner N-2) */
   distinctSkus: string[];
+  /** VRF-3b: the VRF unit SKUs an input SIZES (VRF's extras) or CONVERTS (a capacity reader's convert table) while it moves
+   * no SKU's own rate -- the badge where `distinctSkus` is empty; never a column, never a panel list. Absent elsewhere. */
+  assemblySkus?: string[];
   /** one entry per (SKU, rate column); a row moved on two columns appears twice */
   columns: ReachedColumn[];
   /**
@@ -320,6 +323,246 @@ function narrowAdditiveByBranch(
   return true;
 }
 
+/**
+ * VRF-2b (owner R-INPUTS / R-CONV) -- A CAPACITY READER'S CONVERT TABLE READS ITS PRICING INPUTS. One entry per (input,
+ * family) where the family's rule needs a number whose reader converts units through that input
+ * (`list_spec.pricing.numbers[*].units.convert[*].input`). The input moves no SKU's own rate: it decides WHICH SKU a row
+ * buys (16 TR x 1.25 = 20 HP -> the 20 HP unit), so it is "read by" the category with no column -- the ELR-3a assembly
+ * shape. The Python twin is `csv_exporter._units_convert_uses`. PURE; never throws on a malformed config.
+ */
+export function unitsConvertUses(cfg: unknown): Array<{ input: string; family: string }> {
+  const pr = (cfg as any)?.list_spec?.pricing;
+  if (!pr || typeof pr !== "object") return [];
+  const byInput = new Map<string, Set<string>>();
+  for (const [nid, rd] of Object.entries<any>(pr.numbers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    for (const c of Object.values<any>(rd?.units?.convert ?? {})) {
+      const id = c?.input;
+      if (typeof id === "string" && id) (byInput.get(id) ?? byInput.set(id, new Set<string>()).get(id)!).add(nid);
+    }
+  }
+  const out: Array<{ input: string; family: string }> = [];
+  for (const id of [...byInput.keys()].sort()) {
+    const nids = byInput.get(id)!;
+    for (const fam of Object.keys(pr.families ?? {}).sort()) {
+      const fd = pr.families[fam];
+      if (!fd || typeof fd !== "object") continue;
+      const needs = new Set<string>(Array.isArray(fd.needs) ? fd.needs : []);
+      for (const u of Object.values<any>(fd.units ?? {})) for (const n of (Array.isArray(u?.needs) ? u.needs : [])) needs.add(n);
+      if ([...nids].some((n) => needs.has(n))) out.push({ input: id, family: fam });
+    }
+  }
+  return out;
+}
+
+/** VRF-3b: a config / item read loosely (the configs are data the validator shapes; nothing here throws on a bad one). */
+type Loose = Record<string, unknown>;
+const loose = (v: unknown): Loose => (v && typeof v === "object" ? (v as Loose) : {});
+const pricingOf = (cfg: unknown): Loose => loose(loose(loose(cfg).list_spec).pricing);
+const famAttrOf = (cfg: unknown): string => String(loose(loose(cfg).list_spec).family_attribute_id ?? "family");
+type ExtrasBand = { max: number | null; input: string };
+/** VRF-6: an electrical accessory's HP schedule as bands -- the last row open (a unit above it takes the last rating) */
+const scheduleBands = (acc: Loose): ExtrasBand[] => {
+  const sch = loose(acc.electrical).schedule;
+  if (!Array.isArray(sch)) return [];
+  const rows = (sch as unknown[]).map(loose).filter((r) => typeof r.input === "string" && typeof r.max === "number");
+  return rows.map((r, n) => ({ max: n === rows.length - 1 ? null : Number(r.max), input: String(r.input) }));
+};
+const bandsOf = (ex: Loose, table: string, role: string): ExtrasBand[] => {
+  const v = loose(ex[table])[role];
+  return Array.isArray(v) ? (v as ExtrasBand[]) : [];
+};
+const inputFactor = (items: readonly RateMasterItem[] | null | undefined, id: string): number | null => {
+  const it = (items ?? []).find((x) => /_pricing_input$/.test(String(x?.kind ?? "")) && String(loose(x?.attributes).item ?? "") === id);
+  const f = Number(loose(it?.rates).factor);
+  return Number.isFinite(f) ? f : null;
+};
+
+/**
+ * VRF-3b (owner 2026-11-05: the Pricing Inputs are "live-linked", "Used by VRF, Items View") -- THE INPUTS VRF'S `extras` READ:
+ * one per table cell (`<band input>_supply_mm` ..., `<cable input>_cores` / `_sqmm`) and the two lengths, the twin of
+ * `config_validation.extras_input_ids` (the Python used-by walk reads that). Each comes with the VRF unit SKUs whose row it
+ * sizes: a band's cells reach the units of its role whose capacity, after conversion, falls in the band; the
+ * communication cable and the lengths reach every unit that carries extras. PURE; [] for a config without `extras`.
+ */
+export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {
+  const pr = pricingOf(cfg);
+  const ex = loose(pr.extras);
+  const roles = loose(ex.roles);
+  if (!Object.keys(roles).length) return [];
+  const famAttr = famAttrOf(cfg);
+  const kinds = new Set<string>([String(pr.kind ?? ""), ...(Array.isArray(pr.extra_kinds) ? (pr.extra_kinds as string[]) : [])]);
+  const units = loose(loose(loose(pr.numbers).capacity).units);
+  const convert = loose(units.convert);
+  const bandUnit = loose(ex.band_unit);
+  const factorOfUnit = (u: string): number | null => (u === units.base ? 1 : (typeof loose(convert[u]).input === "string" ? inputFactor(items, String(loose(convert[u]).input)) : null));
+  const conv = (v: number, from: string, to: string): number | null => {
+    if (from === to) return v;
+    const a = factorOfUnit(from); const b = factorOfUnit(to);
+    return a && b ? (v / a) * b : null;
+  };
+  const unitSkus = (role: string) => (items ?? []).filter((it) => kinds.has(String(it.kind)) && roles[String(loose(it.attributes)[famAttr] ?? "")] === role);
+  const inBand = (role: string, bands: ExtrasBand[], n: number) => unitSkus(role).filter((it) => {
+    const a = loose(it.attributes);
+    const v = Number(a.capacity);
+    const u = String(a[String(units.unit_attr ?? "capacity_unit")] ?? bandUnit[role] ?? "");
+    const c = Number.isFinite(v) ? conv(v, u, String(bandUnit[role] ?? "")) : null;
+    if (c === null) return false;
+    const lo = n === 0 ? -Infinity : Number(bands[n - 1].max);
+    const hi = bands[n].max === null ? Infinity : Number(bands[n].max);
+    return c > lo + 1e-9 && c <= hi + 1e-9;
+  }).map((it) => String(it.item_uid ?? "")).filter(Boolean);
+  const all = [...unitSkus("indoor"), ...unitSkus("outdoor")].map((it) => String(it.item_uid ?? "")).filter(Boolean);
+  const out: Array<{ input: string; skus: string[] }> = [];
+  for (const [table, cells] of [["pipe_bands", ["supply_mm", "return_mm", "insulation_mm"]], ["power_bands", ["cores", "sqmm"]]] as const) {
+    for (const role of ["indoor", "outdoor"]) {
+      const bands = bandsOf(ex, table, role);
+      bands.forEach((b, n) => { const skus = inBand(role, bands, n); for (const c of cells) out.push({ input: `${b.input}_${c}`, skus }); });
+    }
+  }
+  for (const c of ["cores", "sqmm"]) out.push({ input: `${String(ex.comm_input)}_${c}`, skus: all });
+  for (const id of [ex.copper_length_input, ex.cable_length_input]) out.push({ input: String(id), skus: all });
+  // VRF-5 (owner ANSWER 4-6, U6): the accessories' defaults -- a band's cell reaches the units of its role in that band, a flat
+  // input every unit of its role -- and the installation-only uplift every unit (the twin of `accessory_input_ids`)
+  for (const a of Array.isArray(ex.accessories) ? (ex.accessories as unknown[]) : []) {
+    const acc = loose(a);
+    const key = typeof loose(acc.electrical).rating_key === "string" ? String(loose(acc.electrical).rating_key) : "qty";
+    for (const role of ["indoor", "outdoor"]) {
+      const bands = (loose(acc.bands)[role] as ExtrasBand[] | undefined) ?? [];
+      if (Array.isArray(bands)) bands.forEach((b, n) => out.push({ input: `${b.input}_${key}`, skus: inBand(role, bands, n) }));
+    }
+    const roleSkus = () => ((acc.roles as string[] | undefined) ?? []).flatMap((r) => unitSkus(r)).map((it) => String(it.item_uid ?? "")).filter(Boolean);
+    if (typeof acc.input === "string" && acc.input) out.push({ input: String(acc.input), skus: roleSkus() });
+    // VRF-6 (team rule): gas kg = HP x its input -- every unit of its role; the MCB + ELCB schedule -- each row the units of its role
+    // whose size falls in it (the last row also every larger unit: above 26 HP -> 63 A)
+    const qps = loose(acc.qty_per_size);
+    if (typeof qps.input === "string" && qps.input) out.push({ input: String(qps.input), skus: roleSkus() });
+    const sched = scheduleBands(acc);
+    for (const role of (acc.roles as string[] | undefined) ?? []) sched.forEach((b, n) => out.push({ input: b.input, skus: inBand(role, sched, n) }));
+  }
+  const scope = loose(ex.scope);
+  if (typeof scope.uplift_input === "string" && scope.uplift_input) out.push({ input: String(scope.uplift_input), skus: all });
+  return out.map((u) => ({ ...u, skus: [...new Set(u.skus)].sort() }));
+}
+
+/**
+ * VRF-3b (owner ANSWER 1, VRF3B-4 = (a): "show their real reach") -- the VRF unit SKUs a capacity reader's convert input
+ * reaches: every SKU of a family whose rule needs that number (a capacity typed in another unit is converted before the
+ * SKU is chosen, so the input decides which of them a row buys). Where-used only -- no SKU's own rate moves. PURE.
+ */
+export function unitsConvertSkus(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Map<string, string[]> {
+  const pr = pricingOf(cfg);
+  const famAttr = famAttrOf(cfg);
+  const kinds = new Set<string>([String(pr.kind ?? ""), ...(Array.isArray(pr.extra_kinds) ? (pr.extra_kinds as string[]) : [])]);
+  const out = new Map<string, Set<string>>();
+  for (const u of unitsConvertUses(cfg)) {
+    const set = out.get(u.input) ?? out.set(u.input, new Set<string>()).get(u.input)!;
+    for (const it of items ?? []) {
+      if (kinds.has(String(it.kind)) && String(loose(it.attributes)[famAttr] ?? "") === u.family && it.item_uid) set.add(String(it.item_uid));
+    }
+  }
+  return new Map([...out.entries()].map(([k, v]) => [k, [...v].sort()]));
+}
+
+/**
+ * VRF-3b (owner B2 "A typed rough size becomes the closest Piping size on entry"; 13:46 "matched to the exact mm size in
+ * catalog which is closest") -- the stocked COPPER sizes a pipe-size cell of VRF's extras snaps to, or null for any other
+ * input. Read from the extras' own copper target (category, family, size attribute) over the live catalogue. PURE.
+ */
+export function extrasSnapSizes(
+  configs: Record<string, unknown> | null | undefined, items: readonly RateMasterItem[] | null | undefined, inputId: string,
+): number[] | null {
+  for (const cfg of Object.values(configs ?? {})) {
+    const ex = loose(pricingOf(cfg).extras);
+    if (!ex.pipe_bands) continue;
+    const cells = (["indoor", "outdoor"] as const).flatMap((r) => bandsOf(ex, "pipe_bands", r).flatMap((b) => [`${b.input}_supply_mm`, `${b.input}_return_mm`]));
+    if (!cells.includes(inputId)) continue;
+    const copper = loose(ex.copper);
+    const tgt = (configs ?? {})[String(copper.category ?? "")];
+    const famAttr = famAttrOf(tgt);
+    const kind = String(pricingOf(tgt).kind ?? "");
+    const sizes = (items ?? []).filter((it) => String(it.kind) === kind && String(loose(it.attributes)[famAttr] ?? "") === String(copper.family ?? ""))
+      .map((it) => Number(loose(it.attributes)[String(copper.size_attr ?? "")])).filter((n) => Number.isFinite(n) && n > 0);
+    return [...new Set(sizes)].sort((a, b) => a - b);
+  }
+  return null;
+}
+
+/** VRF-3b (U9, board 14): the two tables the extras' Pricing Inputs make -- the pipe sizes per band and the cable specs per
+ * band (+ the communication cable) -- read from the config's bands and the live inputs; a missing cell reads null. PURE. */
+export interface ExtrasTables {
+  pipes: Array<{ band: string; supply: number | null; ret: number | null; insulation: number | null }>;
+  cables: Array<{ band: string; cores: number | null; sqmm: number | null; material: string; armour: string }>;
+  lengths: Array<{ label: string; value: number | null }>;
+  /** VRF-5 (owner ANSWER 5): the accessory defaults (per outdoor band / per indoor unit) and the installation-only uplift */
+  accessories?: Array<{ label: string; value: number | null; unit: string; /** VRF-6: a schedule row's input (shared rows listed once) */ input?: string }>;
+  uplift?: { label: string; value: number | null } | null;
+}
+export function extrasTablesOf(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): ExtrasTables | null {
+  const ex = loose(pricingOf(cfg).extras);
+  if (!ex.pipe_bands) return null;
+  const bandUnit = loose(ex.band_unit);
+  const f = (id: string) => inputFactor(items, id);
+  const attrsOf = (id: string) => loose((items ?? []).find((x) => /_pricing_input$/.test(String(x?.kind ?? "")) && String(loose(x?.attributes).item ?? "") === id)?.attributes);
+  const bandWords = (bands: ExtrasBand[], n: number, role: string) => {
+    const u = String(bandUnit[role] ?? "");
+    const b = bands[n];
+    const side = role === "indoor" ? "Indoor" : "Outdoor";
+    if (b.max === null) return `${side} above ${String(bands[n - 1]?.max ?? 0)} ${u}`;
+    return n === 0 ? `${side} up to ${String(b.max)} ${u}` : `${side} above ${String(bands[n - 1].max)} up to ${String(b.max)} ${u}`;
+  };
+  const pipes: ExtrasTables["pipes"] = [];
+  const cables: ExtrasTables["cables"] = [];
+  for (const role of ["indoor", "outdoor"]) {
+    const pb = bandsOf(ex, "pipe_bands", role);
+    pb.forEach((b, n) => pipes.push({ band: bandWords(pb, n, role), supply: f(`${b.input}_supply_mm`), ret: f(`${b.input}_return_mm`), insulation: f(`${b.input}_insulation_mm`) }));
+  }
+  for (const role of ["indoor", "outdoor"]) {
+    const cb = bandsOf(ex, "power_bands", role);
+    cb.forEach((b, n) => cables.push({ band: `Power - ${bandWords(cb, n, role)}`, cores: f(`${b.input}_cores`), sqmm: f(`${b.input}_sqmm`),
+      material: String(attrsOf(`${b.input}_cores`).material ?? ""), armour: String(attrsOf(`${b.input}_cores`).armour ?? "") }));
+  }
+  const comm = String(ex.comm_input ?? "");
+  cables.push({ band: "Communication - every unit", cores: f(`${comm}_cores`), sqmm: f(`${comm}_sqmm`),
+    material: String(attrsOf(`${comm}_cores`).material ?? ""), armour: String(attrsOf(`${comm}_cores`).armour ?? "") });
+  const lengths = [
+    { label: "Copper length per pipe per Nos (m); insulation = copper", value: f(String(ex.copper_length_input ?? "")) },
+    { label: "Cable length per Nos (m)", value: f(String(ex.cable_length_input ?? "")) },
+  ];
+  // VRF-5 (owner ANSWER 5: "they should also be part of the pricing input sheet for HVAC") -- the accessories table
+  const accessories: NonNullable<ExtrasTables["accessories"]> = [];
+  for (const a of Array.isArray(ex.accessories) ? (ex.accessories as unknown[]) : []) {
+    const acc = loose(a);
+    const el = loose(acc.electrical);
+    const key = typeof el.rating_key === "string" ? String(el.rating_key) : "qty";
+    const what = String(acc.title ?? acc.label ?? acc.id ?? "");
+    const unit = key === "qty" ? String(acc.unit_word ?? "") : String(el.template ?? "").replace("{amp}", "").trim();   // "{amp}A FP MCCB" -> "A FP MCCB": the row reads "40 A FP MCCB"
+    for (const role of ["indoor", "outdoor"]) {
+      const bands = (loose(acc.bands)[role] as ExtrasBand[] | undefined) ?? [];
+      if (Array.isArray(bands)) bands.forEach((b, n) => accessories.push({ label: `${what} - ${bandWords(bands, n, role)}`, value: f(`${b.input}_${key}`), unit: key === "qty" ? `${String(acc.unit_word ?? "")} per unit` : unit }));
+    }
+    if (typeof acc.input === "string" && acc.input) {
+      accessories.push({ label: `${what} - per ${((acc.roles as string[] | undefined) ?? []).join(" / ")} unit`, value: f(String(acc.input)), unit: `${String(acc.unit_word ?? "")} per unit` });
+    }
+    // VRF-6 (team rule 2026-11-09): gas kg = HP x its factor; the MCB + ELCB schedule ONCE (one row per HP band, the accessories
+    // sharing it named together)
+    const qps = loose(acc.qty_per_size);
+    if (typeof qps.input === "string" && qps.input) {
+      accessories.push({ label: `${what} - per HP of the ${((acc.roles as string[] | undefined) ?? []).join(" / ")} unit`, value: f(String(qps.input)), unit: `${String(acc.unit_word ?? "")} per HP` });
+    }
+    const sched = scheduleBands(acc);
+    if (sched.length && !accessories.some((r) => r.input === sched[0].input)) {
+      const sharing = (Array.isArray(ex.accessories) ? (ex.accessories as unknown[]) : []).map(loose)
+        .filter((o) => scheduleBands(o).map((b) => b.input).join("|") === sched.map((b) => b.input).join("|")).map((o) => String(o.label ?? o.id ?? ""));
+      const role = ((acc.roles as string[] | undefined) ?? [])[0] ?? "outdoor";
+      sched.forEach((b, n) => accessories.push({ label: `${sharing.join(" + ")} rating - ${bandWords(sched, n, role)}`, value: f(b.input), unit: "A", input: b.input }));
+    }
+  }
+  const scope = loose(ex.scope);
+  const uplift = typeof scope.uplift_input === "string" && scope.uplift_input
+    ? { label: "Installation-only uplift (a row the BoQ prices as installation only)", value: f(String(scope.uplift_input)) } : null;
+  return { pipes, cables, lengths, ...(accessories.length ? { accessories } : {}), ...(uplift ? { uplift } : {}) };
+}
+
 export function computePricingInputReach(
   configs: Record<string, RateCategoryConfig | null | undefined> | null | undefined,
   items: readonly RateMasterItem[] | null | undefined,
@@ -380,11 +623,26 @@ export function computePricingInputReach(
    * `pipelines` -- every Electrical category, ADP's shared default) is OPEN and is never filtered.
    */
   const famReaders = new Map<string, { attr: string; families: Set<string>; open: boolean }>();
+  // VRF-3b: the VRF unit SKUs an input sizes or converts -- its reach where no SKU's own rate moves (the assembly shape)
+  const assemblySkus = new Map<string, Set<string>>();
 
   for (const cid of Object.keys(configs ?? {}).sort()) {
     const cfg = (configs ?? {})[cid];
     // SLICE 12e-2b (AC8): the attribute an item-list category keeps its family in
     const famAttrId = String((cfg as any)?.list_spec?.family_attribute_id ?? "family");
+    // VRF-2b: the convert table's inputs are READ by this category (no column: no SKU's own rate moves)
+    for (const u of unitsConvertUses(cfg)) (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
+    // VRF-3b: VRF's extras read their inputs (one per table cell) -- read by this category, reaching the units they size;
+    // the convert inputs reach the units whose capacity they convert (owner: "now at 0 items")
+    for (const u of extrasUses(cfg, items)) {
+      (readBy.get(u.input) ?? readBy.set(u.input, new Set<string>()).get(u.input)!).add(cid);
+      const set = assemblySkus.get(u.input) ?? assemblySkus.set(u.input, new Set<string>()).get(u.input)!;
+      for (const s of u.skus) set.add(s);
+    }
+    for (const [input, skus] of unitsConvertSkus(cfg, items)) {
+      const set = assemblySkus.get(input) ?? assemblySkus.set(input, new Set<string>()).get(input)!;
+      for (const s of skus) set.add(s);
+    }
     for (const [pid, pl, ownerFamily, isConvert] of pipelinesWithFamily(cfg)) {
       const steps: any[] = pl.steps ?? [];
       const owners = ctxOwners(pl);
@@ -651,6 +909,7 @@ export function computePricingInputReach(
       isFlatAdder: adders.has(id),
       adder: adders.get(id),
       readByCategories: Array.from(readBy.get(id) ?? []).sort(),
+      ...(assemblySkus.has(id) ? { assemblySkus: Array.from(assemblySkus.get(id)!).sort() } : {}),
       ...(assemblyRange.has(id) ? { assemblyRange: assemblyRange.get(id) } : {}),
       pipelines: Array.from(pipesBy.get(id) ?? []).sort().map((s2) => {
         const [category, pipelineId] = s2.split("|");
@@ -663,10 +922,12 @@ export function computePricingInputReach(
   return out;
 }
 
-/** The ITEMS count the Pricing Inputs table shows -- DISTINCT SKUs (owner N-2), never uses. */
+/** The ITEMS count the Pricing Inputs table shows -- DISTINCT SKUs (owner N-2), never uses. VRF-3b: an input that moves no
+ * SKU's own rate counts the VRF units it sizes or converts (`assemblySkus`). */
 export function reachedSkuCount(
   reach: Record<string, InputReach> | null | undefined,
   inputId: string,
 ): number {
-  return (reach ?? {})[inputId]?.distinctSkus.length ?? 0;
+  const r = (reach ?? {})[inputId];
+  return (r?.distinctSkus.length || r?.assemblySkus?.length) ?? 0;
 }

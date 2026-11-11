@@ -6,6 +6,7 @@
 // by design -- this is an admin table, not the editor.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { closestSize, readTypedSizeMm } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import { Pencil, Trash2, Check, X, Plus, Filter, Download, Archive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,7 +116,9 @@ interface Props {
   onCreateItem?: (payload: CreateItemPayload) => Promise<SpecConfirmationReply | undefined | void>;
   onDeactivateItem?: (name: string) => Promise<void>;
   /** SLICE 12b(B): {pricing-input id -> its reach}. Absent => no ITEMS column (every non-PI grid). */
-  inputReach?: Record<string, { distinctSkus: string[]; isFlatAdder: boolean }>;
+  inputReach?: Record<string, { distinctSkus: string[]; isFlatAdder: boolean; assemblySkus?: string[] }>;
+  /** VRF-3b (B2): the stocked sizes a Pricing Input cell snaps to (a pipe-size cell of VRF's extras), or null */
+  snapSizesFor?: (inputId: string) => number[] | null;
   /** SLICE 12c: the DERIVED "used by", computed by the PAGE because it needs every category's config
    *  (the same reason `inputReach` is). Used only where an item carries no stored `used_by`. */
   derivedUsedBy?: Record<string, { sites: number; categories: string[] }>;
@@ -216,7 +219,7 @@ export function RateMasterDataViewer({
   // SLICE 12b(B): the ITEMS column. The reach map is computed by the PAGE (it needs every category's
   // config, which this component does not have), so the viewer only RENDERS it. Both absent => no
   // column at all, which is what keeps every other category's grid byte-identical.
-  inputReach, derivedUsedBy, categoryNameById, computedRateKeys, computedRates, onOpenImpact, openImpactUid,
+  inputReach, snapSizesFor, derivedUsedBy, categoryNameById, computedRateKeys, computedRates, onOpenImpact, openImpactUid,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -365,7 +368,8 @@ export function RateMasterDataViewer({
        * its panel lists them. The dash is kept for an input that genuinely reaches nothing, which as
        * of v65 is none of the 35.
        */
-      return String(r?.distinctSkus.length ?? 0);
+      // VRF-3b: an input that sizes or converts VRF units (no SKU's own rate moves) counts those units
+      return String(r?.distinctSkus.length || r?.assemblySkus?.length || 0);
     },
     [inputReach],
   );
@@ -683,9 +687,11 @@ export function RateMasterDataViewer({
       if (raw.trim() === "") {
         rates_patch[k] = null;
       } else {
-        const n = parseFiniteInput(raw);
+        // VRF-3b (B2): a pipe-size cell of VRF's extras takes mm or inch and saves the closest stocked Piping size
+        const snap = snapSizesFor?.(String((it.attributes ?? {}).item ?? ""));
+        const n = snap && k === "factor" ? closestSize(readTypedSizeMm(raw), snap) : parseFiniteInput(raw);
         if (n === null) {
-          setRowErr(`Rate '${k}' must be a number.`);
+          setRowErr(snap ? `Rate '${k}' must be a size (mm or inch).` : `Rate '${k}' must be a number.`);
           return;
         }
         rates_patch[k] = n;

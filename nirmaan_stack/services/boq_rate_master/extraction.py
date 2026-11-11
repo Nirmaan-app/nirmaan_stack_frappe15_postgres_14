@@ -313,6 +313,8 @@ def _capture_common(capture_ctx, rows_batch, kind):
         "category_id": first.get("category_id"),
         "discipline": first.get("discipline"),
         "excel_rows": [r.get("excel_row") for r in rows_batch],
+        # VRF-8 (R-D13): a batch that re-asks rows whose first reply left a required answer out says so
+        **({"reask": True} if ctx.get("reask") else {}),
     }
 
 
@@ -440,7 +442,10 @@ def config_is_eligible(cfg, configs=None):
     SLICE 3 (owner Q-a / Q-b): with `configs` ({(discipline, category_id): cfg}) given, an ALIAS
     config (`alias_of`) is eligible iff its TARGET is -- resolved ONE HOP by `resolve_alias`. A
     target that is missing, or itself an alias (a chain), has no pipelines of its own and is NOT
-    eligible. Without `configs` the plain test runs, so an alias on its own is never eligible."""
+    eligible. Without `configs` the plain test runs, so an alias on its own is never eligible.
+
+    VRF-4 (owner Q1 A "removed at VRF-4"; D-10): VRF-2a's temporary `calculator_only` clause is REMOVED -- the key is no
+    longer allowed anywhere (the validator refuses it by name), so no served config carries it."""
     if configs is not None and alias_target(cfg):
         _d, _c, target = resolve_alias(configs, cfg.get("discipline"), cfg.get("category_id"), cfg)
         return has_runnable_pricing_rules(target) and bool(target.get("attribute_definitions"))
@@ -891,6 +896,10 @@ def build_items_spec(cfg, configs=None, discipline=None):
                 entry["values_by_family"] = {k: list(v) for k, v in d["values_by_family"].items()}
         if d.get("allow_none"):
             entry["allow_none"] = True
+        # VRF-8 (R-D13, owner 2026-11-10 14:52-14:54): a question the config marks `required` must be answered on every item --
+        # projected so the model sees it; a reply that leaves it out is asked once more (`rows_missing_required`)
+        if d.get("required"):
+            entry["required"] = True
         # CHECK 3 (owner 2026-09-23): a def's `note` is a CATALOGUE FACT about how to read or map the
         # attribute (6a single skin = LP plenum, 6b no SKU = blank, 5 the panel ratio), so it is projected
         # into ITEMS_SPEC -- the row PAYLOAD is untouched.
@@ -917,6 +926,31 @@ def build_items_spec(cfg, configs=None, discipline=None):
         sections.append({"id": s["id"], "label": s.get("label") or s["id"], "items_spec": sub})
     if sections:
         out["sections"] = sections
+    return out
+
+
+def required_item_attrs(items_spec):
+    """VRF-8 (R-D13): the per-item question ids the items spec marks `required` (empty for every config that marks none)."""
+    if not isinstance(items_spec, dict):
+        return []
+    return [d["id"] for d in items_spec.get("attribute_definitions") or [] if isinstance(d, dict) and d.get("required")]
+
+
+def rows_missing_required(batch_out, rows_batch, required):
+    """VRF-8 (R-D13). PURE. The rows of a returned batch whose parsed items leave a required answer out (`value: None` -- not
+    answered, or an answer that failed coercion, "None" included). A row with no item list is not one of them (nothing was
+    read to be incomplete); an item of a delegated section is asked its own questions and is not checked here."""
+    if not required:
+        return []
+    out = []
+    for r in rows_batch:
+        entry = batch_out.get(r["excel_row"]) if isinstance(batch_out, dict) else None
+        items = entry.get(ITEMS_KEY) if isinstance(entry, dict) else None
+        if not items:
+            continue
+        if any((it.get("attributes") or {}).get(a, {}).get("value") is None
+               for it in items if isinstance(it, dict) and not it.get(SECTION_MARK) for a in required):
+            out.append(r)
     return out
 
 
@@ -3704,12 +3738,14 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             for b in range(0, len(grp_rows), _BATCH):
                 batch = grp_rows[b : b + _BATCH]
 
-                def _call(rows_, _gc=gc):
+                def _call(rows_, _gc=gc, _reask=False):
                     # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
                     # capture's join key is threaded in from here.
                     return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], _gc["pole_catalog"], _gc["code_attrs"], _gc["absent_rules"], _gc["conductor_groups"],
                                           _gc["paired_fill"], _gc["module_count_attrs"], _gc["inch_trade"], _gc.get("items_spec"),
-                                          capture_ctx={"boq": boq})
+                                          capture_ctx={"boq": boq, **({"reask": True} if _reask else {})})
+
+                required = required_item_attrs(gc.get("items_spec"))
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged
@@ -3717,6 +3753,16 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 # checkpoints per HALF, and the halves already done survive a later halt.
                 for sub_batch, batch_out in _extract_with_ceiling_split(_call, batch):
                     ai_out.update(batch_out)
+                    # VRF-8 (R-D13, owner 14:52-14:54 "a missing answer = an error; the row is re-asked ONCE in the same run"): the
+                    # rows of this batch whose reply left a required answer out are asked once more, together, with the same
+                    # prompt; a re-read row with items replaces the first read (still incomplete -> the pricer's normal rules).
+                    # A config marking nothing required never reaches this.
+                    again = rows_missing_required(batch_out, sub_batch, required)
+                    if again:
+                        for _rb, re_out in _extract_with_ceiling_split(lambda rows_: _call(rows_, _reask=True), again):
+                            for rid, v in (re_out or {}).items():
+                                if isinstance(v, dict) and v.get(ITEMS_KEY):
+                                    ai_out[rid] = v
                     # The batch RETURNED, so its rows are genuinely attempted. A row the model simply
                     # did not answer for is still attempted (we asked); only a HALTED batch's rows stay
                     # pending. This is the done-marker a resume keys off -- never "are the attributes

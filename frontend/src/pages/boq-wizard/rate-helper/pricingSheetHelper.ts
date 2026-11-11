@@ -50,6 +50,7 @@ import {
 // DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
 // it rather than repeating it (see derivedAttrIds below).
 import { derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import type {
   AttributeDefinition,
   ModuleFitLadderOutcome,
@@ -58,7 +59,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
-import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
+import { CHAIN_ROW_NOTE_PLACE, CHAIN_ROW_PLACE, POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 import { applyConductorFloor, conductorFloorGroups, CONDUCTOR_FLOOR_NOTE } from "./conductorFloor";
 import { USED_INPUT_MARK, attributeWorkingLine, moneyValue, usedAssemblyInputs } from "./attributeWorkingLines";
 // SLICE 6 (owner S1-S5, 2026-09-24): the item-list mode prices a LIST of items per row through the pure module;
@@ -77,8 +78,14 @@ import {
   isRateOnlyUnit,
   itemFieldDefs,
   itemListPricingSpec,
+  familyUnitOf,
+  kindIn,
   matchStatedToOption,
   matchStatedToOptionDetailed,
+  pricingInputFactor,
+  readCapacity,
+  unitPickerUnits,
+  UNIT_PICK_SUFFIX,
   plainFactOf,
   readLayers,
   readNumber,
@@ -87,17 +94,42 @@ import {
   severalSizesTaken,
   listSpecDefs,
   applyFamilyMerge,
+  countedPieces,
+  isLotUnit,
+  isPerSetUnit,
   priceItemList,
   sizeFieldHelp,
   splitRateOnlyUnit,
   twoWayValues,
   typedFieldNote,
   unitClassOf,
+  cableSpecText,
+  extraBandOf,
+  pricingInputRates,
+  readCableSpecWords,
+  boqExtrasOf,
+  sheetUnitCounts,
+  workingStandbyWords,
+  boqInclusionsOf,
+  ownRowQuotes,
+  readCableKindWords,
+  readLengthRange,
+  readLengthWords,
+  readQtyWords,
+  type ExtraIncludeId,
+  type ExtraLineId,
+  type ExtrasSpec,
+  type CountedPieces,
+  type CountedSpec,
   type ExtractedListItem,
+  type AccessorySpec,
+  type PrepareSpec,
   type ItemFieldDef,
   type ItemListPricingSpec,
   type ItemPriceResult,
   type LadderHop,
+  type CoverChoice,
+  vrf10On,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -133,6 +165,10 @@ export function isRunForVersion(
   );
 }
 
+/** VRF-5 (owner R1 SAFEGUARD, ANSWER 9): every run row's CATEGORY, kept beside the map (never on the row objects, so each
+ * extraction row stays byte-identical) -- the own-row rule reads only rows of the asking row's discipline. */
+const ROW_CATEGORIES = new WeakMap<ReadonlyMap<number, ExtractionRow>, ReadonlyMap<number, string>>();
+
 /** Build the excel_row -> ExtractionRow map from a run's `results` payload. PURE. */
 export function buildExtractionByRow(
   results: Array<{
@@ -141,21 +177,29 @@ export function buildExtractionByRow(
     attributes: Record<string, { value: string | number | null; confidence: number; corroborated?: boolean }>;
     /** SLICE 6: an item-list row's stored items (slice 4's `results[i].items`); absent on every other row. */
     items?: ExtractedListItem[];
+    /** VRF-4 (q2): the row's category, carried onto an item-list row only (a refnet counts the sheet's VRF units) */
+    category_id?: string;
   }>,
 ): Map<number, ExtractionRow> {
   const m = new Map<number, ExtractionRow>();
+  const cats = new Map<number, string>();
   for (const r of results ?? []) {
+    if (typeof r.category_id === "string" && r.category_id) cats.set(r.excel_row, r.category_id);
     const row: ExtractionRowWithItems = { excelRow: r.excel_row, description: r.description, attributes: r.attributes };
     // carried ONLY when present, so a non-list row's map entry is byte-identical to before
-    if (Array.isArray(r.items)) row.items = r.items;
+    if (Array.isArray(r.items)) {
+      row.items = r.items;
+      if (typeof r.category_id === "string" && r.category_id) row.category = r.category_id;
+    }
     m.set(r.excel_row, row);
   }
+  ROW_CATEGORIES.set(m, cats);
   return m;
 }
 
 /** SLICE 6: an extraction row that may carry the run's ITEMS (an item-list category). The base type lives
  * outside this slice's scope, so the items ride as an optional extension read through this alias. */
-export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[] };
+export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem[]; category?: string };
 
 /** SLICE 6: a row context that may carry the BoQ row's UNIT (the page attaches it; the calculator has no row,
  * so the unit is a pick held in the panel's session state instead). */
@@ -173,6 +217,12 @@ export type RowContextWithUnit = RateHelperRowContext & {
    * outside diameter / inch size (true), or it is another pipe (false). Absent on an Insulation row of its own, where
    * the row's own words decide. Read only by the cladding's girth. */
   pipeOdHint?: boolean;
+  /** VRF-4 (q2): the sheet's outdoor / indoor unit counts, added up from the rows the model read (`sheetUnitCounts`), set by
+   * `compute` on a BoQ row of a config whose refnets count from the sheet. Absent everywhere else. */
+  sheetUnits?: ReturnType<typeof sheetUnitCounts>;
+  /** VRF-6 (owner Q-pre 5): the make of this sheet's outdoor units (the first outdoor-unit row the run read whose make resolves),
+   * set by `compute` on a BoQ row of a config declaring `extras.prepare.same_as_outdoor`. Absent everywhere else. */
+  sheetOutdoorBrand?: { brand: string; row: number };
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -252,7 +302,10 @@ export function nonBcsPipelines(config: RateCategoryConfig): Array<[string, Pipe
 
 /** A category participates in the helper iff its config has BOTH non-empty pipelines AND non-empty
  * attribute definitions (an empty-pipelines DATA-ONLY config -- e.g. lighting_mgmt_system -- is not
- * eligible; it shows "coming soon"). PURE. */
+ * eligible; it shows "coming soon"). PURE.
+ *
+ * VRF-4 (owner Q1 A "removed at VRF-4"; D-10): VRF-2a's temporary `calculator_only` switch and its calculator-only
+ * admission are REMOVED -- one predicate, every surface, as 12d-2 ruled. */
 export function isEligibleConfig(config: RateCategoryConfig | null | undefined): boolean {
   return (
     !!config &&
@@ -1410,6 +1463,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const cfg = resolveConfig(ctx.category);
     // SLICE 12d-2: ONE predicate on every surface (the FA7 calculator admission is retired) -- the
     // BoQ decline cards, the pre-run rules and the server's extraction population all read the same test.
+    // VRF-4 (Q1 A): VRF-2a's calculator-surface admission is removed -- the same predicate on every surface.
     if (!isEligibleConfig(cfg)) {
       // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
       return { kind: "none", reason: declineReasonFor(cfg) };
@@ -1423,7 +1477,83 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // every row from -- the object that category's own rows and its calculator tab are priced with
       const configOf = (id: string): RateCategoryConfig | null =>
         configsByCategory ? (configsByCategory.get(id) ?? null) : (config && config.category_id === id ? config : null);
-      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf);
+      // VRF-3b: an extra cable line is priced by ELECTRICAL's own rules -- this same compute, on that category, read only
+      const cableRate: CableRate = (cableCategory, attrs, unit) => {
+        const r = compute({ excelRow: EXTRA_CABLE_ROW, description: "", nodeType: "", category: cableCategory, discipline: "Electrical",
+                            rateKinds: ctx.rateKinds, unit: unit ?? "Mtr" } as RowContextWithUnit, attrs);
+        if (r.kind === "suggestion" && typeof r.values.supply_rate === "number" && typeof r.values.install_rate === "number") {
+          return { supply: r.values.supply_rate, install: r.values.install_rate };
+        }
+        return { reason: r.kind === "none" ? r.reason : (r.basis || "no cable rate row matches") };
+      };
+      // VRF-4 (q2): a refnet on a Set row of a BoQ sheet counts the sheet's outdoor / indoor units from the rows the model read
+      const fromSheet = listSpec.per_set?.counted?.from_sheet;
+      const rowCtx = ctx as RowContextWithUnit;
+      const onSheet = fromSheet && rowCtx.rowQuantities && typeof rowCtx.unit === "string" && rowCtx.noRow !== true && isPerSetUnit(listSpec, rowCtx.unit)
+        ? { ...rowCtx, sheetUnits: sheetUnitCounts(fromSheet, [...extractionByRow.values()] as ExtractionRowWithItems[], ctx.excelRow, ctx.category,
+                                                    rowCtx.rowQuantities, familyAttr(listSpec)) }
+        : rowCtx;
+      // VRF-5 (owner R1 SAFEGUARD): the sheet's quoting rows carry each row's model item 1 family, from the run this helper serves
+      // VRF-5 (owner ANSWER 9 "lets restrict on same sheet"; 18:50 "checks only rows which carry categories from the same
+      // discipline viz HVAC"): ONLY this sheet's rows whose category (the run's) belongs to the row's own discipline
+      const rowCats = ROW_CATEGORIES.get(extractionByRow);
+      const sameDiscipline = (row: number) => {
+        const cat = rowCats?.get(row);
+        const c = cat ? (configsByCategory?.get(cat) ?? (config && config.category_id === cat ? config : null)) : null;
+        return !!c && c.discipline === category.discipline;
+      };
+      // VRF-6 (F4, owner Q-pre 10): category first -- the sheet's rows also carry their category; an uncategorised line item is
+      // kept (it counts by words only) and a rate-editable Preamble the run read is kept (00234 r55); every other row as before
+      const catFirst = listSpec.extras?.safeguard?.match === "category";
+      const keepLine = (l: { row: number; sheet?: string; preamble?: boolean }) => {
+        if (l.sheet !== undefined) return false;
+        if (!catFirst) return !l.preamble && sameDiscipline(l.row);
+        const cat = rowCats?.get(l.row);
+        if (l.preamble) return !!cat && sameDiscipline(l.row);
+        return !cat || sameDiscipline(l.row);
+      };
+      const scopeQ = listSpec.extras?.from_model?.scope;
+      const withLines = listSpec.extras?.safeguard && onSheet.sheetLines
+        ? { ...onSheet, sheetLines: onSheet.sheetLines.filter(keepLine).map((l) => {
+            const it0 = (extractionByRow.get(l.row) as ExtractionRowWithItems | undefined)?.items?.[0];
+            const v = it0?.attributes?.[familyAttr(listSpec)]?.value;
+            const base = l.family1 !== undefined ? l : { ...l, family1: typeof v === "string" && v !== "" ? v : null };
+            if (!catFirst) return base;
+            const sc = scopeQ ? it0?.attributes?.[scopeQ]?.value : undefined;
+            // VRF-8 (D10): item 1's capacity and make, for an installation-only row to find its supply row (same family + capacity)
+            const iv = (a: string) => { const x = it0?.attributes?.[a]?.value; return typeof x === "string" && x.trim() !== "" && x.trim() !== "None" ? x.trim() : undefined; };
+            const follows = listSpec.extras?.prepare?.install_follows;
+            const cap1 = follows ? iv("capacity") : undefined;
+            const attrs1 = follows ? Object.fromEntries(follows.attrs.map((a) => [a, iv(a)]).filter(([, x]) => x !== undefined)) as Record<string, string> : undefined;
+            return { ...base, category: rowCats?.get(l.row) ?? null, ...(typeof sc === "string" && sc.trim() !== "" ? { scope1: sc.trim() } : {}),
+              ...(cap1 !== undefined ? { cap1 } : {}), ...(attrs1 && Object.keys(attrs1).length ? { attrs1 } : {}) };
+          }) }
+        : onSheet;
+      // VRF-6 (owner Q-pre 5): "make same as outdoor" -> the make of this sheet's outdoor units (the first such row whose stated
+      // make(s) resolve: Blue Star if listed, else the first make the catalogue stocks for the outdoor family)
+      const so = listSpec.extras?.prepare?.same_as_outdoor;
+      const withOdu = so && !rowCtx.noRow ? (() => {
+        const famAt = familyAttr(listSpec);
+        const stockedFor = new Map<string, string>();
+        for (const it of items) {
+          if (!kindIn(listSpec, it.kind) || it.attributes?.[famAt] !== so.outdoor_family) continue;
+          const b = String(it.attributes?.brand ?? it.brand ?? "").trim();
+          if (b) stockedFor.set(b.toLowerCase().replace(/\s+/g, ""), b);
+        }
+        const rows = [...extractionByRow.keys()].sort((a, b) => a - b);
+        for (const r of rows) {
+          const it0 = (extractionByRow.get(r) as ExtractionRowWithItems | undefined)?.items?.[0];
+          if (it0?.attributes?.[famAt]?.value !== so.outdoor_family) continue;
+          const words = String(it0?.attributes?.[so.attr]?.value ?? "");
+          const makes = words.split(/[,/&+]|\band\b|\bor\b/i).map((m) => m.trim().toLowerCase().replace(/\s+/g, "")).filter((m) => m && m !== "none");
+          if (!makes.length) continue;
+          const bs = makes.find((m) => m === "bluestar");
+          const hit = bs ? stockedFor.get("bluestar") : makes.map((m) => stockedFor.get(m)).find((b) => !!b);
+          if (hit) return { ...withLines, sheetOutdoorBrand: { brand: hit, row: r } };
+        }
+        return withLines;
+      })() : withLines;
+      return computeItemList(category, listSpec, items, withOdu, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -2084,6 +2214,25 @@ function computeWiring(
 export const ITEM_LIST_OVERRIDE_KEY = "__items__";
 /** The override key holding the ROW UNIT a pricer picked where no row supplies one (the calculator). */
 export const ROW_UNIT_OVERRIDE_KEY = "__row_unit__";
+/** VRF-3a K2 (owner QR-1 (a), U9, 2026-11-04 19:07): the calculator's "BoQ quantity of this row" -- the panel reads the BoQ
+ * row's own quantity (`ctx.quantity`); the calculator has no row, so the pricer types it. Read only by a counted item
+ * (refnets) on a per-Set row. */
+export const ROW_QTY_OVERRIDE_KEY = "__row_qty__";
+/** VRF-3b (U6, owner 2026-11-05): the calculator's "This row's price includes" tick boxes -- the include ids ticked,
+ * comma-separated ("copper,insulation,power,comm"). A BoQ row gets the same flags from the model at VRF-4. */
+export const EXTRAS_INCLUDES_KEY = "__includes__";
+/** VRF-3b: the row number an extra cable line is computed on -- never a sheet row, so no extraction is ever read for it */
+const EXTRA_CABLE_ROW = -987654321;
+
+/** VRF-3b: the pricer's edits to the extras of ONE unit -- kept ON the unit's entry, so removing the unit (or a split
+ * module) takes its extras with it. */
+export interface ExtrasEdit {
+  /** the pricer's values, per extra line, per field ("size", "thickness", "spec", "length", "count") */
+  set?: Record<string, Record<string, string>>;
+  /** VRF-3b (owner 12:23 "the user should be able to remove the xtras"; as SHAPE Q3): the HIDDEN TAG -- the lines the
+   * pricer removed. Nothing adds a removed line back on its own; "Put it back" takes it off this list. */
+  removed?: string[];
+}
 
 /** One item as the panel edits it. `base` = the index of the MODEL's item it started from (null for an item
  * the pricer added or changed -- such an item starts BLANK, S1); `family` = a family the pricer picked (null =
@@ -2112,6 +2261,16 @@ export interface ItemEdit {
   /** ADP-1: the attribute ids this edit carries MIRRORED from the item above (a section's pipe size). Written only by
    * the section pass, which encodes it into its own call; never typed by a person and never in a saved edit state. */
   mirrored?: string[];
+  /** VRF-3a (owner SHAPE Q3 "Hidden tag", 2026-11-04 14:56): this line came from the HELPER's split -- an invisible
+   * marker. While any entry of a row carries one, the split never fires on that row again (its own lines, a re-compute,
+   * after any edit / remove / add, the calculator's re-run of the seam). Written only by `splitEdits`. */
+  helper?: HelperMark;
+  /** VRF-6 U11 (owner 2026-11-09 18:52): the option the pricer stepped to on the helper's ranked singles / pairs for this
+   *  entry (`CoverChoice`); absent = the helper's own pick. Written only by the `cover_option` operation. */
+  cover?: number;
+  /** VRF-3b: the pricer's edits to this unit's extra lines (values typed / picked, lines removed). Absent on every entry
+   * of a config that declares no `extras`, and on a unit nobody has touched. */
+  extras?: ExtrasEdit;
   /**
    * SLICE 12e-3a (owner 13:40): the edits of the sections ATTACHED to this item, by section id -- a pipe's own
    * insulation. Kept ON the item so removing or changing the item takes its section with it. Absent on every
@@ -2119,6 +2278,42 @@ export interface ItemEdit {
    */
   sections?: Record<string, ItemEdit>;
 }
+/** VRF-3a (Q3): the hidden tag on a line the helper's split made -- what the split was, so the panel can say it, tell an
+ * edited line ("changed by you") and put the row back ("Reset to the helper's split"). */
+export interface HelperMark {
+  /** the split's group: the index of the entry it replaced */
+  g: number;
+  /** this line's place in the split, and how many lines the split made */
+  i: number;
+  n: number;
+  /** the field the size sits in, and the size the split gave this line (in the family's unit) */
+  attr: string;
+  size: string;
+  /** every size the split made, in order (the row note says the helper's split even after a line is removed; found in the cert) */
+  layers?: string[];
+  /** the total split, the family's unit word, whether the lines add up exactly, the largest size of the variant */
+  total: number;
+  unit: string;
+  exact: boolean;
+  top: number;
+  /** the row's entry count right after the split (a line added after it = the split was changed) */
+  rowN: number;
+  /** the line as made -- a line that differs from it now was changed by the pricer */
+  made: string;
+  /** the entry the split replaced -- "Reset to the helper's split" puts it back */
+  from: ItemEdit;
+  /** the reader's line for the total (a conversion) */
+  readNote?: string;
+  /** a split the row WROTE (R-SPLIT (a)): the modules, their sum, the total as written, the text */
+  stated?: { modules: number[]; sum: number; total: number | null; written: string; typed: boolean };
+  /** D-3: the condition the row states about the split, as written */
+  cond?: string;
+  /** VRF-6 (F8): a pair / set chosen before the next size up -- the sentence that replaces "bigger than the largest unit" */
+  why?: string;
+  /** VRF-6 U11: the ranked options this split was one of -- the panel's "next best option" steps on from it */
+  cover?: CoverChoice;
+}
+
 export interface ItemListEditState {
   items: ItemEdit[];
   /** SLICE 12e-3a (owner 13:42): the INDEPENDENT sections, by section id -- insulation that belongs to no pipe. */
@@ -2155,7 +2350,35 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number, sec
       // ADP-1: the section pass's own mirrored-size marker survives its one encode / decode round
       ...(Array.isArray(e.mirrored) ? { mirrored: e.mirrored.filter((x) => typeof x === "string") } : {}),
       ...(Object.keys(secs).length ? { sections: secs } : {}),
+      // VRF-3a (Q3): the helper's hidden tag survives every encode / decode -- it is what stops a re-split
+      ...(nested ? helperMarkOf(e.helper, count) : {}),
+      // VRF-3b: the extras' edits and the removed-extras tag survive too (strings only)
+      ...(nested ? extrasEditOf(e.extras) : {}),
+      // VRF-6 U11: the option the pricer stepped to survives (a positive whole number only)
+      ...(typeof e.cover === "number" && Number.isInteger(e.cover) && e.cover > 0 ? { cover: e.cover } : {}),
     };
+  };
+  const extrasEditOf = (x: unknown): { extras: ExtrasEdit } | Record<string, never> => {
+    if (!x || typeof x !== "object") return {};
+    const src = x as ExtrasEdit;
+    const set: Record<string, Record<string, string>> = {};
+    for (const [line, fields] of Object.entries(src.set && typeof src.set === "object" ? src.set : {})) {
+      if (!fields || typeof fields !== "object") continue;
+      const f = Object.fromEntries(Object.entries(fields).filter(([, v]) => typeof v === "string")) as Record<string, string>;
+      if (Object.keys(f).length) set[line] = f;
+    }
+    const removed = Array.isArray(src.removed) ? src.removed.filter((r) => typeof r === "string") : [];
+    if (!Object.keys(set).length && !removed.length) return {};
+    return { extras: { ...(Object.keys(set).length ? { set } : {}), ...(removed.length ? { removed } : {}) } };
+  };
+  const helperMarkOf = (h: unknown, count: number): { helper: HelperMark } | Record<string, never> => {
+    if (!h || typeof h !== "object") return {};
+    const m = h as HelperMark;
+    const nums = [m.g, m.i, m.n, m.total, m.top, m.rowN];
+    if (!nums.every((x) => typeof x === "number" && Number.isFinite(x)) || typeof m.attr !== "string" || typeof m.size !== "string"
+        || typeof m.made !== "string" || typeof m.unit !== "string" || typeof m.exact !== "boolean" || !m.from || typeof m.from !== "object") return {};
+    const f = one(m.from as ItemEdit, count, false);
+    return { helper: { ...m, from: { base: f.base, family: f.family, attrs: f.attrs, ...(f.qty !== undefined ? { qty: f.qty } : {}), ...(f.other ? { other: f.other } : {}), ...(f.cover !== undefined ? { cover: f.cover } : {}) } } };
   };
   try {
     const parsed = JSON.parse(raw) as ItemListEditState;
@@ -2202,6 +2425,9 @@ export function assembleItems(
     } else if (e.family !== null) {
       attributes[familyAttrId] = { value: e.family };
     }
+    // VRF-3a: a line of the helper's split carries its size as the HELPER's, not a typed value -- the field reads it as one
+    // of its options; a size the pricer types afterwards (in `attrs`) wins below, as every typed value does
+    if (e.helper && !Object.prototype.hasOwnProperty.call(e.attrs, e.helper.attr)) attributes[e.helper.attr] = { value: e.helper.size };
     // SLICE 12d-1b (owner T6): a value the PRICER typed is marked, so the pricer never parses it as layers.
     for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v, typed: true, ...((e.mirrored ?? []).includes(k) ? { mirrored: true } : {}) };
     // SLICE 12e-2 (owner P1): a family TYPED through the family field's "Other..." box (recorded in `other`
@@ -2211,7 +2437,7 @@ export function assembleItems(
     if (e.family !== null && (e.other ?? []).includes(familyAttrId)) attributes[familyAttrId] = { value: e.family === "" ? null : e.family, typed: true };
     // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
     // marking changes no rate anywhere.
-    return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}) };
+    return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}), ...(e.cover !== undefined ? { coverPick: e.cover } : {}) };
   });
 }
 
@@ -2311,6 +2537,13 @@ export interface ItemFieldView extends ItemFieldDef {
   /** ADP-4a (owner B5 / U5): the words the select's empty choice shows -- "not stated" where the model's stored
    *  answer is "None" and "None" is not offered. Absent everywhere else (the panel shows "- select -"). */
   placeholder?: string;
+  /** VRF-2b (owner Q3 / U1): the unit picker beside the typed box of a reader declaring `units` -- the item attribute
+   *  it writes (`<id>__unit`), the units offered, the one shown (the pricer's pick, else the family's), the family's. */
+  unitPicker?: { id: string; units: string[]; value: string; defaultUnit: string };
+  /** VRF-3a (found in the cert): the size box of a `split` family -- a value typed here is handed to the pricer when the
+   * pricer leaves the box or presses Enter, not on every keystroke (a split fired on the first number typed, "60" of
+   * "60 HP (18+18+24)", and the row split before the rest of the text was in). Present only there. */
+  splitOnCommit?: true;
 }
 
 /**
@@ -2352,7 +2585,19 @@ export interface FamilyControlView {
 /** One item block, as the panel renders it. */
 export interface ItemBlockView {
   index: number;
-  source: "model" | "user";
+  /** VRF-3a: "helper" -- a line of the helper's split ("Item N · split by the helper") */
+  source: "model" | "user" | "helper";
+  /** VRF-3a (U1 / U2): on a helper line, the line saying where it came from, and whether the pricer has changed it */
+  helperLine?: string;
+  changedByYou?: true;
+  /** VRF-6 U11 (owner 18:52): on the unit a stated size no single SKU matched (the first line of its split, or the single) --
+   *  the helper's pick or the next best (K1d: exactly two), and the option the one toggle steps to (`cover_option`). */
+  cover?: { option: number; of: number; userChosen: boolean; label: string; next: number };
+  /** VRF-3a K2 (U5, board 11): a counted item (a refnet) on a per-Set row -- its three typed fields, the expected-count
+   * formula, the case's sentence, the pieces the rule gave (null = withheld: the box blank and red) and whether the
+   * pricer typed the pieces themselves. */
+  setCount?: { fields: Array<{ id: string; label: string; note?: string; options?: string[]; value: string; /** VRF-3b (U8): typed by the pricer (its undo arrow) */ edited?: true;
+    /** VRF-4 (q2, U5): added up from the sheet's rows (the note names them); editable */ fromSheet?: true }>; formula?: string; sentence: string; pieces: number | null; typed: boolean };
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
@@ -2393,6 +2638,71 @@ export interface ItemBlockView {
   /** SLICE 12e-3a (owner 13:40): the sections ATTACHED to this item, drawn directly under it. Absent on every
    * block of a config that declares no section, and on a block whose toggle is closed. */
   sections?: SectionBlockView[];
+  /** VRF-3b (U1 / U5): this unit's place among ALL the row's lines ("Item N"), present only on a row with extras */
+  lineNo?: number;
+  /** VRF-3b (U1-U5, boards 12 / 13): the extra lines this unit's price includes, drawn under it; the lines the pricer
+   * removed ("You removed: ... [Put it back]"). Present only on an indoor / outdoor unit of a row with extras. */
+  extras?: { lines: ExtraLineView[]; removed: Array<{ id: ExtraLineId; label: string }>; removedNote?: string;
+    /** VRF-4 (O-5): on a BoQ row, "the BoQ says this unit's price includes ..." (read by the model) */ boqNote?: string;
+    /** VRF-5 (owner R1 SAFEGUARD, U1): "This row may include extras - please review" -- what / why, one point per inclusion
+     *  a heading or note states (added, or not added because the BoQ quotes it on its own row) */
+    review?: { title: string; points: string[] };
+    /** VRF-5 (owner R1, U1): further items the BoQ lists with the unit that are no extra -- one note point each, not priced */
+    notes?: { title: string; points: string[] } };
+}
+
+/** VRF-3b (U1 / U2 / U3 / U8): one field of an extra line. */
+export interface ExtraFieldView {
+  /** K1b: "family" (the line's item -- Change item), "size", "cladding", "thickness", "conductor", "armour", "cores", "sqmm",
+   *  "spec" (read-only), "length", "count" */
+  id: string;
+  /** VRF-3b K1b (owner 16:07, ANSWER 2): the line's ITEM, changed through "Change item" as on every item-list line */
+  changeItem?: true;
+  /** what a read-only value is in ("mm"); absent = shown as is */
+  suffix?: string;
+  label: string;
+  /** the value that PRICES (a typed rough size shows the closest stocked size -- "show the one used", 13:53) */
+  value: string;
+  /** what the pricer typed in the "Other..." box */
+  typedValue: string;
+  options?: string[];
+  allowOther?: boolean;
+  otherMode?: boolean;
+  required?: boolean;
+  /** U2: where the value came from -- the Pricing Inputs default (amber), picked by you (blue), from the BoQ, or the
+   * copper line it follows */
+  tag?: "default" | "picked" | "boq" | "follows";
+  tagText?: string;
+  /** U8: the pricer changed this field (the undo arrow) */
+  userEdited: boolean;
+  blank?: boolean;
+  note?: string;
+  readOnly?: true;
+}
+
+/** VRF-3b (U1 / U4, boards 12 / 13): one extra line -- priced by its own category's rules, per Nos of the row. */
+export interface ExtraLineView {
+  id: ExtraLineId;
+  /** the unit block it belongs to */
+  unitIndex: number;
+  lineNo: number;
+  /** "Item N · extra the BoQ includes · from Piping" */
+  heading: string;
+  /** "Copper pipe - supply line" */
+  title: string;
+  /** VRF-4 (U2): a BoQ row's line -- the model read that the unit's price includes it ("from the BoQ") */
+  fromBoq?: true;
+  fromBoqText?: string;
+  fields: ExtraFieldView[];
+  state: "priced" | "blank";
+  reason?: string;
+  working: string[];
+  /** the per-metre rate, kept where known even when the line cannot price (B: "unit rate kept where known") */
+  perMetre?: { supply: number; install: number };
+  figures: Partial<Record<RateKind, number>>;
+  /** VRF-5 (owner R1): an ACCESSORY line -- one that cannot price (no catalogue match, a default not set) is a note, never a
+   *  block: the row prices without it */
+  optional?: true;
 }
 
 /** The whole item-list view a suggestion carries for the panel. */
@@ -2431,6 +2741,33 @@ export interface ItemListView {
    * 474, beside a headline that already said 474).
    */
   totals?: Partial<Record<RateKind, number>>;
+  /**
+   * VRF-3a (U1 / U2 / U3, boards 6-8): the helper's split on this row -- the row note saying what was split and how, the
+   * D-3 condition the row states, and once the pricer changed a line / removed one / added one: the amber box, the
+   * lines-vs-total note and "Reset to the helper's split". Present ONLY on a row with a split.
+   */
+  split?: { note: string; sumNote?: string; condition?: string; changed?: string; linesNote?: string; resetLabel: string };
+  /** VRF-3a K2 (U4 / U5 / U6, boards 9 / 11): the bold bar above the card on a per-Set or whole-lot row -- orange when the
+   * row prices on the team rule, red when it is not priced -- and the ringed "Unit Set · Qty q" line. */
+  unitBar?: { tone: "orange" | "red"; title: string; lines: string[]; ring?: string };
+  /** VRF-4 (R-WS, D-5 "option D", D-9): the solid red WORKING + STANDBY bar above the card and the ringed unit and quantity,
+   * raised only by the model's copied W+S words. The price is ONE unit: nothing else changes. */
+  standbyBar?: { title: string; lines: string[]; ring: string };
+  /** VRF-3a K2 (U4): the per-item quantity box's label on a per-Set row ("Pieces in one Set of this row"). */
+  qtyLabel?: string;
+  /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" -- shown only on a per-Set row with a counted
+   * item. Never on a BoQ row (the row's own quantity is read). */
+  rowQtyField?: { label: string; value: string };
+  /** VRF-3b (U6): the calculator's "This row's price includes" tick boxes ("Insulation needs copper piping"). Present
+   * only in the calculator, on a config that declares `extras`. */
+  extrasIncludes?: { title: string; options: Array<{ id: ExtraIncludeId; label: string; checked: boolean; disabled?: boolean; note?: string;
+    /** VRF-8 (R-F3): included, but its lines were removed with their x on every unit -- shown unticked, kept in the include list */
+    removed?: boolean }> };
+  /** VRF-3b (U4): on a row with extras every LINE counts for "n of m items need a person" -- each unit, each extra */
+  lineCount?: { lines: number; bad: number };
+  /** VRF-5 (owner R4-R8, U5): the row's scope -- supply only (install 0 on every line) / installation only (supply 0, install x
+   *  (1 + the uplift)) -- with its note and, in the calculator, the "BoQ scope" choice. Absent on a supply + installation row. */
+  scope?: { value: string; note?: string; picker?: { title: string; options: string[]; value: string } };
   /**
    * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
    * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
@@ -2499,6 +2836,19 @@ export function unitChoicesOf(spec: ItemListPricingSpec, families: readonly (str
     seen.add(word);
     out.push(spelling);
   }
+  // VRF-3a K2 (owner SET; U4 "Set in the Row unit list"): a config pricing per Set offers its first per-Set spelling right
+  // after the spelling of the class it prices in, so the calculator can state a Set row. ABSENT => byte-identical.
+  const ps = spec.per_set?.units?.[0];
+  if (ps && !seen.has(ps.trim().toLowerCase())) {
+    const cls = unitClassOf(spec, ps);
+    const first = cls !== null ? spec.unit_classes[cls]?.[0] : undefined;
+    const at = first !== undefined ? out.indexOf(first) : -1;
+    if (at >= 0) out.splice(at + 1, 0, ps);
+  }
+  // VRF-3b (owner 01:15 "Lot in the calculator's Row unit", calculator = panel; U7): a config declaring whole-lot spellings
+  // offers its first one LAST, so the calculator can state a Lot row and see the panel's red bar. ABSENT => byte-identical.
+  const lot = spec.lot_units?.units?.[0];
+  if (lot && !seen.has(lot.trim().toLowerCase())) out.push(lot);
   return out;
 }
 
@@ -2746,7 +3096,9 @@ function itemBlockView(
     // a "None" (or an absent-as-none) answer shows the ruled default it became, marked; the pricer's own pick
     // shows as picked
     // ADP-1 (owner H3 (d) / U2): a TYPED-ONLY box the pricer cleared is not stated either -- it shows its ruled default
-    const defaulted = !!d && (stated === "None" || stated === "") && (!userEdited || (stated === "" && !!spec.numbers[f.skuAttr]?.typed_only));
+    const defaulted = !!d && (stated === "None" || stated === "") && (!userEdited || (stated === "" && !!spec.numbers[f.skuAttr]?.typed_only))
+      // VRF-2b (R-BRAND): a stated brand off the sheet / several brands priced as the default shows the default, amber
+      || (!!d && d.asWritten !== undefined && !userEdited);
     const tm = userEdited ? undefined : textMappedBy.get(f.skuAttr);
     let value = defaulted ? d!.value : tm ? tm.value : stated;
     // ADP-1 (owner H3): a typed-only number read from the size as written shows the value USED, with its line below
@@ -2914,7 +3266,10 @@ function itemBlockView(
     const readerLine = (() => {
       if (!matched || matched.by !== "number") return undefined;
       const rd = spec.numbers[f.skuAttr];
-      const r = rd ? readNumber(matched.from, rd) : null;
+      // VRF-2b (R-CONV): a unit-converting reader says how it converted ("4 HP / 1.25 (HP per TR, ...) = 3.2 TR")
+      const r = rd?.units
+        ? readCapacity(matched.from, rd, { familyUnit: familyUnitOf(spec, items, family, rd), factorOf: (id) => pricingInputFactor(items, id), family })
+        : rd ? readNumber(matched.from, rd) : null;
       if (!r || !("value" in r) || !r.note) return undefined;
       const quoted = `'${matched.from}' `;
       return r.note.startsWith(quoted) ? r.note.slice(quoted.length) : r.note;
@@ -2948,6 +3303,16 @@ function itemBlockView(
     }
     if (lr && !note) note = lr.line;
     if (fr && !note) note = fr.line;
+    /**
+     * VRF-2b (owner R-CONV, U3): a capacity READ IN ANOTHER UNIT says the conversion, then where the ladder put it --
+     * "5 kW / 3.517 (kW per TR, Pricing Inputs) = 1.42 TR -> priced as 1.5 TR (next size up)". It replaces the ladder's
+     * own "You typed 5 -> priced as 1.5" line, whose 5 was never in the family's unit.
+     */
+    const unitRead = res.unitReads?.[f.skuAttr];
+    const capUnit = spec.numbers[f.skuAttr]?.units ? familyUnitOf(spec, items, family, spec.numbers[f.skuAttr]) : null;
+    if (unitRead) {
+      note = unitRead + (hop && hop.requested !== hop.fitted ? ` -> priced as ${fmtNum(hop.fitted)} ${capUnit ?? ""} ${hopLandedWords(hop)}`.replace(/\s+/g, " ") : "");
+    }
     /**
      * ADP-3a (U6): A TYPED SIZE OR AREA BOX SAYS WHAT PRICING READ FROM IT. The owner's standing rule ("every
      * attribute shows the value actually used with a note on how it landed there") reached the dropdowns and the
@@ -2987,6 +3352,9 @@ function itemBlockView(
       note = ov.rule;
       if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
     }
+    // VRF-2b (owner U2 A): each size option of a unit-converting reader shows its unit ("16HP", "1.5TR"); the option's
+    // VALUE stays the bare number (what prices and what is stored)
+    if (capUnit && !optionLabels && (f.options ?? []).length) optionLabels = Object.fromEntries((f.options ?? []).map((o) => [o, `${o}${capUnit}`]));
     // SLICE 12e-5b (owner R6, AC1): a size written two ways that do not agree ('1/2" (15.9mm)') refused the row --
     // the box shows no figure it refused on (the inch half alone would read as a stocked size), and the line says why
     const echo = f.skuAttr in spec.numbers ? inchWithMmEcho(stated) : null;
@@ -2997,7 +3365,7 @@ function itemBlockView(
     }
     // OWNER FA8(c)/(d): a size field a pricer can type into explains HOW the value will be matched --
     // every number in the explanation read from the LIVE options, never written here.
-    const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [])?.lines : undefined;
+    const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [], family)?.lines : undefined;
     /**
      * ADP-3a (U3 / U4): THE OUTLINE IS KEYED TO THE FIELD. A refusal now says WHICH facts it is about (`missing`,
      * `refusedFor`, `sizeRefused`) and a field is outlined when it feeds one of them -- its own SKU attribute or any
@@ -3070,6 +3438,14 @@ function itemBlockView(
       otherMode: otherMode || defaultInBox,
       ...(note ? { note } : {}),
       ...(optionLabels ? { optionLabels } : {}),
+      // VRF-2b (owner Q3 / U1): the unit picker beside the typed box -- only on a reader declaring `units`
+      ...(f.allowOther && spec.split && spec.compose?.attr === f.skuAttr && family !== null && spec.split.families.includes(family) ? { splitOnCommit: true as const } : {}),
+      ...(capUnit && f.allowOther ? { unitPicker: {
+        id: `${f.id}${UNIT_PICK_SUFFIX}`,
+        units: unitPickerUnits(spec.numbers[f.skuAttr]),
+        value: (() => { const v = edit.attrs[`${f.id}${UNIT_PICK_SUFFIX}`]; return typeof v === "string" && v ? v : capUnit; })(),
+        defaultUnit: capUnit,
+      } } : {}),
       ...(matchHelp && matchHelp.length ? { matchHelp } : {}),
       blank: value === "" && needed,
       // ADP-3a (U3 / U4): a box that HOLDS words but did not give what the refusal needs is outlined too
@@ -3099,7 +3475,23 @@ function itemBlockView(
   }
   return {
     index: res.index,
-    source: edit.base !== null && edit.family === null ? "model" : "user",
+    source: edit.helper ? "helper" : edit.base !== null && edit.family === null ? "model" : "user",
+    ...(edit.helper ? {
+      helperLine: edit.helper.stated
+        ? `From the split ${edit.helper.stated.typed ? "you typed" : "the row states"}: ${edit.helper.size} ${edit.helper.unit}`.trim()
+        : (edit.helper.cover && edit.helper.cover.picked > 0
+          ? `From the next-best option you chose for ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`
+          : `From the helper's split of ${fmtN(edit.helper.total)} ${edit.helper.unit} -> ${edit.helper.size} ${edit.helper.unit}`).replace(/\s+$/, ""),
+      ...(helperLineChanged(edit) ? { changedByYou: true as const } : {}),
+    } : {}),
+    ...(() => {
+      const c = edit.helper ? (edit.helper.i === 0 ? edit.helper.cover : undefined) : res.cover;
+      if (!c || c.options.length < 2) return {};
+      const o = c.options[c.picked];
+      const u = c.unit ? ` ${c.unit}` : "";
+      return { cover: { option: c.picked + 1, of: c.options.length, userChosen: c.picked > 0, next: c.picked > 0 ? 0 : 1,
+        label: `${c.picked > 0 ? "Next-best option (chosen by you)" : "The helper's pick"}: ${o.layers.map(fmtN).join(" + ")}${u} for the BoQ's ${fmtN(c.total)}${u}` } };
+    })(),
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
     // SLICE 12e-2 (owner Q16 / Q15 / P1): the `family_text` line, and the family CONTROL where the config
@@ -3244,6 +3636,170 @@ interface OwnPassProbe {
   edits?: ItemListEditState;
   /** out: block index -> its priced layers (the first is the item's own result) */
   layers?: Map<number, ItemPriceResult[]>;
+  /** out: VRF-5 (owner R1) -- the further model items folded off a unit row (never priced as items, never a block) */
+  folded?: Array<{ base: number; family: string | null }>;
+}
+
+/** VRF-3a: a number as the split's lines say it (2 decimals at most). */
+function fmtN(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)));
+}
+
+/** VRF-3a (Q3): the line as the split made it, as one comparable key -- a line that differs from it was changed. */
+function helperMadeKey(e: Pick<ItemEdit, "family" | "attrs" | "qty" | "other">): string {
+  const attrs = Object.keys(e.attrs).sort().map((k) => [k, e.attrs[k]]);
+  return JSON.stringify({ f: e.family, a: attrs, q: e.qty ?? null, o: [...(e.other ?? [])].sort() });
+}
+
+/** VRF-3a (U2): the pricer changed this line of the helper's split. PURE. */
+function helperLineChanged(e: ItemEdit): boolean {
+  return !!e.helper && helperMadeKey(e) !== e.helper.made;
+}
+
+/**
+ * VRF-3a (owner R-SPLIT, D-1, SHAPE Q3) -- PURE. The edit state with every requested split applied: the entry is replaced by
+ * one line per size, each keeping the entry's brand / variant answers (its other attributes, quantity and base) and
+ * carrying the hidden tag. The size sits in the tag, not in `attrs`, so the field shows it as the helper's.
+ */
+export function splitEdits(
+  spec: ItemListPricingSpec,
+  edits: ItemListEditState,
+  splits: ReadonlyMap<number, NonNullable<ItemPriceResult["splitInto"]>>,
+  modelItems: readonly ExtractedListItem[],
+  rowText: string,
+): ItemListEditState {
+  const out: ItemEdit[] = [];
+  edits.items.forEach((e, idx) => {
+    const sp = splits.get(idx);
+    if (!sp) { out.push(e); return; }
+    const fid = spec.numbers[sp.attr]?.from?.[0] ?? sp.attr;
+    const attrs = { ...e.attrs };
+    delete attrs[fid];
+    delete attrs[`${fid}${UNIT_PICK_SUFFIX}`];
+    const other = (e.other ?? []).filter((x) => x !== fid);
+    const line: ItemEdit = { base: e.base, family: e.family, attrs, ...(e.qty !== undefined ? { qty: e.qty } : {}), ...(other.length ? { other } : {}) };
+    const typedSize = Object.prototype.hasOwnProperty.call(e.attrs, fid);
+    const sizeText = typedSize ? e.attrs[fid] : String((e.base !== null ? modelItems[e.base]?.attributes?.[fid]?.value : "") ?? "");
+    const cond = (() => {
+      const c = spec.split?.conditions;
+      if (!c) return undefined;
+      for (const w of c.words) {
+        let m: RegExpExecArray | null = null;
+        try { m = new RegExp(w, "i").exec([sizeText, rowText].join(" | ")); } catch { m = null; }
+        if (m) return m[0].trim();
+      }
+      return undefined;
+    })();
+    const { helper: _h, ...from } = e;
+    sp.layers.forEach((size, i) => {
+      out.push({ ...line, attrs: { ...attrs }, ...(other.length ? { other: [...other] } : {}), helper: {
+        g: idx, i, n: sp.layers.length, attr: fid, size: fmtN(size), layers: sp.layers.map(fmtN), total: sp.total, unit: sp.unit, exact: sp.exact, top: sp.top,
+        rowN: 0, made: helperMadeKey(line), from: { ...from, attrs: { ...from.attrs } },
+        ...(sp.readNote ? { readNote: sp.readNote } : {}),
+        ...(sp.stated ? { stated: { ...sp.stated, typed: typedSize } } : {}),
+        ...(cond ? { cond } : {}),
+        ...(sp.why ? { why: sp.why } : {}),
+        ...(sp.cover ? { cover: sp.cover } : {}),
+      } });
+    });
+  });
+  for (const e of out) if (e.helper) e.helper.rowN = out.length;
+  return { ...edits, items: out };
+}
+
+/**
+ * VRF-3a (U1 / U2 / U3, boards 6-8) -- PURE. What the panel says about the helper's split on this row: the row note (the
+ * helper's split or the split the row writes), the D-3 condition, and -- once the pricer changed a line, removed one or
+ * added one -- the amber box, the lines-vs-total note and the reset button. Read off the hidden tags and the priced lines.
+ */
+function splitViewOf(spec: ItemListPricingSpec, edits: ItemListEditState, layersBySource: Map<number, ItemPriceResult[]>): ItemListView["split"] {
+  const marks = edits.items.map((e) => e.helper).filter((h): h is HelperMark => !!h);
+  if (!marks.length) return undefined;
+  const h = marks[0];
+  const u = h.unit ? ` ${h.unit}` : "";
+  const groups = new Map<number, HelperMark[]>();
+  for (const m of marks) groups.set(m.g, [...(groups.get(m.g) ?? []), m]);
+  const sizesOf = (g: HelperMark[]) => [...g].sort((a, b) => a.i - b.i).map((m) => m.size);
+  const notes: string[] = [];
+  let sumNote: string | undefined;
+  for (const g of groups.values()) {
+    const m = g[0];
+    const all = m.stated ? m.stated.modules.map(fmtN) : (Array.isArray(m.layers) && m.layers.length ? m.layers : sizesOf(g));
+    if (m.stated) {
+      const tot = m.stated.total ?? m.stated.sum;
+      notes.push(`${m.readNote ? `${m.readNote}. ` : ""}${m.stated.typed ? "You typed" : "The row states"} a split: ${all.join(" + ")}${u} (total ${fmtN(tot)}${u}) -> one line per module, each priced on its own.`);
+      if (m.stated.total !== null && m.stated.total !== m.stated.sum) {
+        sumNote = `The modules add up to ${fmtN(m.stated.sum)}${u}, not the ${fmtN(m.stated.total)}${u} the split states. Each module is priced as written: check this is what you meant.`;
+      }
+    } else if (m.why) {
+      // VRF-6 (F8): a pair / set the helper chose before the next size up says so, in the config's words
+      notes.push(`${m.readNote ? `${m.readNote}. ` : ""}${m.why} Each unit is its own item below: change, add or remove them.`);
+    } else {
+      notes.push(`${m.readNote ? `${m.readNote}. ` : ""}${fmtN(m.total)}${u} is bigger than the largest unit (${fmtN(m.top)}${u}), so the helper split it: ${all.join(" + ")}${u} `
+        + `(${m.exact ? "fewest units that add up exactly" : "fewest units, the smallest total above"}; the cheapest of the equal splits). `
+        + `Each unit is its own item below: change, add or remove them.`);
+    }
+    // VRF-6 (F8 / Q4): a split into three or more modules carries its own note
+    const nMods = all.length;
+    if (nMods >= 3 && spec.split?.many_line) notes.push(spec.split.many_line.replace("{n}", String(nMods)));
+  }
+  const cond = marks.find((m) => m.cond)?.cond;
+  const condLine = cond && spec.split?.conditions ? spec.split.conditions.line.replace("{said}", cond) : undefined;
+  const changed = edits.items.some((e) => helperLineChanged(e))
+    || [...groups.values()].some((g) => g.length < g[0].n)
+    || edits.items.length > h.rowN;
+  let linesNote: string | undefined;
+  if (changed) {
+    const fams = new Set(spec.split?.families ?? []);
+    let sum = 0;
+    edits.items.forEach((_e, i) => {
+      const r = (layersBySource.get(i) ?? [])[0];
+      if (!r || !r.family || !fams.has(r.family)) return;
+      const v = r.readValues?.[h.attr] ?? r.selection?.[h.attr];
+      const n = typeof v === "number" ? v : Number(v);
+      const q = typeof r.qty === "number" && Number.isFinite(r.qty) ? r.qty : 1;
+      if (Number.isFinite(n)) sum += n * q;
+    });
+    const target = h.stated ? (h.stated.total ?? h.stated.sum) : h.total;
+    sum = Math.round(sum * 100) / 100;
+    if (sum !== target) linesNote = `The lines add up to ${fmtN(sum)}${u}; the BoQ says ${fmtN(target)}${u}. The row is still priced as you set it: check this is what you meant.`;
+  }
+  return {
+    note: notes.join(" "),
+    ...(sumNote ? { sumNote } : {}),
+    ...(condLine ? { condition: condLine } : {}),
+    ...(changed ? { changed: "You changed the helper's split. The helper will not split this row again: the lines below stay as you set them. The row total is the sum of the lines." } : {}),
+    ...(linesNote ? { linesNote } : {}),
+    resetLabel: "Reset to the helper's split",
+  };
+}
+
+/**
+ * VRF-5 (owner R1 18:14-18:21). PURE. The model items a unit row folds off: only on a config whose `extras` declares `folded`,
+ * only when the row's FIRST entry is a unit (`extras.roles`), and only an untouched MODEL entry after it (the pricer's own item,
+ * a changed family or a helper's split line is theirs) whose family is no unit role. Null when nothing folds.
+ */
+function foldedModelItems(spec: ItemListPricingSpec, edits: ItemListEditState, modelItems: ExtractedListItem[]):
+  { kept: ItemEdit[]; points: Array<{ base: number; family: string | null }> } | null {
+  const x = spec.extras;
+  if (!x?.folded || edits.items.length < 2) return null;
+  const fa = familyAttr(spec);
+  const famOf = (e: ItemEdit): string | null => {
+    if (e.family !== null) return e.family;
+    const v = e.base !== null ? modelItems[e.base]?.attributes?.[fa]?.value : null;
+    return typeof v === "string" && v.trim() !== "" ? v : null;
+  };
+  const first = famOf(edits.items[0]);
+  if (!first || !x.roles[first]) return null;
+  const kept: ItemEdit[] = [edits.items[0]];
+  const points: Array<{ base: number; family: string | null }> = [];
+  for (const e of edits.items.slice(1)) {
+    const fam = famOf(e);
+    const untouched = e.base !== null && e.family === null && !e.helper && Object.keys(e.attrs).length === 0 && e.qty === undefined;
+    if (untouched && !(fam && x.roles[fam])) points.push({ base: e.base!, family: fam });
+    else kept.push(e);
+  }
+  return points.length ? { kept, points } : null;
 }
 
 function computeItemListOwn(
@@ -3279,9 +3835,17 @@ function computeItemListOwn(
    * edit index on the panel: dropping only its view would hand the next block's edits to the wrong item.
    */
   const merge = applyFamilyMerge(spec, assembleItems(decoded, modelItems, familyAttr(spec)), [rowText, ownText, headingNoteText].join(" | "));
-  const edits: ItemListEditState = merge ? { ...decoded, items: merge.kept.map((i) => decoded.items[i]) } : decoded;
-  if (probe) probe.edits = edits;
-  const assembled = merge ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
+  const editsMerged: ItemListEditState = merge ? { ...decoded, items: merge.kept.map((i) => decoded.items[i]) } : decoded;
+  // VRF-5 (owner R1 18:14-18:21): on a row whose ITEM 1 is a unit, a further MODEL item of any other family (an accessory the
+  // BoQ says the unit's price includes, a "none of these", a family-less item) is folded off the row: never priced as an item,
+  // never blocking -- an accessory becomes the unit's own extra line (`withExtras`), anything else a note point
+  const folded = foldedModelItems(spec, editsMerged, modelItems);
+  const edits: ItemListEditState = folded ? { ...editsMerged, items: folded.kept } : editsMerged;
+  if (probe) { probe.edits = edits; if (folded) probe.folded = folded.points; }
+  // VRF-3a (Q3): the helper may split only a row none of whose entries came from a split
+  const anyHelper = edits.items.some((e) => e.helper);
+  const assembled0 = merge && !folded ? merge.items : assembleItems(edits, modelItems, familyAttr(spec));
+  const assembled = spec.split && !anyHelper ? assembled0.map((a) => ({ ...a, splitAllowed: true as const })) : assembled0;
   // SLICE 12c-S (owner S2 / S10): the picker offers only the units the chosen items can be priced in.
   const chosenFamilies = assembled.map((a) => {
     const v = a.attributes[familyAttr(spec)]?.value;
@@ -3295,8 +3859,23 @@ function computeItemListOwn(
   // per metre while the row still carried a sq.m pick left the row refusing "no SKU per sq.m", with
   // a unit on screen the picker no longer lists. The first surviving choice stands instead.
   const picked = overrides?.[ROW_UNIT_OVERRIDE_KEY];
+  /**
+   * VRF-5 B2 (the VRF-4 review F6: "an MS stand on a Nos row gets the per-Kg rate (00350 r135, 00397 r172); the panel refuses
+   * correctly") -- ON A CONFIG WITH `extras` (VRF) a unit the pricer PICKED that is a unit of this category stays, even once the
+   * items chosen are not stocked in it: the item then refuses with the panel's own sentence ("MS Angle Base Frame Structure is
+   * not stocked per Nos (stocked per Kg)") instead of being priced silently per Kg. The pick stays in the list, so the screen
+   * shows the unit the row is priced in. Every other config keeps 12c-S's rule (a pick no longer offered is not honoured).
+   */
+  const keepPick = unitPickable && !!spec.extras && picked !== undefined && picked !== "" && !unitChoices.includes(picked) && unitClassOf(spec, picked) !== null;
+  // VRF-9 (S7): on a config with `lot_units.calculator_refuses` a picked whole-lot unit ("per HP") stays -- the row then refuses
+  // with the panel's own lot line instead of pricing per Nos
+  const keepLot = unitPickable && !!spec.lot_units?.calculator_refuses && picked !== undefined && picked !== "" && !unitChoices.includes(picked) && isLotUnit(spec, picked);
+  if (keepPick || keepLot) unitChoices.push(picked!);
+  // VRF-10 (F1): on a VRF-10 config a unit typed as BLANK (a BoQ row with no unit, copied in as it is; the screen's picker never
+  // sends "") stays blank -- the row then refuses with the panel's "no unit on this row" instead of pricing per the first unit
+  const blankKept = unitPickable && picked === "" && vrf10On(spec);
   const unit = unitPickable
-    ? ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? "")
+    ? (blankKept ? "" : ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? ""))
     : ctx.unit!;
   const defs = listSpecDefs(category);
   const rowClass = unitClassOf(spec, unit);
@@ -3351,7 +3930,13 @@ function computeItemListOwn(
       // match a stocked option and the box would show a size the row then refuses on
       const echo = inchWithMmEcho(raw);
       if (echo !== null && "conflict" in echo) continue;
-      const hit = matchStatedToOptionDetailed(raw, opts, spec.numbers[f.skuAttr]);
+      // VRF-2b (R-CONV): a unit-converting reader reads the stated text in its unit and converts it to the family's
+      // ("12 TR" on an HP family is 15 HP -- no option, so the ladder shows 16; never the option "12")
+      const rdU = spec.numbers[f.skuAttr];
+      const readStated = rdU?.units
+        ? (t: string) => readCapacity(t, rdU, { familyUnit: familyUnitOf(spec, items, fam, rdU), factorOf: (id) => pricingInputFactor(items, id), family: fam })
+        : undefined;
+      const hit = matchStatedToOptionDetailed(raw, opts, rdU, readStated);
       if (hit === null || hit.to === raw) continue;
       attributes[f.id] = { ...attributes[f.id], value: hit.to };
       matches.set(f.id, { from: raw, to: hit.to, by: hit.by });
@@ -3402,9 +3987,55 @@ function computeItemListOwn(
     for (const id of (clearedPicks[i] ?? new Map()).keys()) attributes[id] = { value: null, cleared: true };
     return { ...a, attributes };
   });
+  /**
+   * VRF-3a K2 (owner SET 17:00 / 17:37 / 17:39 / 18:49; QR-1 (a)) -- A COUNTED ITEM ON A PER-SET ROW. A refnet on a Set row
+   * holds as many pieces as the system's unit counts and the BoQ quantity say (`countedPieces`); the pieces become the
+   * item's quantity per row unit. A count or the quantity missing, or a quantity that fits no reading, gives no pieces:
+   * the quantity goes blank and the item refuses, so the row is withheld. A quantity the pricer TYPED wins outright.
+   */
+  const perSetRow = isPerSetUnit(spec, unit);
+  const counted = perSetRow ? spec.per_set?.counted : undefined;
+  const rowQtyText = calculator ? (overrides?.[ROW_QTY_OVERRIDE_KEY] ?? "") : "";
+  const rowQty = calculator
+    ? (rowQtyText.trim() === "" ? null : Number(rowQtyText.trim()))
+    : (typeof ctx.quantity === "number" ? ctx.quantity : null);
+  const countedByBlock = new Map<number, CountedPieces & { typed: boolean }>();
+  if (counted) {
+    forDisplay.forEach((a, i) => {
+      const famV = a.attributes[familyAttr(spec)]?.value;
+      if (typeof famV !== "string" || !counted.families.includes(famV)) return;
+      const e = edits.items[i];
+      // the three answers as the item carries them -- typed by the pricer or read from the row (a model item's attributes)
+      const said = (id: string) => { const v = a.attributes[id]?.value; return v === null || v === undefined ? undefined : String(v); };
+      const answers = Object.fromEntries([counted.covers.id, ...counted.counts.map((c) => c.id), ...(counted.defined ? [counted.defined.attr] : [])].map((id) => [id, said(id)]));
+      // VRF-4 (q2): a count the row did not answer is added up from the sheet (a typed count -- even blank -- stays the pricer's)
+      for (const c of counted.counts) {
+        const sheet = ctx.sheetUnits?.[c.side];
+        if (answers[c.id] === undefined && sheet && sheet.rows.length) answers[c.id] = String(sheet.n);
+      }
+      const rc = countedPieces(counted, answers, rowQty);
+      const typed = e?.qty !== undefined;
+      countedByBlock.set(i, { ...rc, typed });
+      if (!typed) forPricing[i] = { ...forPricing[i], qtyPerRowUnit: rc.pieces !== null ? String(rc.pieces) : "" };
+    });
+  }
   // the row's texts are built above, where `family_merge` first reads them
   // ADP-5d (HN-3): the headings themselves too, so a rule can read the heading directly above the row on its own
   const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint, headingNoteText, ctx.headings ?? []);
+  /**
+   * VRF-3a (owner R-SPLIT (a) / (b), D-1, SHAPE Q3) -- THE HELPER'S SPLIT, AT THE SEAM. An item the pricer asked to split
+   * (above the largest of its resolved variant, or a split the row writes) is replaced by one REAL entry per line, each
+   * carrying the hidden tag, and the row is computed again from that edit state -- which is what `editState` returns,
+   * so the panel's next operation applies to the lines. The second pass carries the tags, so it never splits again.
+   */
+  if (spec.split && !anyHelper) {
+    const splits = new Map<number, NonNullable<ItemPriceResult["splitInto"]>>();
+    priced.items.forEach((p, idx) => { if (p.splitInto) splits.set(typeof p.sourceIndex === "number" ? p.sourceIndex : idx, p.splitInto); });
+    if (splits.size) {
+      const next = splitEdits(spec, edits, splits, modelItems, [rowText, ownText].join(" | "));
+      return computeItemListOwn(category, spec, items, ctx, ext, inRun, { ...(overrides ?? {}), [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(next) }, probe);
+    }
+  }
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so
@@ -3494,6 +4125,48 @@ function computeItemListOwn(
                          e.family === null && e.base !== null ? modelItems[e.base] : undefined,
                          ladderedPicks[i] ?? new Map());
   });
+  // VRF-3a K2 (U5): a counted item shows its three fields, the formula and the case; withheld, its box is blank and its
+  // refusal is the case's sentence
+  if (counted) {
+    countedByBlock.forEach((rc, i) => {
+      const b = blocks[i];
+      if (!b) return;
+      const e = edits.items[i];
+      const said = (id: string) => { const v = forDisplay[i]?.attributes[id]?.value; return v === null || v === undefined ? "" : String(v); };
+      // VRF-3b (U8): a count the pricer typed carries its undo arrow
+      const edited = (id: string) => (e && Object.prototype.hasOwnProperty.call(e.attrs, id) ? { edited: true as const } : {});
+      // VRF-4 (q2, U5): a count added up from the sheet shows that count, with the rows it came from as its note
+      const fs = counted.from_sheet;
+      const fromSheetOf = (c: CountedSpec["counts"][number]) => {
+        const sheet = ctx.sheetUnits?.[c.side];
+        if (!fs || !sheet || forDisplay[i]?.attributes[c.id]?.value !== undefined && forDisplay[i]?.attributes[c.id]?.value !== null) return null;
+        const rows = sheet.rows.map((r) => `row ${r.row}${r.units > 1 ? ` (${r.units} units)` : ""} x ${r.qty === null ? "no qty" : fmtN(r.qty)}`).join(", ");
+        return { value: sheet.rows.length ? String(sheet.n) : "", note: (sheet.rows.length ? fs.line : fs.none).replace("{n}", String(sheet.n)).replace("{word}", c.word).replace("{rows}", rows) };
+      };
+      const fields = [
+        { id: counted.covers.id, label: counted.covers.label, ...(counted.covers.note ? { note: counted.covers.note } : {}), options: counted.covers.options.map((o) => o.value), value: said(counted.covers.id), ...edited(counted.covers.id) },
+        ...counted.counts.map((c) => {
+          const sheet = fromSheetOf(c);
+          return sheet
+            ? { id: c.id, label: c.label, note: sheet.note, value: sheet.value, fromSheet: true as const }
+            : { id: c.id, label: c.label, ...(c.note ? { note: c.note } : {}), value: said(c.id), ...edited(c.id) };
+        }),
+      ];
+      const sentence = rc.typed ? counted.lines.typed.replace("{p}", String(e?.qty ?? "")) : rc.sentence;
+      blocks[i] = {
+        ...b,
+        setCount: { fields, ...(rc.formula ? { formula: rc.formula } : {}), sentence, pieces: rc.typed ? null : rc.pieces, typed: rc.typed },
+        ...(!rc.typed ? { qty: rc.pieces !== null ? String(rc.pieces) : "", qtyDefaulted: false } : {}),
+        ...(!rc.typed && rc.pieces === null ? { reason: sentence } : {}),
+      };
+    });
+  }
+  // VRF-3a K2 (U5): a row withheld because a refnet's pieces are not worked out says WHY (the case's sentence), not the
+  // pricer's generic "quantity per row unit is blank" that the blank pieces produced
+  const countedReason = priced.reason === "quantity per row unit is blank"
+    ? [...countedByBlock.values()].find((rc) => !rc.typed && rc.pieces === null)?.sentence
+    : undefined;
+  const rowReason = countedReason ?? priced.reason;
   const values: Record<string, number> = {};
   if (priced.priced && !unshowableReason) {
     if (typeof priced.supply === "number") values.supply_rate = priced.supply;
@@ -3510,9 +4183,48 @@ function computeItemListOwn(
   const derivation: string[] = [];
   if (rowPriced) derivation.push(`Row total per 1 ${unit}: supply ${priced.supply} + install ${priced.install}`);
   else if (unshowableReason) derivation.push(unshowableReason);
-  else if (priced.reason) derivation.push(priced.reason);
+  else if (rowReason) derivation.push(rowReason);
+  const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
+  // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
+  const unitBar = ((): ItemListView["unitBar"] => {
+    if (isLotUnit(spec, unit) && spec.lot_units) {
+      // VRF-5 (owner wording): a unit with its own bar title ("per HP") says so; every other lot unit keeps the one bar
+      const own = Object.entries(spec.lot_units.bar_by_unit ?? {}).find(([u]) => u.trim().toLowerCase() === unit.trim().toLowerCase())?.[1];
+      return { tone: "red", title: own ?? spec.lot_units.bar, lines: [spec.lot_units.line.replace("{unit}", unit.trim())] };
+    }
+    if (!perSetRow || !spec.per_set) return undefined;
+    const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? String(rowQty) : "-";
+    const ring = `Unit ${unit.trim()} \u00b7 Qty ${qtyShown}`;
+    const others = blocks.filter((b, i) => !countedByBlock.has(i) && b.family);
+    const setLine = spec.per_set.bar.line.replace("{item}", others[0]?.family ?? blocks[0]?.family ?? "piece");
+    if (countedByBlock.size && counted) {
+      const withheld = [...countedByBlock.values()].some((rc) => !rc.typed && rc.pieces === null);
+      const lines = [...countedByBlock.entries()].flatMap(([i]) => (blocks[i]?.setCount ? [blocks[i].setCount!.sentence] : []));
+      return { tone: withheld ? "red" : "orange", title: counted.bar, lines: [...new Set(lines)].concat(others.length ? [setLine] : []), ring };
+    }
+    return { tone: "orange", title: spec.per_set.bar.title, lines: [setLine], ring };
+  })();
+  // VRF-4 (R-WS, D-5 "option D", D-9): the model's copied working + standby words raise the red bar -- ONLY words matching the
+  // config's list (never a standby-only or heading-only mention); the price stays ONE unit
+  const standbyBar = ((): ItemListView["standbyBar"] => {
+    const ws = spec.working_standby;
+    if (!ws) return undefined;
+    const said = [...new Set(forDisplay.map((a) => workingStandbyWords(ws, a.attributes[ws.attr]?.value)).filter((w): w is string => w !== null))];
+    if (!said.length) return undefined;
+    const qtyShown = rowQty !== null && Number.isFinite(rowQty) ? fmtN(rowQty) : "-";
+    return {
+      title: ws.bar.title,
+      lines: said.map((w) => ws.bar.line.replace("{said}", w).replace("{qty}", qtyShown)),
+      ring: `Unit ${unit.trim() || "-"} · Qty ${qtyShown}`,
+    };
+  })();
   const view: ItemListView = {
-    unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
+    ...(splitView ? { split: splitView } : {}),
+    ...(standbyBar ? { standbyBar } : {}),
+    ...(unitBar ? { unitBar } : {}),
+    ...(perSetRow && spec.per_set ? { qtyLabel: spec.per_set.qty_label } : {}),
+    ...(calculator && counted && countedByBlock.size ? { rowQtyField: { label: "BoQ quantity of this row", value: rowQtyText } } : {}),
+    unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? rowReason) ? { reason: unshowableReason ?? rowReason } : {}),
     ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
     ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
     items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
@@ -3569,6 +4281,1985 @@ function computeItemListOwn(
 // only things this pass adds are the toggle, the mirror and the row's totals.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15) -- THE EXTRAS A UNIT'S PRICE
+// INCLUDES. Copper (supply + return), insulation on each copper line, power cable and communication cable, as OWN LINES
+// under each indoor / outdoor unit (each split module its own unit), PER NOS of the row (11:56 "per unit only...qty has no
+// bearing"). Each line is priced by ITS OWN category's rules -- Piping and Insulation through `computeItemListOwn` (the
+// path their own rows and calculator tabs take), the cable through Electrical's own compute, read only -- at a size
+// banded on the unit's capacity, from the Pricing Inputs defaults (12:07 live-linked). Per Nos = length x the per-metre
+// BoQ rate, rounded up, x "How many in one Nos". A config without `extras` never reaches this.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** VRF-3b: Electrical's own per-metre cable rate for one spec (the helper's compute on that category), or why not. */
+export type CableRate = (category: string, attrs: Record<string, string>, unit?: string) => { supply: number; install: number } | { reason: string };
+
+const EXTRA_LINE_ORDER: ExtraLineId[] = ["copper_supply", "copper_return", "ins_supply", "ins_return", "power", "comm"];
+
+/** PURE. The include ids ticked, from the calculator's override (or, on a BoQ row, the model's flags -- VRF-4). */
+export function extrasIncludesOf(raw: string | undefined | null): Set<ExtraIncludeId> {
+  const ok = new Set<string>(["copper", "insulation", "power", "comm"]);
+  return new Set(String(raw ?? "").split(",").map((s) => s.trim()).filter((s) => ok.has(s)) as ExtraIncludeId[]);
+}
+
+function fmtMm(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3)));
+}
+
+function withExtras(
+  spec: ItemListPricingSpec,
+  items: RateMasterItem[],
+  ctx: RowContextWithUnit,
+  ext: ExtractionRowWithItems | undefined,
+  overrides: Record<string, string> | undefined,
+  configOf: ConfigOf,
+  cableRate: CableRate | undefined,
+  own: ItemListSuggestion,
+  probe: OwnPassProbe,
+  /** VRF-5 (owner R1): the row's own category -- a VRF accessory line is priced by VRF's own rules */
+  category?: RateCategoryConfig,
+): ItemListSuggestion {
+  const x: ExtrasSpec = spec.extras!;
+  const view = own.itemList!;
+  const L = x.lines;
+  const calculator = view.unitPickable || ctx.noRow === true;
+  // the flags: the calculator's tick boxes; a BoQ row's from the model -- VRF-4 (owner "q1 ok"): PER ITEM, the model item's own
+  // includes_* answers (`x.from_model`; a split module reads its source item's); without `from_model` the row's `includes` cell
+  const modelFlags = ext?.attributes?.includes?.value;
+  const on = extrasIncludesOf(calculator ? overrides?.[EXTRAS_INCLUDES_KEY] : (typeof modelFlags === "string" ? modelFlags : undefined));
+  const edits0 = probe.edits ?? view.editState;
+  const modelItems0 = ext?.items ?? [];
+  const perItem = !calculator && !!x.from_model;
+  const boqOf = (i: number) => {
+    const e = edits0.items[i];
+    return boqExtrasOf(e && e.base !== null ? modelItems0[e.base] : undefined, x.from_model);
+  };
+  const onFor = (i: number): Set<ExtraIncludeId> => (perItem ? boqOf(i).includes : on);
+  const incSpec = new Map(x.includes.map((i) => [i.id, i]));
+  const activeIn = (set: Set<ExtraIncludeId>, id: ExtraIncludeId) => set.has(id) && (!incSpec.get(id)?.needs || set.has(incSpec.get(id)!.needs!));
+  const active = (id: ExtraIncludeId) => activeIn(on, id);
+  // VRF-5 (owner R1): the accessories -- the calculator's tick boxes beside the four; on a BoQ row the model's per-item answers,
+  // plus an accessory the model listed as an item of its own on the unit row (folded off it: every unit of its role carries it)
+  const accs = x.accessories ?? [];
+  const sg = x.safeguard;
+  // VRF-9 (S5): with `exact_quotes` a quoted text is an exact stretch (cut on a word, never an added "...")
+  const xq = (t: string, n = 120) => (sg?.exact_quotes ? cutExact(t, Math.max(n, 160)) : clip(t, n));
+  const onAcc = new Set<string>(calculator ? String(overrides?.[EXTRAS_INCLUDES_KEY] ?? "").split(",").map((t) => t.trim()).filter((t) => accs.some((a) => a.id === t)) : []);
+  const inclOf = (i: number) => {
+    const e = edits0.items[i];
+    return boqInclusionsOf(e && e.base !== null ? modelItems0[e.base] : undefined, x.from_model, sg);
+  };
+  const foldedPts = probe.folded ?? [];
+  const foldedAcc = new Set<string>(foldedPts.map((p) => accs.find((a) => a.family && a.family === p.family)?.id).filter((t): t is string => !!t));
+  const accOnFor = (i: number): Set<string> => (perItem ? new Set([...inclOf(i).accessories, ...foldedAcc]) : onAcc);
+  // VRF-8 (R-F3, owner 13:56): an extra the pricer removed with its x on EVERY unit that carries it is no longer ticked in "This row's
+  // price includes" ("Put it back" restores the line and so the tick); it stays in the include list (`removed`) so "Put it back" works
+  const editsR = probe.edits ?? view.editState;
+  const carriers = (role?: "indoor" | "outdoor") => view.items.map((b, i) => ({ b, i })).filter(({ b }) => !!b.family && !!x.roles[b.family] && (!role || x.roles[b.family] === role));
+  const linesOfInc: Record<string, ExtraLineId[]> = { copper: ["copper_supply", "copper_return"], insulation: ["ins_supply", "ins_return"], power: ["power"], comm: ["comm"] };
+  const removedEverywhere = (lineIds: ExtraLineId[], role?: "indoor" | "outdoor") => {
+    const cs = carriers(role);
+    return cs.length > 0 && cs.every(({ i }) => { const rm = new Set(editsR?.items?.[i]?.extras?.removed ?? []);
+      return lineIds.every((l) => rm.has(l) || (l === "ins_supply" && rm.has("copper_supply")) || (l === "ins_return" && rm.has("copper_return"))); });
+  };
+  const includesView: ItemListView["extrasIncludes"] = calculator
+    ? { title: L.includes_title, options: [...x.includes.map((i) => {
+        const blocked = !!i.needs && !on.has(i.needs);
+        const gone = on.has(i.id) && !blocked && removedEverywhere(linesOfInc[i.id] ?? []);
+        return { id: i.id, label: i.label, checked: on.has(i.id) && !blocked && !gone, ...(blocked ? { disabled: true, note: i.needs_line } : {}), ...(gone ? { removed: true } : {}) };
+      }), ...accs.map((a) => {
+        const gone = onAcc.has(a.id) && removedEverywhere([`acc_${a.id}` as ExtraLineId], a.roles.length === 1 ? a.roles[0] : undefined);
+        return { id: a.id as ExtraIncludeId, label: a.label, checked: onAcc.has(a.id) && !gone, ...(gone ? { removed: true } : {}) };
+      })] }
+    : undefined;
+  const rowClassOk = !isLotUnit(spec, view.unit) && view.unitClass === x.row_class;
+  const anyAcc = view.items.some((b, i) => !!b.family && !!x.roles[b.family] && accs.some((a) => a.roles.includes(x.roles[b.family!]) && accOnFor(i).has(a.id)));
+  const anyOn = (perItem ? view.items.some((_b, i) => [...onFor(i)].some((id) => activeIn(onFor(i), id))) : [...on].some((id) => active(id)))
+    || anyAcc || (perItem && foldedPts.length > 0)
+    // VRF-6 (F3): an accessory read as included on ANY entry (a unit of the other role, or no unit) is said -- so the row is walked
+    || (!!sg?.lines.not_added && (perItem ? view.items.some((_b, i) => inclOf(i).accessories.size > 0) : onAcc.size > 0))
+    // VRF-6 (owner Q-pre 11): "control wiring" in a heading includes the communication cable even when the model read no include
+    || (perItem && !!sg?.control_wiring && (() => { try { return new RegExp(sg.control_wiring!.words, "i").test([...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | ")); } catch { return false; } })());
+  // VRF-8 (W5 / D6): a "quantified separately" note, and cabling the BoQ ties to the drain pump, are said even where the model read
+  // no such include (never silent) -- found here so a row with nothing else on still says them
+  const nw0 = sg?.note_wins;
+  const chain0 = perItem ? chainOf(ctx) : [];
+  const noteSilent = perItem && nw0?.line_silent ? (() => {
+    for (const e of chain0) { try { const m = new RegExp(nw0.words, "i").exec(e.text); if (m) return { said: m[0].trim(), where: e.where }; } catch { return null; } }
+    return null;
+  })() : null;
+  const drainSilent = perItem && L.drain_cable_line_silent && L.drain_cable_note_words ? (() => {
+    for (const e of chain0) { try { const m = new RegExp(L.drain_cable_note_words, "i").exec(e.text); if (m) return { said: m[0].trim(), where: e.where }; } catch { return null; } }
+    return null;
+  })() : null;
+  const silentOn = (noteSilent !== null || drainSilent !== null) && view.items.some((b) => !!b.family && !!x.roles[b.family]);
+  if ((!anyOn && !silentOn) || !rowClassOk || view.items.length === 0) {
+    return withScope(spec, items, ctx, ext, overrides, includesView ? { ...own, itemList: { ...view, extrasIncludes: includesView } } : own, probe);
+  }
+
+  const edits = probe.edits ?? view.editState;
+  const layers = probe.layers ?? new Map<number, ItemPriceResult[]>();
+  const modelItems = ext?.items ?? [];
+  const reader = spec.numbers.capacity;
+  const convert = reader?.units;
+  const factorOf = (id: string) => pricingInputFactor(items, id);
+  /** a capacity in `from` -> `to`, through the reader's base unit and its Pricing Input factors */
+  const convertUnit = (v: number, from: string | null, to: string): number | null => {
+    if (!from || from === to) return v;
+    if (!convert) return null;
+    const toBase = (val: number, u: string) => (u === convert.base ? val : (convert.convert?.[u] ? (factorOf(convert.convert[u].input) ? val / factorOf(convert.convert[u].input)! : null) : null));
+    const fromBase = (val: number, u: string) => (u === convert.base ? val : (convert.convert?.[u] ? (factorOf(convert.convert[u].input) ? val * factorOf(convert.convert[u].input)! : null) : null));
+    const b = toBase(v, from);
+    return b === null ? null : fromBase(b, to);
+  };
+
+  // the targets' stocked sizes -- what a typed or rough size snaps to (13:46 "closest"; 13:53 "show the one used")
+  const pcfg = configOf(x.copper.category);
+  const pspec = pcfg ? itemListPricingSpec(pcfg) : null;
+  const icfg = configOf(x.insulation.category);
+  const ispec = icfg ? itemListPricingSpec(icfg) : null;
+  const numsOf = (vals: unknown[]) => [...new Set(vals.map(Number).filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b);
+  // VRF-3b K1b (owner ANSWER 2: "every value stocked in its own catalogue"): each line's choices, read off the live catalogue
+  const pipeFamilies = pspec ? Object.keys(pspec.families).filter((f) => items.some((it) => kindIn(pspec, it.kind) && it.attributes?.[familyAttr(pspec)] === f
+    && Number.isFinite(Number(it.attributes?.[x.copper.size_attr])))) : [];
+  const pipeSizesOf = (fam: string) => (pspec ? numsOf(items.filter((it) => kindIn(pspec, it.kind) && it.attributes?.[familyAttr(pspec)] === fam).map((it) => it.attributes?.[x.copper.size_attr])) : []);
+  const insPipeSkus = ispec ? items.filter((it) => kindIn(ispec, it.kind) && Number.isFinite(Number(it.attributes?.[x.insulation.size_attr])) && it.attributes?.[x.insulation.size_attr] !== null) : [];
+  const insFamilies = ispec ? Object.keys(ispec.families).filter((f) => insPipeSkus.some((it) => it.attributes?.[familyAttr(ispec)] === f)) : [];
+  const insOf = (fam: string, where: Record<string, string | number> = {}) => insPipeSkus.filter((it) => it.attributes?.[familyAttr(ispec!)] === fam
+    && Object.entries(where).every(([k, v]) => String(it.attributes?.[k]) === String(v)));
+  const strsOf = (vals: unknown[]) => [...new Set(vals.filter((v) => v !== null && v !== undefined && String(v).trim() !== "").map(String))];
+  const cableSkus = items.filter((it) => String(it.kind) === "cable");
+  const cableOf = (where: Record<string, string | number>) => cableSkus.filter((it) => Object.entries(where).every(([k, v]) => String(it.attributes?.[k]) === String(v)));
+
+  // ONE per-metre rate per target + stated values, each from its own category's path (cached: a split row asks twice)
+  const cache = new Map<string, { supply: number; install: number } | { reason: string }>();
+  const lineCtx = (category: string, pipeOd?: boolean): RowContextWithUnit => ({
+    excelRow: ctx.excelRow, description: "", nodeType: ctx.nodeType, category, discipline: ctx.discipline, rateKinds: ctx.rateKinds, unit: "mts", noRow: true,
+    ...(pipeOd !== undefined ? { pipeOdHint: pipeOd } : {}),
+  } as RowContextWithUnit);
+  type LineCall = { rate: { supply: number; install: number } | { reason: string }; attrs?: Record<string, string>; notes?: Record<string, string>; size?: string; note?: string; read?: string };
+  const lineCache = new Map<string, LineCall>();
+  /**
+   * VRF-4 B2 (owner BORROWED 22:18 "option a" + "any field which is borrowd from other categories als gets their respective
+   * rules"; R5 (c)) -- ONE line priced per metre through the target category's OWN path. The values go in AS STATED: a typed or
+   * default value as the pricer would type it ("Other..."), the BoQ's words as the model's item ("BoQ says ..."), a size taken
+   * from the copper line MIRRORED (the Piping -> Insulation section precedent). The target's own reader, ladder, notes and
+   * refusals apply; nothing is resolved here. Read back: the rate or the refusal, the value each stated attribute PRICED AS
+   * (several layers joined "13 + 19"), its field note, and the number the target READ (what a section mirrors).
+   */
+  const lineCall = (cfg: RateCategoryConfig | null, dspec: ItemListPricingSpec | null, label: string, family: string,
+                    attrs: Record<string, string>, fromBoq: boolean, mirrorId?: string): LineCall => {
+    const key = `${cfg?.category_id}|${family}|${fromBoq}|${mirrorId ?? ""}|${JSON.stringify(attrs)}`;
+    const hit = lineCache.get(key);
+    if (hit) return hit;
+    let out: LineCall;
+    if (!cfg || !dspec) out = { rate: { reason: L.not_loaded.replace("{rules}", label) } };
+    else {
+      const famAttr = familyAttr(dspec);
+      const fid = (a: string) => dspec.numbers[a]?.from?.[0] ?? a;
+      const typedAttrs: Record<string, string> = {};
+      const boqAttrs: Record<string, string> = {};
+      for (const [a, v] of Object.entries(attrs)) {
+        if (fromBoq && dspec.numbers[a] && a !== mirrorId) boqAttrs[fid(a)] = v;
+        else typedAttrs[fid(a)] = v;
+      }
+      const other = Object.keys(attrs).filter((a) => dspec.numbers[a] && fid(a) in typedAttrs).map(fid);
+      const mirrored = mirrorId ? [fid(mirrorId)] : [];
+      const modelItem: ExtractedListItem | undefined = fromBoq
+        ? { attributes: Object.fromEntries([[famAttr, family], ...Object.entries(boqAttrs)].map(([k, v]) => [k, { value: v, confidence: 1 }])) }
+        : undefined;
+      const edit: ItemEdit = modelItem
+        ? { base: 0, family: null, attrs: typedAttrs, ...(other.length ? { other } : {}), ...(mirrored.length ? { mirrored } : {}) }
+        : { base: null, family, attrs: typedAttrs, ...(other.length ? { other } : {}), ...(mirrored.length ? { mirrored } : {}) };
+      const dext = modelItem ? ({ excelRow: ctx.excelRow, description: "", attributes: {}, items: [modelItem] } as ExtractionRowWithItems) : undefined;
+      const lp: OwnPassProbe = {};
+      const r = computeItemListOwn(cfg, dspec, items, lineCtx(cfg.category_id, mirrorId ? true : undefined), dext, !!dext,
+                                   { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [edit] }) }, lp) as ItemListSuggestion;
+      const v = r.itemList;
+      const b = v?.items?.[0];
+      const layersOf = lp.layers?.get(0) ?? [];
+      const res = layersOf[0];
+      const rate = v?.rowPriced && typeof v.totals?.supply_rate === "number" && typeof v.totals?.install_rate === "number"
+        ? { supply: v.totals.supply_rate, install: v.totals.install_rate }
+        : { reason: v?.reason ?? b?.reason ?? L.not_priced };
+      const pricedAs: Record<string, string> = {};
+      const notes: Record<string, string> = {};
+      for (const a of Object.keys(attrs)) {
+        const vals = layersOf.map((l) => l.selection?.[a]).filter((x) => x !== undefined && x !== null && String(x) !== "").map((x) => (typeof x === "number" ? fmtMm(x) : String(x)));
+        if (vals.length) pricedAs[a] = [...new Set(vals)].length === 1 && vals.length === 1 ? vals[0] : vals.join(" + ");
+        const n = b?.fields?.find((f) => f.id === fid(a))?.note;
+        if (n) notes[a] = n;
+      }
+      const sizeAttr = Object.keys(attrs).find((a) => dspec.numbers[a] && a !== mirrorId);
+      out = {
+        rate, attrs: pricedAs, notes,
+        ...(sizeAttr && pricedAs[sizeAttr] !== undefined && "supply" in rate ? { size: pricedAs[sizeAttr] } : {}),
+        ...(sizeAttr && notes[sizeAttr] ? { note: notes[sizeAttr] } : {}),
+        ...(sizeAttr ? { read: mirroredNumber(res, sizeAttr) } : {}),
+      };
+    }
+    lineCache.set(key, out);
+    return out;
+  };
+
+  const titleOf = (id: ExtraLineId) => L[`title_${id}`] ?? id;
+  const fromOf = (id: ExtraLineId) => (id.startsWith("copper") ? L.from_copper : id.startsWith("ins") ? L.from_insulation : L.from_cable);
+  const tagText = (t: ExtraFieldView["tag"]) => (t === "default" ? L.tag_default : t === "picked" ? L.tag_picked : t === "boq" ? L.tag_boq : t === "follows" ? L.tag_follows : undefined);
+  const num = (s: string | undefined) => (s === undefined || s.trim() === "" ? null : Number(s.trim()));
+
+  // VRF-5 (owner R1 SAFEGUARD, P0 (b)): an inclusion the ROW's own text states is added; one a heading / note states is added
+  // UNLESS the BoQ quotes that item on a row of its own (`ownRowQuotes`), and either way the row says "please review"
+  const unitFams = new Set(Object.keys(x.roles));
+  const sheetLines = ctx.sheetLines ?? [];
+  // VRF-6 (F4, owner Q-pre 10): category first -- the own-row rule reads each sheet row's category (and, on a row of this
+  // category, its item-1 family); words only for an uncategorised row
+  const catFirst = sg?.match === "category";
+  const quotesOf = (id: string) => ownRowQuotes(sg?.own_row[id], sheetLines, ctx.excelRow, unitFams,
+    catFirst ? { categoryFirst: true, askingCategory: ctx.category ?? null } : undefined);
+  const rowsText = (quotes: Array<{ row: number; sheet?: string }>) => quotes.slice(0, 4).map((q) => `${q.sheet ? `${q.sheet} ` : ""}row ${q.row}`).join(", ")
+    + (quotes.length > 4 ? ` and ${quotes.length - 4} more` : "");
+  // VRF-7 (B8): the row's chain with where each text sits -- the quoted BoQ words are found in it
+  const chain = perItem ? chainOf(ctx) : [];
+  const whereOf = (i: number, id: string) => {
+    const inc = inclOf(i);
+    const where = (inc.where[id] ?? "").trim();
+    const whereWord = where !== "" ? where.toLowerCase() : (sg?.lines.where_unknown ?? "a heading or note");
+    const wording = inc.wording[id] ? (sg?.lines.wording ?? " ({wording})").replace("{wording}", inc.wording[id].toLowerCase()) : "";
+    // VRF-7 (B8, owner 01:36): the BoQ words that state it, and where they sit ("heading row 12"; else the model's answer)
+    // VRF-8 (D14-7): with `verified_quotes` a quote is shown only when the WHOLE quote is found in the chain (then with its row)
+    const strict = sg?.verified_quotes && inc.words[id] ? locateWordsStrict(inc.words[id], chain) : null;
+    const words = sg?.words_suffix && inc.words[id] && (!sg.verified_quotes || strict !== null) ? xq(inc.words[id]) : "";
+    const located = words ? (strict ?? locateWords(inc.words[id], chain) ?? (where !== "" ? `the ${whereWord}` : whereWord)) : "";
+    return { where, whereWord, wording, words, located };
+  };
+  /** VRF-7 (B8): a safeguard line in its quoting form (`<key>_q`) when the BoQ words are known; else the VRF-5 / VRF-6 form */
+  const lineOf = (key: string, w: { whereWord: string; wording: string; words: string; located: string }) => {
+    const q = w.words && sg?.lines[`${key}_q`];
+    return q ? q.replace("{words}", w.words).replace("{where}", w.located) : (sg?.lines[key] ?? "").replace("{where}", w.whereWord).replace("{wording}", w.wording);
+  };
+  const decide = (i: number, id: string, label: string): { add: boolean; point?: string; extra?: string } => {
+    if (!perItem || !sg) return { add: true };
+    const w = whereOf(i, id);
+    // VRF-7 (B7, owner 01:36 "only add price if there is no separate row for this and always declare a suitable note"): with
+    // `own_row_always` an extra the ROW states is checked against the sheet's own rows too
+    if (!sg.own_row_always && w.where !== "" && w.where.toLowerCase() === sg.row_value.toLowerCase()) return { add: true };
+    const quotes = quotesOf(id);
+    if (quotes.length) {
+      return { add: false, point: lineOf("excluded", w).replace("{label}", label).replace("{rows}", rowsText(quotes)) };
+    }
+    // VRF-6 (owner Q-pre 13, soft guidance): copper added from a heading / note says the sheet usually quotes it separately
+    const extra = id === "copper" && sg.lines.copper_usual && w.where.toLowerCase() !== sg.row_value.toLowerCase() ? sg.lines.copper_usual : undefined;
+    return { add: true, point: lineOf("added", w).replace("{label}", label), ...(extra ? { extra } : {}) };
+  };
+  /** VRF-6 (F3): an include the model read that this unit cannot carry -- the reason, and the rows that quote it on their own */
+  const notCarried = (i: number, id: string, label: string, why: string): string => {
+    const w = whereOf(i, id);
+    const quotes = sg && perItem ? quotesOf(id) : [];
+    const own = quotes.length && sg?.lines.also_own_row ? sg.lines.also_own_row.replace("{rows}", rowsText(quotes)) : "";
+    const q = perItem && w.words && sg?.lines.not_added_q;
+    if (q) return q.replace("{label}", label).replace("{words}", w.words).replace("{where}", w.located).replace("{why}", why) + own;
+    return (sg?.lines.not_added ?? "{label}: stated in {where}{wording} - NOT added: {why}").replace("{label}", label)
+      .replace("{where}", perItem ? w.whereWord : (sg?.lines.where_calculator ?? "your tick")).replace("{wording}", perItem ? w.wording : "").replace("{why}", why) + own;
+  };
+  /** VRF-7: the first match of a pattern in a text (trimmed), or null */
+  const execIn = (w: string | undefined, text: string): string | null => { if (!w) return null; try { const m = new RegExp(w, "i").exec(text); return m ? m[0].trim() : null; } catch { return null; } };
+  // VRF-5 (owner R1, ANSWER 4): ONE accessory line on one unit -- quantity (typed / the BoQ's / the default by band), the per-unit
+  // rate by the item's own rules, figures = quantity x rate, each rounded up to the rupee. Optional: never blocks the row.
+  const remoteWords = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
+  // VRF-6 (F1): the row's own notes and its headings' notes join the words a choice reads
+  const allWords = [ctx.description ?? "", ...(ctx.ownNotes ?? []), ...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | ");
+  const reTest = (w: string | undefined, text: string) => { if (!w) return false; try { return new RegExp(w, "i").test(text); } catch { return false; } };
+  const accessoryLine = (acc: AccessorySpec, lineId: ExtraLineId, i: number, role: "indoor" | "outdoor", bandValue: number | null,
+                         typed: Record<string, string>, boqQty: string | undefined,
+                         /** VRF-6: the unit's priced size in its band unit, its brand and its model item */
+                         unit: { size: number | null; brand: string | null; model?: ExtractedListItem; family?: string | null },
+                         /** VRF-7 (A6 / D2): review notes the line raises */
+                         pts?: string[]): ExtraLineView => {
+    lineNo++;
+    const heading = `Item ${lineNo} · ${L.heading_tail} · ${acc.electrical ? `from ${acc.electrical.label}` : (L.acc_from ?? "from VRF")}`;
+    const band = acc.bands ? extraBandOf(acc.bands[role] ?? [], bandValue) : null;
+    const bandRates = band ? pricingInputRates(items, band.input) : null;
+    const pos = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null);
+    const working: string[] = [];
+    // VRF-6 (team rule "gas kg = HP of ODU"): the default quantity is the unit's priced size x the Pricing Input's factor
+    const perSize = acc.qty_per_size ? pos(pricingInputFactor(items, acc.qty_per_size.input)) : null;
+    const qSized = acc.qty_per_size && perSize !== null && unit.size !== null ? Math.round(unit.size * perSize * 100) / 100 : null;
+    const qDefault = acc.electrical ? 1 : acc.qty_per_size ? qSized : (acc.input ? pos(pricingInputFactor(items, acc.input)) : pos(bandRates?.qty));
+    const qBoq = readQtyWords(boqQty);
+    const q = typed.qty !== undefined ? { raw: typed.qty, tag: "picked" as const } : qBoq !== null ? { raw: fmtMm(qBoq), tag: "boq" as const }
+      : { raw: qDefault !== null ? fmtMm(qDefault) : "", tag: qDefault !== null ? ("default" as const) : undefined };
+    if (q.tag === "default" && acc.qty_per_size && qSized !== null && unit.size !== null) {
+      working.push(acc.qty_per_size.line.replace("{size}", fmtMm(unit.size)).replace("{qty}", fmtMm(qSized)).replace("{unit}", acc.unit_word));
+    }
+    const qty = num(q.raw);
+    let what = acc.title;
+    let choiceTag: ExtraFieldView["tag"];
+    let rate: { supply: number; install: number } | { reason: string } | null = null;
+    let reason: string | undefined;
+    const el = acc.electrical;
+    if (el && el.match && el.schedule) {
+      // VRF-6 (team rule 2026-11-09): the rating by the unit's HP from the schedule, the item found in Electrical's catalogue by
+      // its attributes (the smallest stocked rating at or above it, noted when it steps up), priced by Electrical's own rules
+      const row = unit.size === null ? null : (el.schedule.find((s) => unit.size! <= s.max + 1e-9) ?? el.schedule[el.schedule.length - 1]);
+      const want = row ? pos(pricingInputFactor(items, row.input)) : null;
+      if (want === null) reason = (L.acc_default_needed ?? "default needed - set it in Pricing Inputs");
+      else {
+        const m = el.match;
+        const cands = items.filter((it) => it.discipline === el.discipline && (!m.kind || it.kind === m.kind)
+          && Object.entries(m.attrs).every(([k, v]) => String(it.attributes?.[k] ?? "") === v)
+          && (!m.name_words || reTest(m.name_words, String(it.attributes?.item ?? "")))
+          && Number.isFinite(Number(it.attributes?.[m.rating_attr])))
+          .sort((a, b) => Number(a.attributes?.[m.rating_attr]) - Number(b.attributes?.[m.rating_attr]));
+        const got = cands.find((it) => Number(it.attributes?.[m.rating_attr]) >= want - 1e-9);
+        if (!got) reason = `${acc.title}: no ${fmtMm(want)} A or larger is stocked - price this line by hand`;
+        else {
+          what = String(got.attributes?.item ?? acc.title);
+          const g = Number(got.attributes?.[m.rating_attr]);
+          if (g > want + 1e-9) {
+            working.push(m.step_up_line.replace("{want}", fmtMm(want)).replace("{got}", fmtMm(g)).replace("{item}", what));
+            // VRF-7 (A6, owner 01:3x "every breaker step-up gets a note"): the step up as a review note, with the unit's HP
+            if (m.step_up_note && pts && unit.size !== null) {
+              pts.push(m.step_up_note.replace("{label}", acc.label).replace("{hp}", fmtMm(unit.size)).replace("{want}", fmtMm(want)).replace("{got}", fmtMm(g)));
+            }
+          }
+          if (el.alias && reTest(el.alias.words, allWords)) working.push(el.alias.line.replace("{item}", what));
+          rate = cableRate ? cableRate(el.category, { ...(el.fill ?? {}), [el.item_attr]: what, [el.qty_attr]: "1" }, "Nos")
+            : { reason: L.not_loaded.replace("{rules}", el.label) };
+        }
+      }
+    } else if (el) {
+      const amp = pos(bandRates?.[el.rating_key ?? "amp"]);
+      if (amp === null) reason = (L.acc_default_needed ?? "default needed - set it in Pricing Inputs");
+      else {
+        what = (el.template ?? "").replace("{amp}", fmtMm(amp));
+        // VRF-5 (owner ANSWER 6): an isolator the BoQ names prices as the default MCCB, said in the working
+        const alias = el.alias;
+        if (alias) { try { if (new RegExp(alias.words, "i").test(remoteWords)) working.push(alias.line.replace("{item}", what)); } catch { /* a bad pattern never fires */ } }
+        rate = cableRate ? cableRate(el.category, { ...(el.fill ?? {}), [el.item_attr]: what, [el.qty_attr]: "1" }, "Nos")
+          : { reason: L.not_loaded.replace("{rules}", el.label) };
+      }
+    } else if (acc.family && category) {
+      const fa = familyAttr(spec);
+      const sku = items.find((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === acc.family);
+      const unitWord = String(sku?.unit ?? acc.unit_word);
+      const attrs: Record<string, string> = {};
+      if (acc.choice) {
+        const c = acc.choice;
+        const words = c.read_notes ? allWords : remoteWords;
+        const options = [c.default, ...Object.keys(c.words)];
+        // VRF-6 (F1, owner Q-pre 1): typed > the words that decide first ("corded or cordless" -> Cordless) > the model's own answer >
+        // the plain words ("corded" / "wired" -> Wired) > the default (Cordless, tagged). The default never overrides the model.
+        const first = Object.entries(c.first_words ?? {}).find(([, w]) => reTest(w, words));
+        const mv = c.model_attr ? unit.model?.attributes?.[c.model_attr]?.value : undefined;
+        const modelSaid = typeof mv === "string" && options.includes(mv.trim()) ? mv.trim() : null;
+        const hit = Object.entries(c.words).find(([, w]) => reTest(w, words));
+        const said = first ? first[0] : modelSaid ?? (hit ? hit[0] : null);
+        // VRF-7 (D2, owner 01:36 "let it be - just make a suitable note"): a type the BoQ's WORDS decided (the ambiguous spelling, or
+        // the plain words; never the model's own answer) is kept although other words anywhere in the chain name another type -- noted
+        // VRF-7 K1c (C8's named row 00197 r324): the BoQ wrote "coreded/cordless" -- a spelling first_words misses -- so the MODEL's
+        // Cordless priced it and no note came. The priced type's OWN words in the chain decide too, whoever picked the type: the note
+        // still quotes only the BoQ's words, both of them
+        const ownWords: [string, string] | null = said !== null && c.words[said] && reTest(c.words[said], words) ? [said, c.words[said]] : null;
+        const decidedBy = first ?? (modelSaid === null && hit ? hit : ownWords);
+        if (decidedBy && c.conflict && pts && typed[c.attr] === undefined) {
+          // VRF-8 K1c (owner 15:05 "option a"): only words that describe THIS unit -- a text naming another unit type at its head (a
+          // sibling unit's sub-note: "Ductable Unit - ... corded remote") is never read for the note
+          const uw = spec.extras?.prepare?.unit_words;
+          const sibling = (t: string) => {
+            if (!uw || c.conflict?.head === undefined || !unit.family) return false;
+            const head = t.slice(0, c.conflict.head);
+            const named = Object.entries(uw).filter(([, w]) => reTest(w, head)).map(([f]) => f);
+            return named.length > 0 && !named.includes(unit.family);
+          };
+          const texts0 = chain.length ? chain : [{ where: "", text: words }];
+          const texts = texts0.filter((e) => !sibling(e.text));
+          // VRF-7 K1c: a long clause is quoted AROUND the words that matched (it was cut 90 characters from its start, often before them)
+          const clauseAt = (t: string, m: string) => {
+            const cl = t.split(/[.;|]+/).find((x) => x.includes(m))?.trim() ?? m;
+            if (cl.length <= 90) return cl;
+            // VRF-9 (S5): one exact stretch of the clause around the words, never an added "..."
+            if (sg?.exact_quotes) return exactAround(cl, m, 120);
+            const at = Math.max(0, cl.indexOf(m) - 40);
+            return at > 0 ? `...${clip(cl.slice(at).trim(), 87)}` : clip(cl, 90);
+          };
+          // VRF-7 K1c: a phrase that names BOTH types on purpose ("corded/cordless", first_words) is one statement, never "the other
+          // type" -- every such phrase is taken out before the other type's words are looked for, and the quote comes from the text
+          // as written (taking only `mine` out once left "corded/ remote" behind and quoted it as a conflict)
+          // VRF-8 (K1c): `pairs` -- more both-type spellings ("corded/wireless") taken out the same way
+          const pairWords = [...Object.values(c.first_words ?? {}), ...(c.conflict.pairs ? [c.conflict.pairs] : [])];
+          const stripPairs = (s: string) => pairWords.reduce((x, w) => {
+            try { return x.replace(new RegExp(w, "gi"), " "); } catch { return x; }
+          }, s);
+          // VRF-8 (K1c / W7): the words that decided -- read in this unit's own texts; a type decided by PLAIN words is never found
+          // inside a both-types phrase ("Corded" in "cordless/ Corded" is not the plain word "corded")
+          const mineText = c.conflict.head !== undefined && chain.length ? texts.map((e) => e.text).join(" | ") : words;
+          const mine = execIn(decidedBy[1], c.conflict.both_line && decidedBy !== first ? stripPairs(mineText) : mineText);
+          let other: { said: string; where: string } | null = null;
+          for (const [v, w] of Object.entries(c.words)) {
+            if (v === decidedBy[0] || other) continue;
+            for (const e of texts) {
+              const t0 = stripPairs(e.text);
+              const t = mine ? t0.replace(mine, " ") : t0;
+              const m = execIn(w, t);
+              if (m) { other = { said: clauseAt(e.text, m), where: e.where }; break; }
+            }
+          }
+          // ... and located where it sits as a plain word (not inside a both-types phrase), the same way it was found
+          const plainTexts = c.conflict.both_line && decidedBy !== first ? texts.map((e) => ({ ...e, text: stripPairs(e.text) })) : texts;
+          const firstWhere = mine && chain.length ? locateWords(mine, plainTexts) : null;
+          // VRF-8 (W7 / D14-4, owner 14:15): a type decided by plain words while a phrase naming BOTH types sits elsewhere in this
+          // unit's chain -- the price stays, the note quotes both wordings
+          let both: { said: string; where: string } | null = null;
+          if (mine && !other && c.conflict.both_line && decidedBy !== first) {
+            for (const e of texts) {
+              for (const w of pairWords) {
+                const m = execIn(w, e.text);
+                if (m && !(e.where === firstWhere && m.toLowerCase().includes(mine.toLowerCase()) && e.text.toLowerCase().indexOf(mine.toLowerCase()) >= e.text.toLowerCase().indexOf(m.toLowerCase())
+                  && e.text.toLowerCase().indexOf(mine.toLowerCase()) < e.text.toLowerCase().indexOf(m.toLowerCase()) + m.length)) { both = { said: clauseAt(e.text, m), where: e.where }; break; }
+              }
+              if (both) break;
+            }
+          }
+          if (mine && (other || both)) {
+            const firstText = firstWhere ? clauseAt(texts.find((e) => e.where === firstWhere)?.text ?? mine, mine) : mine;
+            const o = (other ?? both)!;
+            pts.push((other ? c.conflict.line : c.conflict.both_line!).replace("{first}", firstText).replace("{said}", o.said)
+              // VRF-9 (S5): the first quote names ITS row too (00197 r358: the cordless words sit in note row 357, not 312)
+              .replace("{first_where}", firstWhere ? ` (${firstWhere})` : "")
+              .replace("{where}", o.where ? ` (${o.where})` : "").replace("{value}", decidedBy[0]));
+          }
+        }
+        attrs[c.attr] = typed[c.attr] ?? said ?? c.default;
+        choiceTag = typed[c.attr] !== undefined ? "picked" : said !== null ? "boq" : "default";
+        what = `${attrs[c.attr]} ${acc.title}`;
+      }
+      const priceAt = (a: Record<string, string>) => {
+        const r = computeItemListOwn(category, spec, items, { ...lineCtx(category.category_id), unit: unitWord } as RowContextWithUnit, undefined, false,
+          { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: acc.family, attrs: a }] }) }) as ItemListSuggestion;
+        const v = r.itemList;
+        const brand = v?.items?.[0]?.fields?.find((f) => f.id === "brand")?.value;
+        return { v, brand: typeof brand === "string" && brand !== "" && brand !== "None" ? brand : null };
+      };
+      let p = priceAt(attrs);
+      // VRF-6 (F12, owner Q-pre 5): the accessory takes the UNIT's brand where the catalogue stocks it in that brand; else the line
+      // keeps the default brand and says so
+      if (acc.follow_unit_brand && unit.brand && p.brand !== unit.brand) {
+        const tryIt = priceAt({ ...attrs, brand: unit.brand });
+        if (tryIt.v?.rowPriced && tryIt.brand === unit.brand) p = tryIt;
+        else working.push(acc.follow_unit_brand.line.replace("{brand}", unit.brand).replace("{item}", acc.title.toLowerCase()).replace("{got}", p.brand ?? "the catalogue's item (no make)"));
+      }
+      if (p.brand && acc.follow_unit_brand) what = `${what} (${p.brand})`;
+      const v = p.v;
+      rate = v?.rowPriced && typeof v.totals?.supply_rate === "number" && typeof v.totals?.install_rate === "number"
+        ? { supply: v.totals.supply_rate, install: v.totals.install_rate } : { reason: v?.reason ?? L.not_priced };
+    } else rate = { reason: L.not_loaded.replace("{rules}", acc.title) };
+    if (!reason && rate && "reason" in rate) reason = rate.reason;
+    if (!reason && (qty === null || !Number.isFinite(qty) || qty <= 0)) reason = (L.acc_default_needed ?? "default needed - set it in Pricing Inputs");
+    const per = rate && "supply" in rate ? rate : undefined;
+    let figures: Partial<Record<RateKind, number>> = {};
+    if (!reason && per && qty !== null) {
+      // `+ 0` turns a -0 (ceil of a zero rate less the epsilon -- the frame's install 0) into 0
+      const s2 = Math.ceil(qty * per.supply - 1e-9) + 0;
+      const i2 = Math.ceil(qty * per.install - 1e-9) + 0;
+      working.push((L.acc_working ?? "{what}: {q} {unit} x supply {s} / install {i} = {S} / {I}").replace("{what}", what).replace("{q}", fmtMm(qty))
+        .replace("{unit}", acc.unit_word).replace("{s}", String(per.supply)).replace("{i}", String(per.install)).replace("{S}", String(s2)).replace("{I}", String(i2)));
+      figures = { supply_rate: s2, install_rate: i2, combined_rate: s2 + i2 };
+    }
+    // VRF-5 (QR-1.2 "ok with a"): a choice the line sets (the remote's type) is a field the pricer can change, on both surfaces
+    const choiceField: ExtraFieldView[] = acc.choice ? [{ id: acc.choice.attr, label: acc.choice.attr === "remote_type" ? "Type" : acc.choice.attr,
+      value: (what.split(" ")[0] ?? ""), typedValue: "", options: [acc.choice.default, ...Object.keys(acc.choice.words)].filter((v, n, a) => a.indexOf(v) === n),
+      ...(choiceTag ? { tag: choiceTag, tagText: tagText(choiceTag) } : {}), userEdited: typed[acc.choice.attr] !== undefined }] : [];
+    const fields: ExtraFieldView[] = [
+      { id: "item", label: L.acc_label_item ?? "Item", value: what, typedValue: "", readOnly: true, userEdited: false },
+      ...choiceField,
+      { id: "qty", label: (L.acc_label_qty ?? "Quantity per unit ({unit})").replace("{unit}", acc.unit_word), value: q.raw, typedValue: typed.qty ?? "", required: true,
+        ...(q.tag ? { tag: q.tag, tagText: tagText(q.tag) } : {}), userEdited: typed.qty !== undefined, ...(q.raw.trim() === "" ? { blank: true } : {}) },
+    ];
+    return { id: lineId, unitIndex: i, lineNo, heading, title: acc.title, fields, state: reason ? "blank" : "priced", ...(reason ? { reason } : {}), working,
+      ...(per ? { perMetre: per } : {}), figures, optional: true, ...(perItem ? { fromBoq: true as const, fromBoqText: L.tag_boq } : {}) };
+  };
+  // VRF-5 (owner R1): the further items folded off the unit row that are no accessory -- a note point each, never priced
+  const foldedNotes = x.folded ? foldedPts.filter((p) => !accs.some((a) => a.family && a.family === p.family)).map((p) =>
+    (p.family === null || /^none of these$/i.test(p.family) ? x.folded!.none_line : x.folded!.other_line).replace("{family}", p.family ?? "")) : [];
+  const firstUnit = view.items.findIndex((b) => !!b.family && !!x.roles[b.family]);
+
+  let lineNo = 0;
+  const lineViews: ExtraLineView[] = [];
+  const blocks = view.items.map((b, i): ItemBlockView => {
+    lineNo++;
+    const unitNo = lineNo;
+    const role = b.family ? x.roles[b.family] : undefined;
+    if (!role) {
+      // VRF-6 (F3, owner Q-pre 2 interim): an item that is no unit (a controller, an AHU kit) carries no extras -- each include the
+      // model read on it is said, never dropped silently
+      const pts = perItem && sg?.lines.no_extras && b.family ? [
+        ...x.includes.filter((inc) => onFor(i).has(inc.id)).map((inc) => notCarried(i, inc.id, inc.label, sg.lines.no_extras.replace("{family}", b.family!))),
+        ...accs.filter((a) => inclOf(i).accessories.has(a.id)).map((a) => notCarried(i, a.id, a.label, sg.lines.no_extras.replace("{family}", b.family!))),
+      ] : [];
+      return pts.length && sg ? { ...b, lineNo: unitNo, extras: { lines: [], removed: [], review: { title: sg.lines.review_title, points: [...new Set(pts)] } } } : { ...b, lineNo: unitNo };
+    }
+    const e = edits.items[i];
+    const ex = e?.extras ?? {};
+    const removed = new Set(ex.removed ?? []);
+    const set = ex.set ?? {};
+    // VRF-4: the model item this block came from (a split module, or a block whose family the pricer changed, keeps it)
+    const modelItem = e && e.base !== null ? modelItems[e.base] : undefined;
+    // VRF-5 (owner R1 SAFEGUARD): the four as the safeguard leaves them, with the review points it raised
+    const itemOn0 = new Set(onFor(i));
+    const reviewPts: string[] = [];
+    // VRF-6 (owner Q-pre 11): "control wiring" in a unit heading = the communication cable included, with a note
+    const cw = sg?.control_wiring;
+    const cwFired = perItem && !!cw && reTest(cw.words, [...(ctx.headings ?? []), ...(ctx.headingNotes ?? [])].join(" | "));
+    if (cwFired && cw) {
+      itemOn0.add("comm");
+      reviewPts.push(cw.line);
+    }
+    // VRF-6 (owner Q7): a note saying the cables are quantified separately wins over a heading that includes them
+    const nw = sg?.note_wins;
+    const noteSaid = perItem && nw ? (() => {
+      for (const t of [...(ctx.ownNotes ?? []), ...(ctx.headingNotes ?? []), ctx.description ?? ""]) {
+        try { const m = new RegExp(nw.words, "i").exec(t); if (m) return m[0].trim(); } catch { /* a bad pattern never fires */ }
+      }
+      return null;
+    })() : null;
+    // VRF-6 (F11): cabling the BoQ ties to the drain pump is not the unit's power cable
+    const cableWords = String(modelItem?.attributes?.[x.from_model?.cable_spec ?? ""]?.value ?? "");
+    // ... and with no cable words copied, a note whose ONLY cabling is the drain pump's (00020 r114 "Necessary cabling including plug
+    // top ... for the drain pump") is not the unit's power cable either
+    const noteCable = perItem && cableWords.trim() === "" && !!L.drain_cable_note_words
+      ? [...(ctx.ownNotes ?? []), ...(ctx.headingNotes ?? [])].map((t) => { try { return new RegExp(L.drain_cable_note_words, "i").exec(t)?.[0] ?? null; } catch { return null; } }).find((m) => !!m) ?? null
+      : null;
+    const powerElsewhere = !!L.power_cable_words && reTest(L.power_cable_words, [ctx.description ?? "", ...(ctx.ownNotes ?? []), ...(ctx.headingNotes ?? [])].join(" | "));
+    const drainCable = perItem && !!L.drain_cable_words && (reTest(L.drain_cable_words, cableWords) || (noteCable !== null && !powerElsewhere));
+    const drainSaid = reTest(L.drain_cable_words, cableWords) ? cableWords.trim() : (noteCable ?? "");
+    const itemOn = new Set([...itemOn0].filter((id) => {
+      if (!activeIn(itemOn0, id)) return true;
+      const label = incSpec.get(id)?.label ?? id;
+      if (noteSaid !== null && nw && nw.ids.includes(id)) { reviewPts.push(nw.line.replace("{label}", label).replace("{said}", noteSaid)); return false; }
+      if (drainCable && id === "power" && L.drain_cable_line) { reviewPts.push(L.drain_cable_line.replace("{said}", drainSaid)); return false; }
+      // VRF-8 (D7, owner 15:05): the only rows quoting the power cable are the sheet's drain-pump rows -- the cabling is the pump's
+      if (id === "power" && L.drain_cable_row_line && L.drain_cable_words) {
+        const qs = quotesOf("power");
+        if (qs.length && qs.every((q) => reTest(L.drain_cable_words, q.text))) {
+          const w = whereOf(i, "power");
+          reviewPts.push(L.drain_cable_row_line.replace("{said}", w.words || xq(cableWords || label)).replace("{rows}", rowsText(qs)));
+          return false;
+        }
+      }
+      const d = decide(i, id, label);
+      // the control-wiring note already says why the communication cable is in; an "added" point would repeat it
+      if (d.point && !(cwFired && id === "comm" && d.add)) reviewPts.push(d.point);
+      if (d.add && d.extra) reviewPts.push(d.extra);
+      return d.add;
+    })) as Set<ExtraIncludeId>;
+    // VRF-8 (W5, owner 14:15 "never silent, even when the model answers None"): the "quantified separately" note for every include
+    // it covers that the model did not read as included
+    if (noteSilent && nw0?.line_silent) {
+      for (const id of nw0.ids) {
+        if (itemOn0.has(id as ExtraIncludeId)) continue;
+        reviewPts.push(nw0.line_silent.replace("{label}", incSpec.get(id as ExtraIncludeId)?.label ?? id).replace("{said}", xq(noteSilent.said)).replace("{where}", noteSilent.where));
+      }
+    }
+    // VRF-8 (D6, owner 14:40): cabling the BoQ ties to the drain pump, where the model read no power cable -- no line, said
+    if (drainSilent && L.drain_cable_line_silent && !itemOn0.has("power")) {
+      reviewPts.push(L.drain_cable_line_silent.replace("{said}", xq(drainSilent.said)).replace("{where}", drainSilent.where));
+    }
+    // VRF-6 (F3): an include that needs another (insulation needs copper) and lost it is said, never dropped silently
+    if (sg?.lines.not_added) {
+      for (const inc of x.includes) {
+        if (inc.needs && itemOn0.has(inc.id) && itemOn.has(inc.id) && !itemOn.has(inc.needs) && inc.needs_line) {
+          reviewPts.push(notCarried(i, inc.id, inc.label, inc.needs_line.charAt(0).toLowerCase() + inc.needs_line.slice(1)));
+        }
+      }
+    }
+    const boq = perItem ? boqOf(i).values : {};
+    // VRF-6 (F11, 00073 r51): a length the BoQ gives for ONE item reaches that item only -- the length inside the cable's own words
+    // (or words naming a cable / cord) is the cable's; words naming the piping are the copper's; any other length, every line's
+    const lenTarget = (() => {
+      if (!perItem || !L.length_per_item) return null;
+      const lw = String(modelItem?.attributes?.[x.from_model?.length ?? ""]?.value ?? "");
+      if (lw.trim() === "") return null;
+      const n = readLengthWords(lw);
+      if ((n !== null && readLengthWords(cableWords) === n) || reTest(L.length_cable_words, lw)) return reTest(x.from_model?.comm_words, cableWords || lw) ? "comm" : "power";
+      if (reTest(L.length_pipe_words, lw)) return "copper";
+      return null;
+    })();
+    const said = (line: string, field: string): string | undefined => {
+      const v = modelItem?.attributes?.[`extra_${line}_${field}`]?.value;
+      if (!(v === null || v === undefined || String(v).trim() === "")) return String(v);
+      if (field === "length" && lenTarget !== null && !line.startsWith(lenTarget)) return undefined;
+      // VRF-4 (B1): the model's copied words, read into this line's fields (`boqExtrasOf`)
+      const w = boq[`${line}_${field}`];
+      return w === undefined || w.trim() === "" ? undefined : w;
+    };
+    const pick = (line: string, field: string, def: string | undefined) => {
+      const typed = set[line]?.[field];
+      if (typed !== undefined) return { raw: typed, tag: "picked" as const, typed };
+      const boq = said(line, field);
+      if (boq !== undefined) return { raw: boq, tag: "boq" as const, typed: undefined };
+      return { raw: def ?? "", tag: def !== undefined ? ("default" as const) : undefined, typed: undefined };
+    };
+    // the unit's size, after conversion, in its role's band unit
+    const res = layers.get(i)?.[0];
+    // the size the row STATED (after conversion) -- a ladder hop's requested value, else the value read (= the rung)
+    const hop = res?.ladderHops?.find((h) => h.attr === "capacity");
+    const read = hop ? hop.requested : (res?.readValues?.capacity ?? res?.selection?.capacity);
+    const famUnit = familyUnitOf(spec, items, b.family, reader);
+    const bandValue = typeof read === "number" || (typeof read === "string" && read.trim() !== "" && Number.isFinite(Number(read)))
+      ? convertUnit(Number(read), famUnit, x.band_unit[role]) : null;
+    const sizeWords = bandValue !== null ? `${fmtMm(Math.round(bandValue * 100) / 100)} ${x.band_unit[role]}` : "";
+    const pipeBand = extraBandOf(x.pipe_bands[role], bandValue);
+    const pipeRates = pipeBand ? pricingInputRates(items, pipeBand.input) : null;
+    const powerBand = extraBandOf(x.power_bands[role], bandValue);
+    const lengthDefault = (id: string) => { const f = pricingInputFactor(items, id); return f !== null ? fmtMm(f) : undefined; };
+
+    const act = (id: ExtraIncludeId) => activeIn(itemOn, id);
+    const want: ExtraLineId[] = EXTRA_LINE_ORDER.filter((id) =>
+      (id.startsWith("copper") && act("copper")) || (id.startsWith("ins") && act("insulation")) || (id === "power" && act("power")) || (id === "comm" && act("comm")));
+    const gone = (id: ExtraLineId) => removed.has(id) || (id === "ins_supply" && removed.has("copper_supply")) || (id === "ins_return" && removed.has("copper_return"));
+    const mine: ExtraLineView[] = [];
+    const copperUsed = new Map<string, { read: string | undefined; length: string }>();
+
+    const finish = (id: ExtraLineId, fields: ExtraFieldView[], rate: { supply: number; install: number } | { reason: string } | null, why: string | undefined, lengthText: string, countText: string, sizeText: string): ExtraLineView => {
+      lineNo++;
+      const heading = `Item ${lineNo} · ${L.heading_tail} · ${fromOf(id)}`;
+      const per = rate && "supply" in rate ? rate : undefined;
+      const len = num(lengthText); const cnt = num(countText);
+      let reason = why;
+      if (!reason && rate && "reason" in rate) reason = rate.reason;
+      if (!reason && (len === null || !Number.isFinite(len) || len <= 0)) reason = L.length_needed;
+      if (!reason && (cnt === null || !Number.isFinite(cnt) || cnt <= 0)) reason = L.count_needed;
+      const working: string[] = [];
+      if (per) working.push(L.working_rate.replace("{title}", titleOf(id)).replace("{size}", sizeText).replace("{rules}", fromOf(id).replace(/^from /, ""))
+        .replace("{s}", String(per.supply)).replace("{i}", String(per.install)));
+      let figures: Partial<Record<RateKind, number>> = {};
+      if (!reason && per && len !== null && cnt !== null) {
+        const s = Math.ceil(len * per.supply - 1e-9) * cnt;
+        const ins = Math.ceil(len * per.install - 1e-9) * cnt;
+        working.push(L.working_nos.split("{len}").join(fmtMm(len)).replace("{s}", String(per.supply)).replace("{S}", String(Math.ceil(len * per.supply - 1e-9)))
+          .replace("{i}", String(per.install)).replace("{I}", String(Math.ceil(len * per.install - 1e-9))));
+        if (cnt !== 1) working.push(L.working_count.replace("{n}", fmtMm(cnt)).replace("{S}", String(s)).replace("{I}", String(ins)));
+        figures = { supply_rate: s, install_rate: ins, combined_rate: s + ins };
+      }
+      const lv: ExtraLineView = { id, unitIndex: i, lineNo, heading, title: titleOf(id), fields, state: reason ? "blank" : "priced", ...(reason ? { reason } : {}), working, ...(per ? { perMetre: per } : {}), figures,
+        ...(perItem ? { fromBoq: true as const, fromBoqText: L.tag_boq } : {}) };
+      return lv;
+    };
+    const lengthField = (line: ExtraLineId, def: string | undefined, follows?: { text: string }): ExtraFieldView => {
+      const p = pick(line, "length", follows ? follows.text : def);
+      const tag = p.tag === "default" && follows ? "follows" : p.tag;
+      return { id: "length", label: L.label_length, value: p.raw, typedValue: p.typed ?? "", ...(tag ? { tag, tagText: tagText(tag) } : {}), userEdited: p.typed !== undefined, ...(p.raw.trim() === "" ? { blank: true } : {}) };
+    };
+    const countField = (line: ExtraLineId): ExtraFieldView => {
+      const p = pick(line, "count", "1");
+      // the assumed 1 is a default like every other assumed quantity (amber), not a Pricing Input
+      const tt = p.tag === "default" ? L.tag_assumed : tagText(p.tag);
+      return { id: "count", label: L.label_count, value: p.raw, typedValue: p.typed ?? "", ...(p.tag ? { tag: p.tag, tagText: tt } : {}), userEdited: p.typed !== undefined, ...(p.raw.trim() === "" ? { blank: true } : {}) };
+    };
+
+    /** VRF-7 (A3): on a BoQ row with per-item lengths, a line the BoQ gives no length of its own says it took the default */
+    const lengthDefaultNoted = (id: ExtraLineId, f: ExtraFieldView): ExtraFieldView =>
+      (perItem && x.from_model?.length_by_item && L.length_default && f.tag === "default" && f.value.trim() !== ""
+        ? { ...f, note: L.length_default.replace("{item}", titleOf(id).toLowerCase()).replace("{n}", f.value) } : f);
+    for (const id of want) {
+      if (gone(id)) continue;
+      if (id === "copper_supply" || id === "copper_return") {
+        const side = id === "copper_supply" ? "supply" : "return";
+        // VRF's OWN default (Pricing Inputs) -- owner 09:50 "the defaults remain the same as we declared and are not overwritten by
+        // the defaults of the parent settings": Piping's own defaults never fill a VRF line
+        const def = pipeRates && typeof pipeRates[`${side}_mm`] === "number" && pipeRates[`${side}_mm`] > 0 ? fmtMm(pipeRates[`${side}_mm`]) : undefined;
+        // K1b: the line's item -- Copper by default; any pipe Piping stocks through "Change item"
+        const fp = pick(id, "family", x.copper.family);
+        const fam = fp.raw;
+        // the dropdown's choices: the sizes Piping stocks for that pipe (a pick list -- never a pricing rule)
+        const options = pipeSizesOf(fam).map(fmtMm);
+        const p = pick(id, "size", def);
+        // VRF-4 B2 (owner BORROWED 22:18 "option a"; R5 (c)): the size goes to PIPING AS STATED -- typed, the BoQ's words, or the
+        // default -- and Piping's own reader and ladder resolve it (next size up, inch, the no-unit and above-largest refusals)
+        const cu = p.raw.trim() === "" ? null : lineCall(pcfg, pspec, L.rules_piping, fam, { [x.copper.size_attr]: p.raw }, p.tag === "boq");
+        const value = cu?.size ?? "";
+        let why: string | undefined;
+        if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
+        else if (cu && "reason" in cu.rate) why = cu.rate.reason;
+        // Piping's own note on the size ("BoQ says 14 mm -> priced as 15.9 mm (next size up)"), shown where the value was not
+        // the default as declared
+        const note = p.tag !== "default" ? cu?.note : undefined;
+        const otherMode = p.typed !== undefined && !options.includes(p.typed.trim());
+        const lenF = lengthDefaultNoted(id, lengthField(id, lengthDefault(x.copper_length_input)));
+        const cntF = countField(id);
+        copperUsed.set(side, { read: cu?.read, length: lenF.value });
+        const fields: ExtraFieldView[] = [
+          { id: "family", label: L.label_family, value: fam, typedValue: "", options: pipeFamilies, changeItem: true,
+            ...(fp.tag ? { tag: fp.tag, tagText: tagText(fp.tag) } : {}), userEdited: fp.typed !== undefined },
+          { id: "size", label: L.label_pipe_size, value, typedValue: p.typed ?? "", options, allowOther: true, otherMode, required: true,
+            ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why ? { blank: true } : {}), ...(note ? { note } : {}) },
+          lenF, cntF,
+        ];
+        const rate = !why && cu ? cu.rate : null;
+        // the working names the pipe only where it is not the default (Copper)
+        mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, fam === x.copper.family ? `${value} mm` : `${value} mm (${fam})`));
+        continue;
+      }
+      if (id === "ins_supply" || id === "ins_return") {
+        const side = id === "ins_supply" ? "supply" : "return";
+        const cu = copperUsed.get(side);
+        // K1b: the line's item (Nitrile Rubber by default; any pipe insulation Insulation stocks), its cladding and thickness
+        const fp = pick(id, "family", x.insulation.family);
+        const fam = fp.raw;
+        const cp = pick(id, "cladding", x.insulation.attrs.cladding);
+        const def = pipeRates && typeof pipeRates.insulation_mm === "number" && pipeRates.insulation_mm > 0 ? fmtMm(pipeRates.insulation_mm) : undefined;
+        const p = pick(id, "thickness", def);
+        // VRF-4 B2 (R5 (c), the Piping -> Insulation section precedent): ONE Insulation call on the copper size AS READ (mirrored,
+        // copper = an outside diameter), the thickness as stated -- Insulation's own rules pick the pipe size (next size up) and
+        // the thickness (next size up, layers above its largest); VRF's declared item / cladding / thickness are always sent
+        const ins = cu?.read !== undefined && p.raw.trim() !== ""
+          ? lineCall(icfg, ispec, L.rules_insulation, fam, { ...x.insulation.attrs, cladding: cp.raw, [x.insulation.thickness_attr]: p.raw, [x.insulation.size_attr]: cu.read },
+                     p.tag === "boq", x.insulation.size_attr)
+          : null;
+        // the dropdowns' choices: what Insulation stocks on the size it priced (pick lists only)
+        const insSize = ins?.attrs?.[x.insulation.size_attr];
+        const cladOptions = insSize !== undefined ? strsOf(insOf(fam, { [x.insulation.size_attr]: insSize }).map((it) => it.attributes?.cladding)) : [];
+        const insThicknesses = insSize !== undefined ? numsOf(insOf(fam, { [x.insulation.size_attr]: insSize, ...(cladOptions.includes(cp.raw) ? { cladding: cp.raw } : {}) }).map((it) => it.attributes?.[x.insulation.thickness_attr])) : [];
+        let why: string | undefined;
+        if (cu?.read === undefined) why = L.size_needed_copper;
+        else if (p.raw.trim() === "") why = (bandValue === null ? L.size_needed_no_size : L.size_needed_no_default.replace("{size}", sizeWords));
+        else if (ins && "reason" in ins.rate) why = ins.rate.reason;
+        const thValue = ins?.attrs?.[x.insulation.thickness_attr] ?? "";
+        const lenF = lengthField(id, undefined, { text: cu?.length ?? "" });
+        const cntF = countField(id);
+        const sizeText = insSize ?? "";
+        const thNote = p.tag !== "default" ? ins?.notes?.[x.insulation.thickness_attr] : undefined;
+        const fields: ExtraFieldView[] = [
+          { id: "family", label: L.label_family, value: fam, typedValue: "", options: insFamilies, changeItem: true,
+            ...(fp.tag ? { tag: fp.tag, tagText: tagText(fp.tag) } : {}), userEdited: fp.typed !== undefined },
+          { id: "cladding", label: L.label_cladding, value: cp.raw, typedValue: "", options: cladOptions.length ? cladOptions : (cp.raw ? [cp.raw] : []), required: true,
+            ...(cp.tag ? { tag: cp.tag, tagText: tagText(cp.tag) } : {}), userEdited: cp.typed !== undefined },
+          { id: "thickness", label: L.label_thickness, value: thValue, typedValue: p.typed ?? "", options: insThicknesses.map(fmtMm), required: true,
+            ...(p.tag ? { tag: p.tag, tagText: tagText(p.tag) } : {}), userEdited: p.typed !== undefined, ...(why && cu?.read !== undefined ? { blank: true } : {}), ...(thNote ? { note: thNote } : {}) },
+          { id: "size", label: L.label_pipe_size, value: sizeText, typedValue: "", readOnly: true, userEdited: false, suffix: "mm",
+            ...(ins?.notes?.[x.insulation.size_attr] ? { note: mirroredLead(ins.notes[x.insulation.size_attr], L.tag_follows) } : {}),
+            ...(insSize !== undefined ? { tag: "follows" as const, tagText: tagText("follows") } : {}) },
+          lenF, cntF,
+        ];
+        const rate = !why && ins ? ins.rate : null;
+        mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, `${thValue} mm on ${sizeText} mm`));
+        continue;
+      }
+      // power / communication cable
+      const rates = id === "power" ? (powerBand ? pricingInputRates(items, powerBand.input) : null) : pricingInputRates(items, x.comm_input);
+      const def = rates && typeof rates.cores === "number" && typeof rates.sqmm === "number" && rates.cores > 0 && rates.sqmm > 0 ? cableSpecText(rates.cores, rates.sqmm) : undefined;
+      // the spec as a whole (a typed "4C x 16", the BoQ's words, else the Pricing Inputs default) seeds the cores and the size
+      const sp = pick(id, "spec", def);
+      const parsed = readCableSpecWords(sp.raw);
+      // VRF-5 (F2): the BoQ's words name the cable but no size -> the band's default spec (Pricing Inputs); an armour / conductor
+      // word the words state sets that attribute; a length they state is used (a range -> the higher figure). Never "Size needed"
+      // while a default exists. Gated on the config's words for it (v61), so an older config is byte-identical.
+      const wordsOnly = (sp.tag === "boq" || sp.tag === "picked") && parsed === null && L.cable_words_default !== undefined && def !== undefined;
+      const defParsed = wordsOnly ? readCableSpecWords(def!) : null;
+      // VRF-6 (F11): the BoQ's armour / conductor words apply also where it states the size ("4C x 6 AL armoured")
+      const kindAlways = !!L.cable_kind_always && (sp.tag === "boq" || sp.tag === "picked") && parsed !== null;
+      const kindWords: { armour?: string; conductor?: string } = wordsOnly || kindAlways ? readCableKindWords(sp.raw, { abbrev: !!L.cable_kind_always }) : {};
+      const seeded = (field: string, seed: string | undefined, seedTag?: ExtraFieldView["tag"]) => {
+        const typed = set[id]?.[field];
+        if (typed !== undefined) return { raw: typed, tag: "picked" as const, typed };
+        const boq = said(id, field);
+        if (boq !== undefined) return { raw: boq, tag: "boq" as const, typed: undefined };
+        return { raw: seed ?? "", tag: seed !== undefined ? (seedTag ?? sp.tag) : undefined, typed: undefined };
+      };
+      // K1b (owner ANSWER 2): conductor, armour, cores and size -- the choices Electrical's wiring_cabling stocks (read only);
+      // VRF-4 B2: Electrical's own attribute ids come from the config (`cable.conductor_attr` / `armour_attr`)
+      const M = x.cable.conductor_attr ?? "material";
+      const A = x.cable.armour_attr ?? "insulation";
+      const mp = wordsOnly || kindAlways ? seeded("conductor", kindWords.conductor ?? x.cable.attrs[M], kindWords.conductor ? "boq" : "default") : seeded("conductor", x.cable.attrs[M]);
+      const ap0 = wordsOnly || kindAlways ? seeded("armour", kindWords.armour ?? x.cable.attrs[A], kindWords.armour ? "boq" : "default") : seeded("armour", x.cable.attrs[A]);
+      // VRF-7 (A2, owner 01:3x "armoured only when specifically mentioned. else default unarmoured"): the model's armoured Yes for
+      // THIS cable (the safety net sets it from the chain's words) -> armoured, from the BoQ; a typed value still wins
+      const armQ = perItem && (id === "power" || id === "comm") ? x.from_model?.armoured?.[id] : undefined;
+      const armYes = !!armQ && String(modelItem?.attributes?.[armQ]?.value ?? "").trim().toLowerCase() === (x.from_model?.yes ?? "Yes").toLowerCase();
+      const ap = armYes && ap0.typed === undefined && L.armoured_value ? { raw: L.armoured_value, tag: "boq" as const, typed: undefined } : ap0;
+      const cp = defParsed ? seeded("cores", String(defParsed.cores), "default") : seeded("cores", parsed ? String(parsed.cores) : undefined);
+      const zp = defParsed ? seeded("sqmm", String(defParsed.sqmm), "default") : seeded("sqmm", parsed ? String(parsed.sqmm) : undefined);
+      const conductorOptions = strsOf(cableSkus.map((it) => it.attributes?.[M])).sort();
+      const armourOptions = strsOf(cableOf({ [M]: mp.raw }).map((it) => it.attributes?.[A])).sort();
+      const coresOptions = numsOf(cableOf({ [M]: mp.raw, [A]: ap.raw }).map((it) => it.attributes?.[x.cable.cores_attr])).map(fmtMm);
+      const sqmmOptions = numsOf(cableOf({ [M]: mp.raw, [A]: ap.raw, [x.cable.cores_attr]: Number(cp.raw) }).map((it) => it.attributes?.[x.cable.size_attr])).map(fmtMm);
+      const cores = Number(cp.raw); const sqmm = Number(zp.raw);
+      const value = cp.raw !== "" && zp.raw !== "" && Number.isFinite(cores) && Number.isFinite(sqmm) ? cableSpecText(cores, sqmm) : "";
+      let why: string | undefined;
+      if (sp.raw.trim() === "" && cp.raw === "" && zp.raw === "") why = id === "power" && bandValue !== null && !powerBand ? L.no_default.replace("{size}", sizeWords) : (bandValue === null && id === "power" ? L.size_needed_no_size : L.spec_needed);
+      else if (value === "") why = L.size_needed_unread.replace("{typed}", sp.raw.trim() || `${cp.raw} x ${zp.raw}`);
+      // VRF-4 B2 (R5 (c)): no VRF-side "stocked" check -- Electrical's own match prices the spec or answers with its own sentence
+      const rate = !why
+        ? (cableRate
+            ? (cache.get(`cable|${mp.raw}|${ap.raw}|${cores}|${sqmm}`) ?? (() => {
+                const r = cableRate(x.cable.category, { ...x.cable.attrs, [M]: mp.raw, [A]: ap.raw, [x.cable.cores_attr]: String(cores), [x.cable.size_attr]: String(sqmm) });
+                cache.set(`cable|${mp.raw}|${ap.raw}|${cores}|${sqmm}`, r);
+                return r;
+              })())
+            : { reason: L.not_loaded.replace("{rules}", x.cable.label) })
+        : null;
+      if (!why && rate && "reason" in rate) why = rate.reason;
+      // VRF-5 (F2): a length the cable's own words state, where nothing else stated one (a range -> the higher figure, noted)
+      const lenWords = wordsOnly && set[id]?.length === undefined && said(id, "length") === undefined
+        ? readLengthRange(sp.raw) : null;
+      const lenF0 = lengthField(id, lengthDefault(x.cable_length_input));
+      const lenF: ExtraFieldView = lenWords
+        ? { ...lenF0, value: lenWords.value, tag: "boq", tagText: tagText("boq"), blank: undefined,
+            ...(lenWords.range && L.length_range ? { note: L.length_range.replace("{a}", lenWords.range[0]).replace("{b}", lenWords.range[1]).replace("{v}", lenWords.value) } : {}) }
+        : lengthDefaultNoted(id, lenF0);
+      const cntF = countField(id);
+      // VRF-5 (F2, U2): which values came from the BoQ and which are the default
+      const fromBoqKinds = [kindWords.armour ? kindWords.armour.toLowerCase() : null, kindWords.conductor ? kindWords.conductor.toLowerCase() : null, lenWords ? `${lenWords.value} m` : null]
+        .filter((t): t is string => !!t);
+      const wordsNote = wordsOnly ? L.cable_words_default!.replace("{said}", sp.raw.trim()).replace("{spec}", def!)
+        .replace("{boq}", fromBoqKinds.length ? (L.cable_words_boq ?? "; from the BoQ: {list}").replace("{list}", fromBoqKinds.join(", ")) : "") : undefined;
+      const tagOf = (q: { tag?: ExtraFieldView["tag"]; typed?: string }) => ({ ...(q.tag ? { tag: q.tag, tagText: tagText(q.tag) } : {}), userEdited: q.typed !== undefined });
+      const opt = (opts: string[], v: string) => (v !== "" && !opts.includes(v) ? [...opts, v] : opts);
+      const fields: ExtraFieldView[] = [
+        { id: "conductor", label: L.label_conductor, value: mp.raw, typedValue: "", options: opt(conductorOptions, mp.raw), required: true, ...tagOf(mp), ...(mp.raw === "" ? { blank: true } : {}) },
+        { id: "armour", label: L.label_armour, value: ap.raw, typedValue: "", options: opt(armourOptions, ap.raw), required: true, ...tagOf(ap), ...(ap.raw === "" ? { blank: true } : {}),
+          ...(armYes && ap === ap0 ? {} : armYes && L.armour_note ? { note: L.armour_note } : {}) },
+        { id: "cores", label: L.label_cores, value: cp.raw === "" ? "" : fmtMm(cores), typedValue: "", options: opt(coresOptions, cp.raw === "" ? "" : fmtMm(cores)), required: true, ...tagOf(cp), ...(why ? { blank: true } : {}) },
+        { id: "sqmm", label: L.label_sqmm, value: zp.raw === "" ? "" : fmtMm(sqmm), typedValue: "", options: opt(sqmmOptions, zp.raw === "" ? "" : fmtMm(sqmm)), required: true, ...tagOf(zp), ...(why ? { blank: true } : {}) },
+        { id: "spec", label: L.label_spec, value: !why ? value : "", typedValue: "", readOnly: true, userEdited: false, note: wordsNote ?? L.cable_note },
+        lenF, cntF,
+      ];
+      // the working names the conductor and the armour only where they are not the default (copper, unarmoured)
+      const isDefaultKind = mp.raw === x.cable.attrs[M] && ap.raw === x.cable.attrs[A];
+      mine.push(finish(id, fields, rate, why, lenF.value, cntF.value, isDefaultKind ? value : `${value} ${mp.raw.toLowerCase()} ${ap.raw.toLowerCase()}`));
+    }
+    // VRF-5 (owner R1, ANSWER 4, U10): the ACCESSORIES this unit's price includes -- each its own line under the unit, like the
+    // four: the quantity from the BoQ, else the Pricing Inputs default (by the unit's band), typed wins; priced by its own rules
+    // (a VRF family by VRF's, the MCCB by Electrical's, read only). A line that cannot price is a note: it never blocks the unit.
+    const accOn = accOnFor(i);
+    // VRF-6: the unit's priced size (its rung, in the role's band unit), its brand and its model item -- read by the accessories
+    const pricedRaw = res?.selection?.capacity;
+    const pricedSize = typeof pricedRaw === "number" || (typeof pricedRaw === "string" && pricedRaw.trim() !== "" && Number.isFinite(Number(pricedRaw)))
+      ? convertUnit(Number(pricedRaw), famUnit, x.band_unit[role]) : null;
+    const brandRaw = res?.selection?.brand;
+    const unitInfo = { size: pricedSize, brand: typeof brandRaw === "string" && brandRaw !== "" && brandRaw !== "None" ? brandRaw : null, model: modelItem, family: b.family };
+    for (const acc of accs) {
+      const lineId = `acc_${acc.id}` as ExtraLineId;
+      if (!acc.roles.includes(role)) {
+        // VRF-6 (F3, owner Q2 / Q8): an accessory read as included that this unit's role never carries is said, with the reason
+        if (accOn.has(acc.id) && sg?.lines.not_added && sg.lines[`role_${acc.roles[0]}`]) reviewPts.push(notCarried(i, acc.id, acc.label, sg.lines[`role_${acc.roles[0]}`]));
+        continue;
+      }
+      if (!accOn.has(acc.id) || removed.has(lineId)) continue;
+      const d = decide(i, acc.id, acc.label);
+      if (d.point) reviewPts.push(d.point);
+      if (!d.add) continue;
+      mine.push(accessoryLine(acc, lineId, i, role, bandValue, set[lineId] ?? {}, perItem ? inclOf(i).qty[acc.id] : undefined, unitInfo, reviewPts));
+      // VRF-7 (D1, owner 01:36 "its ok..just make a suitable note"): words asking the reviewer to check the line (kept)
+      if (perItem && acc.note_words) {
+        const m = execIn(acc.note_words.words, allWords);
+        // VRF-9 (S5): with `exact_quotes` the note quotes the exact stretch of the clause holding the words, and names its row
+        const at = m && sg?.exact_quotes ? (() => {
+          const n0 = (t: string) => t.replace(/\s+/g, " ").toLowerCase();
+          const e = chain.find((x) => n0(x.text).includes(n0(m)));
+          return { said: cutExact(m, 160).replace(/[\s,;:]+$/, ""), where: e?.where ?? "the BoQ" };
+        })() : null;
+        if (m) reviewPts.push(at ? acc.note_words.line.replace("{said}", at.said).replace("{where}", at.where) : acc.note_words.line.replace("{said}", clip(m)).replace(" ({where})", ""));
+      }
+      // VRF-6 (owner Q1): a unit the BoQ says has the item built in still gets the line, with a review point
+      if (acc.builtin && reTest(acc.builtin.words, allWords)) reviewPts.push(acc.builtin.line);
+    }
+    lineViews.push(...mine);
+    // VRF-4 U8 (owner 2026-11-06): a removed copper line names the insulation it took with it
+    const takesIns = (id: ExtraLineId) => (id === "copper_supply" && want.includes("ins_supply")) || (id === "copper_return" && want.includes("ins_return"));
+    const accRemoved = accs.filter((a) => a.roles.includes(role) && accOn.has(a.id) && removed.has(`acc_${a.id}` as ExtraLineId))
+      .map((a) => ({ id: `acc_${a.id}` as ExtraLineId, label: a.title }));
+    const removedList = [...want.filter((id) => removed.has(id)).map((id) => ({ id, label: takesIns(id) ? `${titleOf(id)} (and its insulation)` : titleOf(id) })), ...accRemoved];
+    // VRF-4 (O-5 "...we can add a note"): on a BoQ row, what the BoQ says this unit's price includes, read by the model
+    const incLabels = x.includes.filter((inc) => act(inc.id)).map((inc) => inc.label.toLowerCase());
+    const boqNote = perItem && incLabels.length && L.boq_note ? L.boq_note.replace("{list}", incLabels.join(", ")) : undefined;
+    const notePts = i === firstUnit ? foldedNotes : [];
+    if (!mine.length && !removedList.length && !reviewPts.length && !notePts.length) return { ...b, lineNo: unitNo };
+    return { ...b, lineNo: unitNo, extras: { lines: mine, removed: removedList, ...(removedList.length ? { removedNote: L.removed_note } : {}), ...(boqNote ? { boqNote } : {}),
+      ...(reviewPts.length && sg ? { review: { title: sg.lines.review_title, points: reviewPts } } : {}),
+      ...(notePts.length && x.folded ? { notes: { title: x.folded.title, points: notePts } } : {}) } };
+  });
+
+  // ── the row: every unit and every extra is a LINE; all or nothing (O-6 "n of m items need a person") ──
+  const lines = blocks.length + lineViews.length;
+  // VRF-5 (owner R1): an accessory line that cannot price never blocks the unit (it shows its reason as a note)
+  const badExtras = lineViews.filter((l) => l.state !== "priced" && !l.optional).length;
+  const bad = blocks.filter((b) => b.state !== "priced").length + badExtras;
+  const rowPriced = view.rowPriced && badExtras === 0;
+  const values: Record<string, number> = {};
+  if (rowPriced) {
+    const sum = (k: "supply_rate" | "install_rate") => (view.totals?.[k] ?? 0) + lineViews.reduce((a, l) => a + (l.figures[k] ?? 0), 0);
+    if (typeof view.totals?.supply_rate === "number") values.supply_rate = sum("supply_rate");
+    if (typeof view.totals?.install_rate === "number") values.install_rate = sum("install_rate");
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  const reason = rowPriced ? undefined : (view.rowPriced ? lineViews.find((l) => l.state !== "priced" && !l.optional)?.reason : view.reason);
+  const { reason: _r, totals: _t, ...rest } = view;
+  const nextView: ItemListView = {
+    ...rest,
+    rowPriced,
+    ...(reason ? { reason } : {}),
+    items: blocks,
+    ...(includesView ? { extrasIncludes: includesView } : {}),
+    lineCount: { lines, bad },
+    ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
+  };
+  const basis = rowPriced ? `${own.basis.replace(/ · \d+ items?$/, "")} · ${lines} item${lines === 1 ? "" : "s"}` : own.basis;
+  const derivation = rowPriced ? [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`] : (reason ? [plainPricerText(reason, items)] : own.workings?.derivation ?? []);
+  return withScope(spec, items, ctx, ext, overrides, {
+    ...own,
+    values,
+    basis,
+    workings: { ...(own.workings ?? { attributes: [], matchedRows: [] }), derivation, finalValues: { ...values } },
+    itemList: nextView,
+  } as ItemListSuggestion, probe);
+}
+
+/** VRF-5 (owner R4-R8): the row's scope override key in the calculator ("BoQ scope"); a BoQ row reads the model's answer. */
+export const SCOPE_OVERRIDE_KEY = "__scope__";
+
+/**
+ * VRF-10 (owner rulings 2026-11-11 08:41-09:10 from the VRF-9 review; no mint, so the words and notes live here and switch on with
+ * `vrf10On`). F2 / F3 / F6 scope rules, applied in `withScopeCore` on a BoQ row only (the calculator keeps the pricer's pick):
+ *   supply_words  a clause that READS supply-type: starts "Supply" / "Supplying" and names no installation / fixing in the clause
+ *                 ("Supply of ...", "Supply & providing ...", "Supply, port clearance, transport of ...")
+ *   plain_supply  the BoQ saying supply only plainly (F6 (ii)): "supply only", "excluding installation", "without installation",
+ *                 "installation by others / by the client", "installation not included"
+ *   frame         the MS frame / stand items (F3): always supply + installation unless the sheet quotes the frame's supply and its
+ *                 installation on separate rows
+ *   f6_sheet      (QR-1 Q2 (a)) a sheet that quotes installation on its own VRF rows keeps every supply-only row supply only
+ */
+export const VRF10_SCOPE = {
+  supply_words: "^\\s*supply(?:ing)?\\b(?![^.;|\\n]*?\\b(?:install\\w*|SITC|erect\\w*|fix(?:ing|ed)?|commission\\w*))",
+  plain_supply: "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b|\\bexclud\\w*\\s+(?:of\\s+)?install\\w*|\\bwithout\\s+install\\w*|\\binstall\\w*[^.;|\\n]{0,40}?\\bby\\s+(?:others|the\\s+(?:client|owner)|client|owner)\\b|\\binstall\\w*[^.;|\\n]{0,20}?\\bnot\\s+(?:included|in\\s+(?:the\\s+)?scope)\\b",
+  frame_families: ["MS frame / stand for ODU", "MS Angle Base Frame Structure"],
+  frame_note: "BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"{said}\") - priced as supply + installation (owner F3)",
+  frame_kept_note: "This sheet quotes the MS frame's supply and its installation on separate rows ({rows}) - kept as \"{said}\" (owner F3).",
+  f2_note: "BoQ: \"{supply}\" ({supply_where}) reads as supply, but \"{said}\" ({where}) says installation - priced as supply + installation (owner F2)",
+  f6_note: "BoQ says \"{said}\" ({where}) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
+  f6_note_unquoted: "The BoQ reading was \"Supply only\" but no supply-only words were found - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
+  f6_sheet: true,
+  /** (QR-1 Q2 (a), ANSWER 2 relay: "a sheet with any installation-only row (ANY category)") a sheet line of another category -- no
+   *  scope answer of its own -- reads installation-only when its text starts with installation work and names no supply */
+  install_only_words: "^\\s*(?:shifting\\s*[,&]?\\s*(?:and\\s+)?)?(?:assembly\\s*[,&]?\\s*(?:and\\s+)?)?(?:install\\w*|instal\\w*|erection|fixing)\\b",
+  install_only_not: "\\bsupply\\w*|\\bSITC\\b|\\bprovid\\w*|\\bprocur\\w*",
+  f6_sheet_note: "This sheet quotes installation on its own rows ({rows}) - supply only (owner F6).",
+} as const;
+
+/** VRF-10 (F5a). The controller family whose "ON / OFF controller" note is kept only for a single-function controller, and the
+ *  OTHER functions that make a multi-function one (a touch manager: mode, temperature, fan speed, schedule, monitoring ...). */
+export const VRF10_ONOFF = {
+  family: "Touch Screen Central Controller",
+  other_functions: "\\bmode\\b|\\btemp(?:erature)?\\b|\\bfan\\s*speed\\b|\\bschedul\\w*|\\btimer\\b|\\bmonitor\\w*|\\bset\\s*point\\b|\\berror\\b|\\bfault\\b|\\bweekly\\b|\\bgroup\\s+control\\b|\\binterlock\\w*",
+} as const;
+
+/** VRF-10 (F5a). PURE. Whether the clause of `text` that names ON / OFF (`words`) also names another controller function. */
+export function onOffAmongOthers(words: string, text: string): boolean {
+  for (const cl of text.split(/[.;|\n]+/)) {
+    let hit = false;
+    try { hit = new RegExp(words, "i").test(cl); } catch { return false; }
+    if (!hit) continue;
+    try { if (new RegExp(VRF10_ONOFF.other_functions, "i").test(cl)) return true; } catch { return false; }
+  }
+  return false;
+}
+
+/**
+ * VRF-5 (owner R4 "you can add"; R6 "for installation only use 1.5 times the installation rate as per catalog and declare the
+ * same in the note clearly"; R7 "1.5 is after applying any installtion markup or any other required markip"; R8 "model the 1.5
+ * multiplier as 50% installation only multiplier in the pricing input sheets"). The ROW's scope, applied LAST to every line of
+ * the row (each unit, each extra): supply only -> install 0; installation only -> supply 0 and install = the line's FINAL install
+ * (after every markup / rounding) x (1 + the Pricing Input uplift), rounded up to the rupee once, after the multiplier; a line
+ * with no install rate refuses with a note. A config without `extras.scope`, and a supply + installation row, are unchanged.
+ */
+/** VRF-9 (S11, owner ANSWER 11). The row's scope with, on a BoQ row of a config with `scope.panel_pick`, the user's pick: the panel
+ *  offers the three options defaulting to the helper's own scope; a different pick re-prices the row by the same rules as the
+ *  calculator (supply only / installation only with the uplift or the normal rate when the sheet quotes the supply / both) and the
+ *  note says the user changed it, naming the helper's choice and why. No pick (or the helper's own) => the helper's result + the pick. */
+function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+                   overrides: Record<string, string> | undefined, res: ItemListSuggestion, probe?: OwnPassProbe): ItemListSuggestion {
+  const sc = spec.extras?.scope;
+  const view = res.itemList;
+  const calculator = !!view && (view.unitPickable || ctx.noRow === true);
+  if (!sc || !view || calculator || !sc.panel_pick) return withScopeCore(spec, items, ctx, ext, overrides, res, probe);
+  const helper = withScopeCore(spec, items, ctx, ext, overrides, res, probe);
+  const hs = helper.itemList?.scope;
+  const toPick = (v: string | undefined) => (v && sc.install_only_normal && v === sc.install_only_normal ? sc.install_only : v) ?? sc.options[0];
+  const hv = toPick(hs?.value);
+  const options = sc.options.filter((o) => o !== sc.install_only_normal);
+  const pick = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  if (!pick || !options.includes(pick) || pick === hv) {
+    return { ...helper, itemList: { ...helper.itemList!, scope: { ...(hs ?? { value: hv }), picker: { title: sc.title, options, value: hv } } } };
+  }
+  const forced = withScopeCore(spec, items, ctx, ext, overrides, res, probe, pick);
+  const fs = forced.itemList?.scope;
+  const because = hs?.note ? ` because: ${hs.note}` : "";
+  const lead = sc.panel_pick.note.replace("{helper}", hv).replace("{because}", because);
+  return { ...forced, itemList: { ...forced.itemList!, scope: { value: fs?.value ?? pick, note: fs?.note ? `${lead} ${fs.note}` : lead, picker: { title: sc.title, options, value: pick } } } };
+}
+
+function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+                       overrides: Record<string, string> | undefined, res: ItemListSuggestion, _probe?: OwnPassProbe,
+                       /** VRF-9 (S11): the user's pick on a BoQ row -- priced as chosen; the reading rules that would decide it are skipped */
+                       forced?: string): ItemListSuggestion {
+  const sc = spec.extras?.scope;
+  const view = res.itemList;
+  if (!sc || !view) return res;
+  const calculator = view.unitPickable || ctx.noRow === true;
+  let value = "";
+  if (forced !== undefined) value = forced;
+  else if (calculator) value = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  else {
+    const id = spec.extras?.from_model?.scope;
+    for (const it of id ? (ext?.items ?? []) : []) {
+      const v = it.attributes?.[id!]?.value;
+      if (typeof v === "string" && v.trim() !== "" && v.trim() !== "None") { value = v.trim(); break; }
+    }
+  }
+  const picker = calculator ? { title: sc.title, options: sc.options, value: sc.options.includes(value) ? value : sc.options[0] } : undefined;
+  const L = sc.lines;
+  // VRF-6 (owner Q5, Divyansh 11:38-11:55; INSTALLATION-ONLY 11:50 / 11:55): on a BoQ row, the same sheet's rows of the SAME kind
+  // of item (item-1 family) and their scope answers decide -- a supply-only row under a note that includes installation, and an
+  // installation-only row, each carry a note naming the rows that decided
+  const fam0 = (() => { const v = ext?.items?.[0]?.attributes?.[familyAttr(spec)]?.value; return typeof v === "string" && v !== "" ? v : null; })();
+  const sameKind = (pred: (s: string) => boolean) => (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined && fam0 !== null
+    && l.family1 === fam0 && typeof l.scope1 === "string" && pred(l.scope1)).map((l) => l.row).sort((a, b) => a - b);
+  const rowsWord = (rs: number[]) => rs.slice(0, 4).map((r) => `row ${r}`).join(", ") + (rs.length > 4 ? ` and ${rs.length - 4} more` : "");
+  let extraNote: string | undefined;
+  // VRF-9 (S9, owner 00:59 "gas charging is always both"): a refrigerant gas charging / topping-up row is supply + installation,
+  // whatever its scope words
+  const ab = sc.always_both;
+  const v10 = vrf10On(spec);
+  // VRF-10 (F5b, F3): the model's own item families too -- a row refused for its unit (a gas row per "Lot") has no priced family
+  const rawFams = v10 ? (ext?.items ?? []).map((it) => it.attributes?.[familyAttr(spec)]?.value).filter((x): x is string => typeof x === "string" && x !== "") : [];
+  const notBoth = value === sc.supply_only || value === sc.install_only || (!!sc.install_only_normal && value === sc.install_only_normal);
+  if (forced === undefined && !calculator && ab && notBoth
+    && (view.items.some((b) => !!b.family && ab.families.includes(b.family)) || rawFams.some((f) => ab.families.includes(f)))) {
+    return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: ab.note.replace("{said}", value) } } };
+  }
+  // VRF-10 (F3, owner 08:41 "ms stand is always supply + install unless they are mentioned in separate rows"): a row priced on the
+  // MS frame / stand item is supply + installation whatever its scope words -- unless the sheet quotes the frame's supply and its
+  // installation on separate rows: then this row keeps its own scope and the note names the other row(s)
+  let keepScope = false;
+  let frameKeptNote: string | undefined;
+  const VS = VRF10_SCOPE;
+  if (forced === undefined && !calculator && !keepScope && sc.conflict && value === sc.supply_only) {
+    const text = [...(ctx.headings ?? []), ...(ctx.headingNotes ?? []), ...(ctx.ownNotes ?? [])].join(" | ");
+    let said: string | null = null;
+    try { const m = new RegExp(sc.conflict.words, "i").exec(text); said = m ? m[0].trim() : null; } catch { said = null; }
+    if (said !== null) {
+      const inst = sameKind((s) => s === sc.install_only);
+      if (inst.length) extraNote = sc.conflict.with_row.replace("{said}", said).replace("{rows}", rowsWord(inst));
+      else {
+        // no installation row of this kind on the sheet: supply + installation, said
+        const note = sc.conflict.no_row.replace("{said}", said);
+        return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+      }
+    }
+  }
+  // VRF-9 (S4, VRF-7 ruled S+I): a supply-only answer while installation is said at ANY level of the chain (a grandparent's note,
+  // a top heading) -> supply + installation, noted -- unless the row itself says supply only, or the sheet quotes installation of
+  // this kind on its own row (Q5 above keeps supply only then)
+  const al = sc.any_level;
+  if (forced === undefined && !calculator && !keepScope && al && value === sc.supply_only && extraNote === undefined && !sameKind((s) => s === sc.install_only).length) {
+    const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+    let keep = false;
+    try { keep = !!al.keep_words && new RegExp(al.keep_words, "i").test(own); } catch { keep = false; }
+    // VRF-10 (F6 (ii)): the BoQ saying supply only plainly on the row OR its chain ("installation by the client", "excluding
+    // installation") keeps supply only here too
+    if (!keep && v10 && nearestClause(VS.plain_supply, undefined, chainOf(ctx))) keep = true;
+    const hit = keep ? null : nearestClause(al.install_words, al.not_words, chainOf(ctx));
+    if (hit) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: al.note.replace("{said}", hit.said).replace("{where}", hit.where) } } };
+  }
+  // VRF-10 (F3): after Q5 / S4 -- a frame row they settle keeps their note (QR-1 Q3 (a)'s principle); else F3 decides
+  if (forced === undefined && !calculator && v10 && notBoth && extraNote === undefined
+    && (view.items.some((b) => !!b.family && (VS.frame_families as readonly string[]).includes(b.family)) || rawFams.some((f) => (VS.frame_families as readonly string[]).includes(f)))) {
+    const wantOther = (s: string) => (value === sc.supply_only ? s === sc.install_only || s === sc.install_only_normal : s === sc.supply_only);
+    const other = (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined && !!l.family1
+      && (VS.frame_families as readonly string[]).includes(l.family1) && typeof l.scope1 === "string" && wantOther(l.scope1)).map((l) => l.row).sort((a, b) => a - b);
+    if (!other.length) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: VS.frame_note.replace("{said}", value) } } };
+    keepScope = true;
+    frameKeptNote = VS.frame_kept_note.replace("{rows}", rowsWord(other)).replace("{said}", value);
+  }
+  // VRF-8 (D1, owner 14:2x "this is supply + installation. the note belongs to the parent. option b"): a supply + installation row
+  // under a "Supply of ..." heading whose notes say installation keeps supply + installation, with a note quoting both
+  const sh = sc.supply_heading;
+  if (forced === undefined && !calculator && sh && value !== sc.supply_only && value !== sc.install_only && value !== sc.install_only_normal) {
+    const ch = chainOf(ctx);
+    // the unit's own heading (a heading entry, never a heading's NOTE) and the notes of that level -- `chainRows` lists a heading
+    // before its notes; a context built without them lists the notes first, so both sides of the heading are read, up to the next one
+    const isHead = (w: string) => /^heading row \d+$|^a heading$/.test(w);
+    const k = ch.findIndex((e) => isHead(e.where));
+    const head = k >= 0 ? ch[k] : null;
+    const k2 = k >= 0 ? ch.findIndex((e, i) => i > k && isHead(e.where)) : -1;
+    let hs: string | null = null;
+    try { hs = head && new RegExp(sh.heading_words, "i").test(head.text) ? head.text : null; } catch { hs = null; }
+    if (head && hs !== null) {
+      let inst: { said: string; where: string } | null = null;
+      for (const e of ch.slice(0, k2 === -1 ? ch.length : k2)) {
+        if (isHead(e.where) || !/note/.test(e.where)) continue;
+        try { const m = new RegExp(sh.install_words, "i").exec(e.text); if (m) { inst = { said: m[0].trim(), where: e.where }; break; } } catch { break; }
+      }
+      if (inst) {
+        const note = sh.note.replace("{heading}", cutExact(hs, 80)).replace("{said}", cutExact(inst.said, 120)).replace("{where}", inst.where);
+        return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+      }
+    }
+  }
+  // VRF-9 (S3, owner R-D1 "scope note always"): a supply + installation row whose own level starts with "Supply of" / "Supply &
+  // providing" and whose own text names no installation, under a text that says installation -> the note quoting both, written
+  // whatever the model answered for the scope (blank included)
+  const an = sc.always_note;
+  if (forced === undefined && !calculator && an && value !== sc.supply_only && value !== sc.install_only && !(sc.install_only_normal && value === sc.install_only_normal)) {
+    const ch = chainOf(ctx);
+    const isOwn = (w: string) => w === CHAIN_ROW_PLACE || w === CHAIN_ROW_NOTE_PLACE;
+    const own = ch.filter((e) => isOwn(e.where));
+    const ownInstall = own.some((e) => nearestClause(an.install_words, an.not_words, [e]) !== null);
+    let lvlEnd = ch.length; { let seen = 0; for (let k = 0; k < ch.length; k++) { if (/heading/.test(ch[k].where) && !/note/.test(ch[k].where) && ++seen === 2) { lvlEnd = k; break; } } }
+    const sup = ownInstall ? null : nearestClause(an.row_words, undefined, ch.slice(0, lvlEnd));
+    const inst = sup ? nearestClause(an.install_words, an.not_words, ch.filter((e) => !isOwn(e.where))) : null;
+    if (sup && inst) {
+      const note = an.note.replace("{row}", sup.said).replace("{said}", inst.said).replace("{where}", inst.where);
+      return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+    }
+    // VRF-10 (F2, owner 08:41; 00363 r51-52): installation said at ANY level beats a NEARER supply-type wording that is not "Supply
+    // of" ("Supply, port clearance, transport of ..." on the parent's note) -- the note quotes BOTH, with where each sits. A row that
+    // is supply + installation by the plain default (no supply-type wording anywhere) gets no note (QR-3 1a stands)
+    if (v10 && !ownInstall && !sup) {
+      let at = -1;
+      let sw: { said: string; where: string } | null = null;
+      for (let k = 0; k < ch.length && !sw; k++) { sw = nearestClause(VS.supply_words, an.not_words, [ch[k]]); if (sw) at = k; }
+      const iw = sw ? nearestClause(an.install_words, an.not_words, ch.slice(at + 1).filter((e) => !isOwn(e.where))) : null;
+      if (sw && iw) {
+        const note = VS.f2_note.replace("{supply}", sw.said).replace("{supply_where}", sw.where).replace("{said}", iw.said).replace("{where}", iw.where);
+        return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+      }
+    }
+  }
+  // VRF-10 (F6, owner 08:48 / 08:51 "b is correct. you can give an appropriate note"; ANSWER 1 09:09 "supply + install is the general
+  // principle until install is mentioned separately or we are extremely sure that it is a supply only"): a stored "Supply only" that
+  // no rule above settled is supply + installation, noted -- unless (i) the sheet quotes installation of this item on its own row
+  // (Q5 / the same-kind check; QR-1 Q2 (a): any VRF installation-only row on the sheet), or (ii) the row or its chain says supply only
+  // plainly. Both exceptions keep supply only and its note. The S11 pick defaults to the result.
+  if (forced === undefined && !calculator && !keepScope && v10 && value === sc.supply_only && extraNote === undefined) {
+    const own = sameKind((s) => s === sc.install_only || s === sc.install_only_normal);
+    const instText = (t: string) => { try { return new RegExp(VS.install_only_words, "i").test(t) && !new RegExp(VS.install_only_not, "i").test(t); } catch { return false; } };
+    const onSheet = VS.f6_sheet ? (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined
+      && (typeof l.scope1 === "string" ? l.scope1 === sc.install_only || l.scope1 === sc.install_only_normal : instText(l.text ?? ""))).map((l) => l.row).sort((a, b) => a - b) : [];
+    const ch6 = chainOf(ctx);
+    // the row's own text too (as S4 reads it), beside its chain
+    const plain = nearestClause(VS.plain_supply, undefined, [{ where: "", text: [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ") }, ...ch6]);
+    if (!own.length && onSheet.length) extraNote = VS.f6_sheet_note.replace("{rows}", rowsWord(onSheet));
+    else if (!own.length && !plain) {
+      const sw = nearestClause(VS.supply_words, undefined, ch6);
+      const note = sw ? VS.f6_note.replace("{said}", sw.said).replace("{where}", sw.where) : VS.f6_note_unquoted;
+      return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+    }
+  }
+  // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
+  const installNormal = !!sc.install_only_normal && value === sc.install_only_normal;
+  if (value !== sc.supply_only && value !== sc.install_only && !installNormal) {
+    return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
+  }
+  const supplyOnly = value === sc.supply_only;
+  // VRF-6 (INSTALLATION-ONLY): x (1 + uplift) only when the sheet has no supply row for this kind of item; with one, the normal rate
+  const supplyRows = !supplyOnly && !installNormal && !calculator && sc.supply_row ? sameKind((s) => s !== sc.install_only && s !== sc.install_only_normal) : [];
+  const normalRate = installNormal || supplyRows.length > 0;
+  const uplift0 = supplyOnly ? null : pricingInputFactor(items, sc.uplift_input);
+  const uplift = normalRate ? 0 : uplift0;
+  if (!supplyOnly && !calculator && sc.supply_row && !installNormal) {
+    extraNote = supplyRows.length ? sc.supply_row.with_row.replace("{rows}", rowsWord(supplyRows)) : sc.supply_row.no_row;
+  }
+  // the row's scope as the calculator states it: a panel row whose sheet quotes the supply elsewhere shows the normal-rate option
+  const shownValue = supplyRows.length && sc.install_only_normal ? sc.install_only_normal : value;
+  const pct = uplift === null ? "" : `${fmtN(uplift * 100)}%`;
+  // the lines of the row, each with its own figures: the units (a block per unit) and every extra line that priced
+  type Ln = { title: string; f: Partial<Record<RateKind, number>> };
+  const lns: Ln[] = [];
+  view.items.forEach((b) => {
+    if (b.state === "priced") lns.push({ title: b.family ?? "item", f: b.figures });
+    for (const l of b.extras?.lines ?? []) if (l.state === "priced") lns.push({ title: l.title, f: l.figures });
+  });
+  const sumOf = (k: "supply_rate" | "install_rate") => lns.reduce((a, l) => a + (l.f[k] ?? 0), 0);
+  const perLine = view.rowPriced && typeof view.totals?.install_rate === "number" && sumOf("install_rate") === view.totals.install_rate
+    && sumOf("supply_rate") === view.totals.supply_rate;
+  const points: string[] = [];
+  let refuse: string | undefined;
+  // VRF-8 K2c (owner 18:21 "option a", ANSWER 3, correcting R-F2): on an installation-only row a LINE whose catalogue install is a
+  // stored 0 (the MS frame / stand: supply 5,600, install 0 -- the stand is made and fixed on site by us) is not "missing": it
+  // charges its full cost (its final supply figure) in the install column, no uplift, with a note; the row prices. A line with no
+  // install figure at all still refuses. Panel and calculator share this path (parity).
+  const onSite = (f: Partial<Record<RateKind, number>>) => f.install_rate === 0 && (f.supply_rate ?? 0) > 0;
+  // the owner's note reads the figure without the rupee sign ("charged at 5,600"); the formatting is the app's own (residence R1)
+  const figureText = (n: number) => formatToRoundedIndianRupee(n).replace(/^₹/, "");
+  const onSiteNote = (title: string, fig: number) => (/^MS frame/i.test(title)
+    ? `Installation-only row: MS frame charged at ${figureText(fig)} - the stand is made and fixed on site by us (owner R-F2)`
+    : `Installation-only row: ${title} charged at ${figureText(fig)} - its catalogue installation rate is 0, so its full cost is charged (owner R-F2)`);
+  const adj = (f: Partial<Record<RateKind, number>>, title: string, line = false): Partial<Record<RateKind, number>> => {
+    const s0 = f.supply_rate ?? 0;
+    const i0 = f.install_rate ?? 0;
+    if (supplyOnly) return { supply_rate: s0, install_rate: 0, combined_rate: s0 };
+    if (uplift === null) { refuse = L.uplift_missing; return f; }
+    if (line && onSite(f)) { points.push(onSiteNote(title, s0)); return { supply_rate: 0, install_rate: s0, combined_rate: s0 }; }
+    if (!(i0 > 0)) { refuse ??= L.no_install.replace("{title}", title); return { supply_rate: 0, install_rate: 0, combined_rate: 0 }; }
+    const i1 = Math.ceil(i0 * (1 + uplift) - 1e-9);
+    if (uplift > 0) points.push(L.install_only_line.replace("{title}", title).replace("{rate}", String(i0)).replace("{pct}", pct).replace("{figure}", String(i1)));
+    return { supply_rate: 0, install_rate: i1, combined_rate: i1 };
+  };
+  let items2 = view.items;
+  let totals: Partial<Record<RateKind, number>> | undefined;
+  if (view.rowPriced && view.totals) {
+    if (perLine) {
+      items2 = view.items.map((b) => ({
+        ...b,
+        ...(b.state === "priced" ? { figures: adj(b.figures, b.family ?? "item", true) } : {}),
+        ...(b.extras ? { extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" ? { ...l, figures: adj(l.figures, l.title, true) } : l)) } } : {}),
+      }));
+      const all = items2.flatMap((b) => [...(b.state === "priced" ? [b.figures] : []), ...(b.extras?.lines ?? []).filter((l) => l.state === "priced").map((l) => l.figures)]);
+      const sum = (k: RateKind) => all.reduce((a, f) => a + (f[k] ?? 0), 0);
+      totals = { supply_rate: sum("supply_rate"), install_rate: sum("install_rate"), combined_rate: sum("supply_rate") + sum("install_rate") };
+    } else {
+      totals = adj(view.totals, L.row_title ?? "the row");
+    }
+  }
+  const note0 = supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
+  const note = [note0, extraNote, frameKeptNote].filter((x) => !!x).join(" ");
+  const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
+  if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
+  if (refuse) {
+    const { totals: _t, ...rest } = view;
+    // VRF-8 (R-F2, owner 13:56; U4 / U8): the line with no installation rate says why, and is counted among the lines that need a
+    // person -- the row total then names the reason (the calculator's installation-only MS frame read "0 of 6 items need a person")
+    let bad = 0;
+    const flag = (title: string, f: Partial<Record<RateKind, number>>) => !(supplyOnly) && uplift !== null && !((f.install_rate ?? 0) > 0) && !onSite(f) && !!title;
+    const items3 = perLine ? view.items.map((b) => {
+      const blk = b.state === "priced" && flag(b.family ?? "item", b.figures) ? (bad++, { ...b, state: "blank" as const, reason: L.no_install.replace("{title}", b.family ?? "item") }) : b;
+      if (!b.extras) return blk;
+      return { ...blk, extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" && flag(l.title, l.figures)
+        ? (bad++, { ...l, state: "blank" as const, reason: L.no_install.replace("{title}", l.title) }) : l)) } };
+    }) : view.items;
+    return { ...res, values: {}, workings: { ...res.workings, derivation: [refuse], finalValues: {} },
+             itemList: { ...rest, items: items3, rowPriced: false, reason: refuse, scope: scopeView,
+                         ...(rest.lineCount && bad ? { lineCount: { ...rest.lineCount, bad: Math.max(rest.lineCount.bad, bad) } } : {}) } };
+  }
+  const values: Record<string, number> = { supply_rate: totals.supply_rate ?? 0, install_rate: totals.install_rate ?? 0, combined_rate: (totals.supply_rate ?? 0) + (totals.install_rate ?? 0) };
+  return {
+    ...res,
+    values,
+    workings: { ...res.workings, derivation: [`Row total per 1 ${view.unit}: supply ${values.supply_rate} + install ${values.install_rate}`], finalValues: { ...values } },
+    itemList: { ...view, items: items2, totals: { ...values } as Partial<Record<RateKind, number>>, scope: scopeView },
+  };
+}
+
+/**
+ * VRF-6 (owner rulings 2026-11-09). PURE. A BoQ row's model items as the reading rules settle them BEFORE pricing, each change with
+ * its note (`extras.prepare`; ABSENT => the items as stored, byte-identical):
+ *   spaced_decimal  "6 .3TR" reads 6.3 (00197 r318)
+ *   family_by_unit  a frame / stand quoted per Nos prices on the per-Nos frame item (team rule; 00210 r29 / r30); the per-Nos item
+ *                   read on a row quoted per Kg goes back to the per-Kg item (K1e, owner ANSWER 7)
+ *   same_as_outdoor "make same as outdoor" -> the make of the sheet's outdoor units (Q-pre 5)
+ *   row_cooling     the row's own "Cooling Type" / "heat pump" wins over the heading, noted when they differ (Q6)
+ *   family_words    an ON/OFF central controller is the Touch Screen controller, noted (Q-pre 4)
+ * The calculator (no model item) is never touched.
+ */
+function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+  /** VRF-7 (B9): the catalogue, for "is every stated module stocked" */
+  catalogue: readonly RateMasterItem[] = []):
+  { ext: ExtractionRowWithItems | undefined; notes: string[]; refuse?: string; unitNotes?: string[] } {
+  const P = spec.extras?.prepare;
+  if (!P || !ext?.items?.length) return { ext, notes: [] };
+  const notes: string[] = [];
+  // VRF-9 (S7): notes said on EVERY unit block of the row (each module of a split), not only on the first
+  const unitNotes: string[] = [];
+  const fa = familyAttr(spec);
+  const rowText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  // every heading above the row and every heading's notes (00114: "(HEAT PUMP)" sits on the grandparent)
+  const headText = [...(ctx.headings ?? []), ...(ctx.ancestorNotes ?? ctx.headingNotes ?? [])].join(" | ");
+  const find = (w: string | undefined, t: string): string | null => { if (!w) return null; try { const m = new RegExp(w, "i").exec(t); return m ? m[0].trim() : null; } catch { return null; } };
+  // VRF-7 (B11): the row and its OWN heading (its description and notes) -- a word further up describes other units as often as this one
+  const parentText = [rowText, (ctx.headings ?? [])[(ctx.headings ?? []).length - 1] ?? "", ...(ctx.headingNotes ?? [])].join(" | ");
+  const textOf = (where: "row" | "heading" | "both" | "parent" | undefined) => (where === "heading" ? headText : where === "both" ? `${rowText} | ${headText}`
+    : where === "parent" ? parentText : rowText);
+  // VRF-7: the row's chain nearest first, each text with where it sits (`chainOf`)
+  const chain = chainOf(ctx);
+  const firstHeading = (() => { const k = chain.findIndex((c) => /heading/.test(c.where)); return k === -1 ? chain.length : k; })();
+  const chainFind = (w: string): { said: string; where: string } | null => {
+    for (const c of chain) { const m = find(w, c.text); if (m) return { said: m, where: c.where }; }
+    return null;
+  };
+  const val = (it: ExtractedListItem, a: string) => { const v = it.attributes?.[a]?.value; return typeof v === "string" ? v : v === null || v === undefined ? "" : String(v); };
+  const setVal = (it: ExtractedListItem, a: string, v: string): ExtractedListItem => ({ ...it, attributes: { ...it.attributes, [a]: { ...(it.attributes?.[a] ?? { confidence: 1 }), value: v } } });
+  const rowClass = typeof ctx.unit === "string" ? unitClassOf(spec, ctx.unit) : null;
+  // -- VRF-8 helpers --
+  const blankAns = (v: string) => v.trim() === "" || v.trim() === "None";
+  // the unit's own level: the row, its notes, its heading and that heading's notes (everything before the second heading)
+  const parentEnd = (() => { let seen = 0; for (let k = 0; k < chain.length; k++) { if (/heading/.test(chain[k].where) && ++seen === 2) return k; } return chain.length; })();
+  /** VRF-8: the first CLAUSE of the chain (nearest first) carrying `w` and none of `notW`; the match, the clause and where */
+  const chainFindClause = (w: string, notW?: string, upTo = chain.length): { said: string; clause: string; where: string; m: RegExpExecArray } | null => {
+    for (const c of chain.slice(0, upTo)) {
+      for (const cl of c.text.split(/[.;|\n]+/)) {
+        let m: RegExpExecArray | null = null;
+        try { m = new RegExp(w, "i").exec(cl); } catch { m = null; }
+        if (!m || (notW && find(notW, cl))) continue;
+        return { said: m[0].trim(), clause: cl.trim(), where: c.where, m };
+      }
+    }
+    return null;
+  };
+  /** VRF-8: the words a note quotes -- the clause when short, else an exact stretch of it around the match (never cut before it) */
+  const around = (h: { clause: string; said: string }, n = 120) => {
+    if (h.clause.length <= n) return h.clause;
+    const at = h.clause.indexOf(h.said);
+    if (at < 0) return sg0?.exact_quotes ? cutExact(h.said, n) : clip(h.said, n);
+    const from = Math.max(0, h.clause.lastIndexOf(" ", Math.max(0, at - 40)) + 1);
+    const to = Math.min(h.clause.length, at + h.said.length + 30);
+    const end = h.clause.indexOf(" ", to);
+    return h.clause.slice(from, end < 0 ? h.clause.length : end).trim();
+  };
+  const placeOf = (where: string) => (where === CHAIN_ROW_PLACE ? (spec.extras?.safeguard?.row_value ?? "Row") : /^heading/.test(where) ? "Heading" : "Note");
+  const sg0 = spec.extras?.safeguard;
+  /** VRF-8: an include set by a reading rule -- the answer, where it sits and the BoQ words (the B8 note then quotes them) */
+  const setInclude = (it: ExtractedListItem, q: string, yes: string, where: string, words: string): ExtractedListItem => {
+    let r = setVal(it, q, yes);
+    if (sg0) {
+      r = setVal(r, q + sg0.where_suffix, placeOf(where));
+      if (sg0.words_suffix) r = setVal(r, q + sg0.words_suffix, words);
+    }
+    return r;
+  };
+  let refuse: string | undefined;
+  // VRF-8 (D12, owner 14:50): sub-headings saved as notes -- the unit's own heading carries several short notes each naming a unit
+  // type and the row names none: the panel does not pick one
+  const st8 = P.several_types;
+  if (st8 && P.unit_words) {
+    const famsIn = (t: string) => Object.entries(P.unit_words!).filter(([, w]) => find(w, t) !== null).map(([f]) => f);
+    const subs = new Set((ctx.headingNotes ?? []).filter((n) => n.trim().length <= st8.note_max).flatMap((n) => famsIn(n)));
+    if (subs.size >= 2 && famsIn(rowText).length === 0) refuse = st8.refusal;
+  }
+  // VRF-8 (D11, owner 14:48): the capacity the row states twice (same unit) wins over one stated once
+  const rs = P.repeated_size;
+  const repeated = rs ? (() => {
+    const byUnit = new Map<string, Map<number, number>>();
+    try {
+      for (const m of String(ctx.description ?? "").matchAll(new RegExp(rs.words, "gi"))) {
+        const u = String(m[2]).toUpperCase(); const n = Number(m[1]);
+        if (!Number.isFinite(n)) continue;
+        const mm = byUnit.get(u) ?? new Map<number, number>(); mm.set(n, (mm.get(n) ?? 0) + 1); byUnit.set(u, mm);
+      }
+    } catch { return null; }
+    for (const [u, mm] of byUnit) {
+      if (mm.size < 2) continue;
+      const top = Math.max(...mm.values());
+      const winners = [...mm].filter(([, c]) => c === top);
+      if (top >= 2 && winners.length === 1 && [...mm].every(([n, c]) => n === winners[0][0] || c === 1)) {
+        return { n: winners[0][0], unit: u, others: [...mm.keys()].filter((n) => n !== winners[0][0]) };
+      }
+    }
+    return null;
+  })() : null;
+  // (post-run) unnamed items the row-family net found to repeat another item of the row
+  const dropUnnamed = new Set<number>();
+  const out0 = ext.items.map((it0, idx) => {
+    let it = it0;
+    if (P.spaced_decimal) {
+      const c = val(it, P.spaced_decimal.attr);
+      const j = c.replace(/(\d)\s+\.(\d)/g, "$1.$2");
+      if (j !== c) it = setVal(it, P.spaced_decimal.attr, j);
+    }
+    // VRF-8 (D11): the repeated capacity, on the row's unit item(s)
+    if (rs && repeated && x2Role(spec, val(it, fa))) {
+      const said = /(\d+(?:\.\d+)?)/.exec(val(it, rs.attr));
+      const fmtR = (n: number) => `${fmtNum(n)} ${repeated.unit}`;
+      if (!said || Number(said[1]) !== repeated.n) it = setVal(it, rs.attr, fmtR(repeated.n));
+      notes.push(rs.line.split("{kept}").join(fmtR(repeated.n)).replace("{other}", repeated.others.map(fmtR).join(" / ")));
+    }
+    // VRF-9 (S9 / S10 safety nets): no unit type told, the row's own text names the gas charging / the ODU frame -> that item (the
+    // per-unit mapping just below then picks the one stocked in the row's unit)
+    for (const rf of P.row_family ?? []) {
+      const f0 = val(it, fa);
+      if (!(blankAns(f0) || /^none of these$/i.test(f0))) break;
+      // QR-3 5a (00029 r402): a row with NO unit gets no safety-net item -- it stays refused for its unit (the BoQ user sets it)
+      if (rowClass === null) break;
+      if (rf.unit_classes && !rf.unit_classes.includes(rowClass)) continue;
+      let said: string | null = null;
+      for (const cl of rowText.split(/[.;|\n]+/)) { const m = find(rf.words, cl); if (m && !(rf.not_words && find(rf.not_words, cl))) { said = m; break; } }
+      if (!said) continue;
+      // (post-run, 00393 r42): never a second copy -- another unit of this row already IS that item: this unnamed one is the same
+      // reading twice, so it is dropped (noted)
+      if ((ext.items ?? []).some((o, j) => j !== idx && val(o, fa) === rf.family)) {
+        dropUnnamed.add(idx);
+        notes.push(`BoQ says "${said}" - an item the model could not name, beside the ${rf.family} item, is the same reading and is left out`);
+        break;
+      }
+      it = setVal(it, fa, rf.family);
+      notes.push(rf.line.replace("{said}", said).replace("{family}", rf.family));
+    }
+    const fam = val(it, fa);
+    for (const fb of P.family_by_unit ?? []) {
+      if (fam === fb.family && rowClass === fb.unit_class) { it = setVal(it, fa, fb.to); notes.push(fb.line.replace("{unit}", String(ctx.unit ?? "")).replace("{to}", fb.to)); }
+      // VRF-6 K1e (owner ANSWER 7, 2026-11-10 00:07; team rule 2026-11-08 10:45 "a row quoting frames per Kg keeps the per-Kg item"):
+      // the model read the rule's TARGET item on a row quoted in a unit that item is not stocked in, but the rule's own source item
+      // is -> back to the source item (00009 r80, 00102 r22, 00380 HVAC-3F r268: a frame per Kg read as the Nos-only frame item)
+      else if (fam === fb.to && rowClass !== null && rowClass !== fb.unit_class
+        && !familyUnitClasses(spec, fb.to).includes(rowClass) && familyUnitClasses(spec, fb.family).includes(rowClass)) {
+        it = setVal(it, fa, fb.family);
+        notes.push(fb.line.replace("{unit}", String(ctx.unit ?? "")).replace("{to}", fb.family));
+      }
+    }
+    for (const fw of P.family_words ?? []) {
+      const said = find(fw.words, textOf(fw.in));
+      // VRF-7 (B11): a rule whose `unless` words sit in the same text gives way (a treated fresh air unit is no Ductable)
+      if (said && fw.unless && find(fw.unless, parentText)) continue;
+      // VRF-7 (B11): a family an earlier rule of this row set (the fresh-air unit) is not re-labelled by a later rule (CSU)
+      if (said && val(it, fa) !== fam && val(it, fa) !== fw.family) continue;
+      if (said && (fam === fw.family || fam === "" || fam === "None" || /^none of these$/i.test(fam) || (fw.from ?? []).includes(fam))) {
+        if (fam !== fw.family) it = setVal(it, fa, fw.family);
+        // VRF-10 (F5a, owner 08:41; 00380 2F r246): the "ON / OFF controller" note only where ON / OFF is the controller's ONLY
+        // function -- a touch manager listing ON / OFF among mode, temperature, fan speed ... is no ON / OFF controller (the family
+        // is set as before; only the note goes)
+        if (vrf10On(spec) && fw.family === VRF10_ONOFF.family && onOffAmongOthers(fw.words, textOf(fw.in))) continue;
+        notes.push(fw.line.replace("{said}", said).replace("{family}", fw.family));
+      }
+    }
+    // VRF-6 (owner Q-pre 7): a spec the owner reads one way -- 600x600 / 2'x2' = the compact cassette; "1 way" in a heading = a one-way
+    // cassette -- sets that answer on the family it names, where the row's own text states no other value for it
+    for (const aw of P.attr_words ?? []) {
+      const famNow = val(it, fa);
+      if (!aw.families.includes(famNow)) continue;
+      const said = find(aw.words, textOf(aw.in));
+      if (!said || val(it, aw.attr) === aw.value) continue;
+      if (aw.unless_row && find(aw.unless_row, rowText)) continue;
+      it = setVal(it, aw.attr, aw.value);
+      notes.push(aw.line.replace("{said}", said).replace("{value}", aw.value));
+    }
+    // VRF-7 (A5): the cooling-and-heating wordings also count as a heading's heat-pump statement
+    const hw = P.heat_words;
+    const coolWords = (rc: NonNullable<PrepareSpec["row_cooling"]>): Record<string, string> => (hw && rc.words[hw.value] !== undefined
+      ? { ...rc.words, [hw.value]: `(?:${rc.words[hw.value]})|(?:${hw.words})` } : rc.words);
+    if (idx === 0 && P.row_cooling) {
+      const rc = P.row_cooling;
+      const rowSaid = Object.entries(rc.words).map(([v, w]) => [v, find(w, rowText)] as const).find(([, m]) => m !== null);
+      if (rowSaid) {
+        const headSaid = Object.entries(coolWords(rc)).map(([v, w]) => [v, find(w, headText)] as const).find(([v, m]) => m !== null && v !== rowSaid[0]);
+        if (val(it, rc.attr) !== rowSaid[0]) it = setVal(it, rc.attr, rowSaid[0]);
+        if (headSaid) notes.push(rc.line.replace("{row}", rowSaid[1]!).replace("{heading}", headSaid[1]!).replace("{value}", rowSaid[0]));
+      }
+    }
+    // VRF-8 (D9, owner 14:46): headings that disagree on cooling / heating -- the one NEARER the row wins, noted (the row's own words
+    // are Q6's, above). A text naming heating is a heat-pump statement; else one naming cooling only / cooling mode is cooling only.
+    const mn = P.mode_nearest;
+    let modeDone = false;
+    if (mn && mn.families.includes(val(it, fa)) && !(P.row_cooling && Object.values(P.row_cooling.words).some((w) => find(w, rowText) !== null))
+      && !(hw?.unless_row && find(hw.unless_row, rowText))) {
+      let heat: { k: number; said: string; where: string } | null = null;
+      let cool: { k: number; said: string; where: string } | null = null;
+      for (let k = firstHeading; k < chain.length; k++) {
+        const t = chain[k].text;
+        const h = find(mn.heat_words, t) ?? (hw ? find(hw.words, t) : null);
+        const cw = h === null ? find(mn.cool_words, t) : null;
+        if (h !== null && !heat) heat = { k, said: h, where: chain[k].where };
+        if (cw !== null && !cool) cool = { k, said: cw, where: chain[k].where };
+      }
+      if (heat && cool) {
+        const [near, far] = heat.k < cool.k ? [heat, cool] : [cool, heat];
+        const value = near === heat ? mn.heat : mn.cool;
+        const clauseOf = (e: { k: number; said: string }) => around({ clause: chain[e.k].text.split(/[.;|\n]+/).find((cl) => cl.includes(e.said))?.trim() ?? e.said, said: e.said }, 100);
+        if (val(it, mn.attr) !== value) it = setVal(it, mn.attr, value);
+        notes.push(mn.line.replace("{near}", clauseOf(near)).replace("{near_where}", near.where).replace("{far}", clauseOf(far))
+          .replace("{far_where}", far.where).replace("{value}", value));
+        modeDone = true;
+      }
+    }
+    // VRF-7 (A5, owner 01:3x): "suitable for cooling/heating", "for cooling or heating or both", "cooling as well as heating"
+    // = Heat Pump -- unless the row itself says otherwise (its own "Cooling Type" wins, Q6, with its note above)
+    if (!modeDone && hw && hw.families.includes(val(it, fa)) && val(it, hw.attr) !== hw.value && !(hw.unless_row && find(hw.unless_row, rowText))) {
+      const hit = chainFind(hw.words);
+      if (hit) {
+        it = setVal(it, hw.attr, hw.value);
+        notes.push(hw.line.replace("{said}", hit.said).replace("{where}", hit.where).replace("{value}", hw.value));
+      }
+    }
+    // VRF-7 (A1, owner 01:53): a discharge type stated anywhere in the chain decides where the model gave none (nearest first)
+    const dw = P.discharge_words;
+    if (dw && dw.families.includes(val(it, fa)) && (val(it, dw.attr) === "" || val(it, dw.attr) === "None")) {
+      for (const c of chain) {
+        const hits = Object.entries(dw.words).map(([v, w]) => { try { const m = new RegExp(w, "i").exec(c.text); return m ? { v, said: m[0].trim(), at: m.index } : null; } catch { return null; } })
+          .filter((h): h is { v: string; said: string; at: number } => h !== null).sort((a, b) => a.at - b.at);
+        if (!hits.length) continue;
+        it = setVal(it, dw.attr, hits[0].v);
+        notes.push(dw.line.replace("{said}", hits[0].said).replace("{where}", c.where).replace("{value}", hits[0].v));
+        break;
+      }
+    }
+    // VRF-7 (A2 safety net, owner 01:3x "armoured only when specifically mentioned"): "armoured" in a clause naming a cable
+    const aw2 = P.armour_words;
+    if (aw2 && x2Role(spec, val(it, fa))) {
+      const fm = spec.extras?.from_model;
+      for (const c of chain) {
+        for (const clause of c.text.split(/[.;|\n]+/)) {
+          if (!find(aw2.words, clause) || (aw2.not_words && find(aw2.not_words, clause)) || !find(aw2.cable_words, clause)) continue;
+          const which: "power" | "comm" = find(aw2.comm_words, clause) ? "comm" : "power";
+          const incQ = fm?.includes?.[which];
+          if (incQ && val(it, incQ).toLowerCase() !== (fm?.yes ?? "Yes").toLowerCase()) continue;
+          if (val(it, aw2.attrs[which]).toLowerCase() === aw2.yes.toLowerCase()) continue;
+          it = setVal(it, aw2.attrs[which], aw2.yes);
+          const label = spec.extras?.includes.find((i) => i.id === which)?.label ?? which;
+          notes.push(aw2.line.replace("{label}", label).replace("{said}", sg0?.exact_quotes ? cutExact(clause.trim(), 160) : clip(clause.trim())).replace("{where}", c.where));
+        }
+      }
+    }
+    // VRF-7 (B10 / C13): words that mean an include (an optional remote, an individual controller) on a unit of the rule's role
+    for (const ii of P.implied_includes ?? []) {
+      const role = x2Role(spec, val(it, fa));
+      if ((ii.role === "any" ? !role : role !== ii.role) || val(it, ii.question).toLowerCase() === ii.yes.toLowerCase()) continue;
+      // VRF-8 (W1 / D2 / D6): a safety net only where the model left the question unanswered -- its explicit No stands
+      if (ii.only_blank && !blankAns(val(it, ii.question))) continue;
+      // VRF-8: with `not_words` the words are read clause by clause on the unit's own level (its row and its heading)
+      const hit = ii.not_words !== undefined ? chainFindClause(ii.words, ii.not_words, parentEnd) : chainFind(ii.words);
+      if (!hit) continue;
+      const sg = spec.extras?.safeguard;
+      it = setVal(it, ii.question, ii.yes);
+      if (sg) {
+        it = setVal(it, ii.question + sg.where_suffix, hit.where === CHAIN_ROW_PLACE ? sg.row_value : /^heading/.test(hit.where) ? "Heading" : "Note");
+        if (sg.words_suffix) it = setVal(it, ii.question + sg.words_suffix, hit.said);
+      }
+      if (ii.line) notes.push(ii.line.replace("{said}", hit.said).replace("{where}", hit.where));
+    }
+    const role8 = x2Role(spec, val(it, fa));
+    const fm8 = spec.extras?.from_model;
+    const yes8 = fm8?.yes ?? "Yes";
+    const isYes = (q: string) => val(it, q).trim().toLowerCase() === yes8.toLowerCase();
+    // VRF-8 (D13, owner 14:52-14:54): an extra question the model left OUT entirely (no answer, not even "None") whose words sit in
+    // the chain is treated as stated -- the normal rules (role, own row, else add) decide and the normal note says so
+    const ma = P.missing_answers;
+    if (ma && role8 && fm8 && sg0) {
+      const qIds = new Map<string, string[]>();
+      for (const [id, q] of Object.entries({ ...(fm8.includes as Record<string, string>), ...(fm8.accessory_includes ?? {}) })) qIds.set(q, [...(qIds.get(q) ?? []), id]);
+      for (const [q, ids] of qIds) {
+        const cell = it.attributes?.[q];
+        if (cell !== undefined && cell.value !== null && cell.value !== undefined) continue;
+        const ws = ids.flatMap((id) => sg0.own_row[id]?.words ?? []);
+        let hit: ReturnType<typeof chainFindClause> = null;
+        for (const w of ws) { const h = chainFindClause(w, ma.exclude_words); if (h && (!hit || chain.findIndex((c) => c.where === h.where) < chain.findIndex((c) => c.where === hit!.where))) hit = h; }
+        if (hit) it = setInclude(it, q, yes8, hit.where, around(hit, 160));
+      }
+    }
+    // VRF-8 (D5, owner 14:37 "as a safe choice, note 1 wins. we include the mccb/elcb price"): "breaker (if required)" includes the
+    // MCB + ELCB set, noted with the electrical-contractor wording when that is stated too; that wording alone = NOT added + note
+    const bw = P.breaker_words;
+    if (bw && role8 === "outdoor") {
+      const b = chainFindClause(bw.words);
+      const e = chainFindClause(bw.ec_words);
+      if (b) {
+        if (!isYes(bw.question)) it = setInclude(it, bw.question, bw.yes, b.where, around(b, 160));
+        if (e) notes.push(bw.line_both.replace("{said}", around(b)).replace("{where}", b.where).replace("{ec}", around(e)).replace("{ec_where}", e.where));
+      } else if (e) {
+        const mw = sg0?.words_suffix ? val(it, bw.question + sg0.words_suffix) : "";
+        if (isYes(bw.question) && (mw.trim() === "" || find(bw.ec_words, mw) !== null)) it = setVal(it, bw.question, bw.no);
+        if (!isYes(bw.question)) notes.push(bw.line_ec_only.replace("{ec}", around(e)).replace("{ec_where}", e.where));
+      }
+    }
+    // VRF-8 (D8, owner 14:41): "necessary interconnections with power supply / refrigerant connections" is connection work -- an
+    // include the model answered from those words is not added, and the words are quoted either way
+    const co = P.connection_only;
+    if (co && role8 && fm8) {
+      const hit = chainFindClause(co.words);
+      if (hit) {
+        for (const [id, q] of Object.entries(co.questions)) {
+          const mw = sg0?.words_suffix ? val(it, q + sg0.words_suffix) : "";
+          const fromIt = mw.trim() === "" || find(co.words, mw) !== null || hit.clause.toLowerCase().includes(mw.trim().toLowerCase());
+          if (isYes(q) && !fromIt) continue;
+          if (isYes(q)) it = setVal(it, q, co.no);
+          const label = spec.extras?.includes.find((i) => i.id === id)?.label ?? id;
+          notes.push(co.line.replace("{label}", label).replace("{said}", around(hit, 140)).replace("{where}", hit.where));
+        }
+      }
+    }
+    // VRF-9 (R2 / R3, owner 00:36-00:41): an include the model answered Yes FROM words that are not that include -- the BMS
+    // interface's "communication cables" (not the VRF comm cable), a civil pedestal / foundation (not the MS frame) -- is set back
+    // to No and said; the model's quote decides (it is what the Yes was read from)
+    for (const ni of P.not_includes ?? []) {
+      if (!role8 || (ni.role && ni.role !== role8) || !isYes(ni.question)) continue;
+      const mw = (sg0?.words_suffix ? val(it, ni.question + sg0.words_suffix) : "").trim();
+      if (mw === "" || find(ni.words, mw) === null || (ni.unless && find(ni.unless, mw) !== null)) continue;
+      it = setVal(it, ni.question, ni.no);
+      const id = Object.entries({ ...(fm8?.includes as Record<string, string> | undefined), ...(fm8?.accessory_includes ?? {}) }).find(([, q]) => q === ni.question)?.[0];
+      const label = (id && (spec.extras?.includes.find((i) => i.id === id)?.label ?? spec.extras?.accessories?.find((a) => a.id === id)?.label)) || ni.question;
+      notes.push(ni.line.replace("{label}", label).replace("{said}", cutExact(mw, 160)).replace("{where}", locateWords(mw, chain) ?? "the BoQ"));
+    }
+    // VRF-8 (D4, owner 14:30): "single feeder / DB ... within N m of the ODU" = the outdoor unit's power cable length N m
+    const fl = P.feeder_length;
+    if (fl && role8 === "outdoor") {
+      const hit = chainFindClause(fl.words);
+      const n = hit ? Number(hit.m[1]) : NaN;
+      if (hit && Number.isFinite(n) && n > 0) {
+        const len = `${fmtNum(n)} m`;
+        if (val(it, fl.attr) !== len) it = setVal(it, fl.attr, len);
+        if (fm8?.includes?.power && isYes(fm8.includes.power)) (fl.every_module ? unitNotes : notes).push(fl.line.replace("{said}", around(hit, 140)).replace("{where}", hit.where).replace("{n}", fmtNum(n)));
+      }
+    }
+    // VRF-7 (B9): a module setup the BoQ states, followed before the split rule when every module is stocked
+    const ss = P.stated_setup;
+    if (ss && val(it, fa) === ss.family && !/\+|\bx\s*\d|\d\s*(?:nos|no\.?)(?![a-z])/i.test(val(it, "capacity"))) {
+      const sources: Array<{ text: string; where: string }> = [
+        ...(val(it, ss.attr) !== "" ? [{ text: val(it, ss.attr), where: "" }] : []),
+        // the row and its own notes only: a heading's "a + b" describes another unit as often as this one
+        { text: val(it, "capacity"), where: CHAIN_ROW_PLACE }, ...chain.slice(0, firstHeading).map((c) => ({ text: c.text, where: c.where })),
+      ];
+      let mods: number[] | null = null; let said = ""; let where = "";
+      for (const src of sources) {
+        let me: RegExpExecArray | null = null;
+        try { me = new RegExp(ss.min_each, "i").exec(src.text); } catch { me = null; }
+        if (me) {
+          const n = Number(me[1]); const v = Number(me[2]);
+          if (Number.isInteger(n) && n >= 2 && n <= 6 && Number.isFinite(v) && v > 0) { mods = Array(n).fill(v); said = me[0].trim(); where = src.where; break; }
+        }
+        const plus = /(\d+(?:\.\d+)?)\s*h\.?\s*p\.?(?:\s*\+\s*(\d+(?:\.\d+)?)\s*h\.?\s*p\.?)+/i.exec(src.text);
+        if (plus) { mods = (plus[0].match(/\d+(?:\.\d+)?/g) ?? []).map(Number); said = plus[0].trim(); where = src.where; break; }
+      }
+      if (mods && mods.length >= 2) {
+        const listed = spec.choice_defs?.brand?.values ?? [];
+        const b0 = val(it, "brand");
+        const brand = b0 !== "" && b0 !== "None" && listed.includes(b0) ? b0 : (ruledDefaultValue(spec, "brand", ss.family) ?? "");
+        const c0 = val(it, "cooling");
+        const cooling = c0 !== "" && c0 !== "None" ? c0 : (ruledDefaultValue(spec, "cooling", ss.family) ?? "");
+        const fattr = familyAttr(spec);
+        const stocked = new Set(catalogue.filter((k) => kindIn(spec, k.kind) && k.attributes?.[fattr] === ss.family
+          && String((k as { brand?: unknown }).brand ?? k.attributes?.brand ?? "") === brand && String(k.attributes?.cooling ?? "") === cooling)
+          .map((k) => Number(k.attributes?.capacity)).filter((n) => Number.isFinite(n)));
+        const missing = [...new Set(mods.filter((m) => !stocked.has(m)))];
+        const layers = mods.map((m) => fmtNum(m)).join(" + ");
+        const at = where ? ` (${where})` : "";
+        if (missing.length === 0) {
+          const total = mods.reduce((a, b) => a + b, 0);
+          it = setVal(it, "capacity", `${fmtNum(total)} HP (${mods.map((m) => fmtNum(m)).join("+")})`);
+          notes.push(ss.line.replace("{said}", said).replace("{where}", at).replace("{layers}", layers));
+        } else {
+          notes.push(ss.not_stocked.replace("{said}", said).replace("{where}", at).replace("{layers}", layers)
+            .replace("{missing}", missing.map((m) => fmtNum(m)).join(" / ")).replace("{brand}", brand).replace("{cooling}", cooling));
+        }
+      }
+    }
+    if (P.same_as_outdoor && ctx.sheetOutdoorBrand) {
+      const so = P.same_as_outdoor;
+      const said = find(so.words, [rowText, headText, val(it, so.attr)].join(" | "));
+      if (said && x2Role(spec, val(it, fa)) !== "outdoor") {
+        it = setVal(it, so.attr, ctx.sheetOutdoorBrand.brand);
+        // the brand answer itself too, so the item's brand field shows the make it is priced as
+        if (so.also_attr) it = setVal(it, so.also_attr, ctx.sheetOutdoorBrand.brand);
+        notes.push(so.line.replace("{said}", said).replace("{brand}", ctx.sheetOutdoorBrand.brand).replace("{row}", String(ctx.sheetOutdoorBrand.row)));
+      }
+    }
+    // VRF-8 (D14-1): a fresh-air unit "complete with suitable outdoor unit" -- the outdoor unit item takes the HP the row states
+    const to = P.tfa_outdoor;
+    if (to && val(it, fa) === to.outdoor_family && blankAns(val(it, "capacity"))) {
+      const said = find(to.words, rowText);
+      const hp = said ? (() => { try { return new RegExp(to.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })() : null;
+      if (said && hp) { it = setVal(it, "capacity", `${hp} HP`); notes.push(to.line.replace("{said}", said).replace("{hp}", hp)); }
+    }
+    // VRF-9 (S7, owner R-D14-1): a fresh-air unit with no capacity answered takes the row's stated CFM / TR, else its stated HP --
+    // the capacity reader converts it and takes the next size up, so the row prices (TFA + its outdoor unit)
+    const tcp = P.tfa_capacity;
+    // (post-run: also an AIRFLOW-only answer, "741 CFM" -- the reader never converts an airflow; the row's own phrase with TR / HP is used)
+    const airflowOnly = (c: string) => /^\s*\d+(?:\.\d+)?\s*CFM\s*$/i.test(c);
+    if (tcp && val(it, fa) === tcp.family && (blankAns(val(it, "capacity")) || airflowOnly(val(it, "capacity")))) {
+      const said = find(tcp.words, rowText);
+      const hp = said ? null : (() => { try { return new RegExp(tcp.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })();
+      const cap0 = said ?? (hp ? `${hp} HP` : null);
+      // an airflow answer is replaced only by a phrase that carries TR / HP (else the row's HP)
+      const hpOf = (() => { try { return new RegExp(tcp.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })();
+      const cap = cap0 && airflowOnly(cap0) ? (hpOf ? `${hpOf} HP` : null) : cap0;
+      if (cap && cap !== val(it, "capacity")) { it = setVal(it, "capacity", cap); notes.push(tcp.line.replace("{said}", cap)); }
+    }
+    // VRF-8 (D10, owner 14:47): an installation-only row with no make takes the make of its matching supply row (same item-1 family
+    // and capacity) on this sheet; the split follows from the make. No match -> the defaults, as before.
+    const inf = P.install_follows;
+    if (inf && inf.scope_values.includes(val(it, spec.extras?.from_model?.scope ?? "scope").trim()) && inf.attrs.every((a) => blankAns(val(it, a)))) {
+      const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+      const cap = norm(val(it, "capacity"));
+      const hit = cap === "" ? undefined : (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined && l.family1 === val(it, fa)
+        && typeof l.scope1 === "string" && !inf.scope_values.includes(l.scope1) && l.scope1 !== spec.extras?.scope?.install_only_normal
+        && norm(String(l.cap1 ?? "")) === cap && inf.attrs.some((a) => !blankAns(String(l.attrs1?.[a] ?? "")))).sort((a, b) => a.row - b.row)[0];
+      if (hit) {
+        for (const a of inf.attrs) { const v = String(hit.attrs1?.[a] ?? ""); if (!blankAns(v)) it = setVal(it, a, v); }
+        const made = inf.attrs.map((a) => String(hit.attrs1?.[a] ?? "")).find((v) => !blankAns(v)) ?? "";
+        notes.push(inf.line.replace("{row}", String(hit.row)).split("{make}").join(made).replace("{family}", val(it, fa)).replace("{capacity}", val(it, "capacity")));
+      }
+    }
+    // VRF-8 (D14-2): several makes stated, the first stocked one has no size close enough -> the next stated make with one; else
+    // the default. "Close enough": its smallest size is not above the catalogue's next size up for the stated capacity.
+    const fmc = P.first_make_close;
+    if (fmc && x2Role(spec, val(it, fa)) && blankAns(val(it, fmc.attr))) {
+      const said = val(it, fmc.from_attr).trim();
+      const nrm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const parts = [...new Set(said.split(/\s*(?:\/|,|;|&|\+|\band\b|\bor\b)\s*/i).map((x) => x.trim()).filter((x) => x !== ""))];
+      const listed = spec.choice_defs?.[fmc.attr]?.values ?? [];
+      const capM = /(\d+(?:\.\d+)?)\s*(tr|hp)\b/i.exec(val(it, "capacity"));
+      const famU = familyUnitOf(spec, catalogue as RateMasterItem[], val(it, fa), spec.numbers.capacity);
+      if (parts.length >= 2 && !parts.some((p) => nrm(p) === nrm(fmc.default)) && capM && famU && famU.toLowerCase() === capM[2].toLowerCase()) {
+        const want = Number(capM[1]);
+        const fattr = familyAttr(spec);
+        const rowsOf = (make?: string) => catalogue.filter((k) => kindIn(spec, k.kind) && k.attributes?.[fattr] === val(it, fa)
+          && (make === undefined || nrm(String((k as { brand?: unknown }).brand ?? k.attributes?.brand ?? "")) === nrm(make)))
+          .map((k) => Number(k.attributes?.capacity)).filter((n) => Number.isFinite(n));
+        const up = rowsOf().filter((n) => n >= want - 1e-9).sort((a, b) => a - b)[0];
+        const makes = parts.map((p) => listed.find((v) => nrm(v) === nrm(p))).filter((v): v is string => !!v).filter((m) => rowsOf(m).length > 0);
+        if (up !== undefined && makes.length && Math.min(...rowsOf(makes[0])) > up + 1e-9) {
+          const first = makes[0]; const min0 = Math.min(...rowsOf(first));
+          const next = makes.slice(1).find((m) => Math.min(...rowsOf(m)) <= up + 1e-9);
+          const pick = next ?? fmc.default;
+          it = setVal(setVal(it, fmc.attr, pick), fmc.from_attr, pick);
+          notes.push((next ? fmc.line_next : fmc.line_default).replace("{said}", said).replace("{first}", first).replace("{min}", fmtNum(min0))
+            .split("{unit}").join(famU).replace("{want}", fmtNum(want)).replace("{make}", pick));
+        }
+      }
+    }
+    return it;
+  });
+  const out = out0.filter((_x, i) => !dropUnnamed.has(i));
+  // VRF-8 (D14-1): no outdoor unit item at all on such a row -> one is added at the stated HP
+  const to8 = P.tfa_outdoor;
+  if (to8 && !out.some((x) => val(x, fa) === to8.outdoor_family) && out.some((x) => x2Role(spec, val(x, fa)) === "indoor")) {
+    const said = find(to8.words, rowText);
+    const hp = said ? (() => { try { return new RegExp(to8.hp_words, "i").exec(rowText)?.[1] ?? null; } catch { return null; } })() : null;
+    if (said && hp) {
+      const scopeQ = spec.extras?.from_model?.scope;
+      const add: ExtractedListItem = { attributes: { [fa]: { value: to8.outdoor_family, confidence: 1 }, capacity: { value: `${hp} HP`, confidence: 1 },
+        ...(scopeQ && out[0]?.attributes?.[scopeQ] ? { [scopeQ]: out[0].attributes[scopeQ] } : {}) } };
+      out.push(add);
+      notes.push(to8.line.replace("{said}", said).replace("{hp}", hp));
+    }
+  }
+  // VRF-9 (R4, owner "option C"): no unit type told on any unit, under a chain text naming one of `family_refusals` ("Fan Coil
+  // Units") -> the row refuses with that rule's own sentence instead of the generic "no item could be told"
+  if (!refuse && P.family_refusals?.length && out.every((x) => blankAns(val(x, fa)) || /^none of these$/i.test(val(x, fa)))) {
+    for (const fr of P.family_refusals) { if (chainFind(fr.words)) { refuse = fr.refusal; break; } }
+  }
+  return { ext: { ...ext, items: out }, notes: [...new Set(notes)], ...(refuse ? { refuse } : {}), ...(unitNotes.length ? { unitNotes: [...new Set(unitNotes)] } : {}) };
+}
+
+const x2Role = (spec: ItemListPricingSpec, fam: string): "indoor" | "outdoor" | undefined => spec.extras?.roles?.[fam];
+
+/** VRF-8 (D14-7). A quoted text cut to `n` characters on a word, WITHOUT an ellipsis -- what is shown stays a word-for-word stretch. */
+export function cutExact(t: string, n = 120): string {
+  const s = t.replace(/\s+/g, " ").trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > n * 0.6 ? cut.slice(0, sp) : cut).trim();
+}
+
+/** VRF-9 (S5). An EXACT stretch of `clause` around the words `m` -- the clause itself when short, else from a word ~40 characters
+ *  before the match to a word ~60 after it; never an added "...". */
+export function exactAround(clause: string, m: string, n = 140): string {
+  const cl = clause.replace(/\s+/g, " ").trim();
+  if (cl.length <= n) return cl;
+  const at = cl.toLowerCase().indexOf(m.replace(/\s+/g, " ").trim().toLowerCase());
+  if (at < 0) return cutExact(cl, n);
+  const from = at > 40 ? cl.lastIndexOf(" ", at - 40) + 1 : 0;
+  const to = Math.min(cl.length, at + m.length + 60);
+  const end = cl.indexOf(" ", to);
+  return cl.slice(from, end < 0 ? cl.length : end).trim();
+}
+
+/** VRF-9 (S3 / S4). PURE. The nearest clause of `chain` (nearest first, split on . ; | and new lines) that carries `words` and none
+ *  of `notWords`: an exact stretch of it around the match and where it sits; null when none. */
+export function nearestClause(words: string, notWords: string | undefined, chain: ReadonlyArray<{ where: string; text: string }>): { said: string; where: string } | null {
+  for (const e of chain) {
+    for (const cl of e.text.split(/[.;|\n]+/)) {
+      let m: RegExpExecArray | null = null;
+      try { m = new RegExp(words, "i").exec(cl); } catch { return null; }
+      if (!m) continue;
+      try { if (notWords && new RegExp(notWords, "i").test(cl)) continue; } catch { /* a bad pattern never excludes */ }
+      return { said: exactAround(cl, m[0]), where: e.where };
+    }
+  }
+  return null;
+}
+
+/** VRF-7. A quoted text cut to `n` characters (on a word where it can), for a note. */
+export function clip(t: string, n = 120): string {
+  const s = t.replace(/\s+/g, " ").trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > n * 0.6 ? cut.slice(0, sp) : cut).trim()}...`;
+}
+
+/** VRF-7 (B8 / A1). PURE. The row's chain NEAREST FIRST with where each text sits: the context's `chainRows` (built from the
+ *  page's rows); without them (a context built by hand), the row, its notes, the headings' notes and the headings nearest first. */
+export function chainOf(ctx: RowContextWithUnit): Array<{ row: number | null; where: string; text: string }> {
+  if (ctx.chainRows && ctx.chainRows.length) return ctx.chainRows.map((c) => ({ row: c.row, where: c.where, text: c.text }));
+  const out: Array<{ row: number | null; where: string; text: string }> = [];
+  const push = (where: string, t: string | undefined) => { if (t && t.trim() !== "") out.push({ row: null, where, text: t.trim() }); };
+  push(CHAIN_ROW_PLACE, ctx.description);
+  for (const n of ctx.ownNotes ?? []) push(CHAIN_ROW_NOTE_PLACE, n);
+  for (const n of ctx.ancestorNotes ?? ctx.headingNotes ?? []) push("a heading's note", n);
+  for (const h of [...(ctx.headings ?? [])].reverse()) push("a heading", h);
+  return out;
+}
+
+/** VRF-7 (B8). PURE. Where in the chain the BoQ words the model quoted sit ("heading row 12"), matched without case, spacing or
+ *  punctuation (the whole quote, else its first six words); null when they are not found. */
+export function locateWords(words: string, chain: ReadonlyArray<{ where: string; text: string }>): string | null {
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const q = norm(words);
+  for (const probe of [q, q.split(" ").slice(0, 6).join(" ")]) {
+    if (probe.length < 3) continue;
+    const hit = chain.find((c) => norm(c.text).includes(probe));
+    if (hit) return hit.where;
+  }
+  return null;
+}
+
+/** VRF-8 (D14-7). PURE. Where the WHOLE quote sits in the chain (case, spacing and punctuation aside); null when it is not found
+ *  whole, or when the model wrote an ellipsis ("...") inside it -- a quote that is not ONE exact clause is never shown. */
+export function locateWordsStrict(words: string, chain: ReadonlyArray<{ where: string; text: string }>): string | null {
+  if (/\.\.\.|\u2026/.test(words)) return null;
+  const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const q = norm(words);
+  if (q.length < 3) return null;
+  return chain.find((c) => norm(c.text).includes(q))?.where ?? null;
+}
+
+/** VRF-6. The notes `prepareModelItems` made, as review points on the row's first item (its own extras block when it has none). */
+function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: string[], unitNotes: string[] = []): HelperResult {
+  const r = res as ItemListSuggestion;
+  if ((!notes.length && !unitNotes.length) || !r.itemList || !r.itemList.items.length) return res;
+  const title = spec.extras?.safeguard?.lines.review_title ?? "Please review";
+  // VRF-9 (S7): `unitNotes` go on every unit block of the outdoor role (each module of a split), the rest on the first block
+  const roleOf = (b: { family?: string | null }) => (b.family ? spec.extras?.roles?.[b.family] : undefined);
+  const items = r.itemList.items.map((b, i) => {
+    const mine = unitNotes.length && roleOf(b) === "outdoor" ? unitNotes : [];
+    if (i !== 0 && !mine.length) return b;
+    const ex = b.extras ?? { lines: [], removed: [] };
+    const lead = i === 0 ? notes : [];
+    const points = [...lead, ...mine.filter((n) => !lead.includes(n)), ...(ex.review?.points ?? [])];
+    return { ...b, extras: { ...ex, review: { title: ex.review?.title ?? title, points } } };
+  });
+  return { ...r, itemList: { ...r.itemList, items } } as HelperResult;
+}
+
+/** VRF-8 (D12, owner 14:50). A row the reading rules refuse (several unit types under its heading): no figure, every unit says why,
+ *  the row's reason names it (U8). The notes stay. Absent `refuse` => the result as is. */
+function withPrepRefusal(res: HelperResult, refuse: string | undefined, noType = false,
+                         /** VRF-10 (F4, owner QR-2 (a) "the data still shows it"): the refused unit carries ONLY the refusal -- no SKU line, no
+                          *  working, no fields (no capacity snapped to the inherited family's sizes), no review notes ("priced as a Ductable unit") */
+                         bare = false): HelperResult {
+  const r = res as ItemListSuggestion;
+  if (!refuse || !r.itemList) return res;
+  const { totals: _t, ...v } = r.itemList;
+  // VRF-9 (S1, QR-2 (a)): with `several_types.typed` a unit refused for several unit types shows no inherited type -- the panel does
+  // not pick one (the calculator's typed case then matches it block for block)
+  const items = v.items.map((b) => {
+    const nb = { ...b, state: "blank" as const, reason: refuse, figures: {}, ...(noType ? { family: null, ...(b.extras ? { extras: { ...b.extras, lines: [], removed: [] } } : {}) } : {}) };
+    if (!bare) return nb;
+    const { skuLine: _s, extras: _e, ...rest } = nb;
+    return { ...rest, working: [], fields: [], readOnly: [] };
+  });
+  return { ...r, values: {}, workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [refuse], finalValues: {} },
+           itemList: { ...v, rowPriced: false, reason: refuse, items, lineCount: { lines: v.lineCount?.lines ?? items.length, bad: v.lineCount?.lines ?? items.length } } } as HelperResult;
+}
+
+/** VRF-10 (F4, owner 08:41; 00197 r315-316): on a VRF-10 config a row that does not price carries no PRICED extra line under a unit
+ *  that did not price (a blank / refused item) -- the line would read as a figure for an item nobody priced. Figures do not move: the
+ *  row is unpriced either way. Panel and calculator alike (parity). Absent the key => the result as is. */
+function withBlankBare(spec: ItemListPricingSpec, res: HelperResult): HelperResult {
+  const r = res as ItemListSuggestion;
+  if (!vrf10On(spec) || !r.itemList || r.itemList.rowPriced) return res;
+  let changed = false;
+  const items = r.itemList.items.map((b) => {
+    if (b.state === "priced" || !b.extras || !b.extras.lines.some((l) => l.state === "priced")) return b;
+    changed = true;
+    // the line stays (its review note and the row's item count still name it) but carries no figure
+    return { ...b, extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" ? { ...l, state: "blank" as const, figures: {}, reason: VRF10_BLANK_LINE_REASON } : l)) } };
+  });
+  return changed ? ({ ...r, itemList: { ...r.itemList, items } } as HelperResult) : res;
+}
+
+/** VRF-10 (F4): the reason an extra line under a unit that did not price shows instead of a figure. */
+export const VRF10_BLANK_LINE_REASON = "not priced - the unit it belongs to is not priced";
+
+/** VRF-9 (S1, owner R-D12; R4, owner "option C"). THE CALCULATOR (no heading tree): a unit whose TYPED item names two or more unit
+ *  types (`prepare.unit_words`; the panel's "several unit types" case typed in) refuses with `several_types.refusal`; a typed item
+ *  naming a `family_refusals` word refuses with that rule's sentence. The unit shows no type; the row is not priced. Never on a
+ *  BoQ row (the panel reads the heading tree itself). Absent keys => the result as is. */
+function withTypedRefusals(spec: ItemListPricingSpec, ctx: RowContextWithUnit, res: HelperResult): HelperResult {
+  const P = spec.extras?.prepare;
+  const r = res as ItemListSuggestion;
+  const v = r.itemList;
+  if (!P || !v || !(v.unitPickable || ctx.noRow)) return res;
+  const st = P.several_types?.typed && P.unit_words ? P.several_types : undefined;
+  const frs = P.family_refusals ?? [];
+  if (!st && !frs.length) return res;
+  const test = (w: string, t: string) => { try { return new RegExp(w, "i").test(t); } catch { return false; } };
+  let line: string | null = null;
+  const items = v.items.map((b, i) => {
+    const e = v.editState?.items?.[i];
+    const typed = typeof e?.family === "string" && e.family.trim() !== "" && !spec.families[e.family] ? e.family : "";
+    if (!typed) return b;
+    let why: string | null = null;
+    if (st && new Set(Object.entries(P.unit_words!).filter(([, w]) => test(w, typed)).map(([f]) => f)).size >= 2) why = st.refusal;
+    if (!why) for (const fr of frs) if (test(fr.words, typed)) { why = fr.refusal; break; }
+    if (!why) return b;
+    line ??= why;
+    return { ...b, family: null, state: "blank" as const, reason: why, figures: {} };
+  });
+  if (line === null) return res;
+  const { totals: _t, ...rest } = v;
+  return { ...r, values: {}, workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [line], finalValues: {} },
+           itemList: { ...rest, items, rowPriced: false, reason: line, lineCount: { lines: rest.lineCount?.lines ?? items.length, bad: rest.lineCount?.lines ?? items.length } } } as HelperResult;
+}
+
+/** VRF-6 (00352 r150, 00368 r45, 00370 r8). A unit refused for "no capacity stated" whose own row text states two different
+ * capacities says so: "two capacities stated (2.6 TR / 1.3 TR) - pick one" (`extras.two_capacities`). Everything else as is. */
+function withTwoCapacities(spec: ItemListPricingSpec, ctx: RowContextWithUnit, res: HelperResult): HelperResult {
+  const tc = spec.extras?.two_capacities;
+  const r = res as ItemListSuggestion;
+  const v = r.itemList;
+  if (!tc || !v || v.rowPriced) return res;
+  // VRF-8 (W6, owner 14:15 "the calculator shows the panel's refusal reason"): the calculator has no row text -- a unit whose TYPED
+  // capacity states two different capacities ("2.6 TR / 1.3 TR", the panel's case typed in) refuses with the panel's sentence
+  if (v.unitPickable || ctx.noRow) {
+    const capsOf = (t: string) => {
+      const out: string[] = [];
+      try { for (const m of t.matchAll(new RegExp(tc.words, "gi"))) { const x = `${Number(m[1])} ${String(m[2]).toUpperCase()}`; if (!out.includes(x)) out.push(x); } } catch { return []; }
+      return out;
+    };
+    let line: string | null = null;
+    const items = v.items.map((b, i) => {
+      if (b.state === "priced") return b;
+      // only the capacity reader's OWN refusal of such a box ("several values stated for capacity ..." / "no capacity stated") is
+      // re-worded -- a unit refused for anything else (a Lot unit, a size above the largest) keeps its own reason
+      if (!(b.reason === tc.refusal || /^several values stated for /.test(String(b.reason ?? "")))) return b;
+      const typed = String(v.editState?.items?.[i]?.attrs?.capacity ?? "");
+      const found = capsOf(typed);
+      if (found.length < 2) return b;
+      const l = tc.line.replace("{list}", found.join(" / "));
+      line ??= l;
+      return { ...b, reason: l };
+    });
+    if (line === null) return res;
+    const one = v.items.length === 1;
+    return { ...r, itemList: { ...v, items, ...(one || !v.reason ? { reason: line } : {}) },
+             workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [line] } } as HelperResult;
+  }
+  const found: string[] = [];
+  try {
+    for (const m of String(ctx.description ?? "").matchAll(new RegExp(tc.words, "gi"))) {
+      const t = `${Number(m[1])} ${String(m[2]).toUpperCase()}`;
+      if (!found.includes(t)) found.push(t);
+    }
+  } catch { return res; }
+  if (found.length < 2) return res;
+  const line = tc.line.replace("{list}", found.join(" / "));
+  const hit = (s: string | undefined) => !!s && s === tc.refusal;
+  if (!v.items.some((b) => hit(b.reason)) && !hit(v.reason)) return res;
+  const items = v.items.map((b) => (hit(b.reason) ? { ...b, reason: line } : b));
+  return { ...r, itemList: { ...v, items, ...(hit(v.reason) ? { reason: line } : {}) },
+           workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [line] } } as HelperResult;
+}
+
 /** PURE. The size an item's number was READ as, for a section to mirror (owner D3b: "for pricing we consider
  * 1 NB = 1 mm and should be matched with the catalog as per that only"): the read that landed -- the stated
  * number (5/8" -> 15.875, MS 100 -> 100), or the second inch conversion where that is the one the item priced
@@ -3596,8 +6287,24 @@ function computeItemList(
   inRun: boolean,
   overrides: Record<string, string> | undefined,
   configOf: ConfigOf,
+  /** VRF-3b: Electrical's own per-metre cable rate (the helper's compute on that category) -- read by `extras` only */
+  cableRate?: CableRate,
 ): HelperResult {
   const declared = delegatedSections(spec);
+  // VRF-3b: a config declaring `extras` (VRF) prices its own items exactly as before, then its units' extra lines
+  if (declared.length === 0 && spec.extras) {
+    // VRF-6: the model's answers as the owner's reading rules settle them, before pricing (each change noted)
+    const prep = prepareModelItems(spec, ctx, ext, items);
+    const probe: OwnPassProbe = {};
+    const own = computeItemListOwn(category, spec, items, ctx, prep.ext, inRun, overrides, probe) as ItemListSuggestion;
+    const done = own.itemList ? withExtras(spec, items, ctx, prep.ext, overrides, configOf, cableRate, own, probe, category) : own;
+    // the panel does not pick a type on a unit refused for several unit types, nor on a Fan Coil unit with no type told (post-run:
+    // "none of these" is no type either)
+    const noType = !!prep.refuse && ((!!spec.extras.prepare?.several_types?.typed && prep.refuse === spec.extras.prepare.several_types.refusal)
+      || (spec.extras.prepare?.family_refusals ?? []).some((f) => f.refusal === prep.refuse));
+    return withBlankBare(spec, withPrepRefusal(withTypedRefusals(spec, ctx, withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes))), prep.refuse, noType,
+      noType && vrf10On(spec)));
+  }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);
 
@@ -3666,7 +6373,7 @@ function computeItemList(
       ? { attributes: Object.fromEntries([familyAttr(dspecNow), ...dspecNow.choice_attrs].map((a) => [a, { value: "None" }])) }
       : undefined);
     const offered = new Set(r.s.families ?? []);
-    const stocked = (fam: string) => items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === fam);
+    const stocked = (fam: string) => items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === fam);
     /**
      * SLICE 12e-3b (owner D1b, 2026-10-12 "option a") -- IN THE CALCULATOR THE MATERIAL STARTS BLANK. A section
      * the toggle opened used to be handed to the delegated category with no family, so its "not mentioned"
@@ -3878,7 +6585,7 @@ function computeItemList(
         id: r.s.id,
         addLabel: r.s.add_label,
         families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family)
-          && items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
+          && items.some((it) => kindIn(r.dspec!, it.kind) && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
       })),
       independent,
       lines,
@@ -3959,6 +6666,13 @@ export type ItemEditOp =
   | { op: "change_family"; index: number; family: string }
   | { op: "add"; family: string }
   | { op: "remove"; index: number }
+  /** VRF-3a (U2): "Reset to the helper's split" -- every line of a split goes, the entry each split replaced comes back,
+   *  and the row splits again at the next compute */
+  | { op: "reset_split" }
+  /** VRF-6 U11 (owner 18:52): step entry `index` (a helper line = its whole split) to option `option` of the helper's ranked
+   *  singles / pairs (0 = back to the helper's pick). The split's entry comes back carrying the choice and the row re-prices
+   *  from it -- every split of the row comes back, as "Reset to the helper's split" does, since a row splits only whole. */
+  | { op: "cover_option"; index: number; option: number }
   /** SLICE 12c-S (F15): the pricer opened, or closed, this field's "Other..." box. `on` false also
    *  covers picking a real option, which is what takes the field back out of typing. */
   | { op: "set_other"; index: number; id: string; on: boolean }
@@ -3975,7 +6689,17 @@ export type ItemEditOp =
   /** SLICE 12e-3a (owner 13:42): "+ Add insulation" -- an INDEPENDENT section of this family, blank (S1). */
   | { op: "add_section"; section: string; family: string }
   /** SLICE 12e-3a: the x of an independent section. An attached one has none: its item's toggle removes it. */
-  | { op: "remove_section"; section: string; index: number };
+  | { op: "remove_section"; section: string; index: number }
+  /** VRF-3b (U1 / U3): the pricer's value in one field of one extra line of unit `index` */
+  | { op: "extra_set"; index: number; line: string; field: string; value: string }
+  /** VRF-3b (U8): the undo arrow beside a changed extra field -- back to its default / BoQ value */
+  | { op: "extra_undo"; index: number; line: string; field: string }
+  /** VRF-3b (U5): the x of an extra line (copper takes its insulation) -- recorded in the hidden tag */
+  | { op: "extra_remove"; index: number; line: string }
+  /** VRF-3b (U5): "Put it back" */
+  | { op: "extra_restore"; index: number; line: string }
+  /** VRF-3b (U8, owner 14:20 / 14:56): the undo arrow beside a changed quantity -- the assumed 1 (or the model's) again */
+  | { op: "undo_qty"; index: number };
 
 /** PURE. Apply one panel operation. A changed or added item starts BLANK (S1): family only, no attrs, qty 1. */
 export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemListEditState {
@@ -3997,6 +6721,8 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (!at(op.index)) return state;
       at(op.index).attrs[op.id] = op.value;
       if (op.other === false) setOther(op.index, op.id, false);
+      // VRF-2b (QR-1 U1 A): a pick from the list (the select's one operation) drops the unit picker's value too
+      if (op.other === false) delete at(op.index).attrs[`${op.id}${UNIT_PICK_SUFFIX}`];
       if (op.dropSection !== undefined && at(op.index).sections) {
         const rest = { ...at(op.index).sections };
         delete rest[op.dropSection];
@@ -4008,6 +6734,10 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       setOther(op.index, op.id, op.on);
       // opening the box CLEARS the field, which is what picking "Other..." has always done
       if (op.on) at(op.index).attrs[op.id] = "";
+      // VRF-2b (owner QR-1 U1 A: "picking a size from the dropdown needs no picker -- the option already says its unit";
+      // found in the cert): closing the typed box -- a real pick or "- select -" -- drops the unit picker's value, so a picked
+      // "1.5TR" is never read in a unit left over from the box (it priced as 1.5 kW). An item without a picker is unchanged.
+      if (!op.on) delete at(op.index).attrs[`${op.id}${UNIT_PICK_SUFFIX}`];
       return done(items);
     case "undo_attr":
       if (!at(op.index)) return state;
@@ -4037,6 +6767,42 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (!at(op.index)) return state;
       items.splice(op.index, 1);
       return done(items);
+    case "cover_option": {
+      const t = at(op.index);
+      if (!t) return state;
+      const withCover = (e: ItemEdit): ItemEdit => {
+        const { cover: _c, ...rest } = e;
+        return op.option > 0 ? { ...rest, cover: op.option } : rest;
+      };
+      if (!t.helper) {
+        items[op.index] = withCover(t);
+        return done(items);
+      }
+      const g = t.helper.g;
+      const seen = new Set<number>();
+      const out: ItemEdit[] = [];
+      for (const e of items) {
+        if (!e.helper) { out.push(e); continue; }
+        if (seen.has(e.helper.g)) continue;
+        seen.add(e.helper.g);
+        const from = { ...e.helper.from, attrs: { ...e.helper.from.attrs } };
+        out.push(e.helper.g === g ? withCover(from) : from);
+      }
+      return done(out);
+    }
+    case "reset_split": {
+      const seen = new Set<number>();
+      const out: ItemEdit[] = [];
+      for (const e of items) {
+        if (!e.helper) { out.push(e); continue; }
+        if (seen.has(e.helper.g)) continue;
+        seen.add(e.helper.g);
+        // VRF-6 U11: back to the HELPER's split -- a stepped option goes too
+        const { cover: _c, ...from } = e.helper.from;
+        out.push({ ...from, attrs: { ...from.attrs } });
+      }
+      return done(out);
+    }
     case "section": {
       // the delegated category's OWN operation, applied to the one stored edit of that section
       const target = op.pipe !== null ? at(op.pipe)?.sections?.[op.section] : state.sections?.[op.section]?.[op.index];
@@ -4059,6 +6825,26 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       list.splice(op.index, 1);
       return done(items, { ...state.sections, [op.section]: list });
     }
+    case "undo_qty":
+      if (!at(op.index)) return state;
+      delete at(op.index).qty;
+      return done(items);
+    case "extra_set":
+    case "extra_undo":
+    case "extra_remove":
+    case "extra_restore": {
+      if (!at(op.index)) return state;
+      const cur = at(op.index).extras ?? {};
+      const set: Record<string, Record<string, string>> = Object.fromEntries(Object.entries(cur.set ?? {}).map(([k, v]) => [k, { ...v }]));
+      const removed = new Set(cur.removed ?? []);
+      if (op.op === "extra_set") (set[op.line] ??= {})[op.field] = op.value;
+      if (op.op === "extra_undo" && set[op.line]) { delete set[op.line][op.field]; if (!Object.keys(set[op.line]).length) delete set[op.line]; }
+      if (op.op === "extra_remove") removed.add(op.line);
+      if (op.op === "extra_restore") removed.delete(op.line);
+      const next: ExtrasEdit = { ...(Object.keys(set).length ? { set } : {}), ...(removed.size ? { removed: [...removed] } : {}) };
+      if (Object.keys(next).length) at(op.index).extras = next; else delete at(op.index).extras;
+      return done(items);
+    }
   }
 }
 
@@ -4073,7 +6859,7 @@ export function needPersonSentence(bad: number, lines: number): string {
 
 /** PURE. What the correction record carries for the items ON SCREEN at Use: one entry per block, its family,
  * whether the model identified it or the pricer added it, every field's value as shown, and the quantity. */
-export function itemsOnScreen(view: ItemListView): Array<{ family: string | null; source: "model" | "user"; attributes: Record<string, string>; qty: string }> {
+export function itemsOnScreen(view: ItemListView): Array<{ family: string | null; source: "model" | "user" | "helper"; attributes: Record<string, string>; qty: string }> {
   const entry = (b: ItemBlockView) => ({
     family: b.family,
     source: b.source,

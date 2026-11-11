@@ -105,6 +105,38 @@ function withoutAdp5c(items: RateMasterItem[]): RateMasterItem[] {
 }
 
 /**
+ * VRF-1 (owner R-SRC / R-MISC / R-INPUTS, 2026-11-03): HVAC v55's 152 VRF SKUs, its 4 shared Misc items and its 2 `shared_by: vrf`
+ * Pricing Inputs, which the served fixture predates -- set aside on the stored side, as `withoutAdp5c` does; it throws unless
+ * exactly those 158 are in the stored asset, so it cannot pass vacuously. Every other uid and rate stays under full force.
+ */
+function withoutVrf1(items: RateMasterItem[]): RateMasterItem[] {
+  const isVrf1 = (it: RateMasterItem) => it.kind === "hvac_vrf_item" || it.kind === "hvac_misc_item"
+    || (it.kind === "hvac_pricing_input" && it.attributes?.shared_by === "vrf");
+  const n = (k: string) => items.filter((it) => isVrf1(it) && it.kind === k).length;
+  // INVERTED at VRF-2a (HVAC v56; R-RETIRE retires the Blue Star ductables VFM-216A / VFM-264A) by mechanical authority: BEFORE
+  // `n("hvac_vrf_item") !== 152` and "VRF-1's 152 + 4 + 2 items". The set aside is still exactly VRF's own (the served fixture
+  // predates VRF-1), so it still throws unless every one is present -- 150 + 4 + 2 now.
+  // INVERTED at VRF-3b (HVAC v59; the standing authority: a test failing solely because it reads the current HVAC asset) by
+  // mechanical authority: BEFORE `n("hvac_pricing_input") !== 2`. v59 adds 29 `shared_by: vrf` inputs (VRF's extras, one per table
+  // cell, ids `vrf_extra_*`), which the served fixture predates too -- set aside with the rest; it still throws unless every one of
+  // the 2 + 29 is present
+  const extras = items.filter((it) => isVrf1(it) && it.kind === "hvac_pricing_input" && String(it.attributes?.item ?? "").startsWith("vrf_extra_")).length;
+  // INVERTED at VRF-5 (HVAC v61; the standing authority: a test failing solely because it reads the current HVAC asset) by mechanical
+  // authority: BEFORE `n("hvac_pricing_input") - extras !== 2` and "... and the 29 extras inputs (v59) are not all in the stored asset".
+  // v61 adds 13 `shared_by: vrf` inputs (the accessory defaults `vrf_acc_*` and `vrf_install_only_uplift`, owner ANSWER 4-6), which the
+  // served fixture predates too -- set aside with the rest; it still throws unless every one of the 2 + 29 + 13 is present
+  const vrf5 = items.filter((it) => isVrf1(it) && it.kind === "hvac_pricing_input" && (String(it.attributes?.item ?? "").startsWith("vrf_acc_") || it.attributes?.item === "vrf_install_only_uplift")).length;
+  // INVERTED at VRF-6 (HVAC v62; the standing authority: a test failing solely because it reads the current HVAC asset) by mechanical
+  // authority: BEFORE `n("hvac_misc_item") !== 4` and `vrf5 !== 13`. v62 (team rule 2026-11-09) adds the Misc item "MS frame / stand for ODU"
+  // and 14 `vrf_acc_*` inputs and retires 9 of VRF-5's 13 -- 5 Misc and 4 + 14 = 18 accessory / uplift inputs, all set aside; it still
+  // throws unless every one is present
+  if (n("hvac_vrf_item") !== 150 || n("hvac_misc_item") !== 5 || n("hvac_pricing_input") - extras - vrf5 !== 2 || extras !== 29 || vrf5 !== 18) {
+    throw new Error("VRF's 150 + 5 + 2 items (v56 / v62), the 29 extras inputs (v59) and the 18 VRF-5 / VRF-6 inputs (v62) are not all in the stored asset");
+  }
+  return items.filter((it) => !isVrf1(it));
+}
+
+/**
  * ELR-3a (owner R-9 / R-R1 Q1, Q2, 2026-10-28): Electrical v69's nine new Pricing Inputs (the point-wiring lengths and the six
  * conduit fills), which the served fixture predates -- set aside on the stored side by name, exactly as `withoutAdp5c` does; it
  * throws if any uid is not in the stored asset, so it cannot pass vacuously. Every other Electrical uid and rate stays under force.
@@ -165,7 +197,9 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     // authority. BEFORE: [["HVAC", servedHvac, withoutAdp1(storedHvac)], ...] -- the VCD Aluminium SKU set aside by name (`withoutAdp5c`)
     // INVERTED at ELR-3a (Electrical v69; the same standing authority) by mechanical authority. BEFORE: [..., ["Electrical",
     // served.items.Electrical, storedItems(ELEC)]] -- the nine new Pricing Inputs set aside by name (`withoutElr3a`)
-    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(storedHvac))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
+    // INVERTED at VRF-1 (HVAC v55; the same standing authority) by mechanical authority. BEFORE: [["HVAC", servedHvac,
+    // withoutAdp1(withoutAdp5c(storedHvac))], ...] -- the 158 VRF-1 items set aside on the stored side (`withoutVrf1`)
+    for (const [label, s, a] of [["HVAC", servedHvac, withoutAdp1(withoutAdp5c(withoutVrf1(storedHvac)))], ["Electrical", served.items.Electrical, withoutElr3a(storedItems(ELEC))]] as const) {
       const stored = new Map(a.map((it) => [String(it.item_uid), it.rates]));
       expect(new Set(s.map((it) => String(it.item_uid))), `${label}: the same uids`).toEqual(new Set(stored.keys()));
       const bad = s.filter((it) => JSON.stringify(it.rates) !== JSON.stringify(stored.get(String(it.item_uid))))

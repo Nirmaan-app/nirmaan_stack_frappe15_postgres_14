@@ -332,6 +332,31 @@ export function extractionRulesCardShown(config: unknown): boolean {
 
 const famWordRaw = (f: string) => String(f).trim();
 
+/** VRF-2b (QR-3 A): the unit the line-1 refusal example quotes -- "nos", unless the category prices "nos". PURE. */
+function refusalExampleUnit(pr: any): string {
+  // VRF-3a K2: a whole-lot spelling has its own refusal, so it is never this sentence's example; "Mtr" follows the three
+  // only where all three are known or lot units (VRF from v58) -- every earlier pick is unchanged
+  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+  return ["nos", "Set", "Lot", ...(pr?.lot_units ? ["Mtr"] : [])].find((u) => !known.has(u.toLowerCase())) ?? "nos";
+}
+
+/** VRF-2b (QR-3 A): the line-13 examples of a unit the catalogue does not know -- 'Lot', 'Nos/Ro', with a known one
+ * swapped for 'Set'. Unchanged ('Lot', 'Nos/Ro') for every category that knows neither. PURE. */
+function unknownUnitExamples(pr: any): string {
+  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+  const pick = ["Lot", "Nos/Ro", "Set", ...(pr?.lot_units ? ["Mtr", "Sqm"] : [])].filter((u) => !known.has(u.toLowerCase())).slice(0, 2);
+  return pick.map((u) => `'${u}'`).join(", ");
+}
+
+/** VRF-2b (QR-3 A): a block pricing SEVERAL item kinds (`extra_kinds`) in several unit classes, each family in exactly
+ * ONE class (VRF: the units per Nos, the Misc per Nos or per Kg). Keyed on `extra_kinds`, so every category that declares
+ * none -- Insulation and Piping in every version -- keeps its lines byte for byte. PURE. */
+function oneClassPerKind(pr: any): boolean {
+  const fams = Object.values<any>(pr?.families ?? {});
+  return Array.isArray(pr?.extra_kinds) && pr.extra_kinds.length > 0
+    && Object.keys(pr?.unit_classes ?? {}).length > 1 && fams.length > 0 && fams.every((f) => Object.keys(f?.units ?? {}).length === 1);
+}
+
 export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem> = []): RuleOrderLine[] {
   const inputLabel = (id: string): string => pricingInputLabel(id, items);
   const ls = (config as any)?.list_spec;
@@ -396,11 +421,21 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   const factors = Object.keys(pr.unit_factors ?? {});
   add("The row's unit decides which kind of rate applies",
       // ADP-4a (R6 / block 38): on the plain wording the units are the pricer's words, never the class ids
-      [classes.length ? `the units it knows: ${list(plain ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
+      // VRF-2b (owner QR-1 U7 A): a category whose every kind is priced in ONE of several classes names them in its words too
+      [classes.length ? `the units it knows: ${list(plain || oneClassPerKind(pr) ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
        factors.length ? `${list(factors, 4)} convert to the catalogue's own unit` : "",
-       classes.length ? "a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit and says so; a row stating several units refuses, naming them" : "",
+       // VRF-10 (F1; the rules ride v65's `scope.panel_pick`): on that config a row with NO unit refuses instead
+       classes.length ? ((pr.extras as { scope?: { panel_pick?: unknown } } | undefined)?.scope?.panel_pick
+         ? "a row with no unit is refused 'no unit on this row' -- never priced by assuming a unit; a rate-only unit (R/O, QRO) is priced in the item's own unit and says so; a row stating several units refuses, naming them"
+         : "a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit and says so; a row stating several units refuses, naming them") : "",
        // SLICE 12e-2 (owner Q19 / C2): the configured refusal for any other unit, in its own words
-       typeof pr.unit_refusal === "string" && pr.unit_refusal.trim() ? `any other unit refuses: ${plainSentence(String(pr.unit_refusal).replace("{unit}", "nos"))}` : ""]
+       // VRF-2b (owner QR-3 A): a spelling the config prices with a line ("'Nos/Ro' is read as Nos")
+       pr.unit_lines && typeof pr.unit_lines === "object" && Object.keys(pr.unit_lines).length
+         ? `${list(Object.keys(pr.unit_lines).map((k) => `'${k}'`))} ${Object.keys(pr.unit_lines).length === 1 ? "is" : "are"} read as ${list(Object.keys(pr.unit_lines).map((k) => String(pr.unit_words?.[classes.find((c) => (pr.unit_classes?.[c] ?? []).includes(k)) ?? ""] ?? "its unit")))}, with a line saying so`
+         : "",
+       // SLICE 12e-2 (owner Q19 / C2): the configured refusal for any other unit, in its own words. VRF-2b (QR-3 A): the
+       // example is "nos" unless the category PRICES "nos" -- then the first of Set / Lot it does not
+       typeof pr.unit_refusal === "string" && pr.unit_refusal.trim() ? `any other unit refuses: ${plainSentence(String(pr.unit_refusal).replace("{unit}", refusalExampleUnit(pr)))}` : ""]
         .filter(Boolean).join("; ") || undefined, "unit");
 
   // ── 2. the kind ───────────────────────────────────────────────────────────────────────────────────
@@ -506,7 +541,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         ? "a kind is priced per " + String(pr.unit_words?.[classes[0]] ?? classes[0]) + " and has one rule for it"
         : plain
           ? `a kind priced ${perWords.slice(0, -1).join(", ")} or ${perWords[perWords.length - 1]} has a rule for each`
-          : "a kind priced per metre and per square metre has a rule for each", "unit_rule");
+          // VRF-2b (owner QR-3 A): several classes, but every kind priced in exactly ONE of them (VRF: Nos or Kg)
+          : oneClassPerKind(pr)
+            ? `a kind is priced ${perWords.slice(0, -1).join(", ")} or ${perWords[perWords.length - 1]} - each kind has one rule, for the unit it is stocked in`
+            : "a kind priced per metre and per square metre has a rule for each", "unit_rule");
   // SLICE 12e-6 (AC5; U9): ADDED
   const byKind = Object.entries<any>(fwn?.by_unit_class ?? {});
   if (byKind.length >= 2) {
@@ -595,7 +633,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
 
   for (const [attr, rd] of Object.entries<any>(pr.numbers ?? {})) {
     if (typeof rd?.not_stocked !== "string") continue;
-    const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((a, b) => a - b);
+    const stocked = [...new Set(items.filter((it) => (it.kind === pr.kind || (Array.isArray(pr.extra_kinds) && pr.extra_kinds.includes(it.kind))) && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((a, b) => a - b);
     // ADP-4a (AC4): where the field also takes a typed value ("Other..."), a typed unstocked one refuses the same way
     const typed = plain && pr.panel_controls?.[attr] === "dropdown_or_other" ? `; a ${name(attr)} typed in 'Other...' that the catalogue does not stock refuses the same way` : "";
     add(`A ${name(attr)} the catalogue does not stock refuses`,
@@ -618,7 +656,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
 
   // ── 4. how the facts are read ─────────────────────────────────────────────────────────────────────
   const composed = pr.compose?.attr ? String(pr.compose.attr) : "";
-  if (composed) {
+  // VRF-3a: a config with `split` never reads its axis as layers -- its split lines are said in 13c below
+  if (composed && !pr.split) {
     const outer = pr.compose.outer_only?.attr
       ? `, the ${name(String(pr.compose.outer_only.attr))} on the outer layer only`
       : "";
@@ -664,7 +703,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // ADP-2 (owner B3, 2026-10-19 14:24 "ok"; U6): ADDED -- a SQUARE size offered as a list with "Other..." (ADP's neck)
     // ADP-4a (owner D2 "13 + 24"): on the plain wording it is said once, in the line fitting every size to the catalogue
     if (!plain && rd?.square && pr.panel_controls?.[attr] === "dropdown_or_other") {
-      const stocked = [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((x, y) => x - y);
+      const stocked = [...new Set(items.filter((it) => (it.kind === pr.kind || (Array.isArray(pr.extra_kinds) && pr.extra_kinds.includes(it.kind))) && typeof it.attributes?.[attr] === "number").map((it) => Number(it.attributes![attr])))].sort((x, y) => x - y);
       add(`A ${name(attr)} the catalogue does not stock can be typed in 'Other...'`,
           `the list offers the stocked ${name(attr)}s${stocked.length ? ` (${list(stocked.map(String))})` : ""}; a typed one between them takes the next stocked size up, with a line saying so; above the largest${stocked.length ? ` (${stocked[stocked.length - 1]})` : ""} it refuses`);
     }
@@ -790,6 +829,13 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("A fact the row does not mention takes its ruled value",
         `${list(defaultLines, 6)} -- shown as assumed, never silently`);
   }
+  // VRF-2b (owner R-BRAND (a)): a stated value the attribute does not list prices as the default, naming the row's words
+  for (const [a, d] of Object.entries<any>(pr.defaults ?? {})) {
+    if (!d?.unlisted || typeof d.value !== "string") continue;
+    // owner QR-1b (2026-11-04 01:26, fix 1): "... priced as Blue Star, naming the row's words" -- one sentence, a comma
+    add(`Several ${name(a)}s, or one ${name(a)} not on the sheet, are priced as ${d.value}, naming the row's words`,
+        `in amber: '${String(d.unlisted.several).replace("{said}", "Daikin / Toshiba")}'; '${String(d.unlisted.off_sheet).replace("{said}", "Toshiba")}'`);
+  }
   const overrides = ((pr.override_when ?? []) as any[]).filter((o) => o?.attr);
   if (overrides.length) {
     add("A ruling that replaces a value the row DID state",
@@ -875,7 +921,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     ? ladders.filter((a) => a !== composed && typeof pr.numbers?.[a]?.near !== "number" && pr.numbers?.[a]?.inches !== true)
     : [];
   if (plainLadders.length) {
-    const stockedOf = (a: string) => [...new Set(items.filter((it) => it.kind === pr.kind && typeof it.attributes?.[a] === "number").map((it) => Number(it.attributes![a])))].sort((x, y) => x - y);
+    const stockedOf = (a: string) => [...new Set(items.filter((it) => (it.kind === pr.kind || (Array.isArray(pr.extra_kinds) && pr.extra_kinds.includes(it.kind))) && typeof it.attributes?.[a] === "number").map((it) => Number(it.attributes![a])))].sort((x, y) => x - y);
     const typedIn = plainLadders.filter((a) => pr.panel_controls?.[a] === "dropdown_or_other");
     add(`Fitting the stated ${list(plainLadders.map(name).slice(0, -1))}${plainLadders.length > 1 ? " or " : ""}${name(plainLadders[plainLadders.length - 1])} to the catalogue`,
         ["the stated value, else the next value the catalogue stocks; above the largest stocked value refuses, naming it",
@@ -890,13 +936,31 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // SLICE 12e-2 (owner Q14a / Q17): the two declared rungs, in the order the ladder tries them
     if (typeof pr.size_match?.near === "number") bits.push(`a size within ${pr.size_match.near} ${pr.numbers?.[a]?.unit ?? "mm"} of a stocked size counts as that size`);
     if (pr.size_match?.below_smallest === "smallest") bits.push("below the smallest stocked size takes the smallest");
-    if (a === composed) {
+    if (a === composed && pr.split) {
+      // VRF-3a (R-SPLIT (b), R-SPLIT-RULE, DUCTABLE): the helper's split, on the split families only
+      const fams = (Array.isArray(pr.split.families) ? pr.split.families : []).map((f: unknown) => famWord(String(f)));
+      bits.push(`above the largest stocked size of its brand and variant, ${list(fams.map((f: string) => `${/^[aeiou]/i.test(f) ? "an" : "a"} ${f}`))} is split by the helper into ${pr.compose.max_layers} or fewer separate units -- the fewest units, adding up exactly, else the smallest total above, then the cheapest -- each unit its own item with the row's brand and variant; every other item above the largest refuses, naming the size`);
+    } else if (a === composed) {
       bits.push(`above the largest stocked size, built from ${pr.compose.max_layers} or fewer layers`
                 + ` within ${pr.compose.tolerance} -- the fewest layers, then the closest, then the cheapest, all at one ${ladders.filter((x) => x !== composed).map(name).join(" / ") || "size"}`);
     } else {
       bits.push("above the largest stocked size refuses, naming the size");
     }
     add(`Fitting the stated ${name(a)} to the catalogue`, bits.join("; "));
+    // VRF-2b (owner R-CONV / CFM / RECON): a value stated in another unit is converted first
+    const cu = pr.numbers?.[a]?.units;
+    if (cu && typeof cu === "object") {
+      const conv = Object.entries<any>(cu.convert ?? {});
+      // owner QR-1b (2026-11-04 01:26, fix 2): the title names every unit, the base first -- "in TR, HP or kW"
+      const unitsNamed = [String(cu.base ?? ""), ...Object.keys(cu.words ?? {}).filter((u) => u !== cu.base)].filter(Boolean);
+      add(`A ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} that is not the item's own unit is converted first`,
+          [`${conv.map(([u]) => u).join(" and ")} through the Pricing Inputs (${conv.map(([, c]) => inputLabel(String(c?.input ?? ""))).join(", ")}), with the working shown`,
+           // VRF-2b K5 (owner 2026-11-04): an airflow-only text reads a capacity the row gives in brackets
+           `an airflow (${list((cu.refuse_words ?? []).map((w: string) => String(w).toUpperCase()))}) is not converted and refuses, unless the row also gives a ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} in brackets, which is read`,
+           "where the row states two units, the item's own unit is used",
+           // VRF-3a (R1, board 10): an airflow range is one airflow
+           ...(pr.split ? [`an airflow range ('1700-1800 ${String((cu.refuse_words ?? ["cfm"])[0]).toUpperCase()}') is one airflow`] : [])].join("; "));
+    }
     // SLICE 12e-4b (owner F-1): the nearest-size rule declared for THIS axis alone
     const axisNear = pr.numbers?.[a]?.near;
     if (typeof axisNear === "number") {
@@ -1049,7 +1113,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       if (missingUnits.length && spec) blocked.push(`${famWord(f)} (stocked ${stockedUnitsWords(spec, f)})`);
     }
     add("A kind not stocked in the row's unit refuses, naming the units it is stocked in",
-        `'<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand'; a unit the catalogue does not know ('Lot', 'Nos/Ro') the same way`
+        // VRF-2b (owner QR-3 A): the example units are ones the category does NOT know ("Nos/Ro" is a VRF Nos spelling)
+        `'<kind> is not stocked per <unit> (stocked per <units>) - price this row by hand'; a unit the catalogue does not know (${unknownUnitExamples(pr)}) the same way`
         + (blocked.length ? ` -- e.g. ${list(blocked, 3)}` : "")
         // ADP-4a (owner D2 "5 + 32"): the kind the catalogue does not price in a unit it carries, said once, here
         + (plain && notOffered.length ? `; ${list(notOffered)}` : ""), "unit_refusal");
@@ -1133,6 +1198,367 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
          Array.isArray(r.words) && r.words.length ? `${quoteList(r.words.map(String))} in the row, its headings or the note of the heading directly above it do the same` : "",
          at ? `priced at the ${famWord(r.family)}'s ${at}: the stated size, else the next stocked size up; above the largest it refuses` : "",
          typeof r.line === "string" ? `with a line '${r.line}${at ? `, <size>${unit}` : ""}'` : ""].filter(Boolean).join("; "), "family_merge");
+  }
+  // ── 13c. VRF-3a (owner R-SPLIT (a) / (b), D-2 / D-3, SHAPE Q3): the split's own lines -- ADDED LAST (a config without
+  // `split` adds nothing, so every earlier tab is unchanged)
+  if (pr.split && Array.isArray(pr.split.families)) {
+    const fams = list(pr.split.families.map((f: unknown) => famWord(String(f))));
+    const ax = composed ? name(composed) : "size";
+    if (pr.split.stated) {
+      add(`A split the row writes is priced as one ${fams} per module`,
+          `'60 HP (18+18+24)', '26(14+12)HP', '20+18 HP', '14HP+24HP' -- each module the stated ${ax}, else the next size up on the item's brand and variant; a module above the largest refuses the row, naming it; modules that do not add up to the total written get a note; a working + standby count ('2# 12 HP') stays one unit`);
+    }
+    if (pr.split.conditions && Array.isArray(pr.split.conditions.words)) {
+      add("A condition the row states about the split is quoted in an amber note",
+          "'at least 20 HP each', 'Single module', 'Single ODU', 'as per Site Conditions' -- the split still follows the rule; check it meets what the row asks for");
+    }
+    add("A split the pricer has changed is never split again",
+        "an edited, removed or added line keeps the lines as set, with a note when they do not add up to the total; 'Reset to the helper's split' puts the helper's split back");
+  }
+  // ── 13d. VRF-3a K2 (owner SET / LOT, boards 9 / 11): a row priced per Set or per Lot -- ADDED LAST (a config without the
+  // keys adds nothing)
+  if (pr.per_set && Array.isArray(pr.per_set.units)) {
+    const ps = pr.per_set;
+    const cnt = ps.counted;
+    const except = cnt && Array.isArray(cnt.families) ? ` (every kind but ${list(cnt.families.map((f: unknown) => famWord(String(f))))})` : "";
+    add(`A row priced per Set takes one Set as one piece${except}`,
+        `${quoteList(ps.units.map(String))} are priced as one piece per Set, with an orange bar saying so; '${String(ps.qty_label ?? "")}' starts at 1 and can be changed`);
+    if (cnt && Array.isArray(cnt.families) && Array.isArray(cnt.counts)) {
+      const sides = cnt.counts.map((c: any) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
+      add(`A ${list(cnt.families.map((f: unknown) => famWord(String(f))))} on a Set row holds the pieces the system's unit counts give`,
+          `${sides} -- what the row covers decides which; the BoQ quantity within ${Math.round(Number(cnt.tolerance?.share ?? 0) * 100)}% of that count (at least ${String(cnt.tolerance?.min ?? 1)}) -> 1 piece per Set; well below it -> the count shared over the Sets, rounded up, with a note; anything else, or a count missing, is not priced; pieces the pricer types win${
+            cnt.from_sheet ? "; on a BoQ row the unit counts are added up from the sheet's VRF rows the model read (each unit x its row's quantity), named in a note, and can be changed" : ""}`);
+    }
+  }
+  if (pr.lot_units && Array.isArray(pr.lot_units.units)) {
+    add("A row priced per Lot is not priced",
+        `${quoteList(pr.lot_units.units.map(String))} refuse with a red bar -- price the row by hand; ${pr.extras?.from_model ? "what the row says a Set or Lot holds is copied by the model for review only" : "what a Lot holds is read at VRF-4"}`);
+  }
+  // ── 13e. VRF-3b (owner O-5 / O-6 / B / SHEETS; 2026-11-05 11:30-14:56, boards 12-15): the extras a unit's price includes
+  // -- ADDED LAST (a config without `extras` adds nothing)
+  if (pr.extras && typeof pr.extras === "object" && pr.extras.roles) {
+    const ex = pr.extras;
+    const roleFams = (r: string) => list(Object.entries(ex.roles as Record<string, string>).filter(([, v]) => v === r).map(([f]) => famWord(f)));
+    const bandText = (bands: Array<{ max: number | null }>, unitWord: string) => bands
+      .map((b, n) => (b.max === null ? `above ${String(bands[n - 1]?.max ?? 0)} ${unitWord}` : n === 0 ? `up to ${String(b.max)} ${unitWord}` : `above ${String(bands[n - 1]?.max)} up to ${String(b.max)} ${unitWord}`))
+      .join(", ");
+    add("A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
+        `on ${roleFams("outdoor")} (outdoor) and ${roleFams("indoor")} (indoor) -- each split module its own unit; accessories never; ticked in the calculator ('This row's price includes'), ${ex.from_model ? "on a BoQ row read PER ITEM from the model's Yes / No answers (each split module takes its item's), with a note; the sizes, thickness, cable and length the row writes are used as written" : "read from the BoQ at VRF-4"}; insulation needs copper piping`);
+    add("An extra's size comes from the Pricing Inputs table by the unit's size, after conversion",
+        `pipes: indoor ${bandText(ex.pipe_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))}; outdoor ${bandText(ex.pipe_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Power cable: indoor ${bandText(ex.power_bands?.indoor ?? [], String(ex.band_unit?.indoor ?? ""))} (above that, no default - pick a spec); outdoor ${bandText(ex.power_bands?.outdoor ?? [], String(ex.band_unit?.outdoor ?? ""))}. Communication cable: every unit. A size typed or written on the BoQ (mm or inch) is read and laddered by Piping's own rules (next size up; no unit or above the largest refuses, in Piping's words); the insulation is priced by Insulation's rules on the copper size as read; a cable spec by Electrical's own match`);
+    add("Each extra is priced per metre by its own sheet's rules, then per Nos of the row",
+        "copper by Piping's rules, insulation by Insulation's rules, cable by Electrical's (read only); per Nos = the length x the per-metre BoQ rate, rounded up, x 'How many in one Nos' (1 by default); the row's quantity plays no part");
+    add("An extra with no size, spec or length holds the row",
+        "that line is red with what it needs (pick a size, or fill the table); the row shows 'n of m items need a person' and is not priced; a size or spec its own sheet refuses is red the same way, with that sheet's sentence");
+    add("A removed extra stays removed",
+        "the x on an extra removes it (a copper line takes its insulation) and the helper never adds it back on its own; 'Put it back' restores it; the row prices without it");
+  }
+  // ── 13f. VRF-4 (owner R-WS / D-5 "option D" / D-9): working + standby -- ADDED LAST (a config without the key adds nothing)
+  if (pr.working_standby && typeof pr.working_standby === "object") {
+    add("A row the BoQ says is working + standby is priced as ONE unit, under a red bar",
+        "the model copies the row's words (W+S, 1W+1S, N+N, 2N+N, 'working + standby'); a solid red bar above the card says the rate is for one unit and to check that the BoQ quantity covers both, with the unit and quantity ringed; never on a standby-only row or a heading's mention; the price is never doubled");
+  }
+  // ── 13g. VRF-5 (owner R1 18:14-18:21 + SAFEGUARD, F2, R2, R5, R4-R8; ANSWER 4-6, 9) -- ADDED LAST, each only where its key is
+  // in the config (a config without them adds nothing)
+  const ex5 = pr.extras && typeof pr.extras === "object" ? pr.extras : null;
+  if (ex5 && Array.isArray(ex5.accessories) && ex5.accessories.length) {
+    const accText = ex5.accessories.map((a: any) => `${String(a.label).toLowerCase()} (${(a.roles ?? []).join(" / ")} unit${a.electrical ? `, by ${String(a.electrical.label)}'s rules` : ""})`).join(", ");
+    add("A unit's price can include its accessories, each as its own line",
+        `${accText}; on a BoQ row read PER ITEM from the model's Yes / No answers, and an accessory the model lists as an item of its own on a unit row is folded into that line; the quantity is the BoQ's, else the Pricing Inputs default by the unit's band (outdoor) or per indoor unit; ticked in the calculator; a line that cannot price (no catalogue match, a default not set) shows why and never holds the row`);
+  }
+  if (ex5 && ex5.folded) {
+    add("Any other item listed with a unit is a note, not a line",
+        "on a row whose first item is an indoor / outdoor unit, a further item the model lists that is no extra (an item the catalogue does not identify, a controller) is one point in a note and is not priced");
+  }
+  if (ex5 && ex5.safeguard) {
+    add("Where the BoQ states an inclusion decides whether it is added",
+        "the row's own words -> added; only a heading or a note -> added UNLESS a line item of the SAME sheet in a category of the same discipline quotes that item on its own row (then not added, the note names the row); every heading / note case shows 'This row may include extras - please review' with what and why");
+  }
+  if (ex5 && ex5.lines && ex5.lines.cable_words_default) {
+    add("A cable the BoQ names without a size takes the default size",
+        "the Pricing Inputs spec for the unit's band; an armour or conductor word the BoQ states sets that attribute; a length it states is used per unit (a range '5-10 m' -> the higher figure); each value says whether it came from the BoQ or the default");
+  }
+  if (pr.defaults?.discharge?.below_smallest) {
+    add("Discharge not stated, below the smallest Top unit -> Side",
+        "an outdoor unit whose discharge the BoQ does not state, smaller than the smallest Top-discharge unit of its brand, is priced as Side discharge (next size up on Side), with a note naming that smallest Top size; a stated discharge always wins");
+  }
+  if (pr.defaults?.brand?.unlisted?.several_rule) {
+    add("Several makes stated -> Blue Star if it is one, else the first stocked make",
+        "Blue Star when it is one of the stated makes; else the first stated make the catalogue stocks for that item; else Blue Star with a note naming the makes; one make stated keeps the rule above");
+  }
+  if (ex5 && ex5.scope) {
+    add("Supply only / installation only, from the BoQ",
+        "supply only -> install 0 on every line of the row (extras too); installation only -> supply 0 and each line's final install (after every markup and rounding) x (1 + the Pricing Input 'VRF - installation-only uplift'), rounded up to the rupee once, with the working in the note; a line whose catalogue install is 0 (the MS frame / stand, made and fixed on site) charges its full cost, no uplift, with a note (owner R-F2); a line with no install rate refuses; the calculator's 'BoQ scope' choice does the same");
+  }
+  // ── 13h. VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- ADDED LAST, each only where its key is
+  // in the config (v61 and older add nothing)
+  type Acc6 = { choice?: { first_words?: unknown; model_attr?: unknown }; follow_unit_brand?: unknown; qty_per_size?: unknown; electrical?: { schedule?: unknown }; builtin?: unknown };
+  const accs6: Acc6[] = ex5 && Array.isArray(ex5.accessories) ? (ex5.accessories as Acc6[]) : [];
+  const remote6 = accs6.find((a) => a?.choice?.first_words || a?.choice?.model_attr);
+  if (remote6) {
+    add("The remote's type follows the BoQ",
+        "'corded or cordless', 'cordless/corded', 'corded less' -> Cordless first; then the model's own answer for the unit; then the words ('corded' / 'wired' alone -> Wired, 'cordless' / 'wireless' -> Cordless) in the row, its notes, its headings and their notes; nothing stated -> Cordless (tagged default); the default never overrides the model");
+  }
+  if (ex5?.safeguard?.lines?.not_added) {
+    add("Every included extra that is not added says why",
+        "an extra read as included that this item cannot carry is a review point with the reason: outdoor units only (gas, frame, MCB + ELCB on an indoor unit), indoor units only (remote, refnet, drain pump on an outdoor unit), no extras on a controller or AHU kit (interim), insulation needs copper -- and the rows that quote it on their own; the same for a tick in the calculator");
+  }
+  if (ex5?.safeguard?.match === "category") {
+    add("The own-row check reads each row's category first",
+        "a row of the piping category is the sheet's own copper row (unless the model read a non-copper pipe), an insulation row (or a piping row whose words say insulation) its own insulation row, an HVAC cable row its own cable row; a VRF row counts by the item the model read on it (a refnet-joint row is never a copper row); WORDS only for a row with no category; a sheet-level quantity row the run read counts too");
+  }
+  const sp6 = pr.split && typeof pr.split === "object" ? pr.split : null;
+  if (sp6 && (sp6.stated_times || sp6.split_over_top)) {
+    add("Written splits, and a module above the largest unit",
+        "'24HP (12HP x 2NOS)' is a written split like '20+18 HP'; a written module above the largest single unit is itself split (fewest units, then cheapest) with a note, never refusing the row; a split into three or more modules carries a note");
+  }
+  if (sp6 && sp6.pair_first && sp6.pair_first.mode === "single_unless_cheaper") {
+    // VRF-6 (owner QR-1 Q3 final, 2026-11-09 19:32)
+    add("A single that covers, unless a pair is cheaper",
+        "a stated outdoor size no single unit matches takes the next size up that covers it (a combination SKU counts) unless a pair of stocked units that covers it is cheaper -- then the cheaper pair with the least excess (ties: the cheaper); a module setup the BoQ writes still wins; the note names the pick and why");
+  } else if (sp6 && sp6.pair_first) {
+    add(sp6.pair_first.mode === "always" ? "A pair / set before the next size up" : "A cheaper pair / set before the next size up",
+        sp6.pair_first.mode === "always"
+          ? "a stated outdoor size no single unit matches is priced as the best pair / set (exact first, else covering; fewest units, then cheapest) rather than the next size up; the note says so"
+          : "a stated outdoor size no single unit matches is priced as the best pair / set (exact first, else covering; fewest units, then cheapest) when it costs less than the next-size-up unit (a combination SKU such as Daikin 34 HP never blocks it); the note shows both costs");
+  }
+  if (ex5?.lines?.length_per_item || ex5?.lines?.cable_kind_always || ex5?.lines?.drain_cable_words) {
+    add("A cable or pipe fact reaches only the item it describes",
+        "a length the BoQ gives inside the cable's words (a 3 m cord) is that cable's only -- copper and the other cable keep their defaults; 'AL' / 'aluminium' sets the conductor even where a size is stated; cabling the BoQ ties to the drain pump is not the unit's power cable");
+  }
+  if (accs6.some((a) => a?.follow_unit_brand)) {
+    add("Accessories take the unit's make",
+        "a remote, refnet or drain pump line takes the unit's brand where the catalogue stocks it in that brand; else the default make, with a note");
+  }
+  if (accs6.some((a) => a?.qty_per_size || a?.electrical?.schedule)) {
+    add("Frame / stand, gas by HP, MCB + ELCB by HP (team rule)",
+        "per OUTDOOR module when included: one MS frame / stand (its own Nos item; a BoQ row quoting stands per Nos prices on it), gas kg = the module's HP, one MCB 4-pole + one ELCB 300 mA 4-pole rated by the HP schedule in Pricing Inputs (an HP not in it -> the next row; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked one, noted; 'isolator' -> this set); never on an indoor unit");
+  }
+  if (accs6.some((a) => a?.builtin)) {
+    // VRF-8 (R-F4, owner 13:56 "we need to fix 2 to 4"): with VRF-7's own-row check for every extra the line states its condition --
+    // read alone it said the pump is always added, while line 51 (B7) leaves it out where the sheet quotes the pump on its own row
+    if (ex5?.safeguard?.own_row_always) {
+      add("A built-in drain pump is added only when the sheet has no pump row of its own, with a review point",
+          "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it -- only when the same sheet does not quote the pump on a row of its own; with its own row the pump is NOT added and the note names that row");
+    } else {
+      add("A built-in drain pump is still added, with a review point",
+          "when the BoQ says the unit has a built-in drain pump and its price includes a drain pump, the pump line is added and the row asks to check it");
+    }
+  }
+  if (ex5?.scope?.conflict || ex5?.scope?.supply_row) {
+    add("Supply / installation settled by the sheet's own rows",
+        "a 'Supply of' row under a note that includes installation: supply only when the sheet has an installation row of that kind (named), else supply + installation, with a note; an installation-only row: the uplift only when the sheet has no supply row of that kind, else the normal installation rate (named)");
+  }
+  if (ex5?.safeguard?.control_wiring) {
+    add("'Control wiring' and 'quantified separately'",
+        "'control wiring' in a unit heading = the communication cable included, with a note; a note saying the cabling is quantified separately wins over a heading that includes it (not added, the note quoted)");
+  } else if (ex5?.safeguard?.note_wins) {
+    // VRF-7 (A4): without the control-wiring key the line names only what the config still does
+    add("'Quantified separately' wins",
+        "a note saying the cabling is quantified separately wins over a heading that includes it (not added, the note quoted)");
+  }
+  if (ex5?.prepare) {
+    add("The BoQ's own words settle some answers before pricing",
+        "the row's 'Cooling Type' / 'heat pump' wins over the heading (noted); CSU / ceiling suspended = Ductable; 600x600 / 2'x2' = the compact cassette; '1 way' in a heading = a one-way cassette; an ON/OFF controller = the Touch Screen controller (noted); 'make same as outdoor' = the sheet's outdoor-unit make; '6 .3TR' reads 6.3; a frame quoted per Nos prices on the frame / stand item");
+  }
+  if (ex5?.two_capacities) {
+    add("Two capacities in one row refuse, naming both",
+        "a row whose text states two different capacities is not priced: 'two capacities stated (a / b) - pick one'");
+  }
+  // ── 13i. VRF-7 (owner rulings 2026-11-10 01:30-01:53, from the VRF-6 review) -- ADDED LAST, each only where its key is in the
+  // config (v62 and older add nothing)
+  type Prep7 = { discharge_words?: unknown; heat_words?: unknown; armour_words?: unknown; implied_includes?: unknown[]; stated_setup?: unknown;
+    family_words?: Array<{ unless?: unknown }> };
+  const prep7: Prep7 | null = ex5?.prepare && typeof ex5.prepare === "object" ? (ex5.prepare as Prep7) : null;
+  type Acc7 = { id?: string; note_words?: unknown; choice?: { conflict?: unknown }; electrical?: { match?: { step_up_note?: unknown } } };
+  const accs7: Acc7[] = ex5 && Array.isArray(ex5.accessories) ? (ex5.accessories as Acc7[]) : [];
+  const fm7 = ex5?.from_model && typeof ex5.from_model === "object" ? (ex5.from_model as { armoured?: unknown; length_by_item?: unknown }) : null;
+  if (prep7?.discharge_words) {
+    add("A discharge type the BoQ states wins",
+        "'top discharge' / 'side discharge' / 'top throw' anywhere in the row's chain (the row first, then each heading up with its notes) sets the outdoor unit's discharge when the model gave none, noted; a type not stocked at that size -> the next stocked size of that type; only when nothing states it does an outdoor unit below the smallest Top go Side");
+  }
+  if (prep7?.heat_words) {
+    add("Cooling-and-heating wordings are a heat pump",
+        "'cooling/heating', 'cooling or heating or both', 'cooling as well as heating' -> Heat Pump, noted; the row's own 'Cooling Type' / 'Cool only' still wins, with the override note");
+  }
+  if (fm7?.armoured || prep7?.armour_words) {
+    add("A cable is armoured only when the BoQ says so",
+        "the model answers armoured yes / no per cable; 'armoured' in a clause of the row's chain that names that cable sets it too (noted, the clause quoted); otherwise the cable is unarmoured");
+  }
+  if (fm7?.length_by_item) {
+    add("A length belongs to the item it is written for",
+        "power cable, communication cable and copper piping each read only their own length; an item with no length of its own takes the default length, with a note");
+  }
+  if (ex5?.safeguard?.own_row_always || ex5?.safeguard?.words_suffix) {
+    add("Every extra: added only when the sheet has no row of its own for it, always with a note",
+        "every extra (gas, frame, MCB + ELCB, cables, copper, insulation, drain pump, remote, refnet) wherever the inclusion is written -- the row itself included -- is added only when the same sheet does not quote it on a row of its own; the note quotes the BoQ words and says where they sit (this row / heading row n / note row n)");
+  }
+  if (accs7.some((a) => a?.electrical?.match?.step_up_note)) {
+    add("A breaker step-up is noted",
+        "when the HP schedule's rating is not stocked and the next one is used, the row carries a note: '<n> HP: schedule says <a> A - not stocked; <b> A used'");
+  }
+  if (prep7?.stated_setup) {
+    add("A module setup the BoQ states comes first",
+        "'16HP+16HP' or 'minimum 2 units of at least 20 HP each' on the row is followed before the split rule when every module is stocked for the unit's make and type; otherwise the split rule, with a note naming the size not stocked");
+  }
+  if ((prep7?.implied_includes ?? []).length) {
+    add("An optional remote and an individual controller include the remote",
+        "'with/without ... remote ... as per the requirement of the client' -> the remote is priced in; 'individual controller' in a system heading -> one remote per indoor unit; each noted, the own-row rule applies");
+  }
+  if ((prep7?.family_words ?? []).some((f) => f?.unless)) {
+    add("A treated fresh air unit is priced as the fresh-air unit",
+        "'treated fresh air' / 'fresh air unit' / 'TFA' -> the fresh-air unit even where 'CSU' / 'ceiling suspended' also appears; CSU alone stays Ductable");
+  }
+  if (accs7.some((a) => a?.note_words || a?.choice?.conflict)) {
+    add("Starter-panel and wired-remote notes",
+        "a unit-mounted starter panel with fused switches keeps the MCB + ELCB, with a note to check; a remote the BoQ's words priced Cordless keeps Cordless where another note says wired, with a note quoting both");
+  }
+  // -- 13j. VRF-8 (owner rulings 2026-11-10 13:56-15:05, from the VRF-7 review) -- ADDED LAST, each only where its key is in the
+  // config (v63 and older add nothing)
+  type Prep8 = { implied_includes?: Array<{ only_blank?: unknown }>; feeder_length?: unknown; breaker_words?: unknown; connection_only?: unknown;
+    mode_nearest?: unknown; install_follows?: unknown; repeated_size?: unknown; several_types?: unknown; missing_answers?: unknown; tfa_outdoor?: unknown;
+    first_make_close?: unknown };
+  const prep8: Prep8 | null = ex5?.prepare && typeof ex5.prepare === "object" ? (ex5.prepare as Prep8) : null;
+  type Acc8 = { choice?: { conflict?: { both_line?: unknown; head?: unknown } } };
+  const accs8: Acc8[] = ex5 && Array.isArray(ex5.accessories) ? (ex5.accessories as Acc8[]) : [];
+  const sg8 = ex5?.safeguard && typeof ex5.safeguard === "object" ? (ex5.safeguard as { note_wins?: { line_silent?: unknown }; verified_quotes?: unknown }) : null;
+  if (sp6 && (sp6 as { stated_not_stocked?: unknown }).stated_not_stocked) {
+    add("A written module setup that is not stocked -> the split rule on the total",
+        "'60 HP (18+18+24)' with a module the unit's make and type does not stock is not followed: the stated total is priced by the split rule (60 -> 20 + 20 + 20), never module by module, and the note says the setup could not be followed");
+  }
+  if ((prep8?.implied_includes ?? []).some((i) => i?.only_blank)) {
+    add("Starter-panel breakers, ODU supports and plug-top power cable",
+        "where the model left the question unanswered: a unit-mounted starter panel with fused switches -> the MCB + ELCB set (with the starter-panel note); 'supports' in an outdoor unit's rate / heading -> the MS frame / stand; 'inclusive of plug top & necessary power cable' on a unit -> its power cable (default length); the own-row rule applies");
+  }
+  if (sg8?.note_wins?.line_silent) {
+    add("'Quantified separately' is always said",
+        "a note saying the cabling is quantified separately is written on the unit even where the model read no cable included -- the cable is not added and the note is quoted");
+  }
+  if (accs8.some((a) => a?.choice?.conflict?.both_line || a?.choice?.conflict?.head !== undefined)) {
+    add("Remote notes read only this unit's own words",
+        "the wired / cordless note fires only when both wordings describe THIS unit (its row or its own headings); a sub-note naming another unit type ('Ductable Unit - ... corded remote') is never read for it; a type the BoQ's plain words decided keeps its price where a note elsewhere offers both types ('cordless/corded'), with a note quoting both");
+  }
+  if ((ex5?.scope as { supply_heading?: unknown } | undefined)?.supply_heading) {
+    add("A 'Supply of' heading with an installation note stays supply + installation",
+        "a supply + installation row under a 'Supply of ...' heading whose notes say 'installation, testing and commissioning' keeps supply + installation, with a note quoting both");
+  }
+  if (prep8?.feeder_length) {
+    add("A feeder within N m of the ODU sets the power cable length",
+        "'single feeder / DB ... within N m(tr) distance from ODU' -> the outdoor unit's power cable is N m long, noted; the communication cable keeps its own default");
+  }
+  if (prep8?.breaker_words) {
+    add("'Breaker (if required)' includes the MCB + ELCB",
+        "'breaker (if required)' in the outdoor unit's notes adds the MCB + ELCB set per module even where another note puts the isolator in the electrical contractor's scope (both quoted); that electrical-contractor wording alone -> not added, with a note");
+  }
+  if ((ex5?.lines as Record<string, unknown> | undefined)?.drain_cable_line_silent || (ex5?.lines as Record<string, unknown> | undefined)?.drain_cable_row_line) {
+    add("Drain-pump cabling is never the unit's power cable",
+        "cabling the BoQ ties to the drain pump ('plug top ... for the drain pump', or a cable quoted only on the sheet's drain-pump row) adds no power line, and the note says the cabling is the pump's");
+  }
+  if (prep8?.connection_only) {
+    add("'Interconnections with power supply' are connection work",
+        "'necessary interconnections with power supply / earthing / refrigerant connections' is connection work only: no power cable and no copper line from those words, with a note quoting them");
+  }
+  if (prep8?.mode_nearest) {
+    add("The nearer heading wins on cooling / heating",
+        "when the headings above an outdoor unit disagree ('cooling & heating' vs 'cooling mode even during peak winter'), the heading nearer the row decides Cool Only / Heat Pump, with a note quoting both");
+  }
+  if (prep8?.install_follows) {
+    add("An installation-only row follows its supply row",
+        "an installation-only row with no make takes the make of the same sheet's supply row of the same item and capacity (named in the note), so its module split follows too; no such row -> the defaults");
+  }
+  if (prep8?.repeated_size) {
+    add("A capacity stated twice wins",
+        "a row stating one capacity twice and another once is priced at the repeated one, with a note naming the other");
+  }
+  if (prep8?.several_types) {
+    add("Several unit types under one heading refuse",
+        "a heading whose notes list several unit types (Hi-Wall, 4-way compact, 4-way cassette, ductable) while the row names none is not priced: 'several unit types under this heading - fix the headings or pick the type'");
+  }
+  if (prep8?.missing_answers) {
+    add("An extra the model left unanswered follows the BoQ's words",
+        "every extra question is answered Yes / No (a row left unanswered is asked once more); an extra still unanswered whose words sit in the row's chain is treated as stated, and the normal rules decide (outdoor / indoor only, own row, else added) with the normal note");
+  }
+  if (prep8?.tfa_outdoor) {
+    add("A fresh-air unit complete with its outdoor unit",
+        "'TFA unit complete with suitable outdoor unit' prices the fresh-air unit AND an outdoor unit of the HP the row states, noted");
+  }
+  if (prep8?.first_make_close) {
+    add("A stated make with no size close enough gives way",
+        "several makes stated: when the first stocked one's smallest size is above the catalogue's next size up for the stated capacity (1.59 TR vs a 4 TR smallest), the next stated make with a close size is used, else Blue Star, noted");
+  }
+  if (sg8?.verified_quotes) {
+    add("Only verified BoQ quotes are shown",
+        "a note quotes the BoQ only where the whole quoted clause is found in the row's chain, with its row number; a quote the model shortened with '...' or that is not found is not shown");
+  }
+  // -- 13k. VRF-9 (the VRF-8 review S1-S10, owner rulings R1-R4 2026-11-11; QR-3 4b: one line per rule) -- ADDED LAST, each only
+  // where its key is in the config (v64 and older add nothing)
+  type Prep9 = { several_types?: { typed?: unknown }; feeder_length?: { every_module?: unknown }; family_refusals?: unknown; not_includes?: unknown;
+    tfa_capacity?: unknown; row_family?: unknown; implied_includes?: Array<{ question?: unknown; only_blank?: unknown }> };
+  const prep9: Prep9 | null = ex5?.prepare && typeof ex5.prepare === "object" ? (ex5.prepare as Prep9) : null;
+  const sc9 = ex5?.scope && typeof ex5.scope === "object" ? (ex5.scope as { always_note?: unknown; any_level?: unknown; always_both?: unknown }) : null;
+  const ps9 = pr.per_set && typeof pr.per_set === "object" ? (pr.per_set as { counted?: { defined?: unknown } }) : null;
+  const lu9 = pr.lot_units && typeof pr.lot_units === "object" ? (pr.lot_units as { calculator_refuses?: unknown }) : null;
+  if (prep9?.several_types?.typed) {
+    add("Several unit types: only when the row names none",
+        "a row naming its own unit type ('Wall Mounted Type') is priced as it under a several-types heading; a row naming none is refused 'several unit types under this heading' with no unit type shown (the panel does not pick one)");
+  }
+  if (sc9?.always_note) {
+    add("A 'Supply of' row with installation said above: the scope note always",
+        "a supply + installation row whose own text says 'Supply of' / 'Supply & providing', under a heading or note that says installation, is priced as supply + installation with a note quoting both and the row they sit in -- whatever the model answered for the scope");
+  }
+  if (sc9?.any_level) {
+    add("Installation said at any level wins over a supply-only reading",
+        "a row read as supply only while a heading or note at any level above it says installation (a grandparent's 'Supply, Installation, testing & commissioning') is priced as supply + installation, noted; the row's own 'supply only', or an installation row of the same kind on the sheet, keeps supply only");
+  }
+  if (sg8 && (sg8 as { exact_quotes?: unknown }).exact_quotes) {
+    add("The panel's own notes quote the BoQ word for word, with their rows",
+        "a note the panel writes itself (the starter-panel breaker note, the two remote wordings, the gas / frame / cabling quotes) quotes an exact stretch of the BoQ -- never an added '...' -- and names the row each quote sits in");
+  }
+  if (prep9?.feeder_length?.every_module) {
+    add("The feeder-length note on every module",
+        "where a split row's power cable length comes from 'single feeder ... within N m of the ODU', the note is said on every module of the split, not only on the first");
+  }
+  if (prep9?.tfa_capacity) {
+    add("A fresh-air unit with no capacity read takes the row's",
+        "a fresh-air (TFA) unit the model gave no capacity takes the row's stated CFM / TR (the next size up), else its stated HP by the conversion factors, so the row prices (TFA + its outdoor unit), noted");
+  }
+  if (lu9?.calculator_refuses) {
+    add("A per-HP row refuses in the calculator too",
+        "a row priced per HP (a whole-lot unit) is not a VRF unit: the panel and the calculator both refuse it with the same sentence, never priced per Nos");
+  }
+  if ((prep9?.implied_includes ?? []).some((i) => i?.question === "includes_gas" && !i?.only_blank)) {
+    add("A first / factory charge of refrigerant is the gas charge",
+        "'factory charged with first charge of refrigerant', 'initial charge' or 'full charge' means the gas charge is included (kg = the module's HP), even where the model read No -- unless the sheet quotes the gas on its own row");
+  }
+  if (prep9?.not_includes) {
+    add("BMS-interface cables and civil supports are not extras",
+        "cables for a BMS interface (BACnet / Modbus / third-party integration) are not the VRF communication cable, and a civil pedestal / foundation / plinth is not the MS frame: an include read from those words is not added, with a note quoting them");
+  }
+  if (prep9?.family_refusals) {
+    add("A Fan Coil Unit with no type told is refused",
+        "a row under 'Fan Coil Units' whose unit type the BoQ does not tell is refused 'Fan Coil Unit - pick the indoor type', not 'no item could be told'");
+  }
+  if (ps9?.counted?.defined) {
+    add("A Set the BoQ defines is one refnet",
+        "a row priced per Set that says what one Set holds ('Liquid and Gas considered as one Set') is priced at 1 refnet per Set, never rounded up by the expected joints; the note names the quantity and the joints expected when it is below");
+  }
+  if (sc9?.always_both) {
+    add("Gas charging is always supply + installation",
+        "a refrigerant gas charging / topping-up / additional-refrigerant row is priced supply + installation whatever its scope words (installation only or supply only), noted");
+  }
+  if (prep9?.row_family) {
+    add("A gas-charging or ODU-frame row with no item read",
+        "a row the model read no item for, whose own text names refrigerant gas charging (quoted per kg) or the outdoor units' MS base frame / stand / structure (never a civil pedestal), is priced on that item -- a frame quoted per Kg on the per-Kg frame item");
+  }
+  // -- 13l. VRF-10 (the VRF-9 review, owner rulings 2026-11-11 08:41-09:10) -- ADDED LAST, only where the VRF-10 rules are on (they
+  // ride v65's `scope.panel_pick`; no mint): the scope rules F2 / F3 / F6 (F1 is the unit line above; F4 / F5 change no rule)
+  if ((sc9 as { panel_pick?: unknown } | null)?.panel_pick) {
+    add("Supply + installation is the default scope",
+        "a row read as supply only is priced supply + installation, with a note quoting the BoQ's supply wording ('Supply of ...' alone is not supply only) -- unless the sheet quotes installation on its own rows, or the BoQ says supply only plainly ('supply only', 'excluding installation', 'installation by the client'); the scope pick on the panel starts at the same choice");
+    add("An MS frame / stand row is supply + installation",
+        "a row priced on the MS frame / stand item (per Nos or per Kg) is supply + installation whatever its scope words, unless the sheet quotes the frame's supply and its installation on separate rows -- then each row keeps its own scope and names the other");
+    add("Installation said higher up beats any supply-type wording: the note quotes both",
+        "where installation is said at any level above a nearer wording that reads as supply ('Supply, port clearance, transport of ...', not only 'Supply of'), the row is supply + installation with a note quoting both and where each sits; a row with no supply-type wording anywhere gets no note");
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {

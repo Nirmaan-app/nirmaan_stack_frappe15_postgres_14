@@ -1,0 +1,174 @@
+{
+ "_about": "VRF-8 (owner rulings 2026-11-10 13:56-15:05, from the VRF-7 review): the hvac_vrf keys and question changes HVAC v64 adds over v63. Read by vrf8Model.test.ts and by scripts/_instruments/mint_hvac_v64_vrf8.py (test_vrf_v64 proves the asset equals it). Every key is optional: v63 without them is unchanged.",
+ "prepare_add": {
+  "feeder_length": {
+   "words": "\\b(?:single\\s+)?(?:feeder|DB)\\b[^.|;]{0,120}?\\bwithin\\s+(\\d+(?:\\.\\d+)?)\\s*(?:m|mtrs?|meters?|metres?|rmt)\\b[^.|;]{0,40}?\\b(?:ODU|outdoor)",
+   "attr": "extra_power_length_as_written",
+   "line": "Power cable: the BoQ says \"{said}\" ({where}) - {n} m used as the power cable length (owner D4)"
+  },
+  "breaker_words": {
+   "question": "includes_mccb",
+   "yes": "Yes",
+   "no": "No",
+   "words": "\\bbreakers?\\s*\\(\\s*if\\s+required\\s*\\)",
+   "ec_words": "\\b(?:mccb|mcb|isolators?|breakers?)\\b[^.|;]{0,160}?\\b(?:electrical|ele\\.?)\\s+(?:contractor|agency|vendor)\\b",
+   "line_both": "MCB + ELCB: the BoQ says \"{said}\" ({where}) and also \"{ec}\" ({ec_where}) - added as the safe choice (owner D5)",
+   "line_ec_only": "MCB + ELCB: NOT added - the BoQ says \"{ec}\" ({ec_where}): the electrical contractor's scope (owner D5)"
+  },
+  "connection_only": {
+   "words": "\\b(?:necessary\\s+)?inter\\s*-?\\s*connections?\\b[^.|;]{0,60}?\\b(?:power\\s+supply|refrigerant)\\b[^.|;]{0,80}",
+   "questions": {
+    "power": "includes_power",
+    "copper": "includes_copper"
+   },
+   "no": "No",
+   "line": "{label}: NOT added - the BoQ says \"{said}\" ({where}) - connection work only (owner D8)"
+  },
+  "mode_nearest": {
+   "attr": "cooling",
+   "families": [
+    "Outdoor Unit"
+   ],
+   "cool": "Cool Only",
+   "heat": "Heat Pump",
+   "cool_words": "\\bcool(?:ing)?\\s+(?:only|mode)\\b",
+   "heat_words": "\\bcooling\\s*(?:&|and)\\s*heating\\b|\\bheating\\s+mode\\b|\\bheat\\s*pump\\b",
+   "line": "The nearer heading says \"{near}\" ({near_where}) and another says \"{far}\" ({far_where}) - the nearer heading wins: priced as {value} (owner D9)"
+  },
+  "install_follows": {
+   "scope_values": [
+    "Installation only"
+   ],
+   "attrs": [
+    "brand",
+    "brand_as_written"
+   ],
+   "line": "Installation only: the supply of this {family} {capacity} is quoted on row {row} as {make} - priced as {make} (owner D10)"
+  },
+  "repeated_size": {
+   "attr": "capacity",
+   "words": "(\\d+(?:\\.\\d+)?)\\s*(tr|hp|kw)\\b",
+   "line": "The row states {kept} twice and {other} once - priced at {kept} (owner D11)"
+  },
+  "several_types": {
+   "note_max": 60,
+   "refusal": "several unit types under this heading - fix the headings or pick the type (owner D12)"
+  },
+  "unit_words": {
+   "Hi-Wall": "\\bhi[\\s-]*wall|\\bhigh[\\s-]*wall",
+   "Cassette": "\\bcassette",
+   "Ductable": "\\bduct(?:able|ed)\\b|\\bceiling\\s+suspended\\b|\\bCSU\\b",
+   "Outdoor Unit": "\\boutdoor\\s+(?:condensing\\s+)?units?\\b|\\bODUs?\\b",
+   "Single Skin Treated Fresh Air": "\\bfresh\\s+air\\s+(?:units?|handling)|\\bTFA\\b",
+   "Floor-cum-Ceiling Mounted": "\\bfloor[\\s-]*(?:cum|&|and)[\\s-]*ceiling",
+   "Concealed Split": "\\bconcealed\\b",
+   "Verticool": "\\bverticool\\b",
+   "Packaged Unit": "\\bpackaged\\b"
+  },
+  "missing_answers": {
+   "exclude_words": "\\bnot\\b|\\bexclud\\w*|\\bby\\s+others\\b|\\bseparately\\b|\\bother\\s+agenc|\\b(?:electrical|ele\\.?)\\s+(?:contractor|agency|vendor)|\\bclient'?s?\\s+scope\\b"
+  },
+  "tfa_outdoor": {
+   "words": "\\bcomplete\\s+with\\s+(?:a\\s+)?suitable\\s+outdoor\\s+units?\\b",
+   "hp_words": "\\b(\\d+(?:\\.\\d+)?)\\s*HP\\b",
+   "outdoor_family": "Outdoor Unit",
+   "line": "BoQ says \"{said}\" - the fresh-air unit is priced with an outdoor unit of the stated {hp} HP (owner D14-1)"
+  },
+  "first_make_close": {
+   "attr": "brand",
+   "from_attr": "brand_as_written",
+   "default": "Blue Star",
+   "line_next": "several makes stated ({said}): {first}'s smallest is {min} {unit}, too big for the BoQ's {want} {unit} - priced as {make}, the next stated make with a close size (owner D14-2)",
+   "line_default": "several makes stated ({said}): {first}'s smallest is {min} {unit}, too big for the BoQ's {want} {unit}, and no other stated make has a close size - priced as {make} (owner D14-2)"
+  }
+ },
+ "implied_includes_add": [
+  {
+   "question": "includes_mccb",
+   "words": "\\bunit\\s+mou?n?t?ed\\s+starter\\s+panel\\b[^|]{0,200}?\\bfuses?\\b|\\bdisconnecting\\s+switch(?:es)?\\s+with\\s+fuses?\\b",
+   "role": "outdoor",
+   "yes": "Yes",
+   "only_blank": true,
+   "line": ""
+  },
+  {
+   "question": "includes_frame",
+   "words": "[^.|;]{0,100}\\bsupports?\\b[^.|;]{0,40}",
+   "role": "outdoor",
+   "yes": "Yes",
+   "only_blank": true,
+   "not_words": "\\bindoor\\b|\\bIDUs?\\b|\\bceiling\\b|\\bpip(?:e|es|ing)\\b|\\bcables?\\b|\\bduct|\\bhanger|\\btray\\b|\\blow\\s+side\\b|\\bfittings\\b|\\bbacnet\\b|\\bmodbus\\b|\\bBMS\\b|\\bprotocol",
+   "line": "MS frame / stand: the BoQ says \"{said}\" ({where}) - \"supports\" in the outdoor unit's rate / heading = the MS stand (owner D2)"
+  },
+  {
+   "question": "includes_power",
+   "words": "\\bplug\\s*-?\\s*tops?\\b[^.|;]{0,40}?\\bpower\\s+cabl\\w*|\\bpower\\s+cabl\\w*[^.|;]{0,40}?\\bplug\\s*-?\\s*tops?\\b",
+   "role": "any",
+   "yes": "Yes",
+   "only_blank": true,
+   "not_words": "\\bdrain\\s*pumps?\\b",
+   "line": ""
+  }
+ ],
+ "split_add": {
+  "stated_not_stocked": {
+   "line": "The BoQ states {written} {unit}; {missing} {unit} is not stocked for {make} - the stated setup could not be followed, priced by the split rule on the total {total} {unit} (owner W2 / W3)"
+  }
+ },
+ "safeguard_add": {
+  "verified_quotes": true
+ },
+ "note_wins_add": {
+  "line_silent": "{label}: not added - the BoQ note says \"{said}\" ({where}) (owner W5)"
+ },
+ "scope_add": {
+  "supply_heading": {
+   "heading_words": "^\\s*supply\\s+of\\b",
+   "install_words": "\\binstallation\\s*,?\\s*testing\\s*(?:,|and|&)?\\s*(?:and\\s+)?commissioning\\b[^.|;]{0,80}",
+   "note": "BoQ: the heading says \"{heading}\" and its note says \"{said}\" ({where}) - priced as supply + installation (owner D1)"
+  }
+ },
+ "accessories_patch": {
+  "mcb": {
+   "note_words": {
+    "words": "\\bunit\\s+mou?n?t?ed\\s+starter\\s+panel\\b[^.|]{0,160}|\\bdisconnecting\\s+switch(?:es)?\\s+with\\s+fuses?\\b",
+    "line": "MCB + ELCB: the BoQ says \"{said}\" - the unit's own starter panel has switches with fuses; MCB + ELCB still added, please check (owner D1)"
+   }
+  },
+  "remote": {
+   "conflict_add": {
+    "both_line": "Remote: the BoQ says \"{first}\" and also \"{said}\"{where} - priced as {value}, please check (owner W7)",
+    "pairs": "\\bcorded\\s*(?:/|or|and|&)\\s*wireless\\b|\\bwireless\\s*(?:/|or|and|&)\\s*corded\\b|\\bwired\\s*(?:/|or|and|&)\\s*cordless\\b|\\bcordless\\s*(?:/|or|and|&)\\s*wired\\b",
+    "head": 60
+   }
+  }
+ },
+ "lines_add": {
+  "drain_cable_line_silent": "Power cable: not added - the BoQ's cabling \"{said}\" ({where}) is for the drain pump, not the unit's power cable (owner D6)",
+  "drain_cable_row_line": "Power cable: NOT added - the BoQ's cabling \"{said}\" is the drain pump's: the sheet quotes it only on the drain-pump row ({rows}) (owner D7)"
+ },
+ "question_required": [
+  "includes_copper",
+  "includes_insulation",
+  "includes_power",
+  "includes_comm",
+  "includes_frame",
+  "includes_gas",
+  "includes_drain_pump",
+  "includes_remote",
+  "includes_refnet",
+  "includes_mccb"
+ ],
+ "question_notes_append": {
+  "*required": " VRF-8: REQUIRED on every item - never leave it out. Answer Yes or No from the words wherever anything describes this unit's price or scope for it (decide - never leave it out because it is hard to tell); 'None' only when nothing at all describes it. With Yes, the _words answer copies ONE exact clause of the BoQ (never '...') and _where says where it sits.",
+  "*words": " VRF-8: ONE exact clause copied as written (never shortened with '...'); a note shows it only when it is found word for word.",
+  "includes_frame": " VRF-8: 'supports' in an OUTDOOR unit's rate or heading ('inclusive of ... vibration isolators, supports') is its MS frame / stand: Yes.",
+  "includes_power": " VRF-8: 'inclusive of plug top & necessary power cable' on a unit is its power cable: Yes; cabling 'for the drain pump' is not. 'Necessary interconnections with power supply / earthing / refrigerant connections' is connection work only: No.",
+  "includes_copper": " VRF-8: 'necessary interconnections with power supply / refrigerant connections' is connection work only, not the copper piping: No.",
+  "includes_mccb": " VRF-8: 'breaker (if required)' in a note = Yes, even where another note puts the MCCB / isolator in the electrical contractor's scope; the electrical contractor's scope alone = No.",
+  "extra_power_length_as_written": " VRF-8: 'single feeder / DB ... within N m(tr) distance from ODU' is the outdoor unit's power cable length: N m.",
+  "capacity": " VRF-8: a fresh-air (TFA) unit 'complete with suitable outdoor unit' is TWO items - the fresh-air unit and an Outdoor Unit with the HP the row states. One capacity written twice and another once: copy the repeated one.",
+  "cooling": " VRF-8: when the headings above a unit disagree on cooling / heating, the heading NEARER the row wins."
+ },
+ "second_opinion": false
+}

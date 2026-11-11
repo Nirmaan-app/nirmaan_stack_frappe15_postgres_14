@@ -29,6 +29,9 @@ type Asset = { discipline: string; items: Array<RateMasterItem & { brand?: strin
 const DATA = path.resolve(__dirname, "../../../../../nirmaan_stack/services/boq_rate_master/data");
 const V50 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v50.json")));
 const V66 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_electrical_all_v66.json")));
+// VRF-1 (HVAC v55; mechanical authority): the `hvac_vrf` category the registry now lists exists only from v55 on, so the sweep
+// reads ITS config from v55; every other category is still read from v50 / v66 exactly as before.
+const V55 = readJsonFixture<Asset>(pathToFileURL(path.join(DATA, "rate_master_hvac_all_v55.json")));
 const ADP = "hvac_adp", INS = "hvac_insulation", PIP = "hvac_piping";
 const cfgOf = (a: Asset, id: string) => a.category_configs.find((c) => c.category_id === id)!;
 const ITEMS: RateMasterItem[] = mergeItemsByName(V50.items.map((it) => ({ ...it, discipline: V50.discipline } as RateMasterItem)));
@@ -49,8 +52,9 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
   const assetOf = (disc: string) => (disc === "HVAC" ? V50 : V66);
   const itemsOf = (disc: string) => (disc === "HVAC" ? ITEMS : E_ITEMS);
 
-  it("the sweep names what it covers: 13 Electrical + 4 HVAC categories, every one rendered", () => {
-    expect(pages.map((p) => [p.discipline, p.categories.length])).toEqual([["Electrical", 13], ["HVAC", 4]]);
+  // INVERTED at VRF-1 (mechanical authority): BEFORE the title "13 Electrical + 4 HVAC categories" and `["HVAC", 4]` -- + VRF
+  it("the sweep names what it covers: 13 Electrical + 5 HVAC categories, every one rendered", () => {
+    expect(pages.map((p) => [p.discipline, p.categories.length])).toEqual([["Electrical", 13], ["HVAC", 5]]);
   });
 
   it("POSITIVE: the pointer names the real pricing page and its tab", () => {
@@ -68,7 +72,8 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
     const seen: Record<string, string> = {};
     for (const p of pages) {
       for (const c of p.categories) {
-        const config = cfgOf(assetOf(p.discipline), c.category_id);
+        // VRF-1: BEFORE `cfgOf(assetOf(p.discipline), c.category_id)` for every category
+        const config = c.category_id === "hvac_vrf" ? cfgOf(V55, c.category_id) : cfgOf(assetOf(p.discipline), c.category_id);
         const { host, cleanup } = renderDerivation(config, itemsOf(p.discipline), p.discipline);
         try {
           const list = host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length;
@@ -130,6 +135,8 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
       "HVAC/hvac_adp": "list 38",
       "HVAC/hvac_insulation": "list 43",
       "HVAC/hvac_piping": "list 25",
+      // VRF-1: the data-only VRF category has no rules list, so its tab is the one generic line -- no rules card, no inputs
+      "HVAC/hvac_vrf": "This category's rules are not listed yet. To see how a row is priced, open HVAC Pricing -> Calculator.",
       "HVAC/hvac_pricing_inputs": PRICING_INPUTS_DERIVATION_LINE,
     });
   });

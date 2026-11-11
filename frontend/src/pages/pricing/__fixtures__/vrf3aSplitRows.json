@@ -1,0 +1,2457 @@
+{
+ "_note": "VRF-3a (2026-11-04): VRF-R3's 65 qualifying outdoor rows (the split rows: 47 helper, 15 stated, 3 W+S) and its 104 Set / Lot / per HP rows, read off VRF-R3's probe (scratch/probe_out.json, the product's own functions on v57). `item` is the answer fed (the resolved variant's non-default facts + the capacity phrase); `lines` the owner rule's split (helper) or the stated modules; `totals` VRF-R3's figures for those lines.",
+ "split_rows": [
+  {
+   "id": "BOQ-26-00134|ANNEXURE II|15",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "60 HP - For Marketing Office(Module selection as be as per Site Conditions)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "60 HP"
+   },
+   "lines": [
+    24,
+    24,
+    12
+   ],
+   "totals": {
+    "supply_rate": 1335600,
+    "install_rate": 60000,
+    "combined_rate": 1395600
+   },
+   "condition": "Module selection as be as per Site Conditions"
+  },
+  {
+   "id": "BOQ-26-00134|ANNEXURE II|16",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "52 HP - For Marketing Office(Module selection as be as per Site Conditions)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "52 HP"
+   },
+   "lines": [
+    28,
+    24
+   ],
+   "totals": {
+    "supply_rate": 1080480,
+    "install_rate": 52000,
+    "combined_rate": 1132480
+   },
+   "condition": "Module selection as be as per Site Conditions"
+  },
+  {
+   "id": "BOQ-26-00134|ANNEXURE II|17",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "50 HP - For Marketing Office(Module selection as be as per Site Conditions)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "50 HP"
+   },
+   "lines": [
+    28,
+    22
+   ],
+   "totals": {
+    "supply_rate": 1055040,
+    "install_rate": 50000,
+    "combined_rate": 1105040
+   },
+   "condition": "Module selection as be as per Site Conditions"
+  },
+  {
+   "id": "BOQ-26-00020|HVAC_-19TH FLOOR|73",
+   "how": "helper split",
+   "unit": "No.",
+   "qty": 0,
+   "text": "20 HP (Single module)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Side / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "discharge": "Side",
+    "capacity": "20 HP"
+   },
+   "lines": [
+    12,
+    8
+   ],
+   "totals": {
+    "supply_rate": 411048,
+    "install_rate": 20000,
+    "combined_rate": 431048
+   },
+   "condition": "Single module"
+  },
+  {
+   "id": "BOQ-26-00020|HVAC_-19TH FLOOR|74",
+   "how": "helper split",
+   "unit": "No.",
+   "qty": 0,
+   "text": "18 HP (Single module)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Side / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "discharge": "Side",
+    "capacity": "18 HP"
+   },
+   "lines": [
+    12,
+    6
+   ],
+   "totals": {
+    "supply_rate": 377784,
+    "install_rate": 18000,
+    "combined_rate": 395784
+   },
+   "condition": "Single module"
+  },
+  {
+   "id": "BOQ-26-00174|VRF|18",
+   "how": "helper split",
+   "unit": "Set",
+   "qty": 1,
+   "text": "Outdoor Unit (ODU) : Cooling Capacity :22 HP",
+   "brand": "Daikin",
+   "variant": "Daikin / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "brand": "Daikin",
+    "capacity": "22 HP"
+   },
+   "lines": [
+    16,
+    6
+   ],
+   "totals": null,
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00298|HVAC BOQ |260",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "34 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "34 HP"
+   },
+   "lines": [
+    22,
+    12
+   ],
+   "totals": {
+    "supply_rate": 798600,
+    "install_rate": 34000,
+    "combined_rate": 832600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00352|HVAC |36",
+   "how": "W+S #",
+   "unit": "Nos.",
+   "qty": 2,
+   "text": "FOR COMMON UPS & BATTERY ROOM | 2# 12 HP VRV/VRF OUTDOOR (WORKING + STANDBY)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "12 HP"
+   },
+   "lines": null,
+   "totals": {
+    "supply_rate": 312480,
+    "install_rate": 12000,
+    "combined_rate": 324480
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00175|First floor|18",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "34 HP (16+18)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "34 HP (16+18)"
+   },
+   "lines": [
+    16,
+    18
+   ],
+   "totals": {
+    "supply_rate": 888960,
+    "install_rate": 34000,
+    "combined_rate": 922960
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00175|Ground floor|17",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "60.0 HP (18+18+24)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "60 HP (18+18+24)"
+   },
+   "lines": [
+    18,
+    18,
+    24
+   ],
+   "totals": {
+    "supply_rate": 1415640,
+    "install_rate": 60000,
+    "combined_rate": 1475640
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00175|Ground floor|19",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "40HP (20+20)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "40 HP (20+20)"
+   },
+   "lines": [
+    20,
+    20
+   ],
+   "totals": {
+    "supply_rate": 952080,
+    "install_rate": 40000,
+    "combined_rate": 992080
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00284|Sheet1|22",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "ODU VRF - 20+18 HP Heatpump Top Discharge",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "38 HP (20+18)"
+   },
+   "lines": [
+    20,
+    18
+   ],
+   "totals": {
+    "supply_rate": 986040,
+    "install_rate": 38000,
+    "combined_rate": 1024040
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00284|Sheet1|23",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "ODU VRF - 18+18 HP Heatpump Top Discharge",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "36 HP (18+18)"
+   },
+   "lines": [
+    18,
+    18
+   ],
+   "totals": {
+    "supply_rate": 967200,
+    "install_rate": 36000,
+    "combined_rate": 1003200
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00284|Sheet1|24",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "ODU VRF - 18+16 HP Heatpump Top Discharge",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "34 HP (18+16)"
+   },
+   "lines": [
+    18,
+    16
+   ],
+   "totals": {
+    "supply_rate": 936720,
+    "install_rate": 34000,
+    "combined_rate": 970720
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00299|HVAC-BOQ|14",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "ODU-01 : 32 H.P",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "32 HP"
+   },
+   "lines": [
+    22,
+    10
+   ],
+   "totals": {
+    "supply_rate": 818280,
+    "install_rate": 32000,
+    "combined_rate": 850280
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00186|HVAC WORKS |31",
+   "how": "helper split",
+   "unit": "NOS",
+   "qty": 1,
+   "text": "30 HP OUT DOOR UNIT CONNECTING KIT",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 764520,
+    "install_rate": 30000,
+    "combined_rate": 794520
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00370|HVAC-Revised|4",
+   "how": "stated split",
+   "unit": "nos.",
+   "qty": 1,
+   "text": "VRV/VRF - 50HP | Supply of VRV/VRF outdoor unit as per the specification and as per the capacity below Make:Mitsubshi Electric, Bluestar 50(16+16+18)HP FOR OFFICE AREA",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "brand": "Blue Star",
+    "capacity": "50 HP (16+16+18)"
+   },
+   "lines": [
+    16,
+    16,
+    18
+   ],
+   "totals": {
+    "supply_rate": 1325880,
+    "install_rate": 50000,
+    "combined_rate": 1375880
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00191|Sheet1|7",
+   "how": "helper split",
+   "unit": "No.",
+   "qty": 1,
+   "text": "40 HP (in a combination of minimum 2 units of at least 20 HP each with combined capacity of 40 HP or higher)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "40 HP"
+   },
+   "lines": [
+    28,
+    12
+   ],
+   "totals": {
+    "supply_rate": 915600,
+    "install_rate": 40000,
+    "combined_rate": 955600
+   },
+   "condition": "minimum 2 units of at least 20 HP each with combined capacity of 40 HP or higher"
+  },
+  {
+   "id": "BOQ-26-00131|ESTIMATE |19",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 1,
+   "text": "30.0 HP HEAT PUMP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 807600,
+    "install_rate": 30000,
+    "combined_rate": 837600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00133|E- BOQ- HVAC|9",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 2,
+   "text": "48 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "48 HP"
+   },
+   "lines": [
+    24,
+    24
+   ],
+   "totals": {
+    "supply_rate": 1074000,
+    "install_rate": 48000,
+    "combined_rate": 1122000
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00133|E- BOQ- HVAC|11",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 1,
+   "text": "44 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "44 HP"
+   },
+   "lines": [
+    22,
+    22
+   ],
+   "totals": {
+    "supply_rate": 1019280,
+    "install_rate": 44000,
+    "combined_rate": 1063280
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00133|E- BOQ- HVAC|13",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 3,
+   "text": "42 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "42 HP"
+   },
+   "lines": [
+    22,
+    20
+   ],
+   "totals": {
+    "supply_rate": 1012080,
+    "install_rate": 42000,
+    "combined_rate": 1054080
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00133|E- BOQ- HVAC|15",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 3,
+   "text": "40 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "40 HP"
+   },
+   "lines": [
+    28,
+    12
+   ],
+   "totals": {
+    "supply_rate": 915600,
+    "install_rate": 40000,
+    "combined_rate": 955600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00133|E- BOQ- HVAC|17",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 1,
+   "text": "36 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "36 HP"
+   },
+   "lines": [
+    24,
+    12
+   ],
+   "totals": {
+    "supply_rate": 861000,
+    "install_rate": 36000,
+    "combined_rate": 897000
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00133|E- BOQ- HVAC|19",
+   "how": "helper split",
+   "unit": "Nos.",
+   "qty": 2,
+   "text": "30 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 807600,
+    "install_rate": 30000,
+    "combined_rate": 837600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00158|VRF BOQ|15",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "26(14+12)HP Top discharge - For BF & GF TFA @ DBT of 95 deg F /35.5 deg C",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "26 HP (14+12)"
+   },
+   "lines": [
+    14,
+    12
+   ],
+   "totals": {
+    "supply_rate": 717720,
+    "install_rate": 26000,
+    "combined_rate": 743720
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00158|VRF BOQ|16",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "44(22+22) HP Top discharge - For GF@ DBT of 95 deg F /35.5 deg C",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "44 HP (22+22)"
+   },
+   "lines": [
+    22,
+    22
+   ],
+   "totals": {
+    "supply_rate": 972240,
+    "install_rate": 44000,
+    "combined_rate": 1016240
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00397|E. HVAC|29",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "Nominal Capacity 30HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 764520,
+    "install_rate": 30000,
+    "combined_rate": 794520
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00397|E. HVAC|30",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "Nominal Capacity 32HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "32 HP"
+   },
+   "lines": [
+    22,
+    10
+   ],
+   "totals": {
+    "supply_rate": 787680,
+    "install_rate": 32000,
+    "combined_rate": 819680
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00397|E. HVAC|31",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "Nominal Capacity 34HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "34 HP"
+   },
+   "lines": [
+    22,
+    12
+   ],
+   "totals": {
+    "supply_rate": 798600,
+    "install_rate": 34000,
+    "combined_rate": 832600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00397|E. HVAC|32",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "Nominal Capacity 36HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "36 HP"
+   },
+   "lines": [
+    24,
+    12
+   ],
+   "totals": {
+    "supply_rate": 824040,
+    "install_rate": 36000,
+    "combined_rate": 860040
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00012|HVAC - High side|22",
+   "how": "stated split",
+   "unit": "NOS",
+   "qty": 0,
+   "text": "18 HP (10+8) - Top dishcarge - 9th floor",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "18 HP (10+8)"
+   },
+   "lines": [
+    10,
+    8
+   ],
+   "totals": {
+    "supply_rate": 591360,
+    "install_rate": 18000,
+    "combined_rate": 609360
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00012|HVAC - High side|27",
+   "how": "stated split",
+   "unit": "NOS",
+   "qty": 0,
+   "text": "24 (12+12) HP - Top dishcarge - Critical Rooms Working + Office space - 8th floor",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "24 HP (12+12)"
+   },
+   "lines": [
+    12,
+    12
+   ],
+   "totals": {
+    "supply_rate": 624960,
+    "install_rate": 24000,
+    "combined_rate": 648960
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00368|HVAC |36",
+   "how": "W+S #",
+   "unit": "nos.",
+   "qty": 2,
+   "text": "FOR SERVER ROOM (APEX) | 2# 4 HP VRV/VRF OUTDOOR UNIT (WORKING + STANDBY)- HOME SERIES",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "4 HP"
+   },
+   "lines": null,
+   "totals": {
+    "supply_rate": 264240,
+    "install_rate": 7000,
+    "combined_rate": 271240
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00368|HVAC |210",
+   "how": "W+S #",
+   "unit": "nos.",
+   "qty": 2,
+   "text": "FOR COMMON UPS & BATTERY ROOM | 2# 8 HP VRV/VRF OUTDOOR (WORKING + STANDBY)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "8 HP"
+   },
+   "lines": null,
+   "totals": {
+    "supply_rate": 289800,
+    "install_rate": 8000,
+    "combined_rate": 297800
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|313",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "30 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 764520,
+    "install_rate": 30000,
+    "combined_rate": 794520
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|314",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "32 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "32 HP"
+   },
+   "lines": [
+    22,
+    10
+   ],
+   "totals": {
+    "supply_rate": 787680,
+    "install_rate": 32000,
+    "combined_rate": 819680
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|315",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "36 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "36 HP"
+   },
+   "lines": [
+    24,
+    12
+   ],
+   "totals": {
+    "supply_rate": 824040,
+    "install_rate": 36000,
+    "combined_rate": 860040
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|316",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "42 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "42 HP"
+   },
+   "lines": [
+    22,
+    20
+   ],
+   "totals": {
+    "supply_rate": 962160,
+    "install_rate": 42000,
+    "combined_rate": 1004160
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|317",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "40 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "40 HP"
+   },
+   "lines": [
+    28,
+    12
+   ],
+   "totals": {
+    "supply_rate": 881400,
+    "install_rate": 40000,
+    "combined_rate": 921400
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|318",
+   "how": "helper split",
+   "unit": "",
+   "qty": 0,
+   "text": "44 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "44 HP"
+   },
+   "lines": [
+    22,
+    22
+   ],
+   "totals": {
+    "supply_rate": 972240,
+    "install_rate": 44000,
+    "combined_rate": 1016240
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|319",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "52 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "52 HP"
+   },
+   "lines": [
+    28,
+    24
+   ],
+   "totals": {
+    "supply_rate": 1080480,
+    "install_rate": 52000,
+    "combined_rate": 1132480
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|320",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "56 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "56 HP"
+   },
+   "lines": [
+    28,
+    28
+   ],
+   "totals": {
+    "supply_rate": 1137840,
+    "install_rate": 56000,
+    "combined_rate": 1193840
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|321",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "58 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "58 HP"
+   },
+   "lines": [
+    24,
+    22,
+    12
+   ],
+   "totals": {
+    "supply_rate": 1310160,
+    "install_rate": 58000,
+    "combined_rate": 1368160
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00003|PUNE HVAC BOQ|322",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "62 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "62 HP"
+   },
+   "lines": [
+    28,
+    22,
+    12
+   ],
+   "totals": {
+    "supply_rate": 1367520,
+    "install_rate": 62000,
+    "combined_rate": 1429520
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00114|HVAC|24",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "42 HP nominal capacity high COP outdoor unit. (Cooling Type)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "42 HP"
+   },
+   "lines": [
+    22,
+    20
+   ],
+   "totals": {
+    "supply_rate": 962160,
+    "install_rate": 42000,
+    "combined_rate": 1004160
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00114|HVAC|25",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "34 HP nominal capacity high COP outdoor unit. (Cooling Type)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "34 HP"
+   },
+   "lines": [
+    22,
+    12
+   ],
+   "totals": {
+    "supply_rate": 798600,
+    "install_rate": 34000,
+    "combined_rate": 832600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00114|HVAC|26",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 4,
+   "text": "32 HP nominal capacity high COP outdoor unit. ( Cooling Type)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "32 HP"
+   },
+   "lines": [
+    22,
+    10
+   ],
+   "totals": {
+    "supply_rate": 787680,
+    "install_rate": 32000,
+    "combined_rate": 819680
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00114|HVAC|27",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "30 HP nominal capacity high COP outdoor unit. ( Cooling Type)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 764520,
+    "install_rate": 30000,
+    "combined_rate": 794520
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00114|HVAC|29",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "54HP nominal capacity high COP outdoor unit. Cooling Type TFA",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "54 HP"
+   },
+   "lines": [
+    28,
+    26
+   ],
+   "totals": {
+    "supply_rate": 1116360,
+    "install_rate": 54000,
+    "combined_rate": 1170360
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00148|6.HVAC|180",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 1,
+   "text": "66 HP- outdoor unit-Top Discharge (Cafeteria)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "66 HP"
+   },
+   "lines": [
+    28,
+    26,
+    12
+   ],
+   "totals": {
+    "supply_rate": 1428840,
+    "install_rate": 66000,
+    "combined_rate": 1494840
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00148|6.HVAC|181",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 1,
+   "text": "56 HP- outdoor unit-Top Discharge (Cafeteria)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "56 HP"
+   },
+   "lines": [
+    28,
+    28
+   ],
+   "totals": {
+    "supply_rate": 1137840,
+    "install_rate": 56000,
+    "combined_rate": 1193840
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00144|Estimate|24",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 5,
+   "text": "48HP nominal capacity high COP outdoor unit.",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "48 HP"
+   },
+   "lines": [
+    24,
+    24
+   ],
+   "totals": {
+    "supply_rate": 1074000,
+    "install_rate": 48000,
+    "combined_rate": 1122000
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00144|Estimate|25",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 1,
+   "text": "36HP nominal capacity high COP outdoor unit.",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "36 HP"
+   },
+   "lines": [
+    24,
+    12
+   ],
+   "totals": {
+    "supply_rate": 861000,
+    "install_rate": 36000,
+    "combined_rate": 897000
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00144|Estimate|26",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 1,
+   "text": "32HP nominal capacity high COP outdoor unit.",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "32 HP"
+   },
+   "lines": [
+    22,
+    10
+   ],
+   "totals": {
+    "supply_rate": 818280,
+    "install_rate": 32000,
+    "combined_rate": 850280
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00144|Estimate|27",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 1,
+   "text": "30HP nominal capacity high COP outdoor unit.",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 807600,
+    "install_rate": 30000,
+    "combined_rate": 837600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00144|Estimate|34",
+   "how": "helper split",
+   "unit": "No",
+   "qty": 3,
+   "text": "30HP nominal capacity high COP outdoor unit.(Cooling Type) TFA",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 764520,
+    "install_rate": 30000,
+    "combined_rate": 794520
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00023|HVAC BOQ |257",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 0,
+   "text": "34 HP VRF / VRV ODU",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "34 HP"
+   },
+   "lines": [
+    22,
+    12
+   ],
+   "totals": {
+    "supply_rate": 798600,
+    "install_rate": 34000,
+    "combined_rate": 832600
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00363|HVAC-BLOCK D- 1F & 2F|51",
+   "how": "stated split",
+   "unit": "Nos",
+   "qty": 2,
+   "text": "38 HP - Out door unit (14HP+24HP)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "38 HP (14+24)"
+   },
+   "lines": [
+    14,
+    24
+   ],
+   "totals": {
+    "supply_rate": 916800,
+    "install_rate": 38000,
+    "combined_rate": 954800
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00140|VRF WORKS |19",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "30 HP (Single ODU)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "30 HP"
+   },
+   "lines": [
+    18,
+    12
+   ],
+   "totals": {
+    "supply_rate": 807600,
+    "install_rate": 30000,
+    "combined_rate": 837600
+   },
+   "condition": "Single ODU"
+  },
+  {
+   "id": "BOQ-26-00210|HVAC|7",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "12HP Side Discharge Outdoor unit",
+   "brand": "Daikin",
+   "variant": "Daikin / Cool Only / Side / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "brand": "Daikin",
+    "discharge": "Side",
+    "capacity": "12 HP"
+   },
+   "lines": [
+    6,
+    6
+   ],
+   "totals": {
+    "supply_rate": 283218,
+    "install_rate": 19200,
+    "combined_rate": 302418
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00380|HVAC-3F|201",
+   "how": "helper split",
+   "unit": "Nos",
+   "qty": 1,
+   "text": "44 HP",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Cool Only / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "capacity": "44 HP"
+   },
+   "lines": [
+    22,
+    22
+   ],
+   "totals": {
+    "supply_rate": 972240,
+    "install_rate": 44000,
+    "combined_rate": 1016240
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |14",
+   "how": "stated split",
+   "unit": "Nos.",
+   "qty": 1,
+   "text": "System-1 38HP (20+18)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "38 HP (20+18)"
+   },
+   "lines": [
+    20,
+    18
+   ],
+   "totals": {
+    "supply_rate": 986040,
+    "install_rate": 38000,
+    "combined_rate": 1024040
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |15",
+   "how": "stated split",
+   "unit": "Nos.",
+   "qty": 1,
+   "text": "System-2 22HP (12+10)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "22 HP (12+10)"
+   },
+   "lines": [
+    12,
+    10
+   ],
+   "totals": {
+    "supply_rate": 632640,
+    "install_rate": 22000,
+    "combined_rate": 654640
+   },
+   "condition": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |16",
+   "how": "stated split",
+   "unit": "Nos.",
+   "qty": 1,
+   "text": "System-3 26HP (14+12)",
+   "brand": "Blue Star",
+   "variant": "Blue Star / Heat Pump / Top / Standard",
+   "item": {
+    "item": "Outdoor Unit",
+    "cooling": "Heat Pump",
+    "capacity": "26 HP (14+12)"
+   },
+   "lines": [
+    14,
+    12
+   ],
+   "totals": {
+    "supply_rate": 747480,
+    "install_rate": 26000,
+    "combined_rate": 773480
+   },
+   "condition": null
+  }
+ ],
+ "set_lot_rows": [
+  {
+   "id": "BOQ-26-00149|HVAC-BOQ|223",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00149|HVAC-BOQ|259",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Other: testing / commissioning",
+   "family": null,
+   "v57_reason": "unit 'Lot' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00149|HVAC-BOQ|267",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00149|HVAC-BOQ|269",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Other: valve",
+   "family": null,
+   "v57_reason": "unit 'Set' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00134|ANNEXURE II|80",
+   "unit": "Sets",
+   "qty": 52,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00233|VRF System|26",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00233|VRF System|67",
+   "unit": "Lot",
+   "qty": -27,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00020|HVAC_-19TH FLOOR|192",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00174|VRF|18",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00174|VRF|54",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Other: stand / frame / MS support",
+   "family": "MS Angle Base Frame Structure",
+   "v57_reason": "MS Angle Base Frame Structure is not stocked per 'Set' (stocked per Kg) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |233",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |234",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |235",
+   "unit": "Set",
+   "qty": 6,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |236",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |237",
+   "unit": "Set",
+   "qty": 8,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |238",
+   "unit": "Set",
+   "qty": 3,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00117|HVAC BOQ |249",
+   "unit": "Set",
+   "qty": 54,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00051|HVAC|61",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00259|HVAC-VRF|63",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00064|HVAC|55",
+   "unit": "set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00064|HVAC|59",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00394|BOQ|17",
+   "unit": "Nos",
+   "qty": 4,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Cassette 4-way",
+   "family": "Cassette",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00394|BOQ|26",
+   "unit": "Set",
+   "qty": 15,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00171|HVAC|151",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Other: copper pipe",
+   "family": null,
+   "v57_reason": "unit 'Lot' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00218|HVAC-8F|259",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00383|VRF & CHW units-Critical rooms|19",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00383|VRF & CHW units-Critical rooms|49",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Other: stand / frame / MS support",
+   "family": "MS Angle Base Frame Structure",
+   "v57_reason": "MS Angle Base Frame Structure is not stocked per 'Set' (stocked per Kg) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00376|Schedule VI|56",
+   "unit": "per HP",
+   "qty": 2,
+   "unit_class": "per HP",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'per HP' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00376|Schedule VI|59",
+   "unit": "each",
+   "qty": 19,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Cassette 4-way",
+   "family": "Cassette",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00376|Schedule VI|60",
+   "unit": "each",
+   "qty": 5,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Cassette 4-way",
+   "family": "Cassette",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00376|Schedule VI|61",
+   "unit": "each",
+   "qty": 5,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Cassette 4-way",
+   "family": "Cassette",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00234|247 - VRF System|18",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00234|247 - VRF System|57",
+   "unit": "Lot",
+   "qty": 4,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00093|5. HVAC - Option 2 (Same Floor)|38",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00231|HVAC BOQ|118",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00231|HVAC BOQ|120",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00231|HVAC BOQ|122",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00231|HVAC BOQ|124",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Other: whole system / lot",
+   "family": null,
+   "v57_reason": "unit 'Lot' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00215|VRV WORKS|75",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00233|Critical VRF System|43",
+   "unit": "Lot",
+   "qty": 3,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00017|Critical Load|26",
+   "unit": "sets",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00285|HVAC|9",
+   "unit": "Set",
+   "qty": 8,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00131|ESTIMATE |42",
+   "unit": "Set",
+   "qty": 127,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00318|HVAC|381",
+   "unit": "Sets",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00318|HVAC|414",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00274|VRF System|26",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00274|VRF System|67",
+   "unit": "Lot",
+   "qty": 27,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00164|VRV-BOQ|76",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00397|E. HVAC|80",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00049|VRF - Hi-Side|44",
+   "unit": "LOT",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Other: signal booster",
+   "family": null,
+   "v57_reason": "unit 'LOT' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00273|247 - VRF System|18",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00273|247 - VRF System|22",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00273|247 - VRF System|23",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00273|247 - VRF System|57",
+   "unit": "Lot",
+   "qty": 4,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00093|4. HVAC - Option 1 (Terrace)|39",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00192|Sheet1|30",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Remote (type not stated)",
+   "family": "Remote Controller",
+   "v57_reason": "Remote Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00274|Critical VRF System|43",
+   "unit": "Lot",
+   "qty": 3,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00401|Sheet1|10",
+   "unit": "Nos",
+   "qty": 2,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00401|Sheet1|11",
+   "unit": "Nos",
+   "qty": 2,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00401|Sheet1|12",
+   "unit": "Nos",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00243|HVAC BOQ|118",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00243|HVAC BOQ|122",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00243|HVAC BOQ|124",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Other: whole system / lot",
+   "family": null,
+   "v57_reason": "unit 'Lot' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |303",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |304",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |305",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |306",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |307",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |308",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |309",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00197|HVAC BOQ |363",
+   "unit": "Set",
+   "qty": 3,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00337|HVAC|381",
+   "unit": "Sets",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00337|HVAC|414",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00218|HVAC-2F|259",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00148|6.HVAC|239",
+   "unit": "Set",
+   "qty": 50,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00148|6.HVAC|240",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00169|HVAC|139",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00169|HVAC|146",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Other: sequence controller",
+   "family": null,
+   "v57_reason": "unit 'Set' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00169|HVAC|147",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Other: sequence controller",
+   "family": null,
+   "v57_reason": "unit 'Set' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00169|HVAC|148",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Other: sequence controller",
+   "family": null,
+   "v57_reason": "unit 'Set' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|38",
+   "unit": "lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Remote (type not stated)",
+   "family": "Remote Controller",
+   "v57_reason": "Remote Controller is not stocked per 'lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|55",
+   "unit": "Sets",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Hi-Wall",
+   "family": "Hi-Wall",
+   "v57_reason": "Hi-Wall is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|56",
+   "unit": "Sets",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Hi-Wall",
+   "family": "Hi-Wall",
+   "v57_reason": "Hi-Wall is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|57",
+   "unit": "Sets",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Hi-Wall",
+   "family": "Hi-Wall",
+   "v57_reason": "Hi-Wall is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|58",
+   "unit": "Sets",
+   "qty": 4,
+   "unit_class": "Set",
+   "kind": "Hi-Wall",
+   "family": "Hi-Wall",
+   "v57_reason": "Hi-Wall is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|65",
+   "unit": "Sets",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Ductable",
+   "family": "Ductable",
+   "v57_reason": "Ductable is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|66",
+   "unit": "Sets",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Ductable",
+   "family": "Ductable",
+   "v57_reason": "Ductable is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|67",
+   "unit": "Sets",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Ductable",
+   "family": "Ductable",
+   "v57_reason": "Ductable is not stocked per 'Sets' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|73",
+   "unit": "Lot",
+   "qty": 2,
+   "unit_class": "Lot",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00098|VRF|74",
+   "unit": "Lot",
+   "qty": 0,
+   "unit_class": "Lot",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "Outdoor Unit is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00380|HVAC-2F|246",
+   "unit": "Set",
+   "qty": 1,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00363|HVAC-BLOCK D- 1F & 2F|354",
+   "unit": "Set",
+   "qty": 2,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00140|VRF WORKS |50",
+   "unit": "Set",
+   "qty": 4,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00140|VRF WORKS |97",
+   "unit": "Lot",
+   "qty": 68,
+   "unit_class": "Lot",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Lot' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00380|HVAC-3F|253",
+   "unit": "Set",
+   "qty": 0,
+   "unit_class": "Set",
+   "kind": "Central controller / BMS gateway",
+   "family": "Touch Screen Central Controller",
+   "v57_reason": "Touch Screen Central Controller is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |14",
+   "unit": "Nos.",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": "capacity 38 is above the largest size on the sheet (28)"
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |15",
+   "unit": "Nos.",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |16",
+   "unit": "Nos.",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |17",
+   "unit": "Nos.",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |18",
+   "unit": "Nos.",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |19",
+   "unit": "Nos.",
+   "qty": 1,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |26",
+   "unit": "Nos.",
+   "qty": 2,
+   "unit_class": "(unit ok; whole-price words)",
+   "kind": "Outdoor unit",
+   "family": "Outdoor Unit",
+   "v57_reason": null
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |115",
+   "unit": "Set",
+   "qty": 17,
+   "unit_class": "Set",
+   "kind": "Refnet / Y-joint / header",
+   "family": "Refnet/Y-Joint",
+   "v57_reason": "Refnet/Y-Joint is not stocked per 'Set' (stocked per Nos) - price this row by hand"
+  },
+  {
+   "id": "BOQ-26-00350|VRF System- HVAC |138",
+   "unit": "Lot",
+   "qty": 1,
+   "unit_class": "Lot",
+   "kind": "Other: copper pipe",
+   "family": null,
+   "v57_reason": "unit 'Lot' is not a VRF unit - VRF is priced per Nos or per Kg (Set, Lot and per HP wait for VRF-3) - price this row by hand"
+  }
+ ]
+}

@@ -4321,12 +4321,30 @@ describe("Calculator slice 1 / FOUR -- the rewording reads correctly WITH a row 
     // this row" (U4). That string is the ONE sanctioned "this row" in the panel; it is removed before the check so
     // every OTHER row-assuming phrase stays forbidden, and its presence is pinned exactly once.
     const QTY_LABEL = "How many in one {view.unit} of this row";
+    // INVERTED at VRF-3a (owner boards 6-11, U2 "yes proceed", 2026-11-04 18:52) by mechanical authority: BEFORE only QTY_LABEL
+    // was removed. The owner-worded amber box after a changed split ("... will not split this row again ...") is the second
+    // sanctioned "this row"; it is removed too and pinned exactly once, so every OTHER row-assuming phrase stays forbidden.
+    const U2_CHANGED = "The helper will not split this row again";
+    // INVERTED again at VRF-3a K2 (owner QR-1 (a) / U9 approved, 2026-11-04 19:07): the calculator field's label "BoQ quantity of
+    // this row" is the third sanctioned "this row"; removed and pinned exactly once like the two above
+    const U9_LABEL = "BoQ quantity of this row";
+    // INVERTED at VRF-7 (owner B8, 2026-11-10 01:36: a note "says where they sit (this row / heading row n / sheet note row n)") by
+    // mechanical authority: the two place labels of a BoQ row's OWN texts in its chain (`rowChainOf` / `chainOf`; a BoQ row only,
+    // the calculator has no chain) are the fourth and fifth sanctioned "this row"; removed and pinned exactly once like the three above
+    const B8_PLACE = 'CHAIN_ROW_PLACE = "this row"';
+    const B8_NOTE_PLACE = 'CHAIN_ROW_NOTE_PLACE = "this row\'s note"';
     for (const [name, raw] of Object.entries(CALC1_SRC)) {
-      const src = stripComments(raw).split(QTY_LABEL).join("");
+      const src = stripComments(raw).split(QTY_LABEL).join("").split(U2_CHANGED).join("").split(U9_LABEL).join("")
+        .split(B8_PLACE).join("").split(B8_NOTE_PLACE).join("");
       for (const phrase of FORBIDDEN) expect(src, `${name} still says "${phrase}"`).not.toContain(phrase);
     }
     const panel = CALC1_SRC.panel;
     expect(panel.split(QTY_LABEL).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.helper).split(U2_CHANGED).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.helper).split(U9_LABEL).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.types).split(B8_PLACE).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.types).split(B8_NOTE_PLACE).length - 1).toBe(1);
+    expect(stripComments(CALC1_SRC.helper)).not.toContain(B8_PLACE);
   });
   it("POSITIVE, both readings: the manual-row sentences are the SAME strings on a BoQ row outside the run and on a no-row context", () => {
     const h = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: new Map() });
