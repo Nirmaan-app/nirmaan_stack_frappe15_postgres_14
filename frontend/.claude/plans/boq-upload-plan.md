@@ -50925,3 +50925,65 @@ parity harness on the paid answers (0 divergences on every cert row but D12).
 - The D1 starter-panel note clips its BoQ quote with "..." (a pricer excerpt; D14-7's verified-quote rule covers model quotes only).
 - 00191 r32: the re-read model listed the outdoor unit itself, so D14-1's rule did not have to add it on this run.
 - D12 refuses 21 run rows (00051 HVAC 48-51, 00114 HVAC 57, 00380 HVAC-2F 200-218); the calculator prices them (named exception).
+
+## Slice VRF-9 - fixes from the VRF-8 review (HVAC v65), then a re-run of the rows the fixes touch - as built 2026-11-11
+
+**Commits (desktop; the owner pushes), on e18f43521:** K1 `eda7baef4` feat(boq-pricing) (the pricer: S2-S10, R1-R4 behind v65 keys;
+applyVrf9 in the parity harness; vrf9Model tests), K2 `a4392499f` fix(boq-pricing) (the calculator refuses wherever the panel refuses:
+several unit types / Fan Coil typed in, per HP; the panel's D12 unit shows no inherited type; parity VRF-9 block, 0 named exceptions;
+13 Derivation lines), K3 `3b3863583` feat(hvac-vrf) (asset v65 + mint + config checks + test_vrf_v65 + R-39 v65 + pins; the no-unit
+skip for the row-family net), K5 `8eab38534` fix(boq-pricing) (post-run fixes on the paid answers: TFA airflow-only capacity, no duplicate gas item, the Fan Coil
+unit shows no type, parity reads the whole chain), S11 `8972e63b5` feat(boq-pricing) (the scope pick on a BoQ row's helper panel,
+ANSWER 11), K4 docs.
+
+**Owner answers (relayed by the laptop):** ANSWER 1 00:47 (auto-go, cap <= 6,000,000); ANSWER 2 01:05 (S8 refnet Set, S9 gas
+charging always S+I, S10 frame safety net); ANSWER 3 01:15 (S9 also covers "Supply of additional refrigerant" rows); ANSWER 4 01:21
+(QR-1 (a): 00218 r274 prices per Kg on MS Angle Base Frame Structure; echoed 13 min late - the heartbeat loop consumed the mtime;
+hb.sh now compares the count of answers); ANSWER 5 01:32 (QR-2 (a): no inherited type on a D12-refused unit); ANSWER 6 01:35 (all
+foreseeable questions now - QR-3); ANSWER 7 02:00 (QR-3 defaults to 03:00); ANSWER 8 / 9 02:02 / 02:04 (QR-3 1a 2a 3a 4b 5a 6a 7a 8a
+9a; owner asleep); ANSWER 10 02:06 (cert C12: how a user changes a row's scope); ANSWER 11 02:08 (S11 scope pick on the panel if C12
+shows none); ANSWER 12 02:09 (S12: installation-only x1.5 only without a supply row - already the rule, VRF-6); ANSWER 13 02:11 (QR-4
+(b): no calculator screen change - the two item-list choices built at 02:02 were reverted before any commit).
+
+**P0 corrections (no step changed):** S2's reason-text half, S6 and S7's TFA half did not reproduce at HEAD (kept by test); 00009 r80
+has no installation wording in its chain (no S3 note, QR-3 1a); 00134 has its own gas row 83 (and, found in the cert, NO 'first charge' / 'factory charged' wording in any node: the brief's R1
+example did not hold on the data and P0's 'R1 YES' line was copied from the brief - disclosed);
+a per-Kg frame rate exists (QR-1).
+
+**Asset v65** (`rate_master_hvac_all_v65.json`, sha256 3c6666da3a8f..., 768,067 B, only hvac_vrf's list_spec - 7 question notes,
+extras, per_set, lot_units; the 68 questions and their flags unchanged): mint gate PASS; loaded once, 03:0x (rmbulk-89b202b5811c,
+snapshot BRMS-26-02259); live == v65; HVAC items unchanged (8af2eec7), non-VRF configs e9d3689a, Electrical = D0. B6 declared
+re-pricing from the stored answers: 91 figure moves (S4 58, R2 12, S9 10, S2 4, S10 4, S8 2, R3 1), 224 notes-only, 0 non-VRF;
+calculator divergences 547 -> 511; replay vrf9v65 95 moved, all hvac_vrf.
+
+**The run:** PAID-READY 445 rows / 70 sheets / 147 calls, expected 3,621,607, HARD CAP 5,794,572 (auto-go, ANSWER 1). 03:48-04:57,
+70 / 70 complete + active; audit figure 2,149,322 tokens / 77 attempts, 0 re-asks, 0 failed, 0 second-opinion calls (OFF, standing).
+Controls PASS (593 older runs byte-identical, 70 active flags moved); payload integrity 445 / 445 (byte-equal, replied, no foreign ids,
+EA-7 PASS); hand check 36 / 36 readings agree (8 rows). Post-run audit of the re-read answers found two code gaps + one parity gap
+-> K5 (code only, re-priced from the STORED answers, no top-up run). Final pricing (paid3, HEAD): 372 priced, 0 calculator
+divergences on the 445 run rows, 445 pickers. Rows workbook `2026-11-11_VRF-9_Rows.xlsx`.
+
+**Cert (read only, C1-C14, 36 screenshots `2026-11-11_VRF-9_cert_screenshots`; 0 writes to the BoQ tables):** every figure = the
+scratch / D0 value. C1 00380 2F r209 D12 no type; 00051 r48 / r51 Hi-Wall 29,640 / 24,480. C2 00370 r4 1,375,880 + R-D1 note; 00102
+r22 140 / 40 per Kg S+I + note; 00363 r51 954,800 S+I. C3 00197 r358 remote note names rows 357 + 312, no '...'; 00003 r301 D1 note
+exact (note row 300). C4 00175 GF r28 41,630 drain pump kept + makes; 00350 r14 '5 m' on both modules; 00191 r32 227,064. C5 00134
+r15 1,395,600, no gas. C6 00218 3F r202 297,800 no comm; 00336 r198 308,760 no frame (R2 / R3 not needed: the v65 guidance did it).
+C7 00380 3F r217 'Fan Coil Unit - pick the indoor type'. C8 00175 GF r17 1,440,975; 00218 2F r202 frame not added (own row 274);
+Piping / Electrical rows = D0; calculator install-only frame 5,600. C9 00093 r39 5,000 per Set. C10 00307 r41 1,370 S+I. C11 00134
+r58 5,600; 00218 2F r274 140 + 40. C12 no scope switch on the panel -> S11. C13 S11: 00197 r358 Supply only 24,720 -> S+I 26,720
+(Hi-Wall 25,320 = calculator) -> back. C14 S12: 00149 r186 install only with supply rows = 14,000 (normal rate); x1.5 note on 00164
+r74 (the row refuses on capacity 11 TR > 10); calculator Hi-Wall 2TR install only 2,700 / with supply on another row 1,800.
+
+**Tests (final, measured):** Python, the 31-module K3 set through the parallel runner: 31 / 31 OK (test_rate_master 776,
+test_extraction_coercion 216, test_vrf_v65 8); vitest related on the 8 changed frontend files: 99 files, 5,211 / 5,211; tsc 0 new.
+Replay vrf9end (23,239 rows; ac7 15d33991 / ac7v2 f942febc) vs vrf9d0: 151 moved, all hvac_vrf, 0 non-VRF - the next slice's
+baseline. Logs: `BoQ main lane\VRF-9\logs\`.
+
+**Open (for the owner):**
+- F-1 (cosmetic, not fixed): the Fan Coil refusal rows show 'BoQ says "None": priced as (your rule).' (RateHelperPanel.tsx 12e-2
+  sentence, `familyRaw` "None" with no family) - proposed VRF-10: hide it when the family is empty or the raw item is a none sentinel.
+- R1's net fired on 0 run rows, R2 / R3 / S10 nets on none of the cert rows: the model answered those questions itself under v65's
+  guidance; the nets are proven by the unit tests only.
+- 00164 VRV-BOQ r74 refuses on capacity (Packaged Unit 11 TR above the sheet's largest 10), not on scope.
+- The Rows workbook's SKU column says 'ambiguous 2' for 429 items (two catalogue rows match the panel's SKU fields; never guessed).
+- second_opinion stays OFF (standing); the push, the laptop sync and the db-pull are the owner's.

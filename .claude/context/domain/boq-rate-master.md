@@ -2910,6 +2910,61 @@ VRF-7's behaviour (the 1,901 stored VRF rows priced under live v63 with the VRF-
 - **Validation:** every key refused by name when malformed (`_validate_prepare_vrf8`, the implied-include / conflict / note_wins /
   safeguard / scope / split / lines branches, a question's `required`); the questions they read checked by `need()`.
 
+**VRF-9: SEVERAL UNIT TYPES ONLY WHEN THE ROW NAMES NONE (AND IN THE CALCULATOR), THE SCOPE NOTE ALWAYS, INSTALLATION AT ANY LEVEL, EXACT QUOTES WITH THEIR ROWS, THE FEEDER NOTE PER MODULE, THE TFA CAPACITY, THE PER-HP CALCULATOR REFUSAL, FIRST CHARGE = GAS, BMS CABLES ARE NOT THE COMM CABLE, CIVIL SUPPORTS ARE NOT THE MS FRAME, THE FAN COIL REFUSAL, A SET THE BoQ DEFINES = 1 REFNET, GAS CHARGING ALWAYS SUPPLY + INSTALLATION, THE GAS / FRAME ITEM WHERE NONE WAS READ (the VRF-8 review S1-S7; owner rulings 2026-11-11 00:36-00:43 R1-R4; ANSWER 2-5 S8-S10, QR-1 / QR-2 (a); HVAC v65).**
+v65 = v64 with only `hvac_vrf`'s `list_spec` changed (no item, no Pricing Input; the 68 questions and their required / allow_none
+flags are v64's). Every key is optional: a config without it keeps VRF-8's behaviour (the 1,901 stored VRF rows priced under live
+v64 with the VRF-9 code: 0 differences). The keys come from ONE fixture, `frontend/src/pages/pricing/__fixtures__/vrf9Model.json`
+(the mint, `applyVrf9` in the parity harness and test_vrf_v65 all read it).
+- **S2 (`prepare.unit_words` Hi-Wall += "wall mounted type / split / unit / indoor / AC"):** a row naming its own unit type is priced
+  as it under a several-types heading; R-D12 refuses only a row that names none ("wall mounted corded remote" is a remote, not a type).
+- **S1 (`prepare.several_types.typed`; QR-2 (a), QR-4 (b)):** the calculator has no heading tree -- the parity harness types the
+  panel's case in as the heading's unit types ("Hi-Wall / Cassette / Ductable") and the calculator refuses with the ruled sentence;
+  the panel's D12-refused unit shows no inherited type and no extra lines (the panel does not pick one). Parity: 0 divergences, no
+  named exception. The calculator SCREEN is unchanged (VRF's item is a fixed list; these refusals cannot arise there).
+- **S3 (`scope.always_note`):** a supply + installation row (the model's answer, or none) whose own level starts a clause "Supply of" /
+  "Supply & providing" and whose own text names no installation, under a chain text that says installation -> the note quoting both
+  with the row ("owner R-D1"). No installation wording anywhere (00009 r80) -> no note.
+- **S4 (`scope.any_level`):** a supply-only answer while installation is said at ANY level of the chain -> supply + installation, noted;
+  the row's own "supply only" (`keep_words`) and VRF-6 Q5 (an installation row of the same kind on the sheet) keep supply only.
+- **S5 (`safeguard.exact_quotes`):** the notes the panel composes quote an exact stretch (`exactAround` / `cutExact`, never an added
+  "..."): the two-wordings remote note names BOTH quotes' rows (`{first_where}`), the D1 starter-panel note names its row (`{where}`;
+  its words now stop at "fuses"), model quotes / never-silent / armour quotes are cut on a word.
+- **S7:** `feeder_length.every_module` -- the "N m" note on every module of a split (prepare's `unitNotes`); `prepare.tfa_capacity` --
+  a fresh-air unit with no capacity read (or an airflow-only answer such as "741 CFM" -- post-run K5) takes the row's phrase with
+  TR / HP ("741 CFM (6 HP)"), else its HP; `lot_units.calculator_refuses` -- a picked per-HP unit
+  stays the calculator's unit and refuses with the panel's lot line. S6 (make fallback keeps extras) does not reproduce at HEAD; kept by
+  test.
+- **R1 (implied include, question includes_gas, NOT only_blank):** "first / initial / full charge", "factory charged" = the gas is
+  included, over the model's No; the own-row rule still decides. The brief's example (00134 #15-17) holds NO such wording (P0
+  correction, found in the cert); on the paid run the net fired on 0 of 445 rows (the model answered the gas question itself on
+  the 48 VRF chain rows that hold the words) -- the rule is proven by the unit tests.
+- **R2 / R3 (`prepare.not_includes`):** a Yes the model read from BMS-interface / BACnet / Modbus / third-party words (comm) or from a
+  civil pedestal / foundation / plinth (frame) is set back to No and said; a quote that also names indoor-outdoor wiring (comm) or MS /
+  steel / angle / channel / frame (frame) stands. The D2 "supports" net's `not_words` += civil / pedestal / foundation / plinth.
+- **R4 (`prepare.family_refusals`):** no type told on any unit under a chain text naming "Fan Coil" -> "Fan Coil Unit - pick the indoor
+  type" (not the generic "no item could be told"); in the calculator a typed Fan Coil item refuses the same. The refused unit shows
+  no type, also when the model wrote "none of these"; the parity harness searches the whole chain for the Fan Coil words (K5).
+  Known cosmetic (F-1, open): the item still shows the 12e-2 sentence 'BoQ says "None": priced as (your rule).' when the model's raw
+  item is the string "None" (RateHelperPanel.tsx, `familyRaw && !familyLine`).
+- **S8 (`per_set.counted.defined`):** the copied set contents say liquid + gas = one Set -> 1 refnet per Set, never rounded up by the
+  expected count; the note names the quantity and the joints expected when it is below.
+- **S9 (`scope.always_both`, `prepare.row_family`):** a row priced on "Refrigerant Gas Filling (R-410)" is supply + installation whatever
+  its scope words (BoQ rows; the calculator keeps the pricer's pick); a kg row with no item read whose own text names gas charging /
+  topping up / additional refrigerant gets that item -- never a second copy: an unnamed "none of these" item beside the gas item is
+  the same reading and is left out, noted (post-run K5, 00393 r42).
+- **S11 (`scope.panel_pick`, owner ANSWER 11):** a BoQ row's helper panel offers the scope pick (supply + installation / supply
+  only / installation only) at the helper's own choice; a different pick re-prices the row by the calculator's rules (installation
+  only: x 1.5 without a supply row of the item on the sheet, else the normal rate -- S12, VRF-6's rule) and the note says "Scope
+  changed by user (the helper chose X because: ...)". Nothing is written until "Use this value".
+- **S10 (`prepare.row_family`; QR-1 (a)):** a row with no item read whose own text names the ODU's MS base frame / stand / structure
+  (never a civil pedestal) gets "MS frame / stand for ODU"; `family_by_unit` then maps a Kg row to "MS Angle Base Frame Structure"
+  (140 + 40 per Kg; 00218 r274). A row with NO unit gets no safety-net item (QR-3 5a: 00029 r402 stays refused for its unit).
+- **Guidance (question notes):** includes_gas (R1), includes_comm (R2), includes_frame (R3), scope (S4), capacity (S7), item (S9 / S10),
+  set_contents_as_written (S8). **Derivation (QR-3 4b):** 13 VRF-9 lines (13k), each on its key; R-39's v65 block fires each
+  positive and negative and pins v65's tab = v64's 73 + 13.
+- **Validation:** every key refused by name when malformed (`_validate_prepare_vrf9`; the scope / safeguard / counted / lot_units /
+  feeder_length / several_types branches).
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
