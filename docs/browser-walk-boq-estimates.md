@@ -232,6 +232,23 @@ in the **Copied** state, so **Undo**, **Remove old**, **Undo all** and **Remove 
 | 3 | A ▸ click expands the line in place; only a shared link, Save or Open line scrolls to it (`useFocusedLines`) | Browser, Project A FIRE&ELV BOQ, sheet FA (26 lines), as Admin: ▸ on a row at the bottom of the screen, fix off → row moved 321 px to the middle; fix on → 0 px, in Line Item View and BOQ View. Reloading `estRow=15` still opens row 15 expanded and centred. |
 | 5 | The controller refuses a save on a BOQ that is not Selected (`rules.boq_problem`); deleting stays allowed | `test_a_save_on_a_draft_boq_is_refused` (fails with the check removed) and `TestBoqProblem`. API 12/12, rules 28/28, table counts unchanged. |
 
+
+## Code-review follow-ups, 2026-11-11 (after the 4 commits)
+
+| # | Problem | Fix | Proof |
+|---|---|---|---|
+| 4 | One copy refused by a save rule rolled back the whole sheet's Re-attach | Each copy is saved on its own savepoint; a refused one is rolled back to it and listed in `failed` with the reason; the rest are copied | `test_one_refused_copy_does_not_stop_the_rest_of_reattach` (errors with the old single transaction) |
+| 7 | The tab's own URL hook missed react-router navigations (stale `estTab` / `estBoq` / `estSheet` / `estRow` after a navigate()) | `useUrlParamState` now reads through the app's `useUrlParam` and writes through `urlStateManager` | Type check; same pattern as the app hook |
+| 8 | `Infinity` / `NaN` quantities: a 500 (OverflowError) on NOS items, stored on others | `item_row_problem` refuses non-finite quantities | `test_infinite_and_nan_quantities_are_refused_not_a_crash` (errors without the check) |
+| 9 | The edit gate was copied in `estimate_writes.py` | One gate, `assert_can_edit`, in the controller; the endpoints import it | API tests |
+| 10 | Walk results in a `docs/` file, outside the BOQ reference docs | Owner kept this file here; `frontend/.claude/plans/boq-upload-plan.md` has a short pointer to it | — |
+| 1 | "Remove all old" sends `"[]"`, which the server read as "a list was sent", then as "all": every older estimate went, copied or not | An empty list (or none) means backups only | `test_remove_old_deletes_backups_and_keeps_the_copies` now sends `"[]"` (fails with the old check) |
+| 3 | Materials typed by hand on the new line made the older estimate look like a backup ("copied, then edited") | State `copied_edited` became `line_has_other`: the line holds different materials, so it is never a backup; it is offered like a changed line (Add to a line… / Remove); Undo and "Remove all old" skip it. Only an exact copy (`copied`) is a backup. Trade-off: a copy edited later loses its "Remove old" shortcut; the full fix (a "copied from" field) needs a schema change | `test_materials_typed_on_the_new_line_never_make_the_older_one_a_backup` (fails with the old rule) |
+| 6 | "Add to a line…" removed the older estimate even when the save kept no rows | The form calls `carried.onKept` only after a save that kept materials | Type check (form wiring) |
+
+Still open from that review: 2 the ignore-links entry also skips the material rows' links (Items / Category /
+Makelist in use can be deleted); 5 a copy refreshes name / unit / category from Items.
+
 ---
 
 ## To check
@@ -296,4 +313,3 @@ or permissions left). Left on testProject1 (no screen deletes a BOQ): BOQ-26-004
 ### Still owed
 
 - `bench migrate` (creates the two new doctypes on the site).
-- `git add` the feature files.

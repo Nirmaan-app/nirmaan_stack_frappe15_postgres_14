@@ -51841,3 +51841,10 @@ files 4,479 / 4,479); tsc 0 new; vacuity 24 breaks red, sources sha-equal.
 - the next mint (v66) can give the VRF-10 rules their own keys and move the note texts into the config;
 - second_opinion stays OFF;
 - the push, the laptop realign / sync and the db-pull are the owner's / laptop's (PENDING-LAPTOP).
+
+## BOQ Estimates (project page → Estimates tab: BOQ View, Line Item View, Estimate Items) - as built 2026-11-11
+
+Commits on develop: e3dfed894 (doctypes and save rules), ee6c7f4ff (API), b869c3808 (Estimates tab), 3f2c1d95c (walk
+doc). The walk, the code-review fixes and the BOQ regression record (BOQ test modules, baseline sheet totals, BOQ code
+diff, browser walks of upload / pricing / viewer / re-commit / revision / template / Convert to Won / Select-Draft /
+Tendering merge and undo, Project Lead read-only) are kept in `docs/browser-walk-boq-estimates.md` (owner's choice).
