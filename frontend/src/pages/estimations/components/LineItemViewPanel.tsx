@@ -41,7 +41,7 @@ export const LineItemViewPanel: React.FC<PanelProps> = ({
 
   if (!boq || !sheet) return <p className="text-sm text-muted-foreground">This BOQ has no committed data sheet yet.</p>;
   const refresh = () => { void refreshEstimates(boq.name); onCountsChanged(); };
-  const edit = (r: SheetRow, extra?: Pick<EditTarget, "carried" | "afterSave">) => onEdit({
+  const edit = (r: SheetRow, extra?: Pick<EditTarget, "carried">) => onEdit({
     boq: boq.name, node: r.name, sheetName: sheet.sheet_name, excelRow: r.source_row_number, slNo: r.sl_no_value,
     description: r.description, unit: r.unit, qty: r.qty_total, entry: byNode.get(r.name), afterSave: refresh,
     ...extra,
@@ -52,7 +52,7 @@ export const LineItemViewPanel: React.FC<PanelProps> = ({
     <div className="flex flex-col gap-3">
       <BoqSheetBar boqs={boqs} boq={boq} sheetName={sheet.sheet_name} onBoq={onBoq} onSheet={onSheet} />
       <OlderVersionNotice key={`${boq.name}|${sheet.sheet_name}`} boq={boq.name} sheetName={sheet.sheet_name} older={estimates.older} canEdit={canEdit} onDone={refresh}
-        lines={currentLines} onAddTo={(line, carried, afterSave) => edit(line, { carried, afterSave: () => { afterSave(); refresh(); } })} />
+        lines={currentLines} onAddTo={(line, carried) => edit(line, { carried })} />
       <div className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs">
         <Button variant="outline" size="sm" className="h-7 text-xs"
           onClick={() => expandMany(rows.filter((r) => r.classification === "line_item").map((r) => r.name))}>▾ Expand all</Button>

@@ -9,17 +9,11 @@ edit, which line, which rows are valid) runs in the BOQ Line Estimate controller
 import frappe
 from frappe import _
 
+from nirmaan_stack.integrations.controllers.boq_line_estimate import assert_can_edit
 from nirmaan_stack.services.estimations import rules
-from nirmaan_stack.services.role_profiles import ESTIMATE_EDIT_PROFILES, has_role_profile
 
 DOCTYPE = "BOQ Line Estimate"
 ITEM_FIELDS = ("item_type", "item_id", "item_name", "unit", "quantity", "category", "make", "comment")
-
-
-def _assert_can_edit() -> None:
-    if not has_role_profile(frappe.session.user, ESTIMATE_EDIT_PROFILES):
-        frappe.throw(_("Only Admin, PMO and Estimates Executive can add, change or delete estimates."),
-                     frappe.PermissionError)
 
 
 def _set_items(doc, items: list) -> None:
@@ -50,7 +44,7 @@ def save_estimate(boq_node: str = None, items=None, expected_modified: str = Non
     between, nothing is written and the user is told to reload (latest-wins is refused, R4).
     Returns {"name", "modified", "item_count"} or {"deleted": True}.
     """
-    _assert_can_edit()
+    assert_can_edit()
     if not boq_node:
         frappe.throw(_("boq_node is required."))
     items = frappe.parse_json(items) if isinstance(items, str) else (items or [])
@@ -87,10 +81,17 @@ def _older_of_sheet(boq, sheet_name) -> list:
     return get_estimates(boq=boq, sheet_name=sheet_name)["older"]
 
 
+def _names(estimates) -> list:
+    """The estimate names a request chose: `estimates` as a list or a JSON list. Empty when none were chosen --
+    including the "[]" the screens send for "all", which as a string is truthy (review issue 1)."""
+    names = frappe.parse_json(estimates) if isinstance(estimates, str) and estimates.strip() else estimates
+    return list(names or [])
+
+
 def _chosen(older: list, estimates) -> list:
-    """`older` narrowed to the names in `estimates` (a list or JSON list); all of them when `estimates` is empty."""
-    names = frappe.parse_json(estimates) if isinstance(estimates, str) else (estimates or [])
-    return [e for e in older if e["name"] in set(names)] if names else older
+    """`older` narrowed to the names in `estimates`; all of them when none were chosen."""
+    names = set(_names(estimates))
+    return [e for e in older if e["name"] in names] if names else older
 
 
 @frappe.whitelist(methods=["POST"])
@@ -100,23 +101,39 @@ def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
     (Undo removes the copy; Remove old removes the backup). A line is unchanged when its Excel row and description
     text are; lines that changed, or were deleted, are listed, never guessed. Writes only BOQ Line Estimate rows.
 
-    Returns {"copied": n, "unmatched": [{estimate, excel_row, description}]}.
+    Each copy is saved on its own (review issue 4): one that fails a save rule (say 2.5 on a NOS item, saved before
+    that rule existed) is rolled back to its savepoint and listed in `failed` with the reason; the others are still
+    copied. The failed one stays "can be copied", so it can be fixed and re-attached, added to a line or removed.
+
+    Returns {"copied": n, "unmatched": [{estimate, excel_row, description}],
+    "failed": [{estimate, excel_row, description, reason}]}.
     """
-    _assert_can_edit()
+    assert_can_edit()
     older = _older_of_sheet(boq, sheet_name)
-    copied = 0
+    copied, failed = 0, []
     for e in older:
         if e["state"] != rules.STATE_CAN_COPY:
             continue
-        doc = frappe.get_doc({"doctype": DOCTYPE, "boq_node": e["target_node"]})
-        _set_items(doc, [{f: row.get(f) for f in ITEM_FIELDS} for row in e["items"]])
-        doc.insert()
-        copied += 1
+        savepoint = f"reattach_{frappe.generate_hash(length=8)}"
+        frappe.db.savepoint(savepoint)
+        try:
+            doc = frappe.get_doc({"doctype": DOCTYPE, "boq_node": e["target_node"]})
+            _set_items(doc, [{f: row.get(f) for f in ITEM_FIELDS} for row in e["items"]])
+            doc.insert()
+            copied += 1
+        except (frappe.ValidationError, frappe.PermissionError) as exc:
+            # Back to the savepoint (on PostgreSQL a failed statement poisons the transaction until then), and drop
+            # the thrown message so the reply, not a red error toast, reports it.
+            frappe.db.rollback(save_point=savepoint)
+            frappe.clear_last_message()
+            failed.append({"estimate": e["name"], "excel_row": e["line"]["excel_row"],
+                           "description": e["line"]["description"], "reason": str(exc)})
     frappe.db.commit()
     return {
         "copied": copied,
         "unmatched": [{"estimate": e["name"], "excel_row": e["line"]["excel_row"], "description": e["line"]["description"]}
                       for e in older if e["state"] in (rules.STATE_CHANGED, rules.STATE_LINE_MISSING)],
+        "failed": failed,
     }
 
 
@@ -124,18 +141,19 @@ def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
 def undo_reattach(boq: str = None, sheet_name: str = None, estimates=None) -> dict:
     """Undo a Re-attach: delete the copy on the current version of each chosen older estimate (all of the sheet's
     when `estimates` is empty) whose copy still holds exactly its materials. The older estimate stays, ready to be
-    re-attached again. A copy that was edited is not deleted (the edits would be lost); it is listed in `skipped`.
+    re-attached again. A line that now holds other materials (a copy edited since, or typed by hand) is never
+    deleted; it is listed in `skipped`.
 
     Returns {"undone": n, "skipped": [older estimate names]}.
     """
-    _assert_can_edit()
+    assert_can_edit()
     chosen = _chosen(_older_of_sheet(boq, sheet_name), estimates)
     undone, skipped = 0, []
     for e in chosen:
         if e["state"] == rules.STATE_COPIED:
             frappe.get_doc(DOCTYPE, e["copy"], for_update=True).delete()
             undone += 1
-        elif e["state"] == rules.STATE_COPIED_EDITED:
+        elif e["state"] == rules.STATE_LINE_HAS_OTHER:
             skipped.append(e["name"])
     frappe.db.commit()
     return {"undone": undone, "skipped": skipped}
@@ -143,16 +161,17 @@ def undo_reattach(boq: str = None, sheet_name: str = None, estimates=None) -> di
 
 @frappe.whitelist(methods=["POST"])
 def remove_older(boq: str = None, sheet_name: str = None, estimates=None) -> dict:
-    """Delete older estimates of `sheet_name`: the chosen ones (any state), or, when `estimates` is empty, every
-    older one that was copied to the current version ("Remove all old"; lines that changed still need a person).
+    """Delete older estimates of `sheet_name`: the chosen ones (any state), or, when none are chosen ("Remove all
+    old", which sends "[]"), only the backups -- older estimates whose materials are exactly on their line of the
+    current version, so deleting them loses nothing. Every other older estimate still needs a person.
     Copies on the current version are never touched.
 
     Returns {"removed": n}.
     """
-    _assert_can_edit()
+    assert_can_edit()
     older = _older_of_sheet(boq, sheet_name)
-    chosen = _chosen(older, estimates) if estimates else [
-        e for e in older if e["state"] in (rules.STATE_COPIED, rules.STATE_COPIED_EDITED)]
+    chosen = _chosen(older, estimates) if _names(estimates) else [
+        e for e in older if e["state"] == rules.STATE_COPIED]
     for e in chosen:
         frappe.get_doc(DOCTYPE, e["name"], for_update=True).delete()
     frappe.db.commit()

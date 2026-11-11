@@ -76,6 +76,12 @@ class TestItemRowProblem(FrappeTestCase):
         for qty in (0, -1, None, "", "abc"):
             self.assertIn("above 0", rules.item_row_problem(_normal(quantity=qty)), qty)
 
+    def test_infinite_and_nan_quantities_are_refused_not_a_crash(self):
+        # JSON accepts Infinity and NaN; on a NOS item int(inf) used to raise OverflowError (a 500).
+        for qty in (float("inf"), float("-inf"), float("nan"), "Infinity", "NaN"):
+            self.assertIn("above 0", rules.item_row_problem(_normal(quantity=qty)), qty)
+            self.assertIn("above 0", rules.item_row_problem(_normal(unit="NOS", quantity=qty)), qty)
+
     def test_decimals_are_refused_for_whole_number_units_only(self):
         self.assertIn("whole numbers", rules.item_row_problem(_normal(unit="NOS", quantity=1.5)))
         self.assertIn("whole numbers", rules.item_row_problem(_custom(unit=" set ", quantity=2.25)))
@@ -152,7 +158,7 @@ class TestOlderStates(FrappeTestCase):
                    "N4": {"estimate": "C4", "items": [dict(self.PANEL, quantity=9)]}}
         states = rules.older_states(older, current, on_line)
         self.assertEqual({k: v["state"] for k, v in states.items()},
-                         {"E-free": "can_copy", "E-copied": "copied", "E-edited": "copied_edited", "E-changed": "changed"})
+                         {"E-free": "can_copy", "E-copied": "copied", "E-edited": "line_has_other", "E-changed": "changed"})
         self.assertEqual((states["E-copied"]["node"], states["E-copied"]["copy"]), ("N3", "C3"))
         self.assertEqual((states["E-changed"]["node"], states["E-changed"]["copy"]), (None, None))
 

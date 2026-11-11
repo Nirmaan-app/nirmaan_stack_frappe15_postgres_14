@@ -58,10 +58,11 @@ export interface EstimateLine {
 /**
  * Where an estimate left on an older version stands (server `rules.older_states`): `can_copy` = its line is unchanged
  * and Re-attach will copy it there; `copied` = its line holds exactly its materials (Undo or Remove old);
- * `copied_edited` = its line holds other materials (Remove old only); `changed` = its line changed (Add to a line,
+ * `line_has_other` = its line holds different materials, a copy edited since or typed by hand, so never a backup
+ * (Add to a line, or Remove); `changed` = its line changed (Add to a line,
  * or Remove); `line_missing` = its line item was deleted from the BOQ (Add to a line, or Remove).
  */
-export type OlderState = "can_copy" | "copied" | "copied_edited" | "changed" | "line_missing";
+export type OlderState = "can_copy" | "copied" | "line_has_other" | "changed" | "line_missing";
 
 export interface EstimateEntry {
   name: string;
@@ -108,10 +109,11 @@ export interface SheetRowsReply {
 /** `save_estimate` reply. */
 export type SaveEstimateReply = { name: string; modified: string; item_count: number } | { deleted: true };
 
-/** `reattach_estimates` reply. */
+/** `reattach_estimates` reply. `failed`: copies a save rule refused (the others were still copied). */
 export interface ReattachReply {
   copied: number;
   unmatched: { estimate: string; excel_row: number | null; description: string | null }[];
+  failed: { estimate: string; excel_row: number | null; description: string | null; reason: string }[];
 }
 
 /** `undo_reattach` reply: copies removed, and older estimates whose copy was edited (left alone). */

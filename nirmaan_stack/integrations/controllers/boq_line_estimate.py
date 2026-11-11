@@ -17,8 +17,9 @@ from nirmaan_stack.services.estimations import rules
 from nirmaan_stack.services.role_profiles import ESTIMATE_EDIT_PROFILES, has_role_profile
 
 
-def _assert_can_edit() -> None:
-    """Decision C: only Admin, PMO and Estimates Executive (and Administrator) change estimates."""
+def assert_can_edit() -> None:
+    """Decision C: only Admin, PMO and Estimates Executive (and Administrator) change estimates. The one copy of
+    this gate: the write endpoints (`api/estimations/estimate_writes.py`) import it."""
     if not has_role_profile(frappe.session.user, ESTIMATE_EDIT_PROFILES):
         frappe.throw(
             _("Only Admin, PMO and Estimates Executive can add, change or delete estimates."),
@@ -79,7 +80,7 @@ def _fill_packages(doc) -> None:
 
 def validate(doc, method=None):
     """Gate, check the line item and the project, fill the copied fields, then check every row."""
-    _assert_can_edit()
+    assert_can_edit()
 
     if doc.is_new() and frappe.db.exists("BOQ Line Estimate", {"boq_node": doc.boq_node}):
         frappe.throw(_("This line item already has an estimate. Reload the page to edit it."))
@@ -113,7 +114,7 @@ def validate(doc, method=None):
 def on_trash(doc, method=None):
     """Only the editing profiles delete, and not on a read-only project. An estimate whose BOQ is gone is
     removable by them, so a deleted BOQ's leftovers can be cleared."""
-    _assert_can_edit()
+    assert_can_edit()
     if doc.boq and frappe.db.exists("BOQs", doc.boq):
         project = project_of_boq(doc.boq)
         assert_project_access(project)
