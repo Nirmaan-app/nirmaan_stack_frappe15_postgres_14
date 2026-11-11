@@ -52152,3 +52152,9 @@ Replay du3end = du3k2 byte-equal. **Cert C1-C12** PASS (41 screenshots), dev_iso
 **Open (follow-up list):** the stray ")" in the stored note "BoQ says round / spiral / oval with no duct type - priced as Spiral /
 Oval)" (owner "option a", 2026-11-17 00:15; 2 rows, wording only); the mixed-shape ruling applied generally was RE-RULED removal-only
 (CH-DU3-17) - nothing open there; the "stainless-steel VALVE row" cert step has no corpus row (unit tests hold it).
+## BOQ Estimates (project page → Estimates tab: BOQ View, Line Item View, Estimate Items) - as built 2026-11-11
+
+Commits on develop: e3dfed894 (doctypes and save rules), ee6c7f4ff (API), b869c3808 (Estimates tab), 3f2c1d95c (walk
+doc). The walk, the code-review fixes and the BOQ regression record (BOQ test modules, baseline sheet totals, BOQ code
+diff, browser walks of upload / pricing / viewer / re-commit / revision / template / Convert to Won / Select-Draft /
+Tendering merge and undo, Project Lead read-only) are kept in `docs/browser-walk-boq-estimates.md` (owner's choice).
