@@ -789,8 +789,9 @@ scheduler_events = {
 # `force=True` got through), so `on_trash` was unreachable. The bill's other link, `statement_line`, is ignored
 # with it: the bill keeps the line's amount of its own. Every other doctype's links still guard a delete.
 # A BOQ Line Estimate (New Estimations) only references a BOQ line item; its links to BOQs, BoQ Sheet and BOQ
-# Nodes must never change how a BOQ delete behaves (plan "BOQ Estimates", scope rule). Its child rows' links
-# (Items, Category, Makelist) are not ignored: an Items record in use still cannot be deleted.
+# Nodes must never change how a BOQ delete behaves (plan "BOQ Estimates", scope rule). (This also skips links from
+# its child rows: Frappe checks a child row by its parent's doctype. Those rows hold item, category, package and
+# make as plain text, owner 2026-11-11, so deleting such a record never blocks or breaks an estimate.)
 ignore_links_on_delete = ["Expense Bill", "BOQ Line Estimate"]
 
 # Request Events

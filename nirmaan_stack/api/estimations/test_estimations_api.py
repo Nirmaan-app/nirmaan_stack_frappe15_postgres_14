@@ -397,6 +397,52 @@ class TestEstimationsApi(FrappeTestCase):
                          {"removed": 2})
         self.assertEqual(self._older_states(), {})
 
+    def test_a_deleted_items_record_never_blocks_or_breaks_an_estimate(self):
+        # Review fix 2, owner 2026-11-11: a material row keeps item / category / package / make as text, not links.
+        # Deleting the Items record is not refused, and the estimate shows and saves on with what was chosen (as a
+        # Link, the next save failed Link validation).
+        self.addCleanup(self._purge)
+        gone = f"TEST-EST-ITEM-GONE-{self.s}"
+        frappe.get_doc({"doctype": "Items", "name": gone, "item_name": "Made-up bracket", "unit_name": "NOS",
+                        "category": self.category}).db_insert()
+        self.created["Items"].append(gone)
+        frappe.db.commit()
+        estimate_writes.save_estimate(boq_node=self.nodes["new15"],
+                                      items=[{"item_type": "Normal", "item_id": gone, "quantity": 4}])
+        frappe.delete_doc("Items", gone)  # not refused because an estimate uses it
+        frappe.db.commit()
+        self.assertFalse(frappe.db.exists("Items", gone))
+
+        entry = boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["current"][0]
+        self.assertEqual((entry["items"][0]["item_name"], entry["items"][0]["unit"]), ("Made-up bracket", "NOS"))
+        estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[dict(entry["items"][0], quantity=6)],
+                                      expected_modified=entry["modified"])
+        row = boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["current"][0]["items"][0]
+        self.assertEqual((row["item_id"], row["item_name"], row["unit"], row["quantity"]), (gone, "Made-up bracket", "NOS", 6))
+
+    def test_a_reattach_copy_keeps_the_saved_name_and_unit(self):
+        # Review fix 5: the item was renamed and its unit changed in the Items list after the estimate was saved.
+        # The Re-attach copy keeps the backup's saved name and unit (12 sqm stays 12 sqm), so it is an exact copy.
+        self.addCleanup(self._purge)
+
+        def restore_item():
+            frappe.db.rollback()
+            frappe.db.set_value("Items", self.item, {"item_name": "Made-up panel", "unit_name": "sqm"})
+            frappe.db.commit()
+
+        self.addCleanup(restore_item)  # runs before the purge
+        e15 = self._older("old15", self.sheet_v1, 12)  # saved as "Made-up panel", sqm
+        frappe.db.set_value("Items", self.item, {"item_name": "Made-up panel, renamed", "unit_name": "NOS"})
+        frappe.db.commit()
+
+        self.assertEqual(estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)["copied"], 1)
+        copy = [e for e in boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["current"]
+                if e["boq_node"] == self.nodes["new15"]][0]["items"][0]
+        self.assertEqual((copy["item_name"], copy["unit"], copy["quantity"]), ("Made-up panel", "sqm", 12))
+        self.assertEqual(self._older_states(), {e15: "copied"})  # so Undo works
+        self.assertEqual(estimate_writes.undo_reattach(boq=self.boq, sheet_name=self.sheet_name, estimates="[]"),
+                         {"undone": 1, "skipped": []})
+
     def test_a_draft_boq_reads_empty(self):
         self.assertEqual(boq_view.get_estimates(boq=self.other_boq), {"current": [], "older": []})
 
