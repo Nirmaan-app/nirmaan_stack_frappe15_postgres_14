@@ -38,7 +38,7 @@ export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sh
   const { olderCount, backupCount } = useMemo(() => {
     // An estimate whose line and sheet were both deleted has no sheet name; the server lists it on every sheet.
     const here = estimates.older.filter((e) => sheetName == null || e.line.sheet_name == null || e.line.sheet_name === sheetName);
-    const backups = here.filter((e) => e.state === "copied" || e.state === "copied_edited").length;
+    const backups = here.filter((e) => e.state === "copied").length;
     return { olderCount: here.length - backups, backupCount: backups };
   }, [estimates, sheetName]);
   if (!boq) return null;

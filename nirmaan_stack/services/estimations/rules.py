@@ -12,6 +12,8 @@ Owner rulings these encode (plan "BOQ Estimates", decisions F, G, H, I):
   * I -- estimates are read-only on Completed and Handover projects.
 """
 
+import math
+
 ITEM_TYPE_NORMAL = "Normal"
 ITEM_TYPE_CUSTOM = "Custom"
 ITEM_TYPES = (ITEM_TYPE_NORMAL, ITEM_TYPE_CUSTOM)
@@ -94,7 +96,8 @@ def item_row_problem(row: dict) -> str | None:
         quantity = float(quantity)
     except (TypeError, ValueError):
         return "Enter a quantity above 0."
-    if not quantity > 0:
+    # isfinite: JSON accepts Infinity and NaN; int(inf) would raise below instead of returning a message.
+    if not math.isfinite(quantity) or not quantity > 0:
         return "Enter a quantity above 0."
     if is_whole_number_unit(row.get("unit")) and quantity != int(quantity):
         return f"{_clean(row.get('unit'))} is counted in whole numbers. Enter a quantity without decimals."
@@ -138,7 +141,11 @@ def reattach_matches(older: list[dict], current: list[dict], taken: set) -> tupl
 # version and keeps the old one as a backup; Undo removes the copy; Remove old removes the backup).
 STATE_CAN_COPY = "can_copy"  # its line is unchanged and has no estimate yet: Re-attach copies it there
 STATE_COPIED = "copied"  # its line on the new version holds exactly its materials: Undo or Remove old
-STATE_COPIED_EDITED = "copied_edited"  # its line on the new version holds other materials: Remove old only
+# Its unchanged line on the new version holds OTHER materials: a copy edited since, or materials typed there by
+# hand -- nothing recorded tells the two apart (review issue 3). So it is never treated as a backup: not undone,
+# not taken by "Remove all old", and offered like a changed line (Add to a line, or Remove), so no material that
+# exists only here is lost.
+STATE_LINE_HAS_OTHER = "line_has_other"
 STATE_CHANGED = "changed"  # its line changed (or another older estimate took it): Add to a line, or Remove
 # Its line item (or that line's sheet) was deleted from the BOQ tables, which an estimate does not prevent
 # (hooks.py `ignore_links_on_delete`). Never copied; listed so it is not hidden: Add to a line, or Remove.
@@ -180,7 +187,7 @@ def older_states(older: list[dict], current: list[dict], current_estimates: dict
         elif items_signature(on_line["items"]) == items_signature(old.get("items") or []):
             state, copy = STATE_COPIED, on_line["estimate"]
         else:
-            state, copy = STATE_COPIED_EDITED, on_line["estimate"]
+            state, copy = STATE_LINE_HAS_OTHER, on_line["estimate"]
         out[old["estimate"]] = {"state": state, "node": node, "copy": copy}
     return out
 
