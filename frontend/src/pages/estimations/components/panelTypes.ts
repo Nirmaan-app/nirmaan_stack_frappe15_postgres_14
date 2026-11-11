@@ -5,6 +5,11 @@ export interface CarriedRows {
   rows: EstimateItemRow[];
   /** Excel row of the older line they came from, for the form's note. */
   fromRow: number | null;
+  /**
+   * Removes the older estimate. The form calls it only after a save that KEPT materials on the line: a save with
+   * every row removed must not delete the older one too, or its materials would be nowhere (review issue 6).
+   */
+  onKept: () => void;
 }
 
 /** The line a material-estimate form opens for, and what to refresh after it saves. */

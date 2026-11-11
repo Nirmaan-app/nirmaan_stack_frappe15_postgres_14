@@ -61,7 +61,7 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
   const visible = useMemo(() => gridRows(rows, { ...show, search }), [rows, show, search]);
   const refresh = () => { void refreshEstimates(boq.name); onCountsChanged(); };
 
-  const edit = (row: SheetRow, extra?: Pick<EditTarget, "carried" | "afterSave">) => onEdit({
+  const edit = (row: SheetRow, extra?: Pick<EditTarget, "carried">) => onEdit({
     boq: boq.name, node: row.name, sheetName: activeSheet ?? "", excelRow: row.source_row_number, slNo: row.sl_no_value,
     description: row.description, unit: row.unit, qty: row.qty_total, entry: byNode.get(row.name), afterSave: refresh,
     ...extra,
@@ -77,7 +77,7 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
       </div>
       <BoqSheetBar boqs={boqs} boq={boq} sheetName={activeSheet} onBoq={onBoq} onSheet={onSheet} />
       <OlderVersionNotice key={`${boq.name}|${sheet.sheet_name}`} boq={boq.name} sheetName={sheet.sheet_name} older={estimates.older} canEdit={canEdit} onDone={refresh}
-        lines={currentLines} onAddTo={(line, carried, afterSave) => edit(line, { carried, afterSave: () => { afterSave(); refresh(); } })} />
+        lines={currentLines} onAddTo={(line, carried) => edit(line, { carried })} />
       <div className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs">
         <Button variant="outline" size="sm" className="h-7 text-xs"
           onClick={() => expandMany(rows.filter((r) => isLineItem(r) && byNode.get(r.name)?.items.length).map((r) => r.name))}>

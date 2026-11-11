@@ -17,8 +17,8 @@ interface OlderVersionNoticeProps {
   onDone: () => void;
   /** The sheet's current line items, offered by "Add to a line". */
   lines: SheetRow[];
-  /** Opens the material form for `line` with the older estimate's rows added; `afterSave` removes the older one. */
-  onAddTo: (line: SheetRow, carried: CarriedRows, afterSave: () => void) => void;
+  /** Opens the material form for `line` with the older estimate's rows added (`carried.onKept` removes the older one). */
+  onAddTo: (line: SheetRow, carried: CarriedRows) => void;
 }
 
 const lineLabel = (r: SheetRow) => {
@@ -33,7 +33,7 @@ const itemsSummary = (e: EstimateEntry) =>
 const STATE_TEXT: Record<OlderState, string> = {
   can_copy: "Unchanged on the new version: Re-attach copies it there.",
   copied: "Copied to the new version. This older one is kept as a backup.",
-  copied_edited: "The new version's line now has other materials (edited after the copy). This older one is a backup.",
+  line_has_other: "The new version's line already has different materials, so this older one is not a backup. Add its materials to a line, or remove it.",
   changed: "This line changed on the new version, so it cannot be copied. Add its materials to a line, or remove it.",
   line_missing: "Its line item no longer exists in the BOQ (it was deleted). Add its materials to a line, or remove it.",
 };
@@ -45,7 +45,8 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * BOQ commit is unchanged. What each one can do comes from the server (`state`, the same in every view):
  *  - can_copy: Re-attach COPIES it onto its unchanged line of the new version and keeps it as a backup;
  *  - copied: Undo (deletes the copy, keeps the backup) or Remove old (deletes the backup, keeps the copy);
- *  - copied_edited: Remove old only (Undo would lose the edits on the new version);
+ *  - line_has_other: the line holds different materials (a copy edited since, or typed by hand -- nothing tells
+ *    them apart), so it is never a backup: like changed, Add to a line or Remove; Undo and Remove all old skip it;
  *  - changed: Add to a line (form opens on a chosen line with its materials; the backup goes after Save) or Remove;
  *  - line_missing: its line item was deleted from the BOQ tables; the same two choices as changed.
  * Global buttons do the same for every row they apply to. Every delete asks first.
@@ -60,13 +61,15 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
   const of = (s: OlderState) => older.filter((e) => e.state === s);
   const canCopy = of("can_copy");
   const copied = of("copied");
-  const backups = [...copied, ...of("copied_edited")];
-  const changed = [...of("changed"), ...of("line_missing")];
+  // A backup is only an older estimate whose materials are exactly on its new line: removing it loses nothing.
+  const backups = copied;
+  const changed = [...of("changed"), ...of("line_has_other"), ...of("line_missing")];
   const args = { boq, sheet_name: sheetName };
 
-  const act = async (work: () => Promise<string>) => {
+  const act = async (work: () => Promise<string | { title: string; description: string }>) => {
     try {
-      toast({ title: await work() });
+      const done = await work();
+      toast(typeof done === "string" ? { title: done } : done);
     } catch (err) {
       toast({ title: "That did not work", description: getFrappeErrorText(err), variant: "destructive" });
     }
@@ -75,12 +78,19 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
   };
   const reattach = () => act(async () => {
     const r = (await reattachEstimates(args)).message;
-    return `Copied ${plural(r.copied, "estimate", "estimates")} to the new version. The older ones are kept as backups.`;
+    const title = `Copied ${plural(r.copied, "estimate", "estimates")} to the new version. The older ones are kept as backups.`;
+    const failed = r.failed ?? [];
+    if (!failed.length) return title;
+    // Each copy is saved on its own: a refused one does not stop the rest, and stays here to fix, add or remove.
+    return {
+      title: `${title} ${plural(failed.length, "could not be copied", "could not be copied")}.`,
+      description: failed.map((f) => `Row ${f.excel_row ?? "—"}: ${f.reason}`).join(" · "),
+    };
   });
   const undo = (names?: string[]) => act(async () => {
     const r = (await undoReattach({ ...args, estimates: JSON.stringify(names ?? []) })).message;
     return `Undone: removed ${plural(r.undone, "copy", "copies")} from the new version` +
-      (r.skipped.length ? `; ${r.skipped.length} kept because they were edited after the copy.` : ".");
+      (r.skipped.length ? `; ${r.skipped.length} kept because the new line has different materials.` : ".");
   });
   const remove = (names?: string[]) => act(async () => {
     const r = (await removeOlder({ ...args, estimates: JSON.stringify(names ?? []) })).message;
@@ -92,11 +102,15 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
     if (!line) return;
     setChoosing(null);
     setChosenLine("");
-    // The older estimate is removed only after the line saves; a cancelled form leaves it listed.
-    onAddTo(line, { rows: e.items, fromRow: e.line.excel_row }, () => {
-      void removeOlder({ ...args, estimates: JSON.stringify([e.name]) })
-        .catch((err) => toast({ title: "The materials were saved, but the older estimate is still listed", description: getFrappeErrorText(err), variant: "destructive" }))
-        .finally(onDone);
+    // The older estimate is removed only after a save that keeps materials on the line; a cancelled form, or a save
+    // with every row removed, leaves it listed.
+    onAddTo(line, {
+      rows: e.items, fromRow: e.line.excel_row,
+      onKept: () => {
+        void removeOlder({ ...args, estimates: JSON.stringify([e.name]) })
+          .catch((err) => toast({ title: "The materials were saved, but the older estimate is still listed", description: getFrappeErrorText(err), variant: "destructive" }))
+          .finally(onDone);
+      },
     });
   };
 
@@ -158,11 +172,11 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
                 {e.state === "copied" && (
                   <Button size="sm" variant="outline" className="h-6 text-[11px]" disabled={olderBusy} onClick={() => undo([e.name])}>Undo</Button>
                 )}
-                {(e.state === "changed" || e.state === "line_missing") && e.items.length > 0 && lines.length > 0 && (
+                {(e.state === "changed" || e.state === "line_has_other" || e.state === "line_missing") && e.items.length > 0 && lines.length > 0 && (
                   <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => { setConfirming(null); setChoosing(e.name); }}>Add to a line…</Button>
                 )}
                 <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => { setChoosing(null); setConfirming(`one:${e.name}`); }}>
-                  {e.state === "copied" || e.state === "copied_edited" ? "Remove old" : "Remove"}
+                  {e.state === "copied" ? "Remove old" : "Remove"}
                 </Button>
               </span>
             )))}
