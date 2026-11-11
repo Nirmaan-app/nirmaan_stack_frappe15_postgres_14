@@ -242,12 +242,13 @@ in the **Copied** state, so **Undo**, **Remove old**, **Undo all** and **Remove 
 | 8 | `Infinity` / `NaN` quantities: a 500 (OverflowError) on NOS items, stored on others | `item_row_problem` refuses non-finite quantities | `test_infinite_and_nan_quantities_are_refused_not_a_crash` (errors without the check) |
 | 9 | The edit gate was copied in `estimate_writes.py` | One gate, `assert_can_edit`, in the controller; the endpoints import it | API tests |
 | 10 | Walk results in a `docs/` file, outside the BOQ reference docs | Owner kept this file here; `frontend/.claude/plans/boq-upload-plan.md` has a short pointer to it | — |
+| 2 | Items / Category / Makelist / Procurement Packages records used in an estimate could be deleted (the ignore-links entry also skips child rows), and the estimate's next save then failed Link validation | Owner, 11 Nov: the material row keeps item, category, package and make as **text**, not links (DocType save, Link->Data, noted in CODING_STANDARDS). Deleting such a record is not blocked, and the estimate shows and saves with what was chosen. A rename no longer follows them (text only, for now) | `test_a_deleted_items_record_never_blocks_or_breaks_an_estimate` |
+| 5 | A Re-attach copy refreshed name / unit / category from today's Items record (10 NOS could become 10 SQM), so it no longer matched its backup | A copy keeps the backup's saved values (`doc.flags.reattach_copy`); every save rule still runs | `test_a_reattach_copy_keeps_the_saved_name_and_unit` (fails without the flag) |
 | 1 | "Remove all old" sends `"[]"`, which the server read as "a list was sent", then as "all": every older estimate went, copied or not | An empty list (or none) means backups only | `test_remove_old_deletes_backups_and_keeps_the_copies` now sends `"[]"` (fails with the old check) |
 | 3 | Materials typed by hand on the new line made the older estimate look like a backup ("copied, then edited") | State `copied_edited` became `line_has_other`: the line holds different materials, so it is never a backup; it is offered like a changed line (Add to a line… / Remove); Undo and "Remove all old" skip it. Only an exact copy (`copied`) is a backup. Trade-off: a copy edited later loses its "Remove old" shortcut; the full fix (a "copied from" field) needs a schema change | `test_materials_typed_on_the_new_line_never_make_the_older_one_a_backup` (fails with the old rule) |
 | 6 | "Add to a line…" removed the older estimate even when the save kept no rows | The form calls `carried.onKept` only after a save that kept materials | Type check (form wiring) |
 
-Still open from that review: 2 the ignore-links entry also skips the material rows' links (Items / Category /
-Makelist in use can be deleted); 5 a copy refreshes name / unit / category from Items.
+All ten review findings are now fixed (10 kept by the owner's choice).
 
 ---
 
