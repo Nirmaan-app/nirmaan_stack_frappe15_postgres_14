@@ -119,6 +119,7 @@ def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
         try:
             doc = frappe.get_doc({"doctype": DOCTYPE, "boq_node": e["target_node"]})
             _set_items(doc, [{f: row.get(f) for f in ITEM_FIELDS} for row in e["items"]])
+            doc.flags.reattach_copy = True  # keep the backup's saved name / unit / category (review issue 5)
             doc.insert()
             copied += 1
         except (frappe.ValidationError, frappe.PermissionError) as exc:
