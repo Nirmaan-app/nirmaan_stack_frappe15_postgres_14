@@ -28,6 +28,8 @@ from nirmaan_stack.services.payees import own_accounts
 from nirmaan_stack.services.reimbursements import convert, expense_link, receipts
 from nirmaan_stack.services.reimbursements.month_total import month_totals as totals_of
 from nirmaan_stack.services.reimbursements.rules import APPROVED, PAID, PENDING, REJECTED
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 NPE = "Non Project Expenses"
 
@@ -78,7 +80,7 @@ def _make_user(email: str, profile: str, roles: tuple[str, ...]):
     if stale:
         user.remove_roles(*stale)
     user.add_roles(*roles)
-    frappe.db.set_value("Nirmaan Users", email, "role_profile", profile, update_modified=False)
+    set_role_copy_for_test(email, profile)
 
 
 class _Storage:
@@ -92,7 +94,7 @@ class _Storage:
     def fetch(self, url):
         return self.content.get(url)
 
-    def save_file(self, fname, content, dt, dn, df=None, is_private=1, **_):
+    def store_file(self, fname, content, dt, dn, df=None, is_private=1, **_):
         url = f"/api/method/reimb_test/{frappe.generate_hash(length=8)}/{fname}"
         doc = frappe.get_doc({
             "doctype": "File", "file_name": fname, "file_url": url, "is_private": 1,
@@ -124,7 +126,7 @@ class _Storage:
         return url
 
 
-class ReimbursementTestCase(FrappeTestCase):
+class ReimbursementTestCase(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -151,7 +153,7 @@ class ReimbursementTestCase(FrappeTestCase):
         self.storage = _Storage()
         patches = [
             patch.object(receipts, "fetch_attachment_content", self.storage.fetch),
-            patch.object(receipts, "save_file", self.storage.save_file),
+            patch.object(receipts, "store_file", self.storage.store_file),
             patch.object(claims, "delete_files", self.storage.delete_files),
             patch("nirmaan_stack.services.payees.writer.lookup_ifsc",
                   lambda ifsc: SimpleNamespace(bank_name="HDFC Bank", bank_branch="Test Branch")),
@@ -537,14 +539,14 @@ class TestDecisions(ReimbursementTestCase):
 
     def test_the_role_saved_on_the_claim_decides_even_after_the_person_moves_role(self):
         name = self.raise_claim(HRL, amount=300)
-        frappe.db.set_value("Nirmaan Users", HRL, "role_profile", "Nirmaan Project Manager Profile", update_modified=False)
+        set_role_copy_for_test(HRL, "Nirmaan Project Manager Profile")
         try:
             with self.assertRaises(frappe.PermissionError):
                 self.as_user(HR, review.approve_reimbursement, name)
             row = {r.name: r for r in self.as_user(HR, review.get_pending_for_me)}[name]
             self.assertFalse(row.can_decide)
         finally:
-            frappe.db.set_value("Nirmaan Users", HRL, "role_profile", "Nirmaan HR Lead Profile", update_modified=False)
+            set_role_copy_for_test(HRL, "Nirmaan HR Lead Profile")
 
     def test_admin_may_approve_their_own_claim(self):
         name = self.raise_claim(ADMIN, amount=5000)
@@ -1077,7 +1079,7 @@ class TestDeletingAPerson(ReimbursementTestCase):
         self.assertEqual(frappe.db.get_value("Nirmaan Users", LEAVER2, "payee"), payee)
 
 
-class TestDoctypeMatchesRules(FrappeTestCase):
+class TestDoctypeMatchesRules(ExpenseTypeFlagGuard, FrappeTestCase):
     def test_type_options_are_the_rules_types(self):
         from nirmaan_stack.services.reimbursements.rules import TYPES
         field = frappe.get_meta("Reimbursement").get_field("reimbursement_type")
@@ -1090,7 +1092,7 @@ class TestDoctypeMatchesRules(FrappeTestCase):
         self.assertEqual(options, list(STATUSES))
 
 
-class TestMergeToPdf(FrappeTestCase):
+class TestMergeToPdf(ExpenseTypeFlagGuard, FrappeTestCase):
     def test_pages_keep_their_order_and_pictures_become_pages(self):
         from pypdf import PdfReader
         merged = receipts.merge_to_pdf([("a.pdf", _pdf(2)), ("b.png", _png()), ("c.pdf", _pdf(1))])

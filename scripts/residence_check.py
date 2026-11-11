@@ -510,6 +510,20 @@ def tests_picking_any_row() -> list[str]:
     return sorted(found)
 
 
+
+# freeze_time needs freezegun, which the dev bench does not install: a test using it errors at import (#1607).
+_FREEZE_TIME = re.compile(r"\bfreeze_time\(")
+
+
+def tests_freezing_time() -> list[str]:
+    found = []
+    for p in iter_files("nirmaan_stack", (".py",)):
+        if p.name.startswith("test_"):
+            rel = p.relative_to(REPO_ROOT).as_posix()
+            found.extend(f"{rel}:{i + 1}" for i, line in enumerate(read(p).splitlines())
+                         if _FREEZE_TIME.search(line) and not line.lstrip().startswith("#"))
+    return sorted(found)
+
 CHECKS: list[Check] = [
     Check(
         id="b3_workflow_state_writers",
@@ -572,6 +586,17 @@ CHECKS: list[Check] = [
                    "or create the record in the test's setUp.",
         measure=lambda: len(tests_picking_any_row()),
         locate=tests_picking_any_row,
+    ),
+    # Baseline 0 from the day it was added (#1607): the bench has no freezegun, so `freeze_time` never runs.
+    Check(
+        id="t2_tests_freeze_time",
+        rule="T2",
+        description="Lines in test_*.py calling freeze_time( (FrappeTestCase.freeze_time needs freezegun, "
+                    "which the dev bench does not install).",
+        route_hint="stop Frappe's clock by patching now_datetime, as api/payees/test_paid_to.py `_site_clock_at` "
+                   "does (CODING_STANDARDS.md § Writing tests, Repeatable).",
+        measure=lambda: len(tests_freezing_time()),
+        locate=tests_freezing_time,
     ),
     # Not an ADR-0010 rule either: ADR-0034 (stored Amount Paid is the one paid figure). Each screen ticket
     # of spec #1451 lowers it; at zero, a new copy fails here. `--list` prints every copy.

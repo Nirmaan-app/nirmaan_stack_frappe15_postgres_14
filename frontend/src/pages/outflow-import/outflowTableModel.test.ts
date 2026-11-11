@@ -18,6 +18,7 @@ import {
     pickFitsSingleSelect,
     UPLOADER_DISPLAY_MAX,
     isCreditRow,
+    isMoneyReceivedLine,
     availableDecisionTargets,
     suggestRefundVendor,
     vendorNameKey,
@@ -47,6 +48,8 @@ import {
     type SummaryImport,
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
+    INTERNAL_TRANSFER_COLUMNS,
+    internalTransferFigure,
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
@@ -814,6 +817,16 @@ describe("which way the money went — the ONE definition of the axis", () => {
         );
     });
 
+    it("offers only Create expense on an open Collect payment (spec #1585 \"Open Cashbook lines\")", () => {
+        // Its second choice, Skip by hand, is the Skip box (`canSkipByHand`), not a disposition.
+        expect(
+            availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Collect Payment" } as any)
+        ).toEqual(["new"]);
+        expect(availableDecisionTargets({ direction: "", source: "Cashbook", row_kind: "Wallet Spend" } as any)).toEqual(
+            ["Project Payments", "Project Expenses", "Non Project Expenses", "new"]
+        );
+    });
+
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
         const first = availableDecisionTargets({ direction: "Credit" } as any);
         first.pop();
@@ -1030,6 +1043,7 @@ describe("tabs", () => {
             "partlyAllocatedOutflow",
             "matchedOutflow",
             "settledInflow",
+            "internalTransfers",
         ]);
         expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
             "All",
@@ -1038,6 +1052,7 @@ describe("tabs", () => {
             "Partly Allocated – Outflow",
             "Matched / Settled – Outflow",
             "Settled – Inflow",
+            "Internal Transfers",
         ]);
     });
 
@@ -1049,6 +1064,7 @@ describe("tabs", () => {
             "outflow",
             "outflow",
             "inflow",
+            null,
         ]);
     });
 
@@ -1067,7 +1083,51 @@ describe("tabs", () => {
             matchedOutflow: "matched_outflow",
             notMatchedInflow: "not_matched_inflow",
             settledInflow: "settled_inflow",
+            internalTransfers: "internal_transfers",
         });
+    });
+
+    it("keeps the Internal Transfers tab, which spans both directions, when the Inflow tabs hide (#1621)", () => {
+        expect(visibleTabs(false).map((t) => t.id)).toContain("internalTransfers");
+    });
+
+    it("shows the Internal Transfers tab with a Direction column and the record's From, To and Detail (#1621)", () => {
+        const ids = INTERNAL_TRANSFER_COLUMNS.map((c) => c.id);
+        expect(ids).toEqual(expect.arrayContaining(["transfer_direction", "transfer_from", "transfer_to", "transfer_detail"]));
+        expect(ids).not.toContain("settled_ledger");
+        const column = (id: string) => INTERNAL_TRANSFER_COLUMNS.find((c) => c.id === id)!;
+        const row = {
+            direction: "Credit",
+            transfer_from: "ICICI Bank Ledger",
+            transfer_to: "ICICI Current Account",
+            transfer_detail: "GL 01234 to 56789",
+        } as unknown as OutflowImportRow;
+        expect(column("transfer_direction").get(row)).toBe("In");
+        expect(column("transfer_from").get(row)).toBe("ICICI Bank Ledger");
+        expect(column("transfer_to").get(row)).toBe("ICICI Current Account");
+        expect(column("transfer_detail").get(row)).toBe("GL 01234 to 56789");
+        expect(column("transfer_direction").get({ direction: "Debit" } as unknown as OutflowImportRow)).toBe("Out");
+    });
+
+    it("reads the record's direction, amount and maker where the line has them (review finding)", () => {
+        const ids = INTERNAL_TRANSFER_COLUMNS.map((c) => c.id);
+        expect(ids).toContain("transfer_made_by");
+        expect(ids).toContain("transfer_amount");
+        expect(ids).not.toContain("amount");
+        const column = (id: string) => INTERNAL_TRANSFER_COLUMNS.find((c) => c.id === id)!;
+        // A Cashbook top-up: the line states no direction and stages 0; its record holds In and the money.
+        const topUp = {
+            direction: "",
+            amount: 0,
+            transfer_record_direction: "In",
+            transfer_amount: 50000,
+            transfer_made_by: "cashbook_bank_to_va",
+            transfer_made_by_label: "Rule: Cashbook Bank → VA",
+        } as unknown as OutflowImportRow;
+        expect(column("transfer_direction").get(topUp)).toBe("In");
+        expect(column("transfer_amount").get(topUp)).toBe(50000);
+        // Review finding (#1619): words, as the server words them, never the rule id.
+        expect(column("transfer_made_by").get(topUp)).toBe("Rule: Cashbook Bank → VA");
     });
 
     it("maps every declared tab, with no gaps", () => {
@@ -1087,6 +1147,7 @@ describe("inflow tab visibility (#1264)", () => {
         skipped: 0,
         skipped_outflow: 0,
         skipped_inflow: 0,
+        internal_transfers: 0,
     });
 
     it("shows the Inflow tabs when the chosen source can carry a credit", () => {
@@ -1100,6 +1161,7 @@ describe("inflow tab visibility (#1264)", () => {
             "notMatchedOutflow",
             "partlyAllocatedOutflow",
             "matchedOutflow",
+            "internalTransfers",
         ]);
     });
 
@@ -1578,6 +1640,24 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         expect(confirmBlocker(row(), {})).toMatch(/Pick the record/);
     });
 
+    it("says a Pending Cashbook line belongs to its import, in the server's own sentence (#1587)", () => {
+        const pending = row({ row_status: "Pending match run", source: "Cashbook" });
+        expect(confirmBlocker(pending, link)).toBe(
+            "The Cashbook import is still creating this line's expense, so it can't be worked by hand yet."
+        );
+        expect(confirmBlocker(row({ row_status: "Mismatched", source: "Cashbook" }), undefined)).toMatch(
+            /Pick the record/
+        );
+    });
+
+    it("tells an open Collect payment to pick Create expense or Skip, never to link (code review R6)", () => {
+        const collect = row({ row_status: "Mismatched", source: "Cashbook", row_kind: "Collect Payment" });
+        const sentence = "Pick Create expense, or Skip by hand.";
+        expect(confirmBlocker(collect, undefined)).toBe(sentence);
+        expect(confirmBlocker(collect, link)).toBe(sentence);
+        expect(confirmDisabledSentence("decision-incomplete", collect, undefined)).toBe(sentence);
+    });
+
     it("maps every gate reason, and stays silent while busy or live", () => {
         const r = row({ row_status: "Mismatched" });
         expect(confirmDisabledSentence(null, r, link)).toBeNull();
@@ -1585,6 +1665,25 @@ describe("confirmBlocker / confirmDisabledSentence -- why Confirm is greyed", ()
         expect(confirmDisabledSentence("decision-incomplete", r, undefined)).toMatch(/Pick the record/);
         expect(confirmDisabledSentence("balance-unknown", r, link)).toMatch(/already settled/);
         expect(confirmDisabledSentence("over-allocated", r, link)).toMatch(/untick one/);
+    });
+});
+
+describe("isMoneyReceivedLine", () => {
+    // The Choose dialog's "This transfer is money received" note reads this (spec #1585 story 36).
+    it("is a credit line that offers the money-in choices", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Credit" }))).toBe(true);
+        expect(isMoneyReceivedLine(row({ direction: "Credit", source: "Cashbook", row_kind: "Wallet Credit" }))).toBe(true);
+    });
+
+    it("is never a Collect payment, which is money out and offers only Create expense", () => {
+        const collect = row({ direction: "Debit", source: "Cashbook", row_kind: "Collect Payment" });
+        expect(availableDecisionTargets(collect)).toEqual(["new"]);
+        expect(isMoneyReceivedLine(collect)).toBe(false);
+    });
+
+    it("is never a debit line", () => {
+        expect(isMoneyReceivedLine(row({ direction: "Debit" }))).toBe(false);
+        expect(isMoneyReceivedLine(row({ direction: "" }))).toBe(false);
     });
 });
 
@@ -3493,6 +3592,7 @@ describe("tabCountParts", () => {
         skipped: 47,
         skipped_outflow: 45,
         skipped_inflow: 2,
+        internal_transfers: 7,
     };
     const zero = {
         "Pending match run": 0,
@@ -4862,5 +4962,31 @@ describe("settledBankLineTargets — the Bank lines dialog on a Settled row", ()
     it("drops a match with a blank name", () => {
         const blank = [{ target_doctype: "Project Expenses", target_name: " " }] as OutflowImportRow["matches"];
         expect(settledBankLineTargets(row({ row_status: "Settled", matches: blank }))).toEqual([]);
+    });
+});
+
+describe("the Internal transfers figure (#1625)", () => {
+    it("states the count, the money out and the money in", () => {
+        expect(
+            internalTransferFigure({
+                internal_transfer_rows: 8,
+                internal_transfer_out_value: 26000,
+                internal_transfer_in_value: 5400,
+            })
+        ).toEqual({ count: 8, text: "8 lines · ₹26,000 out · ₹5,400 in" });
+    });
+
+    it("shows zero rather than disappearing when none are in scope", () => {
+        expect(
+            internalTransferFigure({
+                internal_transfer_rows: 0,
+                internal_transfer_out_value: 0,
+                internal_transfer_in_value: 0,
+            })
+        ).toEqual({ count: 0, text: "0 lines · ₹0 out · ₹0 in" });
+    });
+
+    it("renders nothing for a server that predates the figure", () => {
+        expect(internalTransferFigure({})).toBeNull();
     });
 });

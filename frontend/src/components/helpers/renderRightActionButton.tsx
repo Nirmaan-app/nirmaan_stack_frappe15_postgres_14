@@ -13,7 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
-import { PROCUREMENT_PROFILES, canAddInflow, canAddProjectInvoice, canManagePayees } from "@/constants/roles";
+import { ADMIN_PROFILE, PROCUREMENT_PROFILES, canAddInflow, canAddProjectInvoice, canManagePayees } from "@/constants/roles";
 import { canCreateNonProjectInflow } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { useExpenseAccess } from "@/hooks/useExpenseAccess";
 import { offersNewExpense } from "@/utils/expenseAccess";
@@ -162,6 +162,9 @@ export const RenderRightActionButton = ({
     // and on Project Payment & Expense, which each mount it. Shown to someone who can raise at least
     // one type (`useExpenseAccess`, the server's `can_raise`); a reviewer who raises nothing gets the
     // page, not the button. The server refuses a type the raiser may not raise.
+    // On Project Payment & Expense the button is Admin-only (owner, 2026-10-31); /expense/requests
+    // keeps the raise-access gate alone.
+    if (locationPath === "/project-payments" && !(user_id === "Administrator" || role === ADMIN_PROFILE)) return null;
     if (!offersNewExpense(expenseAccess)) return null;
     return (
       <Button onClick={toggleNewExpenseRequestDialog} className="sm:mr-4 mr-2">

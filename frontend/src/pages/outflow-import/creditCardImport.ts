@@ -58,21 +58,26 @@ export interface CardImportLine {
     serno: string;
     date: string | null;
     details: string;
-    /** The cleaned merchant name (one per merchant, whatever the bank's spelling); null on a credit. */
+    /** The cleaned merchant name (one per merchant, whatever the bank's spelling); null on a credit other than a
+     *  refund. */
     merchant: string | null;
+    /** As printed: positive, a credit too. Review shows a refund's as a minus amount. */
     amount: number;
     is_credit: boolean;
+    /** An unpaired card refund (#1673): a credit Create records as a negative Non-Project Expense, listed under
+     *  Refunds and typed like a spend. A refund pair's credit carries it too, under its skip. */
+    is_refund: boolean;
     row_status: string;
     /** A skipped line's Skip Type and the server's reason (#1567); null on a line still to work. */
     skip_kind: string | null;
     skip_reason: string | null;
-    /** A spend's expense type (#1568); null on a credit. */
+    /** A spend's or refund's expense type (#1568, #1673); null on any other credit. */
     expense_type: string | null;
-    /** Where the type came from: Earlier statement, AI, Fallback, Chosen on Review; null on a credit. */
+    /** Where the type came from: Earlier statement, AI, Fallback, Chosen on Review; null on any other credit. */
     type_source: string | null;
     /** The fallback type nobody has chosen yet: Review marks it "Check". */
     check: boolean;
-    /** A spend Create would still write, so Review may still retype it. */
+    /** A spend or refund Create would still write, so Review may still retype it. */
     editable: boolean;
     /** The Non Project Expense Create made, once it has. */
     expense: string | null;
@@ -104,14 +109,19 @@ export interface CardImport {
     spends: number;
     credits: number;
     spends_total: number;
+    /** Unpaired card refunds (#1673): Review's Refunds list (a paired refund, skipped, is not one). */
+    refunds: number;
     /** Lines whose SerNo an earlier import holds, left out of this one. */
     repeats_not_saved: number;
     /** Create has written nothing, so Discard is possible. Who may discard is the screen's question. */
     discardable: boolean;
-    /** Create (#1568): spends created, failed on the last run, still to create; its job queued or running. */
+    /** Create (#1568, #1673): spends and refunds created, failed on the last run, still to create (and of those,
+     *  the spends and the refunds); its job queued or running. */
     created: number;
     failed: number;
     to_create: number;
+    spends_to_create: number;
+    refunds_to_create: number;
     create_running: boolean;
     /** The type suggestion (#1569) is queued or running: Review polls, and Create waits. */
     suggest_running: boolean;
@@ -142,6 +152,10 @@ export const cardTotalsRows = (card: Pick<CardImport, "totals">): { label: strin
 /** The billing period, `dd-MMM-yyyy to dd-MMM-yyyy`. */
 export const cardPeriodLabel = (card: Pick<CardImport, "period_from" | "period_to">): string =>
     `${day(card.period_from)} to ${day(card.period_to)}`;
+
+/** The company as the statement printed it, for the accountant to check on Review (ADR-0039 Amendment B).
+ *  Blank when the line under the holder was not a company name. */
+export const cardCompanyLabel = (card: Pick<CardImport, "company">): string => card.company?.trim() || "Not printed";
 
 /** A date as every screen shows it. */
 export const cardDay = day;

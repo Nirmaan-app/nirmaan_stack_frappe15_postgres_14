@@ -75,6 +75,7 @@ import copy
 import inspect
 import json
 import re
+import unittest
 import os
 from unittest import mock
 
@@ -1129,6 +1130,45 @@ def _purge_test_disciplines(disciplines):
         print("WARNING -- test discipline purge INCOMPLETE, rows left in the live DB: %s"
               % "; ".join(problems))
     return problems
+
+
+# #1608 -- THE CURRENT ASSET, SEEDED. A test that pins what the catalogue holds once CURRENT_EALL_ASSET is
+# imported reads THIS scratch discipline, never the live `Electrical` rows: the live discipline holds
+# whatever was last imported by hand (a dev backup, a fresh install), so a pin on it passed or failed with the
+# database, not with the code. The asset goes through the app's own loader (`load_rate_master`, the import
+# path), so "the runtime reads the DATABASE, not the asset" still holds: every pin below reads stored rows.
+# Whether the LIVE discipline has been imported is a deployment question, not a test of this code.
+# Loaded once per module run (~30 s for 1,411 items); the module cleanup purges it.
+_CURRENT_EALL_SCRATCH = {}
+
+
+def _drop_current_eall_scratch():
+    disc = _CURRENT_EALL_SCRATCH.pop("disc", None)
+    if disc:
+        _purge_test_disciplines({disc})
+
+
+def _current_eall_discipline():
+    """The scratch discipline holding CURRENT_EALL_ASSET, loaded through `loader.load_rate_master`."""
+    if "disc" in _CURRENT_EALL_SCRATCH:
+        return _CURRENT_EALL_SCRATCH["disc"]
+    disc = "TEST_RM_" + frappe.generate_hash(length=8)
+    # registered BEFORE the load, so a load that fails half-way is purged as well
+    _CURRENT_EALL_SCRATCH["disc"] = disc
+    unittest.addModuleCleanup(_drop_current_eall_scratch)
+    with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    payload["discipline"] = disc
+    loader.load_rate_master(payload=payload)
+    return disc
+
+
+def _seeded_config(category_id):
+    """The ACTIVE stored config of `category_id` in the seeded current-asset discipline (#1608)."""
+    return _obj(frappe.db.get_value(
+        "BoQ Rate Category Config",
+        {"discipline": _current_eall_discipline(), "category_id": category_id, "active": 1}, "config",
+    ))
 
 
 class TestRateMaster(FrappeTestCase):
@@ -4895,7 +4935,10 @@ class TestRateMaster(FrappeTestCase):
         prior_attempted = prior_attempted or []
         with mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),              mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),              mock.patch.object(rate_master, "_open_run_doc",
                                return_value=("RUN-NAME", "RUN-ID", prior_results, prior_attempted,
-                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()):
+                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()),                 mock.patch("nirmaan_stack.api.boq.rate_match.match_enabled", return_value=False):
+            # DEV2-B4 (mechanical inversion; the B4 brief's S2 trigger + S5 "match_enabled LEFT ON in dev2"): these pins
+            # are the pre-B4 payload, i.e. historical matching OFF - pinned explicitly here instead of read from the live
+            # setting. With it ON the payload gains exactly one key, "match" (test_rate_match.TestSuggestWorkerHook).
             rate_master._suggest_worker(
                 boq="B", sheet_name="S", user="u@x", only_rows=only_rows,
             )
@@ -10520,15 +10563,14 @@ class TestF25Slice1BackBoxField(FrappeTestCase):
 
     def test_f25s1_09_the_live_config_carries_the_box_field(self):
         """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset: the active live
-        switches_sockets config must carry `box_item` with the v57 shape. RED until v57 is imported.
+        switches_sockets config must carry `box_item` with the v57 shape.
+        #1608: "the database" is the current asset loaded through the loader into a scratch discipline
+        (`_seeded_config`), not the live `Electrical` rows, which hold whatever was last imported by hand.
         F-25 SLICE 2 (2026-09-07): the live config must equal the CURRENT asset (v58 and on), which
         still carries `box_item` byte-for-byte; the v57-frozen `ss_now` is deliberately not used here."""
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             current = [c for c in json.load(fh)["category_configs"] if c["category_id"] == "switches_sockets"][0]
-        live = _obj(frappe.db.get_value(
-            "BoQ Rate Category Config",
-            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
-        ))
+        live = _seeded_config("switches_sockets")   # #1608: the current asset as stored, not the live discipline
         self.assertEqual(live["attribute_definitions"], current["attribute_definitions"])
         self.assertEqual(live["pipelines"], current["pipelines"])
         self.assertEqual([d for d in live["attribute_definitions"] if d["id"] == "box_item"], [self._box_def()])
@@ -10725,17 +10767,14 @@ class TestF25Slice2BareBox(FrappeTestCase):
 
     def test_f25s2_10_the_live_config_carries_the_slice(self):
         """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset: the active live
-        switches_sockets config must carry the v58 definitions, rules and pipelines. RED until v58 is
-        imported. F-25 SLICE 3 (2026-09-08): the live config must equal the CURRENT asset (v59 and on),
+        switches_sockets config must carry the v58 definitions, rules and pipelines (#1608: as the
+        loader stores the current asset in a scratch discipline, see `_seeded_config`). F-25 SLICE 3 (2026-09-08): the live config must equal the CURRENT asset (v59 and on),
         which still carries every slice-2 atom; the v58-frozen `ss_now` is deliberately not used for
         the pipelines here (they gained `pick_from`), only for the definitions and rules, which are
         byte-equal across v58 -> v59."""
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             current = [c for c in json.load(fh)["category_configs"] if c["category_id"] == "switches_sockets"][0]
-        live = _obj(frappe.db.get_value(
-            "BoQ Rate Category Config",
-            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
-        ))
+        live = _seeded_config("switches_sockets")   # #1608: the current asset as stored, not the live discipline
         # ELR-2 (v68, mechanical authority): the live config now carries v68's six switches_sockets notes; the claim
         # against the v58 definitions forgives exactly those (WAS: live == v58 unnormalised); live == CURRENT stays exact
         self.assertEqual(_without_elr2_notes_and_labels(live)["attribute_definitions"], self.ss_now["attribute_definitions"])
@@ -10945,11 +10984,9 @@ class TestF25Slice3PickFrom(FrappeTestCase):
 
     def test_f25s3_11_the_live_config_carries_the_slice(self):
         """THE DELIVERY-PATH PIN. The runtime reads the DATABASE, not the asset: the active live
-        switches_sockets config must carry the v59 pipelines. RED until v59 is imported."""
-        live = _obj(frappe.db.get_value(
-            "BoQ Rate Category Config",
-            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
-        ))
+        switches_sockets config must carry the v59 pipelines. #1608: the config as the loader stores
+        the current asset in a scratch discipline (`_seeded_config`), not the live `Electrical` rows."""
+        live = _seeded_config("switches_sockets")   # #1608: the current asset as stored, not the live discipline
         self.assertEqual(live["attribute_definitions"], self.ss_now["attribute_definitions"])
         self.assertEqual(live["pipelines"], self.ss_now["pipelines"])
         self.assertEqual(live["rules"], self.ss_now["rules"])
@@ -12031,13 +12068,13 @@ def _mint_gate_module():
     return mod
 
 
-def _electrical_active_checksum():
-    """sha256 over the ACTIVE Electrical rows' CONTENT (never `name` -- freeze-and-supersede regenerates
+def _electrical_active_checksum(discipline="Electrical"):
+    """sha256 over the ACTIVE rows' CONTENT of `discipline` (never `name` -- freeze-and-supersede regenerates
     it), sorted by a total key, per the CLAUDE.md rule for a stability guard."""
     import hashlib
-    items = frappe.get_all("BoQ Rate Master Item", filters={"discipline": "Electrical", "active": 1},
+    items = frappe.get_all("BoQ Rate Master Item", filters={"discipline": discipline, "active": 1},
                            fields=["kind", "item_uid", "brand", "unit", "attributes", "rates"])
-    cfgs = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "Electrical", "active": 1},
+    cfgs = frappe.get_all("BoQ Rate Category Config", filters={"discipline": discipline, "active": 1},
                           fields=["category_id", "config"])
     rows = sorted(json.dumps([i["kind"], i["item_uid"], i["brand"], i["unit"], _obj(i["attributes"]),
                               _obj(i["rates"])], sort_keys=True) for i in items)
@@ -12282,12 +12319,18 @@ class TestHvacAssetSlice1b(FrappeTestCase):
 
     # -- h03 ----------------------------------------------------------------------------------------
     def test_h03_loading_the_hvac_asset_leaves_active_electrical_byte_identical(self):
-        before, n_items, n_cfgs = _electrical_active_checksum()
-        # the live catalogue is the CURRENT Electrical asset: the same counts as the file
-        self.assertEqual(n_items, len(self.eall["items"]))
-        self.assertEqual(n_cfgs, len(self.eall["category_configs"]))
+        # #1608: the CURRENT Electrical asset is SEEDED (a scratch discipline, through the loader), so the claim is
+        # never vacuous and never depends on which Electrical version the live rows hold. WAS: the live counts were
+        # asserted equal to the asset's, which failed on any database not imported to the current asset.
+        seeded = _current_eall_discipline()
+        s_before, s_items, s_cfgs = _electrical_active_checksum(seeded)
+        self.assertEqual(s_items, len(self.eall["items"]))
+        self.assertEqual(s_cfgs, len(self.eall["category_configs"]))
+        before, n_items, n_cfgs = _electrical_active_checksum()     # the live rows, whatever version they are
         disc = self._new_disc()
         self._load_hvac(disc)
+        self.assertEqual(_electrical_active_checksum(seeded), (s_before, s_items, s_cfgs),
+                         "an HVAC load changed the seeded Electrical content")
         after, n_items2, n_cfgs2 = _electrical_active_checksum()
         self.assertEqual((n_items2, n_cfgs2), (n_items, n_cfgs))
         self.assertEqual(after, before, "an HVAC load changed the active Electrical content")
@@ -16918,10 +16961,12 @@ class TestRateAndFactorColumns(FrappeTestCase):
     def test_rf_06_the_real_electrical_export_carries_NEITHER_new_column(self):
         """The end-to-end form of rf_04: the REAL exporter over the LIVE rows, which is what a pricer
         downloads. rf_04 proves the data cannot produce the columns; this proves the exporter does not
-        produce them anyway."""
+        produce them anyway.
+        #1608: the rows are the current asset SEEDED through the loader (a scratch discipline), not the live
+        `Electrical` rows, which hold whatever version was last imported by hand."""
         cfg = next(c for c in self.eall["category_configs"]
                    if csv_exporter.is_pricing_input_kind((c.get("item_kinds") or [None])[0]))
-        out = csv_exporter.build_category_rows("Electrical", cfg["category_id"])
+        out = csv_exporter.build_category_rows(_current_eall_discipline(), cfg["category_id"])
         headers = out["headers"]
         self.assertNotIn("rate", headers)
         # ELR-3a (owner Q2; mechanical authority): WAS assertNotIn("factor") and n == 35. NOW the nine assembly-step
@@ -17851,13 +17896,21 @@ class TestServedRatesAreStored(FrappeTestCase):
 
     def test_sv_01_every_served_item_carries_its_STORED_rates_byte_for_byte_both_disciplines_NAMED(self):
         """The join the double count lived on: the rates the page receives ARE the catalogue. Counts
-        per kind are asserted so the sweep can never pass on an empty axis."""
+        per kind are asserted so the sweep can never pass on an empty axis.
+        #1608: the Electrical half reads the current asset SEEDED through the loader (a scratch discipline), so its
+        counts are the asset's whatever Electrical version the live rows hold; it is counted under "Electrical"."""
+        seeded = _current_eall_discipline()
+        served_by = {"HVAC": self.served["HVAC"], "Electrical": rate_master.get_rate_master_items(seeded)}
+        stored_by = {"HVAC": self.stored["HVAC"], "Electrical": {
+            r["item_uid"]: dict(r, rates=_obj(r["rates"]) or {})
+            for r in frappe.get_all("BoQ Rate Master Item", filters={"discipline": seeded, "active": 1},
+                                    fields=["item_uid", "kind", "rates"])}}
         counts = {}
         for d in ("HVAC", "Electrical"):
-            served = self.served[d]["items"]
-            self.assertEqual(len(served), len(self.stored[d]), d)
+            served = served_by[d]["items"]
+            self.assertEqual(len(served), len(stored_by[d]), d)
             for it in served:
-                st = self.stored[d][it["item_uid"]]
+                st = stored_by[d][it["item_uid"]]
                 self.assertEqual(json.dumps(it["rates"], sort_keys=True), json.dumps(st["rates"], sort_keys=True),
                                  "%s %s %s: served rates differ from stored" % (d, it["kind"], it["item_uid"]))
                 counts[(d, it["kind"])] = counts.get((d, it["kind"]), 0) + 1
@@ -17883,6 +17936,7 @@ class TestServedRatesAreStored(FrappeTestCase):
         self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 585)   # 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158; VRF-2a: - 2; VRF-3b: + 29; VRF-5: + 13; VRF-6: - 9 + 14 + 1 (BEFORE: 579)
         # ELR-3a (owner R-9; mechanical authority): WAS 1402. v69 is live with the nine assembly-step Pricing Inputs, so the
         # served Electrical total is EALL_ITEMS (1411); the per-item byte-for-byte check above is unchanged.
+        # #1608: "live" is now the seeded current asset (above), so this holds on a database not yet imported to it.
         self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "Electrical"), EALL_ITEMS)
         self.assertEqual(counts[("Electrical", "electrical_pricing_input")], 44)   # ELR-3a: 35 + the nine
 

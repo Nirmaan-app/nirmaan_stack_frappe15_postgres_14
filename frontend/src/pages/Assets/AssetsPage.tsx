@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useUserData } from '@/hooks/useUserData';
 import { urlStateManager } from '@/utils/urlStateManager';
-import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List, History, Building2, ClipboardCheck } from 'lucide-react';
+import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List, History, Building2, ClipboardCheck, PackageX } from 'lucide-react';
 import { canEditDepartments } from '@/constants/departments';
 
 import { AssetsSummaryCards } from './components/AssetsSummaryCard';
@@ -23,10 +23,10 @@ import { getAssetPermissions } from './utils/permissions';
 import { AssetCategoryType } from './assets.constants';
 
 type AssetTopTab = 'project' | 'it' | 'categories' | 'departments' | 'history';
-type AssetSubTab = 'all' | 'assigned' | 'unassigned' | 'pending' | 'audit';
+type AssetSubTab = 'all' | 'assigned' | 'unassigned' | 'lost' | 'pending' | 'audit';
 
 const TOP_TABS: readonly AssetTopTab[] = ['project', 'it', 'categories', 'departments', 'history'];
-const SUB_TABS: readonly AssetSubTab[] = ['all', 'assigned', 'unassigned', 'pending', 'audit'];
+const SUB_TABS: readonly AssetSubTab[] = ['all', 'assigned', 'unassigned', 'lost', 'pending', 'audit'];
 
 // Keeps a tab in the URL (?tab= / ?view=) so Back from an asset's page lands on the
 // same tab instead of the default. replaceState via urlStateManager, like the tables'
@@ -53,6 +53,8 @@ const assetSubTabs: { id: AssetSubTab; label: string; shortLabel: string; icon: 
     { id: 'all', label: 'All', shortLabel: 'All', icon: List },
     { id: 'assigned', label: 'Assigned', shortLabel: 'Asgn', icon: Users },
     { id: 'unassigned', label: 'Unassigned', shortLabel: 'Free', icon: UserX },
+    // Marked Lost/Damaged by Admin / HR (owner, 2026-10-31): not in Unassigned, can't be assigned, not audited.
+    { id: 'lost', label: 'Lost/Damaged', shortLabel: 'Lost', icon: PackageX },
     { id: 'pending', label: 'Pending Declaration', shortLabel: 'Decl', icon: AlertTriangle },
     // Monthly asset audit (owner, 2026-10-14): open audits and the ones sent; the tab carries the open count.
     { id: 'audit', label: 'Asset Audit', shortLabel: 'Audit', icon: ClipboardCheck },
@@ -87,7 +89,7 @@ const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshK
                                 }
                             `}
                         >
-                            <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-white' : tab.id === 'pending' ? 'text-amber-500' : ''}`} />
+                            <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-white' : tab.id === 'pending' ? 'text-amber-500' : tab.id === 'lost' ? 'text-red-500' : ''}`} />
                             <span className="hidden sm:inline">{tab.label}</span>
                             <span className="sm:hidden">{tab.shortLabel}</span>
                             {tab.id === 'audit' && auditCount > 0 && (
@@ -112,6 +114,13 @@ const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshK
                         key={`${assetType}-unassigned-${refreshKey}`}
                         assetType={assetType}
                         onAssigned={onAssetChange}
+                    />
+                )}
+                {subTab === 'lost' && (
+                    <UnassignedAssetsList
+                        key={`${assetType}-lost-${refreshKey}`}
+                        assetType={assetType}
+                        lostDamaged
                     />
                 )}
                 {subTab === 'pending' && (

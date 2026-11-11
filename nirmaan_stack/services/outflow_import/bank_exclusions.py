@@ -123,6 +123,10 @@ _RE_RIVAL_OF_CASHFREE = re.compile(IFSC_CASHBOOK + "|" + IFSC_PORTER)
 _RE_GATEWAY_WALLET_RETURN = re.compile(r"CASHFREEID", re.I)
 _RE_GL_TRANSFER = re.compile(r"\bAc\s+xfr\s+from\s+gl\b", re.I)
 _RE_NEFT_RETURN = re.compile(r"\s*NEFT-RETURN-", re.I)
+
+#: The category of a payment we made that bounced home. Its Skip Type, and whether it is an Internal Transfer (only
+#: when it names one of our wallets, #1622), are read by this name: `skip_kinds`, `internal_transfers`.
+NEFT_RETURN_FAILED = "neft_return_failed"
 _RE_CARD_ADJUSTMENT = re.compile(r"CMS/\s*CC\s+RBI", re.I)
 
 # ⚠️ THE TWO PREFIX SHAPES ARE ANCHORED (`.match`, with leading `\s*` for a padded cell), NOT
@@ -245,7 +249,7 @@ EXCLUSION_RULES: Sequence[tuple[str, RulePredicate]] = (
     # A payment we made that FAILED and bounced home. The original debit is already in this file, so
     # ingesting the return would double-count the attempt.
     (
-        "neft_return_failed",
+        NEFT_RETURN_FAILED,
         lambda rm, wd, dp: dp and bool(_RE_NEFT_RETURN.match(rm)),
     ),
     # A Rs 2 card rounding entry posted by the bank. Not a transaction anyone made.

@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_CREATE,
+    ACTION_INTERNAL,
     ACTION_SKIP,
     FALLBACK_EXPENSE_TYPE,
     SKIP_ALREADY_BOOKED,
@@ -22,17 +23,19 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     SKIP_NOT_SUCCESSFUL,
     SKIP_NO_AMOUNT,
     SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
+    SKIP_UNKNOWN_TYPE,
     CashbookPlan,
-    group_plan,
     pick_expense_type,
     plan_statement,
 )
+from nirmaan_stack.services.outflow_import.cashbook_review import group_plan, invoice_counts
 from nirmaan_stack.services.outflow_import.duplicates import index_prior_sightings
 from nirmaan_stack.services.outflow_import.parser import RawRow
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_CASHBOOK_UNKNOWN_TYPE,
     SKIP_KIND_REPEATED_IN_FILE,
 )
 
@@ -68,7 +71,8 @@ RULES = {
 
 
 def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Spend",
-         status="SUCCESS", payee="A Payee", spender="A Spender", added_on=date(2026, 8, 1)):
+         status="SUCCESS", payee="A Payee", spender="A Spender", added_on=date(2026, 8, 1),
+         links=(), credit="0"):
     """A parsed Cashbook row. Uses the real `RawRow` so the plan is tested against what it will get."""
     from datetime import datetime
 
@@ -91,6 +95,8 @@ def _row(number=1, transfer_id="OBO1", amount="100", remarks="", kind="Wallet Sp
         normalized_account="",
         normalized_reference="",
         row_kind=kind,
+        bill_links=tuple(links),
+        credit_amount=Decimal(credit),
     )
 
 
@@ -115,14 +121,92 @@ def _sightings(*entries):
 class TestWhatIsNotImported(unittest.TestCase):
     """Four ways a row is skipped. Each carries its own sentence -- none is a silent drop."""
 
-    def test_a_wallet_top_up_is_skipped_as_a_movement_not_a_spend(self):
-        row = _plan([_row(kind="VA → Wallet", amount="10000")]).rows[0]
-        self.assertEqual(row.action, ACTION_SKIP)
-        self.assertEqual(row.reason, SKIP_NOT_A_SPEND)
+    def test_a_wallet_top_up_is_an_internal_transfer_not_a_spend(self):
+        """CHANGED AT #1623 (spec #1619): Cashbook's own moves are Internal Transfers, no longer skipped."""
+        row = _plan([_row(kind="VA → Wallet", amount="0", credit="10000", payee="Test Employee A")]).rows[0]
+        self.assertEqual(row.action, ACTION_INTERNAL)
+        self.assertEqual(
+            (row.move.ends.from_place, row.move.ends.to_place, row.move.ends.detail),
+            ("Cashbook Virtual Account", "Cashbook Employee Wallet", "Test Employee A"),
+        )
+        self.assertEqual(row.move.money, Decimal("10000"))
+        self.assertIsNone(row.skip_kind)
 
-    def test_a_bank_load_and_a_refund_are_skipped_the_same_way(self):
-        plan = _plan([_row(kind="Bank → VA"), _row(number=2, transfer_id="OBO2", kind="Wallet Credit")])
-        self.assertEqual([r.reason for r in plan.rows], [SKIP_NOT_A_SPEND, SKIP_NOT_A_SPEND])
+    def test_a_bank_load_and_a_wallet_to_va_move_are_internal_transfers_too(self):
+        """#1594: a refund and a wallet credit are not among them (`test_cashbook_refunds`)."""
+        plan = _plan([
+            _row(kind="Bank → VA", amount="0", credit="50000"),
+            _row(number=2, transfer_id="OBO2", kind="Wallet → VA", amount="300", spender="Test Employee B"),
+        ])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_INTERNAL, ACTION_INTERNAL])
+        self.assertEqual(
+            [(r.move.ends.from_place, r.move.ends.to_place, r.move.ends.detail, r.move.money) for r in plan.rows],
+            [
+                ("ICICI Current Account", "Cashbook Virtual Account", "", Decimal("50000")),
+                ("Cashbook Employee Wallet", "Cashbook Virtual Account", "Test Employee B", Decimal("300")),
+            ],
+        )
+
+    def test_a_type_the_app_does_not_know_is_skipped_as_unknown(self):
+        """Owner decision 4 (#1619, 2026-11-07): never again filed under "Cashbook internal movement"."""
+        row = _plan([_row(kind="Something New", amount="0")]).rows[0]
+        self.assertEqual(
+            (row.action, row.reason, row.skip_kind),
+            (ACTION_SKIP, SKIP_UNKNOWN_TYPE.format(kind="Something New"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE),
+        )
+
+    def test_a_move_the_wallet_did_not_complete_is_bank_refused(self):
+        """Owner decision 3 (#1619, 2026-11-07): no money moved, so no Internal Transfer and no record."""
+        for kind in ("Bank → VA", "VA → Wallet", "Wallet → VA"):
+            row = _plan([_row(kind=kind, amount="0", credit="500", status="FAILED")]).rows[0]
+            self.assertEqual(
+                (row.action, row.reason, row.skip_kind), (ACTION_SKIP, SKIP_NOT_SUCCESSFUL, SKIP_KIND_BANK_REFUSED)
+            )
+
+    def test_a_not_successful_repeat_is_bank_refused_whatever_the_earlier_import_said(self):
+        """Owner decision 3, for repeats too (#1619): only a line that says SUCCESS is an Internal Transfer line. A
+        repeat that does not is Bank refused, and its sentence names the earlier sighting -- SUCCESS (its record
+        stays on that line) or not."""
+        for earlier in ("SUCCESS", "FAILED"):
+            with self.subTest(earlier=earlier):
+                raw = _row(transfer_id="VA8", kind="Bank → VA", amount="0", credit="900", status="REVERSED")
+                already = _sightings(("VA8", "0", date(2026, 8, 1), "OFI-26-00008", earlier))
+                row = _plan([raw], already=already).rows[0]
+                self.assertEqual(
+                    (row.action, row.skip_kind, row.reason),
+                    (
+                        ACTION_SKIP,
+                        SKIP_KIND_BANK_REFUSED,
+                        f"Did not succeed at the wallet. Already imported in batch OFI-26-00008, bank status changed "
+                        f"{earlier} → REVERSED.",
+                    ),
+                )
+
+    def test_a_not_successful_line_after_its_successful_copy_in_the_same_file_is_bank_refused(self):
+        """Owner decision 3 (#1619): Bank refused, naming the earlier copy in this file as the import names an earlier
+        import's, and as the patch names an old line's."""
+        plan = _plan([
+            _row(transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="SUCCESS"),
+            _row(number=2, transfer_id="VA7", kind="VA → Wallet", amount="0", credit="900", status="REVERSED"),
+        ])
+        self.assertEqual(
+            [(r.action, r.skip_kind, r.reason) for r in plan.rows],
+            [
+                (ACTION_INTERNAL, None, plan.rows[0].reason),
+                (
+                    ACTION_SKIP,
+                    SKIP_KIND_BANK_REFUSED,
+                    "Did not succeed at the wallet. The same transfer appears earlier in this file, bank status "
+                    "changed SUCCESS → REVERSED",
+                ),
+            ],
+        )
+
+    def test_a_move_first_seen_failed_then_successful_is_an_internal_transfer(self):
+        raw = _row(transfer_id="VA9", kind="Bank → VA", amount="0", credit="900", status="SUCCESS")
+        already = _sightings(("VA9", "0", date(2026, 8, 1), "OFI-26-00009", "FAILED"))
+        row = _plan([raw], already=already).rows[0]
+        self.assertEqual(row.action, ACTION_INTERNAL)
 
     def test_a_spend_that_failed_at_the_wallet_is_skipped(self):
         row = _plan([_row(status="FAILED")]).rows[0]
@@ -361,7 +445,8 @@ class TestWhatIsNotImported(unittest.TestCase):
             _row(transfer_id="OBO5", kind="VA → Wallet"),
             _row(number=2, transfer_id="OBO5"),
         ])
-        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_CREATE])
+        # #1623: the top-up is an Internal Transfer now; it still does not stop the later spend.
+        self.assertEqual([r.action for r in plan.rows], [ACTION_INTERNAL, ACTION_CREATE])
         self.assertEqual(plan.split.repeats_not_saved, 0)
 
     def test_the_first_batch_an_exact_repeat_came_from_is_the_one_named(self):
@@ -384,9 +469,15 @@ class TestWhatIsNotImported(unittest.TestCase):
 
         Reporting it as "did not succeed" sends somebody looking for a failed payment that never
         existed -- it was never a payment. Kind is asked first, deliberately.
+
+        CHANGED BY OWNER DECISION 3 (#1619, 2026-11-07): a failed Cashbook move IS one of our own moves now (an
+        Internal Transfer when it succeeds), so its not succeeding is the one fact worth saying: Bank refused. A
+        Type the app does not know is still asked first.
         """
         row = _plan([_row(kind="VA → Wallet", status="FAILED", amount="0")]).rows[0]
-        self.assertEqual(row.reason, SKIP_NOT_A_SPEND)
+        self.assertEqual(row.reason, SKIP_NOT_SUCCESSFUL)
+        row = _plan([_row(kind="Wallet Load", status="FAILED", amount="0")]).rows[0]
+        self.assertEqual(row.skip_kind, SKIP_KIND_CASHBOOK_UNKNOWN_TYPE)
 
 
 class TestWhichLedger(unittest.TestCase):
@@ -510,10 +601,11 @@ class TestThePreviewGrouping(unittest.TestCase):
         values = [g.value for g in group_plan(self.plan) if g.ledger == PROJECT_LEDGER]
         self.assertEqual(values, sorted(values, reverse=True))
 
-    def test_a_skipped_row_is_in_no_group(self):
+    def test_a_row_that_creates_nothing_is_in_no_group(self):
+        """#1623: the fixture's top-up is an Internal Transfer now, not a skip; it is in no group either way."""
         grouped = sum(g.count for g in group_plan(self.plan))
         self.assertEqual(grouped, len(self.plan.creating))
-        self.assertEqual(len(self.plan.skipping), 1)
+        self.assertEqual((len(self.plan.skipping), len(self.plan.internal)), (0, 1))
 
     def test_the_totals_add_up_to_the_plan(self):
         self.assertEqual(sum(g.value for g in group_plan(self.plan)), self.plan.total_value)
@@ -531,9 +623,32 @@ class TestPlanShape(unittest.TestCase):
         self.assertEqual(plan.total_value, Decimal("100"))
 
     def test_who_spent_it_is_carried_separately_from_who_was_paid(self):
-        row = _plan([_row(payee="Hanuman Hardware", spender="Sowmya T P")]).rows[0]
+        row = _plan([_row(payee="Hanuman Hardware", spender="Meera Iyer")]).rows[0]
         self.assertEqual(row.beneficiary_name, "Hanuman Hardware")
-        self.assertEqual(row.spent_by, "Sowmya T P")
+        self.assertEqual(row.spent_by, "Meera Iyer")
+
+
+class TestInvoiceCounts(unittest.TestCase):
+    """What Review says about the bills before Create (#1591): 1 file, merged, will wait."""
+
+    def test_spends_are_counted_by_how_many_bills_they_carry(self):
+        plan = _plan(
+            [
+                _row(1, "A", links=["a"]),
+                _row(2, "B", links=["b1", "b2"]),
+                _row(3, "C", links=["c1", "c2", "c3", "c4"]),
+                _row(4, "D"),
+                _row(5, "E"),
+                _row(6, "F", links=["f"]),
+            ]
+        )
+        counts = invoice_counts(plan)
+        self.assertEqual((counts.one_file, counts.merged, counts.waiting), (2, 2, 2))
+
+    def test_a_skipped_line_is_not_counted_whatever_its_links(self):
+        plan = _plan([_row(1, "A", links=["a"]), _row(2, "B", kind="Bank → VA", links=["b"])])
+        counts = invoice_counts(plan)
+        self.assertEqual((counts.one_file, counts.merged, counts.waiting), (1, 0, 0))
 
 
 class TestPurity(unittest.TestCase):

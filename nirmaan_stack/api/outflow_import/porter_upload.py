@@ -97,7 +97,7 @@ def read_statement(content: bytes) -> PorterStatement:
 
 
 def leave_out_porter_repeats(statement: PorterStatement, filename: str) -> RepeatJudgement:
-    """The invoice-level repeat rules (#1447), BEFORE `save_file`: the statement to stage, or a refusal."""
+    """The invoice-level repeat rules (#1447), BEFORE `store_file`: the statement to stage, or a refusal."""
     try:
         return leave_out_repeats(statement, held_invoices(statement), filename=filename)
     except PorterRepeatRefusal as exc:

@@ -35,6 +35,7 @@ import {
     rematchWarning,
     sourceSelectorValue,
     summaryTiles,
+    internalTransferFigure,
     type SettledLedgerSplit,
     type SummaryImport,
     type SummaryTile,
@@ -160,6 +161,7 @@ export const ImportSummaryPanel = ({
     onResetScope,
 }: Props) => {
     const totals = summary?.totals;
+    const internalTransfers = totals ? internalTransferFigure(totals) : null;
     const imports: SummaryImport[] = summary?.imports ?? [];
     const warning = rematchWarning(imports);
     // ⚠️ ONE SOURCE FOR THE COUNT, THE CAPTION AND THE DISABLED STATE (slice CF/S5). All three
@@ -758,6 +760,19 @@ export const ImportSummaryPanel = ({
                                     }
                                 />
                             ))}
+                            {/* #1625: our own money moving between our own places. Not in Total or Still
+                                open (it never was: these lines were Skipped), so it is shown on its own,
+                                count and money out and in, at zero too. Gross Outflow / Inflow are the
+                                upload's figures and already include these lines. */}
+                            {internalTransfers && (
+                                <span
+                                    className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs text-violet-900"
+                                    data-testid="internal-transfers-figure"
+                                >
+                                    <span className="font-semibold">Internal transfers</span>
+                                    <span className="tabular-nums">{internalTransfers.text}</span>
+                                </span>
+                            )}
                         </div>
 
                         {/* ⚠️ THE FILENAME LIST MOVED TO THE HISTORY DIALOG (owner ruling, slice

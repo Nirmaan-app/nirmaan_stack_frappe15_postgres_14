@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line
 from nirmaan_stack.services.outflow_import.card_credits import skip_values, sort_card_lines
 from nirmaan_stack.services.outflow_import.card_pdf import statement_text
 from nirmaan_stack.services.outflow_import.card_statement import (
@@ -32,22 +33,27 @@ from nirmaan_stack.services.outflow_import.card_statement import (
     read_card_statement,
 )
 from nirmaan_stack.services.outflow_import.card_types import FALLBACK_EXPENSE_TYPE, TYPE_SOURCE_FALLBACK
+from nirmaan_stack.services.outflow_import.internal_transfers import (
+    CARD_AUTO_DEBIT_RULE,
+    card_auto_debit_transfer,
+    transfer_sentence,
+)
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
     DIRECTION_CREDIT,
     DIRECTION_DEBIT,
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
-from nirmaan_stack.services.outflow_import.sources import CARD_STATEMENT_SOURCE
-from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED, ROW_PENDING_MATCH
+from nirmaan_stack.services.outflow_import.sources import CARD_PLAN_BASIS, CARD_STATEMENT_SOURCE
+from nirmaan_stack.services.outflow_import.status import ROW_INTERNAL_TRANSFER, ROW_MISMATCHED, ROW_PENDING_MATCH
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 STATEMENT_DOCTYPE = "Credit Card Statement"
 SOURCE = CARD_STATEMENT_SOURCE
 
-#: The basis a card spend's match record carries (`Outflow Row Match.match_basis`).
-MATCH_BASIS = "card statement"
+#: The basis a card line's Create plan and its match record carry (`Outflow Row Match.match_basis`).
+MATCH_BASIS = CARD_PLAN_BASIS
 #: Every card spend becomes a Non-Project Expense (ADR-0039 decision 1).
 SPEND_DOCTYPE = "Non Project Expenses"
 
@@ -92,8 +98,8 @@ def read_password() -> str:
 
 def read_statement(content: bytes, password: str = "") -> CardStatement:
     """The PDF's text, read and gated whole. A locked PDF without its password (or with a wrong one), an
-    unreadable PDF, another company's statement, a cash advance or lines that miss the statement's own
-    totals are refused here."""
+    unreadable PDF or lines that miss the statement's own totals are refused here. The company
+    is read, not checked (ADR-0039 Amendment B)."""
     try:
         return read_card_statement(statement_text(content, password))
     except CardStatementError as exc:
@@ -205,12 +211,11 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
             # The Expense's payment reference (ADR-0039 decision 6), resolved once, here (README ruling 6).
             "settlement_reference": line_reference(line),
         }
-        if line.is_credit:
-            # An unpaired credit is open work on the main table (README ruling 4).
-            values["row_status"] = ROW_MISMATCHED
-        else:
-            # A spend keeps its Create plan even when a refund cancels it, so an unskipped pair brings it
-            # straight back as Create's work.
+        sort = sorts[line.serno]
+        if sort.planned:
+            # Create's plan: a spend, and since #1673 every merchant credit (an *Unpaired card refund*, recorded
+            # as a negative Non-Project Expense). A refund pair keeps it under its skip, so an unskipped pair
+            # comes straight back as Create's work.
             values.update(
                 {
                     "row_status": ROW_PENDING_MATCH,
@@ -222,11 +227,20 @@ def stage(statement: CardStatement, new: NewLines, file_url: str, filename: str,
                     "type_source": TYPE_SOURCE_FALLBACK,
                 }
             )
+        else:
+            # A payment into the card, cashback or the auto-debit: skipped or an Internal Transfer just below.
+            values["row_status"] = ROW_MISMATCHED
         # A payment into the card, cashback and both lines of a refund pair are system skips.
-        values.update(skip_values(sorts[line.serno]))
+        values.update(skip_values(sort))
+        # #1624: the bank's auto-debit paying the card is an Internal Transfer line, with its record.
+        transfer = card_auto_debit_transfer(line.card_last_four) if sort.internal else None
+        if transfer:
+            values.update({"row_status": ROW_INTERNAL_TRANSFER, "outcome_note": transfer_sentence(transfer)})
         doc = frappe.new_doc(ROW_DOCTYPE)
         doc.update(values)
         doc.insert(ignore_permissions=True)
+        if transfer:
+            record_for_line(doc, transfer, made_by=CARD_AUTO_DEBIT_RULE)
         names[line.serno] = doc.name
 
     # Each line of a refund pair links the other, once both exist. Raw, and safe: the row has no doc_events,

@@ -93,7 +93,7 @@ export const PORTER_STEPS: (WizardStep & { key: PorterStepKey })[] = [
  * The Credit Card Statement's three steps (#1566, ADR-0039).
  *
  * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT, as on Porter. The upload reads the whole PDF and
- * refuses it (another company, totals that do not agree; a locked PDF until its password is typed) before
+ * refuses it (totals that do not agree; a locked PDF until its password is typed) before
  * anything is saved, then stages it.
  * Review shows what was read; nothing is created until the last step.
  */
@@ -147,6 +147,9 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
         // `matched` is meaningless here: a Cashbook import creates records rather than finding
         // them, so there is nothing for a matcher to have run.
         stepIndex: (state) => (state.staged ? 2 : state.previewed ? 1 : 0),
+        // The Cashbook Statement as downloaded, and nothing else (spec #1585 story 1): its bill links are cell
+        // hyperlinks, which a CSV cannot carry. `cashbook._read_and_parse` refuses any other file.
+        extensions: [".xlsx"],
     },
     "ICICI Bank Statement": {
         steps: BANK_STEPS,

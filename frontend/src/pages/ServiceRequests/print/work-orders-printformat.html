@@ -1,0 +1,392 @@
+{#
+    Print Format: Service Request (Work Order)
+    DocType: Service Requests
+    Items source: work_order_items child table (was service_order_list JSON)
+
+    REFERENCE COPY. The live template is the "Work Orders" Print Format record in Desk;
+    edit this file, then paste it there. Keep the items table and notes block in step
+    with work-orders-without-rate-printformat.html.
+#}
+
+
+
+{# A. Identify Target GSTIN (Record-Specific -> Project JSON -> Default) #}
+{%- set target_gstin = none -%}
+{%- if doc.project_gst -%}
+    {%- set target_gstin = doc.project_gst -%}
+{%- elif doc.project -%}
+    {%- set p_doc = frappe.get_doc("Projects", doc.project) if frappe.db.exists("Projects", doc.project) else none -%}
+    {%- if p_doc and p_doc.project_gst -%}
+        {%- set target_gstin = p_doc.project_gst -%}
+    {%- endif -%}
+{%- endif -%}
+
+{# B. Fetch from 'Project GST' DocType #}
+{%- set gst_doc = frappe.get_doc("Project GST", target_gstin) if target_gstin and frappe.db.exists("Project GST", target_gstin) else none -%}
+
+{# C. Fallback: If not found, use Bengaluru #}
+{%- if not gst_doc -%}
+    {%- set default_id = "29ABFCS9095N1Z9" -%}
+    {%- set gst_doc = frappe.get_doc("Project GST", default_id) if frappe.db.exists("Project GST", default_id) else none -%}
+{%- endif -%}
+
+{# D. Extract Data from DocType #}
+{%- set final_gst      = gst_doc.gstin if gst_doc else "29ABFCS9095N1Z9" -%}
+{%- set final_address = (gst_doc.address ~ ", " ~ gst_doc.city ~ "- " ~ gst_doc.pincode ~ ", " ~ gst_doc.state) if gst_doc else "Address Details N/A" -%}
+{# E. Populate company_details for Template Compatibility #}
+{%- set company_details = {
+    "name": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+    "logo_url": "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/logo-svg-BptBZTzQ.svg",
+    "nirmaan_seal": "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/NIRMAAN-SEAL-D2HgrCMb.jpeg",
+    "default_address": final_address
+} -%}
+
+{%- set current_company_gst = final_gst -%}
+{%- set current_company_address = final_address -%}
+{%- set currency_symbol = "₹" -%}
+
+{# F. DETERMINE GST STATUS #}
+{%- set gst_enabled = (doc.gst == "true") -%}
+
+{# --- G. ITEMS FROM CHILD TABLE ---
+   `doc.work_order_items` is the new child table. Iterate it directly,
+   no JSON parse, no `.list` wrapper. #}
+{%- set items = doc.work_order_items or [] -%}
+
+{# --- H. CATEGORIES ---
+   Each category prints once as a heading row with its items under it, in the
+   order the categories first appear. A blank category groups as "Other". #}
+{%- set grp = namespace(cats=[]) -%}
+{%- for it in items -%}
+    {%- set c = it.category or "Other" -%}
+    {%- if c not in grp.cats -%}{%- set grp.cats = grp.cats + [c] -%}{%- endif -%}
+{%- endfor -%}
+
+{# ----------- Macro: Address Formatter --------------------- #}
+{% macro format_address(addr_name) -%}
+    {%- if not addr_name -%}N/A
+    {%- else -%}
+        {%- set ad = frappe.get_doc("Address", addr_name) -%}
+        {%- set parts = [] -%}
+        {%- if ad.address_line1 %}{% set parts = parts + [ad.address_line1] %}{% endif -%}
+        {%- if ad.address_line2 %}{% set parts = parts + [ad.address_line2] %}{% endif -%}
+        {%- set csp = [] -%}
+        {%- if ad.city %}{% set csp = csp + [ad.city] %}{% endif -%}
+        {%- if ad.state %}{% set csp = csp + [ad.state] %}{% endif -%}
+        {%- if ad.pincode %}{% set csp = csp + [ad.pincode] %}{% endif -%}
+        {%- if csp %}{% set parts = parts + [csp | join(" ")] %}{% endif -%}
+        {%- if ad.country %}{% set parts = parts + [ad.country] %}{% endif -%}
+        {{ parts | join("<br>") | safe }}
+    {%- endif -%}
+{%- endmacro %}
+
+{%- set project_doc = frappe.get_doc("Projects", doc.project) if doc.project else None -%}
+{%- set vendor_doc = frappe.get_doc("Vendors", doc.vendor) if doc.vendor else None -%}
+
+{% set vendor_address_html  = format_address(vendor_doc.vendor_address) if vendor_doc else "N/A" %}
+{% set project_address_html = format_address(project_doc.project_address) if project_doc else "N/A" %}
+
+
+<style>
+    body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 10px; color: #333; margin: 0; padding: 0; }
+
+    @page { size: A4; margin: 45mm 12mm 20mm 12mm; }
+
+    /* HEADER STYLES */
+    .header img.logo { max-width: 140px; max-height: 40px; margin-bottom: 8px; float: left; }
+
+    /* Layout */
+    .po-header-wrapper { width: 100%; overflow: hidden; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; margin-top: 10px; }
+    .po-header-left-title { float: left; width: 50%; font-size: 22px; font-weight: bold; color: #1a1a1a; text-transform: uppercase; padding-top: 5px; }
+    .po-header-right-details { float: right; width: 49%; text-align: right; }
+    .po-header-right-details p { margin: 2px 0; line-height: 1.4; font-size: 10px; }
+
+    /* INFO BLOCKS */
+    .address-block { margin-bottom:15px; overflow:hidden; }
+    .address-block__col { width:48%; float:left; font-size:9.5px; }
+    .address-block__col + .address-block__col { float:right; }
+    .address-block h4 { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #555; margin: 0 0 6px 0; }
+
+    /* ITEMS TABLE */
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; table-layout: fixed; }
+    .items-table th, .items-table td { border: 1px solid #ddd; padding: 5px 7px; text-align: left; vertical-align: top; word-wrap: break-word; }
+    .items-table th { background-color: #f0f0f0; font-weight: bold; font-size: 9.5px; text-transform: uppercase; }
+    .items-table td { font-size: 9.5px; }
+    /* Frappe's standard.css forces `.print-format td { padding: 6px !important }`; beat it here */
+    .print-format .items-table tr.category-row td { background-color: #f7f7f7; font-weight: bold; padding-top: 6px !important; padding-bottom: 6px !important; line-height: 1.3; }
+    .items-table th { white-space: nowrap; }
+    .text-right { text-align: right; } .text-center { text-align: center; }
+
+    /* TOTALS SECTION */
+    .totals-section { width: 100%; margin-top: 15px; overflow: hidden; page-break-inside: avoid; }
+    .totals-section .notes-terms { width: 58%; float: left; font-size: 9.5px; }
+    .totals-section .summary { width: 40%; float: right; }
+    .totals-section .summary table { width: 100%; font-size: 9.5px; }
+    .totals-section .summary td { padding: 3px 0; }
+    .totals-section .summary .grand-total td { font-weight: bold; font-size: 11px; border-top: 1px solid #333; border-bottom: 1px solid #333; padding-top: 6px; padding-bottom: 6px; }
+
+    /* TERMS & FOOTER */
+    .tc-container { page-break-before: always; width: 100%; }
+    .tc-content h1 { font-size: 16px; font-weight: bold; text-transform: uppercase; margin-top: 20px; margin-bottom: 15px; text-align: center; text-decoration: underline; }
+    .tc-content h2 { font-size: 12px; font-weight: bold; margin-top: 20px; margin-bottom: 10px; color: #222; text-transform: uppercase; }
+    .tc-content ol { padding-left: 25px; margin: 0; }
+    .tc-content li { font-size: 11.5px; line-height: 1.6; margin-bottom: 8px; text-align: justify; color: #333; }
+    .footer-notes { margin-top: 25px; font-size: 8.5px; color: #777; border-top: 1px dashed #ccc; padding-top: 8px; text-align: center; }
+
+    /* SIGNATURE */
+    .signature-area { margin-top: 40px; text-align: right; page-break-inside: avoid; }
+    .signature-area img.seal { max-width: 90px; max-height: 90px; display: block; margin-left: auto; margin-bottom: 5px; }
+    .signature-area .line { width: 180px; border-top: 1px solid #333; margin-left: auto; margin-bottom: 5px; }
+</style>
+
+{# -----------------  HEADER (PDF ENGINE) ----------------- #}
+<div id="header-html" style="display: none">
+  <table style="width:100%; font-family:Helvetica,Arial,sans-serif; font-size:9.5px; border-bottom: 4px solid #000; padding-bottom: 8px; margin-bottom: 5px;">
+    <tr>
+      <td style="width:40%; vertical-align:top;">
+        <img src="{{ company_details.logo_url }}" style="max-width:140px; max-height:38px">
+      </td>
+      <td style="text-align:right; font-size:11px; vertical-align:top;">
+        <strong>{{ company_details.name }}</strong><br>
+        {{ current_company_address }}<br>
+        {% if current_company_gst %}<strong>GSTIN:</strong> {{ current_company_gst }}{% endif %}
+      </td>
+    </tr>
+  </table>
+</div>
+
+<div class="print-format">
+
+    {# --- PAGE 1: HEADER --- #}
+    <div class="po-header-wrapper">
+        <div class="po-header-left-title">Work Order</div>
+        <div class="po-header-right-details">
+            <p><strong>WO Number:</strong> {{ doc.name }}</p>
+            <p><strong>WO Date:</strong> {{ frappe.utils.formatdate(doc.creation, "dd-MMM-yyyy") }}</p>
+        </div>
+    </div>
+
+    <div class="address-block">
+        <div class="address-block__col">
+            <h4>VENDOR DETAILS</h4>
+            <p><strong>{{ vendor_doc.vendor_name if vendor_doc else doc.vendor }}</strong></p>
+            {{ vendor_address_html }}
+            {% if vendor_doc and vendor_doc.vendor_gst %}<p><strong>GSTIN:</strong> {{ vendor_doc.vendor_gst }}</p>{% endif %}
+        </div>
+        <div class="address-block__col">
+            <h4>SERVICE LOCATION</h4>
+            <p><strong>{{ project_doc.project_name if project_doc else doc.project }}</strong></p>
+            {{ project_address_html }}
+        </div>
+    </div>
+    <div style="clear:both;"></div>
+
+    {# --- ITEMS TABLE --- #}
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th style="width:7%;">S.No</th>
+                <th style="width:38%;">Service Description</th>
+                <th style="width:10%;" class="text-center">Unit</th>
+                <th style="width:10%;" class="text-center">Qty</th>
+                <th style="width:12%;" class="text-right">Rate</th>
+
+                {# CONDITIONAL HEADER: Only show Tax if GST is enabled #}
+                {% if gst_enabled %}
+                    <th style="width:10%;" class="text-right">Tax (18%)</th>
+                {% endif %}
+
+                <th style="width:13%;" class="text-right">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {# Define Variables for Totals #}
+            {% set total_qty = namespace(value=0.0) %}
+            {% set subtotal = namespace(value=0.0) %}
+            {% set total_tax = namespace(value=0.0) %}
+
+            {% set row_no = namespace(value=0) %}
+
+            {% if items | length > 0 %}
+                {% for cat in grp.cats %}
+                <tr class="category-row"><td colspan="{{ '7' if gst_enabled else '6' }}">{{ cat }}</td></tr>
+                {% for item in items if (item.category or "Other") == cat %}
+                    {% set row_no.value = row_no.value + 1 %}
+                    <tr>
+                        <td class="text-center">{{ row_no.value }}</td>
+                        <td><span style="white-space: pre-wrap;">{{ item.item_name or "-" }}</span></td>
+                        <td class="text-center">{{ item.uom or "-" }}</td>
+
+                        {# Parse to Floats safely #}
+                        {%- set qty = (item.quantity | default(0) | float) -%}
+                        {%- set rate = (item.rate | default(0) | float) -%}
+
+                        <td class="text-center">{{ qty }}</td>
+                        <td class="text-right">{{ "%.2f" | format(rate) }}</td>
+
+                        {# Calculations #}
+                        {%- set item_base_amount = qty * rate -%}
+
+                        {# CONDITIONAL CALCULATION #}
+                        {# If GST is NOT enabled, Tax is forced to 0 #}
+                        {%- if gst_enabled -%}
+                             {%- set tax_amount = item_base_amount * 0.18 -%}
+                        {%- else -%}
+                             {%- set tax_amount = 0.0 -%}
+                        {%- endif -%}
+
+                        {# CONDITIONAL COLUMN: Only show Tax cell if GST is enabled #}
+                        {% if gst_enabled %}
+                            <td class="text-right">{{ "%.2f" | format(tax_amount) }}</td>
+                        {% endif %}
+
+                        <td class="text-right">{{ "%.2f" | format(item_base_amount) }}</td>
+
+                        {# Accumulate Totals #}
+                        {%- set total_qty.value = total_qty.value + qty -%}
+                        {%- set subtotal.value = subtotal.value + item_base_amount -%}
+                        {%- set total_tax.value = total_tax.value + tax_amount -%}
+                    </tr>
+                {% endfor %}
+                {% endfor %}
+            {% else %}
+                {# Adjust colspan based on GST Status #}
+                <tr><td colspan="{{ '7' if gst_enabled else '6' }}" style="text-align:center; padding: 20px;">No service items found.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    {# --- TOTALS --- #}
+    <div class="totals-section">
+        {#
+           Logic:
+           If GST is OFF: total_tax.value is 0.0.
+           Exact Total = Subtotal + 0.
+        #}
+        {% set exact_grand_total = subtotal.value + total_tax.value %}
+        {% set rounded_grand_total = exact_grand_total | round | int %}
+        {% set round_off_val = rounded_grand_total - exact_grand_total %}
+
+        <div class="notes-terms">
+            <p><strong>Amount in Words:</strong><br>
+                {{ frappe.utils.money_in_words(rounded_grand_total, "INR") }}
+            </p>
+
+    {# --- NOTES --- #}
+{% set _notes = doc.notes %}
+{% if _notes is string %}{% set _notes = json.loads(_notes) %}{% endif %}
+{% set note_list = (_notes.get('list') if _notes is mapping else _notes) or [] %}
+{% if note_list %}
+<div style="margin-top:15px; page-break-inside:avoid; font-size:9.5px;">
+    <h4 style="font-size:10px; font-weight:bold; margin-bottom:3px; color:#777;">NOTES:</h4>
+    <ol style="padding-left:20px; margin:0; font-size:9.5px;">
+        {% for note in note_list %}
+            <li>{{ note.note if note is mapping else note }}</li>
+        {% endfor %}
+    </ol>
+</div>
+{% endif %}
+
+
+        </div>
+
+        <div class="summary">
+            <table>
+                <tr><td>Sub-Total:</td><td class="text-right">{{ currency_symbol }} {{ "%.2f" | format(subtotal.value) }}</td></tr>
+
+                {# CONDITIONAL SUMMARY: Only show Tax row if GST is enabled #}
+                {% if gst_enabled %}
+                    <tr><td>Total Tax (GST 18%):</td><td class="text-right">{{ currency_symbol }} {{ "%.2f" | format(total_tax.value) }}</td></tr>
+                {% endif %}
+
+                <tr><td>Round Off:</td><td class="text-right">{{ currency_symbol }} {{ "%.2f" | format(round_off_val) }}</td></tr>
+
+                <tr class="grand-total"><td>GRAND TOTAL:</td><td class="text-right">{{ currency_symbol }} {{ "%.0f" | format(rounded_grand_total) }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div style="clear:both;"></div>
+
+    {# --- SIGNATURE AREA --- #}
+    <div class="signature-area">
+        {% if company_details.nirmaan_seal %}
+            <img src="{{ company_details.nirmaan_seal }}" class="seal" alt="Seal">
+        {% endif %}
+        <div class="line"></div>
+        <p>For <strong>{{ company_details.name }}</strong></p>
+        <p>(Authorized Signatory)</p>
+    </div>
+
+    {# --- TERMS AND CONDITIONS --- #}
+    <div class="tc-container">
+        <div class="tc-content">
+            <h1>Terms and Conditions</h1>
+
+            <h2>1. Invoicing:</h2>
+            <ol>
+                <li>All invoices shall be submitted in original and shall be tax invoices showing the breakup of tax structure/value payable at the prevailing rate and a clear description of goods.</li>
+                <li>All invoices submitted shall have Delivery Challan/E-waybill for supply items.</li>
+                <li>All Invoices shall have the tax registration numbers mentioned thereon. The invoices shall be raised in the name of "Stratos Infra Technologies Pvt Ltd, Bangalore".</li>
+                <li>Payments shall be only entertained after receipt of the correct invoice.</li>
+                <li>In case of advance request, Advance payment shall be paid after the submission of an advance receipt (as suggested under GST law).</li>
+            </ol>
+
+            <h2>2. Payment:</h2>
+            <ol>
+                <li>Payment shall be done through RTGS/NEFT.</li>
+                <li>A retention amount shall be deducted as per PO payment terms and:
+                    <ol type="a" style="margin-top:2px;">
+                        <li>In case the vendor is not completing the task assigned by Nirmaan a suitable amount, as decided by Nirmaan, shall be deducted from the retention amount.</li>
+                        <li>The adjusted amount shall be paid on completion of the defect liability period.</li>
+                        <li>Vendors are expected to pay GST as per the prevailing rules. In case the vendor is not making GST payments to the tax authority, Nirmaan shall deduct the appropriated amount from the invoice payment of the vendor.</li>
+                        <li>Nirmaan shall deduct the following amounts from the final bills:
+                            <ol type="i">
+                                <li>Amount pertaining to unfinished supply.</li>
+                                <li>Amount pertaining to Liquidated damages and other fines, as mentioned in the documents.</li>
+                                <li>Any agreed amount between the vendor and Nirmaan.</li>
+                            </ol>
+                        </li>
+                    </ol>
+                </li>
+            </ol>
+
+            <h2>3. Technical Specifications of the Work:</h2>
+            <ol>
+                <li>All goods delivered shall conform to the technical specifications mentioned in the vendor's quote referred to in this PO or as detailed in Annexure 1 to this PO.</li>
+                <li>Supply of goods or services shall be strictly as per Annexure - 1 or the Vendor's quote/PI in case of the absence of Annexure - I.</li>
+                <li>Any change in line items or quantities shall be duly approved by Nirmaan with rate approval prior to supply. Any goods supplied by the agency without obtaining due approvals shall be subject to the acceptance or rejection from Nirmaan.</li>
+                <li>Any damaged/faulty material supplied needs to be replaced with a new item free of cost, without extending the completion dates.</li>
+                <li>Material supplied in excess and not required by the project shall be taken back by the vendor at no cost to Nirmaan.</li>
+            </ol>
+
+            <h1 style="page-break-before: always; margin-top: 40px;">General Terms & Conditions for Purchase Order</h1>
+            <ol>
+                <li>
+                    <div style="font-weight: bold; margin-bottom: 2px;">Liquidity Damages:</div>
+                    Liquidity damages shall be applied at 2.5% of the order value for every day of delay.
+                </li>
+                <li>
+                    <div style="font-weight: bold; margin-bottom: 2px;">Termination/Cancellation:</div>
+                    If Nirmaan reasonably determines that it can no longer continue business with the vendor in accordance with applicable legal, regulatory, or professional obligations, Nirmaan shall have the right to terminate/cancel this PO immediately.
+                </li>
+                <li>
+                    <div style="font-weight: bold; margin-bottom: 2px;">Other General Conditions:</div>
+                     <ol type="a">
+                        <li>Insurance: All required insurance including, but not limited to, Contractors' All Risk (CAR) Policy, FLEXA cover, and Workmen's Compensation (WC) policy are in the vendor's scope. Nirmaan in any case shall not be made liable for providing these insurance. All required insurances are required prior to the commencement of the work at the site.</li>
+                        <li>Safety: The safety and security of all men deployed and materials placed by the Vendor or its agents for the project shall be at the risk and responsibility of the Vendor. Vendor shall ensure compliance with all safety norms at the site. Nirmaan shall have no obligation or responsibility on any safety, security & compensation related matters for the resources & material deployed by the Vendor or its agent.</li>
+                        <li>Notice: Any notice or other communication required or authorized under this PO shall be in writing and given to the party for whom it is intended at the address given in this PO or such other address as shall have been notified to the other party for that purpose, through registered post, courier, facsimile or electronic mail.</li>
+                        <li>Force Majeure: Neither party shall be liable for any delay or failure to perform if such delay or failure arises from an act of God or of the public enemy, an act of civil disobedience, epidemic, war, insurrection, labor action, or governmental action.</li>
+                        <li>Name use: Vendor shall not use, or permit the use of, the name, trade name, service marks, trademarks, or logo of Nirmaan in any form of publicity, press release, advertisement, or otherwise without Nirmaan's prior written consent.</li>
+                        <li>Arbitration: Any dispute arising out of or in connection with the order shall be settled by Arbitration in accordance with the Arbitration and Conciliation Act,1996 (As amended in 2015). The arbitration proceedings shall be conducted in English in Bangalore by the sole arbitrator appointed by the Purchaser.</li>
+                        <li>The law governing: All disputes shall be governed as per the laws of India and subject to the exclusive jurisdiction of the court in Karnataka.</li>
+                     </ol>
+                </li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="footer-notes">
+        This is a computer-generated Work Order.
+    </div>
+
+</div>

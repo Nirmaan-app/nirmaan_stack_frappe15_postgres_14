@@ -4,6 +4,9 @@ from frappe.utils import cint, getdate
 import frappe.utils.data
 import json
 
+from nirmaan_stack.api.data_table.constants import NOT_SET_FACET_VALUE
+from nirmaan_stack.api.data_table.virtual_fields import virtual_filter
+
 def _parse_json_string_to_list(json_string: str | None, param_name: str, doctype_for_log: str) -> list | None:
     if json_string is None: return None
     if not isinstance(json_string, str): return None
@@ -76,12 +79,9 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
     processed_filters = []
     COMMON_DATE_FIELDS = {"creation", "modified"}
     sql_date_format = "%Y-%m-%d"
-    # Sentinel emitted by the facet "blank"/"not set" bucket (see facets.py
-    # NOT_SET_FACET_VALUE). When present in an `in` filter it means "match rows
-    # where this field is unset", which Frappe expresses as `is not set`
-    # (NULL or ''). No real link/data value equals this string, so this branch
-    # is inert for every other facet.
-    NOT_SET_FACET_VALUE = "__NOT_SET__"
+    # The facet "blank"/"not set" bucket's sentinel (`constants.NOT_SET_FACET_VALUE`). When present in an `in`
+    # filter it means "match rows where this field is unset", which Frappe expresses as `is not set` (NULL or '').
+    # No real link/data value equals this string, so this branch is inert for every other facet.
 
     for f in filters_list:
         if not isinstance(f, list) or len(f) < 3: continue
@@ -99,6 +99,12 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
         else: continue
 
         if not isinstance(field, str) or not field.strip(): continue
+
+        # A virtual field (e.g. an Expense's Bill check) is no column: it narrows by name (`virtual_fields.py`).
+        narrowing = virtual_filter(original_filter_doctype, field, operator, value)
+        if narrowing is not None:
+            processed_filters.append(narrowing)
+            continue
 
         # --- "Not set" facet bucket: handle the sentinel inside an `in` filter ---
         if operator == "in" and isinstance(value, list) and NOT_SET_FACET_VALUE in value:

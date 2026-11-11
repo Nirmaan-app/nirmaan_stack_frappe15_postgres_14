@@ -49,12 +49,24 @@
   "skip_origin",
   "skip_kind",
   "card_refund_partner",
+  "cashbook_refund_partner",
   "outcome_note",
   "duplicate_basis",
   "decided_at",
   "decided_by",
   "settlement_origin",
-  "confirm_by_hand"
+  "confirm_by_hand",
+  "bill_links",
+  "bill_problem",
+  "row_kind",
+  "stored_bill",
+  "bill_check",
+  "bill_check_reason",
+  "read_claimed_at",
+  "read_total",
+  "read_invoice_no",
+  "read_invoice_date",
+  "reader_output"
  ],
  "fields": [
   {
@@ -259,7 +271,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Row Status",
-   "options": "Pending match run\nMatched\nMismatched\nPartially Allocated\nSettled\nSkipped\nError"
+   "options": "Pending match run\nMatched\nMismatched\nPartially Allocated\nSettled\nInternal Transfer\nSkipped\nError"
   },
   {
    "description": "Why this row was skipped. REQUIRED for a manual skip (owner ruling); an automatic skip -- duplicate transfer_id, or a non-SUCCESS transfer -- carries a system-generated reason instead, because making someone retype 'duplicate' forty times is theatre.",
@@ -280,7 +292,7 @@
    "fieldname": "skip_kind",
    "fieldtype": "Select",
    "label": "Skip Kind",
-   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled\nCard payment received\nCard cashback\nCard refund pair\nPaired wallet refund\nUnknown Cashbook type",
    "read_only": 1
   },
   {
@@ -397,12 +409,91 @@
    "label": "Card Refund Partner",
    "options": "Outflow Import Row",
    "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: {\"links\": [...]}, the links to the bills attached to this line, in the statement's order (#1590). Written once, at staging. A dict, never a bare list: a list in a JSON field cannot be saved again.",
+   "fieldname": "bill_links",
+   "fieldtype": "JSON",
+   "label": "Bill Links",
+   "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: why this line's bills were not copied onto its Expense as the invoice (#1591). Blank when they were copied or the line had none.",
+   "fieldname": "bill_problem",
+   "fieldtype": "Small Text",
+   "label": "Bill Not Copied",
+   "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: the line's Type as the statement printed it (Wallet Spend, Collect Payment, ...), written at staging (#1595). Set only on lines staged by the Cashbook Statement import, so it also tells such a line from an older Cashbook line.",
+   "fieldname": "row_kind",
+   "fieldtype": "Data",
+   "label": "Statement Type",
+   "read_only": 1
+  },
+  {
+   "description": "Cashbook Statement only: an open Collect payment's bills, copied at import (merged into one PDF when there are 2 or more) because the links expire in 7 days (#1595). Becomes the invoice of an Expense created from the line.",
+   "fieldname": "stored_bill",
+   "fieldtype": "Attach",
+   "label": "Stored Bill",
+   "read_only": 1
+  },
+  {
+   "description": "A Collect payment's stored bill, checked at import against the line amount (#1642). Its result moves to the Expense bill on Create.",
+   "fieldname": "bill_check",
+   "fieldtype": "Select",
+   "label": "Bill Check",
+   "options": "\nChecking\nMatched\nMismatched\nNot read\nNot checked",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bill_check_reason",
+   "fieldtype": "Small Text",
+   "label": "Bill Check Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_claimed_at",
+   "fieldtype": "Datetime",
+   "label": "Reading Claimed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_total",
+   "fieldtype": "Currency",
+   "label": "Read Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_invoice_no",
+   "fieldtype": "Data",
+   "label": "Read Invoice No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "read_invoice_date",
+   "fieldtype": "Date",
+   "label": "Read Invoice Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reader_output",
+   "fieldtype": "JSON",
+   "label": "Reader Output",
+   "read_only": 1
+  },
+  {
+   "description": "A Cashbook Statement line skipped as a Paired wallet refund: the Txn Id of the other line of the pair (the spend a refund gives back, or the refund that gives back this spend). Written when the import stages the line (#1602).",
+   "fieldname": "cashbook_refund_partner",
+   "fieldtype": "Data",
+   "label": "Cashbook Refund Partner",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-10-25 19:54:04.331794",
+ "modified": "2026-11-07 17:17:11.027016",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

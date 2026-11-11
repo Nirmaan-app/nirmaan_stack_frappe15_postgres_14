@@ -10,11 +10,22 @@ import {
     CashbookPreviewResult,
     DuplicateNotice,
     duplicateNotice,
+    invoiceCountsText,
     isLoneRow,
+    lateBillLabel,
+    lateBillsHeading,
     ledgerSections,
+    openLinesHeading,
+    pairSpendLabel,
+    pairsHeading,
+    reopenedHeading,
+    reopenedLabel,
     typeHint,
     typeLabel,
 } from "../cashbookPreview";
+import { collectPaymentsOf } from "../cashbookCollect";
+import { internalTransfersHeading, recordsToFillText } from "../internalTransferView";
+import { CollectPaymentsReview } from "./CollectPaymentsReview";
 
 /**
  * What a Cashbook statement will create, grouped by where the money is going.
@@ -46,6 +57,18 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
     const [showSkipped, setShowSkipped] = useState(false);
     const sections = ledgerSections(preview.groups);
     const notice = duplicateNotice(preview);
+    const invoices = invoiceCountsText(preview);
+    const pairs = preview.pairs ?? [];
+    const openLines = preview.open_lines ?? [];
+    const pairsTitle = pairsHeading(pairs);
+    const internalLines = preview.internal_transfers ?? [];
+    const internalTitle = internalTransfersHeading(internalLines.length);
+    const fillText = recordsToFillText(preview.records_to_fill ?? 0);
+    const openTitle = openLinesHeading(openLines);
+    const lateBills = preview.late_bills ?? [];
+    const lateTitle = lateBillsHeading(lateBills);
+    const reopened = preview.reopened ?? [];
+    const reopenedTitle = reopenedHeading(reopened);
 
     const toggle = (key: string) =>
         setOpen((current) => {
@@ -72,6 +95,15 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
             </div>
 
             {notice && <RepeatNotice notice={notice} />}
+
+            {/* #1595: Collect payments are highlighted, never recorded by the import. */}
+            <CollectPaymentsReview lines={collectPaymentsOf(preview)} />
+
+            {/* #1591: what becomes of the bills, said before Create. */}
+            {invoices && <p className="text-sm text-muted-foreground">{invoices}</p>}
+
+            {/* Owner decision 2 (#1619): old ₹0 Internal Transfer records this file gives their amount. */}
+            {fillText && <p className="text-sm text-muted-foreground">{fillText}</p>}
 
             {/* Said once, plainly, because it is the thing a reader most needs to know before
                 clicking: this is the last screen, and the correction happens somewhere else. */}
@@ -105,7 +137,126 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                 ))}
             </div>
 
-            {preview.skipping > 0 && (
+            {/* #1594: money that came in. Lines that stay open are shown, never folded away: each is a
+                decision someone still has to make. */}
+            {openTitle && (
+                <div className="rounded-md border border-amber-300 bg-amber-50/40 dark:border-amber-700 dark:bg-amber-950/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{openTitle}</p>
+                    <div className="border-t">
+                        {openLines.map((row) => (
+                            <div
+                                key={row.transfer_id || row.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums">
+                                    {formatToRoundedIndianRupee(row.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">{row.reason}</span>
+                                    <span className="block truncate text-muted-foreground">
+                                        {[row.row_kind, row.transfer_id, row.remarks].filter(Boolean).join(" · ")}
+                                    </span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1596: lines an earlier import wrongly skipped as own balances, re-opened in the import that holds them.
+                Each is also listed under what it becomes. */}
+            {reopenedTitle && (
+                <div className="rounded-md border border-amber-300 bg-amber-50/40 dark:border-amber-700 dark:bg-amber-950/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{reopenedTitle}</p>
+                    <div className="border-t">
+                        {reopened.map((line) => (
+                            <div
+                                key={line.transfer_id || line.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums">
+                                    {formatToRoundedIndianRupee(line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">{reopenedLabel(line)}</span>
+                                    <span className="block truncate text-muted-foreground">{line.reason}</span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1593: existing Expenses that get a bill from a line already imported. */}
+            {lateTitle && (
+                <div className="rounded-md border bg-muted/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{lateTitle}</p>
+                    <div className="border-t">
+                        {lateBills.map((line) => (
+                            <div key={line.expense} className="flex items-baseline gap-3 px-3 py-1.5 text-xs">
+                                <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {formatToRoundedIndianRupee(line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{lateBillLabel(line)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1623, owner decision 7 (#1619): Cashbook's own moves, on their own, as the card Review lists them. */}
+            {internalTitle && (
+                <div className="rounded-md border bg-muted/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{internalTitle}</p>
+                    <div className="border-t">
+                        {internalLines.map((line) => (
+                            <div
+                                key={line.transfer_id || line.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {formatToRoundedIndianRupee(line.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">
+                                        {[line.row_kind, line.transfer_id].filter(Boolean).join(" · ")}
+                                    </span>
+                                    <span className="block truncate text-muted-foreground">{line.reason}</span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* #1594: each Paired wallet refund, the refund beside the spend it cancels. */}
+            {pairsTitle && (
+                <div className="rounded-md border bg-muted/20">
+                    <p className="px-2 py-1.5 text-xs font-semibold">{pairsTitle}</p>
+                    <div className="border-t">
+                        {pairs.map((pair) => (
+                            <div
+                                key={pair.refund.transfer_id || pair.refund.row_number}
+                                className="flex items-baseline gap-3 px-3 py-1.5 text-xs"
+                            >
+                                <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">
+                                    {formatToRoundedIndianRupee(pair.refund.amount)}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                    <span className="block truncate">
+                                        {pair.refund.row_kind || "Refund"} {pair.refund.transfer_id}
+                                    </span>
+                                    <span className="block truncate text-muted-foreground">
+                                        gives back {pairSpendLabel(pair)}
+                                    </span>
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {preview.skipped.length > 0 && (
                 <div className="rounded-md border bg-muted/20">
                     <button
                         type="button"
@@ -121,7 +272,7 @@ export const CashbookReviewTree = ({ preview }: { preview: CashbookPreviewResult
                             Not importing
                         </span>
                         <span className="text-xs text-muted-foreground">
-                            · {preview.skipping} {preview.skipping === 1 ? "row" : "rows"}
+                            · {preview.skipped.length} {preview.skipped.length === 1 ? "row" : "rows"}
                         </span>
                     </button>
                     {showSkipped && (

@@ -33,6 +33,8 @@ from unittest import mock
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
+
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     _match_order,
@@ -323,6 +325,7 @@ class OutflowReviewFixture(unittest.TestCase):
     def _purge_fixtures(cls):
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         for name in cls.payments:
@@ -3969,6 +3972,30 @@ class TestTheConfirmableCap(OutflowReviewFixture):
         self.assertIsInstance(get_confirmable_rows(batch=self.batch.name)["ready"], list)
 
 
+def statement_month(batch_name: str) -> str:
+    """The Statement month ("YYYY-MM") `list_imports` files this batch under: the first month its
+    period overlaps, read in `review._STATEMENT_START`'s order (period, then upload date, then creation)."""
+    b = frappe.db.get_value(
+        BATCH_DOCTYPE, batch_name, ["period_from", "period_to", "uploaded_at", "creation"], as_dict=True
+    )
+    return frappe.utils.getdate(b.period_from or b.period_to or b.uploaded_at or b.creation).strftime("%Y-%m")
+
+
+def history_page(batch_name: str, **kwargs) -> list:
+    """`list_imports` narrowed to this batch's Statement month (#1607).
+
+    ⚠️ NEVER `list_imports(limit=200)` AND A SEARCH FOR THE TEST'S BATCH. That page is the newest 200
+    statements of the whole site, so once the site holds 200 newer ones the test's batch is not on it
+    and the test fails on how much data the DB holds. A month lifts the cap and returns its batches whole.
+    """
+    return list_imports(month=statement_month(batch_name), **kwargs)
+
+
+def history_row(batch_name: str) -> dict:
+    """This batch's row of the History list (see `history_page`)."""
+    return next(b for b in history_page(batch_name) if b["name"] == batch_name)
+
+
 class TestTheImportReadingOrder(unittest.TestCase):
     """`list_imports` -- the picker's order (slice CF/S3).
 
@@ -4013,12 +4040,12 @@ class TestTheImportReadingOrder(unittest.TestCase):
         to it later -- above a statement covering four months more recent transfers. The label a
         reader scans for is the period.
         """
-        order = [b["name"] for b in list_imports(limit=200)]
+        # Both periods start in January 2026, so one month's page holds both.
+        order = [b["name"] for b in history_page(self.march.name)]
         self.assertLess(order.index(self.july.name), order.index(self.march.name))
 
     def test_it_carries_the_source_so_the_picker_can_be_narrowed(self):
-        rows = {b["name"]: b for b in list_imports(limit=200)}
-        self.assertEqual(rows[self.july.name]["source"], "Cashfree")
+        self.assertEqual(history_row(self.july.name)["source"], "Cashfree")
 
     def test_a_batch_with_no_rows_still_appears_at_zero(self):
         """⚠️ `LEFT JOIN`, NOT `JOIN` (slice CF/S4).
@@ -4027,7 +4054,7 @@ class TestTheImportReadingOrder(unittest.TestCase):
         it would make that failure invisible on the only screen that lists imports as imports -- and
         these fixtures are precisely that shape, which is what makes this assertion meaningful.
         """
-        rows = {b["name"]: b for b in list_imports(limit=200)}
+        rows = {b["name"]: b for b in history_page(self.july.name)}
         self.assertIn(self.july.name, rows)
         self.assertEqual(rows[self.july.name]["successful_rows"], 0)
 
@@ -4092,13 +4119,14 @@ class TestTheImportListNarrowsBySourceOnTheServer(unittest.TestCase):
         self.assertEqual({(r["source"] or "").strip() for r in rows} - {"", self.ICICI}, set())
 
     def test_sources_arrive_as_json_from_a_get_call(self):
-        rows = list_imports(limit=200, sources=json.dumps([self.ICICI]))
+        rows = history_page(self.old_icici.name, sources=json.dumps([self.ICICI]))
         self.assertIn(self.old_icici.name, [r["name"] for r in rows])
         self.assertNotIn("Cashfree", {r["source"] for r in rows})
 
     def test_no_sources_means_every_source(self):
         for empty in (None, "", "[]", []):
-            names = [b["name"] for b in list_imports(limit=200, sources=empty)]
+            # Every fixture's period starts in January 1990, so that month's page holds them all.
+            names = [b["name"] for b in history_page(self.old_icici.name, sources=empty)]
             self.assertTrue(set(self.made) <= set(names), empty)
 
 
@@ -4203,7 +4231,7 @@ class TestTheHistoryFigures(OutflowReviewFixture):
         an amount that never contained them would put a count and a figure describing DIFFERENT
         populations on one line -- the same defect as a chip reading 20 that opens a list of 47.
         """
-        row = next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
+        row = history_row(self.batch.name)
 
         failed = sum(1 for r in self.parsed.rows if not r.is_success)
         self.assertGreater(failed, 0, "fixture precondition: the sample has a refused transfer")
@@ -4222,7 +4250,7 @@ class TestTheHistoryFigures(OutflowReviewFixture):
         money no stored row carries, beside a `successful_rows` that excludes it. The whole-file
         figure is asserted ABSENT so it cannot come back quietly.
         """
-        row = next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
+        row = history_row(self.batch.name)
         repeat = self.parsed.rows[-1]
         self.assertTrue(repeat.is_success, "fixture precondition: the in-file repeat succeeded")
         self.assertEqual(
@@ -4283,12 +4311,13 @@ class TestTheHistoryCountFollowsTheDirectionSplit(unittest.TestCase):
         frappe.db.commit()
 
     def tearDown(self):
+        purge_internal_transfers(self.batch.name)
         frappe.db.delete(ROW_DOCTYPE, {"import_batch": self.batch.name})
         frappe.db.delete(BATCH_DOCTYPE, {"name": self.batch.name})
         frappe.db.commit()
 
     def _row(self):
-        return next(b for b in list_imports(limit=200) if b["name"] == self.batch.name)
+        return history_row(self.batch.name)
 
     def test_a_money_in_line_is_out_of_the_count_the_way_it_is_out_of_the_amount(self):
         row = self._row()
@@ -4510,8 +4539,8 @@ class TestTheSettledLedgerSplit(OutflowReviewFixture):
         )
         # Received carries its OWN books, plus the anomaly. `Non Project Inflows` since #1266,
         # `Vendor Refunds` since. `Non Project Expenses` left it (owner ruling 2026-09-24,
-        # services/outflow_import/ledgers.RECEIVED_LEDGER_DOCTYPES): no receipt reaches that book,
-        # and a leftover row of the removed receipt path lands in `Other`, as this one does.
+        # services/outflow_import/ledgers.RECEIVED_LEDGER_DOCTYPES); a credit there is a card refund
+        # (#1675). This row settled a `Project Payment`, which no credit reaches, so it lands in `Other`.
         received = by_direction["Received"]
         self.assertEqual(received["rows"], 1)
         self.assertEqual(
@@ -5185,6 +5214,7 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
             r for r in self._bank_row_list()
             if r["name"] != already_paid
             and "bank-statement rule" not in (r["skip_reason"] or "")
+            and "bank-statement rule" not in (r["outcome_note"] or "")
         ]
         self.assertEqual(len(untouched), 14)
         self.assertEqual({r["row_status"] for r in untouched}, {ROW_MISMATCHED})
@@ -5196,14 +5226,16 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
         self.assertEqual(note, STAGED_NOTE_NO_SETTLEMENT_PATH)
         self.assertNotIn("No approved payment", note)
 
-    def test_the_run_does_not_disturb_the_rows_the_exclusions_already_skipped(self):
+    def test_the_run_does_not_disturb_the_rows_the_exclusions_already_decided(self):
+        """⚠️ CHANGED AT #1621 (spec #1619): the fixture's five recognised lines are our own money moving
+        between our own places, so they are Internal Transfer lines now, not Skipped. The run leaves them so."""
         excluded = [
             r for r in self._bank_row_list()
-            if "bank-statement rule" in (r["skip_reason"] or "")
+            if "bank-statement rule" in (r["outcome_note"] or "")
         ]
         self.assertEqual(len(excluded), 5)
         for row in excluded:
-            self.assertEqual(row["row_status"], ROW_SKIPPED)
+            self.assertEqual(row["row_status"], "Internal Transfer")
 
     # --- the properties the run has always had ---------------------------------------------------
 

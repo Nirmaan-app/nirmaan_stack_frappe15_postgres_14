@@ -28,7 +28,7 @@ THE STEPS
 and every other settlement entry point are out of reach (`NEVER_MATCHED_SOURCES`, and an AST test).
 The generic Cashfree/ICICI upload is not reused either: it assumes matching, and it refuses this source.
 
-⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `save_file` commits inside the request (the cloud
+⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `store_file` commits inside the request (the cloud
 attachment hook), so every refusal -- a missing column, no rows, an invoice whose lines disagree, an
 invoice-level repeat (`porter_repeats`) -- happens before it.
 
@@ -42,7 +42,6 @@ from dataclasses import asdict
 
 import frappe
 from frappe.utils import getdate
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
@@ -82,6 +81,7 @@ from nirmaan_stack.services.outflow_import.porter_state import (
 from nirmaan_stack.services.outflow_import.porter_verdict import invoice_date_window, warnings_from_stored
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
+from nirmaan_stack.services.stored_files import store_file
 
 
 @frappe.whitelist(methods=["POST"])
@@ -111,7 +111,7 @@ def upload_porter_statement():
     master = placement_master()
 
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
-    saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
+    saved = store_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
     batch = stage(
         judged.statement,
         master,

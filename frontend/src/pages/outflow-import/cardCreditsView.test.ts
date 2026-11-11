@@ -2,7 +2,13 @@
 // upload, each with its reason.
 import { describe, expect, it } from "vitest";
 
-import { cardSkippedLines, cardWorkLines, cardSkippedSummary } from "./cardCreditsView";
+import {
+    cardInternalTransferLines,
+    cardRefundLines,
+    cardSkippedLines,
+    cardSkippedSummary,
+    cardWorkLines,
+} from "./cardCreditsView";
 import type { CardImportLine } from "./creditCardImport";
 
 const line = (over: Partial<CardImportLine>): CardImportLine => ({
@@ -20,6 +26,7 @@ const line = (over: Partial<CardImportLine>): CardImportLine => ({
     type_source: null,
     check: false,
     editable: false,
+    is_refund: false,
     expense: null,
     outcome_note: null,
     ...over,
@@ -35,7 +42,14 @@ const lines = [
         skip_kind: "Card payment received",
         skip_reason: "Card payment received. Money paid into the card to clear its bill.",
     }),
-    line({ name: "C", is_credit: true, row_status: "Mismatched", details: "MAKEMYTRIP(INDIA) P Gurgaon IN" }),
+    // An unpaired card refund (#1673): Create's work, listed under Refunds.
+    line({
+        name: "C",
+        is_credit: true,
+        is_refund: true,
+        row_status: "Pending match run",
+        details: "MAKEMYTRIP(INDIA) P Gurgaon IN",
+    }),
     line({
         name: "D",
         is_credit: true,
@@ -46,8 +60,15 @@ const lines = [
 ];
 
 describe("Review's lines", () => {
-    it("★ the work: every line not skipped, the open credit too, in statement order", () => {
-        expect(cardWorkLines({ lines }).map((l) => l.name)).toEqual(["A", "C"]);
+    it("★ the work: every spend not skipped, in statement order; the refund is listed on its own", () => {
+        expect(cardWorkLines({ lines }).map((l) => l.name)).toEqual(["A"]);
+        expect(cardRefundLines({ lines }).map((l) => l.name)).toEqual(["C"]);
+    });
+
+    it("a refund pair's credit is skipped, never listed as a refund", () => {
+        const pair = line({ name: "P", is_credit: true, is_refund: true, row_status: "Skipped", skip_kind: "Card refund pair" });
+        expect(cardRefundLines({ lines: [pair] })).toEqual([]);
+        expect(cardSkippedLines({ lines: [pair] }).map((l) => l.name)).toEqual(["P"]);
     });
 
     it("★ the skipped lines, each with its kind and reason", () => {
@@ -60,5 +81,24 @@ describe("Review's lines", () => {
     it("says how many were skipped and why", () => {
         expect(cardSkippedSummary({ lines })).toBe("2 lines skipped: 1 Card payment received, 1 Card cashback");
         expect(cardSkippedSummary({ lines: [lines[0]] })).toBeNull();
+    });
+});
+
+describe("the auto-debit credit (#1624)", () => {
+    const withAutoDebit = [
+        ...lines,
+        line({
+            name: "E",
+            is_credit: true,
+            details: "Autodebit Payment Recd.",
+            row_status: "Internal Transfer",
+            outcome_note: "Internal Transfer from ICICI Current Account to ICICI Credit Card (Card ending 1111).",
+        }),
+    ];
+
+    it("is listed under Internal transfers, not as work and not as skipped", () => {
+        expect(cardInternalTransferLines({ lines: withAutoDebit }).map((l) => l.name)).toEqual(["E"]);
+        expect(cardWorkLines({ lines: withAutoDebit }).map((l) => l.name)).toEqual(["A"]);
+        expect(cardSkippedLines({ lines: withAutoDebit }).map((l) => l.name)).toEqual(["B", "D"]);
     });
 });

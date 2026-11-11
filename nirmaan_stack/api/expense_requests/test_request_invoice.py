@@ -23,6 +23,7 @@ from nirmaan_stack.api.expense_requests.review import approve_expense_request, r
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.expense_decision import decide
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_inv_test_pm@example.com"
 PM2_USER = "exr_inv_test_pm2@example.com"
@@ -67,7 +68,7 @@ def _make_type(fmt):
 	return name
 
 
-class TestRequestInvoice(FrappeTestCase):
+class TestRequestInvoice(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

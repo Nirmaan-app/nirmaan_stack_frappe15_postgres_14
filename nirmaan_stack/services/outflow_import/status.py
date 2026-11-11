@@ -87,7 +87,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 # ⚠️ THE ONE IMPORT THIS MODULE MAY MAKE FROM ITS OWN PACKAGE, and it was added to fix a live defect.
 # The already-Paid branch below used EXACT equality while every other amount comparison in the
@@ -147,6 +147,7 @@ __all__ = [
     "ROW_PARTIALLY_ALLOCATED",
     "ROW_SETTLED",
     "ROW_SKIPPED",
+    "ROW_INTERNAL_TRANSFER",
     "ROW_ERROR",
     "settleable_candidates",
     "ROW_STATUSES",
@@ -178,6 +179,7 @@ __all__ = [
     "SUMMARY_EXCLUDED_STATUSES",
     "SettledLedgerEntry",
     "derive_settled_ledger_split",
+    "SETTLED_LEDGER_CARD_REFUNDS",
     "SETTLED_LEDGER_OTHER",
     "ROW_DIRECTION_CREDIT",
     "SETTLED_BLOCK_RECEIVED",
@@ -199,6 +201,8 @@ __all__ = [
     "SKIP_REASON_CARD_REFUND",
     "SKIP_REASON_CARD_REFUNDED_SPEND",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
+    "INTERNAL_TRANSFER_REFUSAL",
+    "internal_transfer_refusal",
     "SKIP_ORIGIN_SYSTEM",
     "SKIP_ORIGIN_MANUAL",
     "SKIP_ORIGINS",
@@ -219,6 +223,11 @@ ROW_PARTIALLY_ALLOCATED = "Partially Allocated"
 ROW_SETTLED = "Settled"
 ROW_SKIPPED = "Skipped"
 ROW_ERROR = "Error"
+# The company's own money moving between two of its own places (spec #1619, ADR-0044): a wallet top-up, the
+# bank's own ledger move, a card bill, Cashbook's own moves. FINAL, like Settled: the line has a record (its
+# `Internal Transfer`) and nobody owes it a decision. It is not Skipped -- Skipped means "nothing to record" --
+# and not Settled, so no Settled reader (tabs, ledgers, matcher) counts it.
+ROW_INTERNAL_TRANSFER = "Internal Transfer"
 
 # Who set a `Skipped` line aside (#1273). The doctype's `skip_origin` Select carries exactly these, in
 # this order; blank means the line is not Skipped.
@@ -244,6 +253,7 @@ ROW_STATUSES = (
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
+    ROW_INTERNAL_TRANSFER,
     ROW_SKIPPED,
     ROW_ERROR,
 )
@@ -254,7 +264,7 @@ ROW_STATUSES = (
 # terminal, because reporting it WAS the whole job. Under v3 the import settles, so a row that
 # found something and has not been confirmed is unfinished work -- `Matched` and `Mismatched` are
 # both OPEN. Only a row we wrote (`Settled`) or deliberately declined (`Skipped`) is done.
-TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED})
+TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER})
 
 # Open = a person still owes this row a decision. Everything that is not terminal.
 OPEN_ROW_STATUSES = frozenset({ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR})
@@ -297,7 +307,10 @@ ACTIVE_ROW_STATUSES = OPEN_ROW_STATUSES | {ROW_PARTIALLY_ALLOCATED}
 # `skipped_value` are unchanged -- the rows are excluded from the TOTALS, never hidden. That is the
 # same shape option B chose for failed transfers: the evidence survives, its effect on the figures
 # does not.
-SUMMARY_EXCLUDED_STATUSES = frozenset({ROW_SKIPPED})
+#
+# `Internal Transfer` leaves them too (#1620): these lines were Skipped until spec #1619, and the panel's
+# totals must not move because they got a status of their own. They have their own figure instead (#1625).
+SUMMARY_EXCLUDED_STATUSES = frozenset({ROW_SKIPPED, ROW_INTERNAL_TRANSFER})
 
 BATCH_DRAFT = "Draft"
 BATCH_IN_REVIEW = "In Review"
@@ -313,6 +326,34 @@ BATCH_STATUSES = (BATCH_DRAFT, BATCH_IN_REVIEW, BATCH_PARTIALLY_SETTLED, BATCH_C
 
 SKIP_REASON_NOT_SUCCESSFUL = "Transfer did not succeed at the bank ({status})."
 SKIP_REASON_ALREADY_IMPORTED = "Already imported in batch {batch}."
+# A Cashbook line whose Txn Id another line already created an Expense for (spec #1585 C, #1588): the
+# database's one-Expense-per-Txn-Id index refused the create. `{records}` is "<ledger> <name>". Written by
+# the job as a system skip, and the sentence a refused hand Create shows. Same prefix as the line above, so
+# `skip_kind_backfill` and `skip_origin` read it as "Already imported".
+SKIP_REASON_ALREADY_IMPORTED_AS = "Already imported in batch {batch} as {records}."
+# A hand Link of a Cashbook line whose Txn Id another line already holds Settled to a DIFFERENT Expense (#1601):
+# the same index refused the Link's match row. `{records}` is "<ledger> <name>", `{target}` the Expense the person
+# picked. A refusal sentence on the screen, never a skip, so it does not start "Already imported". It does not say
+# "Nothing was linked.": the Link dialog prints that before every refusal.
+LINK_REFUSED_TXN_ID_HELD = (
+    "Txn Id {transfer_id} is already recorded as {records}, in batch {batch}, so it cannot be linked to "
+    "{target} as well: one wallet spend has one expense. To link it here instead, Unreconcile that line "
+    "first."
+)
+# A hand Link of a line whose Txn Id another line already ties, Settled, to the SAME record the person picked (#1606):
+# `ofm_match_settled_target_unique` (every source) refused the Link's match row. `{records}` is "<ledger> <name>",
+# `{line}` and `{batch}` the line that holds it. A refusal sentence on the screen, never a skip; like
+# `LINK_REFUSED_TXN_ID_HELD` it does not say "Nothing was linked.", which the Link dialog prints before it.
+LINK_REFUSED_ALREADY_LINKED = (
+    "Txn Id {transfer_id} is already linked to {records} by line {line}, in batch {batch}, so it cannot be linked "
+    "to it a second time: one transfer settles a record once. Skip this line, or Unreconcile that one first."
+)
+# A many-line Link whose ticked lines include two of one Txn Id, neither yet linked (#1611): an index refused the second
+# line's match row inside the same request, so no committed line holds it. `{records}` is "<ledger> <name>".
+LINK_REFUSED_TXN_ID_TICKED_TWICE = (
+    "Txn Id {transfer_id} is on more than one of the lines you ticked, so it cannot be linked to {records} more than "
+    "once: one transfer settles a record once. Untick all but one of those lines."
+)
 SKIP_REASON_DUPLICATE_IN_FILE = "This transfer appears earlier in the same statement."
 # ADR-0031: at upload an EXACT repeat (same bank status) is not saved at all, so the only repeat that
 # is ever staged is one whose bank status CHANGED -- and the reason names both statuses. The prefix up
@@ -361,6 +402,13 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
     "Excluded by bank-statement rule '{category}'."
 )
 
+# A line the category table calls an Internal Transfer (#1621). `{category}` is the rule id, as in the skip
+# sentence above, so the rule that fired stays readable on the line.
+STAGED_NOTE_INTERNAL_TRANSFER = (
+    "Internal Transfer: our own money moving between our own accounts. "
+    "Recognised by bank-statement rule '{category}'."
+)
+
 # A Porter Statement order Porter cancelled (spec #1442, ADR-0032): staged Skipped and locked at upload,
 # beside its skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`). Porter's invoice never bills it.
 SKIP_REASON_PORTER_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
@@ -378,6 +426,19 @@ SKIP_REASON_CARD_REFUND = (
 SKIP_REASON_CARD_REFUNDED_SPEND = (
     "Card refund pair: this spend is cancelled by the merchant credit {partner}. Neither line becomes a record."
 )
+
+# What every hand action says about an `Internal Transfer` line (#1620): Skip, Unskip, Unreconcile, bulk
+# Unreconcile, Link, Allocate, Create and Confirm. `{action}` is the action as a past participle ("skipped").
+INTERNAL_TRANSFER_REFUSAL = (
+    "This line is an Internal Transfer (our own money moving between our own accounts), so it can't be "
+    "{action}. If it is not one, Send back to Mismatched first."
+)
+
+
+def internal_transfer_refusal(action: str) -> str:
+    """The refusal for an `Internal Transfer` line, naming the action refused."""
+    return INTERNAL_TRANSFER_REFUSAL.format(action=action)
+
 
 # The landing note for a source that stages straight to `Mismatched` (slice B3, owner ruling Q31).
 #
@@ -402,6 +463,7 @@ STAGED_NOTE_NO_SETTLEMENT_PATH = (
 SYSTEM_SKIP_SENTENCES = (
     SKIP_REASON_NOT_SUCCESSFUL,
     SKIP_REASON_ALREADY_IMPORTED,
+    SKIP_REASON_ALREADY_IMPORTED_AS,
     SKIP_REASON_DUPLICATE_IN_FILE,
     SKIP_REASON_ALREADY_PAID,
     SKIP_REASON_ALREADY_RECEIVED,
@@ -465,6 +527,7 @@ def derive_staged_row_outcome(
     excluded_category: str = "",
     no_settlement_path: bool = False,
     earlier_bank_status: str = "",
+    internal_transfer: bool = False,
 ) -> RowOutcome:
     """The outcome a row gets AT UPLOAD, before any matching has run.
 
@@ -514,6 +577,14 @@ def derive_staged_row_outcome(
     imported" instead of naming the ten rules, destroying the per-category counts that
     `bank_exclusions` says are what makes a new narration form noticeable.
     """
+    # `internal_transfer` (#1621, spec #1619): the caller's category table
+    # (`internal_transfers.bank_line_transfer`) says this recognised line is our own money moving between our
+    # own places. Same precedence as the skip it replaces -- first, ahead of both duplicate checks -- so a
+    # status-changed repeat of such a line is an Internal Transfer line too; the caller makes no second record.
+    if excluded_category and internal_transfer:
+        return RowOutcome(
+            ROW_INTERNAL_TRANSFER, STAGED_NOTE_INTERNAL_TRANSFER.format(category=excluded_category)
+        )
     if excluded_category:
         return RowOutcome(
             ROW_SKIPPED,
@@ -1700,6 +1771,13 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
 # than silently dropped.
 SETTLED_LEDGER_OTHER = "Other"
 
+# The Received block's name for a credit settled into `Non Project Expenses` (#1675). The only writer
+# of such a row is a card import's Create, which records an *Unpaired card refund* as a negative
+# `Non Project Expense` (#1673); the removed B7 path left no such row (2026-11-07 data: 0). Like
+# `Other`, it shows only when it holds rows, so a bank statement's Received block never carries it.
+SETTLED_LEDGER_CARD_REFUNDS = "Card refunds"
+RECEIVED_NAMED_LEDGERS = {NON_PROJECT_EXPENSE_DOCTYPE: SETTLED_LEDGER_CARD_REFUNDS}
+
 
 @dataclass(frozen=True)
 class SettledLedgerEntry:
@@ -1741,6 +1819,7 @@ class SettledLedgerEntry:
 def derive_settled_ledger_split(
     entries: Iterable[SettledLedgerEntry],
     ledgers: Sequence[str] = LEDGER_DOCTYPES,
+    named: Mapping[str, str] | None = None,
 ) -> list[dict]:
     """The settled rows broken down by the ledger the money actually landed in.
 
@@ -1773,6 +1852,9 @@ def derive_settled_ledger_split(
     whitespace-only ledgers fold in here too -- a settled row whose match record could not be read
     is exactly the fact worth surfacing.
 
+    `named` maps a ledger outside `ledgers` to a line of its own name, shown like `Other` only when it
+    holds rows and placed before it (the Received block's "Card refunds", #1675).
+
     Everything is summed as `Decimal`, never float: these are money figures and the summary they sit
     beside is `Decimal` throughout.
     """
@@ -1780,14 +1862,21 @@ def derive_settled_ledger_split(
     buckets: dict[str, dict] = {
         ledger: {"ledger": ledger, "rows": 0, "value": Decimal("0")} for ledger in order
     }
+    extra = {
+        ledger: {"ledger": label, "rows": 0, "value": Decimal("0")}
+        for ledger, label in (named or {}).items()
+        if ledger not in buckets
+    }
     other = {"ledger": SETTLED_LEDGER_OTHER, "rows": 0, "value": Decimal("0")}
 
     for entry in entries:
-        bucket = buckets.get((entry.ledger or "").strip(), other)
+        key = (entry.ledger or "").strip()
+        bucket = buckets.get(key) or extra.get(key) or other
         bucket["rows"] += entry.count
         bucket["value"] += entry.value
 
     split = [buckets[ledger] for ledger in order]
+    split.extend(bucket for bucket in extra.values() if bucket["rows"])
     if other["rows"]:
         split.append(other)
     return split
@@ -1884,18 +1973,22 @@ def derive_settled_direction_blocks(
         target.append(entry)
 
     paid = _settled_block(SETTLED_BLOCK_PAID, paid_entries, LEDGER_DOCTYPES)
-    received = _settled_block(SETTLED_BLOCK_RECEIVED, received_entries, RECEIVED_LEDGER_DOCTYPES)
+    received = _settled_block(
+        SETTLED_BLOCK_RECEIVED, received_entries, RECEIVED_LEDGER_DOCTYPES, RECEIVED_NAMED_LEDGERS
+    )
     return [paid, received] if received["rows"] else [paid]
 
 
-def _settled_block(direction: str, entries: Sequence[SettledLedgerEntry], ledgers) -> dict:
+def _settled_block(
+    direction: str, entries: Sequence[SettledLedgerEntry], ledgers, named: Mapping[str, str] | None = None
+) -> dict:
     """One block: its ledger lines, and the total THOSE LINES add up to.
 
     The total is summed from `split`, never from `entries`, and the difference is the whole point:
     summing the input would produce a figure the rendered lines could disagree with the day an entry
     stopped reaching a bucket. Summing the output cannot.
     """
-    split = derive_settled_ledger_split(entries, ledgers)
+    split = derive_settled_ledger_split(entries, ledgers, named)
     return {
         "direction": direction,
         "rows": sum(bucket["rows"] for bucket in split),

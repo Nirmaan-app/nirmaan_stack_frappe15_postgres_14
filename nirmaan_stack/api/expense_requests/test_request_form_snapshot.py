@@ -26,6 +26,7 @@ from nirmaan_stack.api.expense_requests.review import approve_expense_request
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.update import update_expense_request
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_snap_test_pm@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -57,7 +58,7 @@ def _answers(fmt, **detail):
 	        "responses": {"detail": detail}}
 
 
-class TestARequestReadsAgainstItsOwnForm(FrappeTestCase):
+class TestARequestReadsAgainstItsOwnForm(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

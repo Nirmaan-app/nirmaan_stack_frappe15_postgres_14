@@ -9,29 +9,16 @@
  * a statement spans months, so it is not one column value to filter on.
  *
  * The summary card totals exactly the rows the table shows. Attach invoice reuses the expense invoice dialog
- * in its card mode (file required, number and date optional); No invoice asks for a typed reason. Either way
- * the spend leaves the list, so the list is refetched after each.
+ * in its card mode (file required, number and date optional); No invoice asks for a typed reason. The list, the
+ * two actions and their dialogs are the shell every expense queue shares (`InvoiceQueue.tsx`).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 
 import { DataTable } from "@/components/data-table/new-data-table";
-import {
-    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-    AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/use-toast";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import {
-    type CardInvoiceValues,
-    UpdateInvoiceDetailsDialog,
-} from "@/pages/NonProjectExpenses/components/UpdateInvoiceDetailsDialog";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { CARD_INVOICE_DATE_COLUMNS, CARD_INVOICE_SEARCHABLE_FIELDS } from "../config/cardInvoicesTable.config";
@@ -45,47 +32,37 @@ import {
     summariseCardSpendsByType,
 } from "../utils/cardInvoicesView";
 import { getCardInvoiceColumns } from "./cardInvoiceColumns";
+import { InvoiceQueueDialogs, type QueueTarget, useInvoiceQueue } from "./InvoiceQueue";
 import { CardSpendsSummaryCard } from "./PendingUploadSummaryCards";
 
-const API = "nirmaan_stack.api.expenses.card_invoices";
+const ENDPOINTS = {
+    api: "nirmaan_stack.api.expenses.card_invoices",
+    list: "get_card_invoice_queue",
+    attach: "attach_card_invoice",
+    noInvoice: "mark_card_no_invoice",
+    cacheKey: "card-invoice-queue",
+    targetArgs: (target: QueueTarget) => ({ expense: target.name }),
+};
+
+const cardSpend = (name: string): QueueTarget => ({ name, doctype: "Non Project Expenses" });
 
 export const CardInvoiceUploads: React.FC = () => {
     const { role, user_id } = useUserData();
     const actions = useMemo(() => cardInvoiceActions(role, user_id), [role, user_id]);
-    const { toast } = useToast();
+    const queue = useInvoiceQueue<CardInvoiceRow>(ENDPOINTS);
+    const { rows, setAttaching, openNoInvoice } = queue;
 
-    const { data, error, isLoading, mutate } = useFrappeGetCall<{ message: CardInvoiceRow[] }>(
-        `${API}.get_card_invoice_queue`, undefined, "card-invoice-queue",
-    );
-    const rows = useMemo(() => data?.message ?? [], [data]);
     const { months } = useMemo(() => cardInvoiceFilterOptions(rows), [rows]);
     const [month, setMonth] = useState<string>(ALL);
     // Statement month narrows the list before the table sees it; the table's own filters narrow it further.
     const monthRows = useMemo(() => filterCardInvoices(rows, { holder: ALL, month }), [rows, month]);
 
-    const { call: attach } = useFrappePostCall(`${API}.attach_card_invoice`);
-    const { call: markNoInvoice, loading: marking } = useFrappePostCall(`${API}.mark_card_no_invoice`);
-
-    // The dialogs hold the spend's NAME, never a row snapshot.
-    const [attaching, setAttaching] = useState<string | null>(null);
-    // A stable object: the dialog resets its form whenever `expense` changes identity.
-    const attachingExpense = useMemo(
-        () => attaching
-            ? { name: attaching, invoice_date: undefined, invoice_ref: undefined, invoice_attachment: undefined, porter_order: null }
-            : null,
-        [attaching],
-    );
-    const [noInvoiceFor, setNoInvoiceFor] = useState<string | null>(null);
-    const [reason, setReason] = useState("");
-
-    const openNoInvoice = useCallback((name: string) => {
-        setReason("");
-        setNoInvoiceFor(name);
-    }, []);
+    const onAttach = useCallback((name: string) => setAttaching(cardSpend(name)), [setAttaching]);
+    const onNoInvoice = useCallback((name: string) => openNoInvoice(cardSpend(name)), [openNoInvoice]);
 
     const columns = useMemo(
-        () => getCardInvoiceColumns({ actions, onAttach: setAttaching, onNoInvoice: openNoInvoice }),
-        [actions, openNoInvoice],
+        () => getCardInvoiceColumns({ actions, onAttach, onNoInvoice }),
+        [actions, onAttach, onNoInvoice],
     );
 
     const {
@@ -133,30 +110,10 @@ export const CardInvoiceUploads: React.FC = () => {
         };
     }, [monthRows]);
 
-    const saveInvoice = useCallback(
-        async (values: CardInvoiceValues) => {
-            if (!attaching) return;
-            await attach({ expense: attaching, ...values });
-        },
-        [attach, attaching],
-    );
-
-    const submitNoInvoice = async () => {
-        if (!noInvoiceFor || !reason.trim()) return;
-        try {
-            await markNoInvoice({ expense: noInvoiceFor, reason });
-            toast({ title: "Marked No invoice", description: noInvoiceFor, variant: "success" });
-            setNoInvoiceFor(null);
-            mutate();
-        } catch (e) {
-            toast({ title: "Could not mark No invoice", description: getFrappeError(e), variant: "destructive" });
-        }
-    };
-
-    if (error) {
-        return <div className="py-10 text-center text-sm text-destructive">{getFrappeError(error) || "Could not load card spends."}</div>;
+    if (queue.error) {
+        return <div className="py-10 text-center text-sm text-destructive">{getFrappeError(queue.error) || "Could not load card spends."}</div>;
     }
-    if (isLoading && !data) {
+    if (queue.isLoading) {
         return <TableSkeleton />;
     }
 
@@ -192,38 +149,7 @@ export const CardInvoiceUploads: React.FC = () => {
                 showRowSelection={false}
             />
 
-            {attachingExpense && (
-                <UpdateInvoiceDetailsDialog
-                    isOpen
-                    setIsOpen={(open) => { if (!open) setAttaching(null); }}
-                    expense={attachingExpense}
-                    doctype="Non Project Expenses"
-                    cardSave={saveInvoice}
-                    onSuccess={() => mutate()}
-                />
-            )}
-
-            <AlertDialog open={!!noInvoiceFor} onOpenChange={(open) => { if (!open && !marking) setNoInvoiceFor(null); }}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Mark No invoice</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            {noInvoiceFor}: this spend will never have an invoice. Your name, the time and the reason
-                            are kept on the expense.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="flex flex-col gap-1">
-                        <Label htmlFor="card_no_invoice_reason">Reason <sup className="text-destructive">*</sup></Label>
-                        <Textarea id="card_no_invoice_reason" value={reason} onChange={(e) => setReason(e.target.value)} />
-                    </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={marking}>Cancel</AlertDialogCancel>
-                        <Button onClick={submitNoInvoice} disabled={marking || !reason.trim()}>
-                            {marking ? "Saving..." : "Mark No invoice"}
-                        </Button>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+            <InvoiceQueueDialogs queue={queue} reasonInputId="card_no_invoice_reason" />
         </div>
     );
 };

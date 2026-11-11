@@ -37,8 +37,10 @@ export interface GeneratedInvoicesState {
   /** Why nothing can be generated on this Work Order now, or null. */
   blocked: string | null;
   next_ra_number: number;
-  /** The most an invoice may bill: Amount Paid (incl. TDS), up to the WO amount, less `billed`. */
-  left: number;
+  /** The least an invoice may bill: Amount Paid (incl. TDS, up to the WO amount) less `billed`; what Put Paid fills in. */
+  min_amount: number;
+  /** The most an invoice may bill: the WO amount less `billed` (it may run ahead of payment). */
+  max_amount: number;
   /** What already counts against the WO amount: Pending and Approved invoices, and generated ones not uploaded. */
   billed: number;
   fully_paid: boolean;

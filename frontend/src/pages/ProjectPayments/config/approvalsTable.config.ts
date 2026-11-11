@@ -11,6 +11,7 @@ import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { RECONCILIATION_PENDING_LEAVES_OUT } from "@/utils/cheques/chequeTabs";
 import type { PaidTo } from "@/utils/payees/paidTo";
 import type { WithheldTds } from "@/utils/expenses/expenseTds";
+import type { ExpenseListBillCheckFields } from "@/pages/tasks/invoices/utils/expenseBillApprovalView";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -41,7 +42,9 @@ export const APPROVAL_STATUS = {
  * So this file describes COLUMNS for the tabs that already exist; it does not
  * define tabs.
  */
-export type ApprovalTab = PPTabValue;
+// GST Requests is not a queue tab: its rows are GST Payment Requests, listed by `GstRequestsTab`, not
+// payments or expenses from `get_approval_queue`.
+export type ApprovalTab = Exclude<PPTabValue, typeof PP_TABS.GST_REQUESTS>;
 
 /**
  * ⚠️ THERE IS NO "select" COLUMN HERE, DELIBERATELY.
@@ -57,7 +60,15 @@ export type ApprovalColumnId =
   | "actions" | "source" | "against" | "requested_on"
   | "vendor" | "paid_to" | "project" | "amount" | "tier" | "raised_by"
   | "approved_on" | "paid_on" | "utr_ref" | "proof" | "payment_by"
-  | "reconciled_on" | "status" | "project_value" | "cashflow_gap";
+  | "reconciled_on" | "status" | "project_value" | "cashflow_gap" | "payment_source"
+  | "invoice" | "bill_check";
+
+/**
+ * The Payment Source column's value for a row no live bank line reaches (owner, 2026-11-06). The server sends
+ * this word rather than a blank so the filter can offer and count it; the cell draws it as "—".
+ * Mirrors `PAYMENT_SOURCE_NONE` in `api/approvals/get_approval_queue.py`.
+ */
+export const PAYMENT_SOURCE_NONE = "Unknown";
 
 /** One row of the union endpoint. Every field is NORMALIZED — no cell branches on ledger. */
 export interface ApprovalQueueRow {
@@ -82,7 +93,8 @@ export interface ApprovalQueueRow {
    */
   requested_amount?: number;
   against_primary: string;
-  /** Line 2 under Against — the expense TYPE. Blank on a payment. */
+  /** The expense TYPE. Blank on a payment. No longer drawn under Against (owner, 2026-10-31): the Type cell
+   *  shows `expense_type` instead. Still searched and exported. */
   against_secondary: string;
   /** The expense comment. Hover only — see the Against cell. */
   comment_text: string;
@@ -96,6 +108,12 @@ export interface ApprovalQueueRow {
   approved_on: string | null;
   paid_on: string | null;
   utr_ref: string;
+  /**
+   * The statement this row was reconciled from (owner, 2026-11-06): Cashfree, Cashbook, ICICI Bank Statement,
+   * Porter Statement or ICICI Credit Card Statement -- the one whose bank line was linked LAST -- or
+   * `PAYMENT_SOURCE_NONE`. Its own lines only: a split payment's unpaid balance reads "Unknown".
+   */
+  payment_source: string;
   proof: string;
   has_proof: boolean;
   payment_by: string;
@@ -143,6 +161,8 @@ export interface ApprovalQueueRow {
    */
   cheque: string;
   cheque_status: ChequeStatus | "";
+  /** 1 when that Cheque is a Credit Payment Cheque (pays a Credit PO term); always 0 on an expense. */
+  credit_payment_cheque?: 0 | 1;
   /**
    * 1 while a PO / WO payment is held from payment (`services/payment_hold.py`); always 0 on an
    * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.
@@ -157,6 +177,10 @@ export interface ApprovalQueueRow {
    *  invoices are Vendor Invoices. Drives the Paid tab's Upload Invoice action. */
   invoice: string;
   has_invoice: boolean;
+  /** An Expense's latest Expense bill's Bill check and approval (`services/expense_bills/bill_list.py`); null on an
+   *  Expense with no Expense bill and on every PO / WO payment. Shown by All Payments (#1648). */
+  bill_check: ExpenseListBillCheckFields["bill_check"];
+  bill_approval: ExpenseListBillCheckFields["bill_approval"];
   /** Who the row is paid to: its own pay-to account, copied when it was raised (ADR-0033, #1438).
    *  Read by the server's Payee module (`services/payees/paid_to`). */
   paid_to?: PaidTo;
@@ -172,29 +196,38 @@ export interface ApprovalQueueRow {
  *
  * Adding a tab is one entry here, not another 300-line column block. Changing a
  * column changes it on every tab at once, because there is only one of it.
+ *
+ * `paid_on` sits right after `amount` on every tab where a row can be paid (owner, 2026-10-31). The two
+ * approval tabs leave it out: nothing on them is paid yet, so it would read "—" on every row.
+ *
+ * `paid_to` (the account the money goes into) is on EVERY tab (owner, 2026-10-31), beside the vendor;
+ * "Payment need to paid" shows it in the vendor's place.
  */
 export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // "Payment Pending Approval" — `tier` was removed from the screen by owner request;
   // it is still written to the CSV export (approvalExportColumns.ts).
   [PP_TABS.APPROVE_PAYMENTS]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "raised_by",
+    "vendor", "paid_to", "project", "amount", "raised_by",
   ],
   // "Payment Pending CEO Approval" — no `tier`: every row here is L1+L2 by
   // definition, so it would be one word repeated down the page. The two CEO-only
   // figures take those slots instead.
   [PP_TABS.CEO_PENDING]: [
     "actions", "source", "against", "requested_on",
-    "vendor", "project", "amount", "project_value", "cashflow_gap",
+    "vendor", "paid_to", "project", "amount", "project_value", "cashflow_gap",
   ],
   // "Payment need to paid" — Paid to in Vendor's place (#1431): where every row's money goes.
   [PP_TABS.NEW_PAYMENTS]: [
     "actions", "source", "against", "paid_to",
-    "project", "amount", "approved_on", "raised_by",
+    "project", "amount", "paid_on", "approved_on", "raised_by",
   ],
   // "Payment Done / Reconciliation Pending" — `payment_by` earns its place here:
   // 99.5% filled on project expenses and homeless otherwise. Paid to (spec story 56/60): the account
   // the money went into, read-only, beside the vendor.
+  // `payment_source` (owner, 2026-11-06) is on Payment Done, Payment Raised By Me and All Payments -- after
+  // UTR / Ref where the tab has it, else after Paid on -- and NOT here (owner, same day): nothing on this tab
+  // is fully reconciled yet.
   [PP_TABS.RECONCILIATION_PENDING]: [
     "actions", "source", "against", "vendor", "paid_to", "project",
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
@@ -207,30 +240,34 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // Paid to, read-only, as on Reconciliation Pending.
   [PP_TABS.PAYMENTS_DONE]: [
     "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on",
-    "utr_ref", "proof", "payment_by",
+    "utr_ref", "payment_source", "proof", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the
   // only ones where it varies. No bulk action is valid across a mixed selection;
   // `actions` is the expense Edit pencil alone, like the Paid tab.
   [PP_TABS.PAYMENTS_PENDING]: [
-    "actions", "source", "against", "vendor", "project", "amount", "status",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
     "requested_on", "raised_by",
   ],
+  // `invoice` and `bill_check` (#1648, spec #1637): an Expense's latest bill and its Bill check, on this tab only.
+  // Blank on a PO / WO payment row: one payment can cover many invoices.
   [PP_TABS.ALL_PAYMENTS]: [
-    "actions", "source", "against", "vendor", "project", "amount", "status",
-    "requested_on", "raised_by",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source",
+    "invoice", "bill_check", "status", "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
-  // the expense Edit pencil (2026-09-21); "--" otherwise. The Delete removes all three ledgers in
+  // the expense Edit pencil (2026-09-21), and a Paid expense's Upload / Edit Inv for Admin, Accounts and HR
+  // (owner, 2026-10-31; `canUploadInvoiceRow`); "--" otherwise. The Delete removes all three ledgers in
   // place after a confirm (2026-09-21 — a PO / SR payment used to be sent to its PO / SR page).
   // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
   // AllPayments appends `raised_by`.
   [PP_TABS.PAYMENT_BY_ME]: [
-    "actions", "source", "against", "vendor", "project", "amount", "status", "requested_on",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source", "status",
+    "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.
   [PP_TABS.PO_WISE]: [
-    "source", "against", "vendor", "project", "amount", "status",
+    "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "status",
   ],
 };
 
@@ -379,17 +416,13 @@ const SOURCE_BADGE_BASE: Record<ApprovalQueueRow["source"], string> = {
 /** What the Type column READS. Stored values are what the facet filter and the endpoint match on. */
 export const TYPE_LABEL: Record<ApprovalQueueRow["source_type"], string> = {
   "PO Payment": "PO Payment",
-  "SR Payment": "SR Payment",
+  // "WO Payment" on screen, in the Type filter and in the CSV (owner, 2026-10-31); the stored value stays.
+  "SR Payment": "WO Payment",
   "Vendor Payment": "Payment",
   "Project Expense": "Project Expense",
   "Non-Project": "Non Project Expense",
   "Reimbursement": "Reimbursement / Non Project Expense",
 };
-
-/** The Type filter's options. The "Vendor Payment" fallback is left out: no row carries it today. */
-export const TYPE_FILTER_VALUES: ApprovalQueueRow["source_type"][] = [
-  "PO Payment", "SR Payment", "Project Expense", "Non-Project", "Reimbursement",
-];
 
 export const TYPE_BADGE: Record<ApprovalQueueRow["source_type"], string> = {
   "PO Payment": SOURCE_BADGE_BASE["Vendor Payment"],

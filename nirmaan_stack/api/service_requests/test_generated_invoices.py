@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, getdate, set_request, today
+from frappe.utils import add_days, flt, getdate, set_request, today
 
 from nirmaan_stack.api.delivery_notes.update_invoice_data import delete_invoice_entry
 from nirmaan_stack.api.invoices.approve_vendor_invoice import approve_vendor_invoice
@@ -89,6 +89,11 @@ class GeneratedInvoiceTestCase(FrappeTestCase):
                                      "project_gst": NIRMAAN_GST, **fields})
         return wo
 
+    def _pay(self, wo, paid):
+        """Set the WO's Amount Paid (incl. TDS), as its Paid payments would."""
+        total = flt(frappe.db.get_value(SR, wo, "total_amount"))
+        frappe.db.set_value(SR, wo, {"amount_paid": paid, "amount_due": total - paid})
+
     def _vendor_invoice(self, wo, amount, status, invoice_no=""):
         doc = frappe.new_doc("Vendor Invoices")
         doc.update({"document_type": SR, "document_name": wo, "project": self.project, "vendor": self.vendor,
@@ -114,9 +119,10 @@ class GeneratedInvoiceTestCase(FrappeTestCase):
 
     @staticmethod
     def _remove_permission(name):
-        """Must survive a poisoned transaction: it would otherwise leave a real user on a test project."""
+        """Must survive a poisoned transaction: it would otherwise leave a real user on a test project.
+        delete_doc, not frappe.db.delete: only on_trash drops the user's cached permissions."""
         frappe.db.rollback()
-        frappe.db.delete("User Permission", {"name": name})
+        frappe.delete_doc("User Permission", name, force=True, ignore_permissions=True, ignore_missing=True)
         frappe.db.commit()
 
     def _as(self, user, fn, *args, **kwargs):
@@ -137,7 +143,7 @@ class GeneratedInvoiceTestCase(FrappeTestCase):
 
 class TestRaNumbers(GeneratedInvoiceTestCase):
     def test_two_generates_get_ra_1_and_ra_2_with_the_amount_and_number_saved(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         first = self._generate(wo, 10_000, invoice_date="2026-10-21")
         second = self._generate(wo, 5_000.5, invoice_date="2026-10-21")
 
@@ -150,30 +156,30 @@ class TestRaNumbers(GeneratedInvoiceTestCase):
                          (2, 5_000.5))
 
     def test_a_void_burns_its_number(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         void_invoice(self._generate(wo, 10_000)["name"], "Wrong amount")
         self.assertEqual(self._stored(self._generate(wo, 9_000)["name"]).ra_number, 2)
 
     def test_an_older_work_order_starts_after_the_highest_ra_already_used(self):
-        wo = self._wo(paid=60_000, invoice_no=f"INV-25-26-{self.project[-5:]}-RA-3")
+        wo = self._wo(invoice_no=f"INV-25-26-{self.project[-5:]}-RA-3")
         self._vendor_invoice(wo, 1_000, "Approved", invoice_no="RA-5")
         self.assertEqual(self._stored(self._generate(wo, 1_000)["name"]).ra_number, 6)
 
     def test_a_rejected_vendor_invoice_holds_no_number(self):
         """A Rejected invoice bills nothing, so its "RA-n" is not counted (ADR-0040 Amdt B)."""
-        wo = self._wo(paid=60_000, invoice_no=f"INV-25-26-{self.project[-5:]}-RA-3")
+        wo = self._wo(invoice_no=f"INV-25-26-{self.project[-5:]}-RA-3")
         self._vendor_invoice(wo, 1_000, "Rejected", invoice_no="RA-5")
         self.assertEqual(self._stored(self._generate(wo, 1_000)["name"]).ra_number, 4)
 
     def test_the_number_is_never_typed(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         with self.assertRaises(TypeError):
             generate_invoice(wo, amount=1_000, ra_number=7)
 
     def test_a_concurrent_pair_never_shares_a_number(self):
         """Two generates at once on one WO: the second waits for the first, then takes the next
         number. Each runs on its own connection and commits, as two web requests would."""
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         frappe.db.commit()  # the other connections see committed rows only
 
         first_inside, release_first = threading.Event(), threading.Event()
@@ -207,7 +213,7 @@ class TestRaNumbers(GeneratedInvoiceTestCase):
         self.assertEqual((first_out["ra_number"], second_out["ra_number"]), (1, 2))
 
     def test_the_database_refuses_a_second_record_with_the_same_number(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         first = frappe.get_doc(GI, self._generate(wo, 1_000)["name"])
         copy = frappe.copy_doc(first)
         copy.flags.made_by_generate = True
@@ -233,40 +239,84 @@ def _generate_on_own_connection(site, sites_path, wo, amount, out):
 
 
 class TestAmountLimit(GeneratedInvoiceTestCase):
+    """At least the paid amount not yet billed, at most what is left of the WO (owner, 2026-11-06, ADR-0040 Amdt C)."""
+
     def _wo_with_bills(self):
         """1,00,000 WO, 60,000 paid; billed 30,000: a Pending and an Approved invoice and a generated
-        one not yet uploaded. A Rejected invoice and a Voided generated one count for nothing."""
-        wo = self._wo(paid=60_000)
+        one not yet uploaded. A Rejected invoice and a Voided generated one count for nothing. So an
+        invoice now bills 30,000 to 70,000."""
+        wo = self._wo()
         self._vendor_invoice(wo, 10_000, "Pending")
         self._vendor_invoice(wo, 5_000, "Approved")
         self._vendor_invoice(wo, 20_000, "Rejected")
         self._generate(wo, 15_000)
         void_invoice(self._generate(wo, 7_000)["name"], "Duplicate")
+        self._pay(wo, 60_000)
         return wo
 
-    def test_an_amount_above_the_limit_is_refused_with_the_limit_in_the_message(self):
+    def test_an_amount_below_the_paid_not_yet_billed_is_refused_with_it_in_the_message(self):
         wo = self._wo_with_bills()
-        with self.assertRaisesRegex(frappe.ValidationError, "₹30,000"):
-            self._generate(wo, 30_000.01)
+        with self.assertRaisesRegex(frappe.ValidationError, "at least ₹30,000"):
+            self._generate(wo, 29_999.99)
         self.assertEqual(flt(self._stored(self._generate(wo, 30_000)["name"]).amount), 30_000)
 
-    def test_the_limit_is_the_work_order_amount_once_paid_beyond_it(self):
-        wo = self._wo(paid=118_000)
-        with self.assertRaisesRegex(frappe.ValidationError, "₹1,00,000"):
-            self._generate(wo, 100_001)
+    def test_an_amount_above_what_is_left_of_the_work_order_is_refused_with_it_in_the_message(self):
+        wo = self._wo_with_bills()
+        with self.assertRaisesRegex(frappe.ValidationError, "at most ₹70,000"):
+            self._generate(wo, 70_000.01)
+        self.assertEqual(self._stored(self._generate(wo, 70_000)["name"]).invoice_type, "FINAL")
 
-    def test_the_screen_is_told_the_limit_and_next_number(self):
+    def test_an_invoice_may_run_ahead_of_payment_and_the_next_covers_what_is_paid_beyond_it(self):
+        """WO 10,000 (the owner's example): 3,000 paid, RA-1 bills 7,000. At 7,000 paid nothing is owed;
+        at 9,000 the next must bill 2,000 to 3,000; at 10,000 the last 1,000 is the FINAL."""
+        wo = self._wo(amount=10_000, paid=3_000)
+        with self.assertRaisesRegex(frappe.ValidationError, "at least ₹3,000"):
+            self._generate(wo, 2_999)
+        self.assertEqual(self._generate(wo, 7_000)["ra_number"], 1)
+
+        self._pay(wo, 7_000)
+        state = get_generated_invoices(wo)
+        self.assertEqual((state["min_amount"], state["max_amount"]), (0, 3_000))
+
+        self._pay(wo, 9_000)
+        with self.assertRaisesRegex(frappe.ValidationError, "at least ₹2,000"):
+            self._generate(wo, 1_999)
+        self.assertEqual(self._generate(wo, 2_000)["ra_number"], 2)
+
+        self._pay(wo, 10_000)
+        with self.assertRaisesRegex(frappe.ValidationError, "at most ₹1,000"):
+            self._generate(wo, 1_001)
+        final = self._generate(wo, 1_000)
+        self.assertEqual(self._stored(final["name"]).invoice_type, "FINAL")
+
+    def test_paid_beyond_the_work_order_counts_only_up_to_it(self):
+        wo = self._wo(paid=118_000)
+        with self.assertRaisesRegex(frappe.ValidationError, "at most ₹1,00,000"):
+            self._generate(wo, 100_001)
+        with self.assertRaisesRegex(frappe.ValidationError, "at least ₹1,00,000"):
+            self._generate(wo, 99_999)
+
+    def test_the_screen_is_told_the_range_and_next_number(self):
         wo = self._wo_with_bills()
         state = get_generated_invoices(wo)
-        self.assertEqual((state["left"], state["next_ra_number"], state["fully_paid"]), (30_000, 3, False))
+        self.assertEqual((state["min_amount"], state["max_amount"], state["next_ra_number"], state["fully_paid"]),
+                         (30_000, 70_000, 3, False))
+        self.assertNotIn("left", state)
         self.assertEqual([(r["ra_number"], r["status"]) for r in state["invoices"]],
                          [(2, "Voided"), (1, "Generated")])
 
     def test_an_amount_of_nothing_is_refused(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         for amount in (0, -5, None):
             with self.assertRaises(frappe.ValidationError, msg=amount):
                 self._generate(wo, amount)
+
+    def test_a_future_invoice_date_is_refused_and_today_is_not(self):
+        wo = self._wo()
+        with self.assertRaisesRegex(frappe.ValidationError, "future"):
+            self._generate(wo, 1_000, invoice_date=add_days(today(), 1))
+        self.assertEqual(self._stored(self._generate(wo, 1_000, invoice_date=today())["name"]).invoice_date,
+                         getdate(today()))
 
 
 class TestFinal(GeneratedInvoiceTestCase):
@@ -276,7 +326,7 @@ class TestFinal(GeneratedInvoiceTestCase):
         return self._stored(record["name"]).invoice_type
 
     def test_the_invoice_that_reaches_the_work_order_amount_is_the_final(self):
-        wo = self._wo(paid=100_000)
+        wo = self._wo(paid=40_000)
         self.assertEqual(self._type(self._generate(wo, 40_000)), "RA")
         final = self._generate(wo, 60_000)
         stored = self._stored(final["name"])
@@ -284,12 +334,12 @@ class TestFinal(GeneratedInvoiceTestCase):
         self.assertTrue(stored.invoice_no.endswith(wo[-5:]))
         self.assertNotIn("FINAL", stored.invoice_no)
 
-    def test_one_that_stops_short_is_an_ra_even_on_a_fully_paid_work_order(self):
-        wo = self._wo(paid=100_000)
+    def test_one_that_stops_short_is_an_ra(self):
+        wo = self._wo()
         self.assertEqual(self._type(self._generate(wo, 99_989)), "RA")
 
     def test_ten_rupees_short_is_still_the_final(self):
-        wo = self._wo(paid=99_992)  # paid up to the payment request cap's tolerance
+        wo = self._wo(paid=50_000)
         self._generate(wo, 50_000)
         self.assertEqual(self._type(self._generate(wo, 49_990)), "FINAL")
 
@@ -299,21 +349,21 @@ class TestFinal(GeneratedInvoiceTestCase):
         self._vendor_invoice(wo, 20_000, "Rejected")
         self.assertEqual(self._type(self._generate(wo, 30_000)), "FINAL")
 
-    def test_a_work_order_not_fully_paid_takes_no_final(self):
+    def test_a_work_order_not_fully_paid_may_take_the_final(self):
+        """An invoice may bill ahead of payment, up to the WO amount (ADR-0040 Amdt C)."""
         wo = self._wo(paid=60_000)
-        with self.assertRaisesRegex(frappe.ValidationError, "₹60,000"):
-            self._generate(wo, 100_000)
-        self.assertEqual(self._type(self._generate(wo, 60_000)), "RA")
+        self.assertEqual(self._type(self._generate(wo, 100_000)), "FINAL")
 
     def test_the_screen_is_told_what_is_billed(self):
-        wo = self._wo(paid=100_000)
+        wo = self._wo(paid=40_000)
         self._generate(wo, 40_000)
         state = get_generated_invoices(wo)
-        self.assertEqual((state["billed"], state["left"], state["has_final"]), (40_000, 60_000, False))
+        self.assertEqual((state["billed"], state["min_amount"], state["max_amount"], state["has_final"]),
+                         (40_000, 0, 60_000, False))
         self.assertNotIn("final_amount", state)
 
     def test_nothing_is_generated_after_final(self):
-        wo = self._wo(paid=100_000)
+        wo = self._wo(paid=40_000)
         self._generate(wo, 40_000)
         self._generate(wo, 60_000)
         with self.assertRaisesRegex(frappe.ValidationError, "fully invoiced"):
@@ -322,7 +372,7 @@ class TestFinal(GeneratedInvoiceTestCase):
 
     def test_a_regenerated_final_prints_its_own_number(self):
         """A voided FINAL's number is never given again, so the next FINAL prints -2, and so on."""
-        wo = self._wo(paid=100_000)
+        wo = self._wo(paid=99_995)
         first = self._generate(wo, 100_000)
         void_invoice(first["name"], "Wrong date")
         second = self._generate(wo, 100_000)
@@ -332,14 +382,14 @@ class TestFinal(GeneratedInvoiceTestCase):
         self.assertEqual([n.split(wo[-5:])[-1] for n in numbers], ["", "-2", "-3"])
 
     def test_a_voided_final_frees_the_work_order_again(self):
-        wo = self._wo(paid=100_000)
+        wo = self._wo()
         void_invoice(self._generate(wo, 100_000)["name"], "Wrong date")
         self.assertEqual(self._stored(self._generate(wo, 1_000)["name"]).ra_number, 2)
 
     def test_an_old_screen_that_still_sends_a_type_is_decided_by_the_amount(self):
         """A browser holding the old dialog sends `invoice_type`; the request still works and the type is
         the server's: FINAL sent with a part amount is an RA, RA sent with the rest is the FINAL."""
-        wo = self._wo(paid=100_000)
+        wo = self._wo(paid=40_000)
         part = frappe.call(generate_invoice, work_order=wo, invoice_type="FINAL", amount=40_000)
         self.assertEqual(self._type(part), "RA")
         rest = frappe.call(generate_invoice, work_order=wo, invoice_type="RA", amount=60_000)
@@ -355,23 +405,23 @@ class TestFinal(GeneratedInvoiceTestCase):
 class TestWhereAndWho(GeneratedInvoiceTestCase):
     def test_refused_on_a_gst_on_work_order_or_one_without_an_explicit_gst_off_flag(self):
         for gst in ("true", ""):
-            wo = self._wo(paid=60_000, gst=gst)
+            wo = self._wo(gst=gst)
             with self.assertRaisesRegex(frappe.ValidationError, "GST", msg=gst):
                 self._generate(wo, 1_000)
             self.assertFalse(frappe.db.exists(GI, {"work_order": wo}))
 
     def test_refused_on_a_work_order_that_is_not_approved_or_has_no_nirmaan_gst(self):
         for fields, message in (({"status": "Amendment"}, "Approved"), ({"project_gst": ""}, "Nirmaan GST")):
-            wo = self._wo(paid=60_000, **fields)
+            wo = self._wo(**fields)
             with self.assertRaisesRegex(frappe.ValidationError, message):
                 self._generate(wo, 1_000)
 
     def test_works_on_a_finalized_work_order(self):
-        wo = self._wo(paid=60_000, is_finalized=1)
+        wo = self._wo(is_finalized=1)
         self.assertEqual(self._generate(wo, 1_000)["ra_number"], 1)
 
     def test_an_accountant_may_not_generate_or_void(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._generate(wo, 1_000)["name"]
         accountant = self._on_project(self._user(ACCOUNTANT))
         with self.assertRaises(frappe.PermissionError):
@@ -383,7 +433,7 @@ class TestWhereAndWho(GeneratedInvoiceTestCase):
         self.assertEqual(self._stored(name).status, "Generated")
 
     def test_a_procurement_executive_generates_and_voids(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         procurement = self._on_project(self._user(PROCUREMENT))
         self.assertTrue(self._as(procurement, get_generated_invoices, wo)["can_generate"])
         name = self._as(procurement, self._generate, wo, 1_000)["name"]
@@ -392,7 +442,7 @@ class TestWhereAndWho(GeneratedInvoiceTestCase):
                          ("Voided", "Vendor asked for a new date"))
 
     def test_a_user_who_cannot_see_the_work_order_is_refused(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         procurement = self._user(PROCUREMENT)
         if not frappe.get_all("User Permission", filters={"user": procurement, "allow": "Projects"}, limit=1):
             self.skipTest("this procurement user is on every project")
@@ -402,13 +452,13 @@ class TestWhereAndWho(GeneratedInvoiceTestCase):
 
 class TestVoid(GeneratedInvoiceTestCase):
     def test_a_void_needs_a_reason(self):
-        name = self._generate(self._wo(paid=60_000), 1_000)["name"]
+        name = self._generate(self._wo(), 1_000)["name"]
         with self.assertRaisesRegex(frappe.ValidationError, "reason"):
             void_invoice(name, "  ")
         self.assertEqual(self._stored(name).status, "Generated")
 
     def test_only_an_invoice_not_yet_uploaded_is_voided(self):
-        name = self._generate(self._wo(paid=60_000), 1_000)["name"]
+        name = self._generate(self._wo(), 1_000)["name"]
         void_invoice(name, "Typo")
         with self.assertRaises(frappe.ValidationError):
             void_invoice(name, "Again")
@@ -419,7 +469,7 @@ class TestVoid(GeneratedInvoiceTestCase):
 
 class TestNeverEdited(GeneratedInvoiceTestCase):
     def test_a_saved_change_to_its_figures_is_refused_even_for_administrator(self):
-        name = self._generate(self._wo(paid=60_000), 1_000)["name"]
+        name = self._generate(self._wo(), 1_000)["name"]
         for field, value in (("amount", 2_000), ("invoice_no", "INV-X"), ("ra_number", 9)):
             doc = frappe.get_doc(GI, name)
             doc.set(field, value)
@@ -429,7 +479,7 @@ class TestNeverEdited(GeneratedInvoiceTestCase):
 
     def test_it_is_made_only_by_generate_and_never_deleted_in_desk(self):
         """Desk's delete is refused even for Administrator and even for a Voided one: deleting is the app's."""
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         with self.assertRaisesRegex(frappe.ValidationError, "Generate"):
             frappe.get_doc({"doctype": GI, "work_order": wo, "ra_number": 1, "invoice_type": "RA",
                             "amount": 1_000, "invoice_date": today(), "invoice_no": "INV-1"}).insert()
@@ -454,7 +504,7 @@ class TestPrint(GeneratedInvoiceTestCase):
             frappe.local.request = previous
 
     def test_the_print_shows_the_records_amount_and_number_titled_invoice(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         record = self._generate(wo, 12_345.5)
         html = self._print(record["name"])
         self.assertIn(record["invoice_no"], html)
@@ -464,7 +514,7 @@ class TestPrint(GeneratedInvoiceTestCase):
         self.assertNotIn("TAX INVOICE", html)
 
     def test_changing_the_print_link_changes_nothing(self):
-        record = self._generate(self._wo(paid=60_000), 12_345.5)
+        record = self._generate(self._wo(), 12_345.5)
         plain = self._print(record["name"])
         frappe.local.form_dict.update({"custom_amount": "99999", "custom_ra_no": "42", "custom_invoice_type": "Full"})
         self.addCleanup(lambda: [frappe.local.form_dict.pop(k, None) for k in ("custom_amount", "custom_ra_no", "custom_invoice_type")])
@@ -498,7 +548,7 @@ class SignedUploadTestCase(GeneratedInvoiceTestCase):
 
 class TestSignedUpload(SignedUploadTestCase):
     def test_the_upload_marks_it_signed_and_creates_one_pending_vendor_invoice_for_its_figures(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         record = self._generate(wo, 12_345.5, invoice_date="2026-10-21")
 
         row = upload_signed_copy(record["name"], SCAN)
@@ -516,31 +566,33 @@ class TestSignedUpload(SignedUploadTestCase):
         self.assertEqual(frappe.db.get_value(GI, record["name"], "signed_attachment"), vi.invoice_attachment)
 
     def test_a_signed_invoice_still_counts_once_against_the_limit(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         self._uploaded(wo, 10_000)
-        self.assertEqual(get_generated_invoices(wo)["left"], 50_000)
+        self._pay(wo, 60_000)
+        state = get_generated_invoices(wo)
+        self.assertEqual((state["billed"], state["min_amount"], state["max_amount"]), (10_000, 50_000, 90_000))
 
     def test_it_cannot_be_uploaded_twice(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo)
         with self.assertRaisesRegex(frappe.ValidationError, "already uploaded"):
             upload_signed_copy(name, "/private/files/another.pdf")
         self.assertEqual(frappe.db.count("Vendor Invoices", {"document_name": wo}), 1)
 
     def test_a_voided_invoice_cannot_be_uploaded(self):
-        name = self._generate(self._wo(paid=60_000), 1_000)["name"]
+        name = self._generate(self._wo(), 1_000)["name"]
         void_invoice(name, "Typo")
         with self.assertRaisesRegex(frappe.ValidationError, "Voided"):
             upload_signed_copy(name, SCAN)
 
     def test_the_upload_needs_the_signed_copy(self):
-        name = self._generate(self._wo(paid=60_000), 1_000)["name"]
+        name = self._generate(self._wo(), 1_000)["name"]
         with self.assertRaisesRegex(frappe.ValidationError, "signed copy"):
             upload_signed_copy(name, "  ")
         self.assertEqual(self._stored(name).status, "Generated")
 
     def test_accountants_on_the_project_are_told(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         accountant = self._on_project(self._user(ACCOUNTANT))
         self._uploaded(wo)
         notes = frappe.get_all("Nirmaan Notifications", filters={"docname": wo, "recipient": accountant},
@@ -552,7 +604,7 @@ class TestSignedUpload(SignedUploadTestCase):
         accountant = frappe.db.get_value("Nirmaan Users", {"role_profile": ACCOUNTANT, "name": ("not in", restricted or [""])})
         if not accountant:
             self.skipTest("every Accountant on this site is put on projects")
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         self._uploaded(wo)
         self.assertTrue(frappe.db.exists("Nirmaan Notifications", {"docname": wo, "recipient": accountant}))
 
@@ -561,12 +613,12 @@ class TestSignedUpload(SignedUploadTestCase):
         other = self.fx.project()
         frappe.db.commit()
         self._on_project(accountant, other)
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         self._uploaded(wo)
         self.assertFalse(frappe.db.exists("Nirmaan Notifications", {"docname": wo, "recipient": accountant}))
 
     def test_a_procurement_executive_uploads_and_an_accountant_may_not(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         first, second = self._generate(wo, 1_000)["name"], self._generate(wo, 1_000)["name"]
         accountant = self._on_project(self._user(ACCOUNTANT))
         with self.assertRaises(frappe.PermissionError):
@@ -587,7 +639,7 @@ class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
         self._as(user, doc.save, ignore_permissions=True)
 
     def test_its_amount_number_and_date_are_never_changed(self):
-        vi = self._vi(self._uploaded(self._wo(paid=60_000), 10_000))
+        vi = self._vi(self._uploaded(self._wo(), 10_000))
         accountant = self._on_project(self._user(ACCOUNTANT))
         for user in (accountant, U):
             for changes in ({"invoice_amount": 9_000, "invoice_base_amount": 9_000}, {"invoice_no": "NEW-NO"},
@@ -600,7 +652,7 @@ class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
     def test_the_edit_dialog_is_refused_even_unchanged_so_the_signed_scan_stays(self):
         import json
         from nirmaan_stack.api.delivery_notes.update_invoice_data import update_invoice_data
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         vi = self._vi(self._uploaded(wo, 10_000))
         row = self._invoice(vi)
         res = update_invoice_data(docname=wo, isSR=True, invoice_id=vi, invoice_attachment="/private/files/other.pdf",
@@ -611,7 +663,7 @@ class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
         self.assertEqual(frappe.db.get_value("Nirmaan Attachments", row.invoice_attachment, "attachment"), SCAN)
 
     def test_a_rejected_one_stays_rejected(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         vi = self._vi(name)
         approve_vendor_invoice(vi, "Rejected", "Signature missing")
@@ -622,7 +674,7 @@ class TestTheUploadsVendorInvoiceIsFixed(SignedUploadTestCase):
         self.assertEqual((self._invoice(vi).status, self._stored(name).status), ("Rejected", "Voided"))
 
     def test_the_upload_is_refused_once_the_work_order_is_gst_on(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._generate(wo, 1_000)["name"]
         frappe.db.set_value(SR, wo, "gst", "true")
         frappe.db.commit()
@@ -642,25 +694,25 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         return result
 
     def test_approving_its_vendor_invoice_marks_it_approved_and_it_is_invoiced(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         self._decide(name, "Approved")
         self.assertEqual(self._stored(name).status, "Approved")
         self.assertEqual(flt(frappe.db.get_value(SR, wo, "amount_invoiced")), 10_000)
-        self.assertEqual(get_generated_invoices(wo)["left"], 50_000)
+        self.assertEqual(get_generated_invoices(wo)["max_amount"], 90_000)
 
     def test_rejecting_its_vendor_invoice_voids_it_frees_its_amount_and_the_next_gets_a_new_ra(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         self._decide(name, "Rejected", "Signature missing")
         stored = self._stored(name)
         self.assertEqual(stored.status, "Voided")
         self.assertIn("Signature missing", stored.void_reason)
-        self.assertEqual(get_generated_invoices(wo)["left"], 60_000)
+        self.assertEqual(get_generated_invoices(wo)["max_amount"], 100_000)
         self.assertEqual(self._generate(wo, 1_000)["ra_number"], 2)
 
     def test_rejecting_it_after_approval_voids_it_too(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         self._decide(name, "Approved")
         self._decide(name, "Rejected", "Wrong period")
@@ -668,18 +720,18 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         self.assertEqual(flt(frappe.db.get_value(SR, wo, "amount_invoiced")), 0)
 
     def test_deleting_its_vendor_invoice_deletes_it_frees_its_amount_and_its_number(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         vi = self._vi(name)
         result = delete_invoice_entry(wo, isSR=True, invoice_id=vi)
         self.assertEqual(result["status"], 200, result)
         self.assertFalse(frappe.db.exists("Vendor Invoices", vi))
         self.assertFalse(frappe.db.exists(GI, name))
-        self.assertEqual(get_generated_invoices(wo)["left"], 60_000)
+        self.assertEqual(get_generated_invoices(wo)["max_amount"], 100_000)
         self.assertEqual(self._generate(wo, 1_000)["ra_number"], 1)
 
     def test_an_approved_one_is_deleted_by_admin_only_and_takes_its_generated_invoice(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         self._decide(name, "Approved")
         vi = self._vi(name)
@@ -691,7 +743,7 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         self.assertEqual(flt(frappe.db.get_value(SR, wo, "amount_invoiced")), 0)
 
     def test_deleting_a_rejected_one_takes_its_voided_generated_invoice(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         vi = self._vi(name)
         self._decide(name, "Rejected", "Signature missing")
@@ -707,12 +759,13 @@ class TestApprovalMovesIt(SignedUploadTestCase):
         self.assertTrue(get_generated_invoices(wo)["blocked"])
         self.assertEqual(delete_invoice_entry(wo, isSR=True, invoice_id=self._vi(name))["status"], 200)
         state = get_generated_invoices(wo)
-        self.assertEqual((state["has_final"], state["blocked"], state["left"]), (False, None, 100_000))
+        self.assertEqual((state["has_final"], state["blocked"], state["min_amount"], state["max_amount"]),
+                         (False, None, 100_000, 100_000))
         again = self._generate(wo, 100_000)
         self.assertEqual((again["ra_number"], again["invoice_no"].split(wo[-5:])[-1]), (1, ""))
 
     def test_deleting_it_from_desk_takes_its_generated_invoice_too(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         frappe.delete_doc("Vendor Invoices", self._vi(name), force=True)
         self.assertFalse(frappe.db.exists(GI, name))
@@ -724,7 +777,7 @@ class TestDelete(SignedUploadTestCase):
 
     def test_deleting_the_highest_gives_its_number_again(self):
         """RA-1, RA-2 voided and deleted: the next is RA-2 again, under the same record name."""
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         self._generate(wo, 1_000)
         highest = self._generate(wo, 1_000)["name"]
         void_invoice(highest, "Wrong amount")
@@ -739,14 +792,14 @@ class TestDelete(SignedUploadTestCase):
 
     def test_a_void_kept_holds_its_number(self):
         """RA-1, RA-2 voided (not deleted): the next is RA-3."""
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         self._generate(wo, 1_000)
         void_invoice(self._generate(wo, 1_000)["name"], "Wrong amount")
         self.assertEqual(self._generate(wo, 1_000)["ra_number"], 3)
 
     def test_a_gap_below_the_highest_is_not_filled(self):
         """RA-1 voided and deleted, RA-2 kept: the next is RA-3."""
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         first = self._generate(wo, 1_000)["name"]
         self._generate(wo, 1_000)
         void_invoice(first, "Typo")
@@ -754,7 +807,7 @@ class TestDelete(SignedUploadTestCase):
         self.assertEqual(self._generate(wo, 1_000)["ra_number"], 3)
 
     def test_only_a_voided_one_is_deleted(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         generated = self._generate(wo, 1_000)["name"]
         signed = self._uploaded(wo, 1_000)
         for name, status in ((generated, "Generated"), (signed, "Signed")):
@@ -763,7 +816,7 @@ class TestDelete(SignedUploadTestCase):
             self.assertTrue(frappe.db.exists(GI, name))
 
     def test_only_an_admin_deletes(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._generate(wo, 1_000)["name"]
         void_invoice(name, "Typo")
         procurement = self._on_project(self._user(PROCUREMENT))
@@ -784,7 +837,7 @@ class TestDelete(SignedUploadTestCase):
 
     def test_after_ras_a_deleted_final_frees_its_slot_and_the_next_final_is_bare(self):
         """RA-1, RA-2, FINAL voided and deleted: the next RA is RA-3; the next FINAL is the bare number."""
-        wo = self._wo(paid=100_000)
+        wo = self._wo()
         self._generate(wo, 30_000)
         self._generate(wo, 30_000)
         final = self._generate(wo, 40_000)
@@ -797,14 +850,14 @@ class TestDelete(SignedUploadTestCase):
 
     def test_after_a_voided_final_kept_the_next_ra_skips_its_slot(self):
         """RA-1, RA-2, FINAL voided (kept): the FINAL holds slot 3, so the next RA is RA-4 (owner, 2026-10-30)."""
-        wo = self._wo(paid=100_000)
+        wo = self._wo()
         self._generate(wo, 30_000)
         self._generate(wo, 30_000)
         void_invoice(self._generate(wo, 40_000)["name"], "Wrong date")
         self.assertEqual(self._generate(wo, 10_000)["ra_number"], 4)
 
     def test_a_voided_one_from_a_rejected_upload_is_deleted_and_its_invoice_stays(self):
-        wo = self._wo(paid=60_000)
+        wo = self._wo()
         name = self._uploaded(wo, 10_000)
         vi = self._vi(name)
         approve_vendor_invoice(vi, "Rejected", "Signature missing")

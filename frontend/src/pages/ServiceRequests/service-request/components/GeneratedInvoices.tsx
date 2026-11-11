@@ -59,22 +59,29 @@ type GenerateInvoiceFormProps = Omit<GenerateInvoiceDialogProps, "open" | "onOpe
 const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }: GenerateInvoiceFormProps) => {
   const { toast } = useToast();
   const { generate, generating } = useGeneratedInvoiceActions();
-  /** Paid (incl. TDS) but not invoiced yet: what Put Paid fills in, and the most it may bill. */
-  const left = state?.left ?? 0;
+  /** Paid (incl. TDS) but not invoiced yet: the least it may bill, and what Put Paid fills in. */
+  const minAmount = state?.min_amount ?? 0;
+  /** What is left of the WO amount: the most it may bill. */
+  const maxAmount = state?.max_amount ?? 0;
   const billed = state?.billed ?? 0;
-  const remainingPaid = left > 0 ? String(left) : "";
-  const [invoiceDate, setInvoiceDate] = useState(formatDate(new Date(), "yyyy-MM-dd"));
+  const remainingPaid = minAmount > 0 ? String(minAmount) : "";
+  const today = formatDate(new Date(), "yyyy-MM-dd");
+  const [invoiceDate, setInvoiceDate] = useState(today);
   const [amount, setAmount] = useState("");
   const [percent, setPercent] = useState("");
 
   const typed = Number(amount);
   const problem: string | null = !invoiceDate
     ? "Invoice Date is required."
-    : !amount || !(typed > 0)
+    : invoiceDate > today
+      ? "Invoice Date can't be in the future."
+      : !amount || !(typed > 0)
       ? "Enter an amount more than ₹0."
-      : Math.round(typed * 100) > Math.round(left * 100)
-        ? `This invoice can bill at most ${formatToIndianRupee(left)}.`
-        : null;
+      : Math.round(typed * 100) > Math.round(maxAmount * 100)
+        ? `This invoice can bill at most ${formatToIndianRupee(maxAmount)}.`
+        : Math.round(typed * 100) < Math.round(minAmount * 100)
+          ? `This invoice must bill at least ${formatToIndianRupee(minAmount)}: paid (incl. TDS) but not invoiced yet.`
+          : null;
   const isFinal = !problem && isFinalAmount(woAmount, billed, typed);
 
   const onType = (field: "percent" | "amount", value: string) => {
@@ -118,12 +125,12 @@ const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }
               variant="outline"
               size="sm"
               className="h-10 text-primary border-primary hover:bg-primary/5"
-              disabled={left <= 0}
-              title={`Fill in ${formatToIndianRupee(left)}: paid (incl. TDS) but not invoiced yet`}
+              disabled={minAmount <= 0}
+              title={`Fill in ${formatToIndianRupee(minAmount)}: paid (incl. TDS) but not invoiced yet`}
               onClick={() => onType("amount", remainingPaid)}
             >
               Put Paid
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">{formatToIndianRupee(left)}</span>
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">{formatToIndianRupee(minAmount)}</span>
             </Button>
           </div>
           <div className="space-y-1.5">
@@ -140,8 +147,9 @@ const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Can bill up to {formatToIndianRupee(left)}: the smaller of the WO amount and its Amount Paid (incl.
-            TDS), less what is already billed or waiting.
+            {minAmount > 0
+              ? `Bill ${formatToIndianRupee(minAmount)} to ${formatToIndianRupee(maxAmount)}: at least what is paid (incl. TDS) but not invoiced yet, at most what is left of the WO amount.`
+              : `Bill up to ${formatToIndianRupee(maxAmount)}, what is left of the WO amount. Everything paid is already invoiced.`}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -152,6 +160,7 @@ const GenerateInvoiceForm = ({ workOrder, woAmount, state, onGenerated, onDone }
             <Input
               id="gi_invoice_date"
               type="date"
+              max={today}
               value={invoiceDate}
               onChange={(e) => setInvoiceDate(e.target.value)}
             />

@@ -9,8 +9,8 @@ shaped like ABCPK1234D and a Rent Month that is not a month are refused on creat
 approved Expense's description reads the form's sentence, the month as "Oct 2026".
 The tax itself is `test_office_rent_tds` (#1525).
 
-⚠️ Runs against the site's real Office Rent type, so the site must have synced the fixture
-(`bench migrate`). The Records without review list is emptied for the run, so HR's request waits for
+⚠️ Runs against the site's real Office Rent type, so the site must hold the version-3 form: the seed's on a
+new site, the patch `v3_0.office_rent_form_says_gst` on an existing one (`bench migrate`). The Records without review list is emptied for the run, so HR's request waits for
 review, and put back after.
 
 Run:
@@ -28,6 +28,7 @@ from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.expense_requests.test_records_without_review import _listed, _write_list
 from nirmaan_stack.api.expense_requests.update import update_expense_request
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 HR_USER = "exr_rent_test_hr@example.com"
 HR_PROFILE = "Nirmaan HR Executive Profile"
@@ -46,7 +47,7 @@ def _rent(**overrides):
     return _answers(**detail)
 
 
-class TestOfficeRentForm(FrappeTestCase):
+class TestOfficeRentForm(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -170,7 +171,7 @@ class TestOfficeRentForm(FrappeTestCase):
         self.assertEqual(
             row.description,
             "Office rent for Oct 2026 – Bengaluru HQ. Landlord: Asha Rao (PAN ABCPK1234D). "
-            f"(10% TDS will be deducted) · [{name}]")
+            f"(Amount incl. 18% GST; 10% TDS on the rent will be deducted) · [{name}]")
         # An Admin's review is the L1 step, so Rs 1,00,000 waits at CEO Pending: nothing is withheld
         # before the CEO approves (`test_office_rent_tds`).
         self.assertEqual(row.amount, 100000)

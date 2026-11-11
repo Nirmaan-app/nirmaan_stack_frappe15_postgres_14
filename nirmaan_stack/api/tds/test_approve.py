@@ -15,7 +15,8 @@ from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.tds.approve import approve_tds_items, reject_tds_items
-from nirmaan_stack.api.tds.test_submit import _cloud_url, _create_project, _make_user, _raw
+from nirmaan_stack.api.tds.test_submit import _create_project, _make_user, _raw
+from nirmaan_stack.cloud_file_fixture import cloud_url
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
 
 ROW = "Project TDS Item List"
@@ -69,7 +70,7 @@ class TestApproveTdsItems(FrappeTestCase):
 		return (frappe.db.count("TDS Items"), frappe.db.count("TDS Repository"))
 
 	def test_approving_a_project_custom_row_only_marks_it_approved(self):
-		sheet = _cloud_url("facade-light.pdf")
+		sheet = cloud_url("facade-light.pdf")
 		row = self._row(
 			"Pending", "PCUS-000001", name="Facade Light", tds_category="Lighting", tds_attachment=sheet
 		)
@@ -102,7 +103,7 @@ class TestApproveTdsItems(FrappeTestCase):
 				self.assertEqual(self._catalogue_size(), before)
 
 	def test_a_new_make_with_no_entry_creates_a_verified_entry(self):
-		sheet = _cloud_url("gate-valve-n.pdf")
+		sheet = cloud_url("gate-valve-n.pdf")
 		row = self._row("New", self.item, tds_attachment=sheet)
 
 		out = approve_tds_items([row])
@@ -117,7 +118,7 @@ class TestApproveTdsItems(FrappeTestCase):
 	def test_a_rejected_row_is_refused(self):
 		rows = [
 			self._row("Rejected", "PCUS-000001", name="Facade Light"),
-			self._row("Rejected", self.item, tds_attachment=_cloud_url("gate-valve-n.pdf")),
+			self._row("Rejected", self.item, tds_attachment=cloud_url("gate-valve-n.pdf")),
 		]
 		before = self._catalogue_size()
 
@@ -182,7 +183,7 @@ class TestApproveTdsItems(FrappeTestCase):
 
 		`same_pdf`: the requester uploaded the very PDF the entry holds, so both Files share one
 		stored object (the storage app keys bytes by content hash)."""
-		self.repo_sheet = _cloud_url("gate-valve-repo.pdf") if repo_sheet else None
+		self.repo_sheet = cloud_url("gate-valve-repo.pdf") if repo_sheet else None
 		self.entry = _raw(
 			"TDS Repository", tds_item=self.item, make="MakeN", status="Not Verified", tds_attachment=self.repo_sheet
 		)
@@ -190,7 +191,7 @@ class TestApproveTdsItems(FrappeTestCase):
 			"File", file_name="gate-valve-repo.pdf", file_url=self.repo_sheet, content_hash="hash-repo",
 			attached_to_doctype="TDS Repository", attached_to_name=self.entry,
 		)
-		self.sent_sheet = _cloud_url("gate-valve-sent.pdf")
+		self.sent_sheet = cloud_url("gate-valve-sent.pdf")
 		self.new_make = self._row("New", self.item, tds_attachment=self.sent_sheet)
 		self.sent_file = _raw(
 			"File", file_name="gate-valve-sent.pdf", file_url=self.sent_sheet,

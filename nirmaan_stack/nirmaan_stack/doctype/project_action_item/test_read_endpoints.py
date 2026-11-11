@@ -37,6 +37,7 @@ from nirmaan_stack.services.action_items.predicates import (
     ACTION_DN_PENDING,
     ASSIGNED_ROLE_PM,
 )
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
 
 # A FILTERED_ACCESS_ROLE — the gate must SCOPE (not full-access) a user carrying it.
 _PM_ROLE = "Nirmaan Project Manager Profile"
@@ -128,12 +129,10 @@ def _make_scoped_user(email, role_profile):
         nu.first_name = "PAI"
         nu.last_name = "Tester"
         nu.email = email
-        nu.role_profile = role_profile
         nu.insert(ignore_permissions=True)
+        set_role_copy_for_test(email, role_profile)
     else:
-        frappe.db.set_value(
-            "Nirmaan Users", email, "role_profile", role_profile, update_modified=False
-        )
+        set_role_copy_for_test(email, role_profile)
 
 
 def _grant_project(email, project):

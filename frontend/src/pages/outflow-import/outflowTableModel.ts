@@ -17,6 +17,7 @@
 import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
 import { resolveDateFilter } from "@/utils/dateFilterRange";
 import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // ⚠️ THE ONE IMPORT DIRECTION THAT AVOIDS A CYCLE (review fix 2): `allocationView.ts` is a pure
 // leaf with no imports from this file, so this module -- not that one -- is the dependency. Do
 // NOT flip this to satisfy some other convenience; check for a cycle again before you do.
@@ -27,6 +28,7 @@ import {
     type SettleMode,
 } from "./allocationView";
 import {
+    cashbookPendingLineRefusal,
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
     ROW_MISMATCHED,
@@ -34,6 +36,10 @@ import {
     ROW_PENDING_MATCH,
     ROW_SETTLED,
     SKIP_ORIGIN_MANUAL,
+    isCashbookLineItsJobOwns,
+    isCollectPaymentLine,
+    isOpenCollectPaymentLine,
+    COLLECT_PAYMENT_PICK,
     rowStatusLabel,
 } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
@@ -305,11 +311,26 @@ export const amountToneClass = (row: Pick<OutflowImportRow, "direction">): strin
  * screen, the confirmability check and the server's guards cannot disagree about a row by
  * accident. `isConfirmable` refuses anything outside the row's list, and `DecisionDialog` renders
  * only the cards inside it.
+ *
+ * An open Collect payment (spec #1585 "Open Cashbook lines") takes Create expense only; its other choice, Skip by
+ * hand, is the Skip box. The server refuses Link, Allocate and Split on it (`cashbook_collect`).
  */
 export function availableDecisionTargets(
-    row: Pick<OutflowImportRow, "direction">
+    row: Pick<OutflowImportRow, "direction"> & Partial<Pick<OutflowImportRow, "source" | "row_kind">>
 ): DecisionTarget[] {
+    if (isCollectPaymentLine(row)) return ["new"];
     return isCreditRow(row) ? [...RECEIVED_TARGETS] : [...PAID_TARGETS];
+}
+
+/**
+ * Is this a money-in line, worked by recording it (a project inflow, a non-project inflow, a vendor refund)?
+ * The Choose dialog's "This transfer is money received" note reads it (spec #1585 story 36). Not "no link
+ * list offered": an open Collect payment offers no link list either, and it is money out.
+ */
+export function isMoneyReceivedLine(
+    row: Pick<OutflowImportRow, "direction"> & Partial<Pick<OutflowImportRow, "source" | "row_kind">>
+): boolean {
+    return !isCollectPaymentLine(row) && isCreditRow(row);
 }
 
 /** The reviewer's in-progress decision for one row. Client state until they confirm. */
@@ -885,6 +906,48 @@ export const SKIPPED_EXPORT_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((
     column.id === "outcome" ? [SKIP_TYPE_COLUMN, column] : [column]
 );
 
+/**
+ * The record's direction (a Cashbook line states none of its own; its record says which column held the money),
+ * else the line's: `In` for a credit, else `Out` (`internal_transfers.record_direction`).
+ */
+const transferDirection = (row: Pick<OutflowImportRow, "direction" | "transfer_record_direction">): string =>
+    row.transfer_record_direction || (isCreditRow(row) ? "In" : "Out");
+
+/**
+ * The Internal Transfers tab's columns (#1621): the page's, with Ledger (an internal move settles nothing)
+ * REPLACED by a Direction column and the record's From, To and Detail. A separate list, like `SKIPPED_COLUMNS`,
+ * so no tab that never holds such a line grows four blank columns. No funnels: they are not server facets.
+ */
+const INTERNAL_TRANSFER_EXTRA_COLUMNS: OutflowColumn[] = [
+    { id: "transfer_direction", title: "Direction", get: transferDirection, filter: "none", width: "90px" },
+    { id: "transfer_from", title: "From", get: (r) => r.transfer_from ?? "", filter: "none", width: "170px" },
+    { id: "transfer_to", title: "To", get: (r) => r.transfer_to ?? "", filter: "none", width: "170px" },
+    { id: "transfer_detail", title: "Detail", get: (r) => r.transfer_detail ?? "", filter: "none", width: "150px" },
+    // Which rule made the record, or "by hand" (spec #1619 story 38).
+    { id: "transfer_made_by", title: "Made by", get: (r) => r.transfer_made_by_label ?? "", filter: "none", width: "150px" },
+];
+
+/**
+ * The money the record moved, where the line's own amount is not it: a Cashbook top-up stages 0 (its money is in
+ * the statement's Credit column, #1623). A line with no record (a status-changed repeat) shows its own amount.
+ */
+const TRANSFER_AMOUNT_COLUMN: OutflowColumn = {
+    id: "transfer_amount",
+    title: "Amount",
+    get: (r) => r.transfer_amount ?? r.amount ?? 0,
+    filter: "none",
+    align: "right",
+    width: "140px",
+};
+
+export const INTERNAL_TRANSFER_COLUMNS: OutflowColumn[] = OUTFLOW_COLUMNS.flatMap((column) =>
+    column.id === "settled_ledger"
+        ? INTERNAL_TRANSFER_EXTRA_COLUMNS
+        : column.id === "amount"
+          ? [TRANSFER_AMOUNT_COLUMN]
+          : [column]
+);
+
 export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
 ).map((c) => c.id);
@@ -910,7 +973,8 @@ export type OutflowTab =
     | "partlyAllocatedOutflow"
     | "matchedOutflow"
     | "notMatchedInflow"
-    | "settledInflow";
+    | "settledInflow"
+    | "internalTransfers";
 
 export type TransactionDirection = "outflow" | "inflow";
 
@@ -924,6 +988,9 @@ export const OUTFLOW_TABS: { id: OutflowTab; label: string; direction?: Transact
     { id: "partlyAllocatedOutflow", label: "Partly Allocated – Outflow", direction: "outflow" },
     { id: "matchedOutflow", label: "Matched / Settled – Outflow", direction: "outflow" },
     { id: "settledInflow", label: "Settled – Inflow", direction: "inflow" },
+    // Our own money moving between our own places (#1621, spec #1619): AFTER the Settled tabs so the working
+    // tabs stay first, and with no direction -- it lists money out and money in together.
+    { id: "internalTransfers", label: "Internal Transfers" },
 ];
 
 /** Where the screen opens: the outflow work, not the archive (owner ruling, carried across #1264). */
@@ -953,6 +1020,7 @@ export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     matchedOutflow: "matched_outflow",
     notMatchedInflow: "not_matched_inflow",
     settledInflow: "settled_inflow",
+    internalTransfers: "internal_transfers",
 };
 
 /**
@@ -1669,6 +1737,23 @@ export const summaryTiles = (totals: {
         });
     }
     return tiles;
+};
+
+/**
+ * The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
+ * and the money their records moved out and in. Shown at zero rather than hidden: "none in this period" is a fact
+ * worth reading. `null` only for a server that predates the figure, so nothing claims a zero it was never sent.
+ */
+export const internalTransferFigure = (totals: {
+    internal_transfer_rows?: number;
+    internal_transfer_out_value?: number;
+    internal_transfer_in_value?: number;
+}): { count: number; text: string } | null => {
+    if (totals.internal_transfer_rows === undefined) return null;
+    const count = totals.internal_transfer_rows;
+    const out = formatToRoundedIndianRupee(totals.internal_transfer_out_value ?? 0);
+    const inward = formatToRoundedIndianRupee(totals.internal_transfer_in_value ?? 0);
+    return { count, text: `${count} ${count === 1 ? "line" : "lines"} · ${out} out · ${inward} in` };
 };
 
 /**
@@ -2782,9 +2867,13 @@ export const confirmBlocker = (
     if (!OPEN_ROW_STATUSES.has(row.row_status) && row.row_status !== ROW_PARTIALLY_ALLOCATED) {
         return `This transfer is ${row.row_status || "closed"} — there is nothing left to confirm.`;
     }
+    // #1587: a Cashbook line the match never runs on waits for its import, not for Re-run match.
+    if (isCashbookLineItsJobOwns(row)) return cashbookPendingLineRefusal(row.import_batch);
     if (row.row_status === "Pending match run") {
         return "This line has not been matched yet — press Re-run match first.";
     }
+    // Code review R6: an open Collect payment has two choices, so its sentence never asks for a record to link.
+    if (isOpenCollectPaymentLine(row) && decision?.target !== "new") return COLLECT_PAYMENT_PICK;
     if (!decision) return "Pick the record this transfer paid, or choose what to create from it.";
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MIRROR OF THE TWO CREDIT GATES BELOW. Creating an expense

@@ -39,6 +39,8 @@ interface AssetMaster {
     asset_state: string;
     asset_email: string;
     current_assignee: string;
+    /** Marked Lost/Damaged (owner, 2026-10-31): shown instead of "Unassigned". */
+    lost_damaged?: 0 | 1;
     creation: string;
     modified: string;
 }
@@ -358,6 +360,13 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assignee" />,
             cell: ({ row }) => {
                 const assigneeId = row.getValue<string>('current_assignee');
+                if (!assigneeId && row.original.lost_damaged) {
+                    return (
+                        <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700 text-xs font-medium">
+                            Lost/Damaged
+                        </Badge>
+                    );
+                }
                 if (!assigneeId) {
                     return (
                         <span className="inline-flex items-center gap-1.5 text-gray-400 text-sm">
@@ -378,7 +387,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             meta: {
                 exportHeaderName: 'Assignee',
                 exportValue: (row: AssetMaster) => {
-                    if (!row.current_assignee) return 'Unassigned';
+                    if (!row.current_assignee) return row.lost_damaged ? 'Lost/Damaged' : 'Unassigned';
                     return usersMap[row.current_assignee] || row.current_assignee;
                 },
             },

@@ -16,3 +16,28 @@ describe("the TDS register's Net Paid: what the vendor got (#1543, owner ruling 
     expect(deductionNetPaid({ gross_amount: 5000, tds_amount: 100 })).toBe(4900);
   });
 });
+
+describe("the TDS register's Paid Amount on an Office Rent row: what left the bank (spec #1613)", () => {
+  // The row keeps the base rent as its gross; the bill is the base rent plus the Expense's GST.
+  const rent = { non_project_expense: "NPE-TEST-RENT", gross_amount: 100000, tds_amount: 10000, borne_by: TDS_BORNE_BY.VENDOR };
+
+  it("is the bill less the tax: ₹1,18,000 bill, ₹10,000 TDS → ₹1,08,000", () => {
+    expect(deductionNetPaid({ ...rent, expense_gst_amount: 18000 })).toBe(108000);
+  });
+
+  it("keeps the paise of an uneven bill: ₹50,000 → ₹45,762.71", () => {
+    expect(
+      deductionNetPaid({ ...rent, gross_amount: 42372.88, expense_gst_amount: 7627.12, tds_amount: 4237.29 })
+    ).toBe(45762.71);
+  });
+
+  it("is the rent less the tax on a rent withheld before GST existed (GST 0)", () => {
+    expect(deductionNetPaid({ ...rent, expense_gst_amount: 0 })).toBe(90000);
+  });
+
+  it("leaves a Work Order row as it was: a GST it does not have is never added", () => {
+    expect(
+      deductionNetPaid({ non_project_expense: undefined, gross_amount: 10000, tds_amount: 200, borne_by: TDS_BORNE_BY.VENDOR })
+    ).toBe(9800);
+  });
+});

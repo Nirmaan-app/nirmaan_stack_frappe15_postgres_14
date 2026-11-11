@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
     canCreateCard,
     cardCreateButtonLabel,
-    cardCreateProgress,
     cardCreateStarted,
+    cardPhaseView,
     cardPolling,
     cardSuggestNote,
     merchantRetype,
@@ -21,9 +21,12 @@ import { CARD_STEPS, currentStepIndex } from "./importWizard";
 
 const progress = (overrides: Partial<CardCreateProgress> = {}): CardCreateProgress => ({
     spends: 40,
+    refunds: 0,
     created: 0,
     failed: 0,
     to_create: 40,
+    spends_to_create: 40,
+    refunds_to_create: 0,
     create_running: false,
     suggest_running: false,
     discardable: true,
@@ -39,39 +42,93 @@ describe("Create is offered", () => {
         expect(canCreateCard(progress({ created: 40, to_create: 0, discardable: false }))).toBe(false);
     });
 
+    it("names both counts when unpaired refunds wait too (#1673)", () => {
+        const withRefund = progress({ spends: 39, refunds: 1, to_create: 40, spends_to_create: 39, refunds_to_create: 1 });
+        expect(cardCreateButtonLabel(withRefund)).toBe("Create 39 expenses and 1 refund");
+        expect(
+            cardCreateButtonLabel(progress({ refunds: 2, to_create: 2, spends_to_create: 0, refunds_to_create: 2 })),
+        ).toBe("Create 2 refunds");
+    });
+
     it("names how many it creates, and the remainder once it has started", () => {
         expect(cardCreateButtonLabel(progress())).toBe("Create 40 expenses");
-        expect(cardCreateButtonLabel(progress({ created: 39, to_create: 1, discardable: false }))).toBe(
-            "Create the remaining 1",
-        );
+        expect(
+            cardCreateButtonLabel(
+                progress({ created: 39, to_create: 1, spends_to_create: 1, discardable: false }),
+            ),
+        ).toBe("Create the remaining 1 expense");
     });
 });
 
-describe("where Create stands", () => {
-    it("says nothing before it starts", () => {
-        expect(cardCreateStarted(progress())).toBe(false);
-        expect(cardCreateProgress(progress())).toBeNull();
+describe("the dialog's phase (#1674)", () => {
+    const settled = (name: string, amount: number, over: Partial<CardImportLine> = {}) =>
+        spend(name, "SHOP", { amount, row_status: "Settled", editable: false, expense: `NPE-${name}`, ...over });
+    // Two spends and a refund created, one line skipped, one internal transfer.
+    const finishedLines = [
+        settled("s1", 100),
+        settled("s2", 50.5),
+        settled("r1", 801.5, { is_credit: true, is_refund: true }),
+        spend("k1", "UPI", { is_credit: true, row_status: "Skipped", skip_kind: "Card payment received" }),
+        spend("t1", "AUTODEBIT", { is_credit: true, row_status: "Internal Transfer" }),
+    ];
+
+    it("Review: Create not started; Create, Discard and Done are offered, nothing is reported yet", () => {
+        const view = cardPhaseView({ ...progress({ refunds: 1, to_create: 41, refunds_to_create: 1 }), lines: [] });
+        expect(view.phase).toBe("review");
+        expect(view.progress).toBeNull();
+        expect(view.banner).toBeNull();
+        expect(view.notice).toBeNull();
+        expect(view.footer).toEqual({ create: "Create 40 expenses and 1 refund", discard: true, done: "outline" });
     });
 
-    it("counts while it runs, and the dialog polls", () => {
-        const running = progress({ create_running: true, created: 12, to_create: 28, discardable: false });
-        expect(cardCreateStarted(running)).toBe(true);
-        expect(cardPolling(running)).toBe(true);
-        expect(cardCreateProgress(running)).toBe("Creating… 12 of 40 created.");
+    it("Creating: the job is queued or running; it counts N of M with a bar, and only Done is offered", () => {
+        const running = progress({
+            refunds: 1, create_running: true, created: 12, to_create: 29, spends_to_create: 28, refunds_to_create: 1,
+            discardable: false,
+        });
+        const view = cardPhaseView({ ...running, lines: [] });
+        expect(view.phase).toBe("creating");
+        expect(cardCreateStarted(running) && cardPolling(running)).toBe(true);
+        expect(view.progress).toEqual({ label: "Creating… 12 of 41", percent: 29 });
+        expect(view.banner).toBeNull();
+        expect(view.footer).toEqual({ create: null, discard: false, done: "outline" });
     });
 
-    it("names a spend that failed, and that Create retries it", () => {
-        const stopped = progress({ created: 39, failed: 1, to_create: 1, discardable: false });
-        expect(cardPolling(stopped)).toBe(false);
-        expect(cardCreateProgress(stopped)).toBe(
-            "39 of 40 created. 1 could not be created: press Create again to retry it.",
+    it("Finished: nothing left to create; a green banner with the counts, and Done is the only button", () => {
+        const finished = progress({ spends: 2, refunds: 1, created: 3, to_create: 0, spends_to_create: 0, discardable: false });
+        const view = cardPhaseView({ ...finished, lines: finishedLines });
+        expect(view.phase).toBe("finished");
+        expect(view.banner).toEqual({
+            title: "Import finished",
+            lines: [
+                "2 expenses created, ₹150.50",
+                "1 refund recorded, -₹801.50",
+                "1 line skipped",
+                "1 internal transfer",
+            ],
+        });
+        expect(view.progress).toBeNull();
+        expect(view.notice).toBeNull();
+        expect(view.footer).toEqual({ create: null, discard: false, done: "primary" });
+    });
+
+    it("Needs another Create: some lines failed or wait; it says how many and offers Create again", () => {
+        const failed = progress({ refunds: 1, created: 40, failed: 1, to_create: 1, spends_to_create: 1, discardable: false });
+        const view = cardPhaseView({ ...failed, lines: [] });
+        expect(view.phase).toBe("needs_create");
+        expect(view.banner).toBeNull();
+        expect(view.notice).toBe("40 of 41 created. 1 line could not be created: press Create again to retry it.");
+        expect(view.footer).toEqual({ create: "Create the remaining 1 expense", discard: false, done: "outline" });
+
+        const waiting = progress({ refunds: 1, created: 39, to_create: 2, spends_to_create: 1, refunds_to_create: 1, discardable: false });
+        expect(cardPhaseView({ ...waiting, lines: [] }).notice).toBe(
+            "39 of 41 created. 2 lines still wait: press Create again to create them.",
         );
     });
 
-    it("says when every spend is created, at Paid", () => {
-        expect(cardCreateProgress(progress({ created: 40, to_create: 0, discardable: false }))).toBe(
-            "All 40 expenses created, at Paid.",
-        );
+    it("a reopened finished import (Import History) reads Finished from the import alone", () => {
+        const reopened = progress({ spends: 2, refunds: 1, created: 3, to_create: 0, spends_to_create: 0, discardable: false });
+        expect(cardPhaseView({ ...reopened, lines: finishedLines }).phase).toBe("finished");
     });
 
     it("moves the stepper to Create once it has started", () => {
@@ -127,6 +184,7 @@ const spend = (name: string, merchant: string, overrides: Partial<CardImportLine
             type_source: "Fallback",
             check: true,
             editable: true,
+            is_refund: false,
             expense: null,
             outcome_note: null,
         },
@@ -191,5 +249,24 @@ describe("choosing a type for every spend of one merchant in one step (story 29)
         expect(merchantScope(lines, lines[10])).toBeNull();
         expect(merchantScope(lines, lines[11])).toBeNull();
         expect(merchantScope(lines, lines[12])).toBeNull();
+    });
+});
+
+describe("an unpaired card refund's type is its own (#1673)", () => {
+    const refund = spend("r", "MAKEMYTRIP", { is_credit: true, is_refund: true });
+    const lines = [
+        spend("a", "MAKEMYTRIP", { expense_type: "Hotel Expenses", type_source: "Chosen on Review", check: false }),
+        spend("b", "MAKEMYTRIP"),
+        refund,
+    ];
+
+    it("Use for all reaches only the merchant's spends, never its refund", () => {
+        expect(merchantRetype(lines, lines[0])?.rows).toEqual(["a", "b"]);
+        expect(merchantScope(lines, lines[0])?.rows).toEqual(["a", "b"]);
+    });
+
+    it("the refund's own picker types it alone", () => {
+        expect(merchantScope(lines, refund)).toBeNull();
+        expect(merchantRetype(lines, refund)).toBeNull();
     });
 });

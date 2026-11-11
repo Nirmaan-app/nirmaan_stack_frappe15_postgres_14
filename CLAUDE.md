@@ -35,6 +35,9 @@ Three standards fail silently when broken, so they are summarised here too (full
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
   `gh issue view <n> --json title,body,labels,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`
   (`--comments` alone prints only the comments, never the body).
+- **Grilling a change to a figure or a rule:** first find every reader of it by search (screens, reports, exports,
+  other services, and text stored in the DB such as form sentences and fixtures). Put each reader whose meaning
+  changes to the owner as its own question.
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
@@ -157,5 +160,11 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
 - **Domain docs:** single-context — root `GLOSSARY.md` + root `docs/adr/` — plus the per-domain reference docs
   under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.
 - **Environments:** the laptop / desktop loop and `scripts/env_sync/env_sync.sh`. See `docs/agents/environments.md`.
+- **Verification:** `.claude/skills/verify/` drives this checkout's own dev env (`scripts/devenv/devenv.sh`) as a role
+  user and saves evidence. Its feature map (`features/`) is updated in the same commit as a change that alters how a
+  mapped feature is reached or proven. When `verify`'s `bin/doctor.sh` warns that the map is over 30 days old, ask
+  the user to run `/pstack:maintain-verification-skill`.
+- **Definition of Done (agent tasks):** a worktree where `scripts/devenv/dod.py start` ran is an agent task, and a
+  Stop hook keeps it from finishing until `dod.py check` passes. See `docs/agents/definition-of-done.md`.
 - **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
   reads both).

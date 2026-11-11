@@ -42,6 +42,7 @@
 | Doctype | Purpose |
 |---------|---------|
 | **Project Payments** | Payments to vendors |
+| **GST Payment Request** | A Work Order GST payment waiting for the Accountant, before any payment exists (Pending / Approved / Rejected / Paid). Autoname `GPR-.YY.-.#####`. Written only by `api/payments/gst_payment_requests`. See ADR-0030 Amendment A |
 | **Vendor Invoices** | Centralized invoice store (PO + SR). Autoname: `VI-.YYYY.-.#####` |
 | **Project Invoices** | Legacy invoice tracking (being replaced by Vendor Invoices) |
 | **Project Expenses** | Project-related expenses |
@@ -103,6 +104,7 @@ Asset Category
 - `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`, `asset_value` (Currency), `project`, `department`
 - IT Asset Details: `asset_email`, `asset_email_password` (Password), `asset_pin` (Password)
 - `current_assignee` (Link to Nirmaan Users, read-only, auto-synced from Asset Management)
+- `lost_damaged` (Check, read-only): marked Lost/Damaged by Admin / HR (`api/assets/lost_damaged.py`); no holder, no Assign, no audit
 
 ### Asset Management Fields
 - `asset`, `asset_assigned_to`, `asset_assigned_on`, `asset_declaration_attachment`

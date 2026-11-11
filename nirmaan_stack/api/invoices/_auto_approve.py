@@ -25,6 +25,7 @@ from nirmaan_stack.services.extraction.validation import (
     reconcile_amounts,
     validate_gstin,
 )
+from nirmaan_stack.services.purchase_order_invoice_access import SYSTEM_DECISION_FLAG
 
 
 # ---- Tunable knobs ----------------------------------------------------------
@@ -275,6 +276,9 @@ def apply_auto_approval(invoice_doc, fail_reasons=None):
     if fail_reasons:
         invoice_doc.auto_approve_skip_reasons = ",".join(fail_reasons)
         return
+    # The system decides here, not the session user (the uploader, or whoever pressed Re-check): the
+    # flag lets the save past the Purchase Order decision guard (#1638).
+    invoice_doc.flags[SYSTEM_DECISION_FLAG] = True
     invoice_doc.status = "Approved"
     invoice_doc.approved_by = "System"
     invoice_doc.approved_on = now()

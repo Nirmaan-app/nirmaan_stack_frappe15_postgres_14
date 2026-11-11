@@ -12,23 +12,32 @@
   of it (#1552, ADR-0035 Amendment B). The rule itself is pure: `payment_rules.paid_move_problem`.
 * `validate_on_a_cheque` -- a payment in Cheque mode always has its cheque (#1552). The rule itself is pure:
   `payment_rules.no_cheque_problem`.
+* `validate_credit_cheque_date` -- until a Credit PO term's due date, its cheque is dated on or after it, checked
+  again at every approval and cheque date change (owner, 2026-10-31). The rule itself is pure:
+  `payment_rules.credit_cheque_date_problem`.
 """
 
 import frappe
 from frappe import _
+from frappe.utils import today
 
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.lines import cheques_naming
+from nirmaan_stack.services.cheques.approval_rules import is_approval
 from nirmaan_stack.services.cheques.payment_rules import (
     CHEQUE_FOLLOWS_FLAG,
     CLEARING_FLAG,
+    CREDIT_TERM,
     cheque_mode_problem,
+    credit_cheque_date_problem,
     mode_change_problem,
     no_cheque_problem,
     paid_move_problem,
 )
 from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE
 from nirmaan_stack.services.cheques.writer import CHEQUES, PUTTING_ON_CHEQUE
+
+PO_PAYMENT_TERMS = "PO Payment Terms"
 
 
 def validate_mode_change(pay) -> None:
@@ -101,6 +110,31 @@ def validate_on_a_cheque(pay) -> None:
     problem = no_cheque_problem(pay.name, status=(pay.status or "").strip(), on_a_cheque=on_a_cheque)
     if problem:
         frappe.throw(_(problem), title=_("Cheque payment on no cheque"))
+
+
+def validate_credit_cheque_date(pay) -> None:
+    """Refuse an approval of a cheque payment on a Credit PO term, or a change of its cheque date, while the cheque
+    is dated before the term's due date and that date has not come (`payment_rules.credit_cheque_date_problem`).
+    Called from its `validate`, so single, CEO and bulk approval, and the Cheque Tracker's date edit (copied onto
+    the payment by `writer.link_payments`), all meet it. The request checks the same before the insert
+    (`project_payments.create_project_payment`), when the term is not linked yet.
+
+    The bank import's saves are let through (`from_outflow_import`): a bank line clearing the cheque means the
+    bank has already paid it (`status._bring_forward`)."""
+    if pay.is_new() or not is_cheque(pay) or pay.flags.get("from_outflow_import"):
+        return
+    before = pay.get_doc_before_save()
+    if not before:
+        return
+    date_changed = str(before.get("cheque_date") or "")[:10] != str(pay.get("cheque_date") or "")[:10]
+    if not date_changed and not is_approval(before.status, pay.status):
+        return
+    due_date = frappe.db.get_value(
+        PO_PAYMENT_TERMS, {"project_payment": pay.name, "payment_type": CREDIT_TERM}, "due_date"
+    )
+    problem = credit_cheque_date_problem(cheque_date=pay.get("cheque_date"), due_date=due_date, today=today())
+    if problem:
+        frappe.throw(_(problem), title=_("Cheque dated before the due date"))
 
 
 def _cheques_listing(payment: str) -> set[str]:

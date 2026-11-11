@@ -1,15 +1,16 @@
 // src/pages/outflow-import/components/CardImportReview.tsx
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, FileText, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
+import { Progress } from "@/components/ui/progress";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
 import {
-    cardCreateProgress,
+    cardPhaseView,
     cardSuggestNote,
     merchantRetype,
     merchantScope,
@@ -18,6 +19,7 @@ import {
 } from "../cardCreate";
 import {
     CARD_UPLOADED_NOTE,
+    cardCompanyLabel,
     cardCountsLine,
     cardDay,
     cardPeriodLabel,
@@ -25,7 +27,8 @@ import {
     type CardImport,
     type CardImportLine,
 } from "../creditCardImport";
-import { cardWorkLines } from "../cardCreditsView";
+import { cardRefundLines, cardWorkLines } from "../cardCreditsView";
+import { CardInternalTransfers } from "./CardInternalTransfers";
 import { CardSkippedLines } from "./CardSkippedLines";
 
 interface TypeOption {
@@ -47,6 +50,8 @@ const TYPE_SEARCH: TokenSearchConfig = {
  * names its source (earlier statement, AI, fallback), and one link gives it to every spend of the merchant.
  * Where a merchant has more than one retypable spend, the picker first asks whether a choice is for this spend
  * or all of them (story 29), so ten lines of one merchant take one choice, even all still at "Check".
+ * Unpaired card refunds (#1673) are listed under the spends, in their own Refunds list, each at a minus amount
+ * with its own type picker: a merchant's "Use for all" never reaches them.
  * Rendered by `ImportStatementDialog`, which holds Create and
  * Discard in its footer.
  */
@@ -65,10 +70,47 @@ export const CardImportReview = ({
         () => card.expense_types.map((name) => ({ value: name, label: name })),
         [card.expense_types],
     );
-    const progress = cardCreateProgress(card) ?? cardSuggestNote(card);
+    // Where the import stands (#1674): Review, Creating (a bar), Finished (a green banner), or Needs another Create.
+    const view = cardPhaseView(card);
+    const note = view.notice ?? cardSuggestNote(card);
 
     return (
         <div className="space-y-4">
+            {view.banner && (
+                <div
+                    role="status"
+                    aria-label={view.banner.title}
+                    className="flex items-start gap-3 rounded-md border border-emerald-300 bg-emerald-50 p-4 text-emerald-900"
+                >
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                    <div className="space-y-1">
+                        <p className="font-semibold">{view.banner.title}</p>
+                        <ul className="text-sm">
+                            {view.banner.lines.map((line) => (
+                                <li key={line}>{line}</li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            )}
+            {view.progress && (
+                <div role="status" aria-label="Create progress" className="space-y-1.5 rounded-md border p-3">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        {view.progress.label}
+                    </div>
+                    <Progress value={view.progress.percent} aria-label={view.progress.label} />
+                </div>
+            )}
+            {view.phase === "needs_create" && view.notice && (
+                <div
+                    role="status"
+                    className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    {view.notice}
+                </div>
+            )}
             <div className="space-y-3 rounded-md border bg-muted/30 p-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
                     <span className="text-base font-semibold">{card.holder}</span>
@@ -76,7 +118,7 @@ export const CardImportReview = ({
                 </div>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
                     <dt className="text-muted-foreground">Company</dt>
-                    <dd>{card.company}</dd>
+                    <dd>{cardCompanyLabel(card)}</dd>
                     <dt className="text-muted-foreground">Statement date</dt>
                     <dd>{cardDay(card.statement_date)}</dd>
                     <dt className="text-muted-foreground">File</dt>
@@ -113,7 +155,9 @@ export const CardImportReview = ({
                         <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                         {cardCountsLine(card)}
                     </span>
-                    <span className="text-xs text-muted-foreground">{progress ?? CARD_UPLOADED_NOTE}</span>
+                    {view.phase === "review" && (
+                        <span className="text-xs text-muted-foreground">{note ?? CARD_UPLOADED_NOTE}</span>
+                    )}
                 </div>
             </div>
 
@@ -164,12 +208,82 @@ export const CardImportReview = ({
                 </table>
             </div>
 
+            <CardRefunds
+                card={card}
+                options={options}
+                retyping={retyping}
+                onRetype={onRetype}
+            />
+
+            <CardInternalTransfers card={card} />
             <CardSkippedLines card={card} />
         </div>
     );
 };
 
-/** A spend's type: a picker while Create would still write it, else the type and its Expense. */
+/** The unpaired card refunds (#1673), under the spends: each at minus its amount, with its own type picker. */
+interface CardRefundsProps {
+    card: CardImport;
+    options: TypeOption[];
+    retyping: string | null;
+    onRetype?: (line: string, expenseType: string, rows?: string[]) => void;
+}
+
+const CardRefunds = ({ card, options, retyping, onRetype }: CardRefundsProps) => {
+    const refunds = cardRefundLines(card);
+    if (refunds.length === 0) return null;
+    return (
+        <section className="space-y-2" aria-label="Refunds">
+            <div>
+                <h3 className="text-sm font-semibold">Refunds</h3>
+                <p className="text-xs text-muted-foreground">
+                    Merchant credits that give back money a card spend took. Create records each as a Non-Project
+                    Expense of minus its amount; no bill is needed.
+                </p>
+            </div>
+            <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-xs text-muted-foreground">
+                        <tr>
+                            <th className="px-3 py-2 text-left font-medium">Date</th>
+                            <th className="px-3 py-2 text-left font-medium">SerNo</th>
+                            <th className="px-3 py-2 text-left font-medium">Transaction details</th>
+                            <th className="px-3 py-2 text-right font-medium">Amount</th>
+                            <th className="min-w-[15rem] px-3 py-2 text-left font-medium">Expense type</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                        {refunds.map((line) => (
+                            <tr key={line.name}>
+                                <td className="whitespace-nowrap px-3 py-1.5 tabular-nums">{cardDay(line.date)}</td>
+                                <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-muted-foreground">
+                                    {line.serno}
+                                </td>
+                                <td className="px-3 py-1.5">{line.details}</td>
+                                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-emerald-700">
+                                    -{formatToIndianRupee(line.amount)}
+                                </td>
+                                <td className="px-3 py-1">
+                                    <SpendType
+                                        line={line}
+                                        forMerchant={null}
+                                        merchantSpends={null}
+                                        options={options}
+                                        saving={retyping === line.name}
+                                        disabled={retyping !== null || card.create_running || !onRetype}
+                                        onChange={(type) => onRetype?.(line.name, type)}
+                                    />
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    );
+};
+
+/** A spend's or refund's type: a picker while Create would still write it, else the type and its Expense. */
 const SpendType = ({
     line,
     forMerchant,
@@ -190,7 +304,7 @@ const SpendType = ({
     onChange: (expenseType: string, rows?: string[]) => void;
 }) => {
     const [forAll, setForAll] = useState(false);
-    if (line.is_credit) return <span className="text-muted-foreground">—</span>;
+    if (line.is_credit && !line.is_refund) return <span className="text-muted-foreground">—</span>;
     const badge = typeChoiceLabel(line);
     const chip = badge && (
         <Badge

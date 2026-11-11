@@ -27,7 +27,7 @@ import { ColumnFiltersState } from "@tanstack/react-table";
 import { useFrappeGetCall } from "frappe-react-sdk";
 
 import { convertTanstackFiltersToFrappe } from "@/lib/frappeTypeUtils";
-import { TYPE_LABEL } from "./approvalsTable.config";
+import { orderTypeOptions, typeFilterLabel } from "./typeFilter";
 
 const FACET_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue_facets";
@@ -141,6 +141,7 @@ export function useApprovalFacets({
   const vendor = useQueueFacet("vendor", opened.has("vendor"), ...common);
   const status = useQueueFacet("status", includeStatus && opened.has("status"), ...common);
   const raisedBy = useQueueFacet("raised_by", opened.has("raised_by"), ...common);
+  const paymentSource = useQueueFacet("payment_source", opened.has("payment_source"), ...common);
 
   const facetOptions = useMemo(() => {
     const withCounts = (
@@ -168,10 +169,11 @@ export function useApprovalFacets({
 
     const map: FacetOptionMap = {
       // Keyed by the COLUMN ID, which is the server field on every facet here.
+      // A flat list: the four types and Non Project – Reimbursement, then the narrower options (`typeFilter`).
       source_type: {
         title: "Type",
         isLoading: type.isLoading,
-        options: withCounts("source_type", type.values, (v) => TYPE_LABEL[v as keyof typeof TYPE_LABEL] ?? v),
+        options: orderTypeOptions(withCounts("source_type", type.values, typeFilterLabel)),
       },
       project: {
         title: "Project",
@@ -189,12 +191,18 @@ export function useApprovalFacets({
         // Falls back to the email when the user has no Nirmaan Users row, as the cell does.
         options: withCounts("raised_by", raisedBy.values, (v) => userLabels?.get(v) || v),
       },
+      // The five statements and "Unknown" (owner, 2026-11-06); shown only where the column is.
+      payment_source: {
+        title: "Payment Source",
+        isLoading: paymentSource.isLoading,
+        options: withCounts("payment_source", paymentSource.values, (v) => v),
+      },
     };
     if (includeStatus) {
       map.status = { title: "Status", isLoading: status.isLoading, options: withCounts("status", status.values, (v) => v) };
     }
     return map;
-  }, [type, project, vendor, status, raisedBy, columnFilters, projectLabels, vendorLabels, userLabels, includeStatus]);
+  }, [type, project, vendor, status, raisedBy, paymentSource, columnFilters, projectLabels, vendorLabels, userLabels, includeStatus]);
 
   return { facetOptions, onFacetOpen };
 }

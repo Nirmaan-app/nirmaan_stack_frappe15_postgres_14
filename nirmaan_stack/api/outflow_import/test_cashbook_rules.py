@@ -21,12 +21,13 @@ from nirmaan_stack.services.outflow_import.candidates import (
     load_project_aliases,
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 RULE = "Outflow Import Expense Rule"
 ALIAS = "Outflow Import Project Alias"
 
 
-class TestPettyCashExists(FrappeTestCase):
+class TestPettyCashExists(ExpenseTypeFlagGuard, FrappeTestCase):
     """The fallback every unmatched row lands on. Without it a Cashbook import writes nothing."""
 
     def test_it_is_available_on_both_ledgers(self):
@@ -46,7 +47,7 @@ class TestPettyCashExists(FrappeTestCase):
         self.assertTrue(row.non_project, "Petty Cash must be available to Non Project Expenses")
 
 
-class TestExpenseRuleRefusesAnInertMapping(FrappeTestCase):
+class TestExpenseRuleRefusesAnInertMapping(ExpenseTypeFlagGuard, FrappeTestCase):
     """A rule pointing at the wrong side of the ledger can never fire.
 
     `settle._assert_type_scope` would refuse the type at write time and the row would drop to the
@@ -113,7 +114,7 @@ class TestExpenseRuleRefusesAnInertMapping(FrappeTestCase):
         self.assertIn((keyword, "Postage & Courier"), rules["Non Project"])
 
 
-class TestProjectAliasRefusesACollision(FrappeTestCase):
+class TestProjectAliasRefusesACollision(ExpenseTypeFlagGuard, FrappeTestCase):
     """Two projects claiming one phrase makes `build_project_index` drop it ENTIRELY.
 
     That is the right call at match time -- it is the same rule a contested keyword follows -- but
@@ -166,7 +167,7 @@ class TestProjectAliasRefusesACollision(FrappeTestCase):
         self.assertEqual(index.sole_project(f"spend for {self.phrase} today"), self.project_a)
 
 
-class TestTheLoaders(FrappeTestCase):
+class TestTheLoaders(ExpenseTypeFlagGuard, FrappeTestCase):
     def test_both_ledgers_are_always_present(self):
         """So a caller never has to guard on a ledger having no rules at all."""
         rules = load_expense_rules()

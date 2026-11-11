@@ -37,6 +37,7 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_CARD_PAYMENT,
     SKIP_KIND_CARD_REFUND_PAIR,
     SKIP_KIND_CASHBOOK_INTERNAL,
+    SKIP_KIND_CASHBOOK_REFUND_PAIR,
     SKIP_KIND_INFLOW_RECORDED,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
@@ -76,6 +77,8 @@ _PREFIX_KINDS = sorted(
         (_prefix(cashbook.SKIP_ALREADY_IMPORTED), SKIP_KIND_ALREADY_IMPORTED),
         (_prefix(cashbook.SKIP_ALREADY_BOOKED), SKIP_KIND_OUTFLOW_RECORDED),
         (_prefix(cashbook.SKIP_REPEATED_IN_FILE), SKIP_KIND_REPEATED_IN_FILE),
+        (_prefix(cashbook.SKIP_PAIRED_REFUND), SKIP_KIND_CASHBOOK_REFUND_PAIR),
+        (_prefix(cashbook.SKIP_PAIRED_SPEND), SKIP_KIND_CASHBOOK_REFUND_PAIR),
     ),
     key=lambda pair: -len(pair[0]),
 )

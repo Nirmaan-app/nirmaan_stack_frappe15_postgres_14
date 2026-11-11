@@ -135,7 +135,7 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 - **In Project Payments a claim's expense is a Non-Project Expense with a Reimbursement tag.** The queue stores
   its `source_type` as `Reimbursement` (`get_approval_queue.TYPE_REIMBURSEMENT`); the Type column shows the
   Non-Project pill plus `ReimbursementTag`. A Type filter naming `Non-Project` also matches `Reimbursement`, for
-  is / is not / in / not in (`_widen_non_project`, one place for list, facets and export), and the Non-Project
+  is / is not / in / not in (`_type_clause`, one place for list, facets and export), and the Non-Project
   facet count includes them; `Reimbursement` alone narrows to claims (owner, 2026-10-27).
 - **Every read is scoped on the server.** Every Nirmaan role holds READ on the doctype; `integrations/controllers/
   reimbursement.py` narrows it (`has_permission` + `permission_query_conditions`): Admin / HR / Accounts see every
@@ -160,7 +160,7 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 - **The person corrects their own account** from their profile's Payee tab (`own_accounts.edit_own_account`, the Payee module's `edit_payee_reply` underneath). Refused for someone else's account and for one a Vendor is also paid into (`links.linked_vendors`). Claims keep their copy.
 - **Receipts are merged before anything is written.** The dialog uploads every file loose (no doctype: claimants
   hold read only). `receipts.plan_receipts` reads them and merges the PDFs and pictures into one PDF IN MEMORY
-  first; only then is the claim saved and `apply_receipts` stores the PDF (`save_file` commits inside the storage
+  first; only then is the claim saved and `apply_receipts` stores the PDF (`store_file` commits inside the storage
   hook, so nothing after it can be rolled back). Other files are adopted onto the claim as they are. Files a save
   replaces are deleted LAST, after the commit, through `services/stored_files.delete_files`.
 - **Deleting a claim detaches its Files first** (`receipts.detach_claim_files`), so Frappe's own delete doesn't

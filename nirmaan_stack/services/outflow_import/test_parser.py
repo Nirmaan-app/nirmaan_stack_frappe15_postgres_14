@@ -35,6 +35,7 @@ from nirmaan_stack.services.outflow_import.parser import (  # noqa: E402
     describe_mapped_columns,
     locate_table,
 )
+from nirmaan_stack.services.outflow_import.bill_links import LINKS_UNREADABLE_MESSAGE  # noqa: E402
 from nirmaan_stack.services.outflow_import.sources import source_has_preamble  # noqa: E402
 
 # The ICICI slice reads two things the other sources have no equivalent of -- a direction label and
@@ -578,6 +579,155 @@ class TestCashbookXlsx(unittest.TestCase):
         result = parse_statement(_load("cashbook_sample.xlsx"), source="Cashbook")
         self.assertEqual(len(result.rows), 10)
         self.assertEqual(len([w for w in result.warnings if "no Transfer Id" in w]), 1)
+
+    def test_a_cell_hyperlink_and_a_csv_url_cell_give_the_same_bill_links(self):
+        """The workbook carries each bill link as a cell hyperlink under "View Attachment N"; its CSV
+        twin carries the URL as the cell's text. Both read to the same links."""
+        from_csv = _cashbook()
+        from_xlsx = parse_statement(_load("cashbook_sample.xlsx"), source="Cashbook")
+        self.assertEqual(
+            [r.bill_links for r in from_csv.rows], [r.bill_links for r in from_xlsx.rows]
+        )
+        self.assertEqual(len(_by_transfer(from_xlsx, "DDDDDD").bill_links), 2)
+
+
+# The Cashbook Statement (#1590, ADR-0015 Amendment B). `cashbook_statement.xlsx` is cut from a real
+# Consolidated Company Account Statement, names and Txn Ids kept: 11 real lines (Wallet Spends with 0,
+# 1, 2 and 4 bill links, VA → Wallet, Bank → VA) and the real six-row balances footer. The export it
+# was cut from predates the bill-link columns, so the `Attachments` block (the cell hyperlinks under
+# `Attachments` and the 3 unnamed columns after it) was added in the provider's shape. The kinds that
+# export lacks were made up in its shape, with made-up people and shops: a Collect payment with a link
+# and one without, a full refund pair (Collect payment + `REF-` refund), a part refund (11,248 of a
+# 17,446 spend), a full Credit Adjustment, a wallet credit and a Wallet → VA move. #1594 added one more: a
+# `Refund to Wallet` whose spend (`REF-OBO9000000000008EARLYR`) is not on the statement.
+#
+# Every link is signed as the provider signs them (V2: `Expires`, the Unix second it dies) and dies
+# 2026-11-07 11:12 UTC (`Expires=1794049920`), except the first link of the 4-link spend, which dies
+# 2026-11-06 09:00 UTC (`Expires=1793955600`): the file's earliest link expiry.
+# `test_bill_links.TestFixtureLinksAreSignedLikeTheProvider` keeps every fixture's links in that shape.
+_STATEMENT = "cashbook_statement.xlsx"
+_LINK_HOST = "https://storage.googleapis.com/prod-payments-private/transaction-attachments/"
+
+
+def _statement() -> ParseResult:
+    return parse_statement(_load(_STATEMENT), source="Cashbook")
+
+
+class TestCashbookStatementBillLinks(unittest.TestCase):
+    def test_a_spend_with_one_bill_gets_its_one_link(self):
+        (link,) = _by_transfer(_statement(), "OBO9100000000001WSPNDA").bill_links
+        self.assertTrue(link.startswith(_LINK_HOST + "OBO9100000000001WSPNDA/1.jpeg?"))
+        self.assertIn("Expires=1794049920", link)
+
+    def test_a_spend_with_four_bills_gets_all_four_links_in_order(self):
+        links = _by_transfer(_statement(), "OBO9100000000002WSPNDB").bill_links
+        self.assertEqual(
+            [link.split("?")[0].rsplit("/", 1)[1] for link in links],
+            ["1.jpeg", "2.pdf", "3.jpeg", "4.pdf"],
+        )
+
+    def test_a_spend_with_no_bill_gets_no_link(self):
+        self.assertEqual(_by_transfer(_statement(), "OBO9100000000003WSPNDC").bill_links, ())
+
+    def test_a_collect_payment_keeps_its_link(self):
+        result = _statement()
+        self.assertEqual(len(_by_transfer(result, "OBO9000000000001CPLINK").bill_links), 1)
+        self.assertEqual(_by_transfer(result, "OBO9000000000002CPNONE").bill_links, ())
+
+    def test_only_spends_with_a_link_carry_one(self):
+        linked = {row.transfer_id for row in _statement().rows if row.bill_links}
+        self.assertEqual(
+            linked,
+            {
+                "OBO9100000000001WSPNDA",
+                "OBO9100000000002WSPNDB",
+                "OBO9100000000005WSPNDE",
+                "OBO9100000000006WSPNDF",
+                "OBO9100000000008WSPNDH",
+                "OBO9000000000001CPLINK",
+                "OBO9000000000004PARTSP",
+                "OBO9000000000005ADJFUL",
+            },
+        )
+
+
+class TestCashbookStatementWithoutItsLinks(unittest.TestCase):
+    """Spec #1585 code review S4: the Cashbook import accepts only the statement that CARRIES bill links. A workbook
+    whose "View Attachment" cells link nowhere (re-saved, or copied out as values) has lost them, and parsing it
+    to no links at all would import every spend as waiting for an invoice, silently."""
+
+    def test_view_attachment_cells_with_no_hyperlink_are_refused(self):
+        import io
+
+        from openpyxl import load_workbook
+
+        book = load_workbook(io.BytesIO(_load(_STATEMENT)))
+        for row in book.active.iter_rows():
+            for cell in row:
+                cell.hyperlink = None
+        stripped = io.BytesIO()
+        book.save(stripped)
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(stripped.getvalue(), source="Cashbook")
+        self.assertEqual(str(caught.exception), LINKS_UNREADABLE_MESSAGE)
+
+    def test_the_csv_fixture_as_a_workbook_reads_the_same_links(self):
+        """The test-support converter the endpoint tests post through gives the parser what the CSV gave it."""
+        from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
+
+        from_csv = _cashbook()
+        from_xlsx = parse_statement(as_statement_xlsx(_load("cashbook_sample.csv")), source="Cashbook")
+        self.assertEqual(
+            [(r.transfer_id, r.amount, r.bill_links) for r in from_csv.rows],
+            [(r.transfer_id, r.amount, r.bill_links) for r in from_xlsx.rows],
+        )
+
+
+class TestCashbookStatementCredit(unittest.TestCase):
+    def test_credit_lines_give_their_credit_amount(self):
+        result = _statement()
+        self.assertEqual(_by_transfer(result, "VALOAD-9000001").credit_amount, Decimal("50000"))
+        self.assertEqual(_by_transfer(result, "BUSINESS_USER-900001-0").credit_amount, Decimal("10000"))
+        self.assertEqual(_by_transfer(result, "PTM9000000006").credit_amount, Decimal("9000"))
+        self.assertEqual(
+            _by_transfer(result, "REF-OBO9000000000004PARTSP").credit_amount, Decimal("11248")
+        )
+
+    def test_a_spend_carries_no_credit_and_keeps_its_debit(self):
+        row = _by_transfer(_statement(), "OBO9100000000001WSPNDA")
+        self.assertEqual(row.credit_amount, Decimal("0"))
+        self.assertEqual(row.amount, Decimal("2380"))
+        self.assertEqual(row.direction, DIRECTION_DEBIT)
+
+    def test_a_credit_line_still_reads_no_debit_amount_and_no_direction(self):
+        """Line kinds are unchanged by this ticket: `amount` is still the Debit figure only."""
+        row = _by_transfer(_statement(), "PTM9000000006")
+        self.assertEqual(row.amount, Decimal("0"))
+        self.assertEqual(row.direction, "")
+
+
+class TestCashbookStatementShape(unittest.TestCase):
+    def test_every_line_is_read_and_the_balances_footer_is_dropped_without_a_warning(self):
+        result = _statement()
+        self.assertEqual(len(result.rows), 22)
+        self.assertEqual(result.warnings, ())
+        self.assertFalse(any("Balance" in row.row_kind for row in result.rows))
+
+    def test_names_and_remarks_are_read_as_before(self):
+        row = _by_transfer(_statement(), "OBO9100000000008WSPNDH")
+        self.assertEqual(row.added_by_raw, "Kiran Patil")
+        self.assertEqual(row.beneficiary_name, "TESTVENDOR HARDWARE")
+        self.assertEqual(row.remarks, "Local material purchase for Qburst - Pin valve")
+
+    def test_the_old_export_without_bill_links_is_refused_by_name(self):
+        """ADR-0015 Amendment B decision 1: one shape only, so a period never arrives twice."""
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(_load("cashbook_old_export.csv"), source="Cashbook")
+        self.assertEqual(
+            str(caught.exception),
+            "This is the old export without bill links. "
+            "Export the Consolidated Company Account Statement.",
+        )
 
 
 class TestCashfreeIsUnaffected(unittest.TestCase):

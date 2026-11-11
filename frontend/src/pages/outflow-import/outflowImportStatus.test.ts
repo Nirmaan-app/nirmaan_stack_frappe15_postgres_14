@@ -23,6 +23,7 @@ import {
     isActive,
     isOpen,
     isTerminal,
+    rowStatusLabel,
     rowStatusTone,
 } from "./outflowImportStatus";
 
@@ -47,6 +48,7 @@ describe("row status vocabulary (parity with services/outflow_import/status.py)"
             "Mismatched",
             "Partially Allocated",
             "Settled",
+            "Internal Transfer",
             "Skipped",
             "Error",
         ]);
@@ -118,7 +120,7 @@ describe("row status vocabulary (parity with services/outflow_import/status.py)"
     it("treats ONLY Settled and Skipped as terminal", () => {
         // Narrower than v2 on purpose: v2 findings were terminal because reporting them was the
         // whole job. v3 settles, so a row that found something and was never confirmed is work.
-        expect([...TERMINAL_ROW_STATUSES].sort()).toEqual([ROW_SETTLED, ROW_SKIPPED].sort());
+        expect([...TERMINAL_ROW_STATUSES].sort()).toEqual([ROW_SETTLED, ROW_SKIPPED, "Internal Transfer"].sort());
     });
 
     it("keeps Matched and Mismatched open so both stay resolvable", () => {
@@ -215,5 +217,23 @@ describe("deriveBatchCounters (mirrors status.derive_batch_counters)", () => {
         const counters = deriveBatchCounters(statuses);
         expect(counters.settled_rows + counters.skipped_rows).toBe(statuses.length);
         expect(deriveBatchStatus(statuses)).toBe(BATCH_COMPLETED);
+    });
+});
+
+describe("Internal Transfer line status (#1620)", () => {
+    it("is final, not open, and its chip says Internal Transfer", () => {
+        expect(isTerminal("Internal Transfer")).toBe(true);
+        expect(isOpen("Internal Transfer")).toBe(false);
+        expect(isActive("Internal Transfer")).toBe(false);
+        expect(rowStatusLabel("Internal Transfer")).toBe("Internal Transfer");
+        expect(rowStatusTone("Internal Transfer")).not.toBe(rowStatusTone("Skipped"));
+        expect(rowStatusTone("Internal Transfer")).not.toBe(rowStatusTone("Settled"));
+    });
+
+    it("counts as neither settled nor skipped on the batch", () => {
+        const counters = deriveBatchCounters(["Internal Transfer", "Settled", "Skipped"]);
+        expect(counters.settled_rows).toBe(1);
+        expect(counters.skipped_rows).toBe(1);
+        expect(deriveBatchStatus(["Internal Transfer", "Settled"])).toBe("Completed");
     });
 });

@@ -36,11 +36,13 @@ from nirmaan_stack.services.outflow_import.skip_kind_backfill import (
     kind_of_skip_sentence,
 )
 from nirmaan_stack.services.outflow_import.skip_kinds import (
+    SKIP_KIND_CASHBOOK_REFUND_PAIR,
     SKIP_KIND_ALREADY_IMPORTED,
     SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_BY_EXCLUSION_CATEGORY,
     SKIP_KIND_BY_HAND,
     SKIP_KIND_CASHBOOK_INTERNAL,
+    SKIP_KIND_CASHBOOK_UNKNOWN_TYPE,
     SKIP_KIND_INFLOW_RECORDED,
     SKIP_KIND_NO_AMOUNT,
     SKIP_KIND_OUTFLOW_RECORDED,
@@ -114,6 +116,10 @@ class TestVocabulary(unittest.TestCase):
                 "Card payment received",
                 "Card cashback",
                 "Card refund pair",
+                # #1594 (ADR-0015 Amendment B decision 7): a Cashbook refund and the spend it gives back in full.
+                "Paired wallet refund",
+                # Owner decision 4 (#1619, 2026-11-07): a Cashbook line of a Type the app does not know.
+                "Unknown Cashbook type",
             ),
         )
 
@@ -217,12 +223,13 @@ def _cashbook_row(number=1, transfer_id="OBO1", amount="100", kind="Wallet Spend
 class TestTheCashbookPlanCarriesAKind(unittest.TestCase):
     def _reason_and_kind(self, raw, earlier=None, in_file=None, booked=None):
         line = KeptLine(row=raw, earlier=earlier, in_file=in_file)
-        return cashbook._skip_reason(line, raw.amount, booked or {})
+        # #1594: `_decide` asks the line's kind first, then `_skip_reason`; `(action, reason, kind)`.
+        return cashbook._decide(line, raw.amount, booked or {})[1:]
 
     def test_each_skip_reason_has_its_kind(self):
         self.assertEqual(
             self._reason_and_kind(_cashbook_row(kind="Wallet Load")),
-            (cashbook.SKIP_NOT_A_SPEND, SKIP_KIND_CASHBOOK_INTERNAL),
+            (cashbook.SKIP_UNKNOWN_TYPE.format(kind="Wallet Load"), SKIP_KIND_CASHBOOK_UNKNOWN_TYPE),
         )
         self.assertEqual(
             self._reason_and_kind(_cashbook_row(status_raw="FAILED")),
@@ -263,6 +270,8 @@ class TestTheHistoryBackfill(unittest.TestCase):
             (cashbook.SKIP_ALREADY_IMPORTED.format(batch="OFI-26-00007"), SKIP_KIND_ALREADY_IMPORTED),
             (cashbook.SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1"), SKIP_KIND_OUTFLOW_RECORDED),
             (cashbook.SKIP_REPEATED_IN_FILE, SKIP_KIND_REPEATED_IN_FILE),
+            (cashbook.SKIP_PAIRED_REFUND.format(partner="OBO1"), SKIP_KIND_CASHBOOK_REFUND_PAIR),
+            (cashbook.SKIP_PAIRED_SPEND.format(partner="REF-OBO1"), SKIP_KIND_CASHBOOK_REFUND_PAIR),
             (
                 cashbook.SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
                     batch="OFI-26-00007", earlier="SUCCESS", now="REVERSED"

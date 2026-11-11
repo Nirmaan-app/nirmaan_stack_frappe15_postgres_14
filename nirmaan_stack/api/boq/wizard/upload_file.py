@@ -2,13 +2,13 @@ import json
 import os
 
 import frappe
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.boq.wizard.revision import assert_revisable_source
 from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
 from nirmaan_stack.api.boq.wizard.sheet_preview import _fetch_boq_file_to_tempfile
 from nirmaan_stack.services.boq_parser._auto_guess import auto_guess_sheet_config
 from nirmaan_stack.services.boq_parser.reader import BoqReader
+from nirmaan_stack.services.stored_files import store_file
 
 _MAX_FILE_BYTES = 25 * 1024 * 1024  # 25 MB
 _ALLOWED_EXTENSIONS = frozenset({".xlsx", ".xlsm"})
@@ -139,7 +139,7 @@ def upload_file():
             title="File too large",
         )
 
-    ret = save_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
+    ret = store_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
     file_url = ret.file_url
 
     # The worker re-fetches the file from durable storage by URL (see
@@ -377,7 +377,7 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
             "Nirmaan Attachments", att_doc.name, "associated_docname", boq_doc.name
         )
 
-        # Step 11b: Give the uploaded workbook File a real owner. save_file() at the
+        # Step 11b: Give the uploaded workbook File a real owner. store_file() at the
         # endpoint stores it with an empty attached_to_* (an orphan in "tabFile");
         # now that the BOQs doc exists, attach the File to it so it shows in the
         # native attachment panel and is cleaned up when the BoQ is deleted. The

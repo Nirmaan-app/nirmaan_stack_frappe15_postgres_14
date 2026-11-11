@@ -102,6 +102,15 @@ describe("linkButtonState", () => {
         );
     });
 
+    it("is off with an open Collect payment ticked, and says it is decided by Create or Skip (code review R5)", () => {
+        const collect = row("cp", 480, { source: "Cashbook", row_kind: "Collect Payment", row_status: "Mismatched" });
+        const state = linkButtonState([...rows, collect], new Set(["a", "cp"]), new Map(), 0);
+        expect(state.enabled).toBe(false);
+        expect(state.note).toBe(
+            "A Collect payment is decided by Create expense or Skip by hand, never linked. Untick the 1 Collect payment to link the rest."
+        );
+    });
+
     it("says another page when it does not know which", () => {
         expect(linkButtonState(rows, new Set(["a", "x"]), new Map(), 0).note).toBe(
             "1 ticked line is on another page. Linking works on one page at a time: go back to it, or untick it."

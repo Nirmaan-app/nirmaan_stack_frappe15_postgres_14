@@ -36,6 +36,8 @@ import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { cn } from "@/lib/utils";
 import { paidToCell, paidToExportText, rowEligibility } from "@/utils/payees/paidTo";
+import { ExpenseBillCheckCell } from "@/components/common/expenseBillCheckColumns";
+import { expenseListBillCheckText } from "@/pages/tasks/invoices/utils/expenseBillApprovalView";
 
 import {
   APPROVAL_STATUS,
@@ -43,6 +45,7 @@ import {
   ApprovalQueueRow,
   ApprovalTab,
   descriptionFirstLine,
+  PAYMENT_SOURCE_NONE,
   TIER_LABEL,
   TYPE_BADGE,
   TYPE_LABEL,
@@ -115,29 +118,6 @@ export interface ApprovalColumnCtx {
   canUploadInvoice?: (row: ApprovalQueueRow) => boolean;
 }
 
-const AGAINST_LINE_LIMIT = 40;
-
-/**
- * The identity of an expense row is its description, but 35% of project-expense
- * descriptions carry a line break — and those extra lines are BANK DETAILS, not
- * description. 98.6% of first lines fit 40 characters.
- *
- * ⚠️ Never render a raw line break in a table cell: 911 rows would break the row
- * height. The full text is one hover away.
- *
- * ⚠️ AND THE FIRST LINE IS NOT ALWAYS THE IDENTITY. Where a description opens with
- * "Account Name: …", line 1 is a bank detail and says nothing about the expense —
- * which is why line 2 carries the TYPE ("Labour Charges") rather than the comment.
- */
-const firstLine = (text: string): string => {
-  // The line-break rule itself lives in the config module — the bulk-approve
-  // dialog renders the same descriptions and must not carry a second copy of it.
-  const line = descriptionFirstLine(text);
-  return line.length <= AGAINST_LINE_LIMIT
-    ? line
-    : `${line.slice(0, AGAINST_LINE_LIMIT - 1)}…`;
-};
-
 const daysSince = (iso?: string | null): number | null => {
   if (!iso) return null;
   const then = new Date(iso).getTime();
@@ -169,6 +149,9 @@ const TierChip = ({ tier }: { tier: ApprovalQueueRow["tier"] }) => (
 );
 
 /** A blank is the TRUE value for a non-project expense — never "N/A", never 0. */
+/** A PO / WO payment shows no single bill and no Bill check: one payment can cover many invoices (#1648). */
+const hasNoSingleBill = (r: ApprovalQueueRow): boolean => r.source === "Vendor Payment";
+
 const Blank = () => <span className="text-muted-foreground">—</span>;
 
 const dateCol = (
@@ -209,7 +192,8 @@ const REGISTRY: Record<
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? (ctx.onRevert ? 192 : 160)
         // 140 with the invoice button: the small "Upload Inv" button is ~88px, plus the pencil beside it.
         : ctx.tab === PP_TABS.PAYMENTS_DONE ? (ctx.onUploadInvoice ? 140 : 80)
-        : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
+        // 64 for the pencil + delete; the invoice button adds its ~88px, as on the Paid tab.
+        : ctx.tab === PP_TABS.PAYMENT_BY_ME ? (ctx.onUploadInvoice ? 152 : 64)
         : 72) + (ctx.onEdit && ctx.tab !== PP_TABS.PAYMENTS_DONE ? 32 : 0),
     cell: ({ row }) => {
       const r = row.original;
@@ -222,27 +206,29 @@ const REGISTRY: Record<
         </Button>
       ) : null;
       const none = <span className="text-muted-foreground">--</span>;
+      // A Paid expense's invoice, added or replaced beside the pencil: Payment Done and Payment Raised
+      // By Me (owner, 2026-10-31), wherever `onUploadInvoice` is wired and `canUploadInvoice` admits the row.
+      const invoice = ctx.onUploadInvoice && ctx.canUploadInvoice?.(r) ? (
+        r.has_invoice ? (
+          <Button size="sm" variant="outline" title="Edit invoice"
+            className="h-6 px-1.5 text-[11px] border-green-600 text-green-700 hover:text-green-800 dark:text-green-400"
+            onClick={() => ctx.onUploadInvoice?.(r)}>
+            <Paperclip className="mr-1 h-3 w-3" />
+            Edit Inv
+          </Button>
+        ) : (
+          <Button size="sm" variant="outline" title="Upload invoice"
+            className="h-6 px-1.5 text-[11px] border-primary text-primary"
+            onClick={() => ctx.onUploadInvoice?.(r)}>
+            <Upload className="mr-1 h-3 w-3" />
+            Upload Inv
+          </Button>
+        )
+      ) : null;
 
-      // Paid tab: a Paid expense's invoice can be added or replaced here, beside the pencil.
+      // Paid tab: the invoice button and the pencil.
       // ⚠️ MUST stay above the Approve / Reject fall-through below, like the branch after it.
       if (ctx.tab === PP_TABS.PAYMENTS_DONE) {
-        const invoice = ctx.onUploadInvoice && ctx.canUploadInvoice?.(r) ? (
-          r.has_invoice ? (
-            <Button size="sm" variant="outline" title="Edit invoice"
-              className="h-6 px-1.5 text-[11px] border-green-600 text-green-700 hover:text-green-800 dark:text-green-400"
-              onClick={() => ctx.onUploadInvoice?.(r)}>
-              <Paperclip className="mr-1 h-3 w-3" />
-              Edit Inv
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" title="Upload invoice"
-              className="h-6 px-1.5 text-[11px] border-primary text-primary"
-              onClick={() => ctx.onUploadInvoice?.(r)}>
-              <Upload className="mr-1 h-3 w-3" />
-              Upload Inv
-            </Button>
-          )
-        ) : null;
         if (!invoice) return edit ?? none;
         return (
           <div className="flex items-center gap-1">
@@ -331,9 +317,10 @@ const REGISTRY: Record<
       // would render approval buttons on every row.
       if (ctx.tab === PP_TABS.PAYMENT_BY_ME) {
         const canDelete = !!ctx.onDelete && r.status === APPROVAL_STATUS.REJECTED;
-        if (!edit && !canDelete) return none;
+        if (!invoice && !edit && !canDelete) return none;
         return (
           <div className="flex items-center gap-1">
+            {invoice}
             {edit}
             {canDelete && (
               <Button variant="ghost" size="icon" aria-label="Delete"
@@ -399,11 +386,20 @@ const REGISTRY: Record<
     id: "source_type",
     accessorKey: "source_type",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    // An expense's type sits under its pill (owner, 2026-10-31), beside the filter that picks it; it used to
+    // be the Against cell's second line.
     cell: ({ row }) => (
-      <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
-        <TypeChip type={row.original.source_type} />
-        <GstPaymentTag payment={row.original} />
-        <ReimbursementTag row={row.original} />
+      <span className="block min-w-0">
+        <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
+          <TypeChip type={row.original.source_type} />
+          <GstPaymentTag payment={row.original} />
+          <ReimbursementTag row={row.original} />
+        </span>
+        {row.original.expense_type && (
+          <span className="mt-0.5 block truncate text-[10px] font-medium text-muted-foreground" title={row.original.expense_type}>
+            {row.original.expense_type}
+          </span>
+        )}
       </span>
     ),
     // Sized for the longest label, "Non Project Expense", rendered as a pill; a tag (GST, Reimbursement)
@@ -432,16 +428,13 @@ const REGISTRY: Record<
       // ⚠️ SPANS, NOT DIVS. On a payment row this whole block becomes the child of
       // the popover's <button> trigger, and a <div> inside a <button> is invalid
       // markup — React warns on every one of the 50 rows a page renders.
+      // An expense's description wraps over up to two lines (owner, 2026-10-31); the type moved to the Type
+      // cell. Still its FIRST line only: what follows a line break is bank details, kept for the hover.
       const body = (
         <span className="block min-w-0">
-          <span className={isPayment ? "block max-w-[215px] truncate font-mono text-xs" : "block max-w-[215px] truncate font-medium"} title={isPayment ? r.against_primary : undefined}>
-            {isPayment ? r.against_primary : firstLine(r.against_primary)}
+          <span className={isPayment ? "block max-w-[215px] truncate font-mono text-xs" : "max-w-[215px] line-clamp-2 break-words font-medium"} title={isPayment ? r.against_primary : undefined}>
+            {isPayment ? r.against_primary : descriptionFirstLine(r.against_primary)}
           </span>
-          {!isPayment && r.against_secondary && (
-            <span className="block max-w-[215px] truncate text-[10px] font-medium text-muted-foreground">
-              {r.against_secondary}
-            </span>
-          )}
         </span>
       );
       // A payment row IS a PO/WO number, so the whole cell opens that document's
@@ -464,7 +457,7 @@ const REGISTRY: Record<
         // is a button, and a button inside the trigger's button is invalid markup.
         const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && showsChequeChip(r) ? (
           <span className="mt-0.5 block">
-            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
           </span>
         ) : null;
         if (r.bank_line_count <= 0 && !chip) return documentCard;
@@ -665,7 +658,9 @@ const REGISTRY: Record<
     id: "amount",
     // Sorts and filters on the full bill it shows (#1541, story 60), not the stored, TDS-cut amount.
     accessorFn: (r: ApprovalQueueRow) => r.requested_amount ?? r.amount,
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amount" className="justify-end" />,
+    // `ml-auto`: the table wraps every header in a flex row, so only a margin pushes this one to the right
+    // edge (`justify-end` alone moved nothing). `mr-1` lines the sort icon up with the figures' `pr-2`.
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amount" className="ml-auto mr-1 justify-end" />,
     // 128, not 112: "Req. Amount" plus the sort control needs the extra 16px, and
     // a clipped header on a money column reads as a different column.
     size: 128,
@@ -680,7 +675,7 @@ const REGISTRY: Record<
         remaining: r.remaining_amount,
       });
       // The full bill, whatever the status (#1541): an approved payment's stored amount is already cut
-      // by its TDS, so what is paid is said under it. An Office Rent expense's Rent / TDS / Net (#1527):
+      // by its TDS, so what is paid is said under it. An Office Rent expense's Bill / Rent / GST / TDS / Landlord gets (#1527):
       // forecast while it waits, the stored record after; every other row draws nothing for it.
       const requested = r.requested_amount ?? r.amount;
       const tds = shownExpenseTds({ type: r.expense_type, amount: r.amount, status: r.status, withheld: r.withheld_tds });
@@ -807,7 +802,7 @@ const REGISTRY: Record<
       }
       return (
         <span className="block min-w-0">
-          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} credit={!!r.credit_payment_cheque} />
           {r.utr_ref && (
             <TruncatedText text={r.utr_ref} className="mt-0.5 block max-w-[9rem] font-mono text-[10px] text-muted-foreground" />
           )}
@@ -818,6 +813,23 @@ const REGISTRY: Record<
       exportHeaderName: "UTR / Ref",
       exportValue: (r: ApprovalQueueRow) => utrOrChequeText(r),
     },
+  }),
+
+  // The statement the row was reconciled from (owner, 2026-11-06). Faceted (`useApprovalFacets`), not sorted:
+  // the server sorts only on `SORTABLE`. "Unknown" is a real value, for the filter; the cell shows "—".
+  payment_source: () => ({
+    id: "payment_source",
+    accessorKey: "payment_source",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Source" />,
+    size: 160,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const source = row.original.payment_source;
+      return source && source !== PAYMENT_SOURCE_NONE
+        ? <span className="block max-w-[150px] truncate" title={source}>{source}</span>
+        : <Blank />;
+    },
+    meta: { exportHeaderName: "Payment Source", exportValue: (r: ApprovalQueueRow) => r.payment_source || "" },
   }),
 
   proof: () => ({
@@ -834,6 +846,39 @@ const REGISTRY: Record<
         </a>
       ) : <Blank />,
     meta: { exportHeaderName: "Proof", exportValue: (r: ApprovalQueueRow) => (r.has_proof ? "yes" : "") },
+  }),
+
+  // All Payments only (#1648, spec #1637): an Expense's latest bill (the Expense's `invoice_attachment`, its latest
+  // Expense bill's mirror) and that bill's Bill check. A PO / WO payment row leaves both empty, not "—": one
+  // payment can cover many invoices, and "—" in Bill check means an Expense with no Expense bill.
+  invoice: () => ({
+    id: "invoice",
+    header: "Invoice",
+    size: 70,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const r = row.original;
+      if (hasNoSingleBill(r)) return null;
+      return r.has_invoice ? (
+        <a href={`${SITEURL}${r.invoice}`} target="_blank" rel="noreferrer"
+          aria-label="Open invoice" title="Open invoice" className="text-primary">
+          <Paperclip className="h-3.5 w-3.5" />
+        </a>
+      ) : <Blank />;
+    },
+    meta: { exportHeaderName: "Invoice", exportValue: (r: ApprovalQueueRow) => r.invoice || "" },
+  }),
+
+  bill_check: () => ({
+    id: "bill_check",
+    header: "Bill check",
+    size: 130,
+    enableSorting: false,
+    cell: ({ row }) => (hasNoSingleBill(row.original) ? null : <ExpenseBillCheckCell row={row.original} />),
+    meta: {
+      exportHeaderName: "Bill check",
+      exportValue: (r: ApprovalQueueRow) => (hasNoSingleBill(r) ? "" : expenseListBillCheckText(r)),
+    },
   }),
 
   // Project Expenses only — 99.5% filled, and that ledger's stand-in for Vendor.

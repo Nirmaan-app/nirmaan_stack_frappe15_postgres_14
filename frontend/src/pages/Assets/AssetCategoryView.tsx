@@ -43,6 +43,7 @@ interface AssetMaster {
     asset_serial_number: string | null;
     asset_condition: string | null;
     current_assignee: string | null;
+    lost_damaged?: 0 | 1;
 }
 
 interface AssetAssignment {
@@ -101,7 +102,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
     } = useFrappeGetDocList<AssetMaster>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'asset_name', 'asset_serial_number', 'asset_condition', 'current_assignee'],
+            fields: ['name', 'asset_name', 'asset_serial_number', 'asset_condition', 'current_assignee', 'lost_damaged'],
             filters: [['asset_category', '=', categoryId]],
             orderBy: { field: 'asset_name', order: 'asc' },
             limit: 0,
@@ -401,7 +402,8 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                                         serialNumber={asset.asset_serial_number}
                                         condition={asset.asset_condition}
                                         isAssigned={false}
-                                        showAssignAction={canAssignThisType}
+                                        lostDamaged={!!asset.lost_damaged}
+                                        showAssignAction={canAssignThisType && !asset.lost_damaged}
                                         onAssignClick={() => handleAssignClick(asset)}
                                     />
                                 ))}

@@ -26,9 +26,9 @@ import { settledLedgerRows, type SettledLedgerSplit } from "./outflowTableModel"
  * The server's word for a block, rendered verbatim — the same contract `ledger` already has.
  *
  * The panel maps these to its own headings; it never invents a third name for a side, and it never
- * derives the side from the ledger. It cannot: the removed B7 path stored a non-project receipt as a
- * NEGATIVE `Non Project Expense`, and those rows may still exist, so `Non Project Expenses`
- * legitimately appears in BOTH blocks and the target doctype does not say which way the money went.
+ * derives the side from the ledger. It cannot: a card refund (#1673) is a credit recorded as a NEGATIVE
+ * `Non Project Expense`, so that book holds money in both directions, and the target doctype does not
+ * say which way the money went. The server names it "Card refunds" in the Received block (#1675).
  */
 export const SETTLED_BLOCK_RECEIVED = "Received";
 export const SETTLED_BLOCK_PAID = "Paid";

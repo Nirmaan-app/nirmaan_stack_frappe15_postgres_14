@@ -1,3 +1,4 @@
+import type { BillCheck } from "@/types/NirmaanStack/ExpenseBill";
 /**
  * Bulk Import Outflow -- the uploaded bank statement batch.
  *
@@ -128,6 +129,16 @@ export interface ChequeOutcome {
     status: string;
     started: ChequeStatus;
     double_payments: ChequeDoublePayment[];
+}
+
+/** The server's hand-mark offer on an open line (#1626): its own side, the places to choose from, the Detail to start with. */
+export interface HandMarkOffer {
+    /** Where the line's own statement account is: the fixed From (money out) or To (money in). */
+    own_place: string;
+    /** Every other place, in the server's order. */
+    other_ends: string[];
+    /** On a Cashbook line, the wallet holder (owner decision 8a, #1619); else blank. The person may change it. */
+    detail: string;
 }
 
 /** One staged transfer, as `get_batch_rows` returns it. */
@@ -288,6 +299,37 @@ export interface OutflowImportRow {
      */
     settled_ledgers?: string[];
     /**
+     * The line's Internal Transfer record (#1621, spec #1619), read by `review.get_outflow_rows` from the record's
+     * unique `import_row`: its name, From, To and Detail, which rule made it (or "by hand"), and for a hand mark
+     * who, when and why (#1626). Blank on every other line.
+     */
+    internal_transfer?: string | null;
+    transfer_from?: string | null;
+    transfer_to?: string | null;
+    transfer_detail?: string | null;
+    transfer_made_by?: string | null;
+    transfer_marked_by?: string | null;
+    transfer_marked_at?: string | null;
+    transfer_mark_reason?: string | null;
+    /** The record's money and direction (`In` / `Out`): a Cashbook top-up's line stages 0 and states no direction. */
+    transfer_amount?: number | null;
+    transfer_record_direction?: string | null;
+    /** Who made the record, in words: "Rule: Cashfree wallet top-up", "By hand" (`internal_transfers.made_by_words`). */
+    transfer_made_by_label?: string | null;
+    /**
+     * What Mark as Internal Transfer offers on this line, or null when it may not be marked
+     * (`internal_transfer_rules.hand_mark_offer`, review finding F1 of #1619). The screen keeps no copy of the
+     * places or the rule; the endpoint asks them again under the line's lock.
+     */
+    hand_mark?: HandMarkOffer | null;
+    /**
+     * Whether the line offers Send back to Mismatched (`internal_transfer_rules.send_back_refusal`): an Internal
+     * Transfer line, unless it is a Cashbook move (its Type, or on an old line with no stored Type its Txn Id, says
+     * Bank → VA, VA → Wallet or Wallet → VA). The screen keeps no copy of the rule; the endpoint asks it again under
+     * the line's lock.
+     */
+    can_send_back?: boolean;
+    /**
      * The settled record's own name(s) and amount(s), one entry per settled leg.
      *
      * ⚠️ EXPORT-ONLY. `get_outflow_rows` does NOT return these two -- only
@@ -312,6 +354,25 @@ export interface OutflowImportRow {
     settled_target_amounts?: string;
     /** Denormalised from the batch, so the table can filter by source without a join. */
     source?: string;
+    /**
+     * Cashbook Statement only: the line's Type as the statement printed it ("Wallet Spend", "Collect Payment",
+     * ...), stored at staging (#1595). An open Collect payment offers only Create expense and Skip by hand
+     * (`outflowImportStatus.isCollectPaymentLine`). Blank on every other source and on older Cashbook lines.
+     */
+    row_kind?: string | null;
+    /**
+     * An open Collect payment's bill, copied at import (#1595), and its Bill check kept on the line (#1642:
+     * Checking / Matched / Mismatched / Not read / Not checked). The decide screen says "Invoice already available"
+     * and what Create will lead to (`cashbookCollect.collectBillOutcome`). Blank on every other line.
+     */
+    stored_bill?: string | null;
+    bill_check?: BillCheck | null;
+    /**
+     * Cashbook Statement only: on a line skipped as a Paired wallet refund, the other line's Txn Id (the spend
+     * the refund gives back, or the refund that gives back this spend), stored at staging (#1602). The Skipped
+     * popup shows it as "Paired with <it>". Blank on every other line and on lines paired before #1602.
+     */
+    cashbook_refund_partner?: string | null;
     /**
      * Which import staged this row.
      *
@@ -358,6 +419,8 @@ export interface OutflowRowsPage {
         /** The Skipped popup's Outflow / Inflow tabs: `skipped` narrowed to one direction. */
         skipped_outflow: number;
         skipped_inflow: number;
+        /** The Internal Transfers tab (#1621): every `Internal Transfer` line, both directions. */
+        internal_transfers: number;
     };
     /**
      * The SAME population as `tab_counts`, broken down by status instead of by tab, across BOTH
@@ -517,6 +580,13 @@ export interface OutflowImportSummary {
          */
         failed_rows: number;
         failed_value: number;
+        /**
+         * The Internal transfers figure (#1625): Internal Transfer lines under the panel's filters, and the money
+         * their records moved out and in. Outside every figure above. Optional for an older server.
+         */
+        internal_transfer_rows?: number;
+        internal_transfer_out_value?: number;
+        internal_transfer_in_value?: number;
         /**
          * The WHOLE-STATEMENT figure split by which way the money went, as plain counts and
          * totals (`status.derive_import_summary`).

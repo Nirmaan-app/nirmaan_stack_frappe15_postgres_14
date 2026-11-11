@@ -29,6 +29,7 @@ from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 U = "Administrator"
 PE = "Project Expenses"
@@ -65,7 +66,7 @@ def _every_human_role() -> tuple[str, ...]:
 	return tuple(sorted(roles - {"Administrator", "Guest", "All"}))
 
 
-class TestOneDoor(FrappeTestCase):
+class TestOneDoor(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

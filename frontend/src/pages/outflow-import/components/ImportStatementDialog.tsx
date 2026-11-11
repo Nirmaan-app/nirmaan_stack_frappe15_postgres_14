@@ -49,9 +49,13 @@ import {
     CashbookConfirmResult,
     CashbookPreviewResult,
     CashbookStatus,
+    canConfirm,
+    confirmLabel,
     createLabel,
+    lateBillsDoneText,
     progressFraction,
     progressText,
+    showsResume,
 } from "../cashbookPreview";
 import {
     CONFIRM_STEP_NOTE,
@@ -90,22 +94,22 @@ import {
 } from "../porterPrecheck";
 import { nextConfirmLabel, porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
+import { CashbookBillsNotCopied } from "./CashbookBillsNotCopied";
+import { CashbookResumeButton } from "./CashbookResume";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterConfirmPanel } from "./PorterConfirmPanel";
 import {
-    CARD_DISCARD_METHOD,
     CARD_SOURCE,
     CARD_UPLOAD_URL,
-    canDiscardCard,
     cardAsksForPassword,
-    cardDiscardConfirmation,
     pdfLooksLocked,
     type CardImport,
 } from "../creditCardImport";
-import { canCreateCard, cardCreateButtonLabel, cardCreateStarted } from "../cardCreate";
+import { cardCreateStarted } from "../cardCreate";
 import { cardImportKey, useCardImport } from "../useCardImport";
+import { recordsFilledText } from "../internalTransferView";
+import { CardImportFooter } from "./CardImportFooter";
 import { CardImportReview } from "./CardImportReview";
-import { ImportDiscardButton } from "./ImportDiscardButton";
 import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterFileChecks } from "./PorterFileChecks";
 import { PorterImportSummary } from "./PorterImportSummary";
@@ -772,7 +776,8 @@ export const ImportStatementDialog = ({
 
     /**
      * Upload a Credit Card Statement PDF (#1566). ONE request reads, gates, refuses or stages the whole
-     * statement, as Porter's does: a refused file (another company, totals that disagree) saves nothing.
+     * statement, as Porter's does: a refused file (totals that disagree) saves nothing. The
+     * company is shown on Review, never refused (ADR-0039 Amendment B).
      *
      * A password-locked PDF is refused until its password is sent with it (ADR-0039 Amendment A): a picked file
      * that looks locked, that refusal, or a wrong password shows the PDF password field, and the upload sends
@@ -1400,8 +1405,22 @@ export const ImportStatementDialog = ({
                         <CashbookProgress
                             creating={cashbookBatch.creating}
                             repeatsNotSaved={cashbookBatch.repeats_not_saved}
+                            lateBills={cashbookBatch.late_bills ?? 0}
+                            recordsFilled={cashbookBatch.records_filled ?? 0}
                             status={cashbookStatus}
                             running={isBusy === "match"}
+                            resume={
+                                isBusy !== "match" && showsResume(cashbookStatus) ? (
+                                    // #1589: the job stopped part-way; Resume re-queues it and the poll follows.
+                                    <CashbookResumeButton
+                                        batch={cashbookBatch.batch}
+                                        onResumed={(next) => {
+                                            setCashbookStatus(next);
+                                            setIsBusy("match");
+                                        }}
+                                    />
+                                ) : null
+                            }
                         />
                     )}
                 </div>
@@ -1432,18 +1451,13 @@ export const ImportStatementDialog = ({
                                 </Button>
                                 <Button
                                     onClick={handleCashbookConfirm}
-                                    // A refused file has nothing to create either; said by name so
-                                    // the button never depends on the two facts staying in step.
-                                    disabled={
-                                        working ||
-                                        !cashbookPreview?.creating ||
-                                        Boolean(cashbookPreview?.refused)
-                                    }
+                                    // #1593: a file whose only work is late bills is offered too.
+                                    disabled={working || !cashbookPreview || !canConfirm(cashbookPreview)}
                                 >
                                     {isBusy === "upload" && (
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     )}
-                                    {createLabel(cashbookPreview?.creating ?? 0)}
+                                    {cashbookPreview ? confirmLabel(cashbookPreview) : createLabel(0)}
                                 </Button>
                             </>
                         )}
@@ -1508,30 +1522,13 @@ export const ImportStatementDialog = ({
                 )}
 
                 {isCard && cardImport && (
-                    <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-                        {/* Discard: Admin / Accountant Lead, until Create has written anything. */}
-                        <ImportDiscardButton
-                            method={CARD_DISCARD_METHOD}
-                            batch={cardImport.batch}
-                            offered={(canUndo) => canDiscardCard(cardImport, canUndo)}
-                            title="Discard this Credit Card Statement import?"
-                            confirmation={cardDiscardConfirmation(cardImport)}
-                            onDiscarded={handleOwnImportDone}
-                        />
-                        {/* Create (#1568): the Bulk Import gate, so every user of this dialog. */}
-                        {canCreateCard(cardImport) && (
-                            <Button onClick={card.create} disabled={card.startingCreate || card.retyping !== null}>
-                                {card.startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                                {cardCreateButtonLabel(cardImport)}
-                            </Button>
-                        )}
-                        <Button
-                            variant={canCreateCard(cardImport) ? "outline" : "default"}
-                            onClick={handleOwnImportDone}
-                        >
-                            Done
-                        </Button>
-                    </div>
+                    <CardImportFooter
+                        card={cardImport}
+                        onCreate={card.create}
+                        createDisabled={card.startingCreate || card.retyping !== null}
+                        startingCreate={card.startingCreate}
+                        onDone={handleOwnImportDone}
+                    />
                 )}
 
                 {!isCashbook && !isPorter && !isCard && stepIndex >= 2 && (
@@ -1898,18 +1895,29 @@ function extractServerMessage(payload: string): string | null {
 const CashbookProgress = ({
     creating,
     repeatsNotSaved,
+    lateBills,
+    recordsFilled,
     status,
     running,
+    resume,
 }: {
     creating: number;
     repeatsNotSaved: number | undefined;
+    /** #1593: how many existing Expenses the job gives a bill. */
+    lateBills: number;
+    /** Owner decision 2 (#1619): how many old ₹0 Internal Transfer records this file gave their amount. */
+    recordsFilled: number;
     status: CashbookStatus | null;
     running: boolean;
+    /** The Resume button, when the job stopped part-way (#1589). */
+    resume?: ReactNode;
 }) => {
     const fraction = progressFraction(status, creating);
-    const failed = (status?.failed ?? 0) > 0;
+    const failed = (status?.failed ?? 0) > 0 || Boolean(status?.stopped);
     // ADR-0031: the one trace the left-out lines leave, worded as in the Cashfree summary and history.
     const repeats = repeatsNotSavedLabel(repeatsNotSaved);
+    const lateText = lateBillsDoneText(lateBills, running);
+    const filledText = recordsFilledText(recordsFilled);
     return (
         <div className="space-y-3 rounded-md border bg-muted/30 p-4">
             <div className="flex items-center gap-2 text-sm">
@@ -1934,7 +1942,12 @@ const CashbookProgress = ({
                     style={{ width: `${Math.round(fraction * 100)}%` }}
                 />
             </div>
+            {resume}
             {repeats && <p className="text-xs text-muted-foreground">{repeats}</p>}
+            {lateText && <p className="text-xs text-muted-foreground">{lateText}</p>}
+            {filledText && <p className="text-xs text-muted-foreground">{filledText}</p>}
+            {/* #1591: each spend whose bills were not copied, with the server's reason. */}
+            <CashbookBillsNotCopied status={status} />
             {!running && (
                 <p className="text-xs text-muted-foreground">
                     Corrections are made in Expenses — open a record and change its project or type.

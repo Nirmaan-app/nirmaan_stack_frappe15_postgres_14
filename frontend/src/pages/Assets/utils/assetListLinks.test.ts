@@ -46,13 +46,19 @@ describe("assetListSyncKey", () => {
   it.each([
     ["AssetMasterList.tsx", "all", "asset_master_"],
     ["AssignedAssetsList.tsx", "assigned", "assigned_assets_"],
-    ["UnassignedAssetsList.tsx", "unassigned", "unassigned_assets_"],
     ["PendingActionsList.tsx", "pending", "pending_actions_"],
   ] as const)("matches %s", (file, view, prefix) => {
     const source = readFileSync(resolve(__dirname, "../components", file), "utf-8");
     expect(source).toContain(`urlSyncKey: assetType ? \`${prefix}\${assetType.toLowerCase()}\``);
     expect(assetListSyncKey("Project", view)).toBe(`${prefix}project`);
     expect(assetListSyncKey("IT", view)).toBe(`${prefix}it`);
+  });
+
+  it("matches UnassignedAssetsList.tsx, which is also the Lost/Damaged list (owner, 2026-10-31)", () => {
+    const source = readFileSync(resolve(__dirname, "../components/UnassignedAssetsList.tsx"), "utf-8");
+    expect(source).toContain("urlSyncKey: `${lostDamaged ? 'lost_damaged' : 'unassigned'}_assets${assetType ? `_${assetType.toLowerCase()}` : ''}`");
+    expect([assetListSyncKey("Project", "unassigned"), assetListSyncKey("IT", "unassigned")]).toEqual(["unassigned_assets_project", "unassigned_assets_it"]);
+    expect([assetListSyncKey("Project", "lost"), assetListSyncKey("IT", "lost")]).toEqual(["lost_damaged_assets_project", "lost_damaged_assets_it"]);
   });
 
   it("filters on the Unassigned list's Category facet column", () => {

@@ -87,22 +87,7 @@ def get_credits_list(
     today_date = today()
     values['today'] = today_date  # Always include today for display_status calculation
 
-    if status_filter == "Due":
-        # "Due" tab shows:
-        # - Created terms with due_date <= today (these are overdue/due for payment)
-        # - Requested terms (payment has been requested)
-        # - CEO Pending terms (L1 approved, awaiting CEO)
-        # - Approved terms (CEO approved, pending disbursement)
-        conditions.append('''(
-            (pt.term_status = 'Created' AND pt.due_date <= %(today)s)
-            OR pt.term_status = 'Requested'
-            OR pt.term_status = 'CEO Pending'
-            OR pt.term_status = 'Approved'
-        )''')
-    elif status_filter != "All":
-        # Specific status filter
-        conditions.append('pt.term_status = %(status_filter)s')
-        values['status_filter'] = status_filter
+    _add_status_condition(status_filter, conditions, values)
 
     # Parse and apply TanStack column filters
     if filters:
@@ -157,12 +142,20 @@ def get_credits_list(
                 ELSE pt.term_status
             END as display_status,
             pt.label,
+            pt.payment_type,
             pt.amount,
             pt.percentage,
             pt.due_date,
-            pt.modified as term_modified
+            pt.modified as term_modified,
+            pp.mode_of_payment,
+            ch.name as cheque,
+            ch.cheque_no,
+            ch.cheque_date,
+            ch.status as cheque_status
         FROM "tabProcurement Orders" po
         INNER JOIN "tabPO Payment Terms" pt ON pt.parent = po.name
+        LEFT JOIN "tabProject Payments" pp ON pp.name = pt.project_payment
+        LEFT JOIN "tabCheques" ch ON ch.name = pp.cheque
         WHERE {where_clause}
         {order_clause}
         LIMIT %(limit)s OFFSET %(offset)s
@@ -194,6 +187,45 @@ def get_credits_list(
         "total_count": total_count,
         "aggregates": aggregates
     }
+
+
+#: The Credit Payments tabs (`status_filter`). "All" lists every credit term.
+TAB_DUE = "Due"
+TAB_CHEQUE_ISSUED = "Cheque Issued"
+TAB_ALL = "All"
+
+#: A term's payment is a cheque (owner, 2026-10-31). Read off the payment's Mode of Payment, not the Cheque's
+#: Credit Payment Cheque tick, so credit cheques made before that field count too. EXISTS, not a join: the
+#: count, facet and aggregate queries reuse the WHERE clause without the list's joins.
+PAID_BY_CHEQUE_SQL = """EXISTS (
+    SELECT 1 FROM "tabProject Payments" cpp
+    WHERE cpp.name = pt.project_payment AND cpp.mode_of_payment = 'Cheque'
+)"""
+
+#: The term steps between the request and Paid, where a credit term still waits on its payment.
+WAITING_TERM_STATUSES_SQL = "('Requested', 'CEO Pending', 'Approved', 'Reconciliation Pending')"
+
+
+def _add_status_condition(status_filter: str, conditions: list, values: dict) -> None:
+    """Append the WHERE condition of the Credit Payments tab `status_filter` (one place for the list, its
+    count and its facets). `values` must already hold `today`.
+
+    * Due: Created terms past their due date, and terms Requested, CEO Pending or Approved, but none paid by
+      cheque: those wait in Cheque Issued.
+    * Cheque Issued: terms paid by cheque that are not Paid yet, from the request (cheque Approval Pending)
+      until the bank clears the cheque (owner, 2026-10-31).
+    * All: no condition. Any other value is one term status.
+    """
+    if status_filter == TAB_DUE:
+        conditions.append(f'''(
+            (pt.term_status = 'Created' AND pt.due_date <= %(today)s)
+            OR (pt.term_status IN ('Requested', 'CEO Pending', 'Approved') AND NOT {PAID_BY_CHEQUE_SQL})
+        )''')
+    elif status_filter == TAB_CHEQUE_ISSUED:
+        conditions.append(f"(pt.term_status IN {WAITING_TERM_STATUSES_SQL} AND {PAID_BY_CHEQUE_SQL})")
+    elif status_filter != TAB_ALL:
+        conditions.append('pt.term_status = %(status_filter)s')
+        values['status_filter'] = status_filter
 
 
 def _get_user_allowed_projects(user: str):
@@ -507,17 +539,8 @@ def get_credits_facets(
     today_date = today()
     values['today'] = today_date
 
-    # Status filter (keep in sync with the same branch in get_credits_list above)
-    if status_filter == "Due":
-        conditions.append('''(
-            (pt.term_status = 'Created' AND pt.due_date <= %(today)s)
-            OR pt.term_status = 'Requested'
-            OR pt.term_status = 'CEO Pending'
-            OR pt.term_status = 'Approved'
-        )''')
-    elif status_filter != "All":
-        conditions.append('pt.term_status = %(status_filter)s')
-        values['status_filter'] = status_filter
+    # Status filter: the same tabs as get_credits_list above.
+    _add_status_condition(status_filter, conditions, values)
 
     # Parse column filters
     if filters:

@@ -45,11 +45,21 @@ from typing import Sequence
 import frappe
 
 from nirmaan_stack.api.outflow_import.card_refund_pairs import unskip_refund_pair
+from nirmaan_stack.api.outflow_import.internal_transfers import (
+    INTERNAL_TRANSFER_COLUMNS,
+    INTERNAL_TRANSFER_JOIN,
+    can_send_back,
+    hand_mark_of_row,
+    internal_transfer_fields,
+)
 from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
+    has_outflow_undo_access,
     require_outflow_access,
 )
 from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
+from nirmaan_stack.services.expense_bills.bill_list import stopped_sql
+from nirmaan_stack.services.expense_bills.reading import stopped_before
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -112,11 +122,16 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     settlement_reference_of_row,
 )
+from nirmaan_stack.services.outflow_import.cashbook_collect import (
+    COLLECT_PAYMENT_SKIP_REFUSAL,
+    is_collect_payment_line,
+)
+from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_MOVED_STATUSES, REFUND_ROW_KINDS
+from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 # ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
 # records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
 # it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
 # reviewer feedback, and a tuning change must not be able to alter what settles unattended.
-from nirmaan_stack.services.outflow_import.skip_origin import manual_skip_refusal, unskip_refusal
 from nirmaan_stack.services.outflow_import.similarity import (
     RecordSignals,
     build_row_signals,
@@ -124,9 +139,11 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CARD_PLAN_BASIS,
     CARD_STATEMENT_SOURCE,
+    CASHBOOK_SOURCE,
     CREATE_GATED_SOURCES,
-    CREDITS_DECIDED_ON_THE_MAIN_TABLE,
+    CREDITS_WAIT_ONLY_WITH_A_PLAN,
     PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
     source_runs_the_matcher,
@@ -145,6 +162,7 @@ from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
     settleable_candidates,
     ROW_ERROR,
+    ROW_INTERNAL_TRANSFER,
     ROW_MATCHED,
     ROW_MISMATCHED,
     ROW_PARTIALLY_ALLOCATED,
@@ -172,6 +190,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 # Pure: which lines are cheque lines, and what a line no Payment cheque claims says (#1485).
 from nirmaan_stack.services.cheques.bank_import_rules import bank_cheque_key, no_payment_cheque_note
+from nirmaan_stack.services.outflow_import.internal_transfers import TRANSFER_IN, TRANSFER_OUT
 from nirmaan_stack.services.outflow_import.row_settlement import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
@@ -187,7 +206,8 @@ from nirmaan_stack.services.outflow_import.row_settlement import (
 # ends with `frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})`. A partially allocated row
 # reaching that line would have its settlement evidence deleted while the payments stayed Paid --
 # silently. Frozen does NOT mean finished here: the row is still ACTIVE and still needs a human.
-_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
+# `Internal Transfer` joins it at #1620: a final line with a record of its own, which the run must never re-derive.
+_FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED, ROW_INTERNAL_TRANSFER)
 
 
 class StagedRow:
@@ -1440,6 +1460,9 @@ def skip_row(row: str, reason: str):
       * EVERYONE IN THE MODULE (`require_outflow_access`) -- Accountant, Accountant Lead, Admin. It was
         Admin + Accountant Lead only until owner ruling 2026-09-24 (ADR-0022 Amendment E) opened Skip and
         Unskip to a plain Accountant; Unreconcile and Reverse stay on `require_outflow_undo_access`.
+        ONE EXCEPTION: an open Collect payment (spec #1585 story 39) is skipped by an Admin or an Accountant
+        Lead only (`has_outflow_undo_access`), because skipping it closes on record a payment that left the
+        company.
       * OPEN LINES ONLY (`skip_origin.manual_skip_refusal`) -- Cashbook too since #1314, bar a line its
         own job has not written yet. The old endpoint accepted
         an already-Skipped line, which relabelled a system skip -- a duplicate, a refused transfer --
@@ -1462,19 +1485,27 @@ def skip_row(row: str, reason: str):
 
     with concurrent_writer_refusal_as_sentence("skip_row", row):
         current = frappe.db.get_value(
-            ROW_DOCTYPE, row, ["name", "import_batch", "row_status", "direction"], as_dict=True, for_update=True
+            ROW_DOCTYPE,
+            row,
+            ["name", "import_batch", "row_status", "direction", "source", "row_kind", "match_basis"],
+            as_dict=True,
+            for_update=True,
         )
         if not current:
             frappe.throw(f"Import row '{row}' not found.", title="Not found")
         # The BATCH's source, as `match_line` reads it -- the run-level fact, not the denormalised copy.
-        # The direction: a card credit may be skipped here, a card spend may not (#1567).
+        # The direction and plan: a card credit may be skipped here, a card spend or refund may not (#1567, #1673).
         refusal = manual_skip_refusal(
             row_status=current.row_status,
             source=_batch_source(current.import_batch),
             direction=current.direction,
+            import_batch=current.import_batch,
+            match_basis=current.match_basis,
         )
         if refusal:
             frappe.throw(refusal, title="Cannot skip this transfer")
+        if is_collect_payment_line(current.source, current.row_kind) and not has_outflow_undo_access(actor):
+            frappe.throw(COLLECT_PAYMENT_SKIP_REFUSAL, frappe.PermissionError, title="Not permitted")
 
         doc = frappe.get_doc(ROW_DOCTYPE, row)
         doc.update(
@@ -2571,6 +2602,9 @@ SCOPE_SKIPPED = "skipped"
 # so their counts ride `tab_counts` under the popup's own filters. Still no TAB on the page reaches them.
 SCOPE_SKIPPED_OUTFLOW = "skipped_outflow"
 SCOPE_SKIPPED_INFLOW = "skipped_inflow"
+# The Internal Transfers tab (#1621, spec #1619): our own money moving between our own places, both directions,
+# after the Settled tabs. Its own scope, so it has its own count under the screen's period and import filters.
+SCOPE_INTERNAL_TRANSFERS = "internal_transfers"
 
 # The two labels `_DIRECTION_CLASS_SQL` yields. They ARE the summary's direction-block labels, so
 # the funnel, the tabs and the summary name a side identically.
@@ -2608,6 +2642,7 @@ _SCOPE_STATUSES = {
     SCOPE_SKIPPED: (ROW_SKIPPED,),
     SCOPE_SKIPPED_OUTFLOW: (ROW_SKIPPED,),
     SCOPE_SKIPPED_INFLOW: (ROW_SKIPPED,),
+    SCOPE_INTERNAL_TRANSFERS: (ROW_INTERNAL_TRANSFER,),
 }
 
 # The direction each scope is narrowed to. A scope absent here (`all`, `skipped`) spans both.
@@ -2955,6 +2990,19 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
+               -- Cashbook Statement only: the line's Type (#1595). An open Collect payment offers Create expense
+               -- and Skip by hand only (spec #1585), and the screen tells it apart by this.
+               r.row_kind,
+               -- Cashbook Statement only: a Paired wallet refund's other line, by Txn Id (#1602). The Skipped
+               -- popup shows "Paired with <it>" under the tag.
+               r.cashbook_refund_partner,
+               -- An open Collect payment's stored bill and its Bill check (#1642): the decide screen says
+               -- "Invoice already available" and what Create will lead to. A line left Checking by a reading
+               -- that stopped (`expense_bills.bill_list.stopped_sql`; the cutoff is the FIRST parameter of this
+               -- query) has no result for Create to carry, so it ships none, as a line stored before #1642
+               -- does: the dialog then says "Will be read on Create", which is what Create does.
+               r.stored_bill,
+               CASE WHEN {stopped_sql("r", "%s")} THEN NULL ELSE r.bill_check END AS bill_check,
                -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
                -- the stored column beside `remarks`, `reference_id` and `source` (below).
                r.settlement_reference,
@@ -2987,14 +3035,16 @@ def get_outflow_rows(
                {SETTLED_LEDGER_SQL} AS settled_ledgers,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
-               b.period_to         AS import_period_to
+               b.period_to         AS import_period_to,
+               {INTERNAL_TRANSFER_COLUMNS}
         FROM "tabOutflow Import Row" r
         LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {INTERNAL_TRANSFER_JOIN}
         {clause}
         ORDER BY {column} {direction}, r.name ASC
         LIMIT %s OFFSET %s
         """,
-        tuple(all_params) + (limit, offset),
+        (stopped_before(), *all_params, limit, offset),
         as_dict=True,
     )
 
@@ -3036,6 +3086,9 @@ def get_outflow_rows(
             {
                 **{k: v for k, v in row.items() if k != "suggested_refunds"},
                 "amount": float(row.get("amount") or 0),
+                **internal_transfer_fields(row),
+                "hand_mark": hand_mark_of_row(row),
+                "can_send_back": can_send_back(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # ⚠️ SPLIT INTO A LIST HERE, not on the client. The pipe is a transport detail of
@@ -3086,6 +3139,26 @@ def get_outflow_rows(
     }
 
 
+def _failed_transfer_sql() -> tuple[str, tuple]:
+    """The SQL predicate "this line is a transfer that moved no money", over alias `r`, with its parameters.
+
+    ⚠️ ONE DEFINITION FOR EVERY SUMMARY FIGURE AND THE `failed` FILTER (owner ruling 2026-08-10, option B): the
+    grouped summary query, the settled blocks and `_row_filters(failed=...)` all read it, so the Received tile,
+    the Skipped chip and the Skipped dialog's "refused by the bank" list cannot disagree about a line.
+
+    A line moved money when its bank status is `parser.BANK_SUCCESS_STATUS`. A Cashbook refund (Refund to Wallet,
+    Credit Adjustment) moved money on `cashbook_refunds.REFUND_MOVED_STATUSES`: the wallet writes REFUNDED on a
+    refund that happened, so an Unpaired wallet refund is money received, still to decide (spec #1585 story 42),
+    and a Paired one is a skipped line, never a refused transfer. Every other source is unchanged.
+    """
+    return (
+        "NOT (UPPER(TRIM(COALESCE(r.status_raw, ''))) = %s"
+        " OR (TRIM(COALESCE(r.source, '')) = %s AND TRIM(COALESCE(r.row_kind, '')) IN %s"
+        " AND UPPER(TRIM(COALESCE(r.status_raw, ''))) IN %s))",
+        (BANK_SUCCESS_STATUS, CASHBOOK_SOURCE, tuple(sorted(REFUND_ROW_KINDS)), tuple(sorted(REFUND_MOVED_STATUSES))),
+    )
+
+
 def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None,
                  failed=None, skip_origin=None):
     """The WHERE fragments shared by the page query, its count, and the tab counts.
@@ -3102,19 +3175,22 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # the facets, the summary panel's *Still open* and the Payments card's *Total Unreconciled Outflow*
     # (`not_matched_totals`). One clause here keeps all of them equal to each other. A Porter line comes
     # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
-    # ⚠️ PER LINE, NOT PER SOURCE (#1567, README ruling 4): a card CREDIT is decided here, so an open one is
-    # in the population; a card spend waits like a Porter line. `sources.line_waits_for_its_own_create`
-    # is the same rule in Python.
+    # ⚠️ PER LINE, NOT PER SOURCE (#1567, #1673): a card spend waits like a Porter line, and so does a card
+    # refund (a credit carrying its import's Create plan, `CARD_PLAN_BASIS`); any other card CREDIT is
+    # decided here, so an open one is in the population. `sources.is_card_refund` and
+    # `sources.line_waits_for_its_own_create` are the same rule in Python.
     where.append(
         "NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s"
-        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s))"
+        " AND NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.direction = %s"
+        " AND COALESCE(r.match_basis, '') != %s))"
     )
     params.extend(
         [
             tuple(sorted(CREATE_GATED_SOURCES)),
-            (ROW_SETTLED, ROW_SKIPPED),
-            tuple(sorted(CREDITS_DECIDED_ON_THE_MAIN_TABLE)),
+            (ROW_SETTLED, ROW_SKIPPED, ROW_INTERNAL_TRANSFER),
+            tuple(sorted(CREDITS_WAIT_ONLY_WITH_A_PLAN)),
             DIRECTION_CREDIT,
+            CARD_PLAN_BASIS,
         ]
     )
 
@@ -3133,10 +3209,9 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     # time -- two spellings of the bank's vocabulary is how the chip and the dialog would drift again.
     if failed is not None:
         wanted = str(failed).strip().lower() not in ("0", "false", "no", "")
-        where.append(
-            f"UPPER(COALESCE(r.status_raw, '')) {'<>' if wanted else '='} %s"
-        )
-        params.append(BANK_SUCCESS_STATUS)
+        failed_sql, failed_params = _failed_transfer_sql()
+        where.append(failed_sql if wanted else f"NOT ({failed_sql})")
+        params.extend(failed_params)
 
     # The Skipped popup's "Skipped by hand" segment (#1273). A server filter, like `failed` above, so
     # the page, its count and the export describe the same rows. An origin outside the vocabulary
@@ -3537,9 +3612,11 @@ def export_outflow_rows(
                {_SETTLED_TARGET_AMOUNT_SQL}  AS settled_target_amounts,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
-               b.period_to         AS import_period_to
+               b.period_to         AS import_period_to,
+               {INTERNAL_TRANSFER_COLUMNS}
         FROM "tabOutflow Import Row" r
         LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {INTERNAL_TRANSFER_JOIN}
         {clause}
         ORDER BY {column} {direction}, r.name ASC
         """,
@@ -3552,6 +3629,7 @@ def export_outflow_rows(
             {
                 **row,
                 "amount": float(row.get("amount") or 0),
+                **internal_transfer_fields(row),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 # Same split as `get_outflow_rows` -- see the comment there. Server-side, once,
@@ -4272,7 +4350,7 @@ def get_outflow_summary(
         # caption that quietly describes the wrong statement. Absent is the honest shape there; the
         # screen reads the `imports` list instead.
         "import": _batch_meta(batch) if batch else None,
-        "totals": _jsonable_summary(summary),
+        "totals": {**_jsonable_summary(summary), **_internal_transfer_figure(where, params)},
         # Which skips were the system's and which were a person's. The screen labels them
         # differently because they mean different things: one is bookkeeping, one is a decision.
         "auto_skipped_rows": auto_skipped,
@@ -4286,6 +4364,39 @@ def get_outflow_summary(
             for g in grouped
             if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
         ),
+    }
+
+
+def _internal_transfer_figure(where, params) -> dict:
+    """The panel's Internal transfers figure (#1625, spec #1619): how many Internal Transfer lines the filters select,
+    and the money their records moved out and in.
+
+    ⚠️ UNDER THE SAME `_row_filters` WHERE AS EVERY OTHER FIGURE, so it follows the period and the imports. It counts
+    every Internal Transfer line, as the tab does: each holds its record (owner decision 3, #1619), so a line a person
+    marked whatever its bank status counts too.
+
+    ⚠️ THE MONEY IS THE RECORDS', NOT THE LINES'. A Cashbook top-up carries its money in the statement's Credit
+    column and stages its line at 0 (#1623); its record holds what moved. Out and In are the record's direction, as
+    the line stated it. These lines are already out of the totals and Still open
+    (`status.SUMMARY_EXCLUDED_STATUSES`); this is the only place their money is shown.
+    """
+    clause = " AND ".join([*where, "r.row_status = %s"])
+    figure = frappe.db.sql(
+        f"""
+        SELECT COUNT(*) AS rows,
+               COALESCE(SUM(CASE WHEN it.direction = %s THEN it.amount ELSE 0 END), 0) AS out_value,
+               COALESCE(SUM(CASE WHEN it.direction = %s THEN it.amount ELSE 0 END), 0) AS in_value
+        FROM "tabOutflow Import Row" r
+        {INTERNAL_TRANSFER_JOIN}
+        WHERE {clause}
+        """,
+        (TRANSFER_OUT, TRANSFER_IN) + tuple(params) + (ROW_INTERNAL_TRANSFER,),
+        as_dict=True,
+    )[0]
+    return {
+        "internal_transfer_rows": int(figure["rows"] or 0),
+        "internal_transfer_out_value": float(normalize_amount(figure["out_value"])),
+        "internal_transfer_in_value": float(normalize_amount(figure["in_value"])),
     }
 
 
@@ -4319,10 +4430,11 @@ def _summary_groups(where, params):
     # plain column on the row table, so the shared builder needs no change at all: ONE more
     # `GROUP BY` term, and `derive_import_summary` does the splitting.
     clause = (" WHERE " + " AND ".join(where)) if where else ""
+    failed_sql, failed_params = _failed_transfer_sql()
     return frappe.db.sql(
         f"""
         SELECT r.row_status                                        AS status,
-               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               {failed_sql}                                         AS failed,
                COALESCE(r.direction, '')                           AS direction,
                COUNT(*)                                            AS count,
                COALESCE(SUM(r.amount), 0)                          AS value,
@@ -4345,12 +4457,13 @@ def _summary_groups(where, params):
                                  THEN 1 ELSE 0 END), 0)            AS skipped_by_hand
         FROM "tabOutflow Import Row" r
         {clause}
-        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s,
+        GROUP BY r.row_status, {failed_sql},
                  COALESCE(r.direction, '')
         """,
-        (BANK_SUCCESS_STATUS, ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
+        failed_params
+        + (ORIGIN_ACCEPTED, SKIP_ORIGIN_MANUAL)
         + tuple(params)
-        + (BANK_SUCCESS_STATUS,),
+        + failed_params,
         as_dict=True,
     )
 
@@ -4501,11 +4614,9 @@ def _settled_by_direction(where, params) -> list[dict]:
     read in, which side a blank direction lands on, or whether an empty received block renders at
     all, is decided here.
     """
-    settled_where = where + [
-        "r.row_status = %s",
-        "UPPER(TRIM(COALESCE(r.status_raw, ''))) = %s",
-    ]
-    settled_params = list(params) + [ROW_SETTLED, BANK_SUCCESS_STATUS]
+    failed_sql, failed_params = _failed_transfer_sql()
+    settled_where = where + ["r.row_status = %s", f"NOT ({failed_sql})"]
+    settled_params = list(params) + [ROW_SETTLED, *failed_params]
     clause = " WHERE " + " AND ".join(settled_where)
 
     grouped = frappe.db.sql(

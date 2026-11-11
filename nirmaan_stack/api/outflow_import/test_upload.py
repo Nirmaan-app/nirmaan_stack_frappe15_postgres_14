@@ -6,7 +6,7 @@
 These exercise `_stage_batch` directly rather than the whitelisted endpoint. The endpoint's own
 work above that call is authorization, a multipart read and two extension/size checks -- none of
 which can be driven without a real HTTP request, and all of which would need `frappe.request` and
-`save_file` faked to the point where the test asserts the fake. What IS worth pinning is everything
+`store_file` faked to the point where the test asserts the fake. What IS worth pinning is everything
 downstream: the staged shape, the duplicate guard, the skip semantics and the derived rollup.
 
 ⚠️ THIS SUITE RUNS AGAINST THE LIVE SITE DATABASE. Every document it creates is tracked and purged
@@ -19,6 +19,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import frappe
+
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
 
 from nirmaan_stack.api.outflow_import.upload import (
     BATCH_DOCTYPE,
@@ -100,6 +102,7 @@ class TestStageBatch(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -235,6 +238,7 @@ class TestDuplicateGuard(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -430,6 +434,7 @@ class TestQueuedThenSuccessfulReimport(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -582,6 +587,7 @@ class TestUnstrandPatch(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -750,6 +756,7 @@ class TestPreviewAndRefusal(unittest.TestCase):
 
     def tearDown(self):
         for name in self.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -802,11 +809,11 @@ class TestPreviewAndRefusal(unittest.TestCase):
         self.assertEqual(verdict.new, 1)
 
     def test_the_upload_refuses_before_writing_anything(self):
-        """⚠️ THE REFUSAL MUST PRECEDE `save_file`, which is not rollback-able -- the cloud
+        """⚠️ THE REFUSAL MUST PRECEDE `store_file`, which is not rollback-able -- the cloud
         attachment hook commits inside the request. A refusal after it would leave an orphan File
         behind for a statement we declined.
 
-        Asserted structurally: `save_file` must not be reachable before the refusal check, and the
+        Asserted structurally: `store_file` must not be reachable before the refusal check, and the
         cheapest honest way to state that is that no batch, row or File appears for a refused
         statement. Here the guard is that assessing costs nothing -- it is a pure read.
         """
@@ -875,6 +882,7 @@ class TestXlsxStaging(unittest.TestCase):
 
     def tearDown(self):
         for name in self.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -960,8 +968,11 @@ class TestStageBankStatement(unittest.TestCase):
     creates is purged in `tearDownClass`, and the purge is scoped to rows it created.
 
     The fixture's expected shape is pinned as NUMBERS so a drift in the ruleset shows up as a count
-    rather than as a vague failure: 20 rows, 5 excluded (`platform_cashfree` x3,
+    rather than as a vague failure: 20 rows, 5 recognised by a bank rule (`platform_cashfree` x3,
     `internal_gl_transfer`, `internal_gl_transfer_in`), 15 landing `Mismatched`.
+
+    ⚠️ CHANGED AT #1621 (spec #1619): all five recognised lines are our own money moving between our own
+    places, so they are `Internal Transfer` lines now, not `Skipped`. The rule id still names each one.
     """
 
     EXPECTED_ROWS = 20
@@ -985,6 +996,7 @@ class TestStageBankStatement(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -1052,14 +1064,15 @@ class TestStageBankStatement(unittest.TestCase):
         survive to the database rather than being filled in with a default."""
         self.assertEqual(len([r for r in self._rows() if not r["direction"]]), 1)
 
-    def test_the_excluded_lines_are_skipped_and_each_names_the_rule_that_fired(self):
+    def test_the_recognised_lines_are_internal_transfers_and_each_names_the_rule_that_fired(self):
+        """#1621: these five were Skipped until spec #1619; the rule id moved to the outcome note."""
         excluded = [
             r for r in self._rows()
-            if r["row_status"] == "Skipped" and "bank-statement rule" in (r["skip_reason"] or "")
+            if r["row_status"] == "Internal Transfer" and "bank-statement rule" in (r["outcome_note"] or "")
         ]
         self.assertEqual(len(excluded), self.EXPECTED_EXCLUDED)
         self.assertEqual(
-            sorted((r["skip_reason"] or "").split("'")[1] for r in excluded),
+            sorted((r["outcome_note"] or "").split("'")[1] for r in excluded),
             [
                 "internal_gl_transfer",
                 "internal_gl_transfer_in",
@@ -1069,25 +1082,18 @@ class TestStageBankStatement(unittest.TestCase):
             ],
         )
 
-    def test_each_excluded_line_stores_its_rule_s_skip_kind(self):
-        """Skip Type: one kind per rule, and the two ledger-transfer legs share one."""
-        excluded = frappe.get_all(
+    def test_an_internal_transfer_line_carries_no_skip_kind_and_has_one_record(self):
+        """#1621: an Internal Transfer line is not a skip, so it has no Skip Type; its record says what it is."""
+        lines = frappe.get_all(
             ROW_DOCTYPE,
-            filters={"import_batch": self.batch.name, "row_status": "Skipped"},
-            fields=["skip_reason", "skip_kind"],
+            filters={"import_batch": self.batch.name, "row_status": "Internal Transfer"},
+            fields=["name", "skip_kind", "skip_reason"],
         )
-        kinds = sorted(
-            r["skip_kind"] for r in excluded if "bank-statement rule" in (r["skip_reason"] or "")
-        )
+        self.assertEqual(len(lines), self.EXPECTED_EXCLUDED)
+        self.assertEqual({(r["skip_kind"] or None, r["skip_reason"] or None) for r in lines}, {(None, None)})
         self.assertEqual(
-            kinds,
-            [
-                "Bank internal transfer",
-                "Bank internal transfer",
-                "Cashfree wallet top-up",
-                "Cashfree wallet top-up",
-                "Cashfree wallet top-up",
-            ],
+            frappe.db.count("Internal Transfer", {"import_row": ["in", [r["name"] for r in lines]]}),
+            self.EXPECTED_EXCLUDED,
         )
 
     def test_both_legs_of_the_ledger_transfer_are_excluded_under_their_own_categories(self):
@@ -1098,7 +1104,7 @@ class TestStageBankStatement(unittest.TestCase):
         """
         legs = [r for r in self._rows() if "Ac xfr from gl" in (r["remarks"] or "")]
         self.assertEqual(len(legs), 2)
-        by_direction = {r["direction"]: r["skip_reason"] for r in legs}
+        by_direction = {r["direction"]: r["outcome_note"] for r in legs}
         self.assertIn("internal_gl_transfer'", by_direction["Debit"])
         self.assertIn("internal_gl_transfer_in'", by_direction["Credit"])
 
@@ -1115,7 +1121,7 @@ class TestStageBankStatement(unittest.TestCase):
 
     def test_everything_not_excluded_lands_mismatched_for_a_person(self):
         """Owner ruling Q31. `Pending match run` would offer a run that settles nothing here."""
-        landed = [r for r in self._rows() if r["row_status"] != "Skipped"]
+        landed = [r for r in self._rows() if r["row_status"] not in ("Skipped", "Internal Transfer")]
         self.assertEqual(len(landed), self.EXPECTED_ROWS - self.EXPECTED_EXCLUDED)
         self.assertEqual({r["row_status"] for r in landed}, {"Mismatched"})
 
@@ -1136,7 +1142,7 @@ class TestStageBankStatement(unittest.TestCase):
         from nirmaan_stack.api.outflow_import.review import _FROZEN_ROW_STATUSES
 
         for row in self._rows():
-            if row["row_status"] != "Skipped":
+            if row["row_status"] not in ("Skipped", "Internal Transfer"):
                 self.assertNotIn(row["row_status"], _FROZEN_ROW_STATUSES)
 
     def test_the_widened_identity_keeps_the_colliding_pairs_apart(self):
@@ -1171,6 +1177,7 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
 
     def tearDown(self):
         for name in self.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -1330,14 +1337,13 @@ class TestExactRepeatsAreNotSaved(unittest.TestCase):
         self.assertEqual(summary["total_rows"], 2)
 
     def test_import_history_returns_the_count(self):
-        from nirmaan_stack.api.outflow_import.review import list_imports
+        from nirmaan_stack.api.outflow_import.test_review import history_row
 
         yesterday, today = self._overlapping()
         self._stage(yesterday)
         batch = self._stage(today)
         frappe.set_user("Administrator")
-        listed = {r["name"]: r for r in list_imports(limit=200)}
-        self.assertEqual(listed[batch.name]["repeats_not_saved"], len(yesterday.rows))
+        self.assertEqual(history_row(batch.name)["repeats_not_saved"], len(yesterday.rows))
 
     def test_an_icici_re_upload_saves_nothing_and_keeps_the_pairs_apart_first_time(self):
         """The widened identity still keeps a tax pair and a GL transfer's two legs apart on the
@@ -1438,7 +1444,7 @@ class TestOneUploadAsksOnce(unittest.TestCase):
     """#1358: an upload plans its lines ONCE -- one earlier-sightings query, one overlap query --
     and the refusal check and the staging both read that one plan.
 
-    Through the real endpoint (the multipart read faked with a `werkzeug` `FileStorage`, `save_file`
+    Through the real endpoint (the multipart read faked with a `werkzeug` `FileStorage`, `store_file`
     stubbed), because the two calls sit in the endpoint and nowhere else."""
 
     def setUp(self):
@@ -1451,6 +1457,7 @@ class TestOneUploadAsksOnce(unittest.TestCase):
     def _purge(self):
         frappe.db.rollback()
         for name in frappe.get_all(BATCH_DOCTYPE, filters={"original_filename": self.filename}, pluck="name"):
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -1487,7 +1494,7 @@ class TestOneUploadAsksOnce(unittest.TestCase):
             ) as sightings, patch.object(
                 upload, "_find_overlapping_batch", wraps=upload._find_overlapping_batch
             ) as overlaps, patch.object(
-                upload, "save_file",
+                upload, "store_file",
                 return_value=SimpleNamespace(name="no-such-file", file_url=f"/private/files/{filename}"),
             ):
                 result = upload.upload_outflow_statement()
@@ -1553,6 +1560,7 @@ class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):
 
     def tearDown(self):
         for name in self.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -1681,7 +1689,7 @@ class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):
         self.assertEqual(summary["charges_amount"], 9.44)
 
     def test_import_history_pairs_the_count_and_the_gross_over_the_same_rows(self):
-        from nirmaan_stack.api.outflow_import.review import list_imports
+        from nirmaan_stack.api.outflow_import.test_review import history_row
 
         yesterday = _parsed_in_a_fresh_transfer_namespace()
         self._stage(yesterday)
@@ -1689,7 +1697,7 @@ class TestMoneyTotalsCoverOnlySavedLines(unittest.TestCase):
         batch = self._stage(today)
 
         frappe.set_user("Administrator")
-        listed = {r["name"]: r for r in list_imports(limit=200)}[batch.name]
+        listed = history_row(batch.name)
         # Two successful debits (Rs 5,000 + Rs 10,000) and one FAILED line.
         self.assertEqual(listed["successful_rows"], 2)
         self.assertEqual(float(listed["gross_amount"]), 15000.0)
@@ -1738,6 +1746,7 @@ class TestGatewaySourcesAreUnmoved(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -1840,6 +1849,7 @@ class TestDirectionBackfillPatch(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -1934,6 +1944,7 @@ class TestSettlementReferenceIsResolvedAtIngest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()
@@ -2022,6 +2033,7 @@ class TestSettlementReferenceBackfillPatch(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for name in cls.created_batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()

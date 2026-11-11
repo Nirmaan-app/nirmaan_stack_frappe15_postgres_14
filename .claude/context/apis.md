@@ -99,6 +99,7 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `audits.set_category_audit(category, required)` - POST, Admin only. Switches a category's monthly audit; on opens the month's audits at once
 - `history.get_asset_history` - named filters (event / department / person / asset / dates / category type); Admin + HR, audit events also for the Asset Audit tab's viewers
 - `history.get_asset_history_table` / `get_asset_history_facets` - the History tab's server data table (`useServerDataTable` `apiEndpoint`) and its header-filter counts; Admin + HR only
+- `lost_damaged.mark_lost_damaged(asset, reason)` / `mark_found_repaired(asset, reason)` - POST, Admin + HR only. Marking a held asset unassigns it at once; Found/Repaired returns it to Unassigned
 - `mine.get_my_assets` - the caller's own assets, whatever project they are booked against
 - `projects.get_won_projects` - the Assign dialog's project picker
 
@@ -106,8 +107,13 @@ Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
   - `revert_to_approved.revert_payment_to_approved(name)` - Reconciliation Pending → Approved (Admin / Accountant / Accountant Lead; refused while a bank line is matched)
+  - `gst_payment_requests` - Work Order GST requests (ADR-0030 Amendment A): `get_gst_payment_requests(work_order, status)`,
+    `request_gst_payment(work_order, amount)`, and for Accountant / Accountant Lead / Admin only
+    `approve_gst_payment_request(name)`, `reject_gst_payment_request(name, comment)`, `delete_gst_payment_request(name)`
+    (Pending or Rejected only)
   - `payment_summary.get_payment_summary(document_type, document_name, exclude_payment)` - where a PO / WO's money stands (value, paid, waiting at each step, left after), matching the request cap
-- `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions)
+- `approvals/` - Unified approval queue (`get_approval_queue`, expense bulk actions). Every row carries
+  `payment_source` (the statement it was reconciled from, or "Unknown"; filterable and faceted)
   - `expense_detail.get_expense_approval_detail(doctype, name)` - read-only detail for the expense Approve / Reject dialog (raiser, request answers, 60-day look-alikes)
 - `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)

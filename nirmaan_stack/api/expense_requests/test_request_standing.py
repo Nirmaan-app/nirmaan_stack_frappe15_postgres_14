@@ -29,7 +29,7 @@ from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 
 NPE = "Non Project Expenses"
-NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1, in the fixture
+NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # raised with no project; its flags are the site's (#1677)
 ADMIN = "xstand_test_admin@example.com"
 ACCOUNTANT = "xstand_test_accountant@example.com"
 PM = "xstand_test_pm@example.com"

@@ -51,6 +51,9 @@ export type PaymentTDSDeductionRow = PaymentTDSDeduction & {
      *  CURRENT GST and PAN, not a copy taken when the tax was withheld. */
     vendor_gst?: string | null;
     vendor_pan?: string | null;
+    /** Joined off an Office Rent row's expense (`non_project_expense.gst_amount as expense_gst_amount`):
+     *  the GST the Expense keeps, which `deductionNetPaid` adds to the base rent. */
+    expense_gst_amount?: number | null;
 };
 
 /** A row's Work Order / Purchase Order total, in the one GST column it belongs to
@@ -76,6 +79,9 @@ export const PAYMENT_TDS_FIELDS_TO_FETCH: string[] = [
     "non_project_expense",
     "deductee_name",
     "deductee_pan",
+    // Paid Amount reads it: a rent row's landlord was paid the base rent + this GST (spec #1613). Every
+    // register reader (PAYMENT_TDS_ACCESS) already reads Non Project Expenses.
+    "non_project_expense.gst_amount as expense_gst_amount",
     "document_type",
     "document_name",
     "vendor",
@@ -241,7 +247,8 @@ export const getPaymentTdsColumns = ({
         ),
         // DERIVED, NOT STORED -- and deliberately so. Once the deduction row exists,
         // `Project Payments.amount` IS this figure; a stored second copy could only drift from it.
-        // What the vendor got: the whole gross on a company-paid row (#1543), see `deductionNetPaid`.
+        // What the payee got: the whole gross on a company-paid row (#1543), the bill less the tax on an
+        // Office Rent row (spec #1613), see `deductionNetPaid`.
         // `enableSorting: false` because the backend sorts on real columns and there is no
         // `net_paid` column to sort on.
         enableSorting: false,

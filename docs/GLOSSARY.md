@@ -40,3 +40,20 @@ An active **system** reason a project is on [[CEO Hold]] (today: [[Cashflow Hold
 [[Delivery-Pending Hold]]), recorded as one record per source. A [[Manual CEO Hold]] is tracked
 separately and is NOT a Hold Reason. A project leaves [[CEO Hold]] only when it has no active
 manual hold AND zero active Hold Reasons. Does not exist on the data model today.
+
+## Assets — Lost/Damaged
+
+### Lost/Damaged
+A state of an **Asset** meaning it is not available to hand out: missing, stolen or damaged.
+Lost and Damaged are deliberately **one** state; the reason given says which. Only Admin or HR
+can mark an asset Lost/Damaged, and always with a reason. Marking it **unassigns it at once**:
+the holder's assignment ends in the same step, and that person is recorded as the one who had
+it. Their open monthly audit ends with no result and is not counted as missed; before
+confirming, Admin or HR is shown whether that person sent their last audit. While
+Lost/Damaged the asset cannot be assigned and owes no monthly audit. Not the same as
+the asset's **Condition** "Damaged", which only describes it. (Resolved 2026-10-31.)
+
+### Found/Repaired
+The only way out of [[Lost/Damaged]]. Only Admin or HR, with a reason. The asset becomes
+**Unassigned**: it is never handed back to the previous holder on its own, and must be
+**assigned again** like any other asset, with a fresh declaration. (Resolved 2026-10-31.)

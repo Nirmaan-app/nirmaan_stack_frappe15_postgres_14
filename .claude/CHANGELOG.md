@@ -4,6 +4,77 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-06: Generated invoice amount — at least what is paid, at most the Work Order
+
+**Summary** (branch `fixes/06-11`, uncommitted): a WO Generated Invoice now bills **at least** the Amount Paid
+(incl. TDS) not yet invoiced and **at most** what is left of the Work Order's amount, so an invoice may run
+ahead of payment and a Work Order not fully paid may take its FINAL (owner, ADR-0040 Amendment C, GLOSSARY
+*Generated invoice*). Before, the most was the paid amount and there was no least. No schema change, no patch.
+
+| File | Change |
+|---|---|
+| `services/wo_generated_invoices.py` | `billable_left` → `billable_range(total, paid, billed)` = (least, most); `is_final` docstring |
+| `api/service_requests/generated_invoices.py` | state returns `min_amount`, `max_amount` (no `left`); `generate_invoice` refuses "at most ₹Y" / "at least ₹X" |
+| `services/test_wo_generated_invoices.py` | `TestBillableRange` (incl. the owner's WO ₹10,000 example) |
+| `api/service_requests/test_generated_invoices.py` | `_pay` helper; fixtures that set `paid` only to pass the old cap start unpaid; `TestAmountLimit` / `TestFinal` rewritten for the range; FINAL before fully paid allowed |
+| `doctype/service_requests/test_finalized_work_order.py` | paid 10,000 for a 10,000 invoice |
+| `GLOSSARY.md`, ADR-0040 Amdt C, `domain/service-requests.md` | rule text |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+### Verification
+
+- `services.test_wo_generated_invoices` 22/22; `api.service_requests.test_generated_invoices` 68/68;
+  `test_finalized_work_order` 15/15 (that module sends real push notifications to real users while it runs).
+- vitest `utils/generatedInvoices.test.ts` 15/15; tsc on the changed files: no errors in them.
+- NOT browser-walked.
+
+---
+
+## 2026-11-06: Payment Source column; GST request reject fixes; WO Desk print
+
+**Summary** (branch `fixes/06-11`, on `upstream/develop` `f41b4abbc`, unpushed): the Payments queue shows which
+statement each record was reconciled from (GLOSSARY *Payment Source*; `outflow-import.md` § Residence;
+`expenses.md`). Three defects from the PR #1600/#1610 walk are fixed: a long GST-request reject reason errored
+after saving, GST Requests' status pills could show the wrong rows, and Desk print of the two Work Order formats
+failed. No schema change. **Owner owes `bench migrate`** on other sites for the Print Format fixture (the Desk
+print fix lives only in `fixtures/print_format.json`).
+
+| Commit | Change |
+|---|---|
+| `d0075a608` | "Work Orders" and "Work Orders Without Rate": `frappe.parse_json` → `json.loads` (the print sandbox has no `parse_json`; `patterns.md` § Print Formats); fixture + reference copies |
+| `b41cb6524` | `reject_gst_payment_request` refuses a reason over 250 (`REJECT_REASON_MAX`); `gst_payment_request_notify._send` cuts the bell text to 140 and logs, not raises, a failure after the decision commits |
+| `1bca2e675` | GST Requests status pills disabled while the table loads (frontend only) |
+| `8ab10a3af` | `expense_links.last_source_join`; `get_approval_queue` `payment_source` (+ `PAYMENT_SOURCE_NONE`, filter, facet); `test_approval_queue_payment_source.py` |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+### Verification
+
+- NOT browser-walked: the Payment Source column.
+- Print formats rendered with `notes` as a dict and as a string; both print the same notes (commit `d0075a608`).
+
+---
+
+## 2026-11-04: Work Order GST waits for the Accountant; payee holder name; vendor created by
+
+**Summary** (branch `fixes/04-11`, unpushed): a Work Order GST payment is now a **GST Payment Request** until an
+Accountant, Accountant Lead or Admin approves it (ADR-0030 Amendment A, GLOSSARY *GST Payment Request*), decided
+from a new **GST Requests** tab on Payments & Expenses. A Payee holder name with no letter, or naming a bank, is
+refused (`payees.md`). The Vendor page and the Vendors table show who created a vendor and when. Expense Type is
+no longer a fixture, and the misspelled Reimbursments / Software Chagres types are merged (`expenses.md`).
+**Owner owes `bench migrate`** on every site but localhost (new doctype `GST Payment Request`).
+
+| Commit | Change |
+|---|---|
+| `999b84840` | Expense Type out of fixtures; misspelled types merged |
+| `6c836db90` | Payee holder name refused when only numbers or a bank name |
+| `12607aa05` | Vendor "Created by … on …" on the details card; Created By column on the Vendors table |
+| `1658f2357` | `GST Payment Request` doctype, `api/payments/gst_payment_requests`, `services/gst_payment_requests`; pending requests held in the WO limit |
+| `c447545bd` | Request Payment "Send to Accountant"; GST Requests tab; WO page request line; `utils/gstPaymentRequests` |
+
+---
+
 ## 2026-10-30: Work Order invoice check — nobody skips it
 
 **Summary:** the Work Order invoice check (#1488, GLOSSARY *Invoice check*: a new payment only while raised money

@@ -9,6 +9,7 @@
   "import_row",
   "import_batch",
   "transfer_id",
+  "source",
   "target_section",
   "target_doctype",
   "target_name",
@@ -177,11 +178,18 @@
    "fieldname": "reversal_reason",
    "fieldtype": "Small Text",
    "label": "Reversal Reason"
+  },
+  {
+   "description": "SNAPSHOT of the settled line's source (Outflow Import Row.source) at insert, never recomputed. The one-Expense-per-Txn-Id index reads it: a Cashbook line's Link counts as the spend's one Expense.",
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-25 15:25:41.435726",
+ "modified": "2026-11-03 01:35:00.565074",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Row Match",

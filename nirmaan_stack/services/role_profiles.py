@@ -97,6 +97,9 @@ ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # `ignore_permissions=True` and a bare `@frappe.whitelist()` would otherwise be
 # reachable by any logged-in user. Keep the two lists in sync.
 #
+# The same set decides a Purchase Order invoice on every surface (#1638): the Vendor Invoices validate
+# hook `guard_purchase_order_decision` checks it, so Desk and REST obey it too.
+#
 # PMO Executive was REMOVED on 2026-09-17 (PMO access review), on both sides.
 INVOICE_APPROVAL_PROFILES = (
     ADMIN_PROFILE,
@@ -113,6 +116,11 @@ PENDING_INVOICE_UPLOAD_PROFILES = INVOICE_APPROVAL_PROFILES + (PMO_EXECUTIVE_PRO
 # May mark a card spend *No invoice* (ADR-0039 ruling 8): Admin and Accountant Lead. ENFORCEMENT boundary of
 # `api/expenses/card_invoices.mark_card_no_invoice`; mirrored by `canMarkCardNoInvoice` in `constants/roles.ts`.
 CARD_NO_INVOICE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# May press Read again on an Expense bill whose Bill check is Not read (#1645, spec #1637): Admin and Accountant
+# Lead. ENFORCEMENT boundary of `api/expenses/expense_bill_approval.read_expense_bill_again`; mirrored by
+# `canReadExpenseBillAgain` in `constants/roles.ts`.
+READ_AGAIN_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
 # Work the settled end of the Payments queue (owner, 2026-09-21): send a Reconciliation Pending
 # payment back to Approved, and edit a project / non-project expense on the queue's tabs.
@@ -157,6 +165,25 @@ MATCH_GST_TO_VENDOR_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LE
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
+# User admins (owner, 2026-11-05; GLOSSARY.md): create users, give or change any role profile (Admin included)
+# and reset passwords -- the people who see the Users page. Nobody else, on the screen, in Desk or through the API.
+# ENFORCEMENT boundary: `api/users.create_user` / `reset_password` and the User `validate` hook
+# (`integrations/controllers/user.py`). Mirrored client-side by `UsersRoute` in
+# `frontend/src/utils/auth/ProtectedRoute.tsx` -- keep the two in sync.
+USER_ADMIN_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE)
+
+# Upload / replace a Paid expense's invoice from the Payments queue's Payment Done tab (owner, 2026-10-31): the
+# queue's settle roles plus HR. The invoice file, number and date only; no other field of a Paid expense opens
+# up. ENFORCEMENT boundary of `api/expenses/paid_invoice.set_paid_expense_invoice`, which saves elevated.
+# Mirrored client-side by `PAID_INVOICE_PROFILES` in
+# `frontend/src/pages/ProjectPayments/config/queueRowActions.ts` -- keep the two lists in sync.
+PAID_INVOICE_PROFILES = PAYMENT_SETTLE_PROFILES + (HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# Of those, the ones whose new bill on a paid wallet spend or card spend is approved at once in their name (#1643,
+# spec #1637, GLOSSARY *Expense bill approval*): Admin and Accountant Lead. Anyone else's new bill there waits like
+# any other (auto-approved when Matched). Enforced in `expense_decision.save_paid_invoice`; no screen reads it.
+PAID_BILL_APPROVER_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 # Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
 # write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
 # `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
@@ -176,6 +203,11 @@ ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 # the two in sync.
 ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
 ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
+
+# Mark an asset Lost/Damaged and bring it back Found/Repaired (owner, 2026-10-31): Admin and HR only -- not PMO,
+# not procurement, not the holder. `api/assets/lost_damaged.py` enforces it; mirrored client-side by
+# `canMarkLostDamaged` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_LOST_DAMAGED_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
 # Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
 # Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the
@@ -248,6 +280,15 @@ def is_nirmaan_admin(user: str) -> bool:
     return has_role_profile(user, (ADMIN_PROFILE,))
 
 
+def assert_user_admin(user: str) -> None:
+    """Refuse `user` unless they are a User admin (`USER_ADMIN_PROFILES`, or Administrator)."""
+    if not has_role_profile(user, USER_ADMIN_PROFILES):
+        frappe.throw(
+            _("Only Admin, PMO and HR may create users, change role profiles or reset passwords."),
+            frappe.PermissionError,
+        )
+
+
 def assert_match_gst_to_vendor_access(user: str) -> None:
     """Refuse a user outside `MATCH_GST_TO_VENDOR_PROFILES`. Every Match GST to vendor endpoint starts with it."""
     if not has_role_profile(user, MATCH_GST_TO_VENDOR_PROFILES):
@@ -313,8 +354,8 @@ def can_action_invoice_approvals(user: str) -> bool:
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
 
 
-# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). Purchase Order invoices keep
-# their old rules. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
+# A Vendor Invoice on a WORK ORDER (#1531, ADR-0014 Amendment A). A Purchase Order invoice's approve
+# and reject take INVOICE_APPROVAL_PROFILES (#1638); its other rules are the old ones. The ENFORCEMENT boundary is the Vendor Invoices `validate` hook
 # (`integrations/controllers/vendor_invoices.guard_work_order_invoice`, rule in
 # `services/work_order_invoice_access.py`), so Desk and the API obey it as the screens do.
 #

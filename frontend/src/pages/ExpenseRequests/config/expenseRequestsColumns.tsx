@@ -165,7 +165,7 @@ export const getExpenseRequestColumns = ({
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
             cell: ({ row }) => {
                 const standing = getStanding(row.original.name);
-                // Office Rent: Rent / TDS / Net (#1527), from the Expense's status, or the request's
+                // Office Rent: Bill / Rent / GST / TDS / Landlord gets (#1527), from the Expense's status, or the request's
                 // while it has none.
                 const tds = shownExpenseTds({
                     type: row.original.type,

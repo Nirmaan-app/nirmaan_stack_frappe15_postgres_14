@@ -62,8 +62,9 @@ def approve_vendor_invoice(invoice_id: str, action: str, rejection_reason: str =
 
         # 2. Validate current status. A Pending invoice is decided; an Approved Work Order invoice
         # may also be rejected, the way to correct it for anyone but an Admin (ADR-0014 Amendment A).
-        # WHO may decide a Work Order invoice is the Vendor Invoices validate hook's check
-        # (`services/work_order_invoice_access`), which the save below runs.
+        # WHO may decide is the Vendor Invoices validate hooks' check, which the save below runs:
+        # a Work Order invoice `services/work_order_invoice_access`, a Purchase Order invoice
+        # `services/purchase_order_invoice_access` (#1638).
         if invoice.status != "Pending" and not may_reject_approved(
             invoice.document_type, invoice.status, action
         ):

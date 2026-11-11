@@ -5,7 +5,7 @@
 
 The Raise dialog uploads every receipt first, as a loose `File` owned by the claimant (no doctype on the
 upload: Frappe's `upload_file` checks WRITE on the doctype, and claimants hold read only). The endpoint
-then works in two steps, because the storage app commits inside `save_file` and nothing it stored can be
+then works in two steps, because the storage app commits inside `store_file` and nothing it stored can be
 rolled back (CODING_STANDARDS § Reading uploaded file bytes):
 
 1. `plan_receipts` -- read every PDF and picture and merge them IN MEMORY, before anything is written. A
@@ -26,9 +26,9 @@ from dataclasses import dataclass, field
 
 import frappe
 from frappe import _
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
+from nirmaan_stack.services.stored_files import store_file
 
 DOCTYPE = "Reimbursement"
 ATTACHMENT_FIELD = "attachment"
@@ -188,10 +188,10 @@ def plan_receipts(claim, new_files: list[dict], remove_urls: list[str] | None = 
 def apply_receipts(claim, plan: ReceiptPlan) -> list[str]:
     """Store `plan` on the saved `claim` and return the Files the caller deletes LAST.
 
-    `save_file` commits inside the storage hook, so this runs only after every check has passed.
+    `store_file` commits inside the storage hook, so this runs only after every check has passed.
     """
     if plan.merged_pdf:
-        file_doc = save_file(
+        file_doc = store_file(
             f"{claim.name}-receipts.pdf", plan.merged_pdf, DOCTYPE, claim.name, df=ATTACHMENT_FIELD, is_private=1,
         )
         # The storage hook rewrites `file_url`, so read it back.

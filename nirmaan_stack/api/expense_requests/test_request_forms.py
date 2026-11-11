@@ -1,10 +1,11 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""The request forms that ship in `fixtures/expense_type.json` (spec #1420 ticket #1430, ADR-0033).
+"""The request forms a new site starts with, in `services/expense_types_seed.json` (spec #1420 ticket #1430,
+ADR-0033).
 
-PURE: reads the fixture file, no site and no DB. The fixture is what every migrate re-imports, so
-it is what requesters actually get.
+PURE: reads the seed file, no site and no DB. `Expense Type` is no longer a fixture (owner, 2026-11-02): a
+live site's forms are edited in the app, and the seed only starts a new site.
 
 A request names who gets paid with a Payee, so no form asks for bank details as free text, and a
 form field that only named who gets paid is gone in favour of the Payee picker. Each type that lost
@@ -22,7 +23,7 @@ import unittest
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED, OPTIONAL, PAYEE_RULES, REQUIRED
 
 FIXTURE = os.path.join(
-	os.path.dirname(__file__), os.pardir, os.pardir, "fixtures", "expense_type.json")
+	os.path.dirname(__file__), os.pardir, os.pardir, "services", "expense_types_seed.json")
 
 # The per-type choice (#1430). Every type not listed here is Not asked.
 EXPECTED_RULES = {
@@ -89,7 +90,7 @@ class TestEachTypeAsksForAPayeeAsChosen(unittest.TestCase):
 	def test_every_type_carries_the_chosen_rule(self):
 		rows = _types()
 		names = {r["name"] for r in rows}
-		self.assertFalse(set(EXPECTED_RULES) - names, "a type listed here is not in the fixture")
+		self.assertFalse(set(EXPECTED_RULES) - names, "a type listed here is not in the seed")
 		for row in rows:
 			with self.subTest(type=row["name"]):
 				self.assertIn(row.get("payee_rule"), PAYEE_RULES)
@@ -145,7 +146,7 @@ class TestTheFormsAreTheOwnersReview(unittest.TestCase):
 
 	def test_every_other_type_has_no_form_and_asks_description_and_comment(self):
 		others = [r for r in _types() if r["name"] not in EXPECTED_FORMS]
-		# 25 from the owner's review, plus the 8 database-only types #1507 brought into the fixture,
+		# 25 from the owner's review, plus the 8 database-only types #1507 brought into the seed,
 		# less Office Rent, which gained its form with #1524.
 		self.assertEqual(len(others), 32)
 		for row in others:
@@ -194,14 +195,15 @@ class TestTheOfficeRentForm(unittest.TestCase):
 		self.assertEqual(types, {"rent_month": "month", "office_location": "text",
 		                         "landlord_name": "text", "landlord_pan": "pan"})
 
-	def test_its_version_moved_with_the_month(self):
-		self.assertEqual(self.fmt["templateVersion"], 2)
+	def test_its_version_moved_with_the_gst_sentence(self):
+		"""2: the month (#1524); 3: the amount is the bill incl. 18% GST (spec #1613)."""
+		self.assertEqual(self.fmt["templateVersion"], 3)
 
-	def test_its_description_states_the_rent_the_landlord_and_the_tax(self):
+	def test_its_description_says_the_amount_includes_gst_and_the_tds_is_on_the_rent(self):
 		self.assertEqual(
 			self.fmt["description_template"],
 			"Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} "
-			"(PAN {landlord_pan}). (10% TDS will be deducted)")
+			"(PAN {landlord_pan}). (Amount incl. 18% GST; 10% TDS on the rent will be deducted)")
 
 	def test_who_gets_paid_is_required(self):
 		self.assertEqual(self.row["payee_rule"], REQUIRED)

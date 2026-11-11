@@ -9,10 +9,10 @@ in `services/outflow_import`; this module owns none of them.
 THE ORDER OF OPERATIONS IS THE DESIGN, and it differs deliberately from the BoQ upload it is
 otherwise modelled on:
 
-    authorize -> read bytes -> **parse in memory** -> save_file -> create batch + rows -> commit
+    authorize -> read bytes -> **parse in memory** -> store_file -> create batch + rows -> commit
 
-Parsing BEFORE `save_file` means a malformed statement writes NOTHING AT ALL -- no File, no batch,
-no rows. That matters here specifically because `save_file` is not rollback-able: the
+Parsing BEFORE `store_file` means a malformed statement writes NOTHING AT ALL -- no File, no batch,
+no rows. That matters here specifically because `store_file` is not rollback-able: the
 `frappe_gcp_attachment` File `after_insert` hook uploads to cloud storage, rewrites `file_url`,
 deletes the local copy and calls `frappe.db.commit()` INSIDE this request. Anything written before
 that point is committed mid-flight. Parsing first sidesteps the whole hazard.
@@ -30,8 +30,8 @@ werkzeug stream exactly ONCE -- it is consumed on read.
 import os
 
 import frappe
-from frappe.utils.file_manager import save_file
 
+from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line, recorded_line_of_move
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import.bank_exclusions import should_skip
 from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
@@ -39,6 +39,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     assess_duplicates,
     row_identity_of,
 )
+from nirmaan_stack.services.outflow_import.internal_transfers import bank_line_transfer
 from nirmaan_stack.services.outflow_import.parser import (
     DIRECTION_CREDIT,
     DIRECTION_DEBIT,
@@ -63,6 +64,7 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_batch_status,
     derive_staged_row_outcome,
 )
+from nirmaan_stack.services.stored_files import store_file
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -82,7 +84,7 @@ _BANK_STATEMENT_SOURCES = BANK_STATEMENT_SOURCES
 # name, and a renamed export still parses correctly.
 _ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
 
-# Well under `save_file`'s own 10 MB cap. A statement is kilobytes; anything approaching this is a
+# Well under `store_file`'s own 10 MB cap. A statement is kilobytes; anything approaching this is a
 # wrong file, and refusing it here gives a better message than the framework's.
 _MAX_FILE_BYTES = 5 * 1024 * 1024
 
@@ -242,7 +244,7 @@ def upload_outflow_statement():
     # the earlier-sightings question once and the two can never disagree about which lines repeat.
     plan = _plan_lines(parsed)
 
-    # ⚠️ THE REFUSAL HAPPENS BEFORE `save_file`, WHICH IS THE ONLY PLACE IT CAN. `save_file` is not
+    # ⚠️ THE REFUSAL HAPPENS BEFORE `store_file`, WHICH IS THE ONLY PLACE IT CAN. `store_file` is not
     # rollback-able -- the cloud attachment hook commits inside this request -- so a refusal after
     # it would leave an orphan File behind for a statement we declined. Owner ruling Q2: a wholly
     # duplicated sheet writes NOTHING AT ALL.
@@ -250,7 +252,7 @@ def upload_outflow_statement():
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
-    ret = save_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
+    ret = store_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
     # Read file_url OFF THE RETURNED DOC: the cloud hook rewrites it on this same object during
     # insert, so any URL computed beforehand is already wrong.
     file_url = ret.file_url
@@ -383,6 +385,7 @@ def _assess_statement(parsed, filename: str, plan: RepeatSplit | None = None):
         earliest_batch=plan.repeat_of_batch,
         filename=filename,
         repeated_in_file=plan.repeated_in_file,
+        earlier_batches=plan.repeats_by_batch,
     )
 
 
@@ -569,13 +572,18 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str, plan: RepeatSp
         # A planned repeat is always a STATUS CHANGE (an exact one is not planned); the earlier
         # batch's status wins the sentence when both kinds apply, as `already_imported_in` does.
         repeat = line.earlier or line.in_file
+        category = _exclusion_category(row, parsed.source)
+        # The one category table (#1621, spec #1619): is this recognised line our own money moving between our
+        # own places, and between which two?
+        transfer = bank_line_transfer(category, row.remarks)
         outcome = derive_staged_row_outcome(
             row,
             line.earlier.label if line.earlier else None,
             duplicate_in_file=line.in_file is not None,
-            excluded_category=_exclusion_category(row, parsed.source),
+            excluded_category=category,
             no_settlement_path=no_settlement_path,
             earlier_bank_status=repeat.earlier_status if repeat else "",
+            internal_transfer=transfer is not None,
         )
         statuses.append(outcome.status)
 
@@ -642,6 +650,12 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str, plan: RepeatSp
             }
         )
         doc.insert(ignore_permissions=True)
+        # ⚠️ A REPEAT MAKES NO SECOND RECORD (spec #1619): a status-changed repeat is still an Internal Transfer
+        # line, and it is recorded only when no earlier line of the same move (its repeat identity) holds a record.
+        if transfer is not None and not (
+            repeat and recorded_line_of_move(doc)
+        ):
+            record_for_line(doc, transfer, made_by=category)
 
     _apply_batch_rollup(batch, statuses)
     return batch

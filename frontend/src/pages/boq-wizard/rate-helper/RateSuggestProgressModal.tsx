@@ -6,6 +6,13 @@
  *
  * Terminal SUCCESS shows how many rows got suggestions + an AI-off warning when the extraction voter
  * was disabled/no_key (fail-closed honesty -- no fallback). This modal is the slice's bundle marker.
+ *
+ * DEV2-B4 (owner SEQUENCE G1, 2026-11-02 16:13: "the wait time should be adequately dsiclosed to the user and the
+ * progress shown properly as we do for the suggest rate run currently"): when historical matching is ON and the Suggest
+ * run completed, a SECOND PHASE follows under the Suggest result -- "Matching with previously priced BoQs - x of y
+ * rows", the same bar, the elapsed time and the time left, and a clear "done" / "failed: <reason>" end. The modal stays
+ * open (not dismissable) until that phase ends. With matching OFF (`match` absent) the modal is exactly as before.
+ * `matchWaitEstimate` is the confirm dialog's ONE estimate line (owner 2026-11-03 11:11: total + split, a safe number).
  */
 import { Loader2, Sparkles, AlertTriangle } from "lucide-react";
 import {
@@ -170,6 +177,130 @@ export function suggestAiStatusWarning(aiStatus: string | undefined | null): str
   return "";
 }
 
+// ── DEV2-B4: the matching phase and the wait estimate ─────────────────────────────────────────────────────────────
+/** The paces get_match_status serves (seconds, measured in dev2 at p90; api/boq/rate_match.PACES). */
+export interface MatchPaces {
+  /** DEV2-B5 S2 (the SAFE estimate, owner 2026-11-03 11:11): Suggest = a fixed part + one part per batch of
+   *  `suggest_batch_rows` rows (extraction._BATCH), each fitted at p90 on the stored runs. */
+  suggest_fixed_seconds: number;
+  suggest_seconds_per_batch: number;
+  suggest_batch_rows: number;
+  match_fixed_seconds: number;
+  match_seconds_per_row: number;
+  /** DEV2-B8 S2 (WAIT ESTIMATE, owner 2026-11-06 12:42): the confirm box's matching part = a fixed part + one part a
+   *  row + one part a row that needs a new spec card, each a p90 on the stored match runs. Absent (an older server)
+   *  -> the B4 formula above. */
+  estimate_match_fixed_seconds?: number;
+  estimate_match_seconds_per_row?: number;
+  estimate_match_seconds_per_card?: number;
+}
+
+/** PURE. The confirm dialog's estimate: each phase at its p90 pace, rounded UP to whole minutes (at least 1); the
+ *  total = the two parts added.
+ *    suggest = ceil((suggest_fixed_seconds + ceil(rows / suggest_batch_rows) x suggest_seconds_per_batch) / 60)
+ *    match   = ceil((estimate_match_fixed_seconds + rows x estimate_match_seconds_per_row
+ *                    + rowsWithoutCard x estimate_match_seconds_per_card) / 60)       (DEV2-B8; = the server's
+ *              rate_match.match_estimate_minutes, pinned by the same cases)
+ *  `rowsWithoutCard` = the selected rows with no valid spec card (count_rows_without_card); null / undefined (not
+ *  known yet, or its call failed) -> every row needs a card (the safe side). */
+export function matchWaitEstimate(
+  rows: number,
+  p: MatchPaces,
+  rowsWithoutCard?: number | null,
+): { suggestMin: number; matchMin: number; totalMin: number; line: string } {
+  const n = Math.max(0, rows);
+  const batches = Math.ceil(n / Math.max(1, p.suggest_batch_rows));
+  const suggestMin = Math.max(1, Math.ceil((p.suggest_fixed_seconds + batches * p.suggest_seconds_per_batch) / 60));
+  const perCard = p.estimate_match_seconds_per_card;
+  let matchSecs: number;
+  if (typeof perCard === "number" && typeof p.estimate_match_fixed_seconds === "number"
+    && typeof p.estimate_match_seconds_per_row === "number") {
+    const c = rowsWithoutCard == null ? n : Math.min(n, Math.max(0, rowsWithoutCard));
+    matchSecs = p.estimate_match_fixed_seconds + n * p.estimate_match_seconds_per_row + c * perCard;
+  } else {
+    matchSecs = p.match_fixed_seconds + n * p.match_seconds_per_row;
+  }
+  const matchMin = Math.max(1, Math.ceil(matchSecs / 60));
+  const totalMin = suggestMin + matchMin;
+  return {
+    suggestMin, matchMin, totalMin,
+    line: `This will take about ${totalMin} minutes in all: about ${suggestMin} to suggest rates and about ${matchMin} ` +
+      `to match with previously priced BoQs.`,
+  };
+}
+
+/** PURE. The line the dialog shows: "" when matching is OFF (or its paces are unknown) -> the dialog is as before. */
+export function confirmEstimateLine(
+  matchEnabled: boolean,
+  rows: number,
+  paces: MatchPaces | null | undefined,
+  rowsWithoutCard?: number | null,
+): string {
+  if (!matchEnabled || !paces) return "";
+  return matchWaitEstimate(rows, paces, rowsWithoutCard).line;
+}
+
+/** PURE (DEV2-B8 S2). The rows a Suggest press will read, as the confirm box counts them: the ticked rows plus the
+ *  never-read ones the run reads too, or (nothing ticked) the whole eligible set. Sorted, no repeats: the rows the
+ *  no-card count is asked for. */
+export function suggestReadRows(
+  selected: ReadonlySet<number>,
+  neverRead: readonly { excel_row: number }[],
+  eligible: ReadonlySet<number>,
+): number[] {
+  const out = selected.size > 0 ? new Set<number>([...selected, ...neverRead.map((r) => r.excel_row)]) : new Set(eligible);
+  return [...out].sort((a, b) => a - b);
+}
+
+export interface MatchPhaseState {
+  state: "running" | "done" | "failed";
+  done: number;
+  total: number;
+  elapsedS: number;
+  leftS: number | null;
+  reason?: string | null;
+}
+
+/** PURE. "45 s" / "3 min 05 s". */
+export function formatSeconds(s: number): string {
+  const v = Math.max(0, Math.round(s));
+  if (v < 60) return `${v} s`;
+  return `${Math.floor(v / 60)} min ${String(v % 60).padStart(2, "0")} s`;
+}
+
+export const MATCH_PHASE_LABEL = "Matching with previously priced BoQs";
+
+function MatchPhase({ match }: { match: MatchPhaseState }) {
+  const pct = suggestPercent({ done: match.done, total: match.total });
+  return (
+    <div className="space-y-2 border-t pt-3" data-testid="match-phase">
+      {match.state === "running" ? (
+        <>
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            <span>{MATCH_PHASE_LABEL} &mdash; <span className="tabular-nums">{match.done} of {match.total} rows</span></span>
+          </p>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-sky-100 dark:bg-sky-900">
+            <div className="h-full rounded-full bg-sky-500 transition-all dark:bg-sky-400" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="text-xs tabular-nums text-muted-foreground" data-testid="match-times">
+            {formatSeconds(match.elapsedS)} elapsed{match.leftS !== null ? ` \u00b7 about ${formatSeconds(match.leftS)} left` : ""}
+          </p>
+          <p className="text-xs text-muted-foreground">Please keep this open &mdash; matching is in progress.</p>
+        </>
+      ) : match.state === "done" ? (
+        <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200" data-testid="match-done">
+          {MATCH_PHASE_LABEL}: done.
+        </p>
+      ) : (
+        <p className="text-sm font-medium text-destructive" data-testid="match-failed">
+          {MATCH_PHASE_LABEL} failed: {match.reason || "the match run did not complete."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   open: boolean;
   running: boolean;
@@ -179,11 +310,14 @@ interface Props {
   onClose: () => void;
   /** SR-1: resume the partial run. Absent => no resume affordance is offered. */
   onResume?: () => void;
+  /** DEV2-B4: the matching phase that follows a COMPLETE Suggest run when matching is ON. Absent => none (switch OFF). */
+  match?: MatchPhaseState | null;
 }
 
-export function RateSuggestProgressModal({ open, running, sheetName, progress, summary, onClose, onResume }: Props) {
+export function RateSuggestProgressModal({ open, running, sheetName, progress, summary, onClose, onResume, match }: Props) {
   const phase = deriveSuggestModalPhase(running, progress, summary);
-  const dismissable = !running;
+  // DEV2-B4: the modal stays open while the matching phase runs (absent `match` -> exactly as before)
+  const dismissable = !running && match?.state !== "running";
   const pct = suggestPercent(progress);
   // SELROW: what actually RAN this pass -- never `results.length`, which is the whole document.
   const outcomeLine = suggestCompletionLine(summary);
@@ -269,6 +403,8 @@ export function RateSuggestProgressModal({ open, running, sheetName, progress, s
             </p>
           </div>
         )}
+
+        {!running && match && <MatchPhase match={match} />}
 
         {!running && phase === "error" && (
           <div className="space-y-1 text-sm text-destructive">

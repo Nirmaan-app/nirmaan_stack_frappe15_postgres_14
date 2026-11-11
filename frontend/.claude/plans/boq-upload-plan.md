@@ -50275,6 +50275,803 @@ Commit 2 `3e7d89b31` (feat): Electrical v72 = v71 + `none_refusal` on `swsock_bo
 - **Logged, not fixed (owner):** lone-blanker pricing, for a later slice (White 1M Blanker would be 30 / 10); the "assumed 3M. Check it." note on refused rows.
 - **No action (owner):** the group-A misclassification (non-switch items classified as switches & sockets); the 152 ADP rows with install 0; the Switches & Sockets BCS sum of 0, deferred to the BCS build with R-BCS.
 - **Open:** the sentence is a little loose on the 2 blanker rows, where the panel shows "Blank plate: 1M Blanker". Line 5's "why" quotes the module-width ruling; it does not cover the refusal.
+## Slice DEV2-2 - dev2 refreshed from main dev on the desktop; branch feature/boq-rate-history cut - as run 2026-10-29
+
+Desktop session `dev22`, delegated by the laptop. Risk tier 3: a data load into dev2 only. No code change, no commit, no
+asset, no paid run. Report and ledger: `2026-10-29_DEV2-2_Report.md` / `_Ledger.md` on the Desktop.
+
+Owner rulings carried (quoted):
+- R-LANE (2026-10-29 11:40): "i want to start parallel work on another feature - pricing based on historical quotes
+  from other BoQs. I will do this ondev2 in desktop. themechanism will remain same...i will give prpmts to laptop cc and
+  it will dlegate work to desktop cc. theonly change will be that the work will happen on dev2 in dsktop and will be
+  synced with dev2 on laptop. before starting wor, we will have to bring dev2 in laptop and desktop withthe current main
+  dev environment."
+- R-BRANCH (11:43 "agree"): the feature lives on its own branch, feature/boq-rate-history, cut from today's tip, merged
+  back later.
+- R-DEV2R0 (12:06 "all ok"): (1) refresh the existing dev2 copies in place; (2) keep ports 8100 / 8180 / 9100; (3)
+  scheduler OFF in dev2; (5) dev2's data = a fresh backup of main dev taken while Electrical is idle; (7) the laptop
+  holds one environment at a time.
+- R-ORDER (16:01 / 16:03): TOOL-1 before DEV2-2; ELR-4b may run alongside DEV2-2 once DEV2-2's copy of main's data is
+  taken.
+- R-DEV2-1 P6 (16:24): dev2's start scripts were not read in DEV2-1 ("Q4 a"); proved here.
+- R-DEV2LOGIN (19:31): "use the login file and details for dev 2 also. ithe login should happen automatiocllay and not
+  need me".
+- AMENDMENT (22:49): ELR-4b runs in parallel; main's backup waits for an ELR-4b quiet point. (ELR-4b had not launched at
+  the backup; it launched at about 23:10.)
+
+### 1. Done
+- Code: the dev2 checkout's two local edits (App.tsx, main.tsx) saved to the Desktop and restored (both superseded by
+  the tip); `git switch -c feature/boq-rate-history 544bf6fdc`; feature/boq-jev-integration kept at d0fa68adc.
+- Data: main backed up once (`bench --site localhost backup --with-files`, 20261029_225725); dev2's database renamed
+  `<db>_dev2_prev`; a fresh database owned by the site role (as main's; dev2's old one was owned by postgres) loaded
+  from main's dump with `\restrict` stripped; files extracted with `./localhost/` -> `./dev2.localhost/` (677 private,
+  0 public), the old folders kept as `*.dev2_prev`.
+- Guards before any start: site_config gained disable_push, disable_cloud_upload and nirmaan_env "dev" (mute_emails was
+  there; the file is now byte-equal to main's); `disable-scheduler` + `pause_scheduler` 1; dev_isolate `--yes` (1 push
+  token blanked, 8 api secrets rotated) then `--verify` PASS.
+- migrate exit 0 (it created 7 index-manifest indexes main's database lacks); start_bench.sh then start_vite.sh under
+  `docker exec -d`; ping 8100 with `Host: dev2.localhost`, 8180 200, socket 9100 up. `.claude/state/env.local` written
+  and `env_sync.sh print` names the dev2 values.
+
+### 2. Proofs
+- dev2's fingerprint = main's at the backup (10601 / BRMS-26-00462 / 479508); HVAC v54 / Electrical v70 live == file
+  with main's hashes; the replay in dev2: 18,106 rows, ac7 / ac7v2 byte-equal to main's (TOOL-1's final at the same tip).
+- test_dev_isolate in dev2's container: 15 OK. `--verify` PASS three times.
+- Browser cert C1-C5 (11 screenshots): automatic login on dev2.localhost:8180, socket on 9100 connected, HVAC r178 7830 /
+  1920 / 9750 and Electrical r194 180 / 30 / 210 and 70 / 20 / 90 on both dev2 and main.
+- Main unchanged: fingerprint, live == file, HEAD and tree equal at the start, after the backup and at the end.
+
+### 3. Open items
+- env_sync's restore_db.sh / restore_files.sh cannot refresh dev2 from a main backup as they are (the kept name; the
+  unrenamed tar paths; the migrate before the guards): documented in DEV2-3.
+- Main's database lacks the 7 index-manifest indexes until its next migrate.
+- dev2's old data (`<db>_dev2_prev`, `*.dev2_prev`) stays until deleted by hand.
+- ac5_dump.py selects the category configs with no ORDER BY, so its configs dump is not byte-stable across a restore
+  (the replay outputs are).
+- The dev2 checkout needed Claude trust on the desktop (since given).
+
+## Slice DEV2-3 - the dev2 write-up (refresh from main, the dev2 sync, the laptop turn file) and the dev2 sync in both directions - 2026-10-29 / 30
+
+The laptop runs the sync (L0-L8); a desktop session (`dev23`, D0-D3) writes the docs. Risk tier 3 (data loads into
+dev2) plus one docs-only commit, dev2's first on feature/boq-rate-history.
+
+Owner rulings carried (quoted): R-LANE, R-BRANCH, R-DEV2R0 and R-DEV2LOGIN as in DEV2-2, and
+- R-DEV23 (2026-10-29 23:39 "1 ok 2 ok 3ok"): (1) the write-up of the dev2 refresh is committed on
+  feature/boq-rate-history (dev2's first commit) and the owner pushes it, creating the branch on GitHub; (2) the reverse
+  direction (laptop dev2 -> desktop dev2 data) is tested in this step; (3) DEV2-3 takes the laptop between ELR-4b's
+  commits; an ELR-4b sync due meanwhile waits (usually under 30 min).
+- Standing: ELR-4b continues on main on the desktop; nothing in this step may change main's code, data or behaviour.
+
+### 1. The commit (docs only)
+- `docs/agents/environments.md`, "Second environment (dev2)": the site_config flags belong to each machine; how the
+  scheduler is switched off and that a refresh from main turns it on again; the automatic dev login (R-DEV2LOGIN); Claude
+  trust per machine for the dev2 checkout; three new subsections - "Refreshing dev2 from a main backup" (DEV2-2's
+  procedure, step by step, and why env_sync's restore scripts do not fit it), "The dev2 sync between the machines"
+  (env.local on each machine; status / db-pull / db-push from the dev2 checkout; the dev2 pull record; db-push in dev2 by
+  ruling) and "The laptop's turn file" (`C:\Users\nites\envsync_laptop_turn.txt`: `dev2 <step> <time>` / `free <time>`).
+- This entry and the DEV2-2 entry above.
+- No code, no test, no CLAUDE.md change. No test reads either doc.
+
+### 2. The sync
+- Laptop: db-pull desktop dev2 -> laptop dev2 before the desktop session; the reverse direction (db-push laptop dev2 ->
+  desktop dev2) and the proofs after it. The laptop records the results in its DEV2-3 report, not here.
+
+## Slices DEV2-R1 .. DEV2-B0 - the historical-rate helper (H2) research and the build recon - as run 2026-10-30 .. 2026-11-02
+
+The H2 lane ("Previously priced BoQs") on dev2, desktop sessions delegated by the laptop. Owed here since DEV2-R1
+(DEV2-B1 C2). Research slices: scratch scripts only, no repo change; paid model calls under owner caps. Reports and
+ledgers: `<date>_DEV2-<id>_Report.md` / `_Ledger.md` on the desktop's Desktop (copies on the laptop's OneDrive Desktop,
+`historical rate suggest\`). Numbers below are copied from those reports. Owner rulings are quoted as the B0 ledger's
+ruling chain (lines 8-127) and the reports record them, typos kept; IDs whose words are in neither are named only.
+
+### DEV2-R1 - what data H2 has, how good matches would be - 2026-10-30
+- 30,766 priced rows in 288 BoQs of 173 projects; one of five matches good 63% (blend V3); top match priced 64%.
+- Rulings: R-H2A .. R-H2C cross-referenced; R-H2D = owner amendment 2 (01:57). R-H2SPEC first stated (see S6).
+
+### DEV2-R2 - the match test bench (300 target rows) - 2026-10-30 / 31
+- First match SAME 59 of 220 judgeable (27%); same item in the top 5 for 83 of 220 (38%); 230 calls, 1,633,138 tokens.
+- Rulings: R-H2F (2026-10-30 / 10-31): the latest copy WITH A RATE of each row across near-copy sets; test projects out
+  (paraphrase; no words recorded). Answer 00:22: "1A 2A 3B"; "continue within the caps".
+
+### DEV2-S1 - sharpening trials S0-S5 - 2026-10-31
+- Right first: S0 83, S4 (AI judge) 105; recommendation S4. R-H2I .. R-H2L cross-referenced.
+
+### DEV2-S2 - a wider shortlist, a cheaper judge - 2026-10-31
+- Right first J1 111 .. J4 116 (S4 135); 800-row sheet J3 $56; spend $176.98; the API usage limit stopped paid steps twice.
+- Answers: "allow 530" (19:47); "J1 15M ok" (19:56); "limit is updated. you can proceed now"; "liit raised. proceed".
+
+### DEV2-S3 - do pricing rules make two rows the same item - 2026-10-31 / 11-01
+- J1 top 5 167 of 190 (87.9%), first 157 (82.6%); RULES-SAME 25 of 683 pairs; spend $172.33.
+- R-H2O: "cable vs end termination ... -- these are different".
+- R-H2P (22:00): "my criteria is that a correect mact should me in the top 5 atleast 100% of the time and be the top
+  choice atleast 75% of the time. that is the benchmark we need to judge against."
+- R-H2Q (22:16): "two rows which would result in the same defaults, substitions output and ladder up output should also
+  be considered match."
+
+### DEV2-S4 - category filter, meaning search, reranker - 2026-11-01
+- J6a top 5 183 of 196 (93.4%), first 170 (86.7%); lanes + Sonnet, no reranker 1.8 / 2.9 / 7.1 min a sheet; $98.22.
+- R-H2S (01:28): "later versions- latest version which has not seen any rate change in last 3 days by the team"; P1
+  09:33: "1a 2x".
+- R-H2T (01:28): "yes they are same - because depth does not matter in pricing junction boxes..this is what i meant that
+  attributes which effect price only should be considered for matcing". R-H2U (01:28): "ok".
+- 5-MINUTE (10:11): "... upto 5 min is tolerable but then we will put it behind a trigetr button".
+- R-H2Y (13:48): "after we finaliz etthe methodology of matching, we will need to check its actual run time on an 200
+  priceable rows BoQ. ...". R-H2Z (13:50): "overall we need to try and bring down the run time for historical matchuing
+  to also under 2 mins for a 200 rows boq and under 5 min for 500 rows BoQ. ..."
+
+### DEV2-S5 - the recommended design for real; timing - 2026-11-01
+- J7s + N1 top 5 188 of 199 (94.5%), first 174 (87.4%); BOQ-26-00328 (206 rows) 112.7 s at 100 at once; $126.51.
+- R-H2AA (20:22): "yes proceed". Answer 21:07: "option B".
+
+### DEV2-S6 - meaning lane, cheaper cards and judge, matching after Suggest - 2026-11-01 / 02
+- "No design meets every target."; Haiku cards + J8h $0.79 / $1.47 a BoQ; N2 recommended dropped; spend $151.05.
+- R-H2AB (22:58): "stay unclear if these cannot be detremined by the entire payload. we are not comparing just rows but
+  payloads for both rows". R-H2AC (23:01): "ok proceed with s6".
+- R-H2SPEC (23:06): "only for matchign we use the exact same payload which we use for suggest rate !!"; 23:08: "we can
+  send more things in addition to yth epayl;oad if required but we cannot cut the payload".
+- SEQUENCE (23:12): Suggest first, then matching (owner asked; no words recorded).
+- R-H2AD (23:16): "ideal Ai spend per BoQ for historical rate suggest whould be less than $5. anything above that is not
+  comfortable". R-H2AE (23:20): "lets test sonnet and haiku also for spec  card in S6. ..."
+- Answers: Q1 (23:58) "1A 2A 3A. ..."; 00:52 "allow $165".
+
+### DEV2-S7 - do Haiku cards hold up - 2026-11-02
+- J9h (Haiku cards) bench top 5 180 (90.5%) vs J8h 179 (89.9%); Haiku cards + Haiku judge $0.82 / $1.53 a BoQ.
+- R-H2AF (01:54-01:55): "haiku haiku also has same performanceand even lower cost"; then "yes" to a Haiku-cards test.
+
+### DEV2-S8 - line 8 end to end (Haiku pool cards + Haiku judge) - 2026-11-02
+- J10h bench top 5 180 (90.5%), first 161 (80.9%); T8 206 rows 175.6 s at 50 at once; $0.77 .. $1.43 a BoQ; pool
+  cards $7.30 for 20,235 rows.
+- R-H2AG (11:57): "yes" (one last check of line 8 before the build). BUILD REQUIREMENTS (owner "ok" 12:45 and later):
+  model names in ONE setting, never in code; calls-at-once a setting, retry of a lone connection error, stop on 429 / a
+  burst. Answer 4 (13:59): "100 long calls at once from the desktop fail in bursts since about 12:57; production needs a
+  configurable call limit and retry logic."
+
+### DEV2-B0 - H2 build recon (read-only): where the design goes in the code - 2026-11-02
+- No H2 code on the branch beyond the U1 stub; 24 gaps with options; 9 build slices proposed.
+- R-H2AH (15:21): "ok for all 3" - FINAL DESIGN = Haiku cards + Haiku judge (J8's prompt, short reply) + N1b; N2
+  dropped; matching on Suggest rows only, behind the Suggest trigger. R-H2AI (15:21 / 15:23): "yes this is fine" (the
+  panel: range + matches + pop-up + "Not a match").
+- R-H2W (2026-11-01): dev cards reused in production only when the row's text, headings and card prompt version are
+  unchanged; new BoQs get cards at commit time.
+- Answer 1 (15:54): "B" (the laptop restored DEV2-S8's emptied current_item.txt under an owner-approved exception).
+
+## Slice DEV2-B1 - H2 build 1 of 6: match settings, the safe call runner, the spec-card store with cards at commit (switched OFF) - as built 2026-11-02
+
+Desktop session `devb1` on dev2, delegated by the laptop. Two commits: C1 `af4822e63` (feat), C2 (this docs entry). One
+dev2 migrate and one settings write; no paid call, no parse, no browser, no asset. Report and ledger:
+`2026-11-02_DEV2-B1_Report.md` / `_Ledger.md` (desktop Desktop; laptop `historical rate suggest\DEV2-B1\`).
+
+Owner rulings carried (quoted):
+- R-H2AJ (2026-11-02 16:13-16:28): G1 "i would prefer to do it after the suggest run is done...it adds only 2-3 minutes
+  to the overall run, so runningit after is ok. the only thing is that the wait time should be adequately dsiclosed to
+  the user and the progress shown properly as we do for the suggest rate run currently"; G5 MEAN dropped; G8 "ok" (new
+  match-only fields, existing fallbacks left alone); G13 colour dots; G15 "ok" (the app's test-project rule); G2 option A
+  (later slice); 16:28 "yes. lets proceed" to six slices B1-B6.
+- Answer 1 (16:45, Q1): "option a" - the parallel runner names main's site; a scratch copy with the site name only.
+- Answer 2 (16:51, Q2 + Q3): "agree" - (b) a separate card reply cap `match_card_reply_max_tokens` 32000 (DEV2-S8 C3:
+  1,350 of 1,380 card batches used more than 1,024 output tokens); (a) the card doctype's two indexes the repo's way
+  (controller + services/index_manifest.py + the test pin 40 -> 42).
+- Answer 4 (17:36, Q5): "ok go with your recommendation" - drop dev2's twin unique index (see section 3).
+- Answer 3 (17:23, Q4): "option A - and this is a known issue. we have encountered this earlier also" - the suites' own
+  live writes (test_rate_master's 2 Suggestion Events per run on BOQ-26-00001 "S6-TEST", a content-identical rate-master
+  re-save with its Version row, `modified` stamps) are a declared side effect, never repaired (the TOOL-1 open item).
+
+### 1. Built (C1)
+- `BOQ Upload Review AI Settings`: a "Historical matching" section, 15 fields: match_enabled, match_cards_at_commit
+  (both default 0), match_card_model / match_judge_model (NO default), match_calls_at_once 50, match_reply_max_tokens
+  1024 (judge), match_card_reply_max_tokens 32000 (cards), match_retry_wait_s 5, match_burst_failures 10,
+  match_burst_window_s 60, match_cost_cap_usd 5, four prices (USD per million tokens, NO default). The existing `model`
+  field, its fallbacks and every reader are unchanged.
+- `api/boq/wizard/ai_settings.py`: `get_boq_match_settings` (a field with nothing stored reads the doctype's own
+  default -- a migrate stores no value in tabSingles), `require_match_settings(kind)` (refuses with a plain message
+  naming every empty model / price or unusable limit -- no code default), `match_cards_at_commit_on` (both switches;
+  fails closed).
+- `services/boq_rate_match/call_runner.py`: at most calls_at_once in flight; Anthropic client with max_retries=0; a
+  lone connection error (no HTTP status) retried ONCE after the wait only if another reply landed while it was in
+  flight; STOP on 429 / usage limit, a second failure of the same call, or burst failures within the window; every
+  attempt reserves chars/2 + max_tokens at the request's prices against the caller's cap before it is sent, waits
+  while other reservations are outstanding, and is refused (stop "cost_cap") when none is; per-attempt tokens (cache
+  included), USD and seconds; returns results, `not_sent` and the stop reason. No caller is wired.
+- `BoQ Row Spec Card` (autoname hash; System Manager full, Estimates + PMO Executive read): boq, sheet, excel_row,
+  commit_version, payload_sha256, prompt_version, model, status (ok / malformed / failed), card_json, tokens_in /
+  tokens_out / cost_usd (an equal share of the request). UNIQUE (payload_sha256, prompt_version, model) named
+  `boq_row_spec_card_payload_sha256_prompt_version_model_idx` (LOWER case: `add_unique` issues the name unquoted, so
+  PostgreSQL folds it; a mixed-case manifest name built a twin index on dev2's first migrate) + (boq, sheet).
+- `services/boq_rate_match/cards.py` + `card_prompt.txt` (DEV2-S8's p1_card_prompt.txt verbatim, sha256 39ebd9d8...):
+  rows of a sheet in excel_row order through `extraction._ai_item` over `build_sheet_context`, at most 20 a request,
+  message = prompt + `_ROW_CONTEXT_SHAPE_GUIDANCE` + "\n\nROWS:\n" + rows; reuse when an ok card exists for the row's
+  (payload sha256, prompt sha256, model); malformed / failed rows stored (never dropped), overwritten in place when
+  carded again; sends through the runner with the card settings and the BoQ's remaining cap.
+- `commit_pipeline.py`: after a FINALIZED sheet's commit (:671), `_enqueue_spec_cards` -> `cards.enqueue_sheet_cards`:
+  one job on `long` only when match_enabled AND match_cards_at_commit; otherwise only the two switches are read. Never
+  fails the commit. The job re-checks the switches and skips a sheet committed again since.
+
+### 2. Proofs
+- A6: migrate rc 0; 16 / 16 new DocFields live, every existing field unchanged; card table 12 / 12 columns, both
+  indexes. dev2 values (17:28): both models claude-haiku-5-5, prices 0.10 / 0.50, card cap 32000, switches OFF.
+- Parity (free): for 3 C3 sheets (BOQ-26-00285 HVAC, BOQ-26-00077 Security Cable, BOQ-26-00086 Access Control System;
+  4 requests) the requests cards.py builds are byte-equal to DEV2-S8's capture, and its own row selection rebuilds them.
+- Tests (new): test_call_runner 20, test_cards 20, test_match_settings 10, test_commit_spec_cards 4; vacuity red ->
+  green for retry-once, burst, 429, cap (2), reuse by hash, commit gate (one line each, scratch copies).
+- Suites (the Q1 (a) runner copy, dev2.localhost): full BoQ Python set BEFORE at 11e39e3c3 88 / 88 OK, 4,506 tests
+  (2,045 s); targeted before C1 26 / 26 OK, 2,187 tests (the 22 existing 2,133 = 2,133); full set AFTER at af4822e63
+  92 / 92 OK, 4,560 tests (the 88 existing 4,506 = 4,506, + 54 new; 1,965 s); test_boq_committed_sheet_grid (not in
+  the plan) 4 OK serially before and after. vitest / tsc not run (no frontend file).
+- Replay 18,106 rows, ac7 56fb5640... / ac7v2 978f871f... equal at D0 and D2 (no price moves).
+
+### 3. Open
+- The twin unique index from dev2's first migrate was dropped in dev2 by owner answer 4 (Q5 (a), 17:36: "ok go with
+  your recommendation"), one DDL on the empty table; A6 re-checked: exactly the two manifest indexes remain.
+- Matching model names live in the AI settings, never in code: a domain rule, recorded here and in the report; not
+  added to `boq-rate-master.md`'s invariants in this slice (outside its files). CLAUDE.md unchanged.
+- The parallel runner has no --site option (Q1 (a): a scratch copy for dev2); a later small change.
+- Production's worker image / Node version must be read by someone with production access before B2's deploy pack
+  (P1: dev2's worker finds node v24.13.0).
+- The S8 card runner's in-batch retry and ceiling split are not in cards.py (not asked in B1).
+
+## Slice DEV2-B2 - H2 build 2 of 6: the server pricing step, the pool and the lanes (no caller; nothing switched on) - as built 2026-11-02
+
+Desktop session `devb2` on dev2, delegated by the laptop. Four commits: C1 `6876583b2` (server pricing step), C2
+`f7c814ce3` (pool + index, cached, driving fields measured by the pricer), C3 `354821121` (lanes + merge), C4 (this
+entry + `boq-rate-master.md`). No migrate, no database write, no paid call, no parse, no browser; the one write outside
+the repo is the pool cache file in dev2's site private folder. Report and ledger: `2026-11-02_DEV2-B2_Report.md` /
+`_Ledger.md` (desktop and laptop: `Historical Rate Suggest\DEV2-B2\`).
+
+Owner rulings carried: G2 option A (16:17 "building it to use the same code piece so that ... we gaurantee that
+changes are reflected properly"; 16:20 "ok lets proceed with your recommendation"); R-H2AH (lanes W1 10, RULES 5, CARD 3,
+WORD 3, EXACT first, group de-dup; MEAN dropped, G5); R-H2S "1a 2x"; R-H2F; G15 the app's test-project rule; B0 defaults
+G6 (a) / G7 (a) / G16 (a) / G22 (a); DEV2-B1 answer 3 (the suites' known writes). Slice answers (relayed):
+- Answer 1 (21:24): "Q1:ok" / "Q3:ok" - Q1 (B): the driving-field list must come from the bundle at every pool build,
+  no constant ("a copy of pricing knowledge, which G2 forbids"); Q3 (B): merge in DEV2-S8 t8_final's measured order
+  EXACT, W1, WORD, CARD, RULES.
+- Answer 2 (21:26): "ok go with option A" - split pool.py by the 500-line rule into match_text.py, match_index.py,
+  pool.py (no ratchet change).
+- Answer 3 (21:44, to Q4 BLOCKED 21:33): "can we put te pool build and the option A as a scheduled daily activity which
+  happens everyday at 6:00 AM IST" - (A): DEV2-R2's blank / pair-blank + re-price procedure as a second export of the
+  bundle, run in every pool build; the rebuild as ONE no-argument entry point under the lock; B4 adds the daily 06:00 IST
+  scheduler entry (cron in the site's time zone - confirm it is Asia/Kolkata); the 24 h check stays as the fallback.
+
+### 1. Built
+- C1 - THE SERVER PRICING STEP (G2 option A). `rate-helper/serverPricingStep.ts`: re-exports `makePricingSheetHelper`,
+  `nonBcsPipelines`, `mergeItemsByName`, `RATE_MASTER_ITEM_DISCIPLINES`, `rowHeadingNotes`, `rowOwnNotes`, `priceItemList`,
+  `runPipeline` + `priceRowsForMatching` (DEV2-S3 `s3_sig.ts`'s per-row record and the replay record; typed; refuses
+  without a recorder). `frontend/scripts/build_pricing_step.mjs` (esbuild 0.21.5, vite's bundler): ONE git-ignored file
+  `services/boq_rate_match/_build/pricing_step.mjs`, node18, the two recorder renames (S3's method) asserted once each,
+  a stamp (sha256 over the metafile inputs); the frontend `build` line runs it, so `bench init -> bench build ->
+  esbuild.js --run-build-command -> yarn build` rebuilds it every deploy. `services/boq_rate_match/pricing_step.py`:
+  `node` child process (JSON stdin / stdout, timeout, no shell) on the browser's catalogue (`get_rate_master_items` with
+  the brand projection + `get_rate_category_config`, the page's merge order) and the active run's stored readings
+  (`sheet_inputs` = the replay dump on 18,106 / 18,106 rows); stamped values, stale -> recomputed; fails closed.
+- C2 - THE POOL AND THE INDEX. `pool.py` (499 lines) + `match_text.py` (the normaliser: R2 t2 + S3 w2_norm) +
+  `match_index.py` (readings view, card interface, index): every priced rate-editable row on a current committed sheet
+  (30,766 on dev2); near copies + revision families -> R-H2S's selected version (3 days before `as_of`), 2X, own BoQ
+  out, WIP out, test projects out by the app's rule, groups (SWG assert kept); the readings view over the pricer's
+  values for the driving fields, which `measureDrivingFields` (the bundle's second export = R2's procedure) measures at
+  every build; the index (TF-IDF self / parent / upper, 3-grams, BM25, readings maps, exact-copy, RULES, CARD by head,
+  each row's T2 tokens). Cache `private/boq_rate_match/match_pool_v1.pkl` (24 h, FileLock, stamp check);
+  `rebuild_pool()` = the daily job's entry point. Cards: `StoredCards` (BoQ Row Spec Card by payload sha + prompt
+  version + the settings' card model); a scratch adapter over DEV2-S8's cards for parity only.
+- C3 - THE LANES. `lanes.py`: `score` (t5_score.mjs) + `candidates` (t8_final.py): EXACT, W1, WORD, CARD, RULES, caps
+  10 / 3 / 3 / 5, de-dup by group, representative (a card, then the most recent, then the key); RULES "off" without
+  readings, "unavailable: <reason>" when the step cannot run; `dedupe_targets`. No MEAN, no embedding code, no new
+  dependency.
+
+### 2. Proofs
+- Parity 1 (`serverPricingStep.parity.test.ts`, 3 tests): source vs the deploy-built bundle identical on every class of
+  the committed calculator=panel corpus + a blank row per configured category (latest assets; a default, a ladder-up
+  and a substitution asserted present) and on the driving-field measure; vacuity: a bundle copy with one line broken ->
+  RED.
+- Parity 2: the built step reproduces every saved DEV2-S3 / S5 / S6 signature record (18,959 rows) from the same
+  inputs; under Node 18.18.2 too (the Node 18 build is byte-equal). Live (the browser's catalogue): 8,330 rows differ in
+  label text only (the brand word) and 7 LMS rows price only with the projection; every RULES equality class of S3
+  holds.
+- Driving fields: the bundle's measure on R2's exact inputs = `h2_fieldcheck.json` exactly (21 / 21 categories); the
+  production way differs on 2 fields (switches_sockets socket2_qty in, db_switchgear mcb5_qty out) only because the
+  deterministic row order samples other rows (proved one input at a time).
+- Pool parity at DEV2-S8's date: 30,766 rows, every field equal (groups, selection, 600 per-target 2X extras) except
+  v1 on 39 rows (the 2 sampled fields) and the kept set's G15 rows (143 in from 4 "test ... Ankita" BoQs, 102 out as
+  their near copies; with the retired rule the kept set equals pool_s5 exactly).
+- List parity (1,986 targets; S8 minus MEAN), with S5's kept set: W1 / WORD / CARD / EXACT equal except one W1 case
+  (the sampled fields); RULES differs only where S8 signed rows from scratch-only paid readings (278 groups) and the cap
+  slots they free (131); 0 unexplained. Order-equal to S8's measured order wherever the set is equal. Free recall: bench
+  189 / 199 vs 190 (T017, scratch-only readings), held-out 65 / 68 = 65.
+- Build / load / speed (dev2, one process): pool build 312 s with the driving-field measure, 181 s without; peak RAM
+  1.4 GiB (python) + 0.9 GiB (node); file 192 MB, load 1.9 s. Lanes: BOQ-26-00328 206 rows 56.9 s (~0.28 s a row),
+  -00393 470 rows 120.5 s, -00007 79.5 s, -00019 78.0 s (S8 at 6 processes: 69.6 / 87.7 / 76.0 / 71.8 s); the 30 s aim
+  for 00328 is missed - the scoring loops cost it.
+- Vacuity (scratch copies): stale-stamp recompute, fail-closed, 3-day rule, 2X, the test-project rule, EXACT first, a
+  merge cap, group de-dup, the CARD head index - each RED with one line disabled, GREEN restored.
+- Suites: Python through the scratch runner copy (DEV2-B1 answer 1): targeted before C1 test_pricing_step 16; before C2
+  test_pool 28 + test_pricing_step 18; before C3 test_lanes 19 (each measured into the plan; no existing Python test imports
+  or reads a changed file - searched); after the last code commit the related set = the 3 new modules, 65 tests OK. vitest:
+  targeted (Parity 1 + the two latest-asset readers) 19 / 20 passed (the existing 17 = 17); the FULL BoQ set (package.json
+  changed) before 142 files / 5,919 tests, after 143 / 5,922 (+ Parity 1, 3 tests), all passed. tsc FULL 0 new errors
+  (3,050 = baseline) before and after every commit.
+- Replay 18,106 rows, ac7 56fb5640... / ac7v2 978f871f... equal at D0 and D2 (no price moves).
+
+### 3. Open
+- B4 adds the daily 06:00 IST scheduler entry calling `pool.rebuild_pool()` (cron in the site's time zone - confirm it
+  is Asia/Kolkata); dev2's scheduler stays OFF by ruling.
+- Lane speed: ~0.25-0.3 s a row at one process (206 rows ~57 s) misses the 30 s aim; the TF-IDF / BM25 accumulation is
+  the cost (options for B3 / B4: run the lanes alongside the judge's network wait, or shard).
+- Production's worker image must carry `node` (18.18.2 per docker-bake.hcl) - to be read on production before B2's
+  deploy pack.
+- The tracked replay's dump omits the brand projection (7 LMS rows differ from the page); the replay itself is
+  untouched.
+- RULES on pool rows uses stored readings only; S8's scratch-only paid readings are not in the app (the source of every
+  RULES parity difference).
+- The parallel runner still has no --site option (DEV2-B1 Q1 (a)): this slice used the same scratch copy.
+
+## Slice DEV2-B3 - H2 build 3 of 6: the judge, N1b, the bench script and the paid bench run (GO; nothing switched on) - as built 2026-11-03
+
+Desktop session `devb3` on dev2, delegated by the laptop. FIVE commits (owner answer 2 added the fifth): C1 `d84768a4d`
+(size guard; product cost cap removed; one migrate), C2 `4ddd7cc47` (judge + N1b), C3 `95c6ed41a` (the bench script),
+C3b `ecf31836f` (fix: bench trap targets carry their card), C4 (this entry + `boq-rate-master.md`). One migrate (dev2).
+Paid calls: judge only, files only - P2 660 + P2b 260 (the bench) and T4 141 + 206 (one real BoQ). No setting value
+written, no card call, no parse, no browser. Writes outside the repo: the bench data + the bench pool in dev2's
+private folder `boq_rate_match/bench/`, scratch files. Report and ledger: `2026-11-02_DEV2-B3_Report.md` / `_Ledger.md`
+(desktop and laptop: `Historical Rate Suggest\DEV2-B3\`).
+
+Owner rulings carried: R-H2AH (the Haiku judge = DEV2-S8 J10h: J8's prompt + its two changes, short reply; + N1b;
+N2 dropped); G13 / build requirement 3 (colours: SAME green, UNCLEAR amber, CLOSE red, DIFFERENT not shown; never colour
+alone); build requirement 2 (the bench stays a runnable check); NO COST CAP IN THE PRODUCT (2026-11-02 23:23, amends
+R-H2AD: "that $5 limit was just for our purpose...a guideline...it should not be a part of the code or setting");
+R-H2SPEC, R-H2T, R-H2AB, R-H2AC; DEV2-B1 answer 3 (the suites' known writes). Slice answers (relayed):
+- Answer 1 (23:41, to Q1): "option A" - the doctype DEFAULT of `match_reply_max_tokens` 1,024 -> 32,000 in C1 (J10h
+  ran at 32,000; Haiku's short reply costs a median 2,583 output tokens - it reasons first; at 1,024 ~99 % of replies
+  would be cut). No value written.
+- Answer 2 (00:52, to Q2): "option B" - the bench script gave the 260 TRAP targets no card (it read the pool's card
+  index, pool rows only); fix as its own fifth commit; re-run only the traps (P2b), P2 + P2b under P2's $4.
+- Answer 3 (01:28, to Q3): "A" - T4 stopped early on the slice's own test-budget guard (50 in-flight upper bounds of
+  32,000 output tokens reserved ~2.3M tokens against T4's 4M); re-run T4 complete. OPEN for B4: a budget-guard refusal
+  must skip that call and carry on, never be read by the runner as a connection error that stops the run.
+
+### 1. Built
+- C1 - `BOQ Upload Review AI Settings`: + `match_max_request_tokens` (Int, default 100000), - `match_cost_cap_usd`,
+  `match_reply_max_tokens` default 32000. `call_runner`: the SIZE GUARD (a request whose chars / 2 estimate passes the
+  setting is not sent, named in `refused` with reason `too_large`, the run goes on; at the limit it is sent); the cost
+  reservation, the `cost_cap` stop and `run(cap_usd=)` removed; per-call tokens / USD / seconds and run totals kept.
+  `ai_settings`: the getter / `require_match_settings` carry the guard, no cap. `cards`: no BoQ-spend cap
+  (`boq_card_spend` kept for reporting). B1's cap pins inverted (no cost refusal exists; spend recorded).
+- C2 - `judge.py` (one request per target, J10h's byte for byte: `judge_prompt.txt` = J10h's prompt at 20, the count
+  set by its three phrases; blocks `{c, text: the whole Suggest payload, unit, card + values after the rules}`; the
+  shuffle `random.Random(f"{seed}|j8|{id}")`, seed recorded; through the runner with the judge settings; strict parse ->
+  "no verdict" on any missing / extra / repeated / malformed id; N1b; ordered SAME > CLOSE > UNCLEAR > DIFFERENT then
+  the judge's order; the coloured matches with verdict word, N1b note, spend) + `judge_n1b.py` (N1b rules a / b / c and
+  the payload's values after the rules, read from the server pricing step's records - the pool keeps no finals, so the
+  judge prices its rows' sheets once per run).
+- C3 + C3b - `scripts/_instruments/h2_bench.py`: the standing bench (data in the site's private folder, sha-checked
+  manifest); app lanes on the pool as of the bench date (cached beside the data), judge, N1b, S8's X1 scoring, the table,
+  per-target orders, the X3 blind export; `--dry` PLAN, `--archive`, `--selfcheck`, test-budget flags.
+
+### 2. Proofs
+- Judge parity: 660 / 660 requests built from S8's saved lists, seed and row data byte-equal to every J10h request
+  actually sent; 660 / 660 N1b orders (and raw orders) equal to S8's; the app's own data path differs only in "values
+  after the rules": 1,144 SKU names carry the brand word (the browser's catalogue), 2 LMS rows price only with the brand
+  projection, 335 rows have no stored reading (S8 signed them from scratch-only paid readings) - 0 unexplained.
+- Bench scorer: `--selfcheck` on S8's saved orders = S8's table (J10h + N1b bench 180 / 160 of 199, held-out 64 / 57 of 68).
+- P2 (660 calls, $1.585): bench top 5 178 / first 160 of 199, held-out 65 / 57 of 68 -> GO (thresholds 177 / 156 / 63 /
+  54; S8 line 8 = 180 / 160, 64 / 57; minus MEAN 180 / 159, 65 / 56). P2b traps (260 calls, $0.645): size-changed first
+  and SAME 2 / 100 (S8 3), reworded original first 91 / 100 (S8 85), S0 flipped called SAME 0 / 34 (0), added 3 / 26 (5).
+- T4 (BOQ-26-00328, 206 rows, 50 at once; reported apart, answer 3): run 1 stopped on the test-budget guard after 141
+  calls ($0.426; 65 rows not sent, named); the complete re-run: 206 calls, wall 158.4 s (pool load 1.4, the BoQ's own
+  pricing step 10.8, lanes 57.1, prepare 9.1, judge round 64.3), peak RSS 824 MB + node 792 MB, 3.39M tokens, $0.594;
+  rows by first colour green 92 / red 112 / amber 2. Lanes forked from one loaded pool: 1 / 2 / 3 processes 56.4 /
+  33.0 / 23.7 s. Slice spend $3.25 (cap $7).
+- F1: `git archive HEAD` + the full `yarn build` outside the checkout: the bundle and stamp byte-equal to the
+  checkout's (with node_modules copied; a symlinked node_modules makes esbuild print real paths into module labels -
+  the only difference); Parity 1 3 / 3 against it; the served frontend untouched.
+- F2 (report only): the driving-field measure on ALL stored rows - 19 / 21 categories = the 400-row sample; hvac_adp
+  loses neck_mm / size_mm, db_switchgear gains mcb5_qty; 113 V1 rows move; bench lists 299 / 300 equal, recall unchanged.
+- Vacuity (scratch copies): the size guard (runner + judge), the parse's no-verdict path, N1b apply / rule a / rule c
+  (both sides), the DIFFERENT drop, the scorer's first-row count, the trap card - each RED, then GREEN.
+- Suites (Python only; no frontend file changed): targeted before C1 15 modules OK (the 3 changed + every test naming
+  ai_settings / call_runner / cards / the settings doctype); C2 test_judge 14, C3 test_h2_bench 4, C3b 5 (measured into
+  the plan); after the last code commit the FULL Python BoQ set 97 / 97 OK, 4,650 tests (before 92 / 4,560 + B2's 3);
+  changed counts only test_match_settings 10 -> 12, test_call_runner 20 -> 23, test_cards 20 -> 21.
+- Replay 18,106 rows, ac7 56fb5640... / ac7v2 978f871f... equal at D0 and D2.
+
+### 3. Open
+- B4: a budget-guard refusal must skip the call and carry on (answer 3); the runner's no-status exception = connection
+  error rule stays for real network errors.
+- B4: the judge prices its rows' sheets per run (pool rows keep no finals): T4's prepare step 9.1 s; storing the
+  records in the pool is a B2-owned change for a later slice if speed needs it.
+- Lane speed unchanged (~0.28 s a row in one process); forking from a loaded pool: 2 workers 33.0 s, 3 workers 23.7 s
+  for 206 rows (B4 picks).
+- No retry on a malformed reply (S8 re-asked once): P2 had 1 such target (T086), T4 run 1 had 1.
+- The pool cache files are not synced to the laptop (rebuilt on demand); the bench folder is dev2-only until copied.
+
+## Slice DEV2-B4 - H2 build 4 of 6: matching wired behind "Suggest rates" (after Suggest, the wait disclosed, progress shown), the 06:00 pool rebuild, the new price-driving rule - as built 2026-11-03
+
+Desktop session `devb4` on dev2, delegated by the laptop. SIX commits (two fixes: C4 because S4 found a defect, C4b
+because the full suite's one pin read the live switch, see 3):
+C1 `72c631fb2` (rule (iii) on changed price, all rows; the bench / runner skip a caller's refusal), C2 `1dab7171b` (the
+match run doctype, trigger, worker, endpoints, healer, 06:00 entry; one migrate), C4 `c91d5d286` (fix: the judge's
+progress never touches frappe on the runner's threads), C3 `c63fc538e` (the dialog's estimate line + the modal's
+matching phase), C4b `f9e7fd25f` (test: the Suggest payload's pre-B4 keys pinned with matching OFF), C5 (this entry +
+`boq-rate-master.md`). Paid: S1 bench $1.6527, S4 $3.2219 (attempt 1 $0.2071 + attempt
+2 $3.0148), S5 $0.5312 (Suggest 20 rows at Opus $0.4758 + judge $0.0554) = $5.41 of the $12 slice cap. One setting
+written: `match_enabled` = 1 in dev2 (left ON for B5; production's default stays OFF). Report and ledger:
+`2026-11-03_DEV2-B4_Report.md` / `_Ledger.md` (desktop and laptop: `Historical Rate Suggest\DEV2-B4\`).
+
+Owner rulings carried: SEQUENCE (G1, 2026-11-02 16:13: match after Suggest; the wait disclosed and progress shown);
+DAILY REBUILD (21:41: 06:00 IST); PRICE-DRIVING RULE (2026-11-03 01:56 / 10:59: changed price >= 10 % AND >= 5 rows, all
+rows); DISPLAY ORDER (11:06: green, amber, red; the judge's order within); the ESTIMATE (11:11: total + split, a safe
+number); NO COST CAP (2026-11-02 23:23); DEV2-B1 answer 3. Slice answers (relayed 13:35):
+- Answer 2 (to Q2, S1 NO-GO by one target on each top-5 line: bench 176 / 161, held-out 62 / 61): "ok for both" -> (A)
+  accept rule (iii) on the traced cause (379 / 400 requests byte-equal to B3's; 24 of 26 changed results came from
+  byte-identical requests = the judge's run-to-run variance; the rule alone moves H077 / H099 and on B3's replies scores
+  178 / 160, 64 / 58); commit C1, continue. OPEN: a variance-aware bench gate.
+- Answer 1 (to Q1, S4: BOQ-26-00007 / -00019 have no Suggest run in dev2): "ok for both" -> (A) BOQ-26-00279 Electrical
+  (361) for -00019, BOQ-26-00258 ELECTRICAL BOQ (310) for -00007; -00393 as its 6 sheets with a run (461); -00328 as
+  briefed.
+
+### 1. Built
+- C1: `serverPricingStep.measureDrivingFields` - rule (iii) (`meetsDrivingRule`, DRIVING_MIN_SHARE 0.10 /
+  DRIVING_MIN_ROWS 5) on every stored row; `pricing_step` sends no sample; `call_runner.CallerRefused` (named
+  `caller_refused`, never a failure); `h2_bench` skips an over-budget call (`budget_skipped`), `--extra-verdicts`, `--tag`.
+- C2: doctype `BoQ Rate Match Run` (+ 2 lower-case indexes, the manifest pin 42 -> 44); `api/boq/rate_match.py`
+  (trigger, job, status / results, PACES, daily_pool_rebuild); `services/boq_rate_match/match_run.py` +
+  `match_targets.py`; `tasks/match_run_healer.py`; hooks (the healer, cron "0 6 * * *"); setting `match_lane_workers`
+  (default 2); `rate_master._suggest_worker` calls the trigger after a COMPLETE run's commit.
+- C4: `match_run._Progress` only counts; `_judge_with_progress` reports from the job's thread.
+- C3: the confirm dialog's ONE estimate line and the modal's second phase (switch OFF: neither).
+
+### 2. Proved
+- S1: the new lists = F2b's rule (iii) lists on 21 / 21 categories (119 fields); V1 1,833 rows changed vs the bench
+  pool (= F2b); the real rebuild 450.6 s, peak RSS python 2,808 MB + node 2,181 MB. Bench re-run NO-GO by cause (above).
+- S4 (paid; the product pool has no candidate cards until B6): 9 sheets complete, 1,338 calls, 14.7M tokens; per sheet
+  wall 26.6 s (3 rows) .. 201.5 s (310 rows); peak RSS (all processes) 3.4-3.7 GB; lanes 35.0 s / 206 rows at 2 workers
+  (25.0 s at 3, 2.3 GB). PACES: matching 65 s + 0.45 s a row (p90 of S4), Suggest 3.12 s a row (p90 of 188 runs).
+- S5 cert (dev2.localhost:8180, 20 selected rows of BOQ-26-00328): the dialog said "about 4 minutes in all: about 2 to
+  suggest rates and about 2 to match"; measured Suggest 203 s + match 64 s; the modal showed the matching phase 0 -> 20
+  of 20 with elapsed / time left and ended "done"; `get_match_results` = the 20 rows fresh + 186 carried, display order
+  held, no DIFFERENT shown; switch OFF (a scratch page state): today's dialog, no line.
+- Suites: FULL Python BoQ 100 modules / 4,706 tests (before 97 / 4,650) green after the one pin inversion; FULL vitest
+  BoQ 145 files / 5,939 passed; tsc 0 new. T2 vacuity 15 cases (11 Python + 4 TypeScript) red then green.
+- Replay: D2 differs from D0 ONLY on the cert's 20 re-extracted rows of BOQ-26-00328 (ac7 8, ac7v2 20); 0 elsewhere.
+
+### 3. Found and fixed / open
+- S4 attempt 1 halted on BOQ-26-00328: the progress callback touched frappe.db on the runner's threads -> "object is not
+  bound" -> the runner stopped (50 judge calls sent, $0.2071); fixed in C4, re-run complete.
+- C2's targeted set: test_rate_master's harness mocks frappe.cache and my meta-based switch read then read ON; the switch
+  now reads the stored value directly.
+- OPEN: (a) a variance-aware bench gate (answer 2); (b) the Suggest estimate has no fixed part (20 rows took 203 s vs 2
+  min); (c) candidate cards in the product pool wait for B6's pool carding (S4 vs B3 T4 not like for like); (d)
+  production's System Settings time_zone must be Asia/Kolkata and its scheduler on for the 06:00 rebuild; (e) with the
+  switch ON, a full-set test that drives the real Suggest worker (fixture BOQ-TEST-CLASSIFY-52059a87 / Wiring) made the
+  trigger enqueue a real match job (16:10: it failed closed, no call) - pin the switch OFF in such tests (B5); (f) S5's judge calls
+  ran on the product path and are not archived.
+
+## Slice DEV2-B5 - H2 build 5 of 6: the "Previously priced" card, its pop-up, "Not a match" with Undo; dev2 pool cards; the safe Suggest estimate - as built 2026-11-03
+
+Desktop session `devb5` on dev2, delegated by the laptop. EIGHT commits: C1 `094d5cb64`, C2 `8ced2125c`, C3 `f20ba3414`,
+C4 `f2e3fe7cd`, C4b `48849cc00` (a fix found preparing the cert), C5 `d77d336bb` (this entry + `boq-rate-master.md`), C4c
+`dde41af66` (owner answer 3: pre-run rows show "Matching not run yet"; the one owner-approved pin line) and C5b (this
+update):
+- C1 is the spec-card loader under R-H2W.
+- C2 is the safe Suggest estimate + the Suggest test pins.
+- C3 is the feedback doctype, its endpoints and the flag in results; it carries the one migrate.
+- C4 is the card, the pop-up and `?row=`.
+- C4b: "Mts." / "Mts" fold to metres.
+
+Paid: S1 re-match $1.3870 (pass 1 $1.2303 + pass 2 $0.1567) of the $4 slice cap; no Suggest run. Report and ledger:
+`2026-11-03_DEV2-B5_Report.md` / `_Ledger.md` (`Historical Rate Suggest\DEV2-B5\`); the owner's check list:
+`2026-11-03_DEV2-B5_Owner_Check.md`.
+
+Owner rulings carried: R-H2AI (the panel, the pop-up, Not a match with Undo; mockup 2026-11-02 15:23), COLOURS (16:13),
+DISPLAY ORDER (11:06), G4 (a) / G13 / G14 (a), SAFE ESTIMATE (11:11), DEV2 POOL CARDS (17:45), R-H2W, NO COST CAP,
+DEV2-B1 answer 3. Slice answers:
+- Answer 2 (18:39, to Q1: 89 of -00279's judge calls skipped by the test budget's worst-case reservation): "option A".
+  This was a second pass on the 89 rows only, with the reservation ceiling 11M for that pass and the real use kept
+  under 9M / $2. Done: BRMR-26-00015, 85 sent, 4 still refused by the $ reservation. OPEN: the guard should reserve the
+  measured p90 reply size.
+- Answer 4 (21:08): the owner left; keep working as planned without the laptop - followed.
+- Answer 3 (21:02, "option A"): update the ONE pinned line and restore the pre-run call - done in C4c (see 3).
+- Answer 1 (17:54, S6): three BoQs for the owner's own end-to-end check, free and read-only. Done in `_Owner_Check.md`.
+  Only Electrical and HVAC have Suggest rows in dev2, so the third BoQ is HVAC chilled water.
+
+### 1. Built
+- C1: `scripts/_instruments/load_spec_cards.py` - loads a keyed card only when the payload sha (live `_ai_item`), prompt
+  version and settings card model all match; never overwrites; `--dry` read-only. Test: `test_load_spec_cards` (11).
+- C2: `rate_match.PACES` Suggest = 13 s + 53 s x ceil(rows / 20) (p90 fit on 189 stored runs, adjusted once for the
+  >300-row band); `suggest_estimate_minutes`, `estimate_coverage`; `matchWaitEstimate` the same formula;
+  test_rate_suggest's two real-worker drivers pin match_enabled OFF.
+- C3: doctype `BoQ Rate Match Feedback` (append-only; lower-case index; manifest 44 -> 45); `mark_not_a_match` /
+  `undo_not_a_match` (the run must show the match; the user must be able to price the sheet, lock read only);
+  `get_match_results` adds each match's flag (latest wins) and row text; `get_match_detail` (the pop-up's payload by the
+  pool's builder, `can_open`).
+- C4: the page-built closure (a decline carrying matches: no Use, no badge); `PreviouslyPricedMatches.tsx` (card +
+  Dialog); the range / unit / order / words rules in `rateHelperRegistry.ts`; `?row=` (`rowParamOf`) on the pricing page.
+
+### 2. Proved
+- S1 load: S8's 27,681 cards keyed from S6-S8's archives (27,681 proved); dry = load = 26,034 loaded (260 trap ids
+  skipped, 1,387 exists / repeated sha; 0 sha / prompt / model mismatches); card rows 1,338 -> 27,372; 20 / 20 sample
+  byte-equal. Pool rebuilt (cards are read at build).
+- S1 re-match (with candidate cards: 8,029 of 8,090 candidate blocks carded; B4: 0):
+  - -00328: green 90 / amber 65 / red 51 (B4: 68 / 59 / 77, no match 1, no verdict 1).
+  - -00279 final: green 16 / amber 139 / red 125, no match shown 77, no verdict 4 (B4: 11 / 132 / 146 / 72).
+  - Real use: 563 calls, 8,385,142 tokens, $1.3870. The block 42 audit is clean.
+- S2: estimate coverage 96.8 / 94.6 / 98.7 / 100 % by band (B4's per-row pace 87.1 % on 1-20 rows); matching paces cover
+  12 / 12 runs.
+- S5 cert (dev2.localhost:8180):
+  - -00328 row 74: Rs 1,650 – Rs 1,790 from 4 of 5, a "set" match flagged other unit; dot words; pop-up hierarchy /
+    rates / date / verdict; prev / next wrap.
+  - Not a match (Different spec) -> struck, range Rs 1,650 – Rs 1,650.2; reload holds; Undo restores.
+  - Open this row -> BOQ-26-00073 row 61 in view.
+  - -00279 row 54 (units folded); rows 17 / 416 "No earlier match found"; row 419 "Matching failed: ...".
+  - Two feedback rows (mark + undo); the pop-up payloads are sha-equal to the pool's 5 / 5.
+- Suites: FULL Python BoQ 102 modules / 4,732 tests all OK (before 100 / 4,706); FULL vitest BoQ 148 / 5,964 passed; tsc 0 new. T2 vacuity 13 cases (7 Python + 6 TS)
+  red then green.
+
+### 3. Found and fixed / open
+- C4b: "Mts." was read as another unit (found picking cert rows); fixed + pinned.
+- C4's vitest related met a source pin in pricingSheetHelper.test (out of scope) holding `buildHelperList(preRunHelper)`;
+  I reverted the call, the laptop relayed it, and owner answer 3 (21:02, "option A") approved updating that ONE line. C4c
+  restored the call, so pre-run rows show "Matching not run yet". The FULL vitest set was re-run: 148 / 5,964 passed.
+  Answers 3 and 4 were first missed (not read during the cert) and done after the laptop's 22:23 note.
+- OPEN:
+  - (a) the test-budget guard reserves the 32,000 ceiling (answer 2);
+  - (b) the B4 cert's 20-row Suggest (203 s) is still a miss at the new paces;
+  - (c) the host `test_run_tests_parallel.py` fails since DEV2-B4 C2 (the plan lists tasks.test_match_run_healer);
+  - (d) test_rate_master's resume driver reads the live switch (no write);
+  - (e) feedback is captured but not yet read by matching;
+  - (f) the S8 cards stored with tokens 0 (their spend was S8's).
+
+## Slice DEV2-B6 - H2 build 6 of 6: ready for go-live - a movable pop-up, a findable panel icon, plain failure wording; no pool rebuild inside a user's run; the test-budget guard; the go-live pack; the final bench - as built 2026-11-03/04
+
+Desktop session `devb6` on dev2, delegated by the laptop. FIVE commits (the prompt allowed up to four; see 3):
+- C1 `8726ba67e` is the server: the pool rule, the test-budget guard, the card export, `h2_bench --stored-cards`.
+- C2 `6489fe59d` is the UI: the movable pop-up, the panel icon (widened), plain failure wording and its hover title.
+- C4 `e475dedc4` is a fix found in the browser cert: the rate column's default width (owner answer 4) and the dragged
+  pop-up's top-left anchor.
+- C4b `4cc8c73a3`: the width 150 px, not 140 (owner answer 5, read after C4).
+- C3 is this entry + `boq-rate-master.md`.
+
+Paid: S4 (i) $0.0056 + the final bench $1.6503 = $1.6559 of the $3 slice cap; no Suggest run. Nothing deployed.
+Report, ledger and the go-live pack: `2026-11-03_DEV2-B6_Report.md` / `_Ledger.md` / `H2_GoLive_Checklist_2026-11-03.md`
+(`Historical Rate Suggest\DEV2-B6\`).
+
+Owner answers this slice:
+- Answer 1 (23:54): the Suggest run BRSR-26-00850 and match run BRMR-26-00016 on BOQ-26-00328 found at D0 were the
+  owner's; accepted as the D0 baseline (pre-slice writes).
+- Answer 2 (00:06, "widen"): the visible sparkle also on rows with only a "Previously priced" match; SheetPricingPage's
+  new prop owner-approved.
+- Answer 3 (00:10, "option A"): `NoSuggestion.detail` + the panel's `title` (the technical reason on hover only).
+- Answer 4 (01:25, "option B"): the rate column's default width widened (the sparkle spilled into the next column).
+- Answer 5 (01:27): 150 px, not 140.
+
+### 1. Built
+- The pool rule (`match_run.job_pool`): a cached pool file is always used; a stale one is noted ("pool stale", the stamp
+  used, in usage.pool) and ONE background rebuild queued (`rate_match.queue_pool_rebuild`, the 06:00 job's id, never a
+  twin); inline only with no usable file; a lock timeout is "pool not ready".
+- The guard: chars / 2 + the measured p90 reply (judge 3,920 / card 13,819, from 3,889 archived replies); the caps hard
+  on the real totals (`budget_reached`). The test client split into `h2_recording_client.py` (h2_bench passed 500 lines).
+- `export_spec_cards.py`: every ok card as the keyed file the loader reads, with its summary (read only).
+- The UI: `clampDrag` + no overlay + top-left anchor; `rateHelperOpenerKind` + `RATE_COL_SEED_PX` 150 +
+  `matchResultRows`; `plainMatchFailure` (every stored reason; unknown -> the first wording).
+
+### 2. Proved
+- S4 (i): BOQ-26-00279 rows 419-422 re-matched in 12.5 s on the stale pool (DEV2-B5 pass 2: 481.8 s, 440 s of it an
+  inline rebuild); one rebuild queued, 529.9 s on the worker. -00279 final: green 17 / amber 139 / red 125, no match
+  shown 80, no verdict 0.
+- The final bench (stored cards): bench 176 / 161, held-out 63 / 60. NO-GO under the current lines (bench top 5 one
+  short of 177); GO under the variance proposal (172 / 149 / 60 / 50; flip rate 0.111 over 837 byte-identical repeats,
+  sd 2.7 / 3.7 / 1.5 / 2.0). 24 lost-target lines (11 with judge inputs identical to both earlier runs). 36 blind pairs
+  exported.
+- S5: dev2's export (27,372 cards, sha256 9d9f7885...) loads back as all skip-exists; the rolled-back delete-and-reload
+  test is byte-equal.
+- The browser cert (dev2.localhost:8180, after C4 / C4b): the sparkle visible without hover; panel loads; pop-up
+  centred with no overlay, dragged to the left edge with the row behind visible, the top edge kept across next / prev,
+  clamped off screen, a click behind does not close it, Esc closes, reopen centred; -00279 row 419 shows the plain
+  words with the technical reason only in the title.
+- Suites: FULL Python BoQ 103 / 4,758 OK; FULL vitest BoQ 151 / 5,992; tsc 0 new. Vacuity 14 cases (6 Python + 8 TS),
+  red then green.
+
+### 3. Found and fixed / open
+- C4: the 16 px sparkle made the rate cell's line ~132 px in a 112 px column (it spilled over the next column); and the
+  dragged pop-up was anchored by its centre (its top edge moved with a taller match). Both found in the cert.
+- Answer 5 (150 px) was missed until the laptop's 01:41 note; C4 had gone in at 140, so C4b - a fifth commit.
+- OPEN:
+  - (a) the variance-aware gate is a proposal, not applied (owner);
+  - (b) no dev2 row has a match without a Suggest badge, so the "widen" case is proven by tests only;
+  - (c) the host `test_run_tests_parallel.py` failure from DEV2-B4 C2 stands;
+  - (d) test_rate_master's resume driver still reads the live switch (no write).
+
+## Slice DEV2-B7 - the one-time spec-card fill-in for existing BoQs (no Suggest): the script, its dry run, a capped trial on dev2, its place in the go-live checklist - as built 2026-11-04
+
+Desktop session `devb7` on dev2, delegated by the laptop. Three commits:
+- C1 `0b2d3436d`: `scripts/_instruments/fill_spec_cards.py`, its tests (`test_fill_spec_cards`, 16) and the parallel plan
+  entry.
+- FIX `89fdb08a7`: a pre-existing race found by the T3 full set (owner answer 2, option B, an approved out-of-scope line).
+  `match_run._judge_with_progress` reports `wrapped.done` once more after its poll loop. A judge that finished before
+  the first poll used to report nothing, and `test_match_run`'s progress test failed under load. The fix commit adds a
+  test that forces the race.
+- C2 is this entry + `boq-rate-master.md`.
+
+Paid: S3's capped trial, $0.2353 of the $1 slice cap (caps 60 calls / 1,500,000 tokens / $0.50). Card calls only: no
+Suggest, no matching run, no setting written. Nothing deployed. Report, ledger and checklist v4:
+`2026-11-04_DEV2-B7_Report.md` / `_Ledger.md` / `H2_GoLive_Checklist_2026-11-04_v4.md` (`Historical Rate Suggest\DEV2-B7\`).
+
+Owner rulings and answers this slice:
+- FILL-IN (12:40 - 12:45): a one-off tool, run once on production after go-live, outside working hours, with no
+  Suggest.
+- CARDS AT COMMIT (12:41 / 12:42): `match_cards_at_commit` goes ON at go-live with `match_enabled` (checklist 3.10).
+- R-H2W: a card is valid only for the row's current payload sha, prompt version and model; an ok card is never
+  overwritten.
+- Answer 1 (13:45, "its training data"): BOQ-26-00371 "test 3 BOQ Ankita" stays out of matching and the fill-in.
+  Delivered: a read-only list of the pool BoQs whose names suggest training but whose project the test-project rule
+  misses, and checklist v4 step 3.5b (rename the project to start with "Test Project - " before the card load and the
+  pool build). No data changed in dev2.
+- Answer 2 (14:02, "option B. All 4 Ankita's BoQ are training data"): the race fix above, plus all four of Ankita's
+  BoQs (-00366, -00369, -00371, -00386) confirmed in 3.5b.
+
+### 1. Built
+- `fill_spec_cards.py`:
+  - the row set is the pool's corpus (`pool._corpus`) minus test projects;
+  - each row is classed valid / stale / failed / none by the pool's own card lookup;
+  - newest BoQs first, then sheet, then row; a payload equal to an earlier row's is left to that card;
+  - per sheet, `cards.card_sheet(excel_rows=...)` - no card logic of its own;
+  - `--dry` (a read-only connection, no client; the projection from `cards.plan_sheet`), `--limit`, `--boq`,
+    `--newest-first` (default on), `--report`;
+  - a 429 / usage limit / burst / error / Ctrl+C stops cleanly with the summary (exit code 1);
+  - it prints the `pool.rebuild_pool` command and never rebuilds by itself.
+- cards.py and pool.py are unchanged.
+
+### 2. Proved
+- P0:
+  - the card path: `card_sheet` is public and takes the rows;
+  - the corpus: 30,766 rows, equal to the cached pool's;
+  - the runner's limits;
+  - the measured card call: 18.6 rows, in 9,421 / out 8,710 tokens, 31.6 s;
+  - what cards at commit cover: every rate-editable row of a sheet committed after go-live, priced or not. The
+    payload holds no rate, so pricing never stales a card.
+- S2, the dry run on dev2:
+  - 30,766 pool rows; 1,387 test-project rows skipped;
+  - 27,703 valid, 0 stale, 0 failed, 1,676 none (1,621 distinct payloads; 68 of them in today's KEPT set);
+  - projected 132 calls / 1,957,098 tokens / $0.5167 / 43.7 min.
+- S3, the capped trial (`--limit 650`, newest first, every request and reply archived):
+  - 650 rows on 40 sheets of 22 BoQs, in 60 calls (= the sum of ceil(rows / 20) a sheet): 650 ok, 0 failed, no stop;
+  - 781,794 tokens, $0.2353, 17.5 min;
+  - all 650 keys equal their rows' current sha + prompt + model;
+  - the 27,372 cards stored before are byte-equal afterwards;
+  - a seeded sample of 10 was checked by hand: all correct;
+  - the second dry run is smaller by exactly 650 (971 left: 73 calls, ~$0.31);
+  - the trial carded 68 rows of Ankita's practice BoQs (-00371 34, -00386 25, -00366 9). They were not deleted: the
+    3.5b rename leaves them out of production's pool.
+- T2 vacuity, 7 / 7 on scratch copies, each red then green:
+  - the valid-card skip;
+  - never-overwrite, both in the selection and in cards.card_sheet's own reuse guard;
+  - the stale rule;
+  - the 429 stop;
+  - dry writes nothing;
+  - the race fix's line.
+- Suites:
+  - FULL Python BoQ set after C1: 104 modules / 4,774 tests, 103 OK. The one error was the race; the module passed
+    alone 8 / 8 and the race was reproduced. Before: 103 / 4,758.
+  - After the fix: `test_match_run` 28 / 28, and the fix's targeted set 17 / 17 modules OK (test_rate_master 739, test_rate_suggest 75, ...).
+
+### 3. Open
+- The fill-in runs on production after go-live (checklist v4 section 7), with one re-run about a week later.
+- Production may hold more training BoQs created since the dev copy. The deployer lists them for the owner before 3.5b.
+- The host `test_run_tests_parallel.py` failure from DEV2-B4 C2 (the plan lists tasks.test_match_run_healer) stands.
+
+## Slice DEV2-B8 - go-live fixes for the rate-history helper (production feedback 2026-11-06): the pool rebuilt only at 06:00, match settings stored as 0 read their defaults, the wait counts rows that need a new card, checklist v5 - as built 2026-11-06
+
+Desktop session `devb8` on dev2, delegated by the laptop. Historical matching went LIVE on production on 2026-11-06
+(release 2.11.55, develop -> main). Step U first: dev2 fast-forwarded to `038f12b4a` (Abhishek's develop merge into the
+branch, 286 commits), one dev2 migrate (develop's 9 patches), and the full suites on the released code. Then three
+commits, nothing deployed, no model call:
+- C1 `56eb8f6b7`: the pool rule and the settings fallback (`match_run.py`, `ai_settings.py`, `rate_match.py`, their tests,
+  `test_match_run_pool` new, the plan entries).
+- C2 `b15ca0b9d`: the wait estimate (`rate_match.py` paces / `match_estimate_minutes` / `count_rows_without_card`,
+  `RateSuggestProgressModal.tsx`, `SheetPricingPage.tsx`, `test_match_estimate` new, 7 vitest cases).
+- C3 is this entry + `boq-rate-master.md`. Checklist v5 is in the slice folder.
+
+Report, ledger, checklist v5: `2026-11-06_DEV2-B8_Report.md` / `_Ledger.md` / `H2_GoLive_Checklist_2026-11-06_v5.md`
+(`Historical Rate Suggest\DEV2-B8\`).
+
+Owner rulings this slice (2026-11-06):
+- B8-1 (~13:05, option B): first bring dev2 up to `038f12b4a` (step U), then the fixes.
+- POOL ONLY AT 06:00 (12:41 / 12:42): a user's match run never builds or queues a pool rebuild; the 06:00 job is the
+  only automatic build; with no pool file every row says "pool not ready" and the run ends cleanly.
+- SETTINGS DEFAULTS (12:42): a match setting stored as 0 / empty uses its doctype default; no patch.
+- WAIT ESTIMATE (12:42): the confirm box's matching part counts the rows that need a new spec card.
+- CHECKLIST v5 (12:42) and TEST BoQs (12:36: "test 4 BOQ Ankita", "TEST BOQ" are test BoQs).
+
+### 1. Step U (the released code on dev2)
+- ff 969b1e19f -> 038f12b4a; migrate rc 0: 9 patches, 5 indexes (index manifest), 2 tables dropped / 2 created, no
+  BoQ table written; the H2 doctypes and the 16 match settings unchanged.
+- Replay at 038f12b4a: 18,106 rows, 0 prices moved; 506 rows differ only in the working-line wording (money to 2
+  decimals, ELR-4c `f7ff7385b`). New replay baseline ac7 93028e29... / ac7v2 28d25f5a....
+- FULL suites at 038f12b4a: Python 105 modules / 4,780 tests OK; vitest 164 files / 6,517 OK; tsc 0 new.
+
+### 2. Built
+- `match_run.job_pool(path)`: never builds, never queues; stale -> used and noted; no usable file -> (None, info
+  with `not_ready`). `run_match` with no pool: no card / judge call, every row `no verdict` + "pool not ready: ...",
+  COMPLETE. `_store` shared by both paths. `rate_match.queue_pool_rebuild` removed (no other caller).
+- `ai_settings.MATCH_ZERO_IS_DEFAULT` (the 7 Int limits except `match_retry_wait_s`): stored 0 / empty -> the doctype
+  default, one log line; read-time.
+- `PACES.estimate_match_*` (49 / 0.40 / 2.0), `match_estimate_minutes`, `match_estimate_coverage`,
+  `count_rows_without_card` (read-only, `cards.plan_sheet`); the client's `matchWaitEstimate(rows, paces,
+  rowsWithoutCard)` (null = every row, the safe side) and `suggestReadRows`; the page asks in `openSuggestConfirm`.
+  The running modal's time left is unchanged (65 + 0.45).
+
+### 3. Proved
+- P0: 10 of the 16 match fields have a doctype default (8 Int + 2 Check); the fallback covers the 7 Ints other than
+  `match_retry_wait_s` (0 = retry without waiting). A Single holding any row loads a missing Int as blank and a form
+  save writes "0" (frappe v15 `load_from_db` / `get_valid_dict` / `update_single`) - production's failure.
+- The fit (17 runs: 16 dev2 + production's BRMR-26-00002): 16 / 17 = 94.1 % covered; the watched run 157.4 s -> 3 min
+  >= 143 s (full estimate 8 min). B4's 65 + 0.45 under-ran it (2 min).
+- Cert on dev2.localhost:8180: BOQ-26-00344 -> "about 8 minutes in all: about 5 to suggest rates and about 3 to match"
+  (the call: 81 rows -> 38 without card); BOQ-26-00328, 3 carded rows ticked -> "about 3 ... about 2 ... about 1"
+  (3 -> 0). Cancel only. The login was a dev2 session created for the dev-login user, not the password typed.
+- Vacuity 8 / 8 red then green: no queue on stale, no build on missing, the no-pool run path, the settings fallback,
+  the per-card term and the safe side (Python and TypeScript).
+- Suites: C1 targeted 26 modules / 1,262 OK; C2 tsc 0 new, vitest related 5 / 58, Python targeted 7 / 887. T3 after
+  b15ca0b9d: Python 107 modules / 4,809 OK (before 105 / 4,780); vitest 164 / 6,524 (before 6,517); tsc 0 new.
+- D2: only the suites' known writes + the cert's one session; no Suggest / match run, no card; replay D2 = D0.
+
+### 4. Open
+- Deploy the fix release (checklist v5 section 8): until then 2.11.55 queues a daytime rebuild on a stale pool.
+- The estimate over-estimates sheets where every row needs a card (parallel card waves); the running modal's time left
+  is still 65 + 0.45 a row.
+- Production pool build speed (price-driving fields 877.5 s) is not addressed.
+
+## Slice DEV2-B9 - the 6-month cut-off for the "Previously priced" pool (by sheet commit date, hard) and the pool auto-build after a deploy - as built 2026-11-10
+
+Desktop session `devb9` on dev2, delegated by the laptop. Production runs 2.11.56 (B8 `c0b991893`, deployed
+2026-11-07). Two commits, nothing deployed, no model call, no migrate / patch / doctype / setting / frontend change:
+- C1 `d44bc5dcc`: `pool.py` (POOL_MAX_AGE_MONTHS = 6, the cut-off hook, `extra_for` minus aged rows, the summary keys),
+  `pool_age.py` (new), `pool_autobuild.py` (new), `tasks/match_run_healer.py` (runs the check), `test_pool_age` (24,
+  new), `test_pool_autobuild` (15, new), the plan entries.
+- C2 is this entry + `boq-rate-master.md`. The deploy note `H2_Fix_Release_Deploy_Note_2026-11-10.md` is in the
+  slice folder.
+
+Report, ledger, deploy note: `2026-11-10_DEV2-B9_Report.md` / `_Ledger.md` / `H2_Fix_Release_Deploy_Note_2026-11-10.md`
+(`Historical Rate Suggest\DEV2-B9\`).
+
+Owner rulings this slice:
+- R-H2B (2026-10-30 00:53): "lets keep the cutoff as 6 months" (it had never reached the build requirements).
+- 2026-11-10 02:03-02:06: "yes. we need to check?" (check, add if missing); "Hard cut-off"; "committ date".
+- Answer 1 (02:27): "Auto-build after deploy" - every deploy deletes the pool file (2.11.56: rebuilt by hand).
+- Answer 2 (02:28, B9-Q1): "option D" - each row is aged by its own sheet's current committed_at.
+- Answer 3 (02:39, B9-Q2): "H" - the existing 5-minute match healer carries the check; hooks.py untouched.
+
+### 1. Built
+- `pool_age.apply_cutoff` in `build_pool`, after KEPT: a row stays only if its sheet's CURRENT `BoQ Sheet.committed_at`
+  is on or after the build day (Asia/Kolkata) minus 6 calendar months (month ends clamp, on-the-day kept, stored times
+  converted from the system zone); no date = out, counted apart. Aged rows leave KEPT and 2X; they stay in the file
+  and the index. `pool.aged` / `pool.age`; `rebuild_pool()`'s summary adds cutoff_date, max_age_months, rows / sheets /
+  boqs_left_out_by_age, rows_without_commit_date; every build logs one "match pool cut-off" line. POOL_FORMAT unchanged.
+- `pool_autobuild.autobuild_pool` (run by `heal_stale_match_runs` after its own work): no usable file + lock free +
+  job not queued -> ONE `pool.rebuild_pool` on long under `boq_match_pool_daily_rebuild` (deduplicated), one log line;
+  never with a usable pool. An existing file is fully loaded once per (size, mtime) (cache, 2 days).
+
+### 2. Proved
+- P0: NO date limit existed (pool.py's only time rules: the 3-day settle / WIP windows and the 24 h file age).
+  committed_at is 100 % filled (1,763 / 1,763 sheet versions; 1,313 current). dev2's oldest sheet commit is
+  2026-06-23 (not May, as the brief assumed): the cut-off leaves out 0 rows / 0 bench answers at 2026-11-10 and at
+  2026-10-27; it first bites at the build of 2026-12-26 (today's data: 1 kept row, then 44 on 2027-01-05, ~870 on
+  2027-01-10, ~7,300 on 2027-02-01). Revision readings (picked version vs family oldest) differ by < 1 % at every date.
+- A NEW hooks.py cron line would run only after a migrate (frappe `sync_jobs`, migrate.py:142) - hence route H.
+- S2 (one scratch build at d44bc5dcc, read-only DB, 530.8 s, deleted after): 30,766 rows, KEPT 25,159 before and after the
+  cut-off (cutoff_date 2026-05-10, rows / sheets / BoQs left out 0); bench 201 / 68 targets, 0 answers aged out, the
+  top-5 ceiling unchanged; the live pool file untouched.
+- Vacuity 13 / 13 red then green (cut-off line, IST, on-the-day, missing date, per sheet, 2X, the auto-build's
+  missing-file trigger, fixed job id, no double enqueue, lock, never with a usable pool, the healer's isolation and call).
+- Suites: C1 targeted 20 modules / 401 OK (before 362 on the 18 old modules). T3 FULL Python BoQ set after d44bc5dcc:
+  109 modules / 4,848 tests OK (before 107 / 4,809, B8 T3; +2 modules, +39 tests; every other module the same count).
+  No frontend file changed: no vitest / tsc. Replay D2 = D0 (18,106 rows, ac7 93028e29... / ac7v2 28d25f5a...).
+
+### 3. Open
+- `fill_spec_cards.py` still reads `pool._corpus` (no cut-off): a re-run after late December would card rows the pool no
+  longer offers (harmless).
+- The auto-build rides on the match healer: if that Scheduled Job Type is stopped on a site, it does not run.
+- PR #1681 review F1 (fixed after 5b3b49be1): a failed build left no file, so the 5-minute check queued it again at
+  once, all day. `autobuild_pool` now retries after growing waits from RQ's record of `boq_match_pool_daily_rebuild`
+  (FAILED, `ended_at` else `enqueued_at`): 10 min, 30 min, 1 h, 2 h, then every 6 h; try count in the cache, cleared by
+  a usable file. Tests: 5 new in `test_pool_autobuild`, 21 / 21 OK; with every wait set to 0, 3 fail.
 
 ## Slice VRF-R0 - read-only recon of the VRF rows (2026-11-01) - DELIVERED
 

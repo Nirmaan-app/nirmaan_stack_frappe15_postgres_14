@@ -82,3 +82,14 @@ LINK_FIELD_MAP = {
     # search.py's link-label injection.
     "tds_item": {"doctype": "TDS Items", "label_field": "tds_item_name"},
 }
+
+# Sentinel value for the "blank"/"not set" facet bucket. Surfaced as a facet
+# option (the frontend renders it with a caller-supplied label, e.g. "Not
+# Linked") only when `include_blank_bucket` is true (facets.py).
+# `_process_filters_for_query` (utils.py) recognises this exact string in an
+# `in` filter and rewrites it to `is not set` so it matches both NULL and '';
+# a virtual field (virtual_fields.py) reads it as "no Expense bill".
+#
+# MUST stay byte-identical to `NOT_LINKED_FACET_VALUE` in
+# `frontend/src/pages/Items/items.constants.ts`.
+NOT_SET_FACET_VALUE = "__NOT_SET__"

@@ -53,7 +53,7 @@ import {
   GeneratedInvoicesTable,
 } from "@/pages/ServiceRequests/service-request/components/GeneratedInvoices";
 import { isGstExplicitlyOff } from "@/utils/workOrderGst";
-import { generatedInvoiceDeleteNote } from "@/utils/generatedInvoices";
+import { generatedInvoiceDeleteNote, visibleGeneratedInvoices } from "@/utils/generatedInvoices";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -121,6 +121,8 @@ export const DocumentAttachments = <T extends DocumentType>({
     mutate: mutateGenerated,
   } = useGeneratedInvoices(isWorkOrder && docName ? docName : null);
   const generatedInvoices = generatedState?.invoices ?? [];
+  // The table hides Approved ones (`visibleGeneratedInvoices`); the lock and delete note below read the full list.
+  const shownGeneratedInvoices = useMemo(() => visibleGeneratedInvoices(generatedInvoices), [generatedInvoices]);
   // A signed upload's Vendor Invoice carries what the vendor signed: never edited (#1547, story 87).
   const signedUploadInvoices = useMemo(
     () => new Set(generatedInvoices.map((g) => g.vendor_invoice).filter(Boolean)),
@@ -604,11 +606,11 @@ export const DocumentAttachments = <T extends DocumentType>({
                 poName={isPO ? docName : undefined}
               />
             </div>
-            {isWorkOrder && generatedInvoices.length > 0 && (
+            {isWorkOrder && shownGeneratedInvoices.length > 0 && (
               <div className="overflow-x-auto border-t border-gray-200">
                 <GeneratedInvoicesTable
                   workOrder={docName}
-                  invoices={generatedInvoices}
+                  invoices={shownGeneratedInvoices}
                   canManage={!!generatedState?.can_generate && !isEstimatesExecutive}
                   canDelete={!!generatedState?.can_delete && !isEstimatesExecutive}
                   onPrint={setInvoicePreview}

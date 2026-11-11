@@ -1,0 +1,17 @@
+#!/bin/sh
+# post-merge hook: after a merge into master, list the dev envs and worktrees of this machine whose work has now
+# landed (scripts/devenv/devenv.sh prune --quiet). It only lists: removing them stays `devenv.sh prune --yes`.
+#
+# Activate (once per clone):   git config core.hooksPath .githooks
+#
+# Silent when nothing can go, on any other branch, and where the dev setup is absent (no docker, no dev root above
+# the checkout: CI, a teammate's machine). A merge has already happened when this runs, so it always exits 0.
+
+[ "$(git symbolic-ref -q --short HEAD)" = master ] || exit 0
+[ -f scripts/devenv/devenv.sh ] || exit 0
+command -v docker >/dev/null 2>&1 || exit 0
+# In a linked worktree (master is one on the laptop) git hands a hook GIT_DIR, which would make every
+# `git -C <other worktree> status` read this checkout's index.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+bash scripts/devenv/devenv.sh prune --quiet 2>/dev/null
+exit 0

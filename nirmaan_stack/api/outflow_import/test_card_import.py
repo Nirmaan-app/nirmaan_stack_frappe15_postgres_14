@@ -83,6 +83,9 @@ def _purge(holder: str) -> None:
             frappe.db.rollback()
             print(f"card test purge: could not delete the files of {statement.name}")
         rows = frappe.get_all(ROW_DOCTYPE, filters={"import_batch": statement.import_batch}, pluck="name")
+        # #1624: the auto-debit's Internal Transfer record, before its line.
+        purge_records("Internal Transfer", frappe.get_all("Internal Transfer", filters={"import_row": ["in", rows or [""]]},
+                                                          pluck="name"))
         purge_records(ROW_DOCTYPE, rows)
         purge_records(STATEMENT_DOCTYPE, [statement.name])
         purge_records(BATCH_DOCTYPE, [statement.import_batch])
@@ -148,6 +151,7 @@ class CardImportCase(FrappeTestCase):
         class _Request:
             files = MultiDict({"file": FileStorage(stream=io.BytesIO(content), filename=filename)})
             host = None  # the stored File's URL is built without a request host
+            headers: dict = {}  # Frappe 15.126 reads the Host header when host is unset
 
         previous_request = getattr(frappe.local, "request", None)
         previous_form = frappe.local.form_dict
@@ -222,8 +226,11 @@ class TestUploadingAStatement(CardImportCase):
         self.assertEqual({row.row_status for row in spends}, {"Pending match run"})
         self.assertEqual({row.match_basis for row in spends}, {"card statement"})
         self.assertEqual({row.suggested_doctype for row in spends}, {"Non Project Expenses"})
-        # Sorted at upload (#1567): six skipped by rule, the unpaired MakeMyTrip credit open.
-        self.assertEqual(sorted(row.row_status for row in credits), ["Mismatched"] + ["Skipped"] * 6)
+        # Sorted at upload (#1567): five skipped by rule, the auto-debit payment an Internal Transfer (#1624; it was
+        # the sixth skip), the unpaired MakeMyTrip credit waiting for Create as a refund (#1673; it was Mismatched).
+        self.assertEqual(
+            sorted(row.row_status for row in credits), ["Internal Transfer", "Pending match run"] + ["Skipped"] * 5
+        )
 
     def test_a_line_keeps_its_date_amount_details_and_reference(self):
         row = next(row for row in self._rows(self.batch) if row.remarks == "PARK RESIDENCY Cochin IN")
@@ -297,18 +304,56 @@ class TestUploadingALockedStatement(CardImportCase):
         self.assertNotIn(self.PASSWORD, frappe.as_json(self.result))
 
 
+class TestTheCompanyIsShownNotChecked(CardImportCase):
+    """The upload saves the company the statement prints and Review shows it; no company is refused, and a
+    statement with no company line still imports (ADR-0039 Amendment B)."""
+
+    def test_another_companys_statement_is_saved_with_its_company(self):
+        text = self._text().replace("STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
+        result = self._upload(pdf_from_text(text))
+        [statement] = self._statements()
+        self.assertEqual(statement.company, "ACME TRADERS PVT LTD")
+        self.assertEqual(result["company"], "ACME TRADERS PVT LTD")
+        self.assertEqual(len(self._rows(result["batch"])), 47)
+
+    def test_a_statement_with_no_company_line_is_saved_with_a_blank_company(self):
+        text = self._text().replace("\nSTRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "\nFLAT")
+        result = self._upload(pdf_from_text(text))
+        [statement] = self._statements()
+        self.assertFalse(statement.company)
+        self.assertFalse(result["company"])
+        self.assertEqual(len(self._rows(result["batch"])), 47)
+
+
+class TestACashAdvance(CardImportCase):
+    """A cash withdrawal is not refused (ADR-0039 Amendment C): it is a line without CR, staged as a spend."""
+
+    def test_a_statement_with_a_cash_advance_stages_the_withdrawal_as_a_spend(self):
+        text = self._text()
+        for old in ("Á1,37,584.99 Á0.00", "BANGALORE IN 0 400.00\n"):
+            self.assertIn(old, text)
+        text = text.replace("Á1,37,584.99 Á0.00", "Á1,37,584.99 Á500.00")
+        line = f"12/09/2026 {self.serno_base + 999:011d} CASH WITHDRAWAL BANGALORE IN 0 500.00\n"
+        text = text.replace("BANGALORE IN 0 400.00\n", "BANGALORE IN 0 400.00\n" + line, 1)
+        result = self._upload(pdf_from_text(text))
+        self.assertEqual(len(self._rows(result["batch"])), 48)
+        self.assertEqual(float(frappe.get_doc(BATCH_DOCTYPE, result["batch"]).gross_amount), 138084.99)
+        [statement] = self._statements()
+        self.assertEqual(float(statement.cash_advances), 500)
+
+
 class TestCardLinesAreNotBankLines(CardImportCase):
-    def test_total_unreconciled_outflow_does_not_move_on_upload(self):
-        """The spends wait for the card's own Create. The one unpaired credit (MakeMyTrip ₹801.50) is open
-        work on the main table (#1567, README ruling 4), so Unreconciled Inflow gains exactly it."""
+    def test_total_unreconciled_outflow_and_inflow_do_not_move_on_upload(self):
+        """The spends wait for the card's own Create, and so does the one unpaired credit (MakeMyTrip ₹801.50):
+        since #1673 it is an unpaired card refund, no longer open work on the main table, so Unreconciled Inflow
+        no longer gains it."""
         from nirmaan_stack.api.outflow_import.review import not_matched_totals
 
         before = not_matched_totals()
         self._upload(pdf_from_text(self._text()))
         after = not_matched_totals()
         self.assertEqual(after["outflow"], before["outflow"])
-        self.assertEqual(after["inflow"]["rows"], before["inflow"]["rows"] + 1)
-        self.assertAlmostEqual(after["inflow"]["amount"], before["inflow"]["amount"] + 801.50, places=2)
+        self.assertEqual(after["inflow"], before["inflow"])
 
 
 class TestRefusalsSaveNothing(CardImportCase):
@@ -340,17 +385,9 @@ class TestRefusalsSaveNothing(CardImportCase):
     def test_a_file_that_is_not_a_pdf(self):
         self._assert_refused(self._text().encode(), ".pdf", filename="card-statement.csv")
 
-    def test_a_statement_of_another_company(self):
-        text = self._text().replace("STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
-        self._assert_refused(pdf_from_text(text), "ACME TRADERS PVT LTD", "Stratos Infra Technologies")
-
     def test_lines_that_do_not_add_up_to_the_statement_totals(self):
         text = self._text().replace("PARK RESIDENCY Cochin IN 0 1,933.00", "PARK RESIDENCY Cochin IN 0 1,934.00")
         self._assert_refused(pdf_from_text(text), "₹1,37,585.99", "₹1,37,584.99")
-
-    def test_a_non_zero_cash_advance(self):
-        text = self._text().replace("Á1,37,584.99 Á0.00", "Á1,37,584.99 Á100.00")
-        self._assert_refused(pdf_from_text(text), "Cash Advances")
 
     def test_a_user_outside_bulk_import(self):
         outsider = self.users.make(OUTSIDER)
@@ -421,6 +458,13 @@ class TestDiscard(CardImportCase):
         self.assertEqual(frappe.db.count(ROW_DOCTYPE, {"import_batch": self.batch}), 0)
         self.assertFalse(frappe.db.exists(STATEMENT_DOCTYPE, self.statement.name))
         self.assertFalse(frappe.db.exists("File", file[0]))
+
+    def test_it_removes_the_internal_transfer_record_of_its_auto_debit_line(self):
+        """#1624: the auto-debit line's record goes with its line, so no record outlives a discarded import."""
+        rows = frappe.get_all(ROW_DOCTYPE, filters={"import_batch": self.batch}, pluck="name")
+        self.assertEqual(frappe.db.count("Internal Transfer", {"import_row": ["in", rows]}), 1)
+        self._discard()
+        self.assertEqual(frappe.db.count("Internal Transfer", {"import_row": ["in", rows]}), 0)
 
     def test_the_same_statement_can_be_uploaded_again_afterwards(self):
         self._discard()

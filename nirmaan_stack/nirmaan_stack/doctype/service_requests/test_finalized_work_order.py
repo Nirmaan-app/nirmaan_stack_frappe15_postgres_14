@@ -157,8 +157,8 @@ class TestWhatStaysOpen(_FinalizedCase):
         self.assertEqual(frappe.db.count("Vendor Invoices", {"document_name": self.wo}), 1)
 
     def test_generate_invoice(self):
-        """The fixture WO is GST-off; a paid part of it may be billed."""
-        frappe.db.set_value(SR, self.wo, "amount_paid", 50_000)
+        """The fixture WO is GST-off; at least its paid part not yet billed must be billed."""
+        frappe.db.set_value(SR, self.wo, "amount_paid", 10_000)
         frappe.db.commit()
         row = self._as(self.admin, generate_invoice, self.wo, amount=10_000)
         self.assertEqual(

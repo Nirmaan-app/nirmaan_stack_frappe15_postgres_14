@@ -30,6 +30,10 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "payment_ref",
     // The Porter badge and the edit dialog's Porter section / project lock (#1450).
     "porter_order",
+    // An expense marked No invoice: who, when and why, in the Invoice Ref column (story 32).
+    "no_invoice_reason",
+    "no_invoice_by",
+    "no_invoice_at",
 ];
 
 // Searchable fields for the Project Expenses table

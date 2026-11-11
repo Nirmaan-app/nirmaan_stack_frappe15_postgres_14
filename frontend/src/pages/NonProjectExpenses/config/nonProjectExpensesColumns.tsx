@@ -17,6 +17,7 @@
 
 import { useContext } from "react";
 import { ColumnDef } from "@tanstack/react-table";
+import { getExpenseBillCheckColumns } from "@/components/common/expenseBillCheckColumns";
 import {
   FileText,
   CheckCircle2,
@@ -57,7 +58,8 @@ import { canMarkExpensePaid } from "@/utils/expenses/expenseDecision";
 import { shownExpenseTds } from "@/utils/expenses/expenseTds";
 import { ExpenseTdsBreakdown } from "@/components/common/ExpenseTdsBreakdown";
 import { WithheldTdsContext } from "@/hooks/useWithheldTds";
-import { noInvoiceNote } from "./noInvoiceView";
+import { NoInvoiceNote } from "@/components/common/NoInvoiceNote";
+import { invoiceRefExportText, noInvoiceNote } from "@/utils/expenses/noInvoiceView";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -74,7 +76,7 @@ export interface GetNonProjectExpenseColumnsOptions {
   onDelete: (expense: NonProjectExpenses) => void;
 }
 
-/** An Office Rent expense's Rent / TDS / Net (#1527); the page provides its tax records by context. */
+/** An Office Rent expense's Bill / Rent / GST / TDS / Landlord gets (#1527); the page provides its tax records by context. */
 const AmountTds = ({ row }: { row: NonProjectExpenses }) => {
   const withheld = useContext(WithheldTdsContext)[row.name];
   return (
@@ -278,29 +280,24 @@ export const getNonProjectExpenseColumns = ({
     cell: ({ row }) => {
       const ref = row.original.invoice_ref;
       const attachment = invoiceAttachmentUrl("Non Project Expenses", row.original);
-      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab).
-      if (invoiceRefClickable && attachment && ref) {
+      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab). An invoice with
+      // no ref (a Cashbook spend's copied bill, #1591) still gets the link, worded "View invoice".
+      if (invoiceRefClickable && attachment) {
         return (
           <a
             href={SITEURL + attachment}
             target="_blank"
             rel="noreferrer"
-            title={`Open invoice ${ref}`}
+            title={ref ? `Open invoice ${ref}` : "Open invoice"}
             className="block truncate font-medium text-blue-600 underline hover:text-blue-800"
           >
-            {ref}
+            {ref || "View invoice"}
           </a>
         );
       }
       // A card spend marked No invoice: who, when and why, instead of the ref (#1570, story 45).
-      const noInvoice = !ref && noInvoiceNote(row.original, getUserName);
-      if (noInvoice) {
-        return (
-          <div className="min-w-0" title={noInvoice.detail}>
-            <div className="font-medium text-amber-700">{noInvoice.label}</div>
-            <div className="truncate text-[11px] text-muted-foreground">{noInvoice.detail}</div>
-          </div>
-        );
+      if (!ref && noInvoiceNote(row.original, getUserName)) {
+        return <NoInvoiceNote expense={row.original} userName={getUserName} />;
       }
       return (
         <div className="font-medium truncate" title={ref}>
@@ -310,10 +307,7 @@ export const getNonProjectExpenseColumns = ({
     },
     meta: {
       exportHeaderName: "Invoice Ref",
-      exportValue: (row: NonProjectExpenses) => {
-        const noInvoice = !row.invoice_ref && noInvoiceNote(row, getUserName);
-        return noInvoice ? `${noInvoice.label} (${noInvoice.detail})` : row.invoice_ref || "--";
-      },
+      exportValue: (row: NonProjectExpenses) => invoiceRefExportText(row, getUserName),
     },
   };
 
@@ -562,6 +556,9 @@ export const getNonProjectExpenseColumns = ({
     // Inv. Attach only on tabs where Invoice Ref is NOT the clickable link (Requested/Approved);
     // on Paid/All the clickable Invoice Ref already opens the invoice attachment.
     ...(!invoiceRefClickable ? [invoiceAttachColumn] : []),
+    // The latest Expense bill's Bill check and approval, with its two filters (#1640): the standalone Paid and All
+    // tabs only, not the read-only embedded / report view.
+    ...(invoiceRefClickable && !disableActions ? getExpenseBillCheckColumns<NonProjectExpenses>() : []),
     ...(statusTab === "Paid" || statusTab === "All"
       ? [paymentDateColumn, paymentRefColumn, paymentAttachColumn]
       : []),

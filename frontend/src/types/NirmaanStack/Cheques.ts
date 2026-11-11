@@ -101,6 +101,8 @@ export interface Cheques {
     bank_line?: string | null;
     /** 1 for a Cheque from before cheque types that pays Expenses, has no lines or names a typed payee. */
     old_type?: 0 | 1;
+    /** 1 for a cheque that pays a Credit PO payment term; ticked by Request Payment, a label only. */
+    credit_payment_cheque?: 0 | 1;
     /** The cheque's photo; empty only on Cheques backfilled from old cheque payments. */
     attachment?: string | null;
     /** Required while the Cheque has no lines (an Ad-hoc cheque). */

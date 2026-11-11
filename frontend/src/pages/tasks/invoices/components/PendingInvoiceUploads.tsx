@@ -11,8 +11,9 @@
  * `ReportsContainer`, and the bodies read only `useReportStore.selectedReportType`.
  * Pinning that store is the whole integration.
  *
- * Credit Card (#1570, ADR-0039 ruling 8) is the exception: its own table of card spends waiting for an
- * invoice (`CardInvoiceUploads`), not a report. It needs no report pin; the pin below is harmless to it.
+ * Credit Card (#1570, ADR-0039 ruling 8) and Cashbook (#1592, ADR-0015 Amendment B) are the exceptions: their
+ * own tables of card / wallet spends waiting for an invoice (`CardInvoiceUploads`, `CashbookInvoiceUploads`), not
+ * reports. They need no report pin; the pin below is harmless to them.
  *
  * The sub-tab rides its OWN url param (`?upload_tab=`) so the parent tab strip stays flat
  * on `?tab=` and every existing invoice-reconciliation link keeps working. It never
@@ -28,6 +29,7 @@ import { useReportStore } from "@/pages/reports/store/useReportStore";
 const POReports = React.lazy(() => import("@/pages/reports/components/POReports"));
 const SRReports = React.lazy(() => import("@/pages/reports/components/SRReports"));
 const CardInvoiceUploads = React.lazy(() => import("./CardInvoiceUploads"));
+const CashbookInvoiceUploads = React.lazy(() => import("./CashbookInvoiceUploads"));
 
 const URL_PARAM = "upload_tab";
 
@@ -38,6 +40,7 @@ const PENDING_UPLOAD_TABS = [
     { key: "po", label: "PO" },
     { key: "wo", label: "WO" },
     { key: "card", label: "Credit Card" },
+    { key: "cashbook", label: "Cashbook" },
 ] as const;
 
 type PendingUploadTab = typeof PENDING_UPLOAD_TABS[number]["key"];
@@ -121,7 +124,8 @@ export const PendingInvoiceUploads: React.FC = () => {
                     flag absent and is byte-unchanged. */}
                 {tab === "po" ? <POReports pendingUploadMode />
                     : tab === "wo" ? <SRReports pendingUploadMode />
-                    : <CardInvoiceUploads />}
+                    : tab === "card" ? <CardInvoiceUploads />
+                    : <CashbookInvoiceUploads />}
             </Suspense>
         </div>
     );

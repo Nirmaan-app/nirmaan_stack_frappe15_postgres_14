@@ -66,11 +66,9 @@ class _SameStatement:
 
 @contextmanager
 def _storage_deletes():
-    """Record the storage apps' `File.on_trash` deletes instead of making them."""
-    with patch("frappe_gcp_attachment.controller.delete_from_cloud") as gcs, patch(
-        "frappe_s3_attachment.controller.delete_from_cloud"
-    ) as s3:
-        yield gcs, s3
+    """Record the storage app's `File.on_trash` deletes instead of making them."""
+    with patch("frappe_gcp_attachment.controller.delete_from_cloud") as gcs:
+        yield gcs
 
 
 # --- re-uploads --------------------------------------------------------------------------------------
@@ -182,7 +180,7 @@ class DiscardCase(_SameStatement, PorterValidationCase):
     def _discard(self, batch: str | None = None, user: str = "Administrator"):
         frappe.set_user(user)
         try:
-            with _storage_deletes() as (gcs, _s3), _no_bucket_upload():
+            with _storage_deletes() as gcs, _no_bucket_upload():
                 result = porter_discard.discard_porter_import(batch or self.batch)
         finally:
             frappe.set_user("Administrator")
@@ -230,11 +228,11 @@ class TestDiscardingAValidatedImport(DiscardCase):
         )
 
     def test_a_pdf_whose_bytes_another_file_shares_keeps_its_bytes(self):
-        from frappe.utils.file_manager import save_file
+        from nirmaan_stack.services.stored_files import store_file
 
         bangalore = self.numbers["29SS27A0900001"]
         with _no_bucket_upload():
-            twin = save_file(f"twin-{bangalore}.pdf", _pdf(bangalore), None, None, is_private=1)
+            twin = store_file(f"twin-{bangalore}.pdf", _pdf(bangalore), None, None, is_private=1)
         frappe.db.commit()
         self.addCleanup(lambda: (frappe.db.delete("File", {"name": twin.name}), frappe.db.commit()))
 

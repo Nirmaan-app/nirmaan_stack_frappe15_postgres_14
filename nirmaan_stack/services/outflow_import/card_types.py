@@ -17,12 +17,14 @@ from typing import NamedTuple, Sequence
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_MISMATCHED, ROW_PENDING_MATCH
 
-#: The SPEND lines Create still writes, and Review may still retype: waiting, failed on an earlier run, or
-#: reopened by Unreconcile. ⚠️ A CREDIT line is open at `Mismatched` too: callers ask the direction as well.
+#: The lines Create still writes, and Review may still retype: waiting, failed on an earlier run, or reopened by
+#: Unreconcile. ⚠️ Only a line carrying Create's plan (a spend, or a refund since #1673): a credit decided on the
+#: main table is open at `Mismatched` too, so callers ask the plan (`sources.CARD_PLAN_BASIS`) as well.
 CREATE_LINE_STATUSES = (ROW_PENDING_MATCH, ROW_ERROR, ROW_MISMATCHED)
 
 #: The type a spend gets when nothing better is known; it must stay a live `non_project` Expense Type
-#: (it is in `fixtures/expense_type.json`, so a migrate cannot drop it).
+#: (a new site gets it from `services/expense_types_seed.json`; the app refuses to rename it,
+#: `masters.names_referenced_in_code`).
 FALLBACK_EXPENSE_TYPE = "Misc. Expenses"
 
 TYPE_SOURCE_MEMORY = "Earlier statement"
@@ -73,3 +75,9 @@ def needs_check(type_source: str | None) -> bool:
 def spend_description(details: str, holder: str) -> str:
     """The Expense's description: "Card spend at {merchant}, {holder}'s card" (ADR-0039 ruling 6)."""
     return f"Card spend at {merchant_key(details)}, {holder}'s card"
+
+
+def refund_description(details: str, holder: str) -> str:
+    """A card refund's Expense description: "Card refund from {merchant}, {holder}'s card" (#1673, ADR-0039
+    Amendment D)."""
+    return f"Card refund from {merchant_key(details)}, {holder}'s card"

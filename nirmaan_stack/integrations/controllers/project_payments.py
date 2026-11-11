@@ -10,6 +10,7 @@ from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.finance import PO_PENDING_STATUSES, po_available_balance, po_balance_refusal
+from nirmaan_stack.services.gst_payment_requests import gst_payment_birth_problem, gst_raise_problem
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.services.payment_steps import PAST_APPROVAL, is_system_move, refuse_step_out_of_tier
@@ -21,6 +22,7 @@ from nirmaan_stack.services.cheques.decide import held_by_a_live_cheque, refuse_
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.payment_mode import (
     validate_cheque_mode,
+    validate_credit_cheque_date,
     validate_on_a_cheque,
     validate_paid_by_clear,
 )
@@ -263,12 +265,21 @@ def validate(doc, method):
     (`payment_mode.validate_cheque_mode`), a cheque payment is approved only with
     its cheque, one cheque one decision (`decide.refuse_lone_approval`), and it moves
     into Paid only when its cheque clears, never out of it, and always has its cheque
-    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`).
+    (#1552, `payment_mode.validate_paid_by_clear`, `payment_mode.validate_on_a_cheque`). Until a Credit
+    term's due date its cheque is dated on or after it (`payment_mode.validate_credit_cheque_date`).
 
     And the payment steps (#1530): each status move, and a new payment's status, needs the tier the
     Payments screens use (`services/payment_steps.py`).
+
+    And the GST Payment Request: a GST payment is born only from an Accountant-approved request, a split
+    of one, or a decider's own raise or Paid entry, and only a decider raises its amount afterwards
+    (`services/gst_payment_requests`).
     """
     refuse_step_out_of_tier(doc, frappe.session.user)
+    gst_problem = (gst_payment_birth_problem(doc, frappe.session.user) if doc.is_new()
+                   else gst_raise_problem(doc, frappe.session.user))
+    if gst_problem:
+        frappe.throw(gst_problem, title=_("Accountant approval needed"))
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
         refuse_while_work_order_under_amendment(doc)
@@ -278,6 +289,7 @@ def validate(doc, method):
     validate_cheque_mode(doc)
     validate_paid_by_clear(doc)
     validate_on_a_cheque(doc)
+    validate_credit_cheque_date(doc)
     refuse_lone_approval(doc)
     refuse_reject_if_deposited(doc)
     refuse_amount_change_if_deposited(doc)

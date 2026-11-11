@@ -35,6 +35,8 @@ from decimal import Decimal
 
 import frappe
 
+from nirmaan_stack.api.outflow_import.internal_transfer_fixture import purge_internal_transfers
+
 from nirmaan_stack.api.outflow_import import inflows as inflows_module
 from nirmaan_stack.api.outflow_import.expenses import (
     MoneyAlreadyRecordedError,
@@ -209,6 +211,7 @@ class InflowFixture(unittest.TestCase):
         credit_fixture.restore(cls.vendor_credit)
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
+            purge_internal_transfers(name)
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         frappe.db.commit()

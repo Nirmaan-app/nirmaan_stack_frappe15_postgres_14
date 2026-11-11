@@ -31,6 +31,8 @@ from nirmaan_stack.api.expense_requests.review import (
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.approval_tiers import TIER_AUTO_APPROVE_BELOW
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
+from nirmaan_stack.integrations.controllers.test_nirmaan_users import set_role_copy_for_test
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 PM_USER = "exr_test_pm@example.com"
 PM2_USER = "exr_test_pm2@example.com"
@@ -38,9 +40,11 @@ HR_USER = "exr_test_hr@example.com"
 ACC_USER = "exr_test_acc@example.com"
 HRL_USER = "exr_test_hrl@example.com"
 
-PROJECT_TYPE = "Rent/PG for Staff"      # project=1, non_project=0
-NON_PROJECT_TYPE = "Travel Expenses (Bus)"     # project=0, non_project=1
-BOTH_TYPE = "Petty Cash"                       # project=1, non_project=1
+# Real types, used for their seeded roles and forms. Their flags are the site's (Bus is project=1 on
+# some sites), so a test ABOUT a type's kind makes its own type (`_own_type`, #1677). PROJECT_TYPE is
+# only relied on to accept a project; NON_PROJECT_TYPE, to accept none.
+PROJECT_TYPE = "Rent/PG for Staff"
+NON_PROJECT_TYPE = "Travel Expenses (Bus)"
 PM_PROFILE = "Nirmaan Project Manager Profile"
 # The answers of a type with no form: its Description.
 STANDARD_ANSWERS = {"responses": {"detail": {"description": "test req"}}}
@@ -77,10 +81,10 @@ def _make_user(email: str, profile: str, roles: tuple[str, ...]):
 	if stale:
 		user.remove_roles(*stale)
 	user.add_roles(*roles)
-	frappe.db.set_value("Nirmaan Users", email, "role_profile", profile, update_modified=False)
+	set_role_copy_for_test(email, profile)
 
 
-class TestExpenseRequests(FrappeTestCase):
+class TestExpenseRequests(ExpenseTypeFlagGuard, FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -104,7 +108,7 @@ class TestExpenseRequests(FrappeTestCase):
 		# So the PM profile is granted for the run and exactly the rows added are removed after
 		# -- never a reset of the type's own list.
 		cls.granted_roles = []
-		for t in (PROJECT_TYPE, NON_PROJECT_TYPE, BOTH_TYPE, "Hotel Expenses"):
+		for t in (PROJECT_TYPE, NON_PROJECT_TYPE, "Hotel Expenses"):
 			if frappe.db.exists("Expense Type Role", {"parent": t, "parenttype": "Expense Type",
 			                                          "role_profile": PM_PROFILE}):
 				continue
@@ -219,17 +223,22 @@ class TestExpenseRequests(FrappeTestCase):
 			create_expense_request(expense_type="Definitely Not A Type", amount=100)
 		frappe.set_user("Administrator")
 
+	# A test of a type's KIND makes its own type: a real type's flags are the site's to change (#1677).
+
 	def test_project_type_requires_a_project(self):
+		project_type = self._own_type(project=1, non_project=0)
 		with self.assertRaises(frappe.ValidationError):
-			self._raise_as(PM_USER, expense_type=PROJECT_TYPE, amount=5000)
+			self._raise_as(PM_USER, expense_type=project_type, amount=5000)
 
 	def test_non_project_type_refuses_a_project(self):
+		non_project_type = self._own_type(project=0, non_project=1)
 		with self.assertRaises(frappe.ValidationError):
-			self._raise_as(PM_USER, expense_type=NON_PROJECT_TYPE, projects=self.project)
+			self._raise_as(PM_USER, expense_type=non_project_type, projects=self.project)
 
 	def test_both_flag_type_accepts_either(self):
-		a = self._raise_as(PM_USER, expense_type=BOTH_TYPE, amount=200)
-		b = self._raise_as(PM_USER, expense_type=BOTH_TYPE, amount=200, projects=self.project)
+		both_type = self._own_type(project=1, non_project=1)
+		a = self._raise_as(PM_USER, expense_type=both_type, amount=200)
+		b = self._raise_as(PM_USER, expense_type=both_type, amount=200, projects=self.project)
 		self.assertIsNone(a["projects"])
 		self.assertEqual(b["projects"], self.project)
 
@@ -943,18 +952,21 @@ class TestExpenseRequests(FrappeTestCase):
 	# --- catalog -------------------------------------------------------------
 
 	def test_catalog_reports_flags_and_format_state(self):
+		project_type = self._own_type(project=1, non_project=0)
+		non_project_type = self._own_type(project=0, non_project=1)
+		both_type = self._own_type(project=1, non_project=1)
 		catalog = get_request_catalog()
 		# One flat list, by name: there are no categories to group by (removed 2026-10-27).
 		self.assertNotIn("categories", catalog)
 		names = [t["expense_type"] for t in catalog["types"]]
 		self.assertEqual(names, sorted(names))
 		by_type = {t["expense_type"]: t for t in catalog["types"]}
-		self.assertTrue(by_type[PROJECT_TYPE]["project_required"])
-		self.assertTrue(by_type[PROJECT_TYPE]["project_allowed"])
-		self.assertFalse(by_type[NON_PROJECT_TYPE]["project_allowed"])
+		self.assertTrue(by_type[project_type]["project_required"])
+		self.assertTrue(by_type[project_type]["project_allowed"])
+		self.assertFalse(by_type[non_project_type]["project_allowed"])
 		# both-flag type: allowed but not required
-		self.assertTrue(by_type[BOTH_TYPE]["project_allowed"])
-		self.assertFalse(by_type[BOTH_TYPE]["project_required"])
+		self.assertTrue(by_type[both_type]["project_allowed"])
+		self.assertFalse(by_type[both_type]["project_required"])
 		# `has_format` reports the real state per type, asserted AGAINST THE DATABASE rather
 		# than against named types. Naming one has gone stale TWICE now -- first when the
 		# accommodation/travel formats shipped, then when `GST Payment` was authored one --
@@ -989,6 +1001,7 @@ class TestExpenseRequests(FrappeTestCase):
 		routing.clear_cache()
 
 		def _drop():
+			frappe.db.rollback()
 			frappe.set_user("Administrator")
 			frappe.delete_doc("Expense Type", name, force=True, ignore_permissions=True)
 			frappe.db.commit()
@@ -1156,7 +1169,7 @@ class TestExpenseRequests(FrappeTestCase):
 			desc, f"Stay for Asha. · Account Holder: R Kumar · Ifsc: HDFC0000123 · [{res['name']}]")
 
 
-class TestExpenseRequestPayee(FrappeTestCase):
+class TestExpenseRequestPayee(ExpenseTypeFlagGuard, FrappeTestCase):
 	"""Who gets paid (spec #1420 tickets #1429, #1436, ADR-0033): the request's own pay-to account,
 	copied from a picked Payee or the vendor's, kept or changed by an edit, and carried onto the
 	Expense by approval as it is.
@@ -1428,7 +1441,7 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		self.assertEqual(types[typ]["payee_rule"], "Optional")
 
 
-class TestExpenseTypeMasters(FrappeTestCase):
+class TestExpenseTypeMasters(ExpenseTypeFlagGuard, FrappeTestCase):
 	"""The Expense Packages tab writes through admin-gated endpoints.
 
 	This matters because `Expense Type` carries `write = 1` for ~15 roles, Project Manager

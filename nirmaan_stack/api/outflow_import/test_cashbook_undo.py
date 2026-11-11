@@ -32,7 +32,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_import import CashbookImport
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, _Users
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 from nirmaan_stack.services.outflow_import.skip_origin import (
-    SKIP_REFUSED_CASHBOOK_PENDING,
+    cashbook_pending_line_refusal,
     UNSKIP_REFUSED_CASHBOOK,
 )
 from nirmaan_stack.services.outflow_import.status import (
@@ -235,7 +235,7 @@ class TestSkipAndUnskip(CashbookUndoCase):
         frappe.db.commit()
         with self.assertRaises(frappe.ValidationError) as caught:
             skip_row(row, "not ours")
-        self.assertIn(SKIP_REFUSED_CASHBOOK_PENDING, str(caught.exception))
+        self.assertIn(cashbook_pending_line_refusal(self.batch), str(caught.exception))
 
     def test_a_reopened_line_is_skipped_by_hand_and_unskipped_back_to_not_matched(self):
         row, _ = self._reopen()
@@ -310,7 +310,8 @@ class TestSkipAndUnskip(CashbookUndoCase):
         self.assertIn(self._leg(other).target_name, self._stored(row).outcome_note)
 
     def test_a_system_cashbook_skip_stays_locked(self):
-        row = self._row("900001-0").name
+        # #1623: the fixture's top-up is an Internal Transfer now; its failed spend is a system skip.
+        row = self._row("6FFFFFF").name
         with self.assertRaises(frappe.ValidationError) as caught:
             unskip_row(row, "try")
         self.assertIn(UNSKIP_REFUSED_CASHBOOK, str(caught.exception))

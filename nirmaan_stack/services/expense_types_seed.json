@@ -1,0 +1,732 @@
+[
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Project Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Project Manager Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Accommodation Deposit",
+  "name": "Accommodation Deposit",
+  "non_project": 0,
+  "payee_rule": "Required",
+  "project": 1,
+  "source_format": "{\n  \"templateId\": \"accommodation-deposit\",\n  \"templateVersion\": 5,\n  \"title\": \"Accommodation Deposit\",\n  \"description_template\": \"{deposit_for} deposit.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Deposit\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"deposit_for\",\n          \"label\": \"Deposit For\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Labour Accommodation\",\n            \"Staff Accommodation\",\n            \"Site Office\",\n            \"Other\"\n          ],\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Audit Fee",
+  "name": "Audit Fee",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"statutory-professional\",\n  \"templateVersion\": 2,\n  \"title\": \"Professional / Statutory Fee\",\n  \"description_template\": \"Audit fee for {period_or_fy}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Engagement\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"period_or_fy\",\n          \"label\": \"Period / FY\",\n          \"type\": \"text\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Bank Fees & Charges",
+  "name": "Bank Fees & Charges",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"bank-charge\",\n  \"templateVersion\": 2,\n  \"title\": \"Bank Charge\",\n  \"description_template\": \"Bank charges – {bank_name}[[ for {period_month}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Charge\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"bank_name\",\n          \"label\": \"Bank Name\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"period_month\",\n          \"label\": \"For the Month\",\n          \"type\": \"date\"\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Bank Interest",
+  "name": "Bank Interest",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"bank-interest\",\n  \"templateVersion\": 2,\n  \"title\": \"Bank Interest\",\n  \"description_template\": \"Bank interest[[ – {bank_name}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Interest\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"bank_name\",\n          \"label\": \"Bank Name\",\n          \"type\": \"text\"\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Electricity Expenses",
+  "name": "Electricity Expenses",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"electricity-bill\",\n  \"templateVersion\": 2,\n  \"title\": \"Electricity Bill\",\n  \"description_template\": \"Electricity – {premises}, bill dated {billing_month}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Bill\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"premises\",\n          \"label\": \"Location\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Office\",\n            \"Store Room\",\n            \"Godown\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"billing_month\",\n          \"label\": \"Bill Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Fixed Assets",
+  "name": "Fixed Assets",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"asset-purchase\",\n  \"templateVersion\": 2,\n  \"title\": \"Fixed Asset Purchase\",\n  \"description_template\": \"{asset_category} – {asset_description}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Asset\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"asset_category\",\n          \"label\": \"Asset Category\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Laptop / Desktop\",\n            \"Monitor\",\n            \"Mobile / Tablet\",\n            \"Printer\",\n            \"Network Equipment\",\n            \"Furniture\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"asset_description\",\n          \"label\": \"Item Description\",\n          \"type\": \"textarea\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Fixed Deposit",
+  "name": "Fixed Deposit",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "GST Payment",
+  "name": "GST Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Hotel Expenses",
+  "name": "Hotel Expenses",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"hotel-stay\",\n  \"templateVersion\": 5,\n  \"title\": \"Hotel Stay\",\n  \"description_template\": \"{guest_name} – hotel stay[[ in {location}]], {check_in} to {check_out}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Stay\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"guest_name\",\n          \"label\": \"Guest Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"location\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"check_in\",\n          \"label\": \"Check-in\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"check_out\",\n          \"label\": \"Check-out\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Internet & Mobile Charges",
+  "name": "Internet & Mobile Charges",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Labour Charges",
+  "name": "Labour Charges",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Loading & Unloading Charges",
+  "name": "Loading & Unloading Charges",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Loan",
+  "name": "Loan",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Loan Repayment",
+  "name": "Loan Repayment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Material Purchases",
+  "name": "Material Purchases",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Material Transportation Charges",
+  "name": "Material Transportation Charges",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Misc. Expenses",
+  "name": "Misc. Expenses",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Office Maintenance",
+  "name": "Office Maintenance",
+  "non_project": 1,
+  "payee_rule": "Optional",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Office Rent",
+  "name": "Office Rent",
+  "non_project": 1,
+  "payee_rule": "Required",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"office-rent\",\n  \"templateVersion\": 3,\n  \"title\": \"Office Rent\",\n  \"description_template\": \"Office rent for {rent_month} – {office_location}. Landlord: {landlord_name} (PAN {landlord_pan}). (Amount incl. 18% GST; 10% TDS on the rent will be deducted)\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Rent\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"rent_month\",\n          \"label\": \"Rent Month\",\n          \"type\": \"month\",\n          \"required\": true\n        },\n        {\n          \"key\": \"office_location\",\n          \"label\": \"Office Location\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"landlord_name\",\n          \"label\": \"Landlord Name\",\n          \"type\": \"text\",\n          \"required\": true\n        },\n        {\n          \"key\": \"landlord_pan\",\n          \"label\": \"Landlord PAN\",\n          \"type\": \"pan\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Other Project Expenses",
+  "name": "Other Project Expenses",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Petty Cash",
+  "name": "Petty Cash",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Pooja Expenses",
+  "name": "Pooja Expenses",
+  "non_project": 1,
+  "payee_rule": "Optional",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Postage & Courier",
+  "name": "Postage & Courier",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Printing & Stationery",
+  "name": "Printing & Stationery",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Professional Charges",
+  "name": "Professional Charges",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Project Insurance Charges",
+  "name": "Project Insurance Charges",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Project Printing Charges",
+  "name": "Project Printing Charges",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Reimbursements",
+  "name": "Reimbursements",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Project Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Project Manager Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Rent/PG for Labour",
+  "name": "Rent/PG for Labour",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": "{\n  \"templateId\": \"labour-accommodation\",\n  \"templateVersion\": 5,\n  \"title\": \"Labour Accommodation\",\n  \"description_template\": \"{accommodation_type}[[ in {city}]], {rent_period_from} to {rent_period_to}, {no_of_occupants} occupant(s).\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Labour Accommodation\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"accommodation_type\",\n          \"label\": \"Accommodation Type\",\n          \"type\": \"select\",\n          \"options\": [\n            \"PG\",\n            \"Hotel\",\n            \"Flat / House\",\n            \"Guest House\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"city\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"rent_period_from\",\n          \"label\": \"Rent Period From\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"rent_period_to\",\n          \"label\": \"Rent Period To\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"no_of_occupants\",\n          \"label\": \"No. of Occupants\",\n          \"type\": \"number\",\n          \"min\": 1,\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Project Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Project Manager Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Rent/PG for Staff",
+  "name": "Rent/PG for Staff",
+  "non_project": 0,
+  "payee_rule": "Optional",
+  "project": 1,
+  "source_format": "{\n  \"templateId\": \"staff-accommodation\",\n  \"templateVersion\": 9,\n  \"title\": \"Staff Accommodation\",\n  \"description_template\": \"{person_name} – {accommodation_type} accommodation[[ in {city}]][[, from {rent_period_from} to {rent_period_to}]].\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Staff Accommodation\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"person_name\",\n          \"label\": \"Person Name\",\n          \"type\": \"text\",\n          \"required\": true,\n          \"bind\": \"user.full_name\"\n        },\n        {\n          \"key\": \"accommodation_type\",\n          \"label\": \"Accommodation Type\",\n          \"type\": \"select\",\n          \"options\": [\n            \"PG\",\n            \"Hotel\",\n            \"Flat / House\",\n            \"Guest House\",\n            \"Other\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"city\",\n          \"label\": \"City\",\n          \"type\": \"text\"\n        },\n        {\n          \"key\": \"rent_period_from\",\n          \"label\": \"Rent Period From\",\n          \"type\": \"date\",\n          \"required\": true\n        },\n        {\n          \"key\": \"rent_period_to\",\n          \"label\": \"Rent Period To\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Repair & Maintenance",
+  "name": "Repair & Maintenance",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "{\n  \"templateId\": \"repair-service\",\n  \"templateVersion\": 2,\n  \"title\": \"Repair & Maintenance\",\n  \"description_template\": \"{service_type} – {work_done} on {service_date}.\",\n  \"sections\": [\n    {\n      \"id\": \"detail\",\n      \"type\": \"fields\",\n      \"title\": \"Service\",\n      \"layout\": \"grid\",\n      \"columns\": 2,\n      \"fields\": [\n        {\n          \"key\": \"service_type\",\n          \"label\": \"Type\",\n          \"type\": \"select\",\n          \"options\": [\n            \"Repair\",\n            \"Service / AMC\",\n            \"Spare Part Purchase\",\n            \"Replacement\"\n          ],\n          \"required\": true\n        },\n        {\n          \"key\": \"work_done\",\n          \"label\": \"Work Done / Part\",\n          \"type\": \"textarea\",\n          \"required\": true\n        },\n        {\n          \"key\": \"service_date\",\n          \"label\": \"Date\",\n          \"type\": \"date\",\n          \"required\": true\n        }\n      ]\n    }\n  ]\n}",
+  "source_format_enabled": 1
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Salary - EPFO Payment",
+  "name": "Salary - EPFO Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Salary - Employee Payout",
+  "name": "Salary - Employee Payout",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Salary - Professional Tax",
+  "name": "Salary - Professional Tax",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Salary - TDS Payment",
+  "name": "Salary - TDS Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [],
+  "confirmed_as_request": 0,
+  "expense_name": "Scaffolding Rent",
+  "name": "Scaffolding Rent",
+  "non_project": 0,
+  "payee_rule": "Not asked",
+  "project": 1,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Software Charges",
+  "name": "Software Charges",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Staff Welfare Expenses",
+  "name": "Staff Welfare Expenses",
+  "non_project": 1,
+  "payee_rule": "Optional",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "TDS Payment",
+  "name": "TDS Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Travel Expenses (Bus)",
+  "name": "Travel Expenses (Bus)",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Travel Expenses (Flight)",
+  "name": "Travel Expenses (Flight)",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan HR Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan HR Executive Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Travel Expenses (Train)",
+  "name": "Travel Expenses (Train)",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": null,
+  "source_format_enabled": 0
+ },
+ {
+  "allowed_roles": [
+   {
+    "role_profile": "Nirmaan Accountant Lead Profile"
+   },
+   {
+    "role_profile": "Nirmaan Accountant Profile"
+   }
+  ],
+  "confirmed_as_request": 0,
+  "expense_name": "Vendor TDS Payment",
+  "name": "Vendor TDS Payment",
+  "non_project": 1,
+  "payee_rule": "Not asked",
+  "project": 0,
+  "source_format": "",
+  "source_format_enabled": 0
+ }
+]

@@ -21,18 +21,18 @@ THE STEPS
 
 ⚠️ IT NEVER RUNS THE MATCHER (`sources.NEVER_MATCHED_SOURCES`). The generic upload refuses this source.
 
-⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `save_file` commits inside the request (the cloud
-attachment hook), so every refusal -- a locked PDF, another company, the totals gate, a cash advance, the
+⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `store_file` commits inside the request (the cloud
+attachment hook), so every refusal -- a locked PDF, the totals gate, the
 same holder and period, nothing new -- happens before it.
 
 ⚠️ ITS SPENDS ARE NOT BANK LINES. Until Create settles them they are outside the main table's population
 (`sources.line_waits_for_its_own_create`, `review._row_filters`): in no tab, not in *Total Unreconciled
-Outflow*. An unpaired card CREDIT is decided on the main table, like a bank credit (#1567).
+Outflow*. Its unpaired merchant credits wait the same way (#1673): an *Unpaired card refund* is created by
+Create as a negative Non-Project Expense, never decided on the main table.
 """
 
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.card_upload import (
     BATCH_DOCTYPE,
@@ -50,8 +50,11 @@ from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access
 from nirmaan_stack.services.outflow_import.card_pdf import unlocked_copy
 from nirmaan_stack.services.outflow_import.card_statement import merchant_key
 from nirmaan_stack.services.outflow_import.card_types import CREATE_LINE_STATUSES, needs_check
-from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
+from nirmaan_stack.services.outflow_import.parser import DIRECTION_CREDIT
+from nirmaan_stack.services.outflow_import.sources import is_card_refund
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED, ROW_SKIPPED
 from nirmaan_stack.services.stored_files import delete_files
+from nirmaan_stack.services.stored_files import store_file
 
 
 def suggest_job_id(batch: str) -> str:
@@ -65,6 +68,20 @@ def create_job_id(batch: str) -> str:
 
 
 _SUGGEST_JOB = "nirmaan_stack.api.outflow_import.card_suggest.suggest_card_types"
+
+
+def queue_type_suggestion(batch: str) -> None:
+    """Queue the type suggestion (#1569) for an import's lines still at the fallback, unless it is already queued.
+    Both callers commit the lines first, so the job is queued at once: waiting for a later commit would lose it
+    when the request rolls back after that first commit."""
+    frappe.enqueue(
+        _SUGGEST_JOB,
+        queue="long",
+        timeout=1800,
+        batch=batch,
+        job_id=suggest_job_id(batch),
+        deduplicate=True,
+    )
 
 
 def suggest_running(batch: str) -> bool:
@@ -88,8 +105,8 @@ def upload_card_statement():
 
     Refused, with the reason, and with NOTHING saved: a file that is not a .pdf; a password-locked PDF sent
     without its password, or with a wrong one (the screen then asks for it); a statement that is not this
-    layout; a statement not issued to Stratos Infra Technologies; a non-zero Cash Advances; spends that do
-    not equal Purchases / Charges or credits that do not equal Payments / Credits, to the paisa (both figures
+    layout (no holder at `State Code:`); spends that do
+    not equal Purchases / Charges plus Cash Advances or credits that do not equal Payments / Credits, to the paisa (both figures
     shown); a second statement for the same holder and billing period (naming the earlier import); a file
     whose every SerNo is already imported. A line whose SerNo is already imported is LEFT OUT and counted in
     the batch's `repeats_not_saved`.
@@ -111,7 +128,7 @@ def upload_card_statement():
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
     # Stored unlocked: a locked upload is written again with no password, so the statement opens for anyone
     # who may open it, and the password goes no further than this request.
-    saved = save_file(fname=filename, content=unlocked_copy(content, password), dt=None, dn=None, is_private=1)
+    saved = store_file(fname=filename, content=unlocked_copy(content, password), dt=None, dn=None, is_private=1)
     batch, record = stage(statement, new, file_url=saved.file_url, filename=filename, user=user)
     frappe.db.set_value(
         "File",
@@ -124,10 +141,7 @@ def upload_card_statement():
         update_modified=False,
     )
     frappe.db.commit()
-    # After the commit: the job reads the lines this request staged.
-    frappe.enqueue(
-        _SUGGEST_JOB, queue="long", timeout=1800, batch=batch, job_id=suggest_job_id(batch), deduplicate=True
-    )
+    queue_type_suggestion(batch)
     return card_import(batch)
 
 
@@ -181,7 +195,14 @@ def discard_card_import(batch: str):
         )
 
     statements = frappe.get_all(STATEMENT_DOCTYPE, filters={"import_batch": batch}, pluck="name")
-    for doctype, names in ((ROW_DOCTYPE, rows), (STATEMENT_DOCTYPE, statements), (BATCH_DOCTYPE, [batch])):
+    # #1624: the auto-debit lines' Internal Transfer records go first, with their lines (nothing else reads them).
+    transfers = frappe.get_all("Internal Transfer", filters={"import_row": ["in", rows or [""]]}, pluck="name")
+    for doctype, names in (
+        ("Internal Transfer", transfers),
+        (ROW_DOCTYPE, rows),
+        (STATEMENT_DOCTYPE, statements),
+        (BATCH_DOCTYPE, [batch]),
+    ):
         if not names:
             continue
         frappe.db.delete("Version", {"ref_doctype": doctype, "docname": ["in", names]})
@@ -233,15 +254,18 @@ def card_import(batch: str) -> dict:
     lines = frappe.db.sql(
         """
         SELECT name, transfer_id, added_on, remarks, amount, direction, row_status, suggested_expense_type,
-               type_source, suggested_name, outcome_note, skip_kind, skip_reason
+               type_source, suggested_name, outcome_note, skip_kind, skip_reason, match_basis
         FROM "tabOutflow Import Row" WHERE import_batch = %s
         ORDER BY creation ASC, name ASC
         """,
         (batch,),
         as_dict=True,
     )
-    spends = [line for line in lines if line.direction != "Credit"]
-    statuses = [line.row_status for line in spends]
+    spends = [line for line in lines if line.direction != DIRECTION_CREDIT]
+    # Unpaired card refunds (#1673): the credits Create records as negative Non-Project Expenses. A paired refund
+    # carries the plan under its skip, and is no refund until unskipped.
+    refunds = [line for line in lines if is_card_refund(line.direction, line.match_basis) and line.row_status != ROW_SKIPPED]
+    statuses = [line.row_status for line in spends + refunds]
 
     def _date(value):
         return str(value)[:10] if value else None
@@ -270,15 +294,18 @@ def card_import(batch: str) -> dict:
         "spends": len(spends),
         "credits": len(lines) - len(spends),
         "spends_total": float(sum(line.amount or 0 for line in spends)),
+        "refunds": len(refunds),
         # Lines already imported by an earlier statement, left out of this one.
         "repeats_not_saved": int(meta.repeats_not_saved or 0),
         # Discard is still possible: Create has written nothing. Who may discard is not asked here.
         "discardable": not created_anything(batch),
-        # Create (#1568): spends created, failed on the last run, and still to create (waiting, failed, or
-        # reopened by Unreconcile); whether its job is queued or running.
+        # Create (#1568, #1673): lines created, failed on the last run, and still to create (waiting, failed, or
+        # reopened by Unreconcile), spends and refunds together; then the spends and refunds still to create.
         "created": statuses.count(ROW_SETTLED),
         "failed": statuses.count(ROW_ERROR),
         "to_create": sum(1 for status in statuses if status in CREATE_LINE_STATUSES),
+        "spends_to_create": sum(1 for line in spends if line.row_status in CREATE_LINE_STATUSES),
+        "refunds_to_create": sum(1 for line in refunds if line.row_status in CREATE_LINE_STATUSES),
         "create_running": is_job_enqueued(create_job_id(batch)),
         # The type suggestion (#1569) is queued or running: Review polls until it is done, Create waits.
         "suggest_running": suggest_running(batch),
@@ -290,23 +317,27 @@ def card_import(batch: str) -> dict:
 
 def _line(line, date: str | None) -> dict:
     """One statement line as Review lists it."""
-    is_credit = line.direction == "Credit"
+    is_credit = line.direction == DIRECTION_CREDIT
+    # A line with a type: a spend, or a refund (#1673). Any other credit has none.
+    typed = not is_credit or is_card_refund(line.direction, line.match_basis)
     return {
         "name": line.name,
         "serno": line.transfer_id,
         "date": date,
         "details": line.remarks,
         # The cleaned merchant name: Review retypes every spend of one merchant at once (#1569).
-        "merchant": None if is_credit else merchant_key(line.remarks),
+        "merchant": merchant_key(line.remarks) if typed else None,
         "amount": float(line.amount or 0),
         "is_credit": is_credit,
+        # Review lists it under Refunds, with a minus amount (#1673).
+        "is_refund": is_card_refund(line.direction, line.match_basis),
         "row_status": line.row_status,
-        # A spend's type and where it came from; "Check" while nobody has chosen it. Blank on a credit.
-        "expense_type": None if is_credit else line.suggested_expense_type or None,
-        "type_source": None if is_credit else line.type_source or None,
-        "check": not is_credit and needs_check(line.type_source),
-        # Review may still retype it: a spend Create would still write.
-        "editable": not is_credit and line.row_status in CREATE_LINE_STATUSES,
+        # Its type and where it came from; "Check" while nobody has chosen it. Blank on any other credit.
+        "expense_type": line.suggested_expense_type or None if typed else None,
+        "type_source": line.type_source or None if typed else None,
+        "check": typed and needs_check(line.type_source),
+        # Review may still retype it: a line Create would still write.
+        "editable": typed and line.row_status in CREATE_LINE_STATUSES,
         "expense": line.suggested_name if line.row_status == ROW_SETTLED else None,
         "outcome_note": line.outcome_note or None,
         # A skipped line's kind and reason, for Review's skipped list (#1567); blank otherwise.

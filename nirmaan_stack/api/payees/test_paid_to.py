@@ -42,6 +42,7 @@ from nirmaan_stack.services.extraction.gemini import GeminiExtractor
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
 from nirmaan_stack.services.payees.writer import edit_payee
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
@@ -75,7 +76,7 @@ def _site_clock_at(moment: datetime):
         yield
 
 
-class TestPaidTo(FrappeTestCase):
+class TestPaidTo(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -197,7 +198,7 @@ class TestPaidTo(FrappeTestCase):
         # An expense is paid into its own copy whatever its vendor's Payee says now. A PO payment's copy
         # is still the one it was raised with: it takes the vendor's account only when paid (#1463).
         raised_with = self.payees.payee(self.payees.holder("Kaveri Ductfab"))
-        vendor_now = self.payees.payee(self.payees.holder("Kaveri Ductfab New Bank"))
+        vendor_now = self.payees.payee(self.payees.holder("Kaveri Ductfab Works"))
         expense_copy = self.payees.payee(self.payees.holder("Ramesh Kumar Yadav"))
         payment = self._payment(self._vendor(vendor_now), copy_of=raised_with)
         expense = self._expense(PE, copy_of=expense_copy, vendor=self._vendor(vendor_now))

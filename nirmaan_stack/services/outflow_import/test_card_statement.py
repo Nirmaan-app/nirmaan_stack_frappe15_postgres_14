@@ -6,8 +6,8 @@
     devenv.sh unit nirmaan_stack.services.outflow_import.test_card_statement
 
 The fixture is the text `pypdf` extracts from the 2026-10-01 ICICI corporate card statement, pages 1-2,
-with the holder, the address, the card and account numbers replaced by obvious fakes. The company stays
-Stratos Infra Technologies, so the company check passes. The real PDF never enters the repo.
+with the holder, the address, the card and account numbers replaced by obvious fakes. The real PDF never
+enters the repo.
 """
 
 import io
@@ -138,9 +138,164 @@ class TestMerchantKey(unittest.TestCase):
         self.assertEqual(merchant_key("LIMITED Pune IN"), "LIMITED")
 
 
+def _with_cash_advance(text: str) -> str:
+    """The fixture with a ₹500 cash withdrawal: a line without CR, counted under Cash Advances, not Purchases."""
+    text = _replace(
+        text, "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á2,24,166.02 Á1,37,584.99 Á500.00 Á2,76,821.73"
+    )
+    return _replace(
+        text,
+        "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n",
+        "11/09/2026 14152012986 PATEL NOVELTY AND GIFT BANGALORE IN 0 400.00\n"
+        "12/09/2026 14152099999 CASH WITHDRAWAL BANGALORE IN 0 500.00\n",
+    )
+
+
+class TestACashAdvance(unittest.TestCase):
+    """A cash withdrawal is not refused (owner, ADR-0039 Amendment C): a line without CR is money out, a spend,
+    so the spends must add up to Purchases / Charges plus Cash Advances."""
+
+    def test_a_statement_with_a_cash_advance_is_read_with_the_withdrawal_as_a_spend(self):
+        statement = read_card_statement(_with_cash_advance(_text()))
+        self.assertEqual(statement.totals.cash_advances, Decimal("500.00"))
+        self.assertEqual(len(statement.spends), 41)
+        self.assertEqual(statement.spends_total, Decimal("138084.99"))
+        [withdrawal] = [line for line in statement.lines if line.serno == "14152099999"]
+        self.assertFalse(withdrawal.is_credit)
+
+
 def _replace(text: str, old: str, new: str) -> str:
     assert old in text, old
     return text.replace(old, new)
+
+
+class TestTheAddressBlock(unittest.TestCase):
+    """The holder and the company, however the PDF lays them out (ADR-0039 Amendment B): the company is shown
+    on Review for the accountant to check, never a reason to refuse."""
+
+    def test_a_statement_of_another_company_is_read_with_its_name(self):
+        text = _replace(_text(), "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
+        statement = read_card_statement(text)
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(statement.company, "ACME TRADERS PVT LTD")
+
+    def test_with_no_company_line_the_company_is_blank_and_the_address_is_not_taken_for_it(self):
+        text = _replace(_text(), "MR ARJUN TESTHOLDER\nSTRATOS INFRA TECHNOLOGIES PVT LTD\n", "MR ARJUN TESTHOLDER\n")
+        statement = read_card_statement(text)
+        self.assertEqual(statement.holder, "ARJUN TESTHOLDER")
+        self.assertEqual(statement.company, "")
+        self.assertEqual(len(statement.lines), 47)
+
+    def test_a_company_ending_in_llp_or_private_limited_is_a_company_line(self):
+        for name in ("ACME TRADERS LLP", "Acme Traders Private Limited"):
+            with self.subTest(name=name):
+                text = _replace(_text(), "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", f"{name}\nFLAT")
+                self.assertEqual(read_card_statement(text).company, name)
+
+
+# The 4200XXXXXXXX2222 card's first spend, as one row; the tests below print it split over rows instead.
+_ONE_ROW_SPEND = "01/09/2026 14092030373 BLINK COMMERCE PVT LTD BANGALORE IN 0 470.00\n"
+
+
+class TestASplitLine(unittest.TestCase):
+    """A line whose Transaction Details are too wide for the column: pypdf prints it over two or three rows.
+    Merchant names are made up."""
+
+    def _read_with(self, rows: str):
+        statement = read_card_statement(_replace(_text(), _ONE_ROW_SPEND, rows))
+        [line] = [line for line in statement.lines if line.serno == "14092030373"]
+        return statement, line
+
+    def test_shape_a_the_country_code_alone_then_points_and_amount(self):
+        statement, line = self._read_with(
+            "01/09/2026 14092030373 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 470.00\n"
+        )
+        self.assertEqual(line.date, date(2026, 9, 1))
+        self.assertEqual(line.serno, "14092030373")
+        self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(line.card_last_four, "2222")
+        self.assertEqual(len(statement.lines), 47)
+
+    def test_shape_b_the_city_and_country_code_then_points_and_amount(self):
+        _, line = self._read_with("01/09/2026 14092030373 FAKESHOP PAY INDIA PRIVATE\nWWW.FAKESHOP.IN IN\n0 470.00\n")
+        self.assertEqual(line.date, date(2026, 9, 1))
+        self.assertEqual(line.serno, "14092030373")
+        self.assertEqual(line.details, "FAKESHOP PAY INDIA PRIVATE WWW.FAKESHOP.IN IN")
+        self.assertEqual(line.amount, Decimal("470.00"))
+        self.assertFalse(line.is_credit)
+        self.assertEqual(line.merchant_key, "FAKESHOP PAY")
+
+    def test_shape_c_a_credit_split_the_same_way(self):
+        text = _replace(
+            _text(),
+            "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n",
+            "19/09/2026 14194563678 ING*FAKE TRAVELS  INDI HTTPS://WWW.F\nIN\n0 167.00 CR\n",
+        )
+        statement = read_card_statement(text)
+        [line] = [line for line in statement.lines if line.serno == "14194563678"]
+        self.assertEqual(line.date, date(2026, 9, 19))
+        self.assertEqual(line.details, "ING*FAKE TRAVELS INDI HTTPS://WWW.F IN")
+        self.assertEqual(line.amount, Decimal("167.00"))
+        self.assertTrue(line.is_credit)
+        self.assertEqual(statement.credits_total, Decimal("276821.73"))
+
+    def test_a_split_line_under_the_first_card_keeps_that_cards_last_four(self):
+        text = _replace(
+            _text(),
+            "11/09/2026 14144135412 transaction cashback 0 1,854.21 CR\n",
+            "11/09/2026 14144135412 FAKE CASHBACK TRAVELS\nIN\n0 1,854.21 CR\n",
+        )
+        [line] = [line for line in read_card_statement(text).lines if line.serno == "14144135412"]
+        self.assertEqual(line.card_last_four, "1111")
+        self.assertEqual(line.details, "FAKE CASHBACK TRAVELS IN")
+
+    def test_an_invoice_number_row_is_never_joined_into_a_line(self):
+        # The row under the opening row is neither the place (ending in a country code) nor the points and amount.
+        with self.assertRaises(CardStatementError) as caught:
+            self._read_with("01/09/2026 14092030373 FAKESHOP PAY\nInvoice No: 1574010400030670\n0 470.00\n")
+        self.assertIn("spends read ₹1,37,114.99", str(caught.exception))
+
+
+class TestALineThatNeverCompletes(unittest.TestCase):
+    """A row with a date and a SerNo whose points and amount never come within the next two rows is not read,
+    and the gate refuses the statement: the reader never builds a line out of rows that are not its own."""
+
+    def assertRefused(self, text: str, *fragments: str):
+        with self.assertRaises(CardStatementError) as caught:
+            read_card_statement(text)
+        for fragment in ("do not add up", *fragments):
+            self.assertIn(fragment, str(caught.exception))
+
+    def test_amount_three_rows_down_is_not_reached(self):
+        self.assertRefused(
+            _replace(_text(), _ONE_ROW_SPEND, "01/09/2026 14092030373 FAKESHOP PAY\nNEW DELHI IN\nIN\n0 470.00\n"),
+            "spends read ₹1,37,114.99",
+        )
+
+    def test_the_next_transactions_row_is_never_swallowed(self):
+        # Joined with the next line's row, the opening row would end in that line's points and amount and read
+        # ₹11,935.00 twice. Not read, only its own ₹470.00 is missing from the spends.
+        self.assertRefused(
+            _replace(
+                _text(),
+                _ONE_ROW_SPEND + "02/09/2026 14099237561",
+                "01/09/2026 14092030373 FAKESHOP PAY IN\n02/09/2026 14099237561",
+            ),
+            "spends read ₹1,37,114.99",
+        )
+
+    def test_a_card_heading_is_never_swallowed(self):
+        # The first card's last line, cut short, sits over the second card's heading and its first line.
+        self.assertRefused(
+            _replace(
+                _text(),
+                "20/09/2026 14200624627 Autodebit Payment Recd. 0 1,73,999.02 CR\n4200XXXXXXXX2222\n",
+                "20/09/2026 14200624627 Autodebit Payment Recd.\n4200XXXXXXXX2222\n0 1,73,999.02 CR\n",
+            ),
+            "credits read ₹1,02,822.71",
+        )
 
 
 class TestRefusals(unittest.TestCase):
@@ -152,18 +307,6 @@ class TestRefusals(unittest.TestCase):
         for fragment in fragments:
             self.assertIn(fragment, str(caught.exception))
 
-    def test_a_statement_of_another_company_is_refused(self):
-        text = _replace(_text(), "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT", "ACME TRADERS PVT LTD\nFLAT")
-        self.assertRefused(text, "ACME TRADERS PVT LTD", "Stratos Infra Technologies")
-
-    def test_private_limited_is_the_same_company_as_pvt_ltd(self):
-        text = _replace(
-            _text(),
-            "STRATOS INFRA TECHNOLOGIES PVT LTD\nFLAT",
-            "Stratos Infra Technologies Private Limited\nFLAT",
-        )
-        self.assertEqual(read_card_statement(text).company, "Stratos Infra Technologies Private Limited")
-
     def test_a_missing_line_fails_the_totals_gate_showing_both_figures(self):
         text = _replace(_text(), "11/09/2026 14152002790 PATEL NOVELTY AND GIFT BANGALORE IN 0 320.00\n", "")
         self.assertRefused(text, "₹1,37,264.99", "₹1,37,584.99", "Purchases / Charges")
@@ -172,11 +315,11 @@ class TestRefusals(unittest.TestCase):
         text = _replace(_text(), "19/09/2026 14194563678 UPI Payment Received 0 167.00 CR\n", "")
         self.assertRefused(text, "₹2,76,654.73", "₹2,76,821.73", "Payments / Credits")
 
-    def test_a_non_zero_cash_advance_is_refused_with_its_own_message(self):
+    def test_a_cash_advance_line_missing_fails_the_totals_gate_naming_cash_advances(self):
         text = _replace(
             _text(), "Á2,24,166.02 Á1,37,584.99 Á0.00 Á2,76,821.73", "Á2,24,166.02 Á1,37,584.99 Á500.00 Á2,76,821.73"
         )
-        self.assertRefused(text, "Cash Advances", "₹500")
+        self.assertRefused(text, "₹1,37,584.99", "₹1,38,084.99", "Purchases / Charges + Cash Advances")
 
     def test_text_that_is_not_a_card_statement_is_refused(self):
         self.assertRefused("Hello, this is not a statement.", "ICICI credit card statement")

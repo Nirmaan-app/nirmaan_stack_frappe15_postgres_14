@@ -39,7 +39,6 @@ from decimal import Decimal, InvalidOperation
 import frappe
 import requests
 from frappe.utils import getdate
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.invoice_autofill import (
     GST_COMPONENT_KEYS,
@@ -68,6 +67,7 @@ from nirmaan_stack.services.outflow_import.porter_verdict import (
     stored_warnings,
 )
 from nirmaan_stack.services.stored_files import delete_files
+from nirmaan_stack.services.stored_files import store_file
 
 #: How many invoices are worked on at once (spec #1442: a month's ten in minutes, not an hour).
 VALIDATION_CONCURRENCY = 3
@@ -229,7 +229,7 @@ def _download_pdf(invoice) -> bytes:
         if not invoice.invoice_file:
             raise
         return _stored_pdf(invoice.invoice_file)
-    saved = save_file(
+    saved = store_file(
         fname=f"{invoice.name}.pdf",
         content=content,
         dt=INVOICE_DOCTYPE,

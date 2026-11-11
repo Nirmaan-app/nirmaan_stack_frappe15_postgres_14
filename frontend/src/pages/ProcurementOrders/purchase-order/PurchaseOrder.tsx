@@ -770,7 +770,12 @@ export const PurchaseOrder = () => {
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
-      <RefundOverBalanceWarning poId={poId} />
+      <RefundOverBalanceWarning
+        poId={poId}
+        status={PO.status}
+        totalAmount={PO.total_amount}
+        amountPaid={PO.amount_paid}
+      />
       <WaitingRefundOverdueWarning poId={poId} />
 
       {poId && PO?.vendor && (

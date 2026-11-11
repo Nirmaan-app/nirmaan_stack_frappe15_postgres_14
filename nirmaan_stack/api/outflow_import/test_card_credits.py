@@ -7,8 +7,8 @@
 
 Uploads a real PDF built from the fixture (the `test_card_import.CardImportCase` harness) and asserts on the
 lines it stages and on what the main-table endpoints then allow: payments and cashback skipped for good, a
-refund pair skipped together and unskipped together, an unpaired credit decided on the main table, a spend
-still refused there.
+refund pair skipped together and unskipped together, an unpaired credit kept off the main table as a refund
+(#1673), a spend still refused there.
 """
 
 import frappe
@@ -22,7 +22,7 @@ from nirmaan_stack.api.outflow_import.review import (
     unskip_row,
 )
 from nirmaan_stack.api.outflow_import.test_card_import import ROW_DOCTYPE, CardImportCase
-from nirmaan_stack.services.outflow_import.card_credits import CARD_SPEND_REFUSAL
+from nirmaan_stack.services.outflow_import.card_credits import CARD_REFUND_REFUSAL, CARD_SPEND_REFUSAL
 from nirmaan_stack.services.outflow_import.skip_origin import UNSKIP_LOCKED_KINDS
 from nirmaan_stack.services.outflow_import.tests.card_pdf_builder import pdf_from_text
 
@@ -74,9 +74,9 @@ class TestTheFixtureIsSorted(CardCreditsCase):
         self.assertEqual(
             sorted(l.remarks for l in payments),
             sorted(
+                # "Autodebit Payment Recd." left at #1624: it is an Internal Transfer (below).
                 [
                     "Auto Dr.Retn-Insuff. fund",
-                    "Autodebit Payment Recd.",
                     "UPI Payment Received",
                     "UPI Payment Received",
                     "UPI Payment Received",
@@ -93,9 +93,10 @@ class TestTheFixtureIsSorted(CardCreditsCase):
         self.assertEqual((line.row_status, line.skip_kind, line.skip_origin), ("Skipped", "Card cashback", "System"))
         self.assertTrue(line.skip_reason.startswith("Card cashback"))
 
-    def test_the_unpaired_makemytrip_credit_stays_open_and_every_spend_waits(self):
+    def test_the_unpaired_makemytrip_credit_is_a_refund_waiting_like_every_spend(self):
+        # #1673 (ADR-0039 Amendment D): it was open on the main table at Mismatched; it is Create's work now.
         line = self._line(self.batch, "MAKEMYTRIP(INDIA) P Gurgaon IN", 801.50)
-        self.assertEqual(line.row_status, "Mismatched")
+        self.assertEqual(line.row_status, "Pending match run")
         self.assertFalse(line.skip_kind)
         spends = [l for l in self._lines(self.batch) if l.direction == "Debit"]
         self.assertEqual({l.row_status for l in spends}, {"Pending match run"})
@@ -103,7 +104,7 @@ class TestTheFixtureIsSorted(CardCreditsCase):
     def test_review_lists_the_skipped_lines_with_their_reasons(self):
         review = card_import.get_card_import(self.batch)
         skipped = [l for l in review["lines"] if l["row_status"] == "Skipped"]
-        self.assertEqual(len(skipped), 6)
+        self.assertEqual(len(skipped), 5)  # 6 until #1624 moved the auto-debit payment out
         for line in skipped:
             self.assertIn(line["skip_kind"], ("Card payment received", "Card cashback"))
             self.assertTrue(line["skip_reason"])
@@ -118,29 +119,25 @@ class TestTheFixtureIsSorted(CardCreditsCase):
             self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, line.name, "row_status"), "Skipped")
 
 
-class TestAnUnpairedCreditIsDecidedOnTheMainTable(CardCreditsCase):
+class TestAnUnpairedRefundIsNotAMainTableLine(CardCreditsCase):
+    """#1673 flipped #1567's "decided on the main table": the unpaired credit waits for the card import's Create,
+    like a spend. `test_card_refunds` holds the rest."""
+
     def setUp(self):
         super().setUp()
         self.batch = self._upload_text(self._text())
         self.credit = self._line(self.batch, "MAKEMYTRIP(INDIA) P Gurgaon IN", 801.50)
 
-    def test_it_is_listed_under_not_matched_inflow_and_no_spend_is_listed(self):
+    def test_neither_it_nor_any_spend_is_listed(self):
         inflow = get_outflow_rows(scope=SCOPE_NOT_MATCHED_INFLOW, batch=self.batch)
-        self.assertEqual([row["name"] for row in inflow["rows"]], [self.credit.name])
+        self.assertEqual(inflow["rows"], [])
         outflow = get_outflow_rows(scope=SCOPE_NOT_MATCHED_OUTFLOW, batch=self.batch)
         self.assertEqual(outflow["rows"], [])
 
-    def test_it_may_be_skipped_by_hand(self):
-        skip_row(self.credit.name, "Refund already counted elsewhere")
-        self.assertEqual(
-            frappe.db.get_value(ROW_DOCTYPE, self.credit.name, ["row_status", "skip_kind"]),
-            ("Skipped", "Skipped by hand"),
-        )
-
-    def test_the_bank_credit_guard_lets_it_through(self):
-        from nirmaan_stack.api.outflow_import.expenses import guard_not_an_own_import_line
-
-        guard_not_an_own_import_line(frappe.db.get_value(ROW_DOCTYPE, self.credit.name, "*", as_dict=True))
+    def test_it_may_not_be_skipped_by_hand(self):
+        with self.assertRaises(frappe.ValidationError) as caught:
+            skip_row(self.credit.name, "Refund already counted elsewhere")
+        self.assertIn(CARD_REFUND_REFUSAL, str(caught.exception))
 
     def test_a_spend_is_still_refused_on_the_main_table(self):
         from nirmaan_stack.api.outflow_import.expenses import guard_not_an_own_import_line
@@ -172,7 +169,8 @@ class TestARefundPair(CardCreditsCase):
 
     def test_no_credit_is_left_open(self):
         credits = [l for l in self._lines(self.batch) if l.direction == "Credit"]
-        self.assertEqual({l.row_status for l in credits}, {"Skipped"})
+        # #1624: the auto-debit payment is an Internal Transfer, which is no open credit either.
+        self.assertEqual({l.row_status for l in credits}, {"Skipped", "Internal Transfer"})
 
     def test_unskipping_the_credit_brings_both_lines_back(self):
         result = unskip_row(self.refund.name, "Not a refund of that booking")
@@ -185,6 +183,11 @@ class TestARefundPair(CardCreditsCase):
             ]
 
         self.assertEqual(cleared(refund), ["Mismatched", None, None, None, None])
+        # #1673: the credit comes back as an unpaired refund, Create's work like the spend.
+        self.assertEqual(
+            frappe.db.get_value(ROW_DOCTYPE, self.refund.name, ["suggested_doctype", "match_basis"]),
+            ("Non Project Expenses", "card statement"),
+        )
         self.assertEqual(cleared(spend), ["Pending match run", None, None, None, None])
         # The spend is back as Create's work: still planned as a Non-Project Expense.
         self.assertEqual(
@@ -207,3 +210,33 @@ class TestARefundPair(CardCreditsCase):
         unskip_row(self.refund.name, "Wrong pairing")
         with self.assertRaises(frappe.ValidationError):
             unskip_row(self.spend.name, "again")
+
+
+class TestTheAutoDebitIsAnInternalTransfer(CardCreditsCase):
+    """#1624: the bank's auto-debit paying the card is an Internal Transfer, with its record and the card's digits."""
+
+    def setUp(self):
+        super().setUp()
+        self.batch = self._upload_text(self._text())
+
+    def test_it_is_an_internal_transfer_line_with_one_record_on_the_card(self):
+        line = self._line(self.batch, "Autodebit Payment Recd.", 173999.02)
+        self.assertEqual((line.row_status, line.skip_kind or None), ("Internal Transfer", None))
+        records = frappe.get_all(
+            "Internal Transfer", filters={"import_row": line.name},
+            fields=["from_place", "to_place", "detail", "direction", "made_by", "amount"],
+        )
+        self.assertEqual(
+            [(r.from_place, r.to_place, r.detail, r.direction, r.made_by, float(r.amount)) for r in records],
+            [("ICICI Current Account", "ICICI Credit Card", "Card ending 1111", "In", "card_auto_debit", 173999.02)],
+        )
+
+    def test_review_lists_it_under_internal_transfers_not_skipped(self):
+        review = card_import.get_card_import(self.batch)
+        internal = [l for l in review["lines"] if l["row_status"] == "Internal Transfer"]
+        self.assertEqual([l["details"] for l in internal], ["Autodebit Payment Recd."])
+        self.assertIn("ICICI Credit Card", internal[0]["outcome_note"])
+
+    def test_it_is_in_the_main_internal_transfers_tab(self):
+        rows = get_outflow_rows(scope="internal_transfers", batch=self.batch, limit=50)["rows"]
+        self.assertEqual([r["remarks"] for r in rows], ["Autodebit Payment Recd."])

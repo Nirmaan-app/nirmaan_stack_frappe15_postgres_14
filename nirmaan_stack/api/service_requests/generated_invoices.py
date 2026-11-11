@@ -5,7 +5,7 @@
 shows (#1546, #1547, spec #1528; GLOSSARY *Generated invoice*, *RA number*). The rules are in
 `services/wo_generated_invoices.py`.
 
-    get_generated_invoices(work_order)                          -> dict  the records, next RA, the limit
+    get_generated_invoices(work_order)                          -> dict  the records, next RA, the amount range
     generate_invoice(work_order, invoice_date, amount)          -> dict  a new record, RA or FINAL by
                                                                          its amount
     void_invoice(name, reason)                                  -> dict  the record, Voided
@@ -57,9 +57,10 @@ _ROW_FIELDS = ["name", "ra_number", "invoice_type", "invoice_no", "invoice_date"
 def get_generated_invoices(work_order: str) -> dict:
     """A Work Order's generated invoices (newest first) and what Generate would do next.
 
-    `blocked` says why Generate is not offered at all (None when it is); `left` is the most an invoice
-    may bill; `billed` is what already counts against the WO amount, so the screen can show whether an
-    amount would make the FINAL (`gi.is_final`)."""
+    `blocked` says why Generate is not offered at all (None when it is); `min_amount` and `max_amount` are
+    the least and most an invoice may bill (`gi.billable_range`; Put Paid fills in `min_amount`); `billed`
+    is what already counts against the WO amount, so the screen can show whether an amount would make the
+    FINAL (`gi.is_final`)."""
     sr = _readable(work_order)
     state = _billing_state(sr)
     return {
@@ -69,7 +70,8 @@ def get_generated_invoices(work_order: str) -> dict:
         "can_delete": is_nirmaan_admin(frappe.session.user),
         "blocked": _work_order_problem(sr) or _final_problem(state),
         "next_ra_number": state["next_ra_number"],
-        "left": state["left"],
+        "min_amount": state["min_amount"],
+        "max_amount": state["max_amount"],
         "billed": state["billed"],
         "fully_paid": state["fully_paid"],
         "has_final": bool(state["final"]),
@@ -97,14 +99,21 @@ def generate_invoice(work_order: str, invoice_date: str | None = None, amount=No
         bill = round(flt(amount), 2)
         if bill <= 0:
             frappe.throw(_("Enter an amount more than ₹0."))
-        if bill > state["left"]:
+        if bill > state["max_amount"]:
             frappe.throw(_(
-                "This invoice can bill at most {0}: the smaller of the Work Order amount ({1}) and its Amount Paid "
-                "incl. TDS ({2}), less {3} already billed or waiting."
-            ).format(rupees(state["left"]), rupees(sr.total_amount), rupees(sr.amount_paid), rupees(state["billed"])))
+                "This invoice can bill at most {0}: the Work Order amount ({1}) less {2} already billed or waiting."
+            ).format(rupees(state["max_amount"]), rupees(sr.total_amount), rupees(state["billed"])))
+        if bill < state["min_amount"]:
+            frappe.throw(_(
+                "This invoice must bill at least {0}: the Amount Paid incl. TDS ({1}) less {2} already billed or "
+                "waiting. Every paid rupee needs an invoice."
+            ).format(rupees(state["min_amount"]), rupees(min(flt(sr.amount_paid), flt(sr.total_amount))),
+                     rupees(state["billed"])))
         invoice_type = gi.FINAL if gi.is_final(sr.total_amount, state["billed"], bill) else gi.RA
 
         date = getdate(invoice_date or today())
+        if date > getdate(today()):
+            frappe.throw(_("Invoice Date can't be in the future."))
         ra_number = state["next_ra_number"]
         doc = _new_record({
             "work_order": sr.name,
@@ -305,7 +314,7 @@ def _final_problem(state) -> str | None:
 
 
 def _billing_state(sr) -> dict:
-    """What is billed on the WO, what is left, its next RA number and its live FINAL, if any."""
+    """What is billed on the WO, the range a new invoice may bill, its next RA number and its live FINAL."""
     records = frappe.get_all(gi.DOCTYPE, filters={"work_order": sr.name},
                              fields=["ra_number", "invoice_type", "invoice_no", "amount", "status"])
     invoices = frappe.get_all("Vendor Invoices", filters={"document_type": SR, "document_name": sr.name},
@@ -313,9 +322,11 @@ def _billing_state(sr) -> dict:
     billed = sum(flt(i.invoice_amount) for i in invoices if i.status in gi.BILLED_INVOICE_STATUSES)
     billed += sum(flt(r.amount) for r in records if r.status in gi.NOT_UPLOADED)
     final = next((r.invoice_no for r in records if r.invoice_type == gi.FINAL and r.status != gi.VOIDED), None)
+    least, most = gi.billable_range(sr.total_amount, sr.amount_paid, billed)
     return {
         "billed": round(billed, 2),
-        "left": gi.billable_left(sr.total_amount, sr.amount_paid, billed),
+        "min_amount": least,
+        "max_amount": most,
         "fully_paid": gi.is_fully_paid(sr.total_amount, sr.amount_paid),
         "final": final,
         # The FINALs the WO still has, Voided included: the next one's printed number follows them. A

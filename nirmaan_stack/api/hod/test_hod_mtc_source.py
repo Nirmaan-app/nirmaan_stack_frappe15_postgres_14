@@ -19,10 +19,11 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.hod import binder
 from nirmaan_stack.api.hod.from_app import mtc_for_system, sources_for, system_meta
+from nirmaan_stack.cloud_file_fixture import cloud_url
 
 MTC = "Material Test Certificate"
 MTC_ITEM = "Material Test Certificate Item"
-URL = "/api/method/frappe_gcp_attachment.controller.generate_file?key=hod-mtc-test&file_name=mtc.pdf"
+URL = cloud_url("hod-mtc-test.pdf", MTC)
 
 
 def _raw(doctype, **fields):

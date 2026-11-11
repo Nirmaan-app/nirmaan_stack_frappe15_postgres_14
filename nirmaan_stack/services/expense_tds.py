@@ -23,9 +23,14 @@ withholds nothing; an expense created at any other status (the bank import's Pai
 withholds nothing. `withholds_now` is that rule; `controllers/expense_tds` asks it on insert and on
 every save.
 
-WHAT: `withhold_expense_tds` writes the record FIRST (gross = the amount as approved, 10%, the tax,
-194-I, borne by the landlord, the landlord's name and PAN, the day), THEN sets the Expense's amount to
-the net. ONCE: the record's `non_project_expense` is UNIQUE, so a re-save, a retry or a second call
+THE AMOUNT IS THE BILL (spec #1613, ADR-0043): the landlord's bill incl. 18% GST. `tds_split` derives the
+base rent (bill / 1.18, to the paisa), the GST (bill - base), the tax (10% of the base, never of the GST) and
+what the landlord gets (bill - tax); base + GST is the bill exactly. Its frontend twin reads the same table
+of cases (`office_rent_split_cases.json`) and rounds the same way (`SPLIT_ROUNDING`).
+
+WHAT: `withhold_expense_tds` writes the record FIRST (gross = the BASE RENT, 10%, the tax, 194-I, borne by
+the landlord, the landlord's name and PAN, the day), THEN sets the Expense's amount to what the landlord
+gets and its `gst_amount` to the GST. ONCE: the record's `non_project_expense` is UNIQUE, so a re-save, a retry or a second call
 finds it and changes nothing.
 
 ⚠️ NEVER WITHOUT THE LANDLORD (owner, 2026-10-21). A tax that cannot be filed against a name and a
@@ -39,17 +44,17 @@ no request meets this refusal. None of those can be edited into shape (its reque
 refusal says to reject it and raise it again. The approve dialog says so before the click
 (`api/approvals/expense_detail`'s `deductee_missing`).
 
-⚠️ THE APPROVAL TIERS READ THE GROSS. The amount is cut only AFTER the approval that withholds, so
-`expense_decision` decides every step on the full rent: Rs 55,000 still waits at CEO Pending.
+⚠️ THE APPROVAL TIERS READ THE BILL. The amount is cut only AFTER the approval that withholds, so
+`expense_decision` decides every step on the bill: Rs 55,000 still waits at CEO Pending.
 
 ⚠️ NOTHING BACKFILLS. Office Rent expenses approved before this shipped have no record and never get
 one: only a transition into Approved, or an insert at Approved, withholds.
 
 AFTER IT (#1526): THE AMOUNT IS LOCKED, AND THE RECORD GOES ONLY WITH ITS EXPENSE.
-`guard_withheld_amount` refuses every save that changes the amount of an Expense with a record, for
+`guard_withheld_amount` refuses every save that changes the amount or the GST of an Expense with a record, for
 every person and every system writer, with ONE exemption: Bulk Import's single-line correction
-(`BANK_AMOUNT_CORRECTION`, within the settle window), which leaves the record as it is: the gross is
-never restated as net / 0.9. `delete_with_expense` deletes the record with its Expense while the tax is
+(`BANK_AMOUNT_CORRECTION`, within the settle window), which moves the amount only and leaves the record
+and the GST as they are: nothing is restated from the corrected amount. `delete_with_expense` deletes the record with its Expense while the tax is
 on no challan, and refuses the delete once it is, naming the challan.
 
 THE TYPE FOLLOWS THE APPROVAL (owner, 2026-10-21): `guard_tds_type_change` refuses changing an
@@ -90,8 +95,10 @@ class ExpenseTdsRule:
     """The tax one expense type withholds, and which request answers name who it is withheld from."""
 
     expense_type: str
-    #: Percent of the amount as approved.
+    #: Percent of the BASE RENT withheld (never of the GST on it).
     rate: float
+    #: Percent GST the bill carries on the base rent (spec #1613): the amount typed is the bill incl. it.
+    gst_rate: float
     #: `Payment TDS Deduction.tds_section`.
     section: str
     #: The request form's answer keys (`Expense Request.source_data`) holding the deductee.
@@ -104,10 +111,11 @@ class ExpenseTdsRule:
 
 
 #: THE rule (spec #1522): Office Rent, 10%, 194-I; the landlord, named by Office Rent's form
-#: (`fixtures/expense_type.json`, pinned by `services/test_expense_tds_rule`).
+#: (a new site's form: `services/expense_types_seed.json`, pinned by `services/test_expense_tds_rule`).
 OFFICE_RENT_TDS = ExpenseTdsRule(
     expense_type="Office Rent",
     rate=10.0,
+    gst_rate=18.0,
     section=TDS_SECTION_RENT,
     deductee_name_key="landlord_name",
     deductee_pan_key="landlord_pan",
@@ -122,18 +130,51 @@ def tds_rule_for(expense_type: str | None) -> ExpenseTdsRule | None:
     return next((rule for rule in EXPENSE_TDS_RULES if rule.expense_type == wanted), None)
 
 
-def tds_split(expense_type: str | None, amount) -> tuple[float, float, float] | None:
-    """`(gross, tds, net)` an Expense of this type and amount withholds, to the paisa as the Work Order
-    rule (`payment_tds.record_deduction`) rounds; None for a type with no rule, a zero or a refund.
-    No query, but `flt(x, 2)` reads the site's rounding method, so it needs a site."""
+#: The rounding of every figure of the split. Pinned, not the site's setting, so the split needs no site and
+#: its frontend twin (`expenseTds.round2`, which reads this name in its parity test) rounds the same way:
+#: a TDS of a base ending in 5 paise falls on a half paisa (Rs 10,010 -> 848.305), and half-to-even and
+#: half-up differ there. It is what the site is set to today.
+SPLIT_ROUNDING = "Banker's Rounding"
+
+
+def _round2(value) -> float:
+    return flt(value, 2, rounding_method=SPLIT_ROUNDING)
+
+
+@dataclass(frozen=True)
+class RentSplit:
+    """An Office Rent bill split (spec #1613): `base + gst == bill`, `landlord_gets == bill - tds`."""
+
+    #: The amount typed: the landlord's bill, incl. GST.
+    bill: float
+    #: The base rent, bill / 1.18: the tax record's gross.
+    base: float
+    #: bill - base: kept on the Expense (`gst_amount`).
+    gst: float
+    #: 10% of the base rent.
+    tds: float
+    #: bill - tds: the Expense's amount once approved.
+    landlord_gets: float
+
+
+def tds_split(expense_type: str | None, amount) -> RentSplit | None:
+    """The split an Expense of this type and bill withholds, to the paisa; None for a type with no rule,
+    a zero or a refund. Pure: no query and no site.
+
+    base = round2(bill / 1.18), gst = round2(bill - base), tds = round2(base x 10%), landlord gets =
+    round2(bill - tds). Base + GST is the bill exactly: a bill in whole paise never divides by 1.18 onto
+    a half paisa, and the subtraction is exact."""
     rule = tds_rule_for(expense_type)
     if rule is None:
         return None
-    gross = flt(amount, 2)
-    tds = flt(gross * rule.rate / 100.0, 2)
-    if gross <= 0 or tds <= 0 or tds >= gross:
+    bill = _round2(amount)
+    if bill <= 0:
         return None
-    return gross, tds, flt(gross - tds, 2)
+    base = _round2(bill / (1 + rule.gst_rate / 100.0))
+    tds = _round2(base * rule.rate / 100.0)
+    if tds <= 0 or tds >= base:
+        return None
+    return RentSplit(bill=bill, base=base, gst=_round2(bill - base), tds=tds, landlord_gets=_round2(bill - tds))
 
 
 def withholds_now(doctype: str | None, expense_type: str | None, previous_status: str | None,
@@ -204,36 +245,43 @@ def sync_expense_payment_date(doc) -> None:
         frappe.db.set_value(TDS_DOCTYPE, record, "payment_date", value, update_modified=False)
 
 
-#: What a screen is served of a withheld record (`withheld_tds_of`): the full rent, the rate, the tax and
-#: the section. The net is the screen's `gross_amount - tds_amount`, never the Expense's amount, which
-#: Bulk Import's few-rupee correction may have moved (#1526).
-WITHHELD_TDS_FIELDS = ("gross_amount", "tds_percentage", "tds_amount", "tds_section")
-
-
 def withheld_tds_of(expenses) -> dict[str, dict]:
-    """Non-Project Expense name -> the tax withheld from it, `{gross_amount, tds_percentage, tds_amount,
-    tds_section}`, for each of these that has a record. One query; an expense with none is absent.
+    """Non-Project Expense name -> the tax withheld from it, `{gross_amount, gst_amount, tds_percentage,
+    tds_amount, tds_section}`, for each of these that has a record. One query; an expense with none is
+    absent. `gst_amount` is the Expense's own (0 on a rent split before GST existed, spec #1613). What the
+    landlord gets is `gross_amount + gst_amount - tds_amount`, never the Expense's amount, which Bulk
+    Import's few-rupee correction may have moved (#1526).
 
     THE ONE READER of a record for the expense screens (#1527): the approval queue, the approve dialog's
     detail, the request page and the Expenses list's standing (all three through
     `withheld_tds_by_expense`, which holds rows of either ledger), and the edit dialog's lookup
-    (`api/approvals/expense_tds`). Nothing is served before approval: the amount is still the full rent
+    (`api/approvals/expense_tds`). Nothing is served before approval: the amount is still the bill
     then, and the screens forecast from it (`frontend/src/utils/expenses/expenseTds.shownExpenseTds`).
 
     ⚠️ READ WITHOUT THE RECORD'S PERMISSION, ON PURPOSE. `Payment TDS Deduction` is read by the
     Accountant roles (and System Manager) only, while an HR approver, Admin and the CEO see the Expense. Every caller is an
-    endpoint that has already checked its caller may read the Expense (or its request), and these four
+    endpoint that has already checked its caller may read the Expense (or its request), and these
     figures are what its approver is shown of it. Do not widen the doctype's permissions instead: that
     would open the whole register, Work Order rows included.
     """
     names = list({e for e in expenses if e})
     if not names:
         return {}
-    rows = frappe.get_all(TDS_DOCTYPE, filters={"non_project_expense": ["in", names]},
-                          fields=["non_project_expense", *WITHHELD_TDS_FIELDS])
+    rows = frappe.db.sql(
+        f"""
+        SELECT d.non_project_expense, d.gross_amount, COALESCE(e.gst_amount, 0) AS gst_amount,
+               d.tds_percentage, d.tds_amount, d.tds_section
+        FROM "tab{TDS_DOCTYPE}" d
+        JOIN "tab{NON_PROJECT_EXPENSE_DOCTYPE}" e ON e.name = d.non_project_expense
+        WHERE d.non_project_expense IN %(names)s
+        """,
+        {"names": tuple(names)},
+        as_dict=True,
+    )
     return {
         r.non_project_expense: {
             "gross_amount": flt(r.gross_amount, 2),
+            "gst_amount": flt(r.gst_amount, 2),
             "tds_percentage": flt(r.tds_percentage),
             "tds_amount": flt(r.tds_amount, 2),
             "tds_section": r.tds_section,
@@ -254,24 +302,25 @@ def withheld_tds_by_expense(expenses) -> dict[tuple[str, str], dict]:
 
 
 def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan: str | None = None) -> str | None:
-    """Withhold the tax of one approved Non-Project Expense: write its record, then net its amount.
+    """Withhold the tax of one approved Non-Project Expense: write its record, then set its amount to what
+    the landlord gets and its GST (spec #1613).
 
     Returns the record's name (the existing one when it was withheld before), or None when there is
     nothing to withhold: a type with no rule, a zero or a refund. Never commits.
 
     ⚠️ THE RECORD IS WRITTEN FIRST, THEN THE AMOUNT CUT, as `payment_tds.write_deduction` does. The
-    record's `gross_amount` is the only surviving copy of the full rent, so a failed insert must leave
-    the amount whole.
+    record's `gross_amount` (the base rent) and the Expense's GST are the surviving copy of the bill on
+    the Expense side, so a failed insert must leave the amount whole.
 
     ⚠️ `db_set`, NOT `doc.amount = ...`: this runs from the Expense's own `after_insert` / `on_update`,
     after the row is written, so an assignment would be lost. `db_set` writes the column and the
     in-memory doc and fires no save hook, so it cannot withhold a second time; the save's Version row
-    still records gross -> net. `update_modified=False`: the save that approved it has just stamped it.
+    still records bill -> landlord gets. `update_modified=False`: the save that approved it has just stamped it.
 
     ⚠️ IT RAISES, unlike the Work Order route (`record_deduction_if_eligible`, which logs and swallows).
     Every caller is one approval inside its own savepoint or request (`decide_expenses` per row, the
     request intake), so a failure refuses that approval and nothing else, and an Office Rent expense is
-    never Approved at the full rent with no record of its tax. Swallowing a database error would also
+    never Approved at the full bill with no record of its tax. Swallowing a database error would also
     leave the Postgres transaction aborted under the approval.
     """
     rule = tds_rule_for(doc.get("type"))
@@ -283,17 +332,17 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
         return existing
     # The backstop of `controllers/expense_tds.validate`, which refuses the approval before it saves.
     refuse_without_deductee(deductee_name, deductee_pan)
-    gross, tds, net = split
 
     row = frappe.new_doc(TDS_DOCTYPE)
     row.update(
         {
             "non_project_expense": doc.name,
-            "gross_amount": gross,
+            # The base rent, never the bill: the TDS return reports the rent without its GST (spec #1613).
+            "gross_amount": split.base,
             "tds_percentage": rule.rate,
-            "tds_amount": tds,
+            "tds_amount": split.tds,
             "tds_section": rule.section,
-            # The landlord's money is withheld: the Expense is cut to the net.
+            # The landlord's money is withheld: the Expense is cut to bill - TDS.
             "borne_by": BORNE_BY_VENDOR,
             "deductee_name": str(deductee_name or "").strip() or None,
             "deductee_pan": str(deductee_pan or "").strip().upper() or None,
@@ -305,7 +354,7 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
     # ⚠️ NO HOOKS, ON PURPOSE (CODING_STANDARDS § Raw SQL rule 1). What else reads this `amount`, and why
     # none of it needs a recompute here:
     #   * Bulk Import's candidates (`outflow_import/candidates`) and Mark as Done / the bank file read the
-    #     live amount when they run, so they see the net from now on; nothing caches it.
+    #     live amount when they run, so they see bill - TDS from now on; nothing caches it.
     #   * The linked total and its derived status (`controllers/expense_bank_links.validate`) are inert:
     #     the import settles only Approved / Reconciliation Pending rows (`ledgers.SETTLEABLE_STATUSES`),
     #     so an Expense being approved from Requested / CEO Pending, or born Approved, has no live slip.
@@ -317,9 +366,11 @@ def withhold_expense_tds(doc, *, deductee_name: str | None = None, deductee_pan:
     #     cheque takes Secured PO/WO lines only, and an Old-type cheque (the only kind that pays Expenses)
     #     may change only its photo. A line copied from the gross before this approval stays as the cheque
     #     was written; nothing totals it against the Expense.
-    #   * Non-project totals sum the column when they are read, so they read the net.
+    #   * Non-project totals sum the column when they are read, so they read what the landlord gets
+    #     (incl. GST); the GST is a column no total reads.
     # The approving save already ran its hooks and stamped `modified`, hence `update_modified=False`.
-    doc.db_set("amount", net, update_modified=False)
+    # The GST is set here and nowhere else; `guard_withheld_amount` locks it with the amount.
+    doc.db_set({"amount": split.landlord_gets, "gst_amount": split.gst}, update_modified=False)
     return row.name
 
 
@@ -343,26 +394,33 @@ def guard_withheld_amount(doc) -> None:
     ⚠️ THE RECORD'S GROSS IS THE ONLY COPY OF THE FULL RENT. An amount edit would leave the record
     describing a payment that no longer exists, and restating it (net / 0.9, as
     `payment_tds.restate_deduction_on_amount_change` does for a Work Order) would invent tax: the
-    tax was withheld on the rent as approved, and may already be paid under a challan.
+    tax was withheld on the rent as approved, and may already be paid under a challan. The GST is locked
+    with it (spec #1613): base + GST is the bill the split was made from.
 
     THE ONE EXEMPTION: a save flagged `BANK_AMOUNT_CORRECTION`, within the settle window
-    (`amounts_match`). The bank's few rupees are rounding, not a new rent, so the record stays as it
-    was. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`, so it never meets
+    (`amounts_match`), that moves the amount only. The bank's few rupees are rounding, not a new rent,
+    so the record and the GST stay as they were. `withhold_expense_tds`'s own net is a `db_set`, which runs no `validate`, so it never meets
     this.
     """
     if doc.is_new():
         return
     before = doc.get_doc_before_save()
-    if before is None or flt(before.get("amount"), 2) == flt(doc.get("amount"), 2):
+    if before is None:
+        return
+    amount_moved = flt(before.get("amount"), 2) != flt(doc.get("amount"), 2)
+    gst_moved = flt(before.get("gst_amount"), 2) != flt(doc.get("gst_amount"), 2)
+    if not (amount_moved or gst_moved):
         return
     record = existing_expense_deduction(doc.name)
     if not record:
         return
-    if doc.flags.get(BANK_AMOUNT_CORRECTION) and amounts_match(before.get("amount"), doc.get("amount")):
+    if (not gst_moved and doc.flags.get(BANK_AMOUNT_CORRECTION)
+            and amounts_match(before.get("amount"), doc.get("amount"))):
         return
     frappe.throw(
-        _("The tax has been withheld from {0} ({1}), so its amount stays {2}. Its other details can still "
-          "be edited.").format(doc.name, record, rupees(before.get("amount"))),
+        _("The tax has been withheld from {0} ({1}), so its amount stays {2} and its GST {3}. Its other "
+          "details can still be edited.").format(
+            doc.name, record, rupees(before.get("amount")), rupees(before.get("gst_amount"))),
         title=_("Tax withheld"),
     )
 

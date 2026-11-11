@@ -87,12 +87,12 @@ it was one adapter entry plus these two, each of which is a rule about statement
 
    ⚠️ THE BLANK HALF IS THE WHOLE POINT, AND THE TEMPTING VERSION OF THIS RULE IS WRONG. "A source
    with one amount column states Debit" mislabels real money: Cashbook mixes wallet spends with
-   top-ups and bank loads in ONE file, and its `Credit` column is deliberately unmapped, so a
-   top-up parses with a blank `Debit` and an amount of 0. Stamping `Debit` on that row would assert
+   top-ups and bank loads in ONE file, and its `Credit` column never feeds `amount` (since #1590 it
+   is read into `credit_amount` only), so a top-up parses with a blank `Debit` and an amount of 0. Stamping `Debit` on that row would assert
    that money left the account on a row where the opposite happened -- and it would do it
    invisibly, since the row would then read like every ordinary spend beside it. A blank direction
-   means "the statement did not state one", which on a top-up is exactly true: we never mapped the
-   column that would have said `Credit`.
+   means "the statement did not state one", which on a top-up is exactly true: the column that
+   would have said `Credit` is not mapped to `direction`.
 
    Like capability 3 this fills `label_field` from the SAME pass that fills the value, so the two
    can never disagree about one cell. Unlike it, a blank is NOT corrupt input and is never warned
@@ -123,6 +123,15 @@ it was one adapter entry plus these two, each of which is a rule about statement
    Porter Statement maps each of its columns under its own name, so the invoice link, the GSTINs, the
    addresses and the tax reach `services/outflow_import/porter.py` verbatim, from the same one parse
    that fills the generic fields. Every other source names only `RawRow` fields and keeps nothing extra.
+
+⚠️ AND AN EIGHTH, THE ONE CAPABILITY THAT READS MORE THAN A CELL'S VALUE (#1590).
+
+8. **A field may be mapped to a RUN OF LINK CELLS: one named column and the unnamed columns after
+   it.** `_LinksUnder` is that map form. The Cashbook Statement lists each bill link in a cell reading
+   "View Attachment N", under `Attachments` and the 3 unnamed columns after it, and the link is the
+   cell's HYPERLINK, not its text. So for a source that maps one, the workbook is read with its
+   hyperlinks (`_read_grid(..., links=...)`), which costs the values-only read's memory saving; every
+   other source keeps the values-only read. The value lands in `RawRow.bill_links`.
 
 ⚠️ SOURCE AND FORMAT ARE DIFFERENT AXES -- see below. None of the capabilities above is a format
 concern.
@@ -158,6 +167,7 @@ from dataclasses import fields as dataclass_fields
 from datetime import date, datetime
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.bill_links import LINKS_UNREADABLE_MESSAGE
 from nirmaan_stack.services.outflow_import.duplicates import row_identity_of
 from nirmaan_stack.services.outflow_import.normalize import (
     normalize_account,
@@ -166,6 +176,8 @@ from nirmaan_stack.services.outflow_import.normalize import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     CARD_STATEMENT_SOURCE,
+    CASHFREE_SOURCE,
+    ICICI_STATEMENT_SOURCE,
     PORTER_STATEMENT_SOURCE,
     source_has_preamble,
 )
@@ -337,8 +349,8 @@ class RawRow:
     slice B3a a single-DEBIT-column source states `Debit` on the rows where that column carried a
     figure, so Cashfree (payouts only) fills this on every row, while Cashbook fills it only on the
     rows that actually debited: a wallet top-up leaves it blank, because Cashbook's `Credit` column
-    is unmapped and we genuinely never read what it said. Labelling that row `Debit` would assert
-    money left the account on a row where it arrived.
+    feeds no direction (only `credit_amount`, #1590), so the direction is still unstated.
+    Labelling that row `Debit` would assert money left the account on a row where it arrived.
 
     ⚠️ THE PARSER STILL NEVER FILTERS. This RECORDS the direction; refusing to import a credit is a
     downstream judgement, and it stays downstream so the skip is visible on a staged row.
@@ -353,6 +365,21 @@ class RawRow:
     them. Empty for every source whose map names only `RawRow` fields, which is every other source.
 
     A tuple of pairs rather than a dict so the frozen row stays hashable.
+    """
+
+    credit_amount: Decimal = Decimal("0")
+    """The figure a source with a SEPARATE credit column wrote there, or 0 (#1590).
+
+    The Cashbook Statement states a refund or a wallet credit in its `Credit` column. It is kept
+    BESIDE `amount` rather than folded into it: `amount` stays the `Debit` figure, so the line kinds,
+    the gross figures and the repeat identity `(Txn Id, amount, date)` are exactly what they were.
+    Zero on every source that maps no `credit_amount` column.
+    """
+
+    bill_links: tuple[str, ...] = ()
+    """The links to the bills the employee attached, in the order the statement lists them (#1590).
+
+    Capability 8. Only the Cashbook Statement maps them; empty everywhere else. GLOSSARY: *Bill link*.
     """
 
     @property
@@ -582,6 +609,56 @@ class _FirstPopulated:
     columns: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _LinksUnder:
+    """Map form for "the cell links in this column and the `width - 1` columns after it, in order".
+
+    See capability 8 in the module docstring. The Cashbook Statement puts each bill link in a cell
+    reading "View Attachment N": the first under `Attachments`, the rest in the unnamed columns after
+    it. An unnamed column has no header to map, so the run is found by POSITION from its one named
+    column, and read from the sheet's cell hyperlinks, which a values-only read drops.
+
+    A cell's link is its hyperlink target or, for a CSV that carries no hyperlinks, the cell's own text
+    when that is an http(s) URL. Blank cells are skipped, so the value is the links in the order the
+    statement wrote them and nothing else.
+
+    ⚠️ A CELL WITH TEXT AND NO LINK REFUSES THE FILE with `unreadable` (spec #1585 code review S4). It is a
+    "View Attachment N" whose hyperlink was lost -- the workbook re-saved, or its cells copied out as values --
+    and reading it as "no bill" would import every spend as waiting for an invoice without a word.
+    """
+
+    column: str
+    width: int
+    unreadable: str
+
+
+def _link_reader_needed(column_map: dict) -> bool:
+    return any(isinstance(mapped, _LinksUnder) for mapped in column_map.values())
+
+
+def _links_of_run(marker: _LinksUnder, fieldnames, grid_row: int, grid, links) -> tuple[str, ...]:
+    """The links in one row's run of `marker`'s columns. `links` maps `(row, column)` (0-based) to a
+    cell's hyperlink target."""
+    start = next(
+        (i for i, name in enumerate(fieldnames) if (name or "").strip() == marker.column), None
+    )
+    if start is None:
+        return ()
+    cells = grid[grid_row]
+    found: list[str] = []
+    for column in range(start, start + marker.width):
+        target = (links.get((grid_row, column)) or "").strip()
+        if not target and column < len(cells):
+            text = (cells[column] or "").strip()
+            if text.lower().startswith(("https://", "http://")):
+                target = text
+        if target:
+            found.append(target)
+        elif column < len(cells) and (cells[column] or "").strip():
+            raise StatementFormatError(marker.unreadable)
+    return tuple(found)
+
+
 def _resolve_whichever(marker: _WhicheverIsPopulated, cell) -> tuple[str, str, str]:
     """(value, label, problem) for one either/or pair.
 
@@ -640,12 +717,21 @@ _CASHFREE_REQUIRED = frozenset(
 # `_DATETIME_FORMATS`, so the cell parses to midnight and the clock time is dropped. Two spends to
 # one payee on one day therefore share a timestamp and are told apart by their transfer ids, which
 # are unique -- verified across a 115-row sample.
+
+#: The Cashbook Statement's bill-link column: the first "View Attachment N" cell; 3 unnamed follow.
+CASHBOOK_ATTACHMENTS_COLUMN = "Attachments"
+
+#: The refusal for the provider's older export, which has every Cashbook column but the bill links.
+CASHBOOK_OLD_EXPORT_MESSAGE = (
+    "This is the old export without bill links. Export the Consolidated Company Account Statement."
+)
+
 _CASHBOOK_COLUMNS = {
     "transfer_id": "Txn Id",
     "added_on": "Date",
     # Capability 5, and this is the source that makes the blank half of it load-bearing. `Debit` is
-    # blank on every top-up and bank-load row -- `Credit` is deliberately unmapped -- so those rows
-    # keep a BLANK direction rather than being labelled as money going out. `_skip_reason` already
+    # blank on every top-up and bank-load row -- `Credit` feeds only `credit_amount` (#1590), never
+    # `amount` -- so those rows keep a BLANK direction rather than being labelled as money going out. `_skip_reason` already
     # tells them apart on `row_kind` and on `amount <= 0`; this only stops the parser from asserting
     # the opposite of what happened on the row itself.
     #
@@ -668,6 +754,11 @@ _CASHBOOK_COLUMNS = {
     # See capability 1 in the module docstring. `Note` is genuinely optional and often blank.
     "remarks": ("Remark", "Note"),
     "row_kind": "Type",
+    # #1590: what a refund or a wallet credit brought in. Read beside `amount`, never into it -- see
+    # `RawRow.credit_amount` -- so the blank-direction rule above still holds.
+    "credit_amount": "Credit",
+    # #1590, capability 8: the bill links, "View Attachment 1..4".
+    "bill_links": _LinksUnder(column=CASHBOOK_ATTACHMENTS_COLUMN, width=4, unreadable=LINKS_UNREADABLE_MESSAGE),
 }
 
 # ⚠️ `Remark` IS REQUIRED, AND IT IS THE ONE ENTRY HERE THAT IS NOT ABOUT IDENTIFYING A ROW. It is
@@ -677,8 +768,13 @@ _CASHBOOK_COLUMNS = {
 # `_CASHFREE_REQUIRED` exists to prevent, in its most complete form.
 #
 # `Debit` is required as a COLUMN, not as a value: it is blank on every top-up row by design.
+#
+# ⚠️ `Attachments` IS REQUIRED (#1590, ADR-0015 Amendment B decision 1): only the Cashbook Statement,
+# which carries bill links, is accepted. A file that has every other required column but not this one
+# is the provider's older export, and is refused with `CASHBOOK_OLD_EXPORT_MESSAGE` rather than the
+# generic missing-column sentence -- see `_WRONG_EXPORT_WHEN_MISSING`.
 _CASHBOOK_REQUIRED = frozenset(
-    {"Txn Id", "Date", "Type", "Debit", "Payment Status", "To", "Remark"}
+    {"Txn Id", "Date", "Type", "Debit", "Payment Status", "To", "Remark", CASHBOOK_ATTACHMENTS_COLUMN}
 )
 
 # --- ICICI current-account statement (slice B1) --------------------------------------------------
@@ -886,11 +982,18 @@ def _card_derive(raw: Callable[[str], str]) -> dict[str, str]:
 
 
 _ADAPTERS = {
-    "Cashfree": (_CASHFREE_COLUMNS, _CASHFREE_REQUIRED, None),
+    CASHFREE_SOURCE: (_CASHFREE_COLUMNS, _CASHFREE_REQUIRED, None),
     "Cashbook": (_CASHBOOK_COLUMNS, _CASHBOOK_REQUIRED, None),
-    "ICICI Bank Statement": (_ICICI_COLUMNS, _ICICI_REQUIRED, _icici_derive),
+    ICICI_STATEMENT_SOURCE: (_ICICI_COLUMNS, _ICICI_REQUIRED, _icici_derive),
     PORTER_STATEMENT_SOURCE: (_PORTER_COLUMNS, _PORTER_REQUIRED, _porter_derive),
     CARD_STATEMENT_SOURCE: (_CARD_COLUMNS, _CARD_REQUIRED, _card_derive),
+}
+
+# A required column whose absence, when every OTHER required column is there, names a known wrong file:
+# the source's own older export. That file is refused with its own sentence, which says what to export
+# instead, rather than with the generic "Missing column(s)" one.
+_WRONG_EXPORT_WHEN_MISSING = {
+    "Cashbook": (CASHBOOK_ATTACHMENTS_COLUMN, CASHBOOK_OLD_EXPORT_MESSAGE),
 }
 
 # --- ICICI narration parsing ---------------------------------------------------------------------
@@ -1060,7 +1163,7 @@ def source_can_carry_credit(source: str | None) -> bool:
 
     Read off the source's OWN column map: `True` iff some marker filling `direction` can write
     `DIRECTION_CREDIT`. ICICI's Withdrawal / Deposit pair can; Cashfree's `Amount` and Cashbook's
-    `Debit` can only ever write `Debit` (Cashbook's `Credit` column is deliberately unmapped).
+    `Debit` can only ever write `Debit` (Cashbook's `Credit` column feeds only `credit_amount`).
 
     ⚠️ DERIVED, NEVER A LIST OF NAMES. The screen hides its two Inflow tabs when this answers
     `False` for the chosen source; a name list would be a second copy of what the adapter already
@@ -1098,7 +1201,7 @@ _DATETIME_FORMATS = (
 
 
 def parse_statement(
-    content: bytes, source: str = "Cashfree", header_row: int | None = None
+    content: bytes, source: str = CASHFREE_SOURCE, header_row: int | None = None
 ) -> ParseResult:
     """Parse an uploaded statement into rows plus the batch-level figures.
 
@@ -1117,7 +1220,17 @@ def parse_statement(
     column_map, required, derive = _ADAPTERS[source]
 
     has_preamble = source_has_preamble(source)
-    grid = _read_grid(content)
+    # Capability 8: only a source that maps a run of link cells pays for reading the hyperlinks.
+    links: dict[tuple[int, int], str] | None = {} if _link_reader_needed(column_map) else None
+    grid = _read_grid(content, links=links)
+
+    wrong_export = _WRONG_EXPORT_WHEN_MISSING.get(source)
+    if wrong_export is not None and header_row is None:
+        column, message = wrong_export
+        found = _detect_header_row(grid, required - {column}, search=has_preamble)
+        if found and column not in _named_cells(grid[found - 1]):
+            raise StatementFormatError(message)
+
     bounds = locate_table(
         grid,
         required=required,
@@ -1127,14 +1240,25 @@ def parse_statement(
     )
 
     fieldnames = list(grid[bounds.header_row - 1])
-    records = _records_from_grid(grid, bounds, fieldnames, skip_blank_rows=not has_preamble)
+    records = _indexed_records_from_grid(
+        grid, bounds, fieldnames, skip_blank_rows=not has_preamble
+    )
 
     header_lookup = {h.strip(): h for h in fieldnames}
     rows: list[RawRow] = []
     warnings: list[str] = []
+    link_fields = {
+        field: mapped for field, mapped in column_map.items() if isinstance(mapped, _LinksUnder)
+    }
 
-    for position, record in enumerate(records, start=1):
-        row = _build_row(position, record, column_map, header_lookup, warnings, derive)
+    for position, (grid_row, record) in enumerate(records, start=1):
+        link_runs = {
+            field: _links_of_run(marker, fieldnames, grid_row, grid, links or {})
+            for field, marker in link_fields.items()
+        }
+        row = _build_row(
+            position, record, column_map, header_lookup, warnings, derive, link_runs
+        )
         if row is None:
             continue
         rows.append(row)
@@ -1182,7 +1306,10 @@ def _build_row(
     header_lookup: dict,
     warnings: list[str],
     derive=None,
+    link_runs: dict | None = None,
 ) -> RawRow | None:
+    link_runs = link_runs or {}
+
     def cell(header: str) -> str:
         value = record.get(header_lookup.get(header, header))
         return "" if value is None else str(value)
@@ -1235,6 +1362,8 @@ def _build_row(
             return resolved_pairs[field][0]
         if isinstance(header, _StatesWhenPopulated):
             return cell(header.column)
+        if isinstance(header, _LinksUnder):
+            return ""  # A tuple of links, not text: read from `link_runs` where the row is built.
         if isinstance(header, _FirstPopulated):
             for name in header.columns:
                 value = cell(name)
@@ -1323,6 +1452,8 @@ def _build_row(
         normalized_reference=normalize_reference(bank_reference_no),
         row_kind=raw("row_kind").strip(),
         direction=direction,
+        credit_amount=normalize_amount(raw("credit_amount")),
+        bill_links=link_runs.get("bill_links", ()),
         # Capability 7: a mapped field `RawRow` has no slot for is KEPT, never dropped.
         extra=tuple(
             (field, raw(field).strip()) for field in column_map if field not in _RAW_ROW_FIELDS
@@ -1619,6 +1750,8 @@ def _mapped_column_names(mapped) -> tuple[list[str], str]:
         return [mapped.column], ""
     if isinstance(mapped, _FirstPopulated):
         return list(mapped.columns), "the first one that has a value"
+    if isinstance(mapped, _LinksUnder):
+        return [mapped.column], ""
     if isinstance(mapped, tuple):
         return list(mapped), "joined together, in this order"
     return [mapped], ""
@@ -1672,8 +1805,11 @@ def describe_mapped_columns(source: str, header_names) -> list[dict]:
     return described
 
 
-def _records_from_grid(grid, bounds: TableBounds, fieldnames, skip_blank_rows: bool) -> list[dict]:
-    """The table's data rows as records keyed by header name. ONE builder for both formats.
+def _indexed_records_from_grid(
+    grid, bounds: TableBounds, fieldnames, skip_blank_rows: bool
+) -> list[tuple[int, dict]]:
+    """The table's data rows as `(grid row index, record keyed by header name)`. ONE builder for both
+    formats. The index is what capability 8 reads a row's link cells by (`_links_of_run`).
 
     ⚠️ A COLUMN WITH A BLANK HEADER IS SKIPPED, because nothing can map to it and Excel leaves a
     trail of them behind every cleared column.
@@ -1683,7 +1819,7 @@ def _records_from_grid(grid, bounds: TableBounds, fieldnames, skip_blank_rows: b
     be no blank row inside it, so the flag is inert on that path by construction rather than by
     accident.
     """
-    records: list[dict] = []
+    records: list[tuple[int, dict]] = []
     for index in range(bounds.first_data_row - 1, min(bounds.last_data_row, bounds.total_rows)):
         cells = grid[index]
         if skip_blank_rows and _is_blank_row(cells):
@@ -1693,11 +1829,11 @@ def _records_from_grid(grid, bounds: TableBounds, fieldnames, skip_blank_rows: b
             if not (name or "").strip():
                 continue
             record[name] = cells[position] if position < len(cells) else ""
-        records.append(record)
+        records.append((index, record))
     return records
 
 
-def _read_grid(content: bytes) -> list[list[str]]:
+def _read_grid(content: bytes, links: dict | None = None) -> list[list[str]]:
     """Turn statement bytes into ONE format-blind grid of strings. `grid[0]` is sheet row 1.
 
     THE FORMAT SEAM, and it is now lower than it was: everything downstream -- finding the header,
@@ -1708,9 +1844,12 @@ def _read_grid(content: bytes) -> list[list[str]]:
     A wholly blank row is PRESERVED as a row (an empty list from a CSV, an all-blank row from a
     workbook), because for a source with a preamble a blank row is the most load-bearing thing in
     the file -- it is where the table ends.
+
+    `links`, when given, is filled with each cell's hyperlink target keyed `(row, column)`, 0-based
+    like the grid (capability 8). A CSV has no hyperlinks, so it stays empty there.
     """
     if _is_xlsx(content):
-        return _read_xlsx_grid(content)
+        return _read_xlsx_grid(content, links)
     return _read_csv_grid(content)
 
 
@@ -1769,7 +1908,7 @@ def _read_csv_grid(content: bytes) -> list[list[str]]:
     return [list(row) for row in csv.reader(io.StringIO(text))]
 
 
-def _read_xlsx_grid(content: bytes) -> list[list[str]]:
+def _read_xlsx_grid(content: bytes, links: dict | None = None) -> list[list[str]]:
     """Every row of the FIRST worksheet of an .xlsx, as strings.
 
     ⚠️ `data_only=True` returns a formula cell's CACHED VALUE. A workbook saved by a tool that never
@@ -1785,6 +1924,11 @@ def _read_xlsx_grid(content: bytes) -> list[list[str]]:
     ⚠️ THE ITERATION IS BOUNDED AND THAT IS LOAD-BEARING, NOT TIDINESS. A real Cashfree export
     declares `<dimension ref="A1"/>` and `read_only=True` believes it. See `_MAX_SCAN_ROWS` /
     `_MAX_SCAN_COLUMNS` above for the full account; do not "simplify" the bounds away.
+
+    ⚠️ WITH `links`, THE WORKBOOK IS OPENED IN FULL (not read-only), because a read-only sheet does not
+    carry hyperlinks (capability 8). A full sheet measures its own used range from the cells it
+    loaded, so the declared-dimension lie above cannot clip it -- and the explicit bounds must NOT be
+    passed there: on a full sheet `iter_rows(max_row=...)` CREATES every cell up to the bound.
     """
     try:
         from openpyxl import load_workbook
@@ -1793,8 +1937,9 @@ def _read_xlsx_grid(content: bytes) -> list[list[str]]:
             "This server cannot read .xlsx statements. Save the sheet as .csv and upload that."
         ) from exc
 
+    keep_links = links is not None
     try:
-        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        workbook = load_workbook(io.BytesIO(content), read_only=not keep_links, data_only=True)
     except Exception as exc:
         raise StatementFormatError(
             "The uploaded file looks like a spreadsheet but could not be opened."
@@ -1806,11 +1951,25 @@ def _read_xlsx_grid(content: bytes) -> list[list[str]]:
             raise StatementFormatError("The uploaded workbook has no sheets.")
         sheet = workbook[workbook.sheetnames[0]]
 
-        # ⚠️ BOUNDED ON PURPOSE -- an unbounded `iter_rows()` obeys the sheet's DECLARED dimension,
-        # and a real Cashfree export declares `A1`. See `_MAX_SCAN_ROWS` / `_MAX_SCAN_COLUMNS`.
-        for cells in sheet.iter_rows(
-            values_only=True, max_row=_MAX_SCAN_ROWS, max_col=_MAX_SCAN_COLUMNS
-        ):
+        if keep_links:
+            if sheet.max_column >= _MAX_SCAN_COLUMNS:
+                raise StatementFormatError(_too_many_columns_message())
+            rows_of_values = []
+            for index, cells in enumerate(sheet.iter_rows()):
+                rows_of_values.append(tuple(cell.value for cell in cells))
+                for column, cell in enumerate(cells):
+                    target = getattr(getattr(cell, "hyperlink", None), "target", None)
+                    if target:
+                        links[(index, column)] = str(target)
+        else:
+            # ⚠️ BOUNDED ON PURPOSE -- an unbounded `iter_rows()` obeys the sheet's DECLARED
+            # dimension, and a real Cashfree export declares `A1`. See `_MAX_SCAN_ROWS` /
+            # `_MAX_SCAN_COLUMNS`.
+            rows_of_values = sheet.iter_rows(
+                values_only=True, max_row=_MAX_SCAN_ROWS, max_col=_MAX_SCAN_COLUMNS
+            )
+
+        for cells in rows_of_values:
             row = [("" if cell is None else str(cell)) for cell in (cells or ())]
             # Trailing empties are the padding out to `_MAX_SCAN_COLUMNS` plus whatever Excel left
             # behind when a column was cleared. Trimming them here is what makes a wholly blank row
@@ -1826,15 +1985,19 @@ def _read_xlsx_grid(content: bytes) -> list[list[str]]:
             # known at read time. A full row is the same evidence of a short read wherever it sits,
             # and this direction is the safe one -- it refuses a file we could not have read whole.
             if len(row) >= _MAX_SCAN_COLUMNS:
-                raise StatementFormatError(
-                    f"This statement has more than {_MAX_SCAN_COLUMNS} columns, which is more than "
-                    "we can read. Remove the unused columns, or save it as .csv and upload that."
-                )
+                raise StatementFormatError(_too_many_columns_message())
             grid.append(row)
     finally:
         workbook.close()
 
     return grid
+
+
+def _too_many_columns_message() -> str:
+    return (
+        f"This statement has more than {_MAX_SCAN_COLUMNS} columns, which is more than "
+        "we can read. Remove the unused columns, or save it as .csv and upload that."
+    )
 
 
 def _duplicate_transfer_ids(rows: list[RawRow], source: str = "") -> tuple[str, ...]:

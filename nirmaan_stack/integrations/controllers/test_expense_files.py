@@ -21,6 +21,7 @@ from pypdf import PdfWriter
 
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.integrations.controllers.expense_files import INVOICE_PDF_COPY_REFUSAL
+from nirmaan_stack.services.expense_type_flag_guard import ExpenseTypeFlagGuard
 
 NPE = "Non Project Expenses"
 PORTER_INVOICE = "Porter Invoice"
@@ -37,7 +38,7 @@ def _pdf(title: str) -> bytes:
     return out.getvalue()
 
 
-class TestTheInvoicePdfIsNeverCopiedOntoAnExpense(FrappeTestCase):
+class TestTheInvoicePdfIsNeverCopiedOntoAnExpense(ExpenseTypeFlagGuard, FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

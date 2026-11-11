@@ -11,6 +11,7 @@ import {
     CARD_WRONG_PASSWORD,
     canDiscardCard,
     cardAsksForPassword,
+    cardCompanyLabel,
     cardCountsLine,
     cardDiscardConfirmation,
     cardHistoryTitle,
@@ -56,11 +57,14 @@ const cardImport = (overrides: Partial<CardImport> = {}): CardImport => ({
     spends: 40,
     credits: 7,
     spends_total: 137584.99,
+    refunds: 1,
     repeats_not_saved: 0,
     discardable: true,
     created: 0,
     failed: 0,
-    to_create: 40,
+    to_create: 41,
+    spends_to_create: 40,
+    refunds_to_create: 1,
     create_running: false,
     suggest_running: false,
     expense_types: ["Misc. Expenses"],
@@ -165,6 +169,13 @@ describe("the read-only Review", () => {
             { label: "Payments / Credits", amount: 276821.73 },
             { label: "Total Amount Due", amount: 84929.28 },
         ]);
+    });
+
+    it("shows the company as printed, and says so when the statement printed none (ADR-0039 Amendment B)", () => {
+        expect(cardCompanyLabel(cardImport())).toBe("STRATOS INFRA TECHNOLOGIES PVT LTD");
+        expect(cardCompanyLabel(cardImport({ company: "ACME TRADERS LLP" }))).toBe("ACME TRADERS LLP");
+        expect(cardCompanyLabel(cardImport({ company: "" }))).toBe("Not printed");
+        expect(cardCompanyLabel(cardImport({ company: null }))).toBe("Not printed");
     });
 });
 
