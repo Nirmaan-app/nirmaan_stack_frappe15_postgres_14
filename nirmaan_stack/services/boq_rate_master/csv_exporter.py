@@ -187,11 +187,41 @@ def pricing_input_used_by(configs):
     for cid, cfg in sorted((configs or {}).items()):
         found = []
         walk(cfg, found)
+        # VRF-2b (owner R-INPUTS / R-CONV): a capacity reader's convert table READS an input too -- one use per family
+        # whose rule needs that number (VRF: HP per TR and kW per TR, each read by the 10 families with a capacity)
+        found.extend(_units_convert_uses(cfg))
+        # VRF-3b (owner 2026-11-05; a next-to fix, named in the report): VRF's `extras` read their Pricing Inputs too -- one
+        # use per table cell -- so a delete or a rename of one in use is refused like any other (`refuse_if_in_use`)
+        from nirmaan_stack.services.boq_rate_master.config_validation import extras_input_ids
+        found.extend(extras_input_ids(cfg))
         for iid in found:
             n, cats = out.get(iid, (0, []))
             if cid not in cats:
                 cats = cats + [cid]
             out[iid] = (n + 1, cats)
+    return out
+
+
+def _units_convert_uses(cfg):
+    """VRF-2b: one entry per (input, family) where a family's rule needs a number whose reader converts units through
+    that input (`list_spec.pricing.numbers[*].units.convert[*].input`). The TypeScript twin is
+    `rateMasterSpec.pricingInputUsedBy`. Never raises on a malformed config."""
+    pr = ((cfg or {}).get("list_spec") or {}).get("pricing") if isinstance(cfg, dict) else None
+    if not isinstance(pr, dict):
+        return []
+    by_input = config_validation.number_units_inputs(pr)
+    if not by_input:
+        return []
+    out = []
+    for iid, nids in sorted(by_input.items()):
+        for fam, fd in sorted((pr.get("families") or {}).items()):
+            if not isinstance(fd, dict):
+                continue
+            needs = set(fd.get("needs") or [])
+            for u in (fd.get("units") or {}).values():
+                needs |= set((u or {}).get("needs") or []) if isinstance(u, dict) else set()
+            if needs & set(nids):
+                out.append(iid)
     return out
 
 

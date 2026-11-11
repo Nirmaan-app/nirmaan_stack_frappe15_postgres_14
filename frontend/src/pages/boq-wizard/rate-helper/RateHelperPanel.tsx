@@ -21,7 +21,13 @@ import {
   itemsOnScreen,
   needPersonSentence,
   ROW_UNIT_OVERRIDE_KEY,
+  ROW_QTY_OVERRIDE_KEY,
+  EXTRAS_INCLUDES_KEY,
+  SCOPE_OVERRIDE_KEY,
   rowTotals,
+  type ExtraFieldView,
+  type ExtraLineView,
+  type ItemBlockView,
   type ItemEditOp,
   type ItemListSuggestion,
   type ItemListView,
@@ -73,6 +79,27 @@ export const NOTE_BOX_CLASS =
   "ml-1 flex gap-1 rounded border border-blue-300 bg-blue-50 px-1.5 py-1 text-blue-900 "
   + "dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-100";
 export const NOTE_ICON_CLASS = "mt-[1px] h-3 w-3 shrink-0 text-blue-600 dark:text-blue-300";
+/**
+ * VRF-3a (found in the cert): a text box that hands its value over when the pricer leaves it or presses Enter. Its draft is
+ * its own until then. The caller keys it on the committed value, so a new value from outside (a reset, another item) starts
+ * a fresh draft -- no effect syncs the prop into state (frontend/CODING_STANDARDS.md, React effects 4).
+ */
+function CommitInput({ value, className, ariaLabel, onCommit }: { value: string; className?: string; ariaLabel: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const commit = () => { if (draft !== value) onCommit(draft); };
+  return (
+    <Input
+      className={className}
+      value={draft}
+      aria-label={ariaLabel}
+      data-commit-on-blur="true"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") commit(); }}
+    />
+  );
+}
+
 /** ELR-1 (AC2): a field's TYPED note -- what to type -- in the one style both paths use (the item-list field's
  * `typedNote` and an attribute definition's `note`), inside the NOTE_BOX_CLASS box. */
 export const TYPED_NOTE_CLASS = "text-[10px] leading-tight opacity-90";
@@ -172,6 +199,13 @@ export const LONG_OPTION_CHARS = 80;
  *  ⚠️ KEYED ON LENGTH ALONE. No category, kind or attribute id may enter this function: the moment
  *  one does, this becomes an LMS special case and the next long-description category silently does
  *  not get the read-out. `test_lrd_05` greps this source to keep it that way. */
+/** VRF-10 (F5c, the VRF-9 F-1 finding; 00380 3F r217-219, 00218 r221): the 12e-2 sentence 'BoQ says "X": priced as Y (your rule).'
+ *  shows only where the block HAS a family, and never on a refused block whose raw item is the "None" sentinel (a Fan Coil
+ *  refusal) -- a sentence naming no family, or quoting "None", says nothing true. PURE. */
+export function showFamilyRawLine(b: Pick<ItemBlockView, "familyRaw" | "familyLine" | "family" | "state">): boolean {
+  return !!b.familyRaw && !b.familyLine && !!b.family && !(b.state !== "priced" && b.familyRaw.trim() === "None");
+}
+
 export function shouldShowLongOptionReadout(
   value: string | number | null | undefined,
   hasOptions: boolean,
@@ -706,6 +740,9 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                         view={itemList}
                         onEdit={(op) => setAttr(helper.id, ITEM_LIST_OVERRIDE_KEY, JSON.stringify(applyItemEdit(itemList.editState, op)))}
                         onUnit={(u) => setAttr(helper.id, ROW_UNIT_OVERRIDE_KEY, u)}
+                        onRowQty={(q) => setAttr(helper.id, ROW_QTY_OVERRIDE_KEY, q)}
+                        onIncludes={(v) => setAttr(helper.id, EXTRAS_INCLUDES_KEY, v)}
+                        onScope={(v) => setAttr(helper.id, SCOPE_OVERRIDE_KEY, v)}
                       />
                     </div>
                   )}
@@ -1194,23 +1231,231 @@ type ItemPicker = { mode: "change"; index: number } | { mode: "add" } | { mode: 
  * picker, no add button and no row total (the row owns those), and the x is shown only where the section can
  * be removed on its own (`onRemove`: an independent section; an attached one goes with its item's toggle).
  */
+/** VRF-3b (U1 / U2 / U3 / U5 / U8): the tag beside an extra field's label -- amber default, blue picked, from the BoQ. */
+function ExtraTag({ f }: { f: ExtraFieldView }) {
+  if (!f.tag || !f.tagText) return null;
+  const tone = f.tag === "default" ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+    : f.tag === "picked" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+    : f.tag === "boq" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+    : "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200";
+  return <span className={cn("rounded px-1 text-[9px] font-medium leading-none", tone)} data-testid={`extra-tag-${f.tag}`}>{f.tagText}</span>;
+}
+
+/** VRF-3b (boards 12 / 13): the extra lines of ONE unit -- each its own block, priced per Nos of the row -- and the
+ * lines the pricer removed ("You removed: ... [Put it back]"). */
+function ExtraLines({ block, index, onEdit, rateUnit }: { block: ItemBlockView; index: number; onEdit: (op: ItemEditOp) => void; rateUnit: string }) {
+  const [openOther, setOpenOther] = useState<Set<string>>(new Set());
+  const [picking, setPicking] = useState<string | null>(null);
+  const ex = block.extras!;
+  const closeOther = (key: string) => setOpenOther((s) => { const n = new Set(s); n.delete(key); return n; });
+  const field = (l: ExtraLineView, f: ExtraFieldView) => {
+    const key = `${l.id}:${f.id}`;
+    const tone = f.blank ? "border-red-500 dark:border-red-500" : f.tag === "default" ? "bg-amber-50 dark:bg-amber-950/30" : undefined;
+    const other = !!f.allowOther && (f.otherMode || openOther.has(key));
+    const set = (value: string) => onEdit({ op: "extra_set", index, line: l.id, field: f.id, value });
+    return (
+      <div key={f.id} className="space-y-0.5" data-testid={`extra-field-${f.id}`}>
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <span>{f.label}</span>
+            {f.required && <span aria-hidden="true">*</span>}
+            <ExtraTag f={f} />
+            {f.userEdited && (
+              <button
+                type="button"
+                onClick={() => { closeOther(key); onEdit({ op: "extra_undo", index, line: l.id, field: f.id }); }}
+                title="Undo my edit to this field -- restores the original value"
+                aria-label={`Undo my edit to ${f.label}`}
+                data-testid="extra-field-undo"
+              >
+                <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+              </button>
+            )}
+          </span>
+          {f.readOnly ? (
+            <span className="text-xs" data-testid={`extra-readonly-${f.id}`}>{f.value ? `${f.value}${f.suffix ? ` ${f.suffix}` : ""}` : "-"}</span>
+          ) : f.changeItem ? (
+            // K1b (owner ANSWER 2): the line's item, changed through "Change item" as on every item-list line
+            <span className="flex items-center gap-1">
+              <span className="text-xs font-semibold" data-testid="extra-item">{f.value || "-"}</span>
+              <button
+                type="button"
+                onClick={() => setPicking((p) => (p === key ? null : key))}
+                className="h-6 rounded border bg-background px-1.5 text-[11px] hover:bg-muted"
+                data-testid="extra-change-item"
+              >
+                Change item
+              </button>
+            </span>
+          ) : f.options ? (
+            <span className="flex items-center gap-1">
+              <select
+                className={cn("h-7 w-28 rounded border bg-background px-1 text-xs", tone)}
+                aria-label={`${l.title} -- ${f.label}`}
+                value={other ? OTHER_VALUE : f.value}
+                onChange={(e) => {
+                  if (e.target.value === OTHER_VALUE) { setOpenOther((s) => new Set(s).add(key)); return; }
+                  closeOther(key);
+                  set(e.target.value);
+                }}
+              >
+                <option value="">— select —</option>
+                {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                {f.allowOther && <option value={OTHER_VALUE}>{OTHER_LABEL}</option>}
+              </select>
+              {other && (
+                <CommitInput
+                  key={f.typedValue}
+                  className={cn("h-7 w-24 text-xs", tone)}
+                  value={f.typedValue}
+                  ariaLabel={`${l.title} -- ${f.label} (mm or inch)`}
+                  onCommit={set}
+                />
+              )}
+            </span>
+          ) : (
+            <Input
+              className={cn("h-7 w-28 text-xs", tone)}
+              value={f.value}
+              inputMode="decimal"
+              aria-label={`${l.title} -- ${f.label}`}
+              onChange={(e) => set(e.target.value)}
+            />
+          )}
+        </div>
+        {f.changeItem && picking === key && (
+          <div className="flex flex-col rounded-md border bg-background p-1 shadow-md" data-testid="extra-item-picker">
+            {(f.options ?? []).map((o) => (
+              <button key={o} type="button" onClick={() => { setPicking(null); set(o); }} className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted">{o}</button>
+            ))}
+            <button type="button" onClick={() => setPicking(null)} className="border-t px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-muted">Cancel</button>
+          </div>
+        )}
+        {f.note && (
+          <div className={NOTE_BOX_CLASS}>
+            <Info className={NOTE_ICON_CLASS} aria-hidden />
+            <p className="text-[10px] leading-tight">{f.note}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <>
+      {/* VRF-4 (U2, O-5): on a BoQ row, what the BoQ says this unit's price includes, as the model read it */}
+      {ex.boqNote && (
+        <div className={cn(NOTE_BOX_CLASS, "ml-3")} data-testid="extra-boq-note">
+          <Info className={NOTE_ICON_CLASS} aria-hidden />
+          <p className="text-[10px] leading-tight">{ex.boqNote}</p>
+        </div>
+      )}
+      {/* VRF-5 (owner R1 SAFEGUARD, U1): an inclusion a heading or note states -- "This row may include extras - please review" */}
+      {ex.review && (
+        <div className="ml-3 space-y-0.5 rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-testid="extra-review">
+          <div className="font-semibold">{ex.review.title}</div>
+          {ex.review.points.map((t, ti) => <div key={ti} data-testid="extra-review-point">&bull; {t}</div>)}
+        </div>
+      )}
+      {/* VRF-5 (owner R1, U1): items the BoQ lists with the unit that are no extra -- a note point each, not priced */}
+      {ex.notes && (
+        <div className={cn(NOTE_BOX_CLASS, "ml-3")} data-testid="extra-notes">
+          <Info className={NOTE_ICON_CLASS} aria-hidden />
+          <div className="text-[10px] leading-tight">
+            <div className="font-semibold">{ex.notes.title}</div>
+            {ex.notes.points.map((t, ti) => <div key={ti} data-testid="extra-notes-point">&bull; {t}</div>)}
+          </div>
+        </div>
+      )}
+      {ex.lines.map((l) => (
+        <div key={l.id} className="relative ml-3 space-y-1.5 rounded-md border border-l-4 border-l-sky-300 bg-muted/20 px-2 py-1.5 dark:border-l-sky-800" data-testid="extra-line" data-line={l.id}>
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="extra-line-heading">
+                {l.heading}
+                {/* VRF-4 (U2): the line is on this BoQ row because the model read that the unit's price includes it */}
+                {l.fromBoq && <span className="ml-1 rounded bg-sky-100 px-1 normal-case text-sky-800 dark:bg-sky-900/40 dark:text-sky-200" data-testid="extra-line-from-boq">{l.fromBoqText}</span>}
+              </div>
+              <div className="text-xs font-semibold">{l.title}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onEdit({ op: "extra_remove", index, line: l.id })}
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Remove this extra"
+              aria-label={`Remove ${l.title}`}
+              data-testid="extra-line-remove"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {l.fields.map((f) => field(l, f))}
+          {l.state === "priced" ? (
+            <div className="space-y-0.5 text-xs text-muted-foreground">
+              {l.working.map((w, wi) => <div key={wi}>{w}</div>)}
+              <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">{BOQ_RATE_LABEL}</div>
+              <FiguresRow figures={l.figures} unit={rateUnit} />
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {l.working.map((w, wi) => <div key={wi} className="text-xs text-muted-foreground">{w}</div>)}
+              {/* VRF-5 (owner R1): an accessory that cannot price is a note -- the unit still prices without it */}
+              <div className={l.optional ? "text-xs text-amber-800 dark:text-amber-300" : "text-xs text-red-700 dark:text-red-400"} data-testid="extra-line-refusal">Not priced &mdash; {l.reason}</div>
+            </div>
+          )}
+        </div>
+      ))}
+      {ex.removed.length > 0 && (
+        <div
+          className="ml-3 space-y-1 rounded border border-amber-400 bg-amber-100 px-2 py-1.5 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+          data-testid="extra-removed"
+        >
+          {ex.removed.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-2">
+              <span>You removed: {r.label}</span>
+              <button
+                type="button"
+                onClick={() => onEdit({ op: "extra_restore", index, line: r.id })}
+                className="h-6 rounded border border-amber-500 bg-background px-2 text-[11px] font-medium hover:bg-amber-50 dark:hover:bg-amber-950"
+                data-testid="extra-put-back"
+              >
+                Put it back
+              </button>
+            </div>
+          ))}
+          {ex.removedNote && <p data-testid="extra-removed-note">{ex.removedNote}</p>}
+        </div>
+      )}
+    </>
+  );
+}
+
 function ItemListBlocks({
   view,
   onEdit,
   onUnit,
+  onRowQty,
+  onIncludes,
+  onScope,
   section,
 }: {
   view: ItemListView;
   onEdit: (op: ItemEditOp) => void;
   onUnit: (unit: string) => void;
+  /** VRF-3a K2 (QR-1 (a), U9): the calculator's "BoQ quantity of this row" */
+  onRowQty?: (qty: string) => void;
+  /** VRF-3b (U6): the calculator's "This row's price includes" tick boxes (the ids ticked, comma-separated) */
+  onIncludes?: (value: string) => void;
+  /** VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice */
+  onScope?: (value: string) => void;
   section?: { heading: string; onRemove?: () => void };
 }) {
   const [picker, setPicker] = useState<ItemPicker>(null);
   // ADP-3a (U8): one id prefix per instance -- a nested section is its own instance, so ids never collide
   const fieldUid = useId();
   // SLICE 12e-3a (owner D4 / Q2a / M5): on a row made of sections every LINE counts -- each item and each section
-  const n = view.sections ? view.sections.lines : view.items.length;
-  const bad = view.sections ? view.sections.bad : view.items.filter((b) => b.state !== "priced").length;
+  // VRF-3b (U4): on a row with extras every unit and every extra is a line
+  const n = view.sections ? view.sections.lines : view.lineCount ? view.lineCount.lines : view.items.length;
+  const bad = view.sections ? view.sections.bad : view.lineCount ? view.lineCount.bad : view.items.filter((b) => b.state !== "priced").length;
   const pick = (family: string) => {
     if (!picker) return;
     onEdit(picker.mode === "change" ? { op: "change_family", index: picker.index, family }
@@ -1251,6 +1496,61 @@ function ItemListBlocks({
   );
   return (
     <div className="space-y-2" data-testid="item-list-blocks">
+      {/* VRF-4 (U4: R-WS, D-5 "option D", D-9): the model read working + standby words -- a SOLID red bar above the card and
+          the row's unit and quantity ringed red; the price is one unit */}
+      {!section && view.standbyBar && (
+        <div className="rounded-md bg-red-600 px-2 py-1.5 text-white dark:bg-red-700" data-testid="item-standby-bar">
+          <div className="text-xs font-bold uppercase tracking-wide">{view.standbyBar.title}</div>
+          {view.standbyBar.lines.map((l, li) => (
+            <p key={li} className="mt-0.5 text-[11px] font-medium leading-snug">{l}</p>
+          ))}
+        </div>
+      )}
+      {!section && view.standbyBar && (
+        <div className="inline-block rounded-full border-2 border-red-600 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:text-red-400" data-testid="item-standby-ring">
+          {view.standbyBar.ring}
+        </div>
+      )}
+      {/* VRF-3a K2 (U4 / U5 / U6, boards 9 / 11): a per-Set or whole-lot row -- a SOLID bar above the card, orange when the
+          row prices on the team rule, red when it does not, and the row's unit and quantity ringed in the same colour */}
+      {!section && view.unitBar && (
+        <div
+          className={cn(
+            "rounded-md px-2 py-1.5 text-white",
+            view.unitBar.tone === "red" ? "bg-red-600 dark:bg-red-700" : "bg-orange-500 dark:bg-orange-600",
+          )}
+          data-testid="item-unit-bar"
+          data-tone={view.unitBar.tone}
+        >
+          <div className="text-xs font-bold uppercase tracking-wide">{view.unitBar.title}</div>
+          {view.unitBar.lines.map((l, li) => (
+            <p key={li} className="mt-0.5 text-[11px] font-medium leading-snug">{l}</p>
+          ))}
+        </div>
+      )}
+      {!section && view.unitBar?.ring && (
+        <div
+          className={cn(
+            "inline-block rounded-full border-2 px-2 py-0.5 text-[11px] font-semibold",
+            view.unitBar.tone === "red" ? "border-red-600 text-red-700 dark:text-red-400" : "border-orange-500 text-orange-700 dark:text-orange-400",
+          )}
+          data-testid="item-unit-ring"
+        >
+          {view.unitBar.ring}
+        </div>
+      )}
+      {!section && view.rowQtyField && (
+        <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-row-qty">
+          <span className="text-muted-foreground">{view.rowQtyField.label}</span>
+          <Input
+            className="h-7 w-28 text-xs"
+            value={view.rowQtyField.value}
+            inputMode="decimal"
+            aria-label={view.rowQtyField.label}
+            onChange={(e) => onRowQty?.(e.target.value)}
+          />
+        </label>
+      )}
       {section && view.items.length === 0 && view.pickFamily && (
         // SLICE 12e-3b (owner D1b): a section open with nothing picked -- its heading and the family list, the
         // same list "+ Add insulation" opens; a pick starts the section blank for that family (S1)
@@ -1294,6 +1594,53 @@ function ItemListBlocks({
           </select>
         </label>
       )}
+      {/* VRF-3b (U6, board 12): the calculator's "This row's price includes" -- the extras each unit then carries */}
+      {!section && view.extrasIncludes && (
+        <div className="rounded-md border px-2 py-1.5 text-xs" data-testid="extras-includes">
+          <div className="mb-1 text-[11px] font-semibold text-muted-foreground">{view.extrasIncludes.title}</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {view.extrasIncludes.options.map((o) => (
+              <label key={o.id} className={cn("inline-flex items-center gap-1", o.disabled && "opacity-60")} title={o.note}>
+                <input
+                  type="checkbox"
+                  checked={o.checked}
+                  disabled={o.disabled}
+                  data-testid={`extras-include-${o.id}`}
+                  onChange={(e) => {
+                    // VRF-8 (R-F3): an include whose lines were removed with their x stays in the list (unticked), so "Put it back" works
+                    const ids = new Set(view.extrasIncludes!.options.filter((x) => x.checked || x.removed).map((x) => x.id as string));
+                    if (e.target.checked) ids.add(o.id); else ids.delete(o.id);
+                    onIncludes?.([...ids].join(","));
+                  }}
+                />
+                {o.label}
+              </label>
+            ))}
+          </div>
+          {view.extrasIncludes.options.filter((o) => o.note).map((o) => (
+            <p key={o.id} className="mt-0.5 text-[10px] text-muted-foreground" data-testid="extras-include-note">{o.note}</p>
+          ))}
+        </div>
+      )}
+      {/* VRF-5 (owner R4-R8, U5): the calculator's "BoQ scope" choice; on a supply-only / installation-only row the note */}
+      {!section && view.scope?.picker && (
+        <label className="flex items-center justify-between gap-2 text-xs" data-testid="item-scope-picker">
+          <span className="text-muted-foreground">{view.scope.picker.title}</span>
+          <select
+            className="h-7 rounded border bg-background px-1 text-xs"
+            value={view.scope.picker.value}
+            onChange={(e) => onScope?.(e.target.value)}
+            aria-label={view.scope.picker.title}
+          >
+            {view.scope.picker.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+      )}
+      {!section && view.scope?.note && (
+        <div className="rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] font-medium leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-testid="item-scope-note">
+          {view.scope.note}
+        </div>
+      )}
       {/* SLICE 12c-U (owner U2 / U3): the row stated no unit -- or "rate only" -- and was priced in
           the catalogue's unit for its item. The note says so IN WORDS, because the figure alone
           would look as though the BoQ had named that unit. Present only on such a row. */}
@@ -1302,13 +1649,38 @@ function ItemListBlocks({
       {!section && view.items.some((b) => b.fields.some((f) => f.required || f.group)) && (
         <p className="text-[10px] text-muted-foreground" data-testid="needed-to-price-note">* needed to price</p>
       )}
+      {/* VRF-3a (U1 / U2 / U3, boards 6-8): the helper's split on this row -- what it did, the condition the row states, and
+          once the pricer changed it, the amber box with "Reset to the helper's split" */}
+      {!section && view.split && (
+        <div className="space-y-1" data-testid="item-split">
+          <UnitNoteBox note={view.split.note} testId="item-split-note" />
+          {view.split.condition && <UnitNoteBox note={view.split.condition} testId="item-split-condition" />}
+          {view.split.sumNote && <UnitNoteBox note={view.split.sumNote} testId="item-split-sum-note" />}
+          {view.split.changed && (
+            <div
+              className="space-y-1 rounded border border-amber-400 bg-amber-100 px-2 py-1.5 text-[11px] leading-snug text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+              data-testid="item-split-changed"
+            >
+              <p>{view.split.changed}</p>
+              {view.split.linesNote && <p data-testid="item-split-lines-note">{view.split.linesNote}</p>}
+              <button
+                type="button"
+                onClick={() => onEdit({ op: "reset_split" })}
+                className="h-6 rounded border border-amber-500 bg-background px-2 text-[11px] font-medium hover:bg-amber-50 dark:hover:bg-amber-950"
+              >
+                {view.split.resetLabel}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {view.items.map((b, i) => (
         <Fragment key={i}>
         <div className="relative space-y-1.5 rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
           <div className="flex items-center justify-between gap-1.5">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {i + 1}</>} &middot; {b.source === "model" ? "identified by model" : "added by you"}
+                {section ? <span data-testid="item-section-heading">{section.heading}</span> : <>Item {b.lineNo ?? i + 1}</>} &middot; {b.source === "model" ? "identified by model" : b.source === "helper" ? <span data-testid="item-helper-heading">{b.changedByYou ? "changed by you" : "split by the helper"}</span> : "added by you"}
               </div>
               {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
                   amber with a "default" tag, exactly like every other assumed value on this panel. */}
@@ -1322,6 +1694,24 @@ function ItemListBlocks({
                   <span className="ml-1 text-[10px] font-normal text-amber-700 dark:text-amber-400">default</span>
                 )}
               </div>
+              {/* VRF-6 U11 (owner 2026-11-09 18:52; K1d 23:51 "only 2"): for a stated size no single unit matched, ONE toggle
+                  between the helper's pick and the next best option. The automatic price never moves: only a step re-prices
+                  the row's lines. */}
+              {!section && b.cover && (
+                <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px]" data-testid="item-cover">
+                  <span className={cn(b.cover.userChosen && "rounded bg-amber-50 px-1 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200")} data-testid="item-cover-label">
+                    {b.cover.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onEdit({ op: "cover_option", index: i, option: b.cover!.next })}
+                    className="h-6 rounded border bg-background px-1.5 text-[11px] font-medium hover:bg-muted"
+                    data-testid="item-cover-next"
+                  >
+                    {b.cover.userChosen ? "Back to the helper's pick" : "Next best option"}
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               <button
@@ -1343,7 +1733,15 @@ function ItemListBlocks({
               )}
             </div>
           </div>
-          {b.familyRaw && !b.familyLine && (
+          {/* VRF-3a (U1): a line of the helper's split says where it came from */}
+          {b.helperLine && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400" data-testid="item-helper-line">
+              {b.helperLine}
+            </p>
+          )}
+          {/* VRF-10 (F5c, the VRF-9 F-1 finding; 00380 3F r217-219): never on a block with no family ("priced as  (your rule)"),
+              nor on a refused block whose raw item is the "None" sentinel (the Fan Coil refusal rows) */}
+          {showFamilyRawLine(b) && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
               BoQ says &ldquo;{b.familyRawLabel ?? b.familyRaw}&rdquo;: priced as {b.family} (your rule).
             </p>
@@ -1501,6 +1899,14 @@ function ItemListBlocks({
                                      ...(e.target.value !== f.gate.equals ? { dropSection: f.gate.section } : {}) });
                             return;
                           }
+                          if (f.unitPicker) {
+                            // VRF-2b (owner QR-1 U1 A; found in the cert): a field with a unit picker sends the pick as ONE
+                            // operation -- the value, the box closed and the picker's value dropped together -- because
+                            // two calls here are each applied to the same render's state and the second drops the first,
+                            // which left a picked "16HP" read in the picker's TR. Every other field is unchanged.
+                            onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value, other: false });
+                            return;
+                          }
                           onEdit({ op: "set_other", index: i, id: f.id, on: false });
                           onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });
                         }}
@@ -1515,7 +1921,18 @@ function ItemListBlocks({
                         ))}
                         {f.allowOther && <option value={OTHER_VALUE}>{OTHER_LABEL}</option>}
                       </select>
-                      {f.allowOther && otherMode(f) && (
+                      {f.allowOther && otherMode(f) && f.splitOnCommit && (
+                        // VRF-3a (found in the cert): a split family's size box hands its text over on leaving the box
+                        // or Enter -- never mid-typing, so "60 HP (18+18+24)" is read whole
+                        <CommitInput
+                          key={f.typedValue}
+                          className={cn("h-7 w-20 text-xs", tone)}
+                          value={f.typedValue}
+                          ariaLabel={`${f.label} -- the value the BoQ states`}
+                          onCommit={(v) => onEdit({ op: "set_attr", index: i, id: f.id, value: v })}
+                        />
+                      )}
+                      {f.allowOther && otherMode(f) && !f.splitOnCommit && (
                         <Input
                           className={cn("h-7 w-20 text-xs", tone)}
                           /**
@@ -1528,6 +1945,21 @@ function ItemListBlocks({
                           aria-label={`${f.label} -- the value the BoQ states`}
                           onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
                         />
+                      )}
+                      {/* VRF-2b (owner Q3 / U1): the unit picker, just beside the typing box -- only where the config
+                          declares convertible units; default = the item's own unit; a unit word typed in the box wins */}
+                      {f.allowOther && otherMode(f) && f.unitPicker && (
+                        <select
+                          className={cn("h-7 w-14 rounded border bg-background px-1 text-xs", tone)}
+                          value={f.unitPicker.value}
+                          aria-label={`${f.label} -- the unit of the value typed`}
+                          data-testid={`unit-picker-${f.id}`}
+                          onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.unitPicker!.id, value: e.target.value })}
+                        >
+                          {f.unitPicker.units.map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                        </select>
                       )}
                     </span>
                   ) : f.readOnly ? (
@@ -1590,6 +2022,59 @@ function ItemListBlocks({
               </div>
             );
           })}
+          {/* VRF-3a K2 (U5, board 11): a refnet on a Set row -- what the row covers and the system's unit counts, each a typed
+              field with its one-line note; the formula and the case's sentence below them */}
+          {b.setCount && (
+            <div className="space-y-1 rounded border border-orange-300 bg-orange-50 px-2 py-1.5 dark:border-orange-800 dark:bg-orange-950/30" data-testid="item-set-count">
+              {b.setCount.fields.map((f) => (
+                <label key={f.id} className="block text-xs">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      {f.label}
+                      {/* VRF-3b (U8): a count the pricer typed has its undo arrow */}
+                      {f.edited && (
+                        <button
+                          type="button"
+                          onClick={(ev) => { ev.preventDefault(); onEdit({ op: "undo_attr", index: i, id: f.id }); }}
+                          title="Undo my edit to this field -- restores the original value"
+                          aria-label={`Undo my edit to ${f.label}`}
+                          data-testid="item-set-count-undo"
+                        >
+                          <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        </button>
+                      )}
+                    </span>
+                    {f.options ? (
+                      <select
+                        className={cn("h-7 max-w-[60%] rounded border bg-background px-1 text-xs", f.value === "" && "border-red-500")}
+                        value={f.value}
+                        aria-label={f.label}
+                        onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                      >
+                        <option value="">- select -</option>
+                        {f.options.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        className={cn("h-7 w-28 text-xs", f.value === "" && "border-red-500")}
+                        value={f.value}
+                        inputMode="numeric"
+                        aria-label={f.label}
+                        onChange={(e) => onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value })}
+                      />
+                    )}
+                  </span>
+                  {f.note && <span className="block text-[10px] leading-tight text-muted-foreground">{f.note}</span>}
+                </label>
+              ))}
+              {b.setCount.formula && <p className="text-[11px] text-orange-900 dark:text-orange-200" data-testid="item-set-formula">{b.setCount.formula}</p>}
+              <p className={cn("text-[11px] font-medium", b.setCount.pieces === null && !b.setCount.typed ? "text-red-700 dark:text-red-400" : "text-orange-900 dark:text-orange-200")} data-testid="item-set-sentence">
+                {b.setCount.sentence}
+              </p>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-2 text-xs">
             {/* SLICE 6b (owner V7): how many of THIS item make up ONE unit of the row -- the row's own quantity
                 plays no part in the rate (the module never reads it).
@@ -1599,7 +2084,7 @@ function ItemListBlocks({
                 tag every other assumed value carries. Nothing reads a quantity from the row. */}
             <span className="flex items-center gap-1 text-muted-foreground">
               {/* ADP-3a (U8): the quantity box is named by this label (it had only a wrapping one) */}
-              <label htmlFor={`${fieldUid}-${i}-qty`}>How many in one {view.unit} of this row</label>
+              <label htmlFor={`${fieldUid}-${i}-qty`}>{view.qtyLabel ?? <>How many in one {view.unit} of this row</>}</label>
               {/* SLICE 12e-3c (owner F10): the quantity is the item's this section sits under, until typed here */}
               {b.qtyMirrorTag && (
                 <span
@@ -1617,7 +2102,24 @@ function ItemListBlocks({
                   default
                 </span>
               )}
+              {/* VRF-3b (U8, owner 14:20 / 14:56): the quantity the pricer typed has its own undo arrow, like every field */}
+              {view.editState.items[i]?.qty !== undefined && !b.qtyMirrorTag && (
+                <button
+                  type="button"
+                  onClick={() => onEdit({ op: "undo_qty", index: i })}
+                  title="Undo my edit to this field -- restores the original value"
+                  aria-label="Undo my edit to the quantity"
+                  data-testid="item-qty-undo"
+                >
+                  <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                </button>
+              )}
             </span>
+            {/* VRF-3a K2 (U5): a refnet's withheld pieces box -- blank, ringed red (the box's own classes are unchanged) */}
+            <span
+              className={cn("inline-block rounded-md", b.setCount && b.setCount.pieces === null && !b.setCount.typed && "ring-2 ring-red-600")}
+              data-testid={b.setCount ? "item-set-pieces" : undefined}
+            >
             <Input
               id={`${fieldUid}-${i}-qty`}
               className={cn("h-7 w-28 text-xs", b.qtyDefaulted && "bg-amber-50 dark:bg-amber-950/30")}
@@ -1625,6 +2127,7 @@ function ItemListBlocks({
               inputMode="decimal"
               onChange={(e) => onEdit({ op: "set_qty", index: i, qty: e.target.value })}
             />
+            </span>
           </div>
           {b.state === "priced" ? (
             <div className="space-y-0.5 text-xs text-muted-foreground">
@@ -1643,6 +2146,8 @@ function ItemListBlocks({
         </div>
         {/* SLICE 12e-3a (owner 13:40): this item's own sections, directly under it */}
         {(b.sections ?? []).map(drawSection)}
+        {/* VRF-3b (U1-U5, boards 12 / 13): the extras this unit's price includes, each its own line under the unit */}
+        {b.extras && <ExtraLines block={b} index={i} onEdit={onEdit} rateUnit={view.rateUnit ?? view.unit} />}
         </Fragment>
       ))}
       {/* SLICE 12e-3a (owner 13:42): the sections that belong to no item, after the items */}
@@ -1703,6 +2208,8 @@ function ItemListBlocks({
         ) : (
           <div className="mt-0.5 text-xs">
             {n === 0 ? "No items yet." : needPersonSentence(bad, n)}
+            {/* VRF-8 (U8, owner 13:56 / 14:50): a refused row names its reason in the row total */}
+            {view.reason && <div className="mt-0.5" data-testid="item-row-total-reason">{view.reason}</div>}
           </div>
         )}
       </div>}

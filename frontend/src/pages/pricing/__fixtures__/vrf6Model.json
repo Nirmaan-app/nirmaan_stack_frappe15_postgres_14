@@ -1,0 +1,972 @@
+{
+ "_about": "VRF-6 (owner rulings 2026-11-08 / 09, team 10:41-10:45, pre-VRF-6 13:02-13:45): the hvac_vrf keys the K1 tests and the v62 mint share. Read by vrf6Model.test.ts and scripts/_instruments/mint_hvac_v62_vrf6.py; test_vrf_v62 proves the asset equals it.",
+ "accessories": [
+  {
+   "id": "frame",
+   "label": "MS frame / stand",
+   "title": "MS frame / stand for ODU",
+   "roles": [
+    "outdoor"
+   ],
+   "family": "MS frame / stand for ODU",
+   "input": "vrf_acc_frame_per_outdoor",
+   "unit_word": "Nos"
+  },
+  {
+   "id": "gas",
+   "label": "Gas charge",
+   "title": "Extra gas charge R-410",
+   "roles": [
+    "outdoor"
+   ],
+   "family": "Refrigerant Gas Filling (R-410)",
+   "unit_word": "Kg",
+   "qty_per_size": {
+    "input": "vrf_acc_gas_kg_per_hp",
+    "line": "Gas charge: {size} HP outdoor unit -> {qty} {unit} (kg = HP of the outdoor unit, owner team rule 2026-11-09)"
+   }
+  },
+  {
+   "id": "mcb",
+   "label": "MCB",
+   "title": "MCB (4-pole)",
+   "roles": [
+    "outdoor"
+   ],
+   "unit_word": "Nos",
+   "electrical": {
+    "category": "db_switchgear",
+    "discipline": "Electrical",
+    "item_attr": "mcb1_item",
+    "qty_attr": "mcb1_qty",
+    "label": "Electrical",
+    "fill": {
+     "db_shell_item": "None",
+     "mcb2_item": "None",
+     "mcb3_item": "None",
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None",
+     "db_shell_qty": "0",
+     "mcb2_qty": "0",
+     "mcb3_qty": "0",
+     "mcb4_qty": "0",
+     "mcb5_qty": "0",
+     "enclosure_qty": "0"
+    },
+    "match": {
+     "kind": "db_switchgear_item",
+     "attrs": {
+      "device": "MCB",
+      "pole": "FP",
+      "curve": "C"
+     },
+     "rating_attr": "amp_a",
+     "step_up_line": "Electrical does not stock a {want} A MCB 4-pole - priced at the next stocked rating: {item} (owner team rule 2026-11-09)"
+    },
+    "schedule": [
+     {
+      "max": 5,
+      "input": "vrf_acc_mcb_elcb_upto_5hp_amp"
+     },
+     {
+      "max": 6,
+      "input": "vrf_acc_mcb_elcb_6hp_amp"
+     },
+     {
+      "max": 8,
+      "input": "vrf_acc_mcb_elcb_8hp_amp"
+     },
+     {
+      "max": 10,
+      "input": "vrf_acc_mcb_elcb_10hp_amp"
+     },
+     {
+      "max": 12,
+      "input": "vrf_acc_mcb_elcb_12hp_amp"
+     },
+     {
+      "max": 14,
+      "input": "vrf_acc_mcb_elcb_14hp_amp"
+     },
+     {
+      "max": 16,
+      "input": "vrf_acc_mcb_elcb_16hp_amp"
+     },
+     {
+      "max": 18,
+      "input": "vrf_acc_mcb_elcb_18hp_amp"
+     },
+     {
+      "max": 20,
+      "input": "vrf_acc_mcb_elcb_20hp_amp"
+     },
+     {
+      "max": 22,
+      "input": "vrf_acc_mcb_elcb_22hp_amp"
+     },
+     {
+      "max": 24,
+      "input": "vrf_acc_mcb_elcb_24hp_amp"
+     },
+     {
+      "max": 26,
+      "input": "vrf_acc_mcb_elcb_26hp_amp"
+     }
+    ],
+    "alias": {
+     "words": "\\bisolator\\b",
+     "line": "BoQ says isolator - priced as this MCB + ELCB set ({item} and its ELCB; owner team rule 2026-11-09)"
+    }
+   }
+  },
+  {
+   "id": "elcb",
+   "label": "ELCB",
+   "title": "ELCB 300 mA (4-pole)",
+   "roles": [
+    "outdoor"
+   ],
+   "unit_word": "Nos",
+   "electrical": {
+    "category": "db_switchgear",
+    "discipline": "Electrical",
+    "item_attr": "mcb1_item",
+    "qty_attr": "mcb1_qty",
+    "label": "Electrical",
+    "fill": {
+     "db_shell_item": "None",
+     "mcb2_item": "None",
+     "mcb3_item": "None",
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None",
+     "db_shell_qty": "0",
+     "mcb2_qty": "0",
+     "mcb3_qty": "0",
+     "mcb4_qty": "0",
+     "mcb5_qty": "0",
+     "enclosure_qty": "0"
+    },
+    "match": {
+     "kind": "db_switchgear_item",
+     "attrs": {
+      "device": "RCCB",
+      "pole": "FP"
+     },
+     "rating_attr": "amp_a",
+     "step_up_line": "Electrical does not stock a {want} A ELCB 300 mA 4-pole - priced at the next stocked rating: {item} (owner team rule 2026-11-09)",
+     "name_words": "300\\s*mA"
+    },
+    "schedule": [
+     {
+      "max": 5,
+      "input": "vrf_acc_mcb_elcb_upto_5hp_amp"
+     },
+     {
+      "max": 6,
+      "input": "vrf_acc_mcb_elcb_6hp_amp"
+     },
+     {
+      "max": 8,
+      "input": "vrf_acc_mcb_elcb_8hp_amp"
+     },
+     {
+      "max": 10,
+      "input": "vrf_acc_mcb_elcb_10hp_amp"
+     },
+     {
+      "max": 12,
+      "input": "vrf_acc_mcb_elcb_12hp_amp"
+     },
+     {
+      "max": 14,
+      "input": "vrf_acc_mcb_elcb_14hp_amp"
+     },
+     {
+      "max": 16,
+      "input": "vrf_acc_mcb_elcb_16hp_amp"
+     },
+     {
+      "max": 18,
+      "input": "vrf_acc_mcb_elcb_18hp_amp"
+     },
+     {
+      "max": 20,
+      "input": "vrf_acc_mcb_elcb_20hp_amp"
+     },
+     {
+      "max": 22,
+      "input": "vrf_acc_mcb_elcb_22hp_amp"
+     },
+     {
+      "max": 24,
+      "input": "vrf_acc_mcb_elcb_24hp_amp"
+     },
+     {
+      "max": 26,
+      "input": "vrf_acc_mcb_elcb_26hp_amp"
+     }
+    ]
+   }
+  },
+  {
+   "id": "drain_pump",
+   "label": "Drain pump",
+   "title": "Drain pump",
+   "roles": [
+    "indoor"
+   ],
+   "family": "Drain Pump",
+   "input": "vrf_acc_drain_pump_per_indoor",
+   "unit_word": "Nos",
+   "follow_unit_brand": {
+    "line": "no {brand} {item} is stocked - priced as {got} (owner Q-pre 5)"
+   },
+   "builtin": {
+    "words": "\\b(?:built[\\s-]*in|in[\\s-]*built)\\s+(?:condensate\\s+)?drain\\s+pump",
+    "line": "BoQ says built-in drain pump - added as a separate pump, please check (owner Q1)"
+   }
+  },
+  {
+   "id": "remote",
+   "label": "Remote",
+   "title": "Remote controller",
+   "roles": [
+    "indoor"
+   ],
+   "family": "Remote Controller",
+   "choice": {
+    "attr": "remote_type",
+    "default": "Cordless",
+    "words": {
+     "Wired": "\\b(?:wired|corded|with\\s+wire)\\b",
+     "Cordless": "\\bcordless\\b|\\bwire\\s*-?\\s*less\\b"
+    },
+    "first_words": {
+     "Cordless": "\\bcorded\\s*-?\\s*less\\b|\\bcord\\s+less\\b|\\bcorded\\s*(?:/|or|and|&)\\s*cordless\\b|\\bcordless\\s*(?:/|or|and|&)\\s*corded\\b|\\bwired\\s*(?:/|or|and|&)\\s*wireless\\b|\\bwireless\\s*(?:/|or|and|&)\\s*wired\\b"
+    },
+    "model_attr": "remote_type",
+    "read_notes": true
+   },
+   "input": "vrf_acc_remote_per_indoor",
+   "unit_word": "Nos",
+   "follow_unit_brand": {
+    "line": "no {brand} {item} is stocked - priced as {got} (owner Q-pre 5)"
+   }
+  },
+  {
+   "id": "refnet",
+   "label": "Refnet",
+   "title": "Refnet / Y-joint",
+   "roles": [
+    "indoor"
+   ],
+   "family": "Refnet/Y-Joint",
+   "input": "vrf_acc_refnet_per_indoor",
+   "unit_word": "Nos",
+   "follow_unit_brand": {
+    "line": "no {brand} {item} is stocked - priced as {got} (owner Q-pre 5)"
+   }
+  }
+ ],
+ "accessory_includes": {
+  "frame": "includes_frame",
+  "gas": "includes_gas",
+  "drain_pump": "includes_drain_pump",
+  "remote": "includes_remote",
+  "refnet": "includes_refnet",
+  "mcb": "includes_mccb",
+  "elcb": "includes_mccb"
+ },
+ "safeguard_add": {
+  "match": "category",
+  "control_wiring": {
+   "words": "\\bcontrol\\s+wiring\\b",
+   "line": "Communication cable: the heading says \"control wiring\" - included as the communication cable (owner Q-pre 11)"
+  },
+  "note_wins": {
+   "words": "\\bcabl\\w*[^.|]{0,80}\\b(?:quantified|measured|paid|quoted|considered|billed)\\s+separately\\b",
+   "ids": [
+    "power",
+    "comm"
+   ],
+   "line": "{label}: NOT added - the BoQ note says \"{said}\" (a note wins over the heading, owner Q7)"
+  },
+  "lines": {
+   "not_added": "{label}: stated in {where}{wording} - NOT added: {why}",
+   "where_calculator": "your tick",
+   "also_own_row": "; the BoQ also quotes it on its own row ({rows})",
+   "role_outdoor": "applies to outdoor units only (owner Q2 / Q8)",
+   "role_indoor": "applies to indoor units only",
+   "no_extras": "no extras are added on {family} (interim until the team's extras list, owner Q-pre 2)",
+   "copper_usual": "Copper piping is usually quoted separately in a VRF BoQ - please check the sheet (owner Q-pre 13)"
+  }
+ },
+ "own_row_add": {
+  "copper": {
+   "categories": [
+    "hvac_piping"
+   ],
+   "category_not_families": {
+    "hvac_piping": [
+     "CPVC",
+     "UPVC",
+     "PVC",
+     "GI",
+     "MS",
+     "HDPE",
+     "PPR"
+    ]
+   }
+  },
+  "insulation": {
+   "categories": [
+    "hvac_insulation",
+    "hvac_piping"
+   ],
+   "category_words": {
+    "hvac_piping": [
+     "\\binsulat",
+     "\\bnitrile\\b",
+     "\\belastomeric\\b"
+    ]
+   }
+  },
+  "power": {
+   "categories": [
+    "hvac_cables"
+   ]
+  },
+  "comm": {
+   "categories": [
+    "hvac_cables"
+   ]
+  },
+  "frame": {
+   "families": [
+    "MS Angle Base Frame Structure",
+    "MS frame / stand for ODU"
+   ]
+  },
+  "remote": {
+   "words": [
+    "\\bremote\\s*(?:control|handset)"
+   ]
+  },
+  "mcb": {
+   "words": [
+    "\\bmccb\\b",
+    "\\bmcb\\b",
+    "\\belcb\\b",
+    "\\brccb\\b",
+    "\\bisolator\\b"
+   ]
+  },
+  "elcb": {
+   "words": [
+    "\\bmccb\\b",
+    "\\bmcb\\b",
+    "\\belcb\\b",
+    "\\brccb\\b",
+    "\\bisolator\\b"
+   ]
+  }
+ },
+ "own_row_drop": [
+  "mccb"
+ ],
+ "scope_add": {
+  "options": [
+   "Supply + installation",
+   "Supply only",
+   "Installation only",
+   "Installation only (supply quoted on another row)"
+  ],
+  "install_only_normal": "Installation only (supply quoted on another row)",
+  "conflict": {
+   "words": "\\b(?:unit\\s+)?(?:rates?|prices?|costs?)\\b[^.|]{0,160}?\\binclud\\w*[^.|]{0,200}?\\binstallation\\b",
+   "with_row": "BoQ: the row says supply but a note says \"{said}\"; this sheet quotes installation on its own row ({rows}) - supply only (owner Q5).",
+   "no_row": "BoQ: the row says supply but a note says \"{said}\" and this sheet has no installation row for it - priced as supply + installation (owner Q5)."
+  },
+  "supply_row": {
+   "normal_note": "BoQ says installation only - no supply. This sheet quotes the supply of this item on its own row, so the normal installation rate applies (no uplift).",
+   "with_row": "Supply row(s) on this sheet: {rows} (owner 11:50 / 11:55).",
+   "no_row": "This sheet has no supply row for this item, so the installation-only uplift applies (owner 11:50 / 11:55)."
+  }
+ },
+ "split_add": {
+  "stated_times": true,
+  "split_over_top": {
+   "line": "Module {module} {unit} is above the largest single unit ({top} {unit}), so that module is split: {layers} {unit} (owner Q4)"
+  },
+  "pair_first": {
+   "mode": "single_unless_cheaper",
+   "max_units": 2,
+   "line": "{total} {unit} is not a stocked size: the pair {layers} {unit} ({excess} {unit} over, cost {pair_cost}) is cheaper than the {up} {unit} single that covers it (cost {up_cost}), so the helper used {layers} {unit} (owner Q3).",
+   "single_line": "{total} {unit} is not a stocked size: the single {up} {unit} unit covers it ({up_excess} {unit} over, cost {up_cost}) and is cheaper than any pair that covers it (the cheapest, {layers} {unit}, costs {pair_cost}) (owner Q3)."
+  },
+  "many_line": "This row is split into {n} modules - check the BoQ allows that many (owner F8 / Q4)."
+ },
+ "lines_add": {
+  "length_per_item": "1",
+  "length_cable_words": "\\b(?:cable|cord|wire|wiring|flexible|plug)\\b",
+  "length_pipe_words": "\\b(?:pipe|piping|tube|tubing|refrigerant\\s+line)\\b",
+  "cable_kind_always": "1",
+  "drain_cable_words": "\\bdrain\\s*pump\\b",
+  "drain_cable_line": "Power cable: NOT added - the BoQ's cabling \"{said}\" is for the drain pump, not the unit's power cable (owner F11)",
+  "drain_cable_note_words": "\\bcabl\\w*[^.|]{0,120}?\\bdrain\\s*pump\\b",
+  "power_cable_words": "\\bpower\\s+(?:supply\\s+)?cabl|\\b\\d+(?:\\.\\d+)?\\s*(?:c|cores?)\\s*[x*]\\s*\\d"
+ },
+ "prepare": {
+  "spaced_decimal": {
+   "attr": "capacity"
+  },
+  "family_by_unit": [
+   {
+    "family": "MS Angle Base Frame Structure",
+    "unit_class": "count",
+    "to": "MS frame / stand for ODU",
+    "line": "BoQ quotes the frame / stand per {unit} - priced on the \"{to}\" item (owner team rule 2026-11-09)"
+   }
+  ],
+  "same_as_outdoor": {
+   "words": "\\bmake\\b[^.|]{0,30}\\bsame\\s+as\\b[^.|]{0,15}\\b(?:the\\s+)?(?:outdoor|odu)",
+   "attr": "brand_as_written",
+   "also_attr": "brand",
+   "outdoor_family": "Outdoor Unit",
+   "line": "BoQ says \"{said}\" - priced as {brand}, the make of this sheet's outdoor units (row {row}; owner Q-pre 5)"
+  },
+  "row_cooling": {
+   "attr": "cooling",
+   "words": {
+    "Cool Only": "\\bcool(?:ing)?\\s*(?:only|type)\\b",
+    "Heat Pump": "\\bheat\\s*pump\\b"
+   },
+   "line": "The row says \"{row}\" and the heading says \"{heading}\" - the row wins: priced as {value} (owner Q6)"
+  },
+  "family_words": [
+   {
+    "family": "Touch Screen Central Controller",
+    "words": "\\bon\\s*/\\s*off\\b|\\bon\\s*-\\s*off\\b",
+    "from": [
+     "Remote Controller"
+    ],
+    "line": "BoQ says \"{said}\" controller - priced as the {family} (the catalogue has no ON/OFF controller; owner Q-pre 4)"
+   },
+   {
+    "family": "Ductable",
+    "words": "\\bCSU\\b|\\bceiling\\s+suspended\\b",
+    "in": "both",
+    "line": "BoQ says \"{said}\" - priced as a {family} unit (owner Q-pre 7)"
+   }
+  ],
+  "attr_words": [
+   {
+    "attr": "way",
+    "value": "FOUR-WAY COMPACT",
+    "families": [
+     "Cassette"
+    ],
+    "in": "both",
+    "words": "(?<![0-9])600\\s*(?:mm)?\\s*[x*]\\s*600(?![0-9])|(?<![0-9])2\\s*(?:'|ft|feet)\\s*[x*]\\s*2(?![0-9])",
+    "line": "BoQ says \"{said}\" - priced as the compact 4-way cassette (owner Q-pre 7)"
+   },
+   {
+    "attr": "way",
+    "value": "ONE-WAY",
+    "families": [
+     "Cassette"
+    ],
+    "in": "heading",
+    "words": "\\b(?:1|one)\\s*-?\\s*way\\b",
+    "unless_row": "\\b(?:2|two|4|four)\\s*-?\\s*way\\b|\\bcompact\\b|\\b600\\s*(?:mm)?\\s*[x*]",
+    "line": "The heading says \"{said}\" - priced as a one-way cassette (owner Q-pre 7)"
+   }
+  ]
+ },
+ "two_capacities": {
+  "words": "(\\d+(?:\\.\\d+)?)\\s*(tr|hp|kw)\\b",
+  "refusal": "no capacity stated",
+  "line": "two capacities stated ({list}) - pick one"
+ },
+ "families_add": {
+  "MS frame / stand for ODU": {
+   "needs": [],
+   "units": {
+    "count": {
+     "pipelines": {
+      "supply": {
+       "output": [
+        "supply"
+       ],
+       "steps": [
+        {
+         "step": "match_master_row",
+         "params": {
+          "kind": "hvac_misc_item"
+         },
+         "explain": "match the Misc SKU (the shared Misc item)"
+        },
+        {
+         "step": "component",
+         "name": "unit",
+         "target": "cost_supply",
+         "formula": "base",
+         "explain": "the SKU's supply cost, as the Misc sheet gives it"
+        },
+        {
+         "step": "sum_components",
+         "result": "bcs_supply",
+         "explain": "BCS supply"
+        },
+        {
+         "step": "scale",
+         "target": "bcs_supply",
+         "result": "supply",
+         "params": {
+          "m_from_ctx": "supply_markup"
+         },
+         "formula": "base*(1+m)",
+         "explain": "BCS supply x (1 + the SKU's supply markup)"
+        },
+        {
+         "step": "roundup",
+         "target": "supply",
+         "params": {
+          "digits": 0
+         },
+         "explain": "ROUNDUP(supply, 0) (R-ROUND)"
+        }
+       ]
+      },
+      "install": {
+       "output": [
+        "install"
+       ],
+       "steps": [
+        {
+         "step": "match_master_row",
+         "params": {
+          "kind": "hvac_misc_item"
+         },
+         "explain": "match the Misc SKU (the shared Misc item)"
+        },
+        {
+         "step": "component",
+         "name": "install",
+         "target": "cost_install",
+         "formula": "base",
+         "explain": "the SKU's cost install, as the Misc sheet gives it"
+        },
+        {
+         "step": "sum_components",
+         "result": "bcs_install",
+         "explain": "BCS install"
+        },
+        {
+         "step": "scale",
+         "target": "bcs_install",
+         "result": "install",
+         "params": {
+          "m_from_ctx": "install_markup"
+         },
+         "formula": "base*(1+m)",
+         "explain": "BCS install x (1 + the SKU's install markup)"
+        },
+        {
+         "step": "roundup",
+         "target": "install",
+         "params": {
+          "digits": 0
+         },
+         "explain": "ROUNDUP(install, 0) (R-ROUND)"
+        }
+       ]
+      }
+     }
+    }
+   }
+  }
+ },
+ "inputs": [
+  {
+   "item": "vrf_acc_frame_per_outdoor",
+   "name": "VRF accessory - MS frame / stand per outdoor module (Nos)",
+   "unit": "Nos",
+   "factor": 1.0,
+   "remarks": "MS frames / stands one OUTDOOR module carries when the BoQ says its price includes them and states no quantity: 1 per module, priced on the 'MS frame / stand for ODU' item (BCS 4,000 + 40% = 5,600, install 0). Team 10:41, confirmed 10:45 (VRF-6)."
+  },
+  {
+   "item": "vrf_acc_gas_kg_per_hp",
+   "name": "VRF accessory - gas charge per HP of the outdoor unit (Kg per HP)",
+   "unit": "Kg per HP",
+   "factor": 1.0,
+   "remarks": "Gas charging when an OUTDOOR unit's price includes it: kg = HP of the outdoor module (team 10:41 'gas charging is applicable only for ODUs when included in price kg = HP of ODU'; VRF-6). Never on an indoor unit."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_upto_5hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 4 or 5 HP",
+   "unit": "A",
+   "factor": 16.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 4 or 5 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_6hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 6 HP",
+   "unit": "A",
+   "factor": 20.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 6 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_8hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 8 HP",
+   "unit": "A",
+   "factor": 20.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 8 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_10hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 10 HP",
+   "unit": "A",
+   "factor": 25.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 10 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_12hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 12 HP",
+   "unit": "A",
+   "factor": 32.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 12 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_14hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 14 HP",
+   "unit": "A",
+   "factor": 40.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 14 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_16hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 16 HP",
+   "unit": "A",
+   "factor": 40.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 16 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_18hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 18 HP",
+   "unit": "A",
+   "factor": 40.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 18 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_20hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 20 HP",
+   "unit": "A",
+   "factor": 63.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 20 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_22hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 22 HP",
+   "unit": "A",
+   "factor": 63.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 22 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_24hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 24 HP",
+   "unit": "A",
+   "factor": 63.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 24 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  },
+  {
+   "item": "vrf_acc_mcb_elcb_26hp_amp",
+   "name": "VRF accessory - MCB + ELCB rating (A, 4-pole) - outdoor unit 26 HP",
+   "unit": "A",
+   "factor": 63.0,
+   "remarks": "One MCB 4-pole + one ELCB 300 mA 4-pole of this rating per OUTDOOR module of 26 HP when its price includes them (team schedule 2026-11-08, VRF-6): an HP not in the table takes the next row up; above 26 HP -> 63 A; a rating Electrical does not stock -> the next stocked rating up, noted."
+  }
+ ],
+ "retire_inputs": [
+  "vrf_acc_frame_outdoor_upto_8hp_qty",
+  "vrf_acc_frame_outdoor_8_to_14hp_qty",
+  "vrf_acc_frame_outdoor_above_14hp_qty",
+  "vrf_acc_gas_outdoor_upto_8hp_qty",
+  "vrf_acc_gas_outdoor_8_to_14hp_qty",
+  "vrf_acc_gas_outdoor_above_14hp_qty",
+  "vrf_acc_mccb_outdoor_upto_8hp_amp",
+  "vrf_acc_mccb_outdoor_8_to_14hp_amp",
+  "vrf_acc_mccb_outdoor_above_14hp_amp"
+ ],
+ "new_items": [
+  {
+   "kind": "hvac_misc_item",
+   "brand": null,
+   "unit": "Nos",
+   "attributes": {
+    "group": "Misc",
+    "item": "MS frame / stand for ODU",
+    "item_name": "MS frame / stand for ODU"
+   },
+   "rates": {
+    "cost_supply": 4000.0,
+    "supply_markup": 0.4,
+    "cost_install": 0.0,
+    "install_markup": 0.0
+   }
+  }
+ ],
+ "question_changes": {
+  "item": {
+   "values_before_none": [
+    "MS frame / stand for ODU"
+   ],
+   "note_add": " VRF-6: a frame / stand quoted per Nos is 'MS frame / stand for ODU' (per Kg it stays 'MS Angle Base Frame Structure'). A cassette the BoQ sizes as 600 x 600 mm or 2' x 2' is a Cassette (its way FOUR-WAY COMPACT). A CSU / ceiling suspended unit is 'Ductable'. An ON/OFF central controller is the 'Touch Screen Central Controller'. A capacity written with a stray space ('6 .3 TR') is that number (6.3 TR). Cabling the BoQ ties to a drain pump (a plug top, a power point for the pump) is the pump's, not the unit's power cable."
+  },
+  "remote_type": {
+   "note": "Remote controllers, AND every indoor unit whose price includes a remote: that remote's type, from the row, its notes or a heading / note that describes this unit. Wireless, handset or cordless = Cordless; corded, wired or 'with wire' on its own = Wired; when the text offers both ('corded or cordless', 'cordless/corded', 'corded less') = Cordless. 'None' when nothing says which."
+  },
+  "way": {
+   "note": "Cassettes: the sheet's Type -- answered whenever the row, its notes or ANY heading or note above it states the way (one-way, two-way, four-way, compact). A 600 x 600 mm / 2' x 2' cassette is FOUR-WAY COMPACT."
+  },
+  "includes_gas": {
+   "note_add": " A full / first / initial charge of refrigerant, or a price 'inclusive of refrigerant charge', means Yes."
+  },
+  "includes_mccb": {
+   "note_add": " Breakers / protection (MCB, ELCB, MCCB, isolator) a note says the outdoor unit's price includes mean Yes."
+  },
+  "includes_power": {
+   "note_add": " Cabling for a drain pump (a plug top, a power point for the pump) is NOT the unit's power cable."
+  }
+ },
+ "impact_examples_drop": [
+  "VRF-11",
+  "VRF-12",
+  "VRF-13",
+  "VRF-14",
+  "VRF-15",
+  "VRF-16"
+ ],
+ "impact_examples_add": [
+  {
+   "id": "VRF-11",
+   "name": "Outdoor Unit, Blue Star, 5 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_upto_5hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "5 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-12",
+   "name": "Outdoor Unit, Blue Star, 6 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_6hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "6 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-13",
+   "name": "Outdoor Unit, Blue Star, 8 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_8hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "8 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-14",
+   "name": "Outdoor Unit, Blue Star, 10 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_10hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "10 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-15",
+   "name": "Outdoor Unit, Blue Star, 12 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_12hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "12 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-16",
+   "name": "Outdoor Unit, Blue Star, 14 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_14hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "14 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-21",
+   "name": "Outdoor Unit, Blue Star, 16 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_16hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "16 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-22",
+   "name": "Outdoor Unit, Blue Star, 18 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_18hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "18 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-23",
+   "name": "Outdoor Unit, Blue Star, 20 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_20hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "20 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-24",
+   "name": "Outdoor Unit, Blue Star, 22 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_22hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "22 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-25",
+   "name": "Outdoor Unit, Blue Star, 24 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_24hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "24 HP"
+    }
+   ]
+  },
+  {
+   "id": "VRF-26",
+   "name": "Outdoor Unit, Blue Star, 26 HP, with its MS frame / stand, gas charge and MCB + ELCB",
+   "unit": "Nos",
+   "includes": "frame,gas,mcb,elcb",
+   "inputs": [
+    "vrf_acc_frame_per_outdoor",
+    "vrf_acc_gas_kg_per_hp",
+    "vrf_acc_mcb_elcb_26hp_amp"
+   ],
+   "items": [
+    {
+     "item": "Outdoor Unit",
+     "brand": "Blue Star",
+     "capacity": "26 HP"
+    }
+   ]
+  }
+ ],
+ "second_opinion": false,
+ "notes_add": " VRF-6 (owner, 2026-11-09): the remote's type follows the BoQ (ambiguous 'corded or cordless' -> Cordless, then the model's answer, then the words); every included extra that is not added says why; the own-row check reads each row's category first; '12HP x 2NOS' is a written split, a written module above the largest unit is split, a size no single unit matches takes the single that covers it unless a covering pair is cheaper (then the cheaper pair with the least excess); a cable length reaches only its own cable, 'AL' is aluminium, drain-pump cabling is not the power cable; accessories take the unit's make; per outdoor module: one MS frame / stand (its own Nos item), gas kg = HP, one MCB + ELCB by the HP schedule; built-in drain pump, scope conflicts and installation-only settled by the sheet's own rows; control wiring = comm cable; a 'quantified separately' note wins; two capacities refuse. second_opinion is OFF (owner 2026-11-09 18:52: the standing rule for every category, new-category testing included)."
+}

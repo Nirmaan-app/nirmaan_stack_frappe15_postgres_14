@@ -6,7 +6,7 @@
     devenv.sh test --module nirmaan_stack.api.outflow_import.test_porter_import
 
 Drives `upload_porter_statement` with a real `werkzeug` `FileStorage`, as the endpoint receives it, and
-asserts on the records it leaves: the batch, its lines and its Porter Invoices. `save_file` is the one
+asserts on the records it leaves: the batch, its lines and its Porter Invoices. `store_file` is the one
 thing stubbed -- it commits inside the request and would put a file in storage for good -- and the stub
 records what it was asked to save.
 
@@ -167,7 +167,7 @@ class PorterImportCase(FrappeTestCase):
         # ⚠️ THE QUEUE IS SHARED WITH THE MAIN BENCH: a real enqueue would hand this test's import to a
         # live worker. The job is recorded here, and the validation tests run it directly.
         try:
-            with patch.object(porter_api, "save_file", side_effect=_save_file), patch.object(
+            with patch.object(porter_api, "store_file", side_effect=_save_file), patch.object(
                 frappe, "enqueue", side_effect=lambda *args, **kwargs: self.enqueued.append(kwargs)
             ):
                 return porter_api.upload_porter_statement()

@@ -49,6 +49,10 @@ desktop's SSH server (scp + git bundles). Nothing in it talks to GitHub.
 - **The one exception: a desktop drop** (owner 2026-10-26). If the desktop can't be reached, ALL work continues on the
   laptop, mints and paid runs included, and the laptop is the master. On reconnecting, before any desktop work, the
   desktop is brought up to the laptop with `to-desktop` and `db-push` (see [Desktop drop](#desktop-drop)).
+- **Sync cadence (register #65, owner 2026-10-31):** code after every commit, data once at the slice end. After each
+  desktop commit the laptop brings the code across at once (`to`/`from-desktop`, fast-forward only, no Docker); the data
+  (`db-pull --yes`) comes across ONCE, after the slice's last commit, under the laptop turn file when a dev2 lane shares
+  the laptop's Docker.
 - **Transfers only fast-forward.** A transfer that would need a merge or would overwrite uncommitted changes is refused,
   and leaves both machines unchanged.
 - **While the desktop owns the branch, don't commit on the laptop.** That includes other Claude sessions.

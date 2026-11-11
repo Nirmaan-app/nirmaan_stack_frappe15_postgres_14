@@ -213,6 +213,115 @@
     "tabWorkflow"
    ]
   },
+  "nirmaan_stack.api.boq.test_vrf_v55": {
+   "seconds": 15.9,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.api.boq.test_vrf_v56": {
+   "seconds": 13.7,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v57": {
+   "seconds": 20.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item",
+    "tabBoQ Rate Suggestion Run",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v58": {
+   "seconds": 13.7,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v59": {
+   "seconds": 15.9,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v60": {
+   "seconds": 15.3,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v61": {
+   "seconds": 14.5,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v62": {
+   "seconds": 15.6,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabAssignment Rule",
+    "tabBlock Module",
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item",
+    "tabGoogle Calendar",
+    "tabMilestone Tracker",
+    "tabServer Script",
+    "tabWorkflow"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v63": {
+   "seconds": 16.3,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v64": {
+   "seconds": 15.9,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item",
+    "tabBoQ Rate Suggestion Run"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_vrf_v65": {
+   "seconds": 15.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
   "nirmaan_stack.api.boq.wizard.test_ai_assist": {
    "seconds": 38.0,
    "series": [

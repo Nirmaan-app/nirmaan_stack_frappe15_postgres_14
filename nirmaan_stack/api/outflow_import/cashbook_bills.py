@@ -13,7 +13,7 @@ Three kinds of copy, one downloader path (`download_and_save_bills`) and one ste
   * **an open Collect payment's bills** (`store_collect_bills`, #1595) are kept on its line (`stored_bill`) for
     whoever decides it, because the links die 7 days after export.
 
-⚠️ EVERY COPY RUNS OUTSIDE A LINE'S TRANSACTION (spec #1585 "Where downloads run"). `save_file` commits mid-save,
+⚠️ EVERY COPY RUNS OUTSIDE A LINE'S TRANSACTION (spec #1585 "Where downloads run"). `store_file` commits mid-save,
 so a download or save inside the line's transaction would commit half a line. Step 2 downloads every bill (no
 lock held), merges 2 or more into one PDF and saves one private File, which commits. Step 3 locks the target
 (the Expense, or the line), re-checks it still waits, and only then attaches the File; when it no longer waits,
@@ -41,7 +41,6 @@ from zoneinfo import ZoneInfo
 from psycopg2.errors import LockNotAvailable, TransactionRollbackError
 
 import frappe
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.cashbook_lines import BATCH_DOCTYPE, ROW_DOCTYPE, lock_line_if
 from nirmaan_stack.services.expense_bills.line_check import start_check
@@ -52,6 +51,7 @@ from nirmaan_stack.services.outflow_import.cashbook_collect import COLLECT_ROW_K
 from nirmaan_stack.services.outflow_import.status import ROW_MISMATCHED
 from nirmaan_stack.services.reimbursements.receipts import merge_to_pdf
 from nirmaan_stack.services.stored_files import delete_files
+from nirmaan_stack.services.stored_files import store_file
 
 BILLS_NOT_STORED = "the bills could not be stored"
 BILLS_NOT_MERGED = "the bills could not be merged into one PDF"
@@ -419,7 +419,7 @@ def download_and_save_bills(transfer_id: str, links: list[str]):
 
     # Saved unattached: it is attached in step 3, under the target's lock. The URL is read off the returned
     # doc because the cloud attachment hook rewrites it during insert.
-    saved = save_file(fname=fname, content=content, dt=None, dn=None, is_private=1)
+    saved = store_file(fname=fname, content=content, dt=None, dn=None, is_private=1)
     frappe.db.commit()
     return saved, None
 

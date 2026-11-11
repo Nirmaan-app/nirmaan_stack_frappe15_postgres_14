@@ -8,13 +8,12 @@ The employee has only read access to Asset Management, so the checks here are th
 signer must be the assignee, the row must not already have a declaration, and the asset's holder must match
 the assignment. They run again after the PDF is rendered, because rendering ends the transaction and a
 second tab could have signed meanwhile -- under a Redis lock held until the row is saved. A row lock
-(FOR UPDATE) can't cover that: the storage hook commits inside `save_file`, which releases it, so a
+(FOR UPDATE) can't cover that: the storage hook commits inside `store_file`, which releases it, so a
 second tab could pass the "not signed yet" check while the first one is still saving.
 """
 
 import frappe
 from frappe.utils import format_datetime, now_datetime
-from frappe.utils.file_manager import save_file
 from redis.exceptions import LockError
 
 from nirmaan_stack.services.asset_declaration import (
@@ -25,6 +24,7 @@ from nirmaan_stack.services.asset_declaration import (
     png_data_uri,
     sign_refusal,
 )
+from nirmaan_stack.services.stored_files import store_file
 
 ASSET_MASTER_DOCTYPE = "Asset Master"
 ASSET_MANAGEMENT_DOCTYPE = "Asset Management"
@@ -173,10 +173,10 @@ def _render_declaration_pdf(asset) -> bytes:
 def _save_declaration_file(row, pdf: bytes) -> str:
     """Store the signed PDF as a private file on the assignment and return its URL.
 
-    The cloud-storage hook uploads the file and commits inside `save_file`, so this runs after every check.
+    The cloud-storage hook uploads the file and commits inside `store_file`, so this runs after every check.
     The hook also rewrites `file_url`, so the URL is read back from the database.
     """
-    file_doc = save_file(
+    file_doc = store_file(
         f"{row.asset}-declaration.pdf",
         pdf,
         ASSET_MANAGEMENT_DOCTYPE,

@@ -28,10 +28,10 @@ import re
 
 import frappe
 from frappe.utils import now
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.snags import require_import_access, require_project_access
 from nirmaan_stack.api.snags import file_io
+from nirmaan_stack.services.stored_files import store_file
 
 _WHITESPACE = re.compile(r"\s+")
 
@@ -281,7 +281,7 @@ def inspect_workbook():
         except OSError:
             pass
 
-    stored = save_file(
+    stored = store_file(
         fname=file_name,
         content=file_bytes,
         dt="Projects",

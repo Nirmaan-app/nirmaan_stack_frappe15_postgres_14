@@ -31,7 +31,7 @@ import type { Pipeline, PipelineResult, RateMasterItem } from "./rateMasterTypes
 import type { AdderSpec, CandidateSku, InputReach } from "./pricingInputReach";
 // ACCEPTANCE 23: the rate-helper panel's own pricer. See the block at the foot of this file for why
 // this import edge exists and why a copy was not an option.
-import { itemListPricingSpec, priceItemList, projectUnitClass } from "../../boq-wizard/rate-helper/itemListPricing";
+import { itemListPricingSpec, kindIn, priceItemList, projectUnitClass } from "../../boq-wizard/rate-helper/itemListPricing";
 
 /** a pipeline the panel can price a SKU through */
 export interface ExactPipelineRef {
@@ -412,7 +412,7 @@ export function sampleGeometries(
   // mapping is the same single-definition rule the rest of this file follows.
   const seen = new Map<string, SampleGeometry>();
   for (const it of projectUnitClass(spec, items as RateMasterItem[])) {
-    if (it.kind !== spec.kind) continue;
+    if (!kindIn(spec, it.kind)) continue;
     const at = (it.attributes ?? {}) as Record<string, unknown>;
     if (family !== null && String(at[famAttr] ?? "") !== family) continue;
     if (String(at[spec.unit_class_attr] ?? "") !== unitClass) continue;

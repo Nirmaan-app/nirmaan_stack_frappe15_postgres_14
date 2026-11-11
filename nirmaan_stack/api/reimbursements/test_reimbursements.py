@@ -94,7 +94,7 @@ class _Storage:
     def fetch(self, url):
         return self.content.get(url)
 
-    def save_file(self, fname, content, dt, dn, df=None, is_private=1, **_):
+    def store_file(self, fname, content, dt, dn, df=None, is_private=1, **_):
         url = f"/api/method/reimb_test/{frappe.generate_hash(length=8)}/{fname}"
         doc = frappe.get_doc({
             "doctype": "File", "file_name": fname, "file_url": url, "is_private": 1,
@@ -153,7 +153,7 @@ class ReimbursementTestCase(ExpenseTypeFlagGuard, FrappeTestCase):
         self.storage = _Storage()
         patches = [
             patch.object(receipts, "fetch_attachment_content", self.storage.fetch),
-            patch.object(receipts, "save_file", self.storage.save_file),
+            patch.object(receipts, "store_file", self.storage.store_file),
             patch.object(claims, "delete_files", self.storage.delete_files),
             patch("nirmaan_stack.services.payees.writer.lookup_ifsc",
                   lambda ifsc: SimpleNamespace(bank_name="HDFC Bank", bank_branch="Test Branch")),

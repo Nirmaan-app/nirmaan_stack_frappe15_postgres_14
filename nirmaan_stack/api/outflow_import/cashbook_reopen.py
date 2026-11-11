@@ -80,7 +80,7 @@ def reopen_lines(plan: CashbookPlan, kept_rows, batch: str, actor: str) -> list[
     not commit.
 
     ⚠️ NO SECOND CHECK, AND NO REFUSAL (code review R4). Every earlier line in `plan` was claimed by `claim_reopens`
-    in this same transaction, after confirm's `save_file` commit (`cashbook._plan_claiming_reopens`), and its row
+    in this same transaction, after confirm's `store_file` commit (`cashbook._plan_claiming_reopens`), and its row
     lock is held to confirm's commit; a line taken before that claim was planned again without the re-open. So each
     is still an own-balances skip here, and there is no case left in which to tell the user to confirm again.
     """

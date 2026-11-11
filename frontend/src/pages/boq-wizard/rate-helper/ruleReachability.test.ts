@@ -26,8 +26,8 @@ import { isSuggestion } from "./rateHelperTypes";
 import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
 import {
-  ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, assembleItems, decodeItemEdits, makePricingSheetHelper,
-  type ItemListSuggestion,
+  ITEM_LIST_OVERRIDE_KEY, ROW_QTY_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, EXTRAS_INCLUDES_KEY, applyItemEdit, assembleItems, buildExtractionByRow, decodeItemEdits, makePricingSheetHelper,
+  type ItemEditOp, type ItemListSuggestion,
 } from "./pricingSheetHelper";
 import { applyFamilyMerge, familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
 import { applyAdp1 } from "./adp1.harness";
@@ -1270,5 +1270,1357 @@ describe("T3 -- rewriter x rule: no step between a stored value / a typed entry 
     for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: matches(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
     if (c.priced !== undefined) expect({ id: c.id, priced: v.rowPriced }).toEqual({ id: c.id, priced: c.priced });
     if (c.pure !== false && v.rowPriced) expect([s.values.supply_rate, s.values.install_rate]).toEqual([pure.supply, pure.install]);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VRF-2a (owner 2026-11-03; HVAC v56) -- R-39 FOR VRF: every Derivation-tab line of `hvac_vrf` has a positive and a negative case
+// run through the panel's entry point (`makePricingSheetHelper(...).compute`), with the calculator beside it; THE VRF GUARD.
+//
+// The live v56 config carries `calculator_only` (owner Q1 A, temporary, removed at VRF-4): its BoQ panel declines every row.
+// The panel cases therefore run on the config with the key PROJECTED OUT -- exactly what the panel runs at VRF-4 -- and every
+// case is also asserted to DECLINE on the live config (no flag), so a case can never pass by reaching a live BoQ row. The
+// calculator cases run on the live config with the calculator's own flag (`calculatorSurface`), as `PricingCalculator` builds it.
+// The guard below is the same assertion as T1's guard (the rules this file names EQUAL the rules the config generates), on VRF.
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("VRF-2a (v56) -- R-39: every VRF Derivation-tab rule fires from the panel's entry point; THE VRF GUARD", () => {
+  const A56 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v56.json", import.meta.url),
+  );
+  const VRF = "hvac_vrf";
+  const items56: RateMasterItem[] = A56.items.map((it) => ({ ...it, discipline: A56.discipline,
+    attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const live = new Map<string, RateCategoryConfig>(A56.category_configs.map((c) => [c.category_id, c]));
+  const projected = new Map<string, RateCategoryConfig>([...live].map(([k, c]) => {
+    if (k !== VRF) return [k, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [k, rest as RateCategoryConfig];
+  }));
+  const VT = {
+    unit: T.unit, kind: T.kind, noSku: T.noSku, ruleForUnit: T.ruleForUnit, needs: T.needs, defaults: T.defaults,
+    ctrl: "Daikin as the brand on Touch Screen Central Controller is priced as Blue Star",
+    fit: "Fitting the stated capacity to the catalogue",
+    steps: T.steps, qty: T.qty, a3Unit: T.a3Unit, a3Unstocked: T.a3Unstocked,
+  };
+  type VCase = { id: string; rule: string; path: "panel" | "calc"; kind: "pos" | "neg"; unit?: string; model?: Record<string, string>;
+    family?: string; attrs?: Record<string, string>; other?: string[]; qty?: string; rowUnit?: string;
+    re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean; figures?: [number, number] };
+  const OD16 = { item: "Outdoor Unit", capacity: "16" };
+  const VCASES: VCase[] = [
+    // 1. the row's unit
+    { id: "V1a", rule: VT.unit, path: "panel", kind: "pos", unit: "", model: OD16, re: ["No unit on the BoQ row -> priced per Nos, the catalogue's unit for this item"], priced: true, figures: [436920, 16000] },
+    { id: "V1b", rule: VT.unit, path: "panel", kind: "pos", unit: "R/O", model: OD16, re: ["BoQ says R/O (rate only) -> priced per Nos, the catalogue's unit for this item"], priced: true },
+    { id: "V1c-neg", rule: VT.unit, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: ["family:Outdoor Unit"], not: ["No unit on the BoQ row", "rate only"], priced: true },
+    // 2. the item's own kind
+    { id: "V2a", rule: VT.kind, path: "panel", kind: "pos", unit: "Nos", model: OD16, re: ["family:Outdoor Unit", "Top Discharge / (Nos)"], priced: true },
+    { id: "V2b-neg", rule: VT.kind, path: "panel", kind: "neg", unit: "Nos", model: { item: "ABC", capacity: "16" }, re: ["no SKU in the catalogue for 'ABC' -- the user decides"], priced: false },
+    // 3. "none of these" is a person's call
+    { id: "V3a", rule: VT.noSku, path: "panel", kind: "pos", unit: "Nos", model: { item: "none of these" }, re: ["no SKU in the catalogue for 'none of these' -- the user decides"], priced: false },
+    { id: "V3b-neg", rule: VT.noSku, path: "panel", kind: "neg", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "8" }, re: ["family:Ductable"], not: ["the user decides"], priced: true, figures: [62280, 7500] },
+    // 4. that kind's rule for that unit
+    { id: "V4a", rule: VT.ruleForUnit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Verticool", brand: "Blue Star", capacity: "2" }, re: ["Verticool / (Nos)"], priced: true, figures: [41040, 3500] },
+    { id: "V4b-neg", rule: VT.ruleForUnit, path: "panel", kind: "neg", unit: "Set", model: OD16, re: ["Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"], not: ["/ (Nos)"], priced: false },
+    // 5. the facts the rule needs
+    { id: "V5a", rule: VT.needs, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit" }, re: ["no capacity stated"], priced: false },
+    { id: "V5a-calc", rule: VT.needs, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: {}, re: ["no capacity stated"], priced: false },
+    { id: "V5b-neg", rule: VT.needs, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["no capacity stated"], priced: true },
+    // 6. a fact the row does not mention takes its ruled value (amber)
+    { id: "V6a", rule: VT.defaults, path: "panel", kind: "pos", unit: "Nos", model: OD16, priced: true,
+      re: ["brand:no brand stated - priced as Blue Star", "cooling:cooling not stated - priced as Cool Only (team default: heat pump only when the BoQ mentions it)",
+           "discharge:discharge not stated - priced as Top discharge (team default)", "compressor:compressor not stated - priced as Standard (team default)"] },
+    { id: "V6a-calc", rule: VT.defaults, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16" }, re: ["brand:no brand stated - priced as Blue Star"], priced: true, figures: [436920, 16000] },
+    { id: "V6b-neg", rule: VT.defaults, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, priced: true, figures: [253743, 12800],
+      re: [], not: ["brand:no brand stated", "cooling:cooling not stated"] },
+    // 7. the controller map
+    { id: "V7a", rule: VT.ctrl, path: "panel", kind: "pos", unit: "Nos", model: { item: "Touch Screen Central Controller", brand: "Daikin" }, priced: true, figures: [42000, 1500],
+      re: ["brand:the central controller is Blue Star only on the sheet - a Daikin pick is priced as Blue Star (R-SMALL)"] },
+    { id: "V7a-calc", rule: VT.ctrl, path: "calc", kind: "pos", family: "Touch Screen Central Controller", attrs: { brand: "Daikin" }, priced: true, figures: [42000, 1500],
+      re: ["the central controller is Blue Star only on the sheet - a Daikin pick is priced as Blue Star (R-SMALL)"] },
+    { id: "V7b-neg", rule: VT.ctrl, path: "panel", kind: "neg", unit: "Nos", model: { item: "Touch Screen Central Controller", brand: "Blue Star" }, priced: true, re: [], not: ["a Daikin pick is priced as Blue Star"] },
+    // 8. fitting the stated capacity
+    { id: "V8a", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "15" }, re: ["capacity:BoQ says 15 -> priced as 16 (next size up)"], priced: true, figures: [436920, 16000] },
+    { id: "V8b", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "2" }, re: ["capacity:BoQ says 2 -> priced as 7 (the smallest size)"], priced: true, figures: [264240, 7000] },
+    { id: "V8c", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "11" }, re: ["capacity 11 is above the largest size on the sheet (8)"], priced: false },
+    { id: "V8a-calc", rule: VT.fit, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "15" }, other: ["capacity"], re: ["capacity:You typed 15 -> priced as 16 (next size up)"], priced: true },
+    { id: "V8d-neg", rule: VT.fit, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["next size up", "the smallest size", "above the largest"], priced: true },
+    // 9. the priced steps
+    { id: "V9a", rule: VT.steps, path: "panel", kind: "pos", unit: "Nos", model: OD16, priced: true,
+      re: ["supply: BCS supply x (1 + the SKU's supply markup) = 436920", "supply: ROUNDUP(supply, 0) (R-ROUND) = 436920", "install: the SKU's BOQ installation, as the sheet gives it (R-INSTALL) = 16000", "install: ROUNDUP(install, 0) (R-ROUND) = 16000"] },
+    { id: "V9b-neg", rule: VT.steps, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", capacity: "40" }, re: ["capacity 40 is above the largest size on the sheet (28)"], not: ["ROUNDUP(supply, 0)"], priced: false },
+    // 10. how many of the item one unit of the row pays for
+    { id: "V10a-calc", rule: VT.qty, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16" }, qty: "2", re: ["x 2 per row unit"], priced: true, figures: [873840, 32000] },
+    { id: "V10b-neg", rule: VT.qty, path: "calc", kind: "neg", family: "Outdoor Unit", attrs: { capacity: "16" }, re: [], not: ["per row unit"], priced: true, figures: [436920, 16000] },
+    // 11. a kind not stocked in the row's unit
+    { id: "V11a", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Lot", model: OD16, re: ["Outdoor Unit is not stocked per 'Lot' (stocked per Nos) - price this row by hand"], priced: false },
+    { id: "V11b", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Kg", model: OD16, re: ["Outdoor Unit is not stocked per 'Kg' (stocked per Nos) - price this row by hand"], priced: false },
+    { id: "V11c-neg", rule: VT.a3Unit, path: "panel", kind: "neg", unit: "Nos/Ro", model: OD16, re: ["family:Outdoor Unit"], not: ["is not stocked per"], priced: true, figures: [436920, 16000] },
+    // 12. an unstocked combination names only the facts the kind's products vary on
+    { id: "V12a", rule: VT.a3Unstocked, path: "panel", kind: "pos", unit: "Nos", model: { item: "Verticool", brand: "Daikin", capacity: "2" }, re: ["No SKU for Verticool: brand Daikin - price this row by hand"], not: ["capacity 2"], priced: false },
+    { id: "V12a-calc", rule: VT.a3Unstocked, path: "calc", kind: "pos", family: "Verticool", attrs: { brand: "Daikin", capacity: "2" }, re: ["No SKU for Verticool: brand Daikin - price this row by hand"], priced: false },
+    { id: "V12b-neg", rule: VT.a3Unstocked, path: "panel", kind: "neg", unit: "Nos", model: { item: "Verticool", brand: "Blue Star", capacity: "2" }, re: ["family:Verticool"], not: ["No SKU for Verticool"], priced: true },
+  ];
+  const vcells = (a: Record<string, string>) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }]));
+  function vrun(c: VCase, cfgs: Map<string, RateCategoryConfig> = c.path === "calc" ? live : projected) {
+    const ext = new Map<number, ExtractionRow>();
+    if (c.path === "panel") ext.set(1, { excelRow: 1, description: "", attributes: {}, items: [{ attributes: vcells(c.model ?? {}) }] } as unknown as ExtractionRow);
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items56, extractionByRow: ext });
+    const ctx: RateHelperRowContext & { unit?: string } = { excelRow: c.path === "calc" ? 0 : 1, description: "", nodeType: c.path === "calc" ? "" : "Line Item",
+      category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] };
+    if (c.path === "panel" && c.unit !== undefined) ctx.unit = c.unit;
+    const overrides: Record<string, string> = {};
+    if (c.path === "calc") {
+      overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: [{ base: null, family: c.family ?? null, attrs: c.attrs ?? {}, other: c.other ?? [], ...(c.qty !== undefined ? { qty: c.qty } : {}) }] });
+      overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit ?? "Nos";
+    }
+    return h.compute(ctx, overrides);
+  }
+  function vlines(r: ReturnType<typeof vrun>) {
+    if (!isSuggestion(r)) return { priced: false, text: `declined:${(r as { reason?: string }).reason ?? ""}`, s: null };
+    const s = r as ItemListSuggestion;
+    const v = s.itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.unitNote) out.push(v.unitNote);
+    out.push(...(s.workings.derivation ?? []));
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      if (b.skuLine) out.push(b.skuLine);
+      if (b.familyLine) out.push(b.familyLine);
+      out.push(...b.working);
+      for (const f of b.fields) { if (f.note) out.push(`${f.id}:${f.note}`); if (f.rule) out.push(`${f.id}:${f.rule}`); }
+    }
+    return { priced: v.rowPriced, text: out.join("\n"), s };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+  const titles = () => itemListRuleOrder(live.get(VRF), items56).map((l) => l.title);
+
+  it("THE VRF GUARD: the rules this block names EQUAL the rules v56's VRF config generates (12); each has a positive AND a negative case", () => {
+    const generated = new Set(titles());
+    expect(titles()).toHaveLength(12);
+    const named = new Set(VCASES.map((c) => c.rule));
+    expect({ uncovered: [...generated].filter((t) => !named.has(t)), dead: [...named].filter((t) => !generated.has(t)) }).toEqual({ uncovered: [], dead: [] });
+    for (const t of generated) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(33);
+    // the projected config generates the same tab (the key changes who may price, never which rules exist)
+    expect(itemListRuleOrder(projected.get(VRF), items56).map((l) => l.title)).toEqual(titles());
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text, s } = vlines(vrun(c));
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+    if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE `expect(vrun(c, live).kind).toBe("none")` (the live
+    // frozen config, `calculator_only` on, declined on a BoQ row). The key is read by nothing now: the BoQ row prices exactly as the projection
+    if (c.path === "panel") expect(JSON.stringify(vrun(c, live))).toBe(JSON.stringify(vrun(c)));
+  });
+});
+
+/**
+ * VRF-2b (owner 2026-11-03, QR-1 U7 A) -- R-39 ON v57: VRF-2a's guard copied onto the v57 asset, with a case (positive AND
+ * negative) for every line v57 adds -- the conversion line and the brand line -- and the 2b paths of the lines that
+ * stayed (the Misc four per Nos / Kg, "Nos/Ro" read as Nos, Kg now a known unit). VRF-2a's v56 block above is kept as
+ * it was (it pins v56).
+ */
+describe("VRF-2b (v57) -- R-39: every VRF Derivation-tab rule fires from the panel's entry point; THE VRF GUARD", () => {
+  const A57 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v57.json", import.meta.url),
+  );
+  const VRF = "hvac_vrf";
+  const items57: RateMasterItem[] = A57.items.map((it) => ({ ...it, discipline: A57.discipline,
+    attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const live = new Map<string, RateCategoryConfig>(A57.category_configs.map((c) => [c.category_id, c]));
+  const projected = new Map<string, RateCategoryConfig>([...live].map(([k, c]) => {
+    if (k !== VRF) return [k, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [k, rest as RateCategoryConfig];
+  }));
+  const VT = {
+    unit: T.unit, kind: T.kind, noSku: T.noSku, ruleForUnit: T.ruleForUnit, needs: T.needs, defaults: T.defaults,
+    ctrl: "Daikin as the brand on Touch Screen Central Controller is priced as Blue Star",
+    fit: "Fitting the stated capacity to the catalogue",
+    brand: "Several brands, or one brand not on the sheet, are priced as Blue Star, naming the row's words",
+    conv: "A capacity in TR, HP or kW that is not the item's own unit is converted first",
+    steps: T.steps, qty: T.qty, a3Unit: T.a3Unit, a3Unstocked: T.a3Unstocked,
+  };
+  type VCase = { id: string; rule: string; path: "panel" | "calc"; kind: "pos" | "neg"; unit?: string; model?: Record<string, string>;
+    family?: string; attrs?: Record<string, string>; other?: string[]; qty?: string; rowUnit?: string;
+    re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean; figures?: [number, number] };
+  const OD16 = { item: "Outdoor Unit", capacity: "16" };
+  const VCASES: VCase[] = [
+    // 1. the row's unit
+    { id: "V1a", rule: VT.unit, path: "panel", kind: "pos", unit: "", model: OD16, re: ["No unit on the BoQ row -> priced per Nos, the catalogue's unit for this item"], priced: true, figures: [436920, 16000] },
+    { id: "V1b", rule: VT.unit, path: "panel", kind: "pos", unit: "R/O", model: OD16, re: ["BoQ says R/O (rate only) -> priced per Nos, the catalogue's unit for this item"], priced: true },
+    { id: "V1c-neg", rule: VT.unit, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: ["family:Outdoor Unit"], not: ["No unit on the BoQ row", "rate only"], priced: true },
+    // 2. the item's own kind
+    { id: "V2a", rule: VT.kind, path: "panel", kind: "pos", unit: "Nos", model: OD16, re: ["family:Outdoor Unit", "Top Discharge / (Nos)"], priced: true },
+    { id: "V2b-neg", rule: VT.kind, path: "panel", kind: "neg", unit: "Nos", model: { item: "ABC", capacity: "16" }, re: ["no SKU in the catalogue for 'ABC' -- the user decides"], priced: false },
+    // 3. "none of these" is a person's call
+    { id: "V3a", rule: VT.noSku, path: "panel", kind: "pos", unit: "Nos", model: { item: "none of these" }, re: ["no SKU in the catalogue for 'none of these' -- the user decides"], priced: false },
+    { id: "V3b-neg", rule: VT.noSku, path: "panel", kind: "neg", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "8" }, re: ["family:Ductable"], not: ["the user decides"], priced: true, figures: [62280, 7500] },
+    // 4. that kind's rule for that unit
+    { id: "V4a", rule: VT.ruleForUnit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Verticool", brand: "Blue Star", capacity: "2" }, re: ["Verticool / (Nos)"], priced: true, figures: [41040, 3500] },
+    { id: "V4b-neg", rule: VT.ruleForUnit, path: "panel", kind: "neg", unit: "Set", model: OD16, re: ["Outdoor Unit is not stocked per 'Set' (stocked per Nos) - price this row by hand"], not: ["/ (Nos)"], priced: false },
+    // 5. the facts the rule needs
+    { id: "V5a", rule: VT.needs, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit" }, re: ["no capacity stated"], priced: false },
+    { id: "V5a-calc", rule: VT.needs, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: {}, re: ["no capacity stated"], priced: false },
+    { id: "V5b-neg", rule: VT.needs, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["no capacity stated"], priced: true },
+    // 6. a fact the row does not mention takes its ruled value (amber)
+    { id: "V6a", rule: VT.defaults, path: "panel", kind: "pos", unit: "Nos", model: OD16, priced: true,
+      re: ["brand:no brand stated - priced as Blue Star", "cooling:cooling not stated - priced as Cool Only (team default: heat pump only when the BoQ mentions it)",
+           "discharge:discharge not stated - priced as Top discharge (team default)", "compressor:compressor not stated - priced as Standard (team default)"] },
+    { id: "V6a-calc", rule: VT.defaults, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16" }, re: ["brand:no brand stated - priced as Blue Star"], priced: true, figures: [436920, 16000] },
+    { id: "V6b-neg", rule: VT.defaults, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, priced: true, figures: [253743, 12800],
+      re: [], not: ["brand:no brand stated", "cooling:cooling not stated"] },
+    // 7. the controller map
+    { id: "V7a", rule: VT.ctrl, path: "panel", kind: "pos", unit: "Nos", model: { item: "Touch Screen Central Controller", brand: "Daikin" }, priced: true, figures: [42000, 1500],
+      re: ["brand:the central controller is Blue Star only on the sheet - a Daikin pick is priced as Blue Star (R-SMALL)"] },
+    { id: "V7a-calc", rule: VT.ctrl, path: "calc", kind: "pos", family: "Touch Screen Central Controller", attrs: { brand: "Daikin" }, priced: true, figures: [42000, 1500],
+      re: ["the central controller is Blue Star only on the sheet - a Daikin pick is priced as Blue Star (R-SMALL)"] },
+    { id: "V7b-neg", rule: VT.ctrl, path: "panel", kind: "neg", unit: "Nos", model: { item: "Touch Screen Central Controller", brand: "Blue Star" }, priced: true, re: [], not: ["a Daikin pick is priced as Blue Star"] },
+    // 8. fitting the stated capacity
+    { id: "V8a", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "15" }, re: ["capacity:BoQ says 15 -> priced as 16 (next size up)"], priced: true, figures: [436920, 16000] },
+    { id: "V8b", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "2" }, re: ["capacity:BoQ says 2 -> priced as 7 (the smallest size)"], priced: true, figures: [264240, 7000] },
+    { id: "V8c", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "11" }, re: ["capacity 11 is above the largest size on the sheet (8)"], priced: false },
+    { id: "V8a-calc", rule: VT.fit, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "15" }, other: ["capacity"], re: ["capacity:You typed 15 -> priced as 16 (next size up)"], priced: true },
+    { id: "V8d-neg", rule: VT.fit, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["next size up", "the smallest size", "above the largest"], priced: true },
+    // 9. the priced steps
+    { id: "V9a", rule: VT.steps, path: "panel", kind: "pos", unit: "Nos", model: OD16, priced: true,
+      re: ["supply: BCS supply x (1 + the SKU's supply markup) = 436920", "supply: ROUNDUP(supply, 0) (R-ROUND) = 436920", "install: the SKU's BOQ installation, as the sheet gives it (R-INSTALL) = 16000", "install: ROUNDUP(install, 0) (R-ROUND) = 16000"] },
+    { id: "V9b-neg", rule: VT.steps, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", capacity: "40" }, re: ["capacity 40 is above the largest size on the sheet (28)"], not: ["ROUNDUP(supply, 0)"], priced: false },
+    // 10. how many of the item one unit of the row pays for
+    { id: "V10a-calc", rule: VT.qty, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16" }, qty: "2", re: ["x 2 per row unit"], priced: true, figures: [873840, 32000] },
+    { id: "V10b-neg", rule: VT.qty, path: "calc", kind: "neg", family: "Outdoor Unit", attrs: { capacity: "16" }, re: [], not: ["per row unit"], priced: true, figures: [436920, 16000] },
+    // 11. a kind not stocked in the row's unit
+    { id: "V11a", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Lot", model: OD16, re: ["Outdoor Unit is not stocked per 'Lot' (stocked per Nos) - price this row by hand"], priced: false },
+    { id: "V11b", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Kg", model: OD16, re: ["Outdoor Unit is not stocked per Kg (stocked per Nos) - price this row by hand"], priced: false },
+    { id: "W11d", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Nos", model: { item: "MS Angle Base Frame Structure" }, re: ["MS Angle Base Frame Structure is not stocked per Nos (stocked per Kg) - price this row by hand"], priced: false },
+    { id: "V11c-neg", rule: VT.a3Unit, path: "panel", kind: "neg", unit: "Nos/Ro", model: OD16, re: ["family:Outdoor Unit"], not: ["is not stocked per"], priced: true, figures: [436920, 16000] },
+    // 12. an unstocked combination names only the facts the kind's products vary on
+    { id: "V12a", rule: VT.a3Unstocked, path: "panel", kind: "pos", unit: "Nos", model: { item: "Verticool", brand: "Daikin", capacity: "2" }, re: ["No SKU for Verticool: brand Daikin - price this row by hand"], not: ["capacity 2"], priced: false },
+    { id: "V12a-calc", rule: VT.a3Unstocked, path: "calc", kind: "pos", family: "Verticool", attrs: { brand: "Daikin", capacity: "2" }, re: ["No SKU for Verticool: brand Daikin - price this row by hand"], priced: false },
+    // VRF-2b: the brand note (R-BRAND (a))
+    { id: "W13a", rule: VT.brand, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", brand: "Toshiba", capacity: "16" }, re: ["brand:brand Toshiba is not on the sheet - priced as Blue Star"], priced: true, figures: [436920, 16000] },
+    { id: "W13b", rule: VT.brand, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", brand: "Daikin / Toshiba", capacity: "16" }, re: ["brand:several brands stated (Daikin / Toshiba) - priced as Blue Star"], priced: true, figures: [436920, 16000] },
+    { id: "W13c-neg", rule: VT.brand, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, re: [], not: ["is not on the sheet", "several brands stated"], priced: true, figures: [253743, 12800] },
+    // VRF-2b: the conversion line (R-CONV / CFM / RECON)
+    { id: "W14a", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "16 TR" }, re: ["capacity:16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP"], priced: true, figures: [476040, 20000] },
+    { id: "W14b", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Hi-Wall", brand: "Blue Star", capacity: "5 kW" }, re: ["capacity:5 kW / 3.517 (kW per TR, Pricing Inputs) = 1.42 TR"], priced: true, figures: [20760, 1800] },
+    { id: "W14c", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Concealed Split", capacity: "670 CFM" }, re: ["capacity is stated only as an airflow (670 CFM) - an airflow is not converted to HP / TR - price this row by hand"], priced: false },
+    { id: "W14d", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "22.5 TR / 18 HP" }, re: ["capacity:the row states 18 HP and 22.5 TR - 18 HP is used (Outdoor Unit is stocked in HP); 22.5 TR is not read"], priced: true },
+    { id: "W14a-calc", rule: VT.conv, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16", capacity__unit: "TR" }, other: ["capacity"], re: ["capacity:16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP"], priced: true, figures: [476040, 20000] },
+    // VRF-2b K5 (owner 2026-11-04): an airflow-only text reads the capacity given in brackets; two refuse; none refuses as today
+    { id: "W14f", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Hi-Wall", brand: "Blue Star", capacity: "670Cfm Wall Mounted Type (2.0 TR)" }, re: ["capacity:670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"], priced: true, figures: [23520, 1800] },
+    { id: "W14f-calc", rule: VT.conv, path: "calc", kind: "pos", family: "Hi-Wall", attrs: { brand: "Blue Star", capacity: "670Cfm (2.0 TR)" }, other: ["capacity"], re: ["capacity:670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"], priced: true, figures: [23520, 1800] },
+    { id: "W14g-neg", rule: VT.conv, path: "panel", kind: "neg", unit: "Nos", model: { item: "Hi-Wall", brand: "Blue Star", capacity: "670 CFM (2.0 TR) (2.5 TR)" }, re: ["several values stated for capacity ('670 CFM (2.0 TR) (2.5 TR)')"], not: ["in brackets is read"], priced: false },
+    { id: "W14h", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Cassette", way: "ONE-WAY", capacity: "610Cfm Cassette Type (2.0TR) - 1-way" }, re: ["capacity:610 CFM is an airflow - not read; 1 outside the brackets is not read; (2.0TR) in brackets is read -> 2 TR"], priced: true },
+    { id: "W14e-neg", rule: VT.conv, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["Pricing Inputs", "airflow"], priced: true, figures: [436920, 16000] },
+    // VRF-2b: the 2b paths of lines that stayed -- Nos/Ro's line (1), the Misc four (4), seventeen kinds (2)
+    { id: "W1d", rule: VT.unit, path: "panel", kind: "pos", unit: "Nos/Ro", model: OD16, re: ["unit 'Nos/Ro' read as Nos"], priced: true, figures: [436920, 16000] },
+    { id: "W4c", rule: VT.ruleForUnit, path: "panel", kind: "pos", unit: "Kg", model: { item: "Refrigerant Gas Filling (R-410)" }, re: ["family:Refrigerant Gas Filling (R-410)"], priced: true, figures: [1020, 350] },
+    { id: "W4d", rule: VT.ruleForUnit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Drain Pump" }, re: ["family:Drain Pump"], priced: true, figures: [3500, 750] },
+    { id: "W4e-calc", rule: VT.ruleForUnit, path: "calc", kind: "pos", family: "MS Angle Base Frame Structure", attrs: {}, rowUnit: "Kg", re: ["family:MS Angle Base Frame Structure"], priced: true, figures: [140, 40] },
+    { id: "W2c", rule: VT.kind, path: "panel", kind: "pos", unit: "Nos", model: { item: "BACnet Integration Controller for VRF Units" }, re: ["family:BACnet Integration Controller for VRF Units"], priced: true, figures: [50000, 4500] },
+    { id: "V12b-neg", rule: VT.a3Unstocked, path: "panel", kind: "neg", unit: "Nos", model: { item: "Verticool", brand: "Blue Star", capacity: "2" }, re: ["family:Verticool"], not: ["No SKU for Verticool"], priced: true },
+  ];
+  const vcells = (a: Record<string, string>) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }]));
+  function vrun(c: VCase, cfgs: Map<string, RateCategoryConfig> = c.path === "calc" ? live : projected) {
+    const ext = new Map<number, ExtractionRow>();
+    if (c.path === "panel") ext.set(1, { excelRow: 1, description: "", attributes: {}, items: [{ attributes: vcells(c.model ?? {}) }] } as unknown as ExtractionRow);
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items57, extractionByRow: ext });
+    const ctx: RateHelperRowContext & { unit?: string } = { excelRow: c.path === "calc" ? 0 : 1, description: "", nodeType: c.path === "calc" ? "" : "Line Item",
+      category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] };
+    if (c.path === "panel" && c.unit !== undefined) ctx.unit = c.unit;
+    const overrides: Record<string, string> = {};
+    if (c.path === "calc") {
+      overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: [{ base: null, family: c.family ?? null, attrs: c.attrs ?? {}, other: c.other ?? [], ...(c.qty !== undefined ? { qty: c.qty } : {}) }] });
+      overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit ?? "Nos";
+    }
+    return h.compute(ctx, overrides);
+  }
+  function vlines(r: ReturnType<typeof vrun>) {
+    if (!isSuggestion(r)) return { priced: false, text: `declined:${(r as { reason?: string }).reason ?? ""}`, s: null };
+    const s = r as ItemListSuggestion;
+    const v = s.itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.unitNote) out.push(v.unitNote);
+    out.push(...(s.workings.derivation ?? []));
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      if (b.skuLine) out.push(b.skuLine);
+      if (b.familyLine) out.push(b.familyLine);
+      out.push(...b.working);
+      for (const f of b.fields) { if (f.note) out.push(`${f.id}:${f.note}`); if (f.rule) out.push(`${f.id}:${f.rule}`); }
+    }
+    return { priced: v.rowPriced, text: out.join("\n"), s };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+  const titles = () => itemListRuleOrder(live.get(VRF), items57).map((l) => l.title);
+
+  it("THE VRF GUARD: the rules this block names EQUAL the rules v57's VRF config generates (14); each has a positive AND a negative case", () => {
+    const generated = new Set(titles());
+    expect(titles()).toHaveLength(14);
+    const named = new Set(VCASES.map((c) => c.rule));
+    expect({ uncovered: [...generated].filter((t) => !named.has(t)), dead: [...named].filter((t) => !generated.has(t)) }).toEqual({ uncovered: [], dead: [] });
+    for (const t of generated) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(33 + 15 + 4);   // + K5's W14f / W14f-calc / W14g-neg / W14h (QR-K5a B)
+    // the projected config generates the same tab (the key changes who may price, never which rules exist)
+    expect(itemListRuleOrder(projected.get(VRF), items57).map((l) => l.title)).toEqual(titles());
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text, s } = vlines(vrun(c));
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+    if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE `expect(vrun(c, live).kind).toBe("none")` (the live
+    // frozen config, `calculator_only` on, declined on a BoQ row). The key is read by nothing now: the BoQ row prices exactly as the projection
+    if (c.path === "panel") expect(JSON.stringify(vrun(c, live))).toBe(JSON.stringify(vrun(c)));
+  });
+});
+
+describe("VRF-3a (v58) -- R-39: every VRF Derivation-tab rule fires from the panel's entry point; THE VRF GUARD", () => {
+  const A58 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v58.json", import.meta.url),
+  );
+  const VRF = "hvac_vrf";
+  const items58: RateMasterItem[] = A58.items.map((it) => ({ ...it, discipline: A58.discipline,
+    attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const live = new Map<string, RateCategoryConfig>(A58.category_configs.map((c) => [c.category_id, c]));
+  const projected = new Map<string, RateCategoryConfig>([...live].map(([k, c]) => {
+    if (k !== VRF) return [k, c];
+    const { calculator_only: _off, ...rest } = c as RateCategoryConfig & { calculator_only?: unknown };
+    return [k, rest as RateCategoryConfig];
+  }));
+  const VT = {
+    unit: T.unit, kind: T.kind, noSku: T.noSku, ruleForUnit: T.ruleForUnit, needs: T.needs, defaults: T.defaults,
+    ctrl: "Daikin as the brand on Touch Screen Central Controller is priced as Blue Star",
+    fit: "Fitting the stated capacity to the catalogue",
+    brand: "Several brands, or one brand not on the sheet, are priced as Blue Star, naming the row's words",
+    conv: "A capacity in TR, HP or kW that is not the item's own unit is converted first",
+    steps: T.steps, qty: T.qty, a3Unit: T.a3Unit, a3Unstocked: T.a3Unstocked,
+    // VRF-3a (U8): the six lines v58 adds
+    stated: "A split the row writes is priced as one Outdoor Unit per module",
+    cond: "A condition the row states about the split is quoted in an amber note",
+    kept: "A split the pricer has changed is never split again",
+    set: "A row priced per Set takes one Set as one piece (every kind but Refnet/Y-Joint)",
+    refnet: "A Refnet/Y-Joint on a Set row holds the pieces the system's unit counts give",
+    lot: "A row priced per Lot is not priced",
+  };
+  type VCase = { id: string; rule: string; path: "panel" | "calc"; kind: "pos" | "neg"; unit?: string; model?: Record<string, string>;
+    family?: string; attrs?: Record<string, string>; other?: string[]; qty?: string; rowUnit?: string; rowQty?: number; desc?: string;
+    blocks?: Array<Record<string, unknown>>; op?: "edit3" | "remove3" | "reset";
+    re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean; figures?: [number, number] };
+  const OD16 = { item: "Outdoor Unit", capacity: "16" };
+  const WHOLE = "Whole system (indoor + outdoor)";
+  const VCASES: VCase[] = [
+    // 1. the row's unit
+    { id: "V1a", rule: VT.unit, path: "panel", kind: "pos", unit: "", model: OD16, re: ["No unit on the BoQ row -> priced per Nos, the catalogue's unit for this item"], priced: true, figures: [436920, 16000] },
+    { id: "V1c-neg", rule: VT.unit, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: ["family:Outdoor Unit"], not: ["No unit on the BoQ row", "rate only"], priced: true },
+    { id: "W1d", rule: VT.unit, path: "panel", kind: "pos", unit: "Nos/Ro", model: OD16, re: ["unit 'Nos/Ro' read as Nos"], priced: true, figures: [436920, 16000] },
+    { id: "X1e", rule: VT.unit, path: "panel", kind: "pos", unit: "Mtr", model: OD16, re: ["Outdoor Unit is not stocked per 'Mtr' (stocked per Nos) - price this row by hand"], priced: false },
+    // 2. the item's own kind
+    { id: "V2a", rule: VT.kind, path: "panel", kind: "pos", unit: "Nos", model: OD16, re: ["family:Outdoor Unit", "Top Discharge / (Nos)"], priced: true },
+    { id: "V2b-neg", rule: VT.kind, path: "panel", kind: "neg", unit: "Nos", model: { item: "ABC", capacity: "16" }, re: ["no SKU in the catalogue for 'ABC' -- the user decides"], priced: false },
+    // 3. "none of these"
+    { id: "V3a", rule: VT.noSku, path: "panel", kind: "pos", unit: "Nos", model: { item: "none of these" }, re: ["no SKU in the catalogue for 'none of these' -- the user decides"], priced: false },
+    { id: "V3b-neg", rule: VT.noSku, path: "panel", kind: "neg", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "8" }, re: ["family:Ductable"], not: ["the user decides"], priced: true, figures: [62280, 7500] },
+    // 4. that kind's rule for that unit
+    { id: "V4a", rule: VT.ruleForUnit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Verticool", brand: "Blue Star", capacity: "2" }, re: ["Verticool / (Nos)"], priced: true, figures: [41040, 3500] },
+    { id: "X4b-neg", rule: VT.ruleForUnit, path: "panel", kind: "neg", unit: "Kg", model: OD16, re: ["Outdoor Unit is not stocked per Kg (stocked per Nos) - price this row by hand"], not: ["/ (Nos)"], priced: false },
+    { id: "W4c", rule: VT.ruleForUnit, path: "panel", kind: "pos", unit: "Kg", model: { item: "Refrigerant Gas Filling (R-410)" }, re: ["family:Refrigerant Gas Filling (R-410)"], priced: true, figures: [1020, 350] },
+    // 5. the facts the rule needs
+    { id: "V5a", rule: VT.needs, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit" }, re: ["no capacity stated"], priced: false },
+    { id: "V5b-neg", rule: VT.needs, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["no capacity stated"], priced: true },
+    // 6. defaults
+    { id: "V6a", rule: VT.defaults, path: "panel", kind: "pos", unit: "Nos", model: OD16, priced: true, re: ["brand:no brand stated - priced as Blue Star"] },
+    { id: "V6b-neg", rule: VT.defaults, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, priced: true, figures: [253743, 12800], re: [], not: ["brand:no brand stated", "cooling:cooling not stated"] },
+    // 7. the controller map
+    { id: "V7a", rule: VT.ctrl, path: "panel", kind: "pos", unit: "Nos", model: { item: "Touch Screen Central Controller", brand: "Daikin" }, priced: true, figures: [42000, 1500], re: ["brand:the central controller is Blue Star only on the sheet - a Daikin pick is priced as Blue Star (R-SMALL)"] },
+    { id: "V7b-neg", rule: VT.ctrl, path: "panel", kind: "neg", unit: "Nos", model: { item: "Touch Screen Central Controller", brand: "Blue Star" }, priced: true, re: [], not: ["a Daikin pick is priced as Blue Star"] },
+    // 8. fitting the stated capacity -- VRF-3a: above the largest the Outdoor Unit SPLITS (AC2); every other family refuses
+    { id: "V8a", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "15" }, re: ["capacity:BoQ says 15 -> priced as 16 (next size up)"], priced: true, figures: [436920, 16000] },
+    { id: "X8s", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "54" }, re: ["split:54 HP is bigger than the largest unit (28 HP), so the helper split it: 28 + 26 HP", "helper:From the helper's split of 54 HP -> 28 HP"], priced: true, figures: [1116360, 54000] },
+    { id: "X8s-calc", rule: VT.fit, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "54" }, other: ["capacity"], re: ["split:54 HP is bigger than the largest unit (28 HP)"], priced: true, figures: [1116360, 54000] },
+    { id: "X8t", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "60" }, re: ["split:60 HP is bigger than the largest unit (28 HP), so the helper split it: 24 + 24 + 12 HP"], priced: true, figures: [1335600, 60000] },
+    { id: "V8c", rule: VT.fit, path: "panel", kind: "pos", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "11" }, re: ["capacity 11 is above the largest size on the sheet (8)"], not: ["split:"], priced: false },
+    { id: "V8d-neg", rule: VT.fit, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["next size up", "above the largest", "split:"], priced: true },
+    // 9. the priced steps
+    { id: "V9a", rule: VT.steps, path: "panel", kind: "pos", unit: "Nos", model: OD16, priced: true, re: ["supply: ROUNDUP(supply, 0) (R-ROUND) = 436920", "install: ROUNDUP(install, 0) (R-ROUND) = 16000"] },
+    { id: "X9b-neg", rule: VT.steps, path: "panel", kind: "neg", unit: "Nos", model: { item: "Ductable", brand: "Blue Star", capacity: "11" }, re: ["capacity 11 is above the largest size on the sheet (8)"], not: ["ROUNDUP(supply, 0)"], priced: false },
+    // 10. the quantity
+    { id: "V10a-calc", rule: VT.qty, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "16" }, qty: "2", re: ["x 2 per row unit"], priced: true, figures: [873840, 32000] },
+    { id: "V10b-neg", rule: VT.qty, path: "calc", kind: "neg", family: "Outdoor Unit", attrs: { capacity: "16" }, re: [], not: ["per row unit"], priced: true, figures: [436920, 16000] },
+    // 11. a kind not stocked in the row's unit
+    { id: "V11b", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Kg", model: OD16, re: ["Outdoor Unit is not stocked per Kg (stocked per Nos) - price this row by hand"], priced: false },
+    { id: "W11d", rule: VT.a3Unit, path: "panel", kind: "pos", unit: "Nos", model: { item: "MS Angle Base Frame Structure" }, re: ["MS Angle Base Frame Structure is not stocked per Nos (stocked per Kg) - price this row by hand"], priced: false },
+    { id: "V11c-neg", rule: VT.a3Unit, path: "panel", kind: "neg", unit: "Nos/Ro", model: OD16, re: ["family:Outdoor Unit"], not: ["is not stocked per"], priced: true, figures: [436920, 16000] },
+    // 12. an unstocked combination
+    { id: "V12a", rule: VT.a3Unstocked, path: "panel", kind: "pos", unit: "Nos", model: { item: "Verticool", brand: "Daikin", capacity: "2" }, re: ["No SKU for Verticool: brand Daikin - price this row by hand"], priced: false },
+    { id: "V12b-neg", rule: VT.a3Unstocked, path: "panel", kind: "neg", unit: "Nos", model: { item: "Verticool", brand: "Blue Star", capacity: "2" }, re: ["family:Verticool"], not: ["No SKU for Verticool"], priced: true },
+    // 13. the brand note
+    { id: "W13a", rule: VT.brand, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", brand: "Toshiba", capacity: "16" }, re: ["brand:brand Toshiba is not on the sheet - priced as Blue Star"], priced: true, figures: [436920, 16000] },
+    { id: "W13c-neg", rule: VT.brand, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", brand: "Daikin", cooling: "Heat Pump", capacity: "8" }, re: [], not: ["is not on the sheet", "several brands stated"], priced: true, figures: [253743, 12800] },
+    // 14. the conversion line -- VRF-3a R1: an airflow range is one airflow (board 10)
+    { id: "W14a", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "16 TR" }, re: ["capacity:16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP"], priced: true, figures: [476040, 20000] },
+    { id: "X14r", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Single Skin Treated Fresh Air", capacity: "1700-1800cfm" }, re: ["capacity is stated only as an airflow (1700-1800 CFM) - an airflow is not converted to HP / TR - price this row by hand"], not: ["1700 is above"], priced: false },
+    { id: "X14r-calc", rule: VT.conv, path: "calc", kind: "pos", family: "Single Skin Treated Fresh Air", attrs: { capacity: "1700-1800cfm" }, other: ["capacity"], re: ["capacity is stated only as an airflow (1700-1800 CFM)"], priced: false },
+    { id: "X14s", rule: VT.conv, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "43.2 TR" }, re: ["split:43.2 TR x 1.25 (HP per TR, Pricing Inputs) = 54 HP. 54 HP is bigger than the largest unit (28 HP)"], priced: true, figures: [1116360, 54000] },
+    { id: "W14e-neg", rule: VT.conv, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["Pricing Inputs", "airflow"], priced: true, figures: [436920, 16000] },
+    // VRF-3a: the stated split (R-SPLIT (a), D-2)
+    { id: "X15a", rule: VT.stated, path: "panel", kind: "pos", unit: "Nos", model: { item: "Outdoor Unit", capacity: "60 HP (18+18+24)" }, re: ["split:The row states a split: 18 + 18 + 24 HP (total 60 HP) -> one line per module, each priced on its own."], priced: true, figures: [1415640, 60000] },
+    { id: "X15a-calc", rule: VT.stated, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "26(14+12)HP" }, other: ["capacity"], re: ["split:You typed a split: 14 + 12 HP (total 26 HP)"], priced: true, figures: [717720, 26000] },
+    { id: "X15b", rule: VT.stated, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "60 HP (30+30)" }, other: ["capacity"], re: ["Module 30 HP is above the largest size on the sheet (28 HP) - this row is not priced; price it by hand"], priced: false },
+    { id: "X15c-neg", rule: VT.stated, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", capacity: "2# 12 HP" }, re: [], not: ["a split:"], priced: false },
+    // VRF-3a D-3
+    { id: "X16a", rule: VT.cond, path: "panel", kind: "pos", unit: "Nos", desc: "18 HP (Single module)", model: { item: "Outdoor Unit", discharge: "Side", capacity: "18 HP" }, re: ["condition:The row says \"Single module\""], priced: true },
+    { id: "X16b-neg", rule: VT.cond, path: "panel", kind: "neg", unit: "Nos", model: { item: "Outdoor Unit", capacity: "54" }, re: [], not: ["condition:"], priced: true },
+    // VRF-3a: the hidden tag (an edit never re-splits)
+    { id: "X17a", rule: VT.kept, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "60" }, other: ["capacity"], op: "edit3", re: ["changed:You changed the helper's split.", "lines:The lines add up to 62 HP; the BoQ says 60 HP."], priced: true, figures: [1428360, 62000] },
+    { id: "X17b", rule: VT.kept, path: "calc", kind: "pos", family: "Outdoor Unit", attrs: { capacity: "60" }, other: ["capacity"], op: "remove3", re: ["changed:You changed the helper's split."], priced: true, figures: [1023120, 48000] },
+    { id: "X17c-neg", rule: VT.kept, path: "calc", kind: "neg", family: "Outdoor Unit", attrs: { capacity: "60" }, other: ["capacity"], op: "reset", re: ["split:60 HP is bigger than the largest unit"], not: ["changed:"], priced: true, figures: [1335600, 60000] },
+    // VRF-3a: Set = 1 piece (owner 17:00)
+    { id: "X18a", rule: VT.set, path: "panel", kind: "pos", unit: "Set", model: { item: "Touch Screen Central Controller" }, re: ["bar:PRICED PER SET - CHECK WHAT ONE SET HOLDS."], priced: true, figures: [42000, 1500] },
+    { id: "X18a-calc", rule: VT.set, path: "calc", kind: "pos", family: "Touch Screen Central Controller", attrs: {}, qty: "2", rowUnit: "Set", re: ["bar:PRICED PER SET"], priced: true, figures: [84000, 3000] },
+    { id: "X18b-neg", rule: VT.set, path: "panel", kind: "neg", unit: "Nos", model: { item: "Touch Screen Central Controller" }, re: [], not: ["bar:"], priced: true, figures: [42000, 1500] },
+    // VRF-3a: the refnet count (owner 17:00 / 17:37 / 17:39 / 18:49)
+    { id: "X19a", rule: VT.refnet, path: "panel", kind: "pos", unit: "Set", rowQty: 2, model: { item: "Refnet/Y-Joint", set_covers: WHOLE, set_odu: "3", set_idu: "24" }, re: ["setcount:ROUNDED UP to 13 pieces in one Set. 2 Sets x 13 = 26 pieces, 1 more than the 25 expected - check."], priced: true, figures: [54600, 10400] },
+    { id: "X19a-calc", rule: VT.refnet, path: "calc", kind: "pos", family: "Refnet/Y-Joint", attrs: { set_covers: WHOLE, set_odu: "3", set_idu: "24" }, rowUnit: "Set", rowQty: 1, re: ["setcount:The BoQ quantity (1) is below the 25 refnets expected: 25 pieces in one Set (1 Sets x 25 = 25)."], priced: true, figures: [105000, 20000] },
+    { id: "X19b", rule: VT.refnet, path: "calc", kind: "pos", family: "Refnet/Y-Joint", attrs: { set_covers: WHOLE, set_odu: "3", set_idu: "24" }, rowUnit: "Set", rowQty: 20, re: ["The BoQ quantity (20) does not fit the 25 refnets expected - not priced: type the pieces in one Set."], priced: false },
+    { id: "X19c-neg", rule: VT.refnet, path: "panel", kind: "neg", unit: "Nos", rowQty: 2, model: { item: "Refnet/Y-Joint", set_covers: WHOLE, set_odu: "3", set_idu: "24" }, re: [], not: ["setcount:"], priced: true, figures: [4200, 800] },
+    // VRF-3a: Lot (owner "Refuse + review list")
+    { id: "X20a", rule: VT.lot, path: "panel", kind: "pos", unit: "Lot", model: OD16, re: ["Unit \"Lot\" is not a VRF unit: VRF is priced per Nos, per Set or per Kg. What a Lot holds is read at VRF-4. Price this row by hand.", "bar:PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND."], priced: false },
+    { id: "X20b", rule: VT.lot, path: "panel", kind: "pos", unit: "per HP", model: OD16, re: ["Unit \"per HP\" is not a VRF unit"], priced: false },
+    { id: "X20c-neg", rule: VT.lot, path: "panel", kind: "neg", unit: "Nos", model: OD16, re: [], not: ["is not a VRF unit", "bar:"], priced: true },
+  ];
+  const vcells = (a: Record<string, string>) => Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }]));
+  function vrun(c: VCase, cfgs: Map<string, RateCategoryConfig> = c.path === "calc" ? live : projected) {
+    const ext = new Map<number, ExtractionRow>();
+    // the refnet's three fields are typed per item on the panel too (VRF-4 asks the model): they ride the panel's edit state
+    const setKeys = ["set_covers", "set_odu", "set_idu"];
+    const model = Object.fromEntries(Object.entries(c.model ?? {}).filter(([k]) => !setKeys.includes(k)));
+    const typedSet = Object.fromEntries(Object.entries(c.model ?? {}).filter(([k]) => setKeys.includes(k)));
+    if (c.path === "panel") ext.set(1, { excelRow: 1, description: c.desc ?? "", attributes: {}, items: [{ attributes: vcells(model) }] } as unknown as ExtractionRow);
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items58, extractionByRow: ext });
+    const ctx: RateHelperRowContext & { unit?: string; quantity?: number } = { excelRow: c.path === "calc" ? 0 : 1, description: c.desc ?? "", nodeType: c.path === "calc" ? "" : "Line Item",
+      category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] };
+    if (c.path === "panel" && c.unit !== undefined) ctx.unit = c.unit;
+    if (c.path === "panel" && c.rowQty !== undefined) ctx.quantity = c.rowQty;
+    const overrides: Record<string, string> = {};
+    if (c.path === "panel" && Object.keys(typedSet).length) overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: [{ base: 0, family: null, attrs: typedSet }] });
+    if (c.path === "calc") {
+      overrides[ITEM_LIST_OVERRIDE_KEY] = JSON.stringify({ items: [{ base: null, family: c.family ?? null, attrs: c.attrs ?? {}, other: c.other ?? [], ...(c.qty !== undefined ? { qty: c.qty } : {}) }] });
+      overrides[ROW_UNIT_OVERRIDE_KEY] = c.rowUnit ?? "Nos";
+      if (c.rowQty !== undefined) overrides[ROW_QTY_OVERRIDE_KEY] = String(c.rowQty);
+    }
+    let r = h.compute(ctx, overrides);
+    if (c.op && isSuggestion(r)) {
+      const v = (r as ItemListSuggestion).itemList!;
+      const op: ItemEditOp = c.op === "edit3" ? { op: "set_attr", index: 2, id: "capacity", value: "14" } : c.op === "remove3" ? { op: "remove", index: 2 } : { op: "reset_split" };
+      let st = applyItemEdit(v.editState, c.op === "reset" ? { op: "remove", index: 2 } : op);
+      if (c.op === "reset") st = applyItemEdit(st, op);
+      r = h.compute(ctx, { ...overrides, [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(st) });
+    }
+    return r;
+  }
+  function vlines(r: ReturnType<typeof vrun>) {
+    if (!isSuggestion(r)) return { priced: false, text: `declined:${(r as { reason?: string }).reason ?? ""}`, s: null };
+    const s = r as ItemListSuggestion;
+    const v = s.itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.unitNote) out.push(v.unitNote);
+    if (v.split) {
+      out.push(`split:${v.split.note}`);
+      if (v.split.condition) out.push(`condition:${v.split.condition}`);
+      if (v.split.sumNote) out.push(`sum:${v.split.sumNote}`);
+      if (v.split.changed) out.push(`changed:${v.split.changed}`);
+      if (v.split.linesNote) out.push(`lines:${v.split.linesNote}`);
+    }
+    if (v.unitBar) out.push(`bar:${v.unitBar.title}`, ...v.unitBar.lines.map((l) => `bar:${l}`));
+    out.push(...(s.workings.derivation ?? []));
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      if (b.skuLine) out.push(b.skuLine);
+      if (b.familyLine) out.push(b.familyLine);
+      if (b.helperLine) out.push(`helper:${b.helperLine}`);
+      if (b.setCount) out.push(`setcount:${b.setCount.sentence}`);
+      out.push(...b.working);
+      for (const f of b.fields) { if (f.note) out.push(`${f.id}:${f.note}`); if (f.rule) out.push(`${f.id}:${f.rule}`); }
+    }
+    return { priced: v.rowPriced, text: out.join("\n"), s };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+  const titles = () => itemListRuleOrder(live.get(VRF), items58).map((l) => l.title);
+
+  it("THE VRF GUARD: the rules this block names EQUAL the rules v58's VRF config generates (20); each has a positive AND a negative case", () => {
+    const generated = new Set(titles());
+    expect(titles()).toHaveLength(20);
+    const named = new Set(VCASES.map((c) => c.rule));
+    expect({ uncovered: [...generated].filter((t) => !named.has(t)), dead: [...named].filter((t) => !generated.has(t)) }).toEqual({ uncovered: [], dead: [] });
+    for (const t of generated) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(58);   // VRF-2b's cases carried onto v58 (the Set / Lot / above-largest ones re-pointed) + the VRF-3a cases X*
+    expect(itemListRuleOrder(projected.get(VRF), items58).map((l) => l.title)).toEqual(titles());
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text, s } = vlines(vrun(c));
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+    if (c.figures) expect([s!.values.supply_rate, s!.values.install_rate]).toEqual(c.figures);
+    // INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; D-10) by mechanical authority: BEFORE `expect(vrun(c, live).kind).toBe("none")` (the live
+    // frozen config, `calculator_only` on, declined on a BoQ row). The key is read by nothing now: the BoQ row prices exactly as the projection
+    if (c.path === "panel") expect(JSON.stringify(vrun(c, live))).toBe(JSON.stringify(vrun(c)));
+  });
+});
+
+
+describe("VRF-3b (v59) -- R-39: every VRF Derivation-tab rule v59 adds fires from the calculator's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A59 = rd("rate_master_hvac_all_v59.json");
+  const A58 = rd("rate_master_hvac_all_v58.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items59 = [...asItems(A59), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A59.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const XT = {
+    carry: "A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
+    band: "An extra's size comes from the Pricing Inputs table by the unit's size, after conversion",
+    rate: "Each extra is priced per metre by its own sheet's rules, then per Nos of the row",
+    blank: "An extra with no size, spec or length holds the row",
+    removed: "A removed extra stays removed",
+  };
+  type XCase = { id: string; rule: string; kind: "pos" | "neg"; family: string; cap: string; inc: string; extras?: Record<string, unknown>; drop?: string;
+    re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean; figures?: [number, number] };
+  const XCASES: XCase[] = [
+    { id: "E1a", rule: XT.carry, kind: "pos", family: "Outdoor Unit", cap: "10", inc: "copper,insulation,power,comm", re: ["line:copper_supply", "line:copper_return", "line:ins_supply", "line:ins_return", "line:power", "line:comm", "Item 7 · extra the BoQ includes · from Electrical"], priced: true, figures: [441210, 25960] },
+    { id: "E1b-neg", rule: XT.carry, kind: "neg", family: "Remote Controller", cap: "", inc: "copper,insulation,power,comm", re: [], not: ["line:"] },
+    { id: "E1c-neg", rule: XT.carry, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "", re: [], not: ["line:"], priced: true, figures: [301560, 10000] },
+    { id: "E2a", rule: XT.band, kind: "pos", family: "Outdoor Unit", cap: "14", inc: "copper,power", re: ["Copper pipe - supply line 28.6 mm", "Power cable 4C x 10"], priced: true },
+    { id: "E2b", rule: XT.band, kind: "pos", family: "Outdoor Unit", cap: "8 TR", inc: "copper", re: ["Copper pipe - supply line 22.2 mm"], priced: true },
+    { id: "E2c-neg", rule: XT.band, kind: "neg", family: "Outdoor Unit", cap: "12", inc: "copper", re: ["Copper pipe - supply line 22.2 mm"], not: ["28.6 mm"], priced: true },
+    { id: "E3a", rule: XT.rate, kind: "pos", family: "Hi-Wall", cap: "1.5", inc: "copper", re: ["per metre by Piping's rules, supply 936 + install 220", "Per Nos: 30 m x 936 = 28080 supply; 30 m x 220 = 6600 install (rounded up)"], priced: true },
+    { id: "E3b-neg", rule: XT.rate, kind: "neg", family: "Hi-Wall", cap: "1.5", inc: "comm", re: ["per metre by Electrical's rules, supply 80 + install 24"], not: ["Piping's rules"], priced: true },
+    { id: "E4a", rule: XT.blank, kind: "pos", family: "Packaged Unit", cap: "10", inc: "power", re: ["No default for this size (10 TR) - pick a cable spec."], priced: false },
+    // INVERTED at VRF-4 K2 (owner BORROWED 2026-11-05 22:18 "option a": a borrowed field is priced by its SOURCE's own rules) by mechanical authority: BEFORE re: ["3C x 400 copper unarmoured cable is not stocked - pick a spec."] (VRF's stocked pre-check, deleted)
+    { id: "E4b", rule: XT.blank, kind: "pos", family: "Outdoor Unit", cap: "10", inc: "power", extras: { set: { power: { spec: "3C x 400" } } }, re: ["no match for these attributes"], not: ["is not stocked - pick a spec"], priced: false },
+    { id: "E4c-neg", rule: XT.blank, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "power", re: [], not: ["pick a spec", "Size needed"], priced: true },
+    { id: "E5a", rule: XT.removed, kind: "pos", family: "Outdoor Unit", cap: "10", inc: "copper,insulation", extras: { removed: ["copper_supply"] }, re: ["removed:copper_supply", "removednote:The helper will not add removed extras back on its own. The row prices without them."], not: ["line:copper_supply", "line:ins_supply"], priced: true },
+    { id: "E5b-neg", rule: XT.removed, kind: "neg", family: "Outdoor Unit", cap: "10", inc: "copper,insulation", re: ["line:copper_supply", "line:ins_supply"], not: ["removed:"], priced: true },
+  ];
+  function xrun(c: XCase) {
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items59, extractionByRow: new Map() });
+    const ctx = { excelRow: 0, description: "", nodeType: "", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"], headings: [], ownNotes: [] } as RateHelperRowContext;
+    const attrs: Record<string, string> = { brand: "Blue Star", ...(c.cap ? { capacity: c.cap } : {}), ...(c.family === "Remote Controller" ? { remote_type: "Wired" } : {}) };
+    const r = h.compute(ctx, {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: c.family, attrs, other: c.cap ? ["capacity"] : [], ...(c.extras ? { extras: c.extras } : {}) }] }),
+      [ROW_UNIT_OVERRIDE_KEY]: "Nos", [EXTRAS_INCLUDES_KEY]: c.inc,
+    });
+    const s = r as ItemListSuggestion;
+    const v = s.itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    for (const b of v.items) {
+      for (const l of b.extras?.lines ?? []) { out.push(`line:${l.id}`, l.heading, ...l.working); if (l.reason) out.push(l.reason); }
+      for (const x of b.extras?.removed ?? []) out.push(`removed:${x.id}`);
+      if (b.extras?.removedNote) out.push(`removednote:${b.extras.removedNote}`);
+    }
+    return { priced: v.rowPriced, text: out.join("\n"), s };
+  }
+  const xmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+
+  it("THE VRF GUARD: v59's VRF rules = v58's 20 (the v58 block covers them, the same code) + the 5 extras lines this block names; each has a positive AND a negative case", () => {
+    const t59 = titles(A59);
+    expect(t59).toHaveLength(25);
+    expect(t59.slice(0, 20)).toEqual(titles(A58));
+    expect(t59.slice(20)).toEqual(Object.values(XT));
+    for (const t of Object.values(XT)) {
+      const mine = XCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(XCASES).toHaveLength(13);
+  });
+
+  it.each(XCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text, s } = xrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: xmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: xmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+    if (c.figures) expect([s.values.supply_rate, s.values.install_rate]).toEqual(c.figures);
+  });
+});
+
+/*
+ * VRF-4 (owner 2026-11-06 q1 / q2; R-WS / D-5 "option D" / D-9; D-10) -- R-39 ON v60: the one line v60 adds (working + standby) and
+ * the lines whose detail v60 changes (the includes read per item, the refnet count from the sheet, what a Lot holds) each fire
+ * from the PANEL's entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v60's titles = v59's 25 + 1.
+ */
+describe("VRF-4 (v60) -- R-39: every VRF Derivation-tab rule v60 adds or changes fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A60 = rd("rate_master_hvac_all_v60.json");
+  const A59 = rd("rate_master_hvac_all_v59.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items60 = [...asItems(A60), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A60.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    ws: "A row the BoQ says is working + standby is priced as ONE unit, under a red bar",
+    carry: "A unit's price can include its copper, insulation, power cable and communication cable, each as its own line",
+    counted: "A Refnet/Y-Joint on a Set row holds the pieces the system's unit counts give",
+    lot: "A row priced per Lot is not priced",
+  };
+  type Row = { items: Array<Record<string, string>>; unit?: string; qty?: number };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const WHOLE = "Whole system (indoor + outdoor)";
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "12 HP", ...more });
+  const VCASES: VCase[] = [
+    { id: "F1a", rule: VT.ws, kind: "pos", rows: { 36: { items: [OD({ working_standby_as_written: "2# (WORKING + STANDBY)" })], qty: 2 } }, at: 36,
+      re: ["standby:WORKING + STANDBY - THIS RATE IS FOR 1 UNIT ONLY.", "check that the quantity covers both", "ring:Unit Nos · Qty 2"], priced: true },
+    { id: "F1b-neg", rule: VT.ws, kind: "neg", rows: { 28: { items: [OD({ working_standby_as_written: "(Standby)" })] } }, at: 28, re: [], not: ["standby:"], priced: true },
+    { id: "F2a", rule: VT.carry, kind: "pos", rows: { 9: { items: [OD({ includes_copper: "Yes", includes_power: "Yes" })] } }, at: 9,
+      re: ["line:copper_supply", "line:power", "boqnote:The BoQ says this unit's price includes copper piping, power cable (read by the model)."], not: ["line:comm"], priced: true },
+    { id: "F2b-neg", rule: VT.carry, kind: "neg", rows: { 9: { items: [OD({ includes_copper: "None", includes_power: "No" })] } }, at: 9, re: [], not: ["line:", "boqnote:"], priced: true },
+    { id: "F3a", rule: VT.counted, kind: "pos", at: 115, rows: {
+      14: { items: [OD({ capacity: "20 HP" })], qty: 2 }, 20: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1 TR" }], qty: 10 },
+      115: { items: [{ item: "Refnet/Y-Joint", brand: "Blue Star", set_covers: WHOLE }], unit: "Set", qty: 10 } },
+      re: ["count:set_odu=2", "count:set_idu=10", "Counted from this sheet: 2 outdoor units (row 14 x 2)"], priced: true },
+    { id: "F3b-neg", rule: VT.counted, kind: "neg", at: 115, rows: { 115: { items: [{ item: "Refnet/Y-Joint", brand: "Blue Star", set_covers: WHOLE }], unit: "Set", qty: 10 } },
+      re: ["No outdoor unit was read on this sheet - type the count."], not: ["Counted from this sheet"], priced: false },
+    { id: "F4a", rule: VT.lot, kind: "pos", rows: { 138: { items: [OD()], unit: "Lot" } }, at: 138, re: ["bar:PRICED PER LOT - NOT PRICED. PRICE THIS ROW BY HAND."], priced: false },
+    { id: "F4b-neg", rule: VT.lot, kind: "neg", rows: { 138: { items: [OD()], unit: "Nos" } }, at: 138, re: [], not: ["bar:PRICED PER LOT"], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const ext = new Map<number, ExtractionRow>();
+    for (const [er, r] of Object.entries(c.rows)) {
+      ext.set(Number(er), { excelRow: Number(er), description: "", attributes: {}, category: VRF,
+        items: r.items.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) } as unknown as ExtractionRow);
+    }
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er, r]) => [Number(er), r.qty ?? 1]));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items60, extractionByRow: ext });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: [], ownNotes: [], unit: r.unit ?? "Nos", quantity: r.qty ?? 1, rowQuantities } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.standbyBar) out.push(`standby:${v.standbyBar.title}`, ...v.standbyBar.lines, `ring:${v.standbyBar.ring}`);
+    if (v.unitBar) out.push(`bar:${v.unitBar.title}`, ...v.unitBar.lines);
+    for (const b of v.items) {
+      for (const l of b.extras?.lines ?? []) out.push(`line:${l.id}`);
+      if (b.extras?.boqNote) out.push(`boqnote:${b.extras.boqNote}`);
+      for (const f of b.setCount?.fields ?? []) { out.push(`count:${f.id}=${f.value}`); if (f.note) out.push(f.note); }
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v60's VRF rules = v59's 25 (the v59 block and the v58 / v57 / v56 blocks cover them) + the working + standby line; each line this block names has a positive AND a negative case", () => {
+    const t60 = titles(A60);
+    expect(t60).toHaveLength(26);
+    expect(t60.slice(0, 25)).toEqual(titles(A59));
+    expect(t60[25]).toBe(VT.ws);
+    for (const t of Object.values(VT)) {
+      expect(t60).toContain(t);
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(8);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});
+
+/*
+ * VRF-5 (owner R1 18:14-18:21 + SAFEGUARD; F2; R2; R5; R4-R8; ANSWER 4-6, 9) -- R-39 ON v61: the seven lines v61 adds each fire from the
+ * PANEL's entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v61's titles = v60's 26 + 7.
+ */
+describe("VRF-5 (v61) -- R-39: every VRF Derivation-tab rule v61 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A61 = rd("rate_master_hvac_all_v61.json");
+  const A60 = rd("rate_master_hvac_all_v60.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items61 = [...asItems(A61), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A61.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    acc: "A unit's price can include its accessories, each as its own line",
+    folded: "Any other item listed with a unit is a note, not a line",
+    guard: "Where the BoQ states an inclusion decides whether it is added",
+    words: "A cable the BoQ names without a size takes the default size",
+    side: "Discharge not stated, below the smallest Top unit -> Side",
+    makes: "Several makes stated -> Blue Star if it is one, else the first stocked make",
+    scope: "Supply only / installation only, from the BoQ",
+  };
+  type Row = { items?: Array<Record<string, string>>; unit?: string; qty?: number; text?: string; category?: string };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const CAS = (more: Record<string, string> = {}) => ({ item: "Cassette", brand: "Blue Star", capacity: "2 TR", ...more });
+  const VCASES: VCase[] = [
+    { id: "G1a", rule: VT.acc, kind: "pos", rows: { 9: { items: [OD({ includes_frame: "Yes", includes_frame_where: "Row", includes_gas: "Yes", includes_gas_where: "Row" })] } }, at: 9,
+      re: ["line:acc_frame", "line:acc_gas"], priced: true },
+    { id: "G1b-neg", rule: VT.acc, kind: "neg", rows: { 9: { items: [OD({ includes_frame: "No", includes_gas: "None" })] } }, at: 9, re: [], not: ["line:acc_"], priced: true },
+    { id: "G2a", rule: VT.folded, kind: "pos", rows: { 12: { items: [OD(), { item: "none of these" }] } }, at: 12,
+      re: ["notes:An item the catalogue does not identify (not identified in the catalogue)"], priced: true },
+    { id: "G2b-neg", rule: VT.folded, kind: "neg", rows: { 12: { items: [{ item: "Remote Controller" }, { item: "none of these" }] } }, at: 12, re: [], not: ["notes:"], priced: false },
+    { id: "G3a", rule: VT.guard, kind: "pos", rows: { 24: { items: [CAS({ includes_refnet: "Yes", includes_refnet_where: "Heading" })] }, 134: { items: [{ item: "Refnet/Y-Joint" }], text: "Refnet joints" } }, at: 24,
+      re: ["review:This row may include extras - please review", "NOT added: the BoQ quotes it on its own row (row 134)"], not: ["line:acc_refnet"], priced: true },
+    { id: "G3b-neg", rule: VT.guard, kind: "neg", rows: { 24: { items: [CAS({ includes_refnet: "Yes", includes_refnet_where: "Row" })] }, 134: { items: [{ item: "Refnet/Y-Joint" }], text: "Refnet joints" } }, at: 24,
+      re: ["line:acc_refnet"], not: ["review:"], priced: true },
+    { id: "G4a", rule: VT.words, kind: "pos", rows: { 233: { items: [OD({ capacity: "18 HP", includes_power: "Yes", includes_power_where: "Row", extra_cable_spec_as_written: "multicore copper cables about 5-10 Rmt" })] } }, at: 233,
+      re: ["line:power", "spec:BoQ says \"multicore copper cables about 5-10 Rmt\" - no size stated"], not: ["Size needed"], priced: true },
+    { id: "G4b-neg", rule: VT.words, kind: "neg", rows: { 9: { items: [OD({ includes_power: "Yes", includes_power_where: "Row", extra_cable_spec_as_written: "4C x 10 sqmm" })] } }, at: 9,
+      re: ["line:power"], not: ["spec:BoQ says"], priced: true },
+    { id: "G5a", rule: VT.side, kind: "pos", rows: { 12: { items: [OD({ capacity: "6 HP" })] } }, at: 12, re: ["discharge:Side", /the smallest Top unit is 7 HP/], priced: true },
+    { id: "G5b-neg", rule: VT.side, kind: "neg", rows: { 12: { items: [OD({ capacity: "6 HP", discharge: "Top" })] } }, at: 12, re: ["discharge:Top"], not: [/smallest Top unit/], priced: true },
+    { id: "G6a", rule: VT.makes, kind: "pos", rows: { 9: { items: [OD({ brand: "None", brand_as_written: "Toshiba / Daikin" })] } }, at: 9, re: ["brand:Daikin", "the first stated make the catalogue stocks"], priced: true },
+    { id: "G6b-neg", rule: VT.makes, kind: "neg", rows: { 9: { items: [OD({ brand: "None", brand_as_written: "Daikin" })] } }, at: 9, re: [], not: [/several brands|none of the stated makes/], priced: true },
+    { id: "G7a", rule: VT.scope, kind: "pos", rows: { 147: { items: [CAS({ scope: "Supply only" })] } }, at: 147, re: ["scope:BoQ says supply only - no installation", "install:0"], priced: true },
+    { id: "G7b-neg", rule: VT.scope, kind: "neg", rows: { 147: { items: [CAS({ scope: "Supply + installation" })] } }, at: 147, re: [], not: ["scope:", "install:0"], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er, r]) => [Number(er), r.qty ?? 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "" }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items61, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: [], ownNotes: [], unit: r.unit ?? "Nos", quantity: r.qty ?? 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.scope?.note) out.push(`scope:${v.scope.note}`);
+    if (typeof v.totals?.install_rate === "number") out.push(`install:${v.totals.install_rate}`);
+    for (const b of v.items) {
+      for (const f of b.fields) { if (f.id === "discharge" || f.id === "brand") out.push(`${f.id}:${f.value}`); if (f.rule) out.push(f.rule); }
+      for (const l of b.extras?.lines ?? []) { out.push(`line:${l.id}`); for (const f of l.fields) if (f.id === "spec" && f.note) out.push(`spec:${f.note}`); if (l.reason) out.push(l.reason); }
+      if (b.extras?.review) out.push(`review:${b.extras.review.title}`, ...b.extras.review.points);
+      if (b.extras?.notes) out.push(...b.extras.notes.points.map((p) => `notes:${p}`));
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v61's VRF rules = v60's 26 + the seven VRF-5 lines; each line this block names has a positive AND a negative case", () => {
+    const t61 = titles(A61);
+    expect(t61).toHaveLength(33);
+    expect(t61.slice(0, 26)).toEqual(titles(A60));
+    expect(t61.slice(26)).toEqual([VT.acc, VT.folded, VT.guard, VT.words, VT.side, VT.makes, VT.scope]);
+    for (const t of Object.values(VT)) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(14);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});
+
+/*
+ * VRF-6 (owner rulings 2026-11-08 / 09; team 10:41-10:45; pre-VRF-6 13:02-13:45) -- R-39 ON v62: the thirteen lines v62 adds each fire
+ * from the PANEL's entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v62's titles = v61's 33 + 13.
+ */
+describe("VRF-6 (v62) -- R-39: every VRF Derivation-tab rule v62 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A62 = rd("rate_master_hvac_all_v62.json");
+  const A61 = rd("rate_master_hvac_all_v61.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items62 = [...asItems(A62), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A62.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    remote: "The remote's type follows the BoQ",
+    said: "Every included extra that is not added says why",
+    cat: "The own-row check reads each row's category first",
+    split: "Written splits, and a module above the largest unit",
+    pair: "A single that covers, unless a pair is cheaper",
+    cable: "A cable or pipe fact reaches only the item it describes",
+    make: "Accessories take the unit's make",
+    team: "Frame / stand, gas by HP, MCB + ELCB by HP (team rule)",
+    builtin: "A built-in drain pump is still added, with a review point",
+    scope: "Supply / installation settled by the sheet's own rows",
+    wiring: "'Control wiring' and 'quantified separately'",
+    words: "The BoQ's own words settle some answers before pricing",
+    two: "Two capacities in one row refuse, naming both",
+  };
+  type Row = { items?: Array<Record<string, string>>; unit?: string; text?: string; category?: string; node?: string; headings?: string[]; headingNotes?: string[]; ownNotes?: string[] };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const CAS = (more: Record<string, string> = {}) => ({ item: "Cassette", brand: "Blue Star", capacity: "2 TR", way: "FOUR-WAY", ...more });
+  const W = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const VCASES: VCase[] = [
+    { id: "H1a", rule: VT.remote, kind: "pos", rows: { 9: { items: [CAS({ ...W(["remote"]), remote_type: "Wired" })] } }, at: 9, re: ["remote_type:Wired"], priced: true },
+    { id: "H1b-neg", rule: VT.remote, kind: "neg", rows: { 9: { items: [CAS(W(["remote"]))] } }, at: 9, re: ["remote_type:Cordless"], not: ["remote_type:Wired"], priced: true },
+    { id: "H2a", rule: VT.said, kind: "pos", rows: { 9: { items: [CAS(W(["gas"], "Heading"))] } }, at: 9, re: [/Gas charge: .*NOT added: applies to outdoor units only/], priced: true },
+    { id: "H2b-neg", rule: VT.said, kind: "neg", rows: { 9: { items: [OD(W(["gas"]))] } }, at: 9, re: ["line:acc_gas"], not: [/outdoor units only/], priced: true },
+    { id: "H3a", rule: VT.cat, kind: "pos", rows: { 9: { items: [OD(W(["copper"], "Note"))] }, 287: { items: [{ item: "Copper" }], category: "hvac_piping", text: "5/8 dia" } }, at: 9,
+      re: [/NOT added: the BoQ quotes it on its own row \(row 287\)/], not: ["line:copper_supply"], priced: true },
+    { id: "H3b-neg", rule: VT.cat, kind: "neg", rows: { 9: { items: [OD(W(["copper"], "Note"))] }, 38: { items: [{ item: "Refnet/Y-Joint" }], text: "joints to connect copper piping" } }, at: 9,
+      re: ["line:copper_supply"], priced: true },
+    { id: "H4a", rule: VT.split, kind: "pos", rows: { 9: { items: [OD({ capacity: "24HP (12HP x 2NOS)" })] } }, at: 9, re: ["capacity:12", "split:The row states a split: 12 + 12"], priced: true },
+    { id: "H4b-neg", rule: VT.split, kind: "neg", rows: { 9: { items: [OD({ capacity: "24 HP" })] } }, at: 9, re: ["capacity:24"], not: ["split:"], priced: true },
+    { id: "H5a", rule: VT.pair, kind: "pos", rows: { 9: { items: [OD({ brand: "Daikin", cooling: "Heat Pump", capacity: "26 HP" })] } }, at: 9, re: [/split:26 HP is not a stocked size: the pair 20 \+ 6 HP \(0 HP over, cost \d+\) is cheaper than the 34 HP single/], priced: true },
+    { id: "H5b-neg", rule: VT.pair, kind: "neg", rows: { 9: { items: [OD({ capacity: "9 HP", discharge: "Top" })] } }, at: 9, re: ["capacity:10"], not: ["split:"], priced: true },
+    { id: "H6a", rule: VT.cable, kind: "pos", rows: { 9: { items: [OD({ capacity: "8 HP", ...W(["power"]), extra_cable_spec_as_written: "power cable (FRLS, XLPE, AL Armoured)" })] } }, at: 9, re: ["conductor:ALUMINIUM"], priced: true },
+    { id: "H6b-neg", rule: VT.cable, kind: "neg", rows: { 9: { items: [OD({ capacity: "8 HP", ...W(["power"]), extra_cable_spec_as_written: "armoured copper cable" })] } }, at: 9, re: ["conductor:COPPER"], priced: true },
+    { id: "H7a", rule: VT.make, kind: "pos", rows: { 9: { items: [CAS({ brand: "Daikin", capacity: "1 TR", ...W(["remote"]) })] } }, at: 9, re: [/item:Cordless Remote controller \(Daikin\)/], priced: true },
+    { id: "H7b-neg", rule: VT.make, kind: "neg", rows: { 9: { items: [CAS(W(["remote"]))] } }, at: 9, re: [/item:Cordless Remote controller \(Blue Star\)/], not: [/no Blue Star/], priced: true },
+    { id: "H8a", rule: VT.team, kind: "pos", rows: { 9: { items: [OD({ capacity: "26 HP", cooling: "Heat Pump", ...W(["frame", "gas", "mccb"]) })] } }, at: 9,
+      re: ["item:MS frame / stand for ODU", "qty:26", "item:63A FP MCB C CURVE", "item:63A RCCB 300mA(FP)"], priced: true },
+    { id: "H8b-neg", rule: VT.team, kind: "neg", rows: { 9: { items: [CAS(W(["frame", "gas", "mccb"]))] } }, at: 9, re: [], not: ["line:acc_frame", "line:acc_mcb"], priced: true },
+    { id: "H9a", rule: VT.builtin, kind: "pos", rows: { 9: { items: [CAS(W(["drain_pump"]))], text: "cassette with built-in drain pump" } }, at: 9, re: [/built-in drain pump - added as a separate pump/], priced: true },
+    { id: "H9b-neg", rule: VT.builtin, kind: "neg", rows: { 9: { items: [CAS(W(["drain_pump"]))] } }, at: 9, re: ["line:acc_drain_pump"], not: [/built-in/], priced: true },
+    { id: "H10a", rule: VT.scope, kind: "pos", rows: { 22: { items: [OD({ capacity: "6 HP", discharge: "Side", scope: "Installation only" })] }, 6: { items: [OD({ capacity: "6 HP", discharge: "Side", scope: "Supply only" })] } }, at: 22,
+      re: [/scope:.*normal installation rate applies.*row 6/], priced: true },
+    { id: "H10b-neg", rule: VT.scope, kind: "neg", rows: { 22: { items: [OD({ capacity: "6 HP", discharge: "Side", scope: "Installation only" })] } }, at: 22, re: [/scope:.*installation-only uplift applies/], priced: true },
+    { id: "H11a", rule: VT.wiring, kind: "pos", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.2 TR" }], headings: ["Ductable units with control wiring"] } }, at: 9, re: ["line:comm", /control wiring/], priced: true },
+    { id: "H11b-neg", rule: VT.wiring, kind: "neg", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.2 TR" }] } }, at: 9, re: [], not: ["line:comm"], priced: true },
+    { id: "H12a", rule: VT.words, kind: "pos", rows: { 9: { items: [{ capacity: "3.0 TR" }], headings: ["CSU type indoor units"] } }, at: 9, re: ["family:Ductable", /CSU/], priced: true },
+    { id: "H12b-neg", rule: VT.words, kind: "neg", rows: { 9: { items: [{ capacity: "3.0 TR" }] } }, at: 9, re: [], not: ["family:Ductable"], priced: false },
+    { id: "H13a", rule: VT.two, kind: "pos", rows: { 9: { items: [CAS({ capacity: "" })], text: "Cassette 2.6 Tr Capacity ... 1.3 TR capacity" } }, at: 9, re: ["two capacities stated (2.6 TR / 1.3 TR) - pick one"], priced: false },
+    { id: "H13b-neg", rule: VT.two, kind: "neg", rows: { 9: { items: [CAS({ capacity: "" })], text: "Cassette unit" } }, at: 9, re: ["no capacity stated"], not: ["two capacities"], priced: false },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er]) => [Number(er), 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "", ...(r.node === "Preamble" ? { preamble: true } : {}) }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items62, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [], unit: r.unit ?? "Nos", quantity: 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.scope?.note) out.push(`scope:${v.scope.note}`);
+    if (v.split?.note) out.push(`split:${v.split.note}`);
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      for (const f of b.fields) if (["capacity", "brand", "way"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+      for (const l of b.extras?.lines ?? []) {
+        out.push(`line:${l.id}`);
+        for (const f of l.fields) if (["item", "qty", "remote_type", "conductor"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+        out.push(...l.working);
+      }
+      if (b.extras?.review) out.push(...b.extras.review.points);
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v62's VRF rules = v61's 33 + the thirteen VRF-6 lines; each line this block names has a positive AND a negative case", () => {
+    const t62 = titles(A62);
+    expect(t62).toHaveLength(46);
+    expect(t62.slice(0, 33)).toEqual(titles(A61));
+    expect(t62.slice(33)).toEqual(Object.values(VT));
+    for (const t of Object.values(VT)) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(26);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});
+
+/*
+ * VRF-7 (owner rulings 2026-11-10 01:30-01:53, from the VRF-6 review) -- R-39 ON v63: the ten lines v63 adds (and the one it rewords:
+ * the control-wiring key is gone, so that line names only 'quantified separately') each fire from the PANEL's entry point on a BoQ row
+ * the model read, positive AND negative. THE VRF GUARD: v63's titles = v62's 46 with line 44 reworded + the ten VRF-7 lines.
+ */
+describe("VRF-7 (v63) -- R-39: every VRF Derivation-tab rule v63 adds or rewords fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A63 = rd("rate_master_hvac_all_v63.json");
+  const A62 = rd("rate_master_hvac_all_v62.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items63 = [...asItems(A63), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A63.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    discharge: "A discharge type the BoQ states wins",
+    heat: "Cooling-and-heating wordings are a heat pump",
+    armour: "A cable is armoured only when the BoQ says so",
+    length: "A length belongs to the item it is written for",
+    ownrow: "Every extra: added only when the sheet has no row of its own for it, always with a note",
+    stepup: "A breaker step-up is noted",
+    setup: "A module setup the BoQ states comes first",
+    remote: "An optional remote and an individual controller include the remote",
+    tfa: "A treated fresh air unit is priced as the fresh-air unit",
+    notes: "Starter-panel and wired-remote notes",
+  };
+  const REWORDED = "'Quantified separately' wins";
+  type Row = { items?: Array<Record<string, string>>; text?: string; category?: string; headings?: string[]; headingNotes?: string[]; ownNotes?: string[] };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const DU = (more: Record<string, string> = {}) => ({ item: "Ductable", brand: "Blue Star", capacity: "8.0 TR", ...more });
+  const W = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const ARM = "Price includes armoured copper conductor cabling with end termination from Switch to ODU";
+  const VCASES: VCase[] = [
+    { id: "J1a", rule: VT.discharge, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP" })], headings: ["VRF ODU - top discharge"] } }, at: 9, re: ["discharge:Top", "capacity:7", /priced as Top discharge/], priced: true },
+    { id: "J1b-neg", rule: VT.discharge, kind: "neg", rows: { 9: { items: [OD({ capacity: "3 TR", remote_type: "Wired" })] } }, at: 9, re: ["discharge:Side", "capacity:4"], not: [/a type the BoQ states wins/], priced: true },
+    { id: "J2a", rule: VT.heat, kind: "pos", rows: { 9: { items: [OD()], headings: ["VRF outdoor units suitable for cooling/heating"] } }, at: 9, re: ["cooling:Heat Pump", /priced as Heat Pump \(owner A5\)/], priced: true },
+    { id: "J2b-neg", rule: VT.heat, kind: "neg", rows: { 9: { items: [OD()], headings: ["VRF outdoor units"] } }, at: 9, re: ["cooling:Cool Only"], not: [/owner A5/], priced: true },
+    { id: "J3a", rule: VT.armour, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP", ...W(["power"], "Note") })], headingNotes: [ARM] } }, at: 9, re: ["armour:ARMOURED", /Power cable: armoured - the BoQ says/], priced: true },
+    { id: "J3b-neg", rule: VT.armour, kind: "neg", rows: { 9: { items: [OD({ capacity: "6 HP", ...W(["power"], "Note") })] } }, at: 9, re: ["armour:UNARMOURED"], not: [/armoured -/], priced: true },
+    { id: "J4a", rule: VT.length, kind: "pos", rows: { 9: { items: [OD({ ...W(["power", "comm"], "Note"), extra_power_length_as_written: "around a distance of 5m" })] } }, at: 9,
+      re: ["power length:5", "comm length:30", "no length stated for communication cable - 30 m default used (owner A3)"], priced: true },
+    { id: "J4b-neg", rule: VT.length, kind: "neg", rows: { 9: { items: [OD({ ...W(["power"], "Note"), extra_power_length_as_written: "5 m" })] } }, at: 9, re: ["power length:5"], not: [/no length stated/], priced: true },
+    { id: "J5a", rule: VT.ownrow, kind: "pos", rows: { 9: { items: [OD({ ...W(["frame"]), includes_frame_words: "including MS frame" })], text: "10 HP including MS frame" }, 60: { items: [{ item: "MS frame / stand for ODU" }], text: "MS stand for ODU" } }, at: 9,
+      re: [/MS frame \/ stand: the BoQ says "including MS frame" \(this row\) - NOT added: the BoQ quotes it on its own row \(row 60\)/], not: ["line:acc_frame"], priced: true },
+    { id: "J5b-neg", rule: VT.ownrow, kind: "neg", rows: { 9: { items: [OD({ ...W(["frame"]), includes_frame_words: "including MS frame" })], text: "10 HP including MS frame" } }, at: 9,
+      re: ["line:acc_frame", /- added \(the BoQ has no row of its own for it\)/], priced: true },
+    { id: "J6a", rule: VT.stepup, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP", ...W(["mccb"], "Note") })] } }, at: 9, re: ["MCB - 6 HP: schedule says 20 A - not stocked; 25 A used (owner A6)"], priced: true },
+    { id: "J6b-neg", rule: VT.stepup, kind: "neg", rows: { 9: { items: [OD({ capacity: "20 HP", ...W(["mccb"], "Note") })] } }, at: 9, re: ["item:63A FP MCB C CURVE"], not: [/schedule says/], priced: true },
+    { id: "J7a", rule: VT.setup, kind: "pos", rows: { 9: { items: [OD({ capacity: "40 HP (in a combination of minimum 2 units of at least 20 HP each)", cooling: "Heat Pump" })] } }, at: 9,
+      re: [/The BoQ states the modules: "minimum 2 units of at least 20 HP each"/, "capacity:20"], not: ["capacity:28"], priced: true },
+    { id: "J7b-neg", rule: VT.setup, kind: "neg", rows: { 9: { items: [OD({ capacity: "40 HP", cooling: "Heat Pump" })] } }, at: 9, re: ["capacity:28", "capacity:12"], not: [/The BoQ states the modules/], priced: true },
+    { id: "J8a", rule: VT.remote, kind: "pos", rows: { 9: { items: [DU()], headingNotes: ["Units to be supplied with/without wired remote controller as per the requirement of the client."] } }, at: 9,
+      re: ["line:acc_remote", "remote_type:Wired", /optional in the BoQ, owner B10/], priced: true },
+    { id: "J8b-neg", rule: VT.remote, kind: "neg", rows: { 9: { items: [DU()] } }, at: 9, re: [], not: ["line:acc_remote"], priced: true },
+    { id: "J9a", rule: VT.tfa, kind: "pos", rows: { 9: { items: [DU({ capacity: "6.8 TR" })], headings: ["Supply of CSU type VRF / VRV treated fresh air unit"] } }, at: 9, re: ["family:Single Skin Treated Fresh Air", /owner B11/], priced: true },
+    { id: "J9b-neg", rule: VT.tfa, kind: "neg", rows: { 9: { items: [DU({ capacity: "3 TR" })], headings: ["Supply of CSU type indoor unit"] } }, at: 9, re: ["family:Ductable"], not: [/owner B11/], priced: true },
+    { id: "J10a", rule: VT.notes, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP", ...W(["mccb"], "Note") })], headingNotes: ["unit mounted starter panel with power disconnecting switches with fuses"] } }, at: 9,
+      re: ["line:acc_mcb", /MCB \+ ELCB still added, please check \(owner D1\)/], priced: true },
+    // VRF-7 K1c (BEFORE: the same case WITH headingNotes ["wired remote"] -- the priced type's own words now decide the D2 note, so
+    // that case is a real conflict and is noted; the negative keeps its point: a type no BoQ words name gets no note)
+    { id: "J10b-neg", rule: VT.notes, kind: "neg", rows: { 9: { items: [DU({ capacity: "2 TR", ...W(["remote"], "Heading"), remote_type: "Wired" })], headings: ["coreded/cordless remotes"] } }, at: 9,
+      re: ["remote_type:Wired"], not: [/owner D2/, /owner D1/], priced: true },
+    { id: "J11a", rule: REWORDED, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.6TR", way: "FOUR-WAY", ...W(["power", "comm"], "Heading") }], headingNotes: ["cabling & ODU stands quantified separately"] } }, at: 9,
+      re: [/NOT added - the BoQ note says/], not: ["line:power"], priced: true },
+    { id: "J11b-neg", rule: REWORDED, kind: "neg", rows: { 9: { items: [DU({ capacity: "3.2 TR" })], headings: ["Ductable units with control wiring"] } }, at: 9, re: [], not: ["line:comm", /control wiring/], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er]) => [Number(er), 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "" }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items63, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [], unit: "Nos", quantity: 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      for (const f of b.fields) if (["capacity", "brand", "discharge", "cooling"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+      for (const l of b.extras?.lines ?? []) {
+        out.push(`line:${l.id}`);
+        for (const f of l.fields) {
+          if (["item", "qty", "remote_type", "armour"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+          if (f.id === "length") out.push(`${l.id} length:${f.value}`);
+          if (f.note) out.push(f.note);
+        }
+        out.push(...l.working);
+      }
+      if (b.extras?.review) out.push(...b.extras.review.points);
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v63's VRF rules = v62's 46 with line 44 reworded + the ten VRF-7 lines; each line this block names has a positive AND a negative case", () => {
+    const t63 = titles(A63);
+    const t62 = titles(A62);
+    expect(t63).toHaveLength(56);
+    // VRF-8 K2 (R-F4, owner 13:56) -- MOVED UNDER MECHANICAL AUTHORITY, nothing deleted. BEFORE: `expect(t63.slice(0, 43)).toEqual(t62.slice(0, 43))`.
+    // Line 42 (index 41) now states its condition on a config with VRF-7's own-row check (v63 has it, v62 does not); every other
+    // line of the first 43 is unchanged.
+    const L42 = t62.indexOf("A built-in drain pump is still added, with a review point");
+    expect(L42).toBe(41);
+    expect(t63[L42]).toBe("A built-in drain pump is added only when the sheet has no pump row of its own, with a review point");
+    expect([...t63.slice(0, L42), ...t63.slice(L42 + 1, 43)]).toEqual([...t62.slice(0, L42), ...t62.slice(L42 + 1, 43)]);
+    expect(t62[43]).toBe("'Control wiring' and 'quantified separately'");
+    expect(t63[43]).toBe(REWORDED);
+    expect(t63.slice(44, 46)).toEqual(t62.slice(44, 46));
+    expect(t63.slice(46)).toEqual(Object.values(VT));
+    for (const t of [...Object.values(VT), REWORDED]) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(22);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});
+
+/*
+ * VRF-8 (owner rulings 2026-11-10 13:56-15:05, from the VRF-7 review) -- R-39 ON v64: the 17 lines v64 adds each fire from the PANEL's
+ * entry point on a BoQ row the model read, positive AND negative. THE VRF GUARD: v64's titles = v63's 56 (line 42 states its condition,
+ * K2) + the 17 VRF-8 lines.
+ */
+describe("VRF-8 (v64) -- R-39: every VRF Derivation-tab rule v64 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const A63 = rd("rate_master_hvac_all_v63.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const items64 = [...asItems(A64), ...asItems(E72)];
+  const cfgs = new Map<string, RateCategoryConfig>([...A64.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  const VT = {
+    setup: "A written module setup that is not stocked -> the split rule on the total",
+    nets: "Starter-panel breakers, ODU supports and plug-top power cable",
+    qs: "'Quantified separately' is always said",
+    remote: "Remote notes read only this unit's own words",
+    supply: "A 'Supply of' heading with an installation note stays supply + installation",
+    feeder: "A feeder within N m of the ODU sets the power cable length",
+    breaker: "'Breaker (if required)' includes the MCB + ELCB",
+    drain: "Drain-pump cabling is never the unit's power cable",
+    inter: "'Interconnections with power supply' are connection work",
+    mode: "The nearer heading wins on cooling / heating",
+    install: "An installation-only row follows its supply row",
+    repeated: "A capacity stated twice wins",
+    types: "Several unit types under one heading refuse",
+    missing: "An extra the model left unanswered follows the BoQ's words",
+    tfa: "A fresh-air unit complete with its outdoor unit",
+    make: "A stated make with no size close enough gives way",
+    quotes: "Only verified BoQ quotes are shown",
+  };
+  // VRF-8: a case may also carry every heading's notes above the row (`ancestorNotes`, what the page builds) -- a note two levels up
+  type Row = { items?: Array<Record<string, string | null>>; text?: string; category?: string; headings?: string[]; headingNotes?: string[]; ownNotes?: string[]; ancestorNotes?: string[] };
+  type VCase = { id: string; rule: string; kind: "pos" | "neg"; rows: Record<number, Row>; at: number; re: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean };
+  const OD = (more: Record<string, string | null> = {}) => ({ item: "Outdoor Unit", brand: "Blue Star", capacity: "10 HP", ...more });
+  const W = (ids: string[], where = "Row") => Object.fromEntries(ids.flatMap((id) => [[`includes_${id}`, "Yes"], [`includes_${id}_where`, where]]));
+  const SP = "The unit mouted starter panel shall be complete with IP-55 protection consisting of power disconnecting switches with fuses";
+  const EC = "MCCB / MCB isolator & incoming power supply for VRV/VRF ODU unit will be in Electrical contractor scope of work";
+  const TYPES = ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"];
+  const TFA = "Supply of 741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit";
+  const VCASES: VCase[] = [
+    { id: "K1a", rule: VT.setup, kind: "pos", rows: { 9: { items: [OD({ brand: "Daikin", cooling: "Cool Only", capacity: "60.0 HP (18+18+24)" })] } }, at: 9, re: [/could not be followed/, "capacity:20"], not: ["capacity:12"], priced: true },
+    { id: "K1b-neg", rule: VT.setup, kind: "neg", rows: { 9: { items: [OD({ brand: "Daikin", cooling: "Cool Only", capacity: "40HP (20+20)" })] } }, at: 9, re: ["capacity:20"], not: [/could not be followed/], priced: true },
+    { id: "K2a", rule: VT.nets, kind: "pos", rows: { 9: { items: [OD({ capacity: "6 HP" })], headingNotes: [SP] } }, at: 9, re: ["line:acc_mcb", "line:acc_elcb", /owner D1/], priced: true },
+    { id: "K2b-neg", rule: VT.nets, kind: "neg", rows: { 9: { items: [OD({ capacity: "6 HP", includes_mccb: "No" })], headingNotes: [SP] } }, at: 9, re: [], not: ["line:acc_mcb"], priced: true },
+    { id: "K3a", rule: VT.qs, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.6TR", ...W(["remote"], "Heading") }], headingNotes: ["All piping, cabling & ODU stands quantified separately."] } }, at: 9,
+      re: [/Power cable: not added - the BoQ note says/], not: ["line:power"], priced: true },
+    { id: "K3b-neg", rule: VT.qs, kind: "neg", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.6TR", ...W(["remote"], "Heading") }] } }, at: 9, re: [], not: [/quantified separately/], priced: true },
+    { id: "K4a", rule: VT.remote, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "1.28 TR", remote_type: "Wired", ...W(["remote"], "Heading") }],
+      headings: ["VRF SYSTEM", "Indoor Units (Cassette): Supply of Cassette units with wall mounted corded remote with LCD display"], ancestorNotes: ["The system should be complete with controls, cordless/ Corded remote, power and control wiring"] } }, at: 9,
+      // the plain words that decided are quoted from where they sit as plain words (the unit heading), never the "Corded" inside the pair
+      re: ["remote_type:Wired", /owner W7/, /the BoQ says "[^"]*wall mounted corded remote with LCD display[^"]*" and also "[^"]*cordless\/ Corded remote/], priced: true },
+    { id: "K4b-neg", rule: VT.remote, kind: "neg", rows: { 9: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1.0TR", remote_type: "Cordless", ...W(["remote"], "Note") }], text: "Hi wall unit type 1 -1.0TR",
+      headings: ["VRF LOW SIDE WORKS"], headingNotes: ["Ductable Unit -SITC of Ceiling Suspended Ductable unit with corded remote controller", "Hi wall Unit- SITC of Hi wall Type VRV Indoor Unit with cordless remote controller to be considered"] } }, at: 9,
+      re: ["remote_type:Cordless"], not: [/owner D2/, /owner W7/], priced: true },
+    { id: "K5a", rule: VT.supply, kind: "pos", rows: { 9: { items: [OD({ capacity: "18 HP", scope: "Supply + installation" })], headings: ["Supply of VRV ODU System"], headingNotes: ["Installation, testing and commissioning of VRV Condensor Units"] } }, at: 9,
+      re: [/priced as supply \+ installation \(owner D1\)/], priced: true },
+    { id: "K5b-neg", rule: VT.supply, kind: "neg", rows: { 9: { items: [OD({ capacity: "18 HP", scope: "Supply + installation" })], headings: ["SITC of VRV ODU System"], headingNotes: ["Installation, testing and commissioning of VRV Condensor Units"] } }, at: 9,
+      re: [], not: [/owner D1\)/], priced: true },
+    { id: "K6a", rule: VT.feeder, kind: "pos", rows: { 9: { items: [OD(W(["power"], "Heading"))], headingNotes: ["Note: Single feeder shall be provided for all VRF ODU within 5 mtr distance from ODU."] } }, at: 9, re: ["power length:5", /owner D4/], priced: true },
+    { id: "K6b-neg", rule: VT.feeder, kind: "neg", rows: { 9: { items: [OD(W(["power"], "Heading"))] } }, at: 9, re: ["power length:30"], not: [/owner D4/], priced: true },
+    { id: "K7a", rule: VT.breaker, kind: "pos", rows: { 9: { items: [OD({ capacity: "12 HP", includes_mccb: "No" })], headingNotes: ["The cost of the unit shall include cabling, gland, cable tray and breaker (if required) to distribute power", EC] } }, at: 9,
+      re: ["line:acc_mcb", /added as the safe choice \(owner D5\)/], priced: true },
+    { id: "K7b-neg", rule: VT.breaker, kind: "neg", rows: { 9: { items: [OD({ capacity: "12 HP", includes_mccb: "No" })], headingNotes: [EC] } }, at: 9, re: [/NOT added - the BoQ says/], not: ["line:acc_mcb"], priced: true },
+    { id: "K8a", rule: VT.drain, kind: "pos", rows: { 9: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1.6 TR", ...W(["remote"], "Note") }], headingNotes: ["Necessary cabling including plug top from nearest power point for the drain pump."] } }, at: 9,
+      re: [/is for the drain pump/], not: ["line:power"], priced: true },
+    { id: "K8b-neg", rule: VT.drain, kind: "neg", rows: { 9: { items: [{ item: "Hi-Wall", brand: "Blue Star", capacity: "1.6 TR", includes_power: "None" }], headingNotes: ["Quoted price shall be inclusive of Plug Top & necessary power cable."] } }, at: 9,
+      re: ["line:power"], not: [/drain pump/], priced: true },
+    { id: "K9a", rule: VT.inter, kind: "pos", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.0 TR", ...W(["power"], "Heading"), includes_power_words: "necessary interconnections with Power supply / earthing / Refrigerant Connections" }],
+      headings: ["The scope includes necessary interconnections with Power supply / earthing / Refrigerant Connections Complete as required"] } }, at: 9, re: [/connection work only \(owner D8\)/], not: ["line:power"], priced: true },
+    { id: "K9b-neg", rule: VT.inter, kind: "neg", rows: { 9: { items: [{ item: "Ductable", brand: "Blue Star", capacity: "3.0 TR", ...W(["power"], "Heading"), includes_power_words: "power cable from the DB" }], headings: ["Indoor units with power cable from the DB"] } }, at: 9,
+      re: ["line:power"], not: [/owner D8/], priced: true },
+    { id: "K10a", rule: VT.mode, kind: "pos", rows: { 9: { items: [OD({ capacity: "18 HP" })], headings: ["VRV SYSTEM with individual controller for cooling & heating application", "OUTDOOR UNITS"], headingNotes: ["The condensing units shall be suitable to work on cooling mode even during peak winter season"] } }, at: 9,
+      re: ["cooling:Cool Only", /the nearer heading wins: priced as Cool Only \(owner D9\)/], priced: true },
+    { id: "K10b-neg", rule: VT.mode, kind: "neg", rows: { 9: { items: [OD({ capacity: "18 HP" })], headings: ["OUTDOOR UNITS"], headingNotes: ["The condensing units shall be suitable to work on cooling mode even during peak winter season"] } }, at: 9,
+      re: ["cooling:Cool Only"], not: [/owner D9/], priced: true },
+    { id: "K11a", rule: VT.install, kind: "pos", rows: { 7: { items: [{ item: "Outdoor Unit", brand: "Daikin", brand_as_written: "Daikin", discharge: "Side", capacity: "12HP", scope: "Supply only" }], text: "12HP Side" },
+      9: { items: [{ item: "Outdoor Unit", discharge: "Side", capacity: "12HP", scope: "Installation only" }], text: "12HP Side" } }, at: 9, re: ["brand:Daikin", "capacity:6", /quoted on row 7 as Daikin/], priced: true },
+    { id: "K11b-neg", rule: VT.install, kind: "neg", rows: { 9: { items: [{ item: "Outdoor Unit", discharge: "Side", capacity: "8HP", scope: "Installation only" }], text: "8HP Side" } }, at: 9, re: ["brand:Blue Star"], not: [/owner D10/], priced: true },
+    { id: "K12a", rule: VT.repeated, kind: "pos", rows: { 9: { items: [{ item: "Ductable", remote_type: "Wired", capacity: "5.5TR" }], text: "CSU ductable indoor-4.0 TR capacity | as per the capacity belo5.5 TR capacity 4.0TR capacity" } }, at: 9,
+      re: ["capacity:4", /twice and 5.5 TR once/], priced: true },
+    { id: "K12b-neg", rule: VT.repeated, kind: "neg", rows: { 9: { items: [{ item: "Ductable", remote_type: "Wired", capacity: "4.0TR" }], text: "CSU ductable indoor-4.0 TR capacity" } }, at: 9, re: ["capacity:4"], not: [/owner D11/], priced: true },
+    { id: "K13a", rule: VT.types, kind: "pos", rows: { 9: { items: [{ item: null, capacity: "2.0 TR" }], text: "2.0 TR", headings: ["VRF indoor units"], headingNotes: TYPES } }, at: 9, re: [/several unit types under this heading/], priced: false },
+    { id: "K13b-neg", rule: VT.types, kind: "neg", rows: { 9: { items: [{ item: "Cassette", capacity: "2.0 TR" }], text: "2.0 TR 4 way cassette", headings: ["VRF indoor units"], headingNotes: TYPES } }, at: 9, re: [], not: [/several unit types/], priced: true },
+    { id: "K14a", rule: VT.missing, kind: "pos", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "3.0TR", includes_drain_pump: null }], headings: ["VRF Indoor units with drain pumps for cassette, ductable & TFA units"] } }, at: 9,
+      re: ["line:acc_drain_pump", /- added \(the BoQ has no row of its own for it\)/], priced: true },
+    { id: "K14b-neg", rule: VT.missing, kind: "neg", rows: { 9: { items: [{ item: "Cassette", brand: "Blue Star", capacity: "3.0TR", includes_drain_pump: "None" }], headings: ["VRF Indoor units with drain pumps for cassette, ductable & TFA units"] } }, at: 9,
+      re: [], not: ["line:acc_drain_pump"], priced: true },
+    { id: "K15a", rule: VT.tfa, kind: "pos", rows: { 9: { items: [{ item: "Single Skin Treated Fresh Air", capacity: "741 CFM (6 HP)" }, { item: "Outdoor Unit" }], text: TFA } }, at: 9, re: [/owner D14-1/, "capacity:6"], priced: true },
+    { id: "K15b-neg", rule: VT.tfa, kind: "neg", rows: { 9: { items: [{ item: "Single Skin Treated Fresh Air", capacity: "741 CFM (6 HP)" }, { item: "Outdoor Unit" }], text: "741 CFM (6 HP) TFA unit" } }, at: 9, re: [/no capacity stated/], not: [/owner D14-1/], priced: false },
+    { id: "K16a", rule: VT.make, kind: "pos", rows: { 9: { items: [{ item: "Ductable", brand_as_written: "TOSHIBA / DAIKIN / PANASONIC", capacity: "1.59 TR" }] } }, at: 9, re: [/Daikin's smallest is 4 TR/], not: ["brand:Daikin"], priced: true },
+    { id: "K16b-neg", rule: VT.make, kind: "neg", rows: { 9: { items: [{ item: "Ductable", brand_as_written: "TOSHIBA / DAIKIN / PANASONIC", capacity: "4 TR" }] } }, at: 9, re: ["brand:Daikin"], not: [/owner D14-2/], priced: true },
+    { id: "K17a", rule: VT.quotes, kind: "pos", rows: { 9: { items: [OD({ ...W(["frame"], "Note"), includes_frame_words: "The cost of the unit ... MS plate structure" })], headingNotes: ["The cost of the unit shall include a necessary MS angle base frame and an MS plate structure"] } }, at: 9,
+      re: [/MS frame \/ stand: stated in note/], not: [/the BoQ says "The cost of the unit \.\.\./], priced: true },
+    { id: "K17b-neg", rule: VT.quotes, kind: "neg", rows: { 9: { items: [OD({ ...W(["frame"], "Note"), includes_frame_words: "a necessary MS angle base frame" })], headingNotes: ["The cost of the unit shall include a necessary MS angle base frame and an MS plate structure"] } }, at: 9,
+      re: [/the BoQ says "a necessary MS angle base frame"/], priced: true },
+  ];
+  function vrun(c: VCase) {
+    const results = Object.entries(c.rows).filter(([, r]) => r.items).map(([er, r]) => ({ excel_row: Number(er), description: r.text ?? "", category_id: r.category ?? VRF, attributes: {},
+      items: r.items!.map((a) => ({ attributes: Object.fromEntries(Object.entries(a).map(([k, v]) => [k, { value: v, confidence: v === null ? 0 : 0.9 }])) })) }));
+    const rowQuantities = Object.fromEntries(Object.entries(c.rows).map(([er]) => [Number(er), 1]));
+    const sheetLines = Object.entries(c.rows).map(([er, r]) => ({ row: Number(er), text: r.text ?? "" }));
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items: items64, extractionByRow: buildExtractionByRow(results as never) });
+    const r = c.rows[c.at];
+    const res = h.compute({ excelRow: c.at, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [], ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}),
+      unit: "Nos", quantity: 1, rowQuantities, sheetLines } as RateHelperRowContext);
+    const v = (res as ItemListSuggestion).itemList!;
+    const out: string[] = [];
+    if (v.reason) out.push(v.reason);
+    if (v.split?.note) out.push(v.split.note);
+    if (v.scope?.note) out.push(v.scope.note);
+    for (const b of v.items) {
+      if (b.family) out.push(`family:${b.family}`);
+      if (b.reason) out.push(b.reason);
+      for (const f of b.fields) if (["capacity", "brand", "discharge", "cooling"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+      for (const l of b.extras?.lines ?? []) {
+        out.push(`line:${l.id}`);
+        for (const f of l.fields) {
+          if (["item", "qty", "remote_type", "armour"].includes(f.id)) out.push(`${f.id}:${f.value}`);
+          if (f.id === "length") out.push(`${l.id} length:${f.value}`);
+          if (f.note) out.push(f.note);
+        }
+        out.push(...l.working);
+      }
+      if (b.extras?.review) out.push(...b.extras.review.points);
+    }
+    return { priced: v.rowPriced, text: out.join("\n") };
+  }
+  const vmatch = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
+
+  it("THE VRF GUARD: v64's VRF rules = v63's 56 + the 17 VRF-8 lines; each line this block names has a positive AND a negative case", () => {
+    const t64 = titles(A64);
+    const t63 = titles(A63);
+    expect(t63).toHaveLength(56);
+    expect(t64).toHaveLength(73);
+    expect(t64.slice(0, 56)).toEqual(t63);
+    expect(t64.slice(56)).toEqual(Object.values(VT));
+    for (const t of Object.values(VT)) {
+      const mine = VCASES.filter((c) => c.rule === t);
+      expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
+    }
+    expect(VCASES).toHaveLength(34);
+  });
+
+  it.each(VCASES.map((c) => [c.id, c] as const))("%s", (_id, c) => {
+    const { priced, text } = vrun(c);
+    for (const p of c.re) expect({ id: c.id, want: p, hit: vmatch(text, p), text }).toEqual({ id: c.id, want: p, hit: true, text });
+    for (const p of c.not ?? []) expect({ id: c.id, forbidden: p, hit: vmatch(text, p) }).toEqual({ id: c.id, forbidden: p, hit: false });
+    if (c.priced !== undefined) expect({ id: c.id, priced }).toEqual({ id: c.id, priced: c.priced });
+  });
+});
+
+/**
+ * VRF-9 (v65) -- R-39 on the MINTED asset: every Derivation-tab rule v65 adds fires from the panel's entry point (the calculator's for
+ * the calculator rules), positive AND negative. THE VRF GUARD (QR-3 4b): v65's titles = v64's 73 + the 13 VRF-9 lines.
+ */
+describe("VRF-9 (v65) -- R-39: every VRF Derivation-tab rule v65 adds fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  type V = NonNullable<ItemListSuggestion["itemList"]>;
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A65 = rd("rate_master_hvac_all_v65.json");
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const titles = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a)).map((l) => l.title);
+  type R = { items: Array<Record<string, string | null>>; unit?: string; text?: string; headings?: string[]; headingNotes?: string[]; ancestorNotes?: string[]; qty?: number };
+  const on = (a: A) => {
+    const items = [...asItems(a), ...asItems(E72)];
+    const cfgs = new Map<string, RateCategoryConfig>([...a.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+    const panel = (r: R): V => {
+      const results = [{ excel_row: 9, description: r.text ?? "", category_id: VRF, attributes: {}, items: r.items.map((x) => ({ attributes: Object.fromEntries(Object.entries(x).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }];
+      const h = makePricingSheetHelper({ configsByCategory: cfgs, items, extractionByRow: buildExtractionByRow(results as never) });
+      return (h.compute({ excelRow: 9, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+        unit: r.unit ?? "Nos", quantity: r.qty ?? 1, headings: r.headings ?? [], ownNotes: [], headingNotes: r.headingNotes ?? [], ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}) } as never, {}) as unknown as ItemListSuggestion).itemList!;
+    };
+    const calc = (unit: string, family: string, attrs: Record<string, string> = {}): V => {
+      const h = makePricingSheetHelper({ configsByCategory: cfgs, items, extractionByRow: new Map() });
+      return (h.compute({ excelRow: 1, description: "", nodeType: "", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"] } as never,
+        { [ROW_UNIT_OVERRIDE_KEY]: unit, [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family, attrs }] }) }) as unknown as ItemListSuggestion).itemList!;
+    };
+    return { panel, calc };
+  };
+  const v65 = on(A65);
+  const v64 = on(A64);
+  const pts = (v: V) => v.items.flatMap((b) => b.extras?.review?.points ?? []).join("\n");
+  const line = (v: V, id: string) => v.items[0]?.extras?.lines.find((l) => l.id === id);
+  const D12N = ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"];
+  const SP = ["The unit mouted starter panel shall be complete with IP-55 protection consisting of power disconnecting switches with fuses, soft starters, for compressor motors"];
+  const VT = {
+    types: "Several unit types: only when the row names none",
+    note: "A 'Supply of' row with installation said above: the scope note always",
+    level: "Installation said at any level wins over a supply-only reading",
+    quotes: "The panel's own notes quote the BoQ word for word, with their rows",
+    feeder: "The feeder-length note on every module",
+    tfa: "A fresh-air unit with no capacity read takes the row's",
+    hp: "A per-HP row refuses in the calculator too",
+    gas: "A first / factory charge of refrigerant is the gas charge",
+    not: "BMS-interface cables and civil supports are not extras",
+    fcu: "A Fan Coil Unit with no type told is refused",
+    set: "A Set the BoQ defines is one refnet",
+    both: "Gas charging is always supply + installation",
+    rowfam: "A gas-charging or ODU-frame row with no item read",
+  };
+  type C = { rule: string; kind: "pos" | "neg"; ok: () => boolean };
+  const wm = (s: typeof v65) => s.panel({ items: [{ item: "Hi-Wall", capacity: "2.0TR" }], text: "Wall Mounted Type (2.0TR)", headings: ["SITC of indoor units"], headingNotes: D12N });
+  const sup = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "16 HP" }], text: "VRV - 50HP | Supply of VRV outdoor unit", headings: ["The unit rate for all items shall include installation, testing, commissioning"] });
+  const lvl = (s: typeof v65, text = "14 HP ODU") => s.panel({ items: [{ item: "Outdoor Unit", capacity: "14 HP", scope: "Supply only" }], text, headings: ["VRV HIGHSIDE", "OUTDOOR UNITS"], ancestorNotes: ["Supply, port clearance, transport of units", "Supply, Installation, testing & commissioning of the VRV system"] });
+  const fdr = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "38HP (20+18)", cooling: "Heat Pump", includes_power: "Yes", includes_power_where: "Heading" }], headingNotes: ["Single feeder shall be provided for all VRF ODU within 5 mtr distance from ODU"] });
+  const tfa = (s: typeof v65) => s.panel({ items: [{ item: "Single Skin Treated Fresh Air", capacity: null }, { item: "Outdoor Unit", capacity: "6 HP" }], text: "741 CFM (6 HP) Treated Fresh Air (TFA) Unit complete with suitable Outdoor unit" });
+  const gas = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "12 HP", includes_gas: "No" }], headingNotes: ["factory charged with first charge of refrigerant"] });
+  const bms = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "8 HP", includes_comm: "Yes", includes_comm_where: "Note", includes_comm_words: "provision for BMS interface bacnet / Modbus, communication cables" }], headingNotes: ["provision for BMS interface bacnet / Modbus, communication cables"] });
+  const civ = (s: typeof v65) => s.panel({ items: [{ item: "Outdoor Unit", capacity: "8HP", includes_frame: "Yes", includes_frame_where: "Note", includes_frame_words: "Including Civil pedestal supports for outdoor units" }], headingNotes: ["Including Civil pedestal supports for outdoor units"] });
+  const fcu = (s: typeof v65) => s.panel({ items: [{ capacity: "1.0 TR" }], text: "1.0 TR", headings: ["VRF SYSTEM", "Fan Coil Units"] });
+  const set = (s: typeof v65) => s.panel({ items: [{ item: "Refnet/Y-Joint", set_contents_as_written: "Liquid and Gas considered as a one Set", set_covers: "Indoor side only", set_idu: "8" }], unit: "Set", qty: 2 });
+  const chg = (s: typeof v65) => s.panel({ items: [{ item: "Refrigerant Gas Filling (R-410)", scope: "Installation only" }], unit: "kg", text: "Installation of refrigerant gas including topping up of Refrigerant R-410A" });
+  const frm = (s: typeof v65) => s.panel({ items: [{ scope: "Supply + installation" }], text: "Supply and installation of MS base frames for outdoor units" });
+  const CASES: C[] = [
+    { rule: VT.types, kind: "pos", ok: () => wm(v65).rowPriced === true && v65.calc("Nos", "Hi-Wall / Cassette / Ductable", { capacity: "2" }).reason === "several unit types under this heading - fix the headings or pick the type (owner D12)" },
+    { rule: VT.types, kind: "neg", ok: () => wm(v64).rowPriced === false },
+    { rule: VT.note, kind: "pos", ok: () => /owner R-D1/.test(sup(v65).scope?.note ?? "") },
+    { rule: VT.note, kind: "neg", ok: () => !sup(v64).scope?.note },
+    { rule: VT.level, kind: "pos", ok: () => lvl(v65).scope?.value === "Supply + installation" },
+    { rule: VT.level, kind: "neg", ok: () => lvl(v65, "14 HP ODU - supply only").scope?.value === "Supply only" && lvl(v64).scope?.value === "Supply only" },
+    { rule: VT.quotes, kind: "pos", ok: () => { const q = pts(v65.panel({ items: [{ item: "Outdoor Unit", capacity: "6HP" }], headingNotes: SP })); return /MCB \+ ELCB: the BoQ says "[^"]*fuses" \(/.test(q) && !/\.\.\."/.test(q); } },
+    { rule: VT.quotes, kind: "neg", ok: () => /\.\.\."/.test(pts(v64.panel({ items: [{ item: "Outdoor Unit", capacity: "6HP" }], headingNotes: SP }))) },
+    { rule: VT.feeder, kind: "pos", ok: () => { const v = fdr(v65); return v.items.length === 2 && v.items.every((b) => (b.extras?.review?.points ?? []).some((q) => /owner D4/.test(q))); } },
+    { rule: VT.feeder, kind: "neg", ok: () => !(fdr(v64).items[1]?.extras?.review?.points ?? []).some((q) => /owner D4/.test(q)) },
+    { rule: VT.tfa, kind: "pos", ok: () => tfa(v65).rowPriced === true },
+    { rule: VT.tfa, kind: "neg", ok: () => tfa(v64).rowPriced === false },
+    { rule: VT.hp, kind: "pos", ok: () => /^Unit "per HP" is not a VRF unit/.test(v65.calc("per HP", "Outdoor Unit", { capacity: "10" }).reason ?? "") },
+    { rule: VT.hp, kind: "neg", ok: () => !/^Unit "per HP"/.test(v64.calc("per HP", "Outdoor Unit", { capacity: "10" }).reason ?? "") },
+    { rule: VT.gas, kind: "pos", ok: () => line(gas(v65), "acc_gas")?.state === "priced" },
+    { rule: VT.gas, kind: "neg", ok: () => line(gas(v64), "acc_gas") === undefined },
+    { rule: VT.not, kind: "pos", ok: () => line(bms(v65), "comm") === undefined && line(civ(v65), "acc_frame") === undefined },
+    { rule: VT.not, kind: "neg", ok: () => line(bms(v64), "comm")?.state === "priced" && line(civ(v64), "acc_frame")?.state === "priced" },
+    { rule: VT.fcu, kind: "pos", ok: () => fcu(v65).reason === "Fan Coil Unit - pick the indoor type" && v65.calc("Nos", "Fan Coil Units", { capacity: "1" }).reason === "Fan Coil Unit - pick the indoor type" },
+    { rule: VT.fcu, kind: "neg", ok: () => /no item could be told/.test(fcu(v64).reason ?? "") },
+    { rule: VT.set, kind: "pos", ok: () => set(v65).items[0].qty === "1" },
+    { rule: VT.set, kind: "neg", ok: () => set(v64).items[0].qty === "4" },
+    { rule: VT.both, kind: "pos", ok: () => chg(v65).totals?.supply_rate === 1020 },
+    { rule: VT.both, kind: "neg", ok: () => chg(v64).totals?.supply_rate === 0 },
+    { rule: VT.rowfam, kind: "pos", ok: () => frm(v65).totals?.supply_rate === 5600 },
+    { rule: VT.rowfam, kind: "neg", ok: () => frm(v64).rowPriced === false },
+  ];
+  it("every VRF-9 rule fires on v65 and not on v64 (positive AND negative per Derivation line)", () => {
+    expect(CASES.filter((c) => !c.ok()).map((c) => `${c.rule} (${c.kind})`)).toEqual([]);
+    for (const t of Object.values(VT)) {
+      expect({ t, pos: CASES.some((c) => c.rule === t && c.kind === "pos"), neg: CASES.some((c) => c.rule === t && c.kind === "neg") }).toEqual({ t, pos: true, neg: true });
+    }
+    expect(CASES).toHaveLength(26);
+  });
+  it("THE VRF GUARD: v65's VRF rules = v64's 73 + the 13 VRF-9 lines", () => {
+    const t65 = titles(A65);
+    const t64 = titles(A64);
+    expect(t64).toHaveLength(73);
+    // VRF-10 (mechanical authority, this slice's own ruling: its 3 Derivation lines ride v65's `scope.panel_pick`, 13l) -- BEFORE:
+    // expect(t65).toHaveLength(86); expect(t65.slice(73)).toEqual(Object.values(VT)). The 13 VRF-9 lines still follow v64's 73.
+    expect(t65).toHaveLength(89);
+    expect(t65.slice(0, 73)).toEqual(t64);
+    expect(t65.slice(73, 86)).toEqual(Object.values(VT));
+  });
+});
+
+/**
+ * VRF-10 (v65, no mint) -- R-39: the 3 Derivation-tab lines VRF-10 adds (13l, on v65's `scope.panel_pick`) and the changed unit line
+ * (F1) fire from the panel's entry point, positive AND negative (v64 = VRF-9). THE VRF GUARD: v65's titles = 73 + 13 + these 3.
+ */
+describe("VRF-10 (v65) -- R-39: every Derivation-tab line VRF-10 adds or changes fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  type V = NonNullable<ItemListSuggestion["itemList"]>;
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A65 = rd("rate_master_hvac_all_v65.json");
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const rules = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a));
+  type R = { items: Array<Record<string, string | null>>; unit?: string; text?: string; headings?: string[]; ancestorNotes?: string[] };
+  const on = (a: A) => (r: R): V => {
+    const items = [...asItems(a), ...asItems(E72)];
+    const cfgs = new Map<string, RateCategoryConfig>([...a.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+    const results = [{ excel_row: 9, description: r.text ?? "", category_id: VRF, attributes: {}, items: r.items.map((x) => ({ attributes: Object.fromEntries(Object.entries(x).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }];
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items, extractionByRow: buildExtractionByRow(results as never) });
+    return (h.compute({ excelRow: 9, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      unit: r.unit ?? "Nos", quantity: 1, headings: r.headings ?? [], ownNotes: [], headingNotes: [], ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}) } as never, {}) as unknown as ItemListSuggestion).itemList!;
+  };
+  const v65 = on(A65);
+  const v64 = on(A64);
+  const VT = {
+    dflt: "Supply + installation is the default scope",
+    frame: "An MS frame / stand row is supply + installation",
+    both: "Installation said higher up beats any supply-type wording: the note quotes both",
+  };
+  const hw = (s: typeof v65) => s({ items: [{ item: "Hi-Wall", capacity: "1.0 TR", scope: "Supply only" }], text: "1.0 TR - Hi-Wall", headings: ["Supply of HI-WALL TYPE indoor unit"] });
+  const fr = (s: typeof v65) => s({ items: [{ item: "MS Angle Base Frame Structure", scope: "Supply only" }], unit: "Kg", text: "Supply & providing of MS stand for VRV ODU" });
+  const f2 = (s: typeof v65) => s({ items: [{ item: "Outdoor Unit", capacity: "14 HP", scope: "Supply + installation" }], text: "38 HP ODU", headings: ["VRV HIGHSIDE", "OUTDOOR UNITS"],
+    ancestorNotes: ["Supply, port clearance, transport of units", "Supply, Installation, testing & commissioning of the VRV system"] });
+  const nu = (s: typeof v65) => s({ items: [{ item: "Outdoor Unit", capacity: "16 HP" }], unit: "", text: "16 hp" });
+  const CASES: Array<{ rule: string; kind: "pos" | "neg"; ok: () => boolean }> = [
+    { rule: VT.dflt, kind: "pos", ok: () => hw(v65).scope?.value === "Supply + installation" && /owner F6/.test(hw(v65).scope?.note ?? "") },
+    { rule: VT.dflt, kind: "neg", ok: () => hw(v64).scope?.value === "Supply only" },
+    { rule: VT.frame, kind: "pos", ok: () => fr(v65).totals?.install_rate === 40 },
+    { rule: VT.frame, kind: "neg", ok: () => fr(v64).totals?.install_rate === 0 },
+    { rule: VT.both, kind: "pos", ok: () => /owner F2/.test(f2(v65).scope?.note ?? "") },
+    { rule: VT.both, kind: "neg", ok: () => !f2(v64).scope?.note },
+    { rule: "unit", kind: "pos", ok: () => nu(v65).reason === "no unit on this row" },
+    { rule: "unit", kind: "neg", ok: () => nu(v64).rowPriced === true },
+  ];
+  it("every VRF-10 line fires on v65 and not on v64 (positive AND negative)", () => {
+    expect(CASES.filter((c) => !c.ok()).map((c) => `${c.rule} (${c.kind})`)).toEqual([]);
+    expect(CASES).toHaveLength(8);
+  });
+  it("THE VRF GUARD: v65 = 86 + the 3 VRF-10 lines, last; the unit line says a blank unit refuses on v65 only", () => {
+    const t65 = rules(A65).map((l) => l.title);
+    expect(t65).toHaveLength(89);
+    expect(t65.slice(86)).toEqual(Object.values(VT));
+    const unitLine = (a: A) => rules(a).find((l) => l.title === "The row's unit decides which kind of rate applies")?.detail ?? "";
+    expect(unitLine(A65)).toContain("a row with no unit is refused 'no unit on this row'");
+    expect(unitLine(A64)).toContain("a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit");
   });
 });

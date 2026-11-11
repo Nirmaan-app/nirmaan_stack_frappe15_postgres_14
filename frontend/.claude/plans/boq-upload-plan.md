@@ -51072,3 +51072,772 @@ Owner rulings this slice:
   once, all day. `autobuild_pool` now retries after growing waits from RQ's record of `boq_match_pool_daily_rebuild`
   (FAILED, `ended_at` else `enqueued_at`): 10 min, 30 min, 1 h, 2 h, then every 6 h; try count in the cache, cleared by
   a usable file. Tests: 5 new in `test_pool_autobuild`, 21 / 21 OK; with every wait set to 0, 3 fail.
+
+## Slice VRF-R0 - read-only recon of the VRF rows (2026-11-01) - DELIVERED
+
+Desktop session, delegated by the laptop. HEAD b415bddcd; no commit, no repo change, no model call.
+
+- **Population:** 1,916 VRF rows / 1,883 eligible / **1,400 rate-editable** on 85 BoQs in 78 projects (1,332 at each BoQ's
+  latest revision); 179 test rows excluded. 342 outdoor, 822 indoor, 236 refnets / controllers / remotes / kits / gas / stands.
+- **What rows say:** capacity on the row on 1,155 of 1,164 unit rows (outdoor HP, indoor TR). Brand named on 108 (1,292 name
+  none); cool-only / heat pump unstated on 211 of 342 outdoor rows, top / side on 219; single compressor never.
+- **Today:** a VRF row's panel says "Rate attributes for this category haven't been defined yet — coming soon."; VRF is on
+  neither the HVAC calculator nor the Rate Master HVAC list; typed rates on 618 of the 1,400.
+- **The owner's standing exception** came from this step (answer "(a) plus make it standing", 2026-11-01): a cert's Pricing
+  Access Log "open" rows, `tabUser.last_active`, `tabSessions.lastupdate`, Scheduled Job Log / Type from the scheduler's own runs.
+- Report, rows workbook and screenshots: `BoQ main lane\VRF-R0\` on both machines.
+
+## Slice VRF-D0 - design and review lists for the VRF helper (2026-11-01) - DELIVERED
+
+Desktop session, delegated by the laptop. HEAD b415bddcd; no commit, no model call; replay 18,106 rows, ac7 `25cb3eb9...` /
+ac7v2 `9aaf20bf...` byte-equal at D0 and D8.
+
+- **D2 catalogue:** kinds `hvac_vrf_item` (the VRF sheet) and `hvac_misc_item` (four Misc items, one stored set a future Misc
+  category shares - the `switch_socket_item` precedent); attributes brand (item column), group, family `item`, item_name,
+  cooling, discharge, compressor, way, remote type, capacity + unit + label, model; rates per SKU (R-INPUTS); the two
+  conversion factors as Pricing Inputs.
+- **D1 paths:** data-only first (no pricing block = not eligible = "coming soon"); composition reuses `composeSize` with a new
+  `above_only`; no existing case lets the helper add editable lines (D-1); a conversion factor is read before the SKU match,
+  which `rate_ref` cannot do; one pricing key for a second kind (`extra_kinds`).
+- **D7 slice plan:** VRF-1 catalogue + inputs (Tier 3) -> VRF-2 pricing + calculator + parity + R-39 -> VRF-3 the split
+  (Phase 0 gate) -> VRF-4 derivation, questions, switch-on, small paid sample -> VRF-5 paid audit -> VRF-6 fixes + green light.
+- **Design choices D-1..D-10** listed with recommendations, none built; the owner agreed the rest on 2026-11-01 15:03
+  ("agree on the rest"; D-6 = Standard / Single Compressor).
+- On the 1,400 rows by the design, before any team answer: 747 price, 586 wait (C-1 defaults, C-4.2), 67 refuse.
+- Report and Review Lists workbook: `BoQ main lane\VRF-D0\` on both machines.
+
+## Slice VRF-1 - the VRF catalogue, four shared Misc items and the two conversion inputs (HVAC v55) - as built 2026-11-03
+
+Desktop session, delegated by the laptop; the dev2 lane (DEV2-B3) ran beside it (block 63: its T4 timing / paid runs waited on
+main's suites, main's suites waited on its timing run). Start tip 59efab82b (owner ruling VRF1-1 "option A": the develop merge;
+`to-desktop` + migrate of its 4 v3_0 patches were the declared exception). Tier 3, two commits, no model call.
+
+**Owner rulings carried:** R-SRC (the 2 Nov workbook, sha256 30588ddb...; VRF sheet 152 rows: Blue Star 122, Daikin 30),
+R-IGNORE (only its VRF sheet and 4 Misc rows; every other category as it stands in v54), the team's answers already in the
+file (Daikin Top Heat 08HP 211,452 / 06HP 199,191; VSD-132A / 216A / 240A removed; DSD-72 6.0TR / DSD-96 8.0TR), R-INSTALL,
+R-INPUTS, R-ROUND (no round-up in the mint), R-MISC "Q8: option B", R-ITEMNAME, D-6. Mid-slice: **QR-4 "A"** (01:27) load v55
+BEFORE K1, because two tests pin the LIVE catalogue (`test_piping_v34` live_04, `test_rate_master` sv_01); **QR-5 "A"** (01:31)
+the residence check's auto-tightened `scripts/residence_baseline.json` (a1 1798 -> 1777, develop's debt) is reverted after
+each run and left for a separate chore. QR-1 / QR-2 / QR-3 never arose (P0 b, d; B4).
+
+### 1. P0 (read-only)
+- **Not eligible without a pricing block:** `extraction.has_runnable_pricing_rules` / `config_is_eligible` (no pipelines, no
+  `list_spec.pricing`) -> no extraction population, no model question. `pricingSheetHelper.compute` returns
+  `declineReasonFor(cfg)` = COMING_SOON_REASON for a non-eligible config and for no config at all, and the calculator renders the
+  same helper: a VRF row and the calculator show the text VRF rows showed before the config existed (U3 identical).
+- **Two kinds on one config:** `item_kinds` is pass-through; precedent `switch_socket_item` (Electrical `popup_boxes` +
+  `switches_sockets`). The Data tab scopes rows by the declared kinds.
+- **Factors show as plain numbers:** `factor` is in `PRICING_INPUT_NON_PERCENT_COLUMNS` (owner ruling 12c), server and screen.
+- **Brand** is the item column (Electrical precedent), projected into attributes at read time.
+- **Reading recorded:** the family (`item`) follows VRF-D0 D2 (outdoor units = "Outdoor Unit" + discharge; the two remotes =
+  "Remote Controller" + remote_type); `item_name` keeps the sheet's Item.
+
+### 2. Built
+Commit **K1 `ceb7cc99d`** (feat): `scripts/_instruments/mint_hvac_v55_vrf.py` (export / build / load / verify);
+`rate_master_hvac_all_v55.json` = v54 + config `hvac_vrf` "VRF" (two kinds, 14 definitions, pipelines {}, no list_spec, last) +
+152 `hvac_vrf_item` + 4 `hvac_misc_item` + 2 `hvac_pricing_input` (`vrf_hp_per_tr` 1.25 "HP per TR", `vrf_kw_per_tr` 3.517
+"kW per TR", shared_by vrf, worked examples, "used from VRF-2"); every v54 item / config byte-identical; sha256 bc5dbde3...;
+`rateMasterRegistry.ts` + `{ category_id: "hvac_vrf", label: "VRF" }` after Piping; `test_vrf_v55.py` (12 tests; an independent
+table of all 152 + 4 sheet rows) measured into `parallel_test_plan.json`; pins inverted (below).
+- **Mint gate** HEAD:v54 -> v55 PASS (no atoms disappeared); `--latest` PASS (kinds disjoint vs Electrical v72), history clean
+  after the commit. **Stub proof:** ADP / Insulation / Piping item-list requests byte-identical v54 -> v55; eligible set unchanged.
+- **Load (B4, before K1 per QR-4):** pre-load snapshot `BRMS-26-00920`, batch `rmbulk-0b2b196ddda5` (539 / 11; 381 + 10
+  deactivated); live == file by content; non-VRF HVAC 31631135 / e9d3689a and Electrical 2c15c116 / 6ddf58a9 = the start.
+
+### 3. Proofs and counts
+- **Replay** after the load (HEAD 59efab82b + v55 live): 18,106 rows, ac7 `25cb3eb9...`, ac7v2 `9aaf20bf...`, cmp 0 against the
+  start (no stored run holds a VRF row, so QR-3 could not arise; C6 checks a VRF row on the page). Capture 258 -> 258.
+- **Vacuity** (scratch copies only, committed asset sha unchanged): drop row 77 -> 01, 04, 07 red; Misc row 22 markup -> 05;
+  blank a brand -> 01, 06; give hvac_vrf a pipeline -> 10.
+- **Pins moved (BEFORE kept, no price pin):** asset-pin search MUST MOVE 25 -> 0 (28 edits: test_piping_v34 max / range /
+  exists, test_rate_master CURRENT_HVAC_ASSET + 6, coercion 1); new `_without_vrf1_items` / `_without_vrf1_config` in
+  co_f1_08, v33_02, v33_03, mc4c_02; LIVE pins live_04 and sv_01 (381 -> 539, inputs 14 -> 16); vitest adp4b.dom (HVAC 4 -> 5;
+  hvac_vrf's tab = the generic "rules are not listed yet ... HVAC Pricing -> Calculator" line), pricingCalculator (24 targets,
+  + hvac_vrf x3), servedVsStoredPricing (`withoutVrf1`, non-vacuous).
+- **Suites:** "before" at 59efab82b: Python full BoQ 89 modules / 4,511, 1 failure at the start (`test_index_manifest`
+  102 != 101: develop's `b8198ce9f` added a `search_index`); vitest full 155 files / 6,444 passed; tsc 0 new (2,888).
+  Targeted before K1: Python 16 modules / 1,177 (6 red -> inverted, green by name), vitest 73 files / 3,711 passed, tsc 0 new.
+  Related after K1 (the last code commit): Python the same 16 modules / 1,177 OK (each module's count = its before; +12 new); vitest related on K1's 4 frontend files 68 files / 3,280 passed (= the same files before, file for file), 0 dropped; tsc 0 new (2,888).
+- **Cert** (25 screenshots; de-stale 1-6, PROOF 1 + PROOF 2): C1 VRF in the HVAC list; C2 156 items, brand 122 / 30 / Misc
+  blank, the named SKUs' figures; C3 the download (25,393 B, 156 rows) read back by the page's read-only preview as 156
+  unchanged; C4 1.25 / 3.517 plain, "not used"; C5 1.25 -> 1.3 -> reload -> impact panel "0 items" -> 1.25 -> reload (the only
+  write); C6 BOQ-26-00003 row 301 coming soon; C7 calculator VRF coming soon, Piping copper 41.3 4,193 / 220 and BOQ-26-00392
+  row 32 4,595 / 304 / 4,899 as before; C8 live == file.
+- **Disclosed:** suite residue (Event +4, deleted test RM rows, tray_discount re-saves), the login's fcm_token Version
+  (R-FCM), Pricing Access Log "open" rows, the scheduler's logs: all recorded exceptions; none repaired. A screen-capture
+  attempt was denied by the permission classifier (C3 shown through the preview instead).
+
+### 4. Deploy note and open items
+- **Deploy:** v55 reaches production by a wholesale HVAC load; it carries 158 new uids and one new config; no code beyond the
+  registry entry. Nothing prices until VRF-2.
+- **Open:** `scripts/residence_baseline.json` a1 1798 -> 1777 to be tightened by a chore (QR-5); `scripts/_instruments/README.md`
+  has no row for the new mint script (outside K1's file list); the 2 Nov workbook's Insulation / Piping differences stay
+  unread (R-IGNORE); VRF-2 builds the reader for the two factors and the pricing block.
+
+## Slice VRF-R2 - read-only recon for VRF-2: pricing, calculator, parity (2026-11-03) - DELIVERED
+
+Desktop session, delegated by the laptop. HEAD 890a14259; no commit, no repo change, no database write of its own, no model
+call; every demonstration ran the product's own functions on scratch COPIES of v55 (`/tmp/vrfr2`). Replay 18,106 rows, ac7
+`25cb3eb9...` / ac7v2 `9aaf20bf...` byte-equal at D0 and D2.
+
+- **R2, the switch-off: "none clean".** Every surface asks one question, "is this category priceable?"
+  (`extraction.config_is_eligible`, whose only non-test caller is `assemble_population`; `pricingSheetHelper.isEligibleConfig`,
+  read by `compute` and the page's pre-run rules). A pricing block alone turns on the calculator, every VRF BoQ row and Suggest at
+  once (demonstrated on scratch). Of 8 candidates, the only working shape was a new key -- the `calculator_only` that 12d-2 retired
+  so there would "never [be] a second on/off switch". A side door exists: a delegated section (`build_items_spec`) asks another
+  category's questions without an eligibility test (only Piping -> Insulation uses it).
+- **R7, the retirement (R-RETIRE):** the v47 mint is the precedent; the loader's replace retires an omitted SKU; no asset key or
+  gate atom records it, so the reason travels in the commit, this doc and boq-rate-master.md. After it, no ductable above 8 TR
+  prices at either brand: 9 of today's rows (9-20 TR) refuse "capacity N is above the largest size on the sheet (8)".
+- **R9:** on a scratch pricing block, all 150 VRF SKUs left priced at the sheet's BOQ SUPPLY (rounded up) and BOQ INSTALLATION;
+  panel = calculator = Python = sheet on 150 of 150. **R11:** 17 of 18 named parity paths agree; an off-sheet brand ("Toshiba")
+  diverges in wording (both refuse).
+- **R4 (for VRF-2b):** today's reader takes a capacity in the family's own unit only: "16 TR" on an outdoor unit is read as 16 HP,
+  "4 HP" on a cassette as 4 TR (22 rows), and "MIN 1100 CFM" as 1,100.
+- **The split** (a measure, then ruled): VRF-2a catalogue v56 + VRF pricing in the calculator + parity + R-39; VRF-2b the capacity
+  reader, the unit picker and the factor examples; VRF-2c the Misc four, the brand note and the parity fix.
+- **Owner rulings (2026-11-03 14:40):** Q1 "A" -- "A temporary "calculator only" switch for VRF, removed at VRF-4 ... BoQ rows and
+  Suggest stay off until VRF-4. Removing it becomes a required item in VRF-4." -- setting aside, for VRF only until VRF-4, 12d-2's
+  "there is never a second on/off switch"; "ok with all recommendations except Q3": Q2 the Misc four in 2c (`extra_kinds`),
+  Q4 "Nos/Ro" = Nos with a note, Q5 v56 = v55 minus the two ductable uids (the v47 shape; R-SRC stays the source; the 12-23 file
+  is not read by the mint); Q3 "we should have a asperate unit picker, else user may not enter the correct details and will ne
+  confused, unit picker should be just beside the typing box" -- built with the capacity reader in VRF-2b.
+- Report, Lists workbook (14 sheets) and screenshots: `BoQ main lane\VRF-R2\` on both machines.
+
+## Slice VRF-2a - VRF prices in the calculator (HVAC v56; BoQ rows and Suggest stay off) - as built 2026-11-03
+
+Desktop session, delegated by the laptop; the dev2 lane (DEV2-B4) ran beside it until its own DONE (block 63: main's suites,
+load and cert waited out its timed / paid runs and its cert; host memory under the 4.5 GB line paused the suites once). Start
+tip 890a14259. Tier 3 (asset v56) + Tier 2 (the switch). Three commits, no model call.
+
+**Owner rulings carried:** Q1 "A" (2026-11-03 14:40) -- "A temporary "calculator only" switch for VRF, removed at VRF-4 ... BoQ
+rows and Suggest stay off until VRF-4. Removing it becomes a required item in VRF-4." -- which sets aside, for VRF only until
+VRF-4, 12d-2's "there is never a second on/off switch"; Q2 / Q4 / Q5 (14:40, "ok with all recommendations except Q3"); Q3 (the
+unit picker, VRF-2b); R-RETIRE (12:15 / 12:23); PARITY (12:15); the team defaults (2026-11-02); R-BRAND (a); R-SMALL; D-7;
+R-INSTALL; R-ROUND. Mid-slice: **QR-1** (15:12) U2 "A" -- the capacity field reads "Capacity" and its sizes are bare numbers in
+2a (the unit on each option is VRF-2b, with the picker; "(HP outdoor / TR indoor)" rejected); U3 "A" -- the Derivation tab lists
+VRF's generated lines. **QR-2** (15:14) "A" -- "Nos/Ro" counts as Nos with no note line in 2a; the note is a REQUIRED VRF-2c
+item. **QR-3** (15:14) "A" -- kg / kgs left out of v56 (a second unit class makes the tab's unit-rule line read "per metre and
+per square metre", fixed generator text); VRF-2c adds them with the two Kg Misc items.
+
+### 1. P0 (read-only)
+- The switch sites as VRF-R2 R2 mapped them (allowlist, `config_is_eligible` + its one caller `assemble_population`,
+  `isEligibleConfig` + compute's gate + the page's pre-run readers, the calculator's construction); FA7 `3ff84f94c` / 12d-2
+  `a77e450d1` read.
+- **Corrections, none changing a step:** (1) the delegated side door (`build_items_spec` sections) never asks eligibility --
+  closed for VRF only because no config delegates to it (pinned); (2) 12d-2's retired-key pins are wider than one test (the
+  identifier pin, two construction pins, fa7_01/03/05/06) -- all inverted for the revived key, negatives kept; (3) the parity
+  harness's `calculatorHelper` is out of scope -- parity runs on the key projected out, and a pin ties the live config + flag to it.
+- **Found by the targeted runs, fixed before the commit:** honouring the key on ANY category declined the frozen v18..v28
+  Insulation configs (FA7's retired key is still in them): 58 frontend tests and 2 Python pins went red, several asserting prices.
+  Both sides now honour the key on hvac_vrf only -- the brief's "switch limited to hvac_vrf"; the pins pass unedited.
+
+### 2. Built
+Commit **K1 `92834b7e5`** (feat, the switch): `config_validation.py` (`calculator_only` re-admitted; `_validate_calculator_only`:
+exactly true, `_CALCULATOR_ONLY_CATEGORIES` = {hvac_vrf}, a pricing block required); `extraction.py` (`config_is_eligible` false
+for it on that set -- `assemble_population` admits no VRF row); `pricingSheetHelper.ts` (`isEligibleConfig(config, {calculator})`,
+`isCalculatorOnlyConfig` hvac_vrf only, `Deps.calculatorSurface`, the gate); `PricingCalculator.tsx` (`calculatorSurface: true`);
+tests (TestVrf2aCalculatorOnlySwitch 8; itemListPricing "VRF-2a (Q1 A)" 8; 6 pins inverted).
+Commit **K2 `66594e560`** (feat, the asset): `mint_hvac_v56_vrf2.py` (export / build / load / verify, the v47 shape);
+`rate_master_hvac_all_v56.json` = v55 less rmi-8eb521699247 (VFM-216A 18 TR) and rmi-8ee7b38ab8fc (VFM-264A 22 TR) + hvac_vrf's
+`calculator_only`, `matching_mode`, `list_spec` (13 families; brand default Blue Star "no brand stated - priced as Blue Star";
+Cool Only / Top / Standard / FOUR-WAY / Wired amber; controller Daikin -> Blue Star with its line; refnet flat; capacity ladder,
+no compose; count-only unit table with "Nos" first and "Nos/Ro"; supply ROUNDUP(cost x (1 + markup)), install ROUNDUP(boq_install));
+sha256 c0648d74...; README rows v55 (owed) + v56; `test_vrf_v56.py` (9) measured into the plan; the VRF parity block and the VRF
+R-39 block; 32 pins moved.
+- **Mint gate** HEAD:v55 -> v56 PASS (no atoms disappeared); `--latest` PASS. **Stub proof:** ADP / Insulation / Piping requests
+  byte-identical; eligible set unchanged. **Asset-pin search:** MUST MOVE 27 -> 31 mechanical edits -> 0; servedVsStoredPricing's
+  VRF count (152 -> 150) the one further pin.
+- **Load (before K2, the VRF-1 QR-4 order):** pre-load snapshot `BRMS-26-01061`, batch `rmbulk-b03aed13ca4f` (537 / 11);
+  live == file by content; only hvac_vrf's config and the hvac_vrf_item kind moved; the two uids active 0, rows kept.
+
+### 3. Proofs and counts
+- **Prices:** all 150 VRF SKUs price in the calculator at the R-SRC sheet's BOQ SUPPLY (rounded up) and BOQ INSTALLATION -- an
+  independent read of the workbook -- with 0 panel / calculator divergences; the live BoQ panel declines all 150.
+- **Replay** after the load: 18,106 rows, ac7 `25cb3eb9...`, ac7v2 `9aaf20bf...`, cmp 0 -> 0 moves. **Suggest population** on the
+  109 sheets holding VRF rows: 5,049 admitted before and after the load, per sheet equal, hvac_vrf 0.
+- **Vacuity:** K1 -- Python (in memory) and frontend (one-line breaks, restored by sha) each break red; K2 -- drop a default, a
+  refusal, a pipeline step, the switch on scratch copies of v56: named Python and vitest tests red; restored.
+- **Suites** (the "before" = VRF-1's saved logs filtered to the same modules / files): targeted before K1 -- Python 21 modules
+  1,277 -> 1,285, vitest related 73 files 3,644 -> 3,652, tsc 0 new; targeted before K2 -- Python 22 modules (3 wave-2 pins inverted,
+  re-run green), vitest 78 files (1 count pin inverted), tsc 0 new. **Related after K2** (the last code commit): Python 22 modules ALL
+  OK, 1,277 -> 1,294 (+8 test_rate_master, +9 test_vrf_v56); vitest related on the 7 changed frontend files 73 files 3,644 -> 3,695
+  (+9 parity, +8 itemListPricing, +34 ruleReachability), 0 dropped; tsc 0 new (2894 / 2888). No full BoQ set: no shared file.
+- **Cert** (14 screenshots + the C9 counts log; de-stale 1-6, PROOF 1 + PROOF 2): C1 unbranded 16 HP outdoor -> Blue Star amber
+  "no brand stated - priced as Blue Star", Cool Only / Top / Standard amber, 436,920 / 16,000; C2 Daikin heat pump 8 HP 253,743 /
+  12,800; C3 cassette 1.5 TR FOUR-WAY amber 37,320 / 3,500; C4 ductable Blue Star 11 typed -> "capacity 11 is above the largest size
+  on the sheet (8)"; C5 remote Wired amber 2,880 / 200, controller Daikin -> 42,000 / 1,500 with its line; C6 Daikin Verticool
+  refuses by name (the "no type" refusal has no calculator path -- the item list asks first -- and is proven through the harness);
+  C7 Rate Master VRF 154 items, VFM-216A / VFM-264A absent, the 12 Derivation lines; C8 BOQ-26-00003 rows 301 and 351 still
+  coming soon; C9 live = post-load, Electrical = start. Writes beyond the load: the recorded exceptions only (suite residue,
+  R-FCM, Pricing Access Log, sessions, the scheduler).
+
+### 4. Deploy note and open items
+- **Deploy:** v56 reaches production by a wholesale HVAC load (the two ductables retire by omission); K1's code ships the switch.
+  Nothing on a BoQ page changes; VRF prices only in the HVAC Pricing calculator.
+- **VRF-4 MUST remove `calculator_only`** -- an acceptance item, not a reminder: the key from the asset, the validator's allowlist
+  entry + `_CALCULATOR_ONLY_CATEGORIES` + `_validate_calculator_only`, `config_is_eligible`'s clauses, the client's
+  `isCalculatorOnlyConfig` / `CALCULATOR_ONLY_CATEGORIES` / `opts` / `calculatorSurface`, the calculator's flag; the parity
+  block's projection then IS the live config.
+- **Open:** VRF-2b -- the HP / TR / kW reader, the unit picker beside the typed box (Q3), the unit on each capacity option (U2);
+  VRF-2c -- the "Nos/Ro read as Nos" note (QR-2, REQUIRED before VRF-4), kg / kgs with the Kg Misc items and the two-class
+  Derivation wording (QR-3), the Derivation line-1 example "nos" (fixed text), the Misc four, the brand note for several /
+  off-sheet brands and the "Toshiba" parity divergence (named in the parity block); the 9 ductable rows above 8 TR refuse.
+
+## Slice VRF-2b - the VRF capacity reader, unit picker, factors, the Misc four and the notes (HVAC v57) - as built 2026-11-04
+
+Desktop session, delegated by the laptop (VRF-2b and VRF-2c merged, owner 2026-11-03 16:21 "ok lets combine 2b and 2c"); the
+dev2 lane (DEV2-B5, then DEV2-B6) ran beside it on its own containers (block 63: main's suites, load and cert read its status
+first). Start tip 6c1d365d7. Tier 3 (asset v57) + Tier 2 (price logic). Five code commits (K1-K3 as planned; K3b / K3c fixes found by the cert) plus this docs commit; no model call. One turn ended on an API
+error after K1 (00:10); the laptop relaunched it by message (00:21) and nothing was lost.
+
+**Owner rulings carried:** MERGE (16:21); STANDING (15:15, "not to keep pushing things down the road"); Q3 PICKER (14:40, "unit
+picker should be just beside the typing box"); U2 (15:14 "option A": "Capacity", each size option shows its unit); CFM (21:14
+"Refuse, named"; 21:15 "highlight these rows for me"); RECON (14:40: "both units given -> the sheet's unit"; Q2 Misc via
+`extra_kinds`); QR-2 (15:14 A, the Nos/Ro note REQUIRED); QR-3 (15:14 A, kg / kgs with the two Kg Misc items, two-class wording);
+R-BRAND (2026-11-01 (a)); Q1 (calculator_only stays, removed at VRF-4); PARITY; R-INSTALL / R-ROUND. Mid-slice: **QR-1** (22:44
+"ok" all A): U1 the picker beside the typed box, default the item's own unit, a typed unit word wins; U3 the conversion lines and
+the CFM refusal; U4 the brand-note texts; U5 the Nos/Ro line and the Misc four; U6 used-by VRF + two worked examples per input;
+U7 the regenerated Derivation lines. **QR-1b** (addendum: generated wording, the unit refusal naming Kg, two unlisted capacity
+lines) and **QR-2** (a converted value lands on a stocked size through the precision rule: 1.3 HP = 1.04 TR -> 1 TR, 6 rows) --
+both answered 01:26 ("go with your recommendations" = all A, plus three QR-1b fixes: line 7 "... priced as Blue Star, naming the row's words"; line 10 "A capacity in TR, HP or kW that is not the item's own unit is converted first"; the priced capacity-with-airflow rows listed in Lists.xlsx; QR-2 "option A" = keep). All applied in K3's generator code; no second load.
+
+### 1. P0 (read-only)
+- VRF-R2 R3 / R4 file:lines re-read: line drift only (pricingSheetHelper +40, config_validation +13). The two VRF inputs read
+  live (1.25 / 3.517). `ratePipelineInterpreter.ts:665` needs no edit (the caller passes the family's kind).
+- **Suggest gate (P0 (d)):** the one rate-attribute model path is start_suggest -> run_extraction -> assemble_population (eligible
+  only) -> _group_context -> build_items_spec; single-row Suggest is `only_rows`, validated against the population; the section
+  recursion is the only other build_items_spec caller and no config delegates to hvac_vrf; classification never builds an items
+  spec. No ungated path.
+
+### 2. Built
+Commit **K1 `f37b5939c`** (feat, code only): `itemListPricing.ts` -- `readCapacity` (a number reader's `units`: HP / TR / kW words,
+converted to the family's unit (each SKU's `capacity_unit`) through the convert table's Pricing Inputs, with the line "16 TR x 1.25
+(HP per TR, Pricing Inputs) = 20 HP"; airflow-only refuses, named; beside a capacity it is set aside with a line; two units -> the
+family's, neither -> refuse); the rewriter reads the same way; the PICKER (`<id>__unit`, typed boxes only); `extra_kinds`
+(`specKinds` / `kindIn`, the ladder takes the family's kind); `unit_lines`; `defaults.<attr>.unlisted`. `pricingSheetHelper.ts` --
+option labels with the unit, the picker on the field, the conversion as the field note. `RateHelperPanel.tsx` -- the picker beside
+the typed box. `itemListRuleOrder.ts` -- line 1 example a refused unit, the unit lines, the several-kind two-class wording, the
+conversion and brand lines, line 13's unknown-unit example. `pricingInputExact.ts` (the set). `config_validation.py` -- the four
+keys validated by name; the match_master_row / component_ref pins allow a listed extra kind only. Tests: vrf2bCapacity.test.ts (38; 40 after K3b / K3c),
+TestVrf2bConfigKeys v2b_01-08; one key-list pin inverted.
+Commit **K2 `eee0b78d9`** (feat): `pricingInputReach.ts` (`unitsConvertUses`: the convert table's inputs READ by the category, no
+column -> assembly_only), `rateMasterSpec.ts` + `csv_exporter.py` (used-by "VRF (10 uses)"), `pricingInputExamples.ts` (item-list
+worked examples: items + unit + inputs; priced as the calculator does; the read and SKU line from the pure pricer),
+`PricingInputImpactPanel.tsx` (renders it), `config_validation.py` (the example shape). Tests: vrf2bReach.test.ts (8),
+TestVrf2bInputReach v2b_09-11.
+Commit **K3 `f0202c23d`** (feat, the asset): `mint_hvac_v57_vrf2b.py` + README row; `rate_master_hvac_all_v57.json` (sha256
+1ba4965d...) = v56 with only hvac_vrf changed (list_spec, impact_examples, notes; calculator_only kept); test_vrf_v57 (8, measured
+into the plan); the parity block "HVAC VRF (VRF-2b, v57)" and the R-39 block "VRF-2b (v57)" (14 lines, 48 cases); 34 latest-asset
+pins moved (MUST MOVE 29 -> 34 mechanical edits -> 0) and two wave-2 pins inverted, BEFORE kept: test_rate_master co_f1_12 (used-by over the current asset 14 -> 16) and test_vrf_v56 09 (live == v57); no price pin moved; the K1 reader's lower-cased "several values" quote fixed (disclosed).
+- **Mint gate** v56 -> v57 PASS; `--latest` PASS. **Stub proof** identical; eligible set unchanged; no other config names the Misc kind.
+- **Load (before K3):** pre-load snapshot `BRMS-26-01246`, batch `rmbulk-6d7775ded264` (537 / 11); live == file; only hvac_vrf's config moved.
+
+### 3. Proofs and counts
+- **Prices:** all 150 VRF + 4 Misc SKUs price at the R-SRC sheet (read cell by cell), panel = calculator, live calculator = projection,
+  live BoQ panel declines -- 154 each. The Misc four: 3,500 / 750; 50,000 / 4,500; 1,020 / 350 (Kg); 140 / 40 (Kg).
+- **Probe** (1,138 VRF unit rows, switch projected out): priced 720 -> 876, refused 303 -> 147 (of 1,023 with a family and phrase);
+  CFM-only 66 rows listed for the owner (Lists.xlsx "CFM rows"); THE 22 ROWS (19 groups) now read in the right unit; 0 divergences.
+- **Replay** after the load 18,106 rows, 0 moves. **Suggest population** 109 sheets 5,049 = 5,049, VRF 0.
+- **Vacuity:** K1 12 frontend + 4 Python breaks; K2 7 + 3; K3 4 breaks on scratch copies of v57 (drop units -> py 02 / 08 red, vitest 11; drop the CFM words -> py 02, vitest 2; drop extra_kinds -> py 03 / 05, vitest 0 (the measured TS fact); drop the brand note -> py 04, vitest 5); K3b 1, K3c 1 -- each red, each restore green, files sha-equal.
+- **Suites** (before = VRF-2a's related logs filtered): related Python (23 modules, after K3) all OK, 1,294 -> 1,313 (test_rate_master 747 -> 758, test_vrf_v57 +8); vitest related on the 13 changed frontend files after the cert 86 files / 4,564 passed / 0 failed, 0 'Failed to start'; tsc FULL 0 new errors (baseline 2894, total 2888).
+- **Cert:** C1-C11 PASS on :8080 (Chrome, screenshots in the slice folder), after three full de-stales. C1 16 + picker TR -> "16 TR x 1.25 (HP per TR, Pricing Inputs) = 20 HP", 476,040 / 20,000; C2 4 + HP -> 3.2 TR, FOUR-WAY amber, 43,680 / 3,500; C3 5 + kW -> 1.42 -> 1.5 TR, 20,760 / 1,800; C4 "16HP" / "1.5TR" options, 16HP = 436,920 / 16,000; C5 "670 CFM" refuses named; C6 gas 1,020 / 350 per Kg, Drain Pump 3,500 / 750, MS Angle on a Nos row refuses; C7 the calculator cannot state an off-sheet brand or Nos/Ro (proved by parity / R-39); C8 both inputs used by "VRF (10 uses)" with two worked examples each; C9 154 items, batch rmbulk-6d7775ded264, the 14 Derivation lines; C10 BOQ-26-00003 rows 301 / 351 "coming soon", Piping's form has no unit picker; C11 counts = post-load. **The cert found one defect in two halves (C4):** a size PICKED from the list after the picker was set still read the picker's unit (1.5TR after kW priced 1.5 kW). **K3b `0e58d721d`**: `applyItemEdit` set_other(on: false) drops `<id>__unit`; **K3c `96a0f0d9e`**: the panel's select sent two edits against the same render's state, so the second dropped the first -- a field WITH a unit picker now sends one `set_attr` (other: false), which also drops `<id>__unit`. Each with a test, vacuity, then a full de-stale and C1-C4 again. The pre-existing double call is left for the other categories (it only leaves the box open after a pick).
+
+### 4. Deploy note and open items
+- **Deploy:** v57 by a wholesale HVAC load; K1-K3 code. VRF still prices only in the calculator; no BoQ page changes.
+- **VRF-4 MUST remove `calculator_only`** (VRF-2a's list) **and** the `calculatorSurface: true` the worked examples pass.
+- **Open:** VRF-3 (the outdoor split, extras, Set / Lot / per HP); VRF-4 (BoQ rows live, the model questions, removing calculator_only and calculatorSurface). Observed, not a 2b change: an item that refuses shows its defaults as '- select -' until it prices (VRF-2a's display); the factor field's 'today 3.52' rounds 3.517 to 2 dp.
+
+### VRF-2b K5 - the bracketed capacity behind an airflow-only text (owner 2026-11-04 "Now, before push"; code only)
+Chat review of Lists.xlsx "CFM rows": 60 of the 66 rows refused as airflow-only also give the size in brackets ("670Cfm Wall
+Mounted Type (2.0 TR)"). K5 (`itemListPricing.readCapacity` + `bracketedCapacities`): when the text outside its brackets gives
+an airflow and no unit-word capacity, and ONE bracket holds a capacity in the reader's units, that capacity is read, converted as
+usual, with the line "670 CFM is an airflow - not read; (2.0 TR) in brackets is read -> 2 TR"; a bare number outside is named and
+not read (QR-K5a "option B", owner 12:32: the "1" of "1-way", the "4" of "4- Way"); two -> "several values"; none -> as before. Only
+in the `units` branch (VRF); other readers byte-identical (test). Derivation line 10's detail gains "..., unless the row also gives
+a capacity in TR, HP or kW in brackets, which is read" (title unchanged). No config key, no asset, no load. Tests: vrf2bCapacity
++18 (58, the 7 QR-K5a rows by name), R-39 W14f / W14f-calc / W14g-neg / W14h, parity named +3 (19); vacuity 17 / 3 / 9 / 1 red. Probe, HEAD vs K5 bundles: with VRF-R2's
+phrases 16 CFM rows now price (most phrases stop before the bracket), 0 rows outside the CFM rows move; with the whole row text,
+59 of 66 price, all from the bracket (at HEAD 7 priced, each on a stray number outside it -- QR-K5a B now reads the bracket), and
+7 refuse: the 6 truly airflow-only rows and the 12.8 TR ductable (above the largest size, by name). Lists: `2026-11-04_VRF-2b_Lists.xlsx`. Cert C5 / C5b / C10 and the suites:
+`2026-11-04_VRF-2b_K5_Addendum.md`.
+
+## Slice VRF-R3 - read-only recon for VRF-3: the outdoor split, extras, Set / Lot (2026-11-04) - DELIVERED
+
+Desktop session, delegated by the laptop. HEAD 5d399c737; no commit, no repo change, no database write, no model call; every
+demonstration ran the product's own functions on scratch copies of v57. Replay 18,106 rows, ac7 `25cb3eb9...` / ac7v2
+`9aaf20bf...` byte-equal at D0 and D2.
+
+- **R1:** "1700-1800cfm" read the 1700 as a capacity (the number before a range dash was not tagged airflow); 2 true ranges
+  (BOQ-26-00149 r175 / r221). One rule in the VRF reader.
+- **R2:** the seam is `applyFamilyMerge` (PSH); nothing adds a line without the pricer; `composeSize` goes BELOW the row on 5
+  rows (60 -> 28 + 28). The owner rule run on all 65 qualifying outdoor rows: 47 helper splits all exact, 15 stated priced, 3
+  "2#" W+S not split; board 1 reproduced exactly (54 HP -> 28 + 26). 5 stated-split rows price silently as ONE unit at the total.
+- **R3:** extras from other sheets have no clean config path (a section prices in the row unit; family attribute clash;
+  same-discipline lookups; wiring_cabling is attribute-mode) -> QR-1.
+- **R4:** 104 Set / Lot / per HP rows (90 refuse by name; the calculator's Row unit offered Nos only).
+- **QR-1 (owner 14:56, "Two slices: 3a then 3b"):** VRF-3a = range, split (helper + stated), Set / Lot with its review list;
+  VRF-3b = all extras from other sheets + the blank-quantity hold; both before VRF-4.
+- Report, Lists workbook (12 sheets), screenshots: `BoQ main lane\VRF-R3\` on both machines.
+
+## Slice VRF-3a - the outdoor split, the stated split, Set / refnet / Lot, the airflow range (HVAC v58) - as built 2026-11-04
+
+Desktop session, delegated by the laptop. Start tip 5d399c737. Tier 3 (asset v58) + Tier 2 (price logic). Five code commits (K1-K3 as planned; K3b / K3c fixes found by the cert) plus this docs
+commit; no model call. dev2 idle throughout (DEV2-B7 done 14:56).
+
+**Owner rulings carried:** R-SPLIT (2026-11-01 11:59, a + b), R-SPLIT-RULE (12:02), D-1 / D-2 / D-3 / D-8 (15:03), DUCTABLE (11-03
+12:23 "no splitting"), SHAPE (11-04 14:56: Q2 "Make 3 lines", Q3 "Hidden tag", LOT "Refuse + review list"), SET (17:00 / 17:37 /
+17:39 / 18:49), boards 6-11 (18:52 "yes proceed"), STANDING, PARITY, R-BRAND / R-ROUND as v57. Mid-slice: **QR-1** (19:07 "ok go
+with a"): the calculator's "BoQ quantity of this row" on refnet Set rows (U9 approved); the panel reads the row's quantity.
+
+### 1. P0 (read-only)
+- VRF-R3's R1 / R2 / R4 / R6 / R8 file:lines re-read at 5d399c737: all exact. Readers of `composeSize`: `priceOneItem` and
+  `sizeFieldHelp` (+ tests); an item's `source` is set in `itemBlockView` only; the Row unit list is `unitChoicesOf`.
+- **Corrections (no step change):** the row context carried no quantity (QR-1's premise) -> `ctx.quantity` added in two next-to
+  files (`rateHelperTypes.ts`, `rateSuggestionModel.ts` `buildRowContext`: the row's `qty_total`); `test_vrf_v56.py:196` ("no
+  splitting") reads the v56 FILE, which still has no split, so it was not inverted (the v58 split is pinned in test_vrf_v58 02);
+  VRF-R3's "refnet Set = one spelling" is superseded by the owner's refnet rule (17:00).
+
+### 2. Built
+Commit **K1 `cc9384036`** (feat, code only): `ladderResolution.ts` -- `compose.above_only` (a candidate below the stated value is
+dropped; absent = two-sided, Insulation unchanged). `itemListPricing.ts` -- the R1 airflow range in `readCapacity` (units branch);
+`readStatedSplit` (one "+" chain -> one line per module, through the variant's ladder; D-2 refusal "Module m HP is above the
+largest size on the sheet (L HP) - this row is not priced; price it by hand"); `splitInto` on an item above its variant's largest
+on a split family (the pure pricer never prices it); `splitAllowed`; the layers reader skipped on a split config.
+`pricingSheetHelper.ts` -- `ItemEdit.helper` (`HelperMark`, the hidden tag, kept by `decodeItemEdits`), `splitEdits` at the
+`applyFamilyMerge` seam (one real entry per line, largest first, then the row is computed again), `splitViewOf` (row note, D-3
+note, sum note, "changed by you" box, lines-vs-total note), `reset_split`. `RateHelperPanel.tsx` -- "split by the helper" /
+"changed by you" headings, the split box + Reset. `itemListRuleOrder.ts` -- the split ladder bit, the range clause, lines 13c.
+`config_validation.py` -- `split` + `above_only` validated. Tests: vrf3aSplit.test.ts, TestVrf3aSplitKeys; two pins inverted.
+Commit **K2 `9be63f8d7`** (feat): `per_set` (Set = 1 piece, the orange bar, the ringed "Unit Set · Qty q", "Pieces in one Set of
+this row" default 1 amber), `per_set.counted` + `countedPieces` (the refnet rule: E = sum of (count - 1) over the sides covered,
+W = max(10% of E, 1); match -> 1 piece, below -> ROUNDUP(E / q) with the ROUNDED UP note, else withheld, red), `lot_units` (Lot /
+LS / Job / per HP / complete system refuse with the config's line under a red bar), the calculator's "BoQ quantity of this row"
+(`ROW_QTY_OVERRIDE_KEY`, Set rows with a refnet only; QR-1 (a)), the Row unit offers Set; Derivation 13d; validation. Tests:
+vrf3aSet.test.ts, TestVrf3aSetLotKeys; three source pins met (two inverted; the quantity-box className kept by moving the ring
+to a wrapper).
+Commit **K3 `4e9dec39e`** (feat, the asset): `mint_hvac_v58_vrf3a.py` + README row; `rate_master_hvac_all_v58.json` (sha256
+236c4208...) = v57 with only hvac_vrf changed (compose {capacity, tolerance 34, max_layers 6, cost_supply, above_only}; split
+{Outdoor Unit, stated, conditions}; Set / Sets in the count class; per_set + counted; lot_units; unit refusal "per Nos, per Set or
+per Kg"; calculator_only kept); test_vrf_v58 (7, measured into the plan); the parity block "HVAC VRF (VRF-3a, v58)" and the R-39
+block "VRF-3a (v58)" (20 titles, 58 cases); fixture `vrf3aSplitRows.json` (65 split + 104 Set / Lot rows); 37 latest-asset pins
+moved (MUST MOVE 31 -> 0) and two wave-2 live pins inverted (test_vrf_v56 09, test_vrf_v57 08), BEFORE kept; no price pin moved.
+K3 also fixes a defect parity found in K2: the refnet answers were read only from typed edits (a model item read "counts
+missing"), and the row reason now carries the refnet sentence.
+Commits **K3b `92f19919d`** and **K3c `4b1647ceb`** (fixes found by the cert, each followed by a full de-stale and the whole cert
+again): after a line is removed the row note keeps the helper's split (`HelperMark.layers`); a split family's size box commits on
+blur / Enter (`CommitInput`), so "60 HP (18+18+24)" is read whole and not split at "60".
+- **Mint gate** v57 -> v58 PASS; `--latest` PASS. **Stub proof** identical; eligible set unchanged; no other config declares the keys.
+- **Load (before K3):** pre-load snapshot `BRMS-26-01409`, batch `rmbulk-153a69f4c93f` (537 / 11); live == file; only hvac_vrf's
+  config moved (48f35590 -> afd442fb); HVAC items 04616a22 unchanged; Electrical unchanged.
+
+### 3. Proofs and counts
+- **Probe** (on v58): the 65 outdoor split rows priced 8 -> 65 (62 split into lines), 0 divergences; the 104 Set / Lot rows priced
+  0 -> 16, Lot line 30, 44 refused for a fact (never for the unit); 32 divergences, all cause C (29 Lot + 1 per HP: the calculator
+  cannot state Lot; 2 MS angle frames on Set rows: the calculator offers only Kg); the 2 true ranges refuse naming "1700-1800 CFM".
+  Lists: `2026-11-04_VRF-3a_Lists.xlsx` (Split rows, Set-Lot review, Range rows, Probe, Named parity cases).
+- **Replay** after the load and at the end 18,106 rows, 0 moves. **Suggest population** 109 sheets 5,049, VRF 0.
+- **Vacuity:** K1 12 frontend + 3 Python breaks; K2 11 + 3; K3 8 breaks on scratch copies of v58 (each red on vitest AND
+  test_vrf_v58); K3b 1; K3c 2 -- every break red, every file restored sha-equal.
+- **Suites:** related, once after the last code commit (4b1647ceb), each run alone (before = VRF-2b's saved logs): Python 24 modules all OK, 1,313 -> 1,326 (test_rate_master 758 -> 764, test_vrf_v58 +7; every other module equal); vitest related on the 14 changed frontend files 97 files / 5,089 / 5,089, 0 'Failed to start' (VRF-2b K5's related set: 86 / 4,585); tsc FULL 0 new (2894 / 2888). Logs: 2026-11-04_VRF-3a_related_python.log (+ _raw.tgz), _related_vitest.log / .json, _tsc_full.log.
+- **Cert (pass 3 of record, after three full de-stales):** C1-C12 PASS on :8080 -- 54 HP -> 28 + 26 (568,920 + 547,440 / 28,000 +
+  26,000); 60 -> 24 + 24 + 12, edit / remove / reset; 66 -> 28 + 26 + 12; typed "60 HP (18+18+24)" -> 1,415,640 / 60,000,
+  "26(14+12)HP" -> 717,720 / 26,000, "60 HP (30+30)" refuses by name; 43.2 TR -> 54 HP -> 28 + 26; Set controller 42,000 / 1,500
+  (2 pieces 84,000 / 3,000); refnet 3 + 24 qty 1 -> 25 pieces, qty 2 -> ROUNDED UP to 13, 4 + 50 qty 52 -> 1 piece, qty 20 ->
+  withheld; "1700-1800cfm" refuses; the Derivation's 20 lines; the BoQ page declines VRF rows; counts = D0 + the load.
+
+### 4. Deploy note and open items
+- **Deploy:** v58 by a wholesale HVAC load; K1-K3c code. VRF still prices only in the calculator; no BoQ page changes.
+- **VRF-4 MUST remove `calculator_only`** (VRF-2a's list) **and** the `calculatorSurface: true` the worked examples pass.
+- **Open:** VRF-3b (extras from other sheets, the blank-quantity hold); VRF-4 (BoQ rows live, the model questions, "2#" W+S,
+  removing calculator_only and calculatorSurface). The stated-split / D-3 / field-help wordings were written in the slice (owner
+  review welcome). test_vrf_v56.py:196 left as is (a v56-file pin).
+
+## Slice VRF-3b - extras from other sheets, Pricing Inputs defaults, Lot in the calculator, per-field undo (HVAC v59) - as built 2026-11-05
+
+Desktop session, delegated by the laptop. Start tip 2dd968b9b. Tier 3 (asset v59) + Tier 2. Six code commits -- K1 d9d83ce4c,
+K1b c202ec69f, K2 1e44a41e6, K3 7de23f53b (asset v59), K3b 93ad41400 (test-only sweep, ANSWER 3), cert fix f87bf702a (C11) --
+plus this docs commit; no model call. dev2 idle throughout (DEV2-B7 done 11-04 14:56).
+
+**Owner rulings carried:** O-5 / O-6 / B / SHEETS (2026-11-03); 2026-11-05 11:30 ("use 30 mts default for both"), 11:56 ("per unit
+only...qty has no bearing"), 12:07 / 13:54 (defaults in Rate master > HVAC > Pricing Inputs, live-linked), 12:19 / 13:51 / 13:52
+(cable specs; copper, unarmoured), 13:46 (pipe sizes, 19 mm insulation, closest catalogue size), 13:53 ("show the one used"), 13:59
+(split: per outdoor unit), 14:03 (defaults indicated), 12:23 (remove extras), 14:20 / 14:56 (per-field undo everywhere), 01:15 (Lot
+in the calculator); boards 12-15. Mid-slice: **QR-1 NOT NEEDED** (all six default cable specs stocked in E72); **ANSWER 1**
+(VRF3B-4 = (a), 15:35): the vrf_* factors show their real reach; **ANSWER 2** (VRF3B-6 = (b), 16:07): catalogue-wide choices on the
+extra lines as a separate commit K1b. Both echoed late (16:16, A11).
+
+### 1. P0 (read-only)
+- (a) E72 wiring_cabling stocks every default spec as unarmoured copper (Polycab, per Mtr); per-metre BoQ rates through the
+  product's compute: 3Cx1.5 120 / 24, 3Cx2.5 180 / 30, 4Cx6 550 / 34, 4Cx10 950 / 40, 4Cx16 1,440 / 40, 2Cx1.5 80 / 24; copper
+  22.2 1,814 / 220 ... ; insulation 19 mm on 22.23 265 / 14 ... (x 30 m = chat-Claude's C1 / C2 figures exactly).
+- (b) per-field undo existed on every item-list ATTRIBUTE field (panel + calculator, one component); missing on the quantity box,
+  the family control and the refnet count fields.
+- (c) Pricing Inputs: items with named NUMBER rates; every write path forces numbers; the CSV / grid carry a FIXED value-column
+  list -> each table cell became its own single-factor input (no doctype, no server, no CSV-column change).
+- (d) a section prices in the OWNER row's unit and resolves same-discipline only -> the extras are a new key `extras`, not
+  `list_spec.sections`. (e) the Row unit list (`unitChoicesOf`) never offered Lot.
+
+### 2. Built
+**Cert:** run 1 found ONE defect (C11: every VRF worked example on a Pricing Inputs panel read "Does not price today" -- the
+Rate Master page lacked Electrical's cable data); fixed (f87bf702a), full de-stale, the WHOLE cert C1-C12 again: all pass.
+(Commit list, the asset, gates, load and proofs: see the report `2026-11-05_VRF-3b_Report.md`; rules: boq-rate-master.md "VRF-3b".)
+
+**VRF-4 MUST remove `calculator_only` and `calculatorSurface: true`, and read the model's `includes` flags and `extra_<line>_<field>`
+values for BoQ rows.**
+
+## Slice VRF-R4 - read-only recon for VRF-4: the model questions, the switch-off, borrowed fields (2026-11-06) - DELIVERED
+
+Desktop session, 00:26-01:15, read-only, no commit (HEAD 948efa6de). Findings VRF-4 was written from: `includes` was a ROW cell that
+item-list extraction never fills, and an undeclared `extra_*` item key is dropped by `parse_item_list` -> per-ITEM Yes / No questions
+and the pricer reads the item (Q1); the switch-off is 23 lines with four hazards (frozen v56-v59 validation, two vacuous negative
+pins, `CURRENT_HVAC_ASSET`); VRF-3b's "closest" snap on typed / BoQ sizes diverged from the source's own resolver on 11 cases (14 mm
+-> 12.7 vs Piping's 15.9; insulation on 47.6 -> 41.28 vs 53.98); 1,400 non-test VRF rows on 96 sheets = 123 calls at batch 20; no
+W+S code (19 Tier A rows + 4 standby-only). QR-1 (a); the 10 copper-pipe rows (00352 r173-180, 00376 r62-63) go to the team to
+re-categorise. Report, Lists (22 sheets), payloads and screenshots: `Desktop\BoQ main lane\VRF-R4\`.
+
+## Slice VRF-4 - the model reads VRF rows; switch-off; borrowed fields by the source's rules; W+S bar; refnet counts (HVAC v60) - as built 2026-11-06
+
+Desktop session (the owner travelling; ANSWER 2), start tip 948efa6de. Tier 3 (asset v60) + Tier 2. Three code commits -- K1
+334f2d1ce (the pricer reads the model per item; W+S; refnet counts from the sheet), K2 e2d7570d3 (borrowed fields through Piping /
+Insulation / Electrical's own rules; VRF-side copies removed), K3 9a3914d60 (switch-off; v60 minted and LOADED, batch
+rmbulk-e0f46138c437; parity v60 192 cases 0 divergences; R-39 guard; stub) -- plus this docs commit. Rules: boq-rate-master.md
+"VRF-4".
+
+**Owner rulings carried:** Q1 A ("removed at VRF-4"); D-10; 2026-11-06 q1-q5 (q5: second opinion ON for the sample); R-WS / D-5
+option D / D-9; BORROWED "option a" + 09:50 (VRF's declared defaults always win). Mid-slice: **ANSWER 1** QR-1 = (c) (10:35):
+complete the 9 carry sheets with the real button (R8 adds the never-read rows: +132 VRF, +35 Piping as declared moves); the 18
+no-run sheets read only their sample rows via `_suggest_worker(only_rows)` and stay partial. **ANSWER 3** "go" (13:39) for the
+declared shape: 213 rows, 34 batch calls, 178 second opinions; HARD CAP 2,177,451 tokens / 102 attempts / 178 SO. **ANSWER 4**
+QR-2 = (a) (14:25): BOQ-26-00298 / HVAC BOQ r269 stays unread (the sheet's category gate is closed); for VRF-5 the owner allows
+the product's existing "Override the check" on a gate-closed sheet. ANSWER 1 / 3 / 4 echoed late (3 / 11 / 9 min; disclosed).
+
+**Paid run (13:56-14:55):** 212 of 213 rows read on 26 sheets; ACTUAL 1,204,126 tokens (batch 324,852 in / 110,412 out; second
+opinion 714,670 / 54,192), 33 batch attempts (0 failed), 177 second opinions -- all under the cap (taken from the capture files;
+the log ROLLED mid-sheet 3 and the run script's own line-slice under-booked that sheet; an independent all-generations watcher
+enforced the cap from then). Controls: 321 stored rows outside the list byte-identical; 184 new stored rows, all declared.
+Integrity: 212/212 blocks byte-equal to the logged payload, EA-7 212/212, 212/212 replied, 0 foreign ids, 0 answered-not-asked.
+Second opinion: 114 agree / 63 disagree (flags only). Panel over the stored answers: 158/212 priced (VRF 132/177); panel vs
+calculator: 15 unit-not-offered + 4 Piping rows unclassified (the parity harness carries no section items). Replay: 0 moves on
+the 18,106 old rows (D0 and K3, both harnesses). Archive: `Desktop\BoQ main lane\VRF-4\payload_archive\`; `2026-11-06_VRF-4_Rows.xlsx`.
+
+**Cert C1-C11:** all pass (C5's "thickness 20 on 22.2" is not typeable in the calculator -- a 13 / 19 / 25 choice -- and was shown
+by the served module in the live tab instead). Rows on the 17 partial sheets ran from stored answers + the calculator (ANSWER 1).
+
+**Open (for the owner / VRF-5):**
+- **`second_opinion` is TRUE on hvac_vrf (v60, q5) and MUST be switched off before any deploy.**
+- The 17 partial-run sheets show "Rate suggestions stopped early ... Resume run": Resume is a WHOLE-SHEET paid run.
+- Wording: the per-HP refusal's bar is titled "PRICED PER LOT"; the Lot / per-HP text still says "What a Lot holds is read at VRF-4".
+- VRF-5 reads whole sheets; sheets whose category gate is closed need the "Override the check" (owner 14:25): in the sample only
+  BOQ-26-00298 / HVAC BOQ.
+- The 10 copper-pipe rows to re-categorise; the R5 (e) 10 duplicate and 11 conversion copy not removed; `parseCableSpec` kept;
+  GAP 3 (Pricing Inputs save) and GAPs 4 / 5 named in the report.
+
+## Slice VRF-5 - fixes from the VRF-4 review (accessories as lines + the own-row safeguard, cable default, Side, brands, scope) (HVAC v61), then the full VRF run - as built 2026-11-06 / 07
+
+Desktop session (the owner travelling 2026-11-06 from 19:53; ANSWER 10), start tip b92a85b8a. Tier 3 (asset v61) + Tier 2. Three code
+commits -- K1 ed69b87ea (accessories as the unit's own lines + the safeguard, F2 cable default, R2 Side, R5 several makes, scope;
+vrf5Model 39 tests), K2 edf1511c7 (the calculator keeps a picked unit on VRF and refuses like the panel; the parity harness feeds
+Piping sections, the panel's extras and the scope), K3 59f3775e0 (v61 minted and LOADED; config checks; the Accessories table; parity
+v61 179 cases 0 divergences; R-39 v61; stub 96 sheets 0 drops; AMENDED with the QR-2 fix, was bbabf58c4) -- plus this docs commit.
+Rules: boq-rate-master.md "VRF-5".
+
+**Owner rulings carried:** R1 (prompt r2: accessories PRICED as lines, quantity from the BoQ else a Pricing Inputs default; the
+SAFEGUARD); ANSWER 4 / 6 defaults (MCCB 40 / 40 / 63 A FP from Electrical, an isolator as the default MCCB; MS frame 30 / 45 / 60 Kg;
+gas 3 / 5 / 8 Kg; 1 per indoor unit); ANSWER 5 (defaults + uplift = HVAC Pricing Inputs rows, an Accessories table); ANSWER 9 (the
+safeguard reads the SAME sheet, HVAC categories only; cross-sheet = open item); QR-1.2 a (calculator ticks + quantity + BoQ scope);
+QR-1.3 (no-capacity install-only rows refuse); R2 "yes"; R5 "2 ok"; R4-R8 scope + the 50% uplift; ANSWER 2 (the 20 amount formulas
+declared on 10 sheets; override on the 9 category-closed sheets); G2 whole sheets; ANSWER 3 (every run ends complete + active;
+second opinion VRF rows only); ANSWER 11 (QR-2 a, PAID-READY "go", one process); ANSWER 12 (QR-3 "resume").
+
+**Asset loads:** v61 loaded 2026-11-06 20:5x (snapshot BRMS-26-01851, batch rmbulk-99a908dbdec4) and re-loaded 21:4x data-identical
+except 12 integer input factors made floats so a Pricing Inputs CSV round trip reads 58 / 58 unchanged (BRMS-26-01887,
+rmbulk-d768cf437dcd). B6 replay after the load: 18,290 rows, 62 moved - all hvac_vrf, each by a declared rule (R1 folding 58, Lot
+wording 3, R2 Side 1), 0 non-VRF moves.
+
+**The paid run (one process, whole sheets):** 96 sheets / 5,098 rows (VRF 1,400), 9 category overrides, 20 amount formulas declared
+first. Stopped 2026-11-07 01:37 on an EXTERNAL cause (Anthropic "credit balance is too low", HTTP 400) after 12 sheets + a partial;
+the owner topped up (ANSWER 12), the desktop rebooted 12:51, and the run resumed 15:44 (one check call first) and ended 21:43:18
+"stopped None". 96 / 96 sheets complete + active (the Terrace partial completed by the product's own resume). Spend 22,505,409 tokens
+/ 566 batch attempts (2 refused at the credit stop) / 1,400 second opinions of the cap 34,742,640 / 903 / 2,240. Controls: every
+stored row outside the declared list byte-identical (segment 1: 249 runs, 0 changed; segment 2: 262 runs, 1 changed = the declared
+Terrace resume); 96 new runs, all on plan sheets, all complete + active. Replay after the run (re-baseline): 23,239 rows, ac7
+1ceddfa3ab7dc471 / ac7v2 e11d32ee97602433; the 17,276 rows outside the plan sheets 0 moved.
+
+**Payload integrity (5,098 rows):** blocks byte-equal 5,098, ROWS sections equal 5,098, EA-7 PASS 5,098, replied 5,098, 0 foreign
+ids; 564 batch + 2 refused records; 4 specs. Rows workbook: SKU id + name resolved for 3,904 items (25 unresolved); hand check 52 / 59
+readings agree (3 are capacity format only). Parity (5,098 rows): hvac_vrf 0 figure divergences over 1,400 rows (13 wording only).
+
+**Cert C1-C11:** all pass, the live calculator on C8 (a frame on a picked Nos unit refuses like the panel).
+
+**Open (for the owner):**
+- **`second_opinion` is TRUE on hvac_vrf (v61) and MUST be switched off before any deploy.**
+- Cross-sheet safeguard (00049 Hi-Side vs Lowside, 00012): the safeguard reads the same sheet only (ANSWER 9).
+- Model readings: 00350 r14 (the isolator stated in notes r12 / r13 was not answered, so no MCCB line); 00352 r36 (heading "full
+  charge of R-410a" not read as an extra gas charge).
+- Calculator vs panel outside VRF (the harness feeds the BoQ's two-value thickness / size, the calculator asks for one): hvac_piping
+  137, hvac_insulation 29, hvac_adp 22 figure divergences + wording-only ones - a calculator-feed limit, no code of those categories
+  changed in VRF-5.
+- With the default (unpicked) unit the calculator switches an MS frame to Kg and prices it (K2 keeps only a PICKED unit).
+
+## Slice VRF-6 - fixes and team rules from the VRF-5 review (HVAC v62), then the VRF-rows run - as built 2026-11-09
+
+**Commits (desktop; the owner pushes):** K1 `6fbd8485a` feat(boq-pricing) and K2 `93f6d78a9` fix(boq-pricing) were pushed by the
+owner at ~18:20 (origin = `93f6d78a9`); new on top: K1b `cb1c4a1ed` fix(boq-pricing) (the final Q3 rule), K3 `847f0f528`
+feat(hvac-vrf) (asset v62 + config checks + Pricing Inputs schedule + mint + tests / parity / R-39 + pins), K1c `db0918dc6`
+feat(boq-pricing) (U11 next-best toggle), K4 `803a92ae1` docs, then K1d `9d6b2292d` fix(boq-pricing) (U11 capped at two options,
+owner 23:51), K1e `0a6ed94f6` fix(boq-pricing) (per-Kg frame rows, owner 00:07), K4b docs.
+
+**Owner answers:** QR-1 18:25 (Q1 ELCB = RCCB 300 mA 4P; Q2 MCB C curve; Q3 the owner's own rule; Q4 a piping row is the copper row
+unless the model read a non-copper pipe); "go" 18:30 with a 17,000,000-token ceiling; 18:52 second opinion OFF as the STANDING rule
+(every category, testing included), Q3 = singles + pairs, new UI item U11; 19:32 FINAL Q3 "option b" = the covering single stands
+unless a covering pair is cheaper (then the cheaper pair with the least excess). The superseded readings (least excess with any
+set -> 8 + 8 + 6 for 22 HP; singles + pairs least excess -> 00098 r15 10 + 7) were never committed as the rule.
+
+**Asset v62** (`rate_master_hvac_all_v62.json`, sha256 0d393e0f..., 585 items / 11 configs; only hvac_vrf changed + 14 Pricing
+Inputs in / 9 retired + the Misc item "MS frame / stand for ODU" Nos 4,000 / 0 at 40% = 5,600 / 0): mint gate PASS; loaded three
+times on the desktop as the answers moved (rmbulk-655f1114057d 18:41, rmbulk-8707fc5a2dd1 19:07, FINAL rmbulk-fc293d53dcd8 19:41,
+pre-load snapshots BRMS-26-01989 / 01990 / 02026); live == v62 by content; Electrical unchanged (6ddf58a9 / 2c15c116).
+Replay vs the D0 baseline (vrf6d0, 23,239 rows): 216 moved, all hvac_vrf, 0 non-VRF (ac7 94712fab / ac7v2 784ba25a).
+
+**The run** (selected rows on 96 sheets, all with a complete active run; 0 never-read additions; 0 overrides; 0 resumes):
+1,400 hvac_vrf rows, 123 batch calls (= the 123 declared, 0 retries), 0 second opinions, 3,733,866 tokens (in 2,214,081 + out
+1,519,785; expected 3,742,873; cap 5,988,597 / 197 / 0). 96 / 96 runs complete + active. Controls: all 346 runs older than the start
+byte-identical; the only change = 96 active flags 1 -> 0 (their new runs took over). The run script's own END line read 3,712,570 /
+122 because the keeper copies the capture log every 3 s and the last batch landed after the tally; the watcher's final line has the
+full count.
+
+**Payload integrity (1,400 rows):** blocks byte-equal 1,400, ROWS sections equal 1,400, replied 1,400, 0 foreign ids, EA-7 PASS
+1,400; 1 items spec; 123 batch records. Rows workbook `2026-11-09_VRF-6_Rows.xlsx`: SKU id + name resolved for 1,309 items; hand
+check 8 rows; second opinion OFF (0 calls). Priced 1,235 / 1,400 (VRF-5 1,210): 567 totals unchanged, 634 moved (team accessories
+and rulings), 34 newly priced, 9 no longer priced (below). Calculator vs panel: 16 divergences (VRF-5's 13 + 3 two-capacity
+refusals that differ in wording only).
+
+**Cert C1-C12** at :8080 after a full de-stale: all pass under the rulings, with the expectations newer rulings superseded -
+00073 r51 copper and 00093 Option 1 r25 cable are NOT added because those sheets quote them on their own rows (F4 category first);
+00298 r254 shows no copper note because this run's model answer left copper / insulation blank. C10 was certified from data (the
+"vs VRF-5" comparison), not in the browser. C12 (U11, after K1d) on 00131 / ESTIMATE / 16: "The helper's pick: 20 + 6 HP" (817,434) -> the one toggle -> "Next-best option
+(chosen by the user): 20 + 8 HP = 28 HP, 4 HP over the BoQ's 24 HP" (835,347) -> back = 817,434. C13 (K1e) 00102 / HVAC / 22 (Kgs):
+MS Angle Base Frame Structure 140 / 40 per Kg + the rule's note. K1e from the stored answers: 00009 r80 refuse -> 140 / 0,
+00102 r22 refuse -> 140 / 40, 00380 HVAC-3F r268 refuse -> 140 / 40 (VRF-5: 140 / 40, 140 / 0, 140 / 40 - the scope answers of the
+new reads differ); a 1,400-row reprice moves exactly these 3 figures.
+
+**Open (for the owner):**
+- (Fixed by K1e) the three frame rows quoted per Kg that refused after the run now price on the per-Kg item.
+- 00231 r105, 00243 r105, 00259 r12: 600 x 600 cassettes above the compact's 1.5 TR refuse (Q-pre 7 as ruled).
+- Model readings that changed: 00218 HVAC-2F / 3F r274 ("no item"), 00029 r402 ("no unit"), 00298 r254 (copper / insulation blank).
+- Pricing Inputs: the installation-only uplift's label does not state its new condition (only without a supply row on the sheet).
+- U11 cosmetics: the floating calculator button overlaps the option label (K1d fixed the "From the helper's split" wording).
+
+## Slice VRF-7 - fixes from the VRF-6 review (HVAC v63), then a re-run of the rows the fixes touch - as built 2026-11-10
+
+**Commits (desktop; the owner pushes), on 625a7391e:** K1 `5909460b3` feat(boq-pricing) (A1-A6, B7-B11, C12, C13, D1, D2 in the
+pricer), K2 `a1e11bbf8` fix(boq-pricing) (calculator parity for the K1 rules; harness paths), K1b `d9cf5e236` fix(boq-pricing)
+(fresh air beats CSU only for the unit the BoQ describes as one), K3 `8f4f98f02` feat(hvac-vrf) (asset v63 + mint + config checks +
+tests / parity / coverage / R-39 + pins), K2b `ef96fc54a` fix(boq-pricing) (the live calculator fetches the configs its extras price
+through - QR-4), K1c `3dec08249` fix(boq-pricing) (D2 note for the priced type's own words - C8's 00197 r324), K4 docs.
+
+**Owner answers:** ANSWER 1 02:00 (paid run pre-approved, cap <= 4.0M); ANSWER 2 02:39 (QR-1 (a) all 1,110 run-list rows, cap <=
+6.0M, the Rows workbook full for review; QR-2 (a) 00267 r14 = the split rule's 34 HP single + note, 00191 r7 = 20 + 20); ANSWER 3
+09:57 (QR-3 (a) resume after the credit top-up, balance check first; QR-4 (a) K2b now); ANSWER 4 09:59 (C16 calculator extras
+screenshots - read late, 10:43, the message watch had lapsed); ANSWER 5 10:43 (laptop offline - keep working as planned).
+
+**Asset v63** (`rate_master_hvac_all_v63.json`, sha256 d00ddc9d..., only hvac_vrf's list_spec; questions 53 -> 68): mint gate PASS;
+loaded three times as K1b landed (FINAL rmbulk-57da9f87c432, snapshot BRMS-26-02086). B6 declared re-pricing from the stored answers:
+123 moves, 0 non-VRF.
+
+**My mistakes, caught before they shipped:** the first B11 rule read "TFA" anywhere (147 then 22 false fresh-air units on the stored
+answers) - K1b narrowed it to 1 move (00158 r82); my K1 D2 never noted a model-picked type, so C8's named row had no note - K1c, whose
+first try quoted "corded/cordless" as a conflict ("corded/ remote"), caught in the re-pricing and fixed before the commit.
+
+**The run** (selected rows on 91 sheets, one process + one resume): 06:01 start; 07:05 the API refused for credit at sheet 34 / 91
+(32 sheets / 444 rows done; 00149 left unchanged) -> QR-3; 10:00 resume after a 21-token balance check -> 11:37 end. 91 / 91 complete +
+active; 1,110 rows in 115 batches + 2 refused; billed 3,692,018 tokens (cap accounting 3,741,516 of 5,831,752; 117 of 184 attempts;
+0 second opinions). Controls: 442 older runs byte-identical except 91 active flags 1 -> 0. Payload integrity 1,110 / 1,110 (byte-equal,
+replied, EA-7). Rows workbook `2026-11-10_VRF-7_Rows.xlsx` (sha256 bff1b809...); hand check 8 rows, 47 / 47 in substance.
+vs VRF-6: 122 run rows move (B7 own-row 52, A4 comm 27, B10 / C13 remote 10, A2 armour 8, A5 5, ...); calculator divergences 2 (the
+known two-capacity wording). Replay vrf7end (ac7 16cee3f3 / ac7v2 0854b933): 168 moved vs the pre-run replay, all hvac_vrf.
+
+**Cert C1-C16** at :8080 after a de-stale each code change: all PASS (C8 after K1c). AC0: panel 131,890 = calculator 131,890 after
+K2b (126,640 before - QR-4). C16: 28 calculator screenshots of the extras controls (captions file).
+
+**Open (for the owner):**
+- Installation only + an MS frame line: the row refuses (VRF-5 R6, a line with no install rate) but reads "0 of 6 items need a
+  person" and no line says why - wording / visibility on both surfaces.
+- Derivation line 42 ("A built-in drain pump is still added") reads unconditional; line 51 (B7) qualifies it.
+- Removing an extra with its x leaves its tick on in "This row's price includes" (the "You removed" box is the state).
+- K1c's D2 notes also fire on same-template sheets whose notes say both "cordless" and "corded" (00003 / 00298 / 00023, 00363) and
+  on 2 rows quoting "corded/wireless" (a both-types phrase the asset's `first_words` does not list).
+- `first_words` misses the BoQ spelling "coreded" (K1c covers it through the own-words path; the pair list itself is unchanged).
+
+## Slice VRF-8 - fixes from the VRF-7 review (HVAC v64), then a re-run of the rows the fixes touch - as built 2026-11-10
+
+**Commits (desktop; the owner pushes), on df7c617af:** K1 `3c91816c0` feat(boq-pricing) (the pricer: W1, W2 / W3, W5, W7, K1c, D1, D2,
+D4-D14), K2 `e131c8f91` fix(boq-pricing) (calculator parity; W6 refusal text; R-F2 install-only frame reason; R-F3 the tick follows the x;
+R-F4 line 42), K3 `390a39acf` feat(hvac-vrf) (asset v64 + mint + config checks + the extraction re-ask + tests / R-39 + pins), K2c `af0ed026d`
+fix(boq-pricing) (R-F2 corrected by ANSWER 3: an installation-only row with the MS frame PRICES - the frame charges its full 5,600, no
+uplift, with the owner's note; code only, no asset change), K4 docs.
+
+**Owner answers:** ANSWER 1 15:13 (paid run pre-approved, cap <= 3,692,018); ANSWER 2 15:42 (correction: the auto-go ceiling is
+VRF-7's 6,000,000); ANSWER 3 18:21 (R-F2 corrected, option a: installation-only + MS frame prices; new commit K2c before the
+cert; echoed late, 20:13, the watch missed it); ANSWER 4 20:09 (laptop offline - keep working as planned); ANSWER 5 23:43 (QR-1 (a): resume after the
+credit top-up, a balance check first, the same cumulative cap).
+
+**Asset v64** (`rate_master_hvac_all_v64.json`, sha256 0177216efdd9..., 761,711 B, only hvac_vrf's list_spec - extras + split; the same 68 questions, ten
+`required`): mint gate PASS; loaded once, 18:10 (rmbulk-9d3aa4461862, snapshot BRMS-26-02201); live == v64; HVAC items unchanged (8af2eec7),
+non-VRF configs e9d3689a, Electrical = D0; every live config validates (HVAC 11, Electrical 13). B6 declared re-pricing from the stored answers: 90 figure moves (D12 35, D2 21, D1 8, D4 7, D5 6, D6 4, D8 4, D14-2 2, D10 2, D14-1 1),
+236 notes-only, 0 non-VRF; calculator divergences +36 = D12 only (the named panel-only refusal); replay vrf8v64 73 moved, all hvac_vrf.
+
+**Required answers vs the item-list prompt (my correction before any commit):** the prompt (out of scope) tells the model to LEAVE OUT
+an attribute without `allow_none` the text does not state, so `required` keeps `allow_none` and means "never left out" (Yes / No, "None"
+only when nothing describes it); a reply that leaves one out is re-asked once (`extraction.rows_missing_required`).
+
+**The run:** pre-approved go at 19:35:11 (60 sheets / 539 run_list rows / 97 calls / expected 3,153,652 tokens / HARD CAP
+5,045,844 tokens, 156 attempts, 0 second opinions). 20:52: the AI account's usage limit refused BOQ-26-00380 / HVAC-8F (partial, and
+partial again on its one resume; halt_reason "The AI account's usage limit was reached, so the run stopped early.") -> STOP + QR-1.
+56 / 60 sheets run when it stopped (55 complete + active). RESUME (ANSWER 5) 23:47 after a 21-token balance check: the 5 sheets
+left (HVAC-8F by the product's resume of its partial run, + 00383, 00392, 00397, 00401; 48 rows), one process -> 60 / 60 complete +
+active at 23:54. Spent 2,249,194 tokens in all (cap watch, every generation; the resume 150,312) and 70 attempts (2 refused) of
+5,045,844 / 156; 0 re-asks; 0 second opinions. Controls: 533 older runs byte-identical except 60 active flags 1 -> 0. Payload
+integrity 539 / 539 (byte-equal, replied, EA-7). Rows workbook `2026-11-10_VRF-8_Rows.xlsx` (539 rows, sha256 6c8f7553...); hand check
+8 rows / 35 readings, 35 agree. vs the B6 re-pricing: 10 figure moves from the re-read + 449 notes / fields; vs VRF-7 on the run rows:
+57 figure moves, 21 priced -> refused (all D12), 1 refused -> priced (00191 r32 TFA + its outdoor unit). Calculator divergences 22 =
+21 D12 (named) + 00376 r56 per-HP (there since VRF-7). Replay vrf8end (ac7 5dbe4cc2 / ac7v2 9f6ff9f3): 145 moved vs vrf7end, all
+hvac_vrf, 0 non-VRF.
+21:07 Docker Desktop's WSL engine restarted during the K2c vitest run (every container exited 255): the main stack restarted by name
+(dev2 untouched), postgres recovery clean, controls identical after; vitest re-run with 3 workers.
+
+**Cert:** C1-C11 at :8080 after a full de-stale (ping after 233 s; PROOF 1 the served module carries K2c; PROOF 2 the in-page
+import): every BoQ row's live panel = the scratch pricer to the rupee (C1 00175 GF r17 1,338,945 / 102,030 = 20 + 20 + 20 + both breaker
+quotes; C2 00009 r27 / r30 MCB + ELCB + D1 + step-up; C3-C8 as declared). C7: 00380 2F r214 is refused by D12 before D13 can show; D13
+shown on answered rows naming the own row. C9 calculator: installation only + the MS frame PRICES (0 / 20,600; frame 5,600; the owner's
+note), the x clears the tick, Put it back restores it, line 42 states its condition. C10 00140 r18 / 00108 r20 = VRF-7. C11 the new
+Derivation lines + line 33's K2c wording. 39 screenshots (`2026-11-10_VRF-8_cert_screenshots`). Calculator twins of the BoQ rows: the
+parity harness on the paid answers (0 divergences on every cert row but D12).
+
+**Open (for the owner):** 
+- QR-1 answered (ANSWER 5): resumed and complete, 60 / 60.
+- dev2 was stopped by the Docker engine restart at 21:07 and left exited (the session may not start it).
+- K2c is a code rule on every scope config (no config key): only the MS frame has a stored install of 0 today.
+- The D1 starter-panel note clips its BoQ quote with "..." (a pricer excerpt; D14-7's verified-quote rule covers model quotes only).
+- 00191 r32: the re-read model listed the outdoor unit itself, so D14-1's rule did not have to add it on this run.
+- D12 refuses 21 run rows (00051 HVAC 48-51, 00114 HVAC 57, 00380 HVAC-2F 200-218); the calculator prices them (named exception).
+
+## Slice VRF-9 - fixes from the VRF-8 review (HVAC v65), then a re-run of the rows the fixes touch - as built 2026-11-11
+
+**Commits (desktop; the owner pushes), on e18f43521:** K1 `eda7baef4` feat(boq-pricing) (the pricer: S2-S10, R1-R4 behind v65 keys;
+applyVrf9 in the parity harness; vrf9Model tests), K2 `a4392499f` fix(boq-pricing) (the calculator refuses wherever the panel refuses:
+several unit types / Fan Coil typed in, per HP; the panel's D12 unit shows no inherited type; parity VRF-9 block, 0 named exceptions;
+13 Derivation lines), K3 `3b3863583` feat(hvac-vrf) (asset v65 + mint + config checks + test_vrf_v65 + R-39 v65 + pins; the no-unit
+skip for the row-family net), K5 `8eab38534` fix(boq-pricing) (post-run fixes on the paid answers: TFA airflow-only capacity, no duplicate gas item, the Fan Coil
+unit shows no type, parity reads the whole chain), S11 `8972e63b5` feat(boq-pricing) (the scope pick on a BoQ row's helper panel,
+ANSWER 11), K4 docs.
+
+**Owner answers (relayed by the laptop):** ANSWER 1 00:47 (auto-go, cap <= 6,000,000); ANSWER 2 01:05 (S8 refnet Set, S9 gas
+charging always S+I, S10 frame safety net); ANSWER 3 01:15 (S9 also covers "Supply of additional refrigerant" rows); ANSWER 4 01:21
+(QR-1 (a): 00218 r274 prices per Kg on MS Angle Base Frame Structure; echoed 13 min late - the heartbeat loop consumed the mtime;
+hb.sh now compares the count of answers); ANSWER 5 01:32 (QR-2 (a): no inherited type on a D12-refused unit); ANSWER 6 01:35 (all
+foreseeable questions now - QR-3); ANSWER 7 02:00 (QR-3 defaults to 03:00); ANSWER 8 / 9 02:02 / 02:04 (QR-3 1a 2a 3a 4b 5a 6a 7a 8a
+9a; owner asleep); ANSWER 10 02:06 (cert C12: how a user changes a row's scope); ANSWER 11 02:08 (S11 scope pick on the panel if C12
+shows none); ANSWER 12 02:09 (S12: installation-only x1.5 only without a supply row - already the rule, VRF-6); ANSWER 13 02:11 (QR-4
+(b): no calculator screen change - the two item-list choices built at 02:02 were reverted before any commit).
+
+**P0 corrections (no step changed):** S2's reason-text half, S6 and S7's TFA half did not reproduce at HEAD (kept by test); 00009 r80
+has no installation wording in its chain (no S3 note, QR-3 1a); 00134 has its own gas row 83 (and, found in the cert, NO 'first charge' / 'factory charged' wording in any node: the brief's R1
+example did not hold on the data and P0's 'R1 YES' line was copied from the brief - disclosed);
+a per-Kg frame rate exists (QR-1).
+
+**Asset v65** (`rate_master_hvac_all_v65.json`, sha256 3c6666da3a8f..., 768,067 B, only hvac_vrf's list_spec - 7 question notes,
+extras, per_set, lot_units; the 68 questions and their flags unchanged): mint gate PASS; loaded once, 03:0x (rmbulk-89b202b5811c,
+snapshot BRMS-26-02259); live == v65; HVAC items unchanged (8af2eec7), non-VRF configs e9d3689a, Electrical = D0. B6 declared
+re-pricing from the stored answers: 91 figure moves (S4 58, R2 12, S9 10, S2 4, S10 4, S8 2, R3 1), 224 notes-only, 0 non-VRF;
+calculator divergences 547 -> 511; replay vrf9v65 95 moved, all hvac_vrf.
+
+**The run:** PAID-READY 445 rows / 70 sheets / 147 calls, expected 3,621,607, HARD CAP 5,794,572 (auto-go, ANSWER 1). 03:48-04:57,
+70 / 70 complete + active; audit figure 2,149,322 tokens / 77 attempts, 0 re-asks, 0 failed, 0 second-opinion calls (OFF, standing).
+Controls PASS (593 older runs byte-identical, 70 active flags moved); payload integrity 445 / 445 (byte-equal, replied, no foreign ids,
+EA-7 PASS); hand check 36 / 36 readings agree (8 rows). Post-run audit of the re-read answers found two code gaps + one parity gap
+-> K5 (code only, re-priced from the STORED answers, no top-up run). Final pricing (paid3, HEAD): 372 priced, 0 calculator
+divergences on the 445 run rows, 445 pickers. Rows workbook `2026-11-11_VRF-9_Rows.xlsx`.
+
+**Cert (read only, C1-C14, 36 screenshots `2026-11-11_VRF-9_cert_screenshots`; 0 writes to the BoQ tables):** every figure = the
+scratch / D0 value. C1 00380 2F r209 D12 no type; 00051 r48 / r51 Hi-Wall 29,640 / 24,480. C2 00370 r4 1,375,880 + R-D1 note; 00102
+r22 140 / 40 per Kg S+I + note; 00363 r51 954,800 S+I. C3 00197 r358 remote note names rows 357 + 312, no '...'; 00003 r301 D1 note
+exact (note row 300). C4 00175 GF r28 41,630 drain pump kept + makes; 00350 r14 '5 m' on both modules; 00191 r32 227,064. C5 00134
+r15 1,395,600, no gas. C6 00218 3F r202 297,800 no comm; 00336 r198 308,760 no frame (R2 / R3 not needed: the v65 guidance did it).
+C7 00380 3F r217 'Fan Coil Unit - pick the indoor type'. C8 00175 GF r17 1,440,975; 00218 2F r202 frame not added (own row 274);
+Piping / Electrical rows = D0; calculator install-only frame 5,600. C9 00093 r39 5,000 per Set. C10 00307 r41 1,370 S+I. C11 00134
+r58 5,600; 00218 2F r274 140 + 40. C12 no scope switch on the panel -> S11. C13 S11: 00197 r358 Supply only 24,720 -> S+I 26,720
+(Hi-Wall 25,320 = calculator) -> back. C14 S12: 00149 r186 install only with supply rows = 14,000 (normal rate); x1.5 note on 00164
+r74 (the row refuses on capacity 11 TR > 10); calculator Hi-Wall 2TR install only 2,700 / with supply on another row 1,800.
+
+**Tests (final, measured):** Python, the 31-module K3 set through the parallel runner: 31 / 31 OK (test_rate_master 776,
+test_extraction_coercion 216, test_vrf_v65 8); vitest related on the 8 changed frontend files: 99 files, 5,211 / 5,211; tsc 0 new.
+Replay vrf9end (23,239 rows; ac7 15d33991 / ac7v2 f942febc) vs vrf9d0: 151 moved, all hvac_vrf, 0 non-VRF - the next slice's
+baseline. Logs: `BoQ main lane\VRF-9\logs\`.
+
+**Open (for the owner):**
+- F-1 (cosmetic, not fixed): the Fan Coil refusal rows show 'BoQ says "None": priced as (your rule).' (RateHelperPanel.tsx 12e-2
+  sentence, `familyRaw` "None" with no family) - proposed VRF-10: hide it when the family is empty or the raw item is a none sentinel.
+- R1's net fired on 0 run rows, R2 / R3 / S10 nets on none of the cert rows: the model answered those questions itself under v65's
+  guidance; the nets are proven by the unit tests only.
+- 00164 VRV-BOQ r74 refuses on capacity (Packaged Unit 11 TR above the sheet's largest 10), not on scope.
+- The Rows workbook's SKU column says 'ambiguous 2' for 429 items (two catalogue rows match the panel's SKU fields; never guessed).
+- second_opinion stays OFF (standing); the push, the laptop sync and the db-pull are the owner's.
+
+## Slice VRF-10 - small fixes from the VRF-9 review (code only, HVAC v65 unchanged, no paid run) - as built 2026-11-11
+
+**Commits (desktop; the owner pushes), on 6e148c3a2:**
+- K1 `b1b4fcd50` fix(boq-pricing): F1-F6, parity, tests. It was amended once, before LAPTOP NOTE 1, to fold in the cert's F4 finding.
+  The first K1 `624cf3e39` had been synced to the laptop at 11:27, so the laptop realigns to `b1b4fcd50`.
+- K2 docs.
+
+**Owner answers (relayed by the laptop):**
+- ANSWER 1 09:25: F6 final, "supply + install is the general principle"; final prompt af0b3f80.
+- ANSWER 2 09:55: QR-1 1a / 2a / 3a. All 14 blank-unit rows refuse; sheet-level separate installation rows of ANY category; keep the
+  S4 / S3 / Q5 / S9 notes.
+- ANSWER 3 10:30: cert adds the installation-only Row total box.
+- ANSWER 4 10:32: the laptop goes offline - work to DONE, new questions take the recommended option.
+- LAPTOP NOTE 1 11:59: no more amends.
+
+**P0 corrections:**
+- F1 reaches 14 priced blank-unit rows, not 1. VRF-8 had priced 13 of them under owner U2.
+- The two C7 rows the brief named (00169 r122, 00352 r147) were already supply + installation by S4.
+- 00149's cassette installation rows are `hvac_dx_unit`.
+- No VRF sheet quotes an MS frame's supply and its installation on separate rows.
+
+**Built (no config key; the rules ride v65's `scope.panel_pick` - `vrf10On`):**
+- F1: a blank unit refuses, and the calculator matches when the unit is typed blank.
+- F2: the scope note quotes any supply-type wording beaten by installation said higher up.
+- F3: an MS frame / stand row is supply + installation unless the sheet quotes them on separate rows.
+- F4: a refused unit carries only the refusal. An extra line under a blank item stays, unpriced.
+- F5: (a) the ON / OFF note only for a single-function controller; (b) a gas row per Lot shows S+I (S9); (c) no 'BoQ says "None"'
+  sentence on a family-less / refused "None" block.
+- F6: a stored "Supply only" on supply-type wording only becomes supply + installation, noted. It is kept on a sheet with its own
+  installation rows (any category, by text) or where the BoQ says supply only plainly.
+- Derivation: the unit line on v65, plus 3 lines (13l). R-39 guard 86 -> 89.
+
+**Declared re-pricing (faithful row pricer, all 1,901 VRF rows, stored answers, live v65; no model call):**
+- 177 panel moves, of which 68 move a figure:
+  - F1 14 refuse: 00003 r318; 00029 r384 / 392 / 393 / 397 / 402 / 405 / 431; 00234 / 00273 r12 / r13; 00351 r193 / 220.
+  - F3: 00009 r80 140 -> 180 per Kg.
+  - F6 53: install added; 00197 21, 00075 8, 00091 6, 00108 4, ...
+- Notes / display only: F6 sheet note 12, F2 11, F5a 11, F5b 1, F4 31, F4 line 41. Plus 491 calculator-only F1 parity rows (the panel
+  is unchanged).
+- Calculator divergences: 507 -> 10. The 10 left are pre-existing "none of these" rows.
+- Replay vrf10end vs vrf10d0 (= vrf9end): 119 moved, all hvac_vrf, 0 non-VRF. 78 are declared rows; 41 are F6 inside the replay
+  harness only, unchanged on the page (the harness's thinner context: no sheet scope answers, fewer chain notes).
+- Moves workbook: `2026-11-11_VRF-10_Moves.xlsx`.
+
+**Cert (read only, C1-C7 + ANSWER 3, screenshots `BoQ main lane\VRF-10\screenshots\`):** every figure = the faithful pricer.
+- C4 found the F4 dropped-line inconsistency, fixed mid-cert and re-certified after a full re-de-stale.
+- Open cosmetic: that line reads "Not priced - not priced - the unit it belongs to is not priced" (the panel's prefix doubles it).
+
+**Tests:** the Python K3 set 31 / 31 OK (test_rate_master 776); vitest related 100 files 5,241 / 5,241 (after the fix: PSH-related 89
+files 4,479 / 4,479); tsc 0 new; vacuity 24 breaks red, sources sha-equal.
+
+**Open:**
+- the doubled "Not priced" wording;
+- the next mint (v66) can give the VRF-10 rules their own keys and move the note texts into the config;
+- second_opinion stays OFF;
+- the push, the laptop realign / sync and the db-pull are the owner's / laptop's (PENDING-LAPTOP).

@@ -16,6 +16,8 @@ import { runPipeline } from "../../pricing/rate-master/ratePipelineInterpreter";
 import {
   isEligibleConfig, hasRunnablePricingRules,
   makePricingSheetHelper, declineReasonFor,
+  disciplineHasNothingToRun, disciplineDeclaresPreRunCards, rowUsesPreRunHelper,
+  COMING_SOON_REASON,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
 import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
@@ -1082,7 +1084,16 @@ describe("slice 6b / V6, V7 -- the same family more than once; the per-block qua
     // never reads one (the only quantity it knows is the per-block `qtyPerRowUnit`)
     expect(priceItemList.length).toBe(4);
     const src = readFileSync(join(__dirname, "itemListPricing.ts"), "utf8");
-    expect(src).not.toMatch(/row\.(qty|quantity)|rowQty|ctx\.quantity|total_quantity/);
+    // INVERTED at VRF-3a K2 (owner QR-1 (a), 2026-11-04 19:07: "The panel reads the BoQ row's quantity ... the same refnet
+    // rule runs on both") by mechanical authority: BEFORE the whole file was searched. `countedPieces` -- the refnet count on
+    // a per-Set row, called by the panel helper, never by `priceItemList` -- is the ONE reader of a row quantity; it is cut
+    // out before the search, pinned as the only one, and the pricer's signature still carries no quantity
+    const cp = src.indexOf("export function countedPieces(");
+    const cpEnd = src.indexOf("\n}\n", cp);
+    expect(cp).toBeGreaterThan(0);
+    const rest = src.slice(0, cp) + src.slice(cpEnd);
+    expect(rest).not.toMatch(/row\.(qty|quantity)|rowQty|ctx\.quantity|total_quantity/);
+    expect(src.slice(cp, cpEnd)).toMatch(/rowQty/);
   });
 });
 
@@ -2205,13 +2216,16 @@ describe("SLICE 12d-2 (owner S1) -- the FA7 calculator admission is RETIRED; ONE
     expect(hasRunnablePricingRules(adp)).toBe(true);
   });
 
-  it("⚠️ NEGATIVE: the admission identifiers appear in NO code line of either product file; prose may still name them", () => {
+  it("⚠️ INVERTED AGAIN by VRF-4 (owner Q1 A \"removed at VRF-4\"), NEGATIVE half kept: FA7's admission identifiers AND VRF-2a's `calculator_only` / `isCalculatorOnlyConfig` appear in NO code line of either product file", () => {
+    /**
+     * BEFORE (12d-2): none of `calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig|isCalculatorOnlyConfig` in a code
+     * line of pricingSheetHelper.ts or PricingCalculator.tsx. VRF-2a (temporary): the key read at ONE helper line
+     * (`isCalculatorOnlyConfig`). AFTER (VRF-4): the switch is removed -- back to the 12d-2 state, every identifier absent.
+     */
+    const code = (src: string, re: RegExp) => src.split("\n").filter((l) => re.test(l)).filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));
     for (const src of [HELPER_SRC, CALCULATOR_SRC]) {
-      const codeLines = src
-        .split("\n")
-        .filter((l) => /calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig|isCalculatorOnlyConfig/.test(l))
-        .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));          // prose may name them; code may not
-      expect(codeLines).toEqual([]);
+      expect(code(src, /admitCalculatorOnly|isCalculatorPriceableConfig/)).toEqual([]);   // the negative half, kept
+      expect(code(src, /calculator_only|isCalculatorOnlyConfig|calculatorSurface/)).toEqual([]);
     }
   });
 
@@ -2223,6 +2237,80 @@ describe("SLICE 12d-2 (owner S1) -- the FA7 calculator admission is RETIRED; ONE
       if (/^\s*(\*|\/\/|\/\*)/.test(l)) continue;
       expect(l).not.toMatch(/hvac_|HVAC|Electrical|insulation/);
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * VRF-2a (owner 2026-11-03 Q1 A) -- THE TEMPORARY CALCULATOR-ONLY SWITCH -- REMOVED AT VRF-4 (owner Q1 A "removed at VRF-4";
+ * D-10 "VRF goes live on BoQ rows at VRF-4"). Every pin below is INVERTED by VRF-4 by mechanical authority; each BEFORE is
+ * recorded beside it, and the negative halves are kept: a config WITHOUT rules is still never priceable, and the frozen v25
+ * Insulation (still carrying FA7's retired key) still prices on every surface.
+ * Fixture: the frozen v25 Insulation config RELABELLED hvac_vrf, with the key added in memory (a frozen v56..v59 VRF file
+ * carries it the same way).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("VRF-4 -- VRF-2a's `calculator_only` is gone: one predicate, the BoQ panel prices as the calculator does", () => {
+  const CAT = "hvac_vrf";
+  const cfgs25 = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> }).category_configs;
+  const insFrozen = cfgs25.find((x) => x.category_id === "hvac_insulation") as unknown as RateCategoryConfig;
+  const plainCfg = (() => {
+    const c = structuredClone(insFrozen) as unknown as Record<string, unknown>;
+    delete c.calculator_only;                        // v25 carries the RETIRED FA7 key; start from a config without it
+    c.category_id = CAT;                             // Insulation's rules under the id the switch used to sit on
+    return c as unknown as RateCategoryConfig;
+  })();
+  const switched = { ...(plainCfg as object), calculator_only: true } as unknown as RateCategoryConfig;
+  const items25 = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items;
+  const ctx = (): RateHelperRowContext => ({
+    excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
+    category: CAT, discipline: "HVAC", displayKinds: [...DISPLAY_RATE_KINDS],
+  } as unknown as RateHelperRowContext);
+  const helperOf = (cfg: RateCategoryConfig) =>
+    makePricingSheetHelper({ configsByCategory: new Map([[CAT, cfg]]), items: items25, extractionByRow: new Map() });
+
+  it("INVERTED (BEFORE: `isCalculatorOnlyConfig(switched)` true; `isEligibleConfig(switched)` false unless `{ calculator: true }`): the key is read NOWHERE -- eligible with or without it", () => {
+    expect(isEligibleConfig(plainCfg)).toBe(true);
+    expect(isEligibleConfig(switched)).toBe(true);
+    expect(hasRunnablePricingRules(switched)).toBe(true);
+  });
+
+  it("NEGATIVE (kept): a config WITHOUT rules is never priceable, key or not", () => {
+    const empty = { category_id: CAT, calculator_only: true, attribute_definitions: [{ id: "a", label: "A", type: "text" }], pipelines: {} } as unknown as RateCategoryConfig;
+    expect(isEligibleConfig(empty)).toBe(false);
+  });
+
+  it("NEGATIVE (kept): the frozen v25 Insulation, which still carries FA7's retired key, prices on every surface", () => {
+    expect((insFrozen as { calculator_only?: unknown }).calculator_only).toBe(true);
+    expect(isEligibleConfig(insFrozen)).toBe(true);
+    const r = makePricingSheetHelper({ configsByCategory: new Map([["hvac_insulation", insFrozen]]), items: items25, extractionByRow: new Map() })
+      .compute({ ...ctx(), category: "hvac_insulation" } as RateHelperRowContext);
+    expect(r.kind).not.toBe("none");
+  });
+
+  it("INVERTED (BEFORE: the BoQ panel declined a `calculator_only` config with the coming-soon text): the panel PRICES it, byte-identical to the config without the key", () => {
+    const panel = helperOf(switched).compute(ctx());
+    expect(panel.kind).not.toBe("none");
+    expect(JSON.stringify(panel)).toBe(JSON.stringify(helperOf(plainCfg).compute(ctx())));
+    expect(JSON.stringify(panel)).not.toContain(COMING_SOON_REASON);
+  });
+
+  it("INVERTED (BEFORE: the pre-run rules saw a `calculator_only` category as having nothing to run): the key changes nothing", () => {
+    const targets = [{ discipline: "HVAC", categoryId: CAT }];
+    const sw = new Map([[CAT, switched]]);
+    const pl = new Map([[CAT, plainCfg]]);
+    expect(disciplineHasNothingToRun("HVAC", sw, targets)).toBe(false);
+    expect(disciplineHasNothingToRun("HVAC", pl, targets)).toBe(false);
+    expect(disciplineDeclaresPreRunCards("HVAC", sw, targets)).toBe(disciplineDeclaresPreRunCards("HVAC", pl, targets));
+    expect(rowUsesPreRunHelper("HVAC", CAT, sw, targets)).toBe(rowUsesPreRunHelper("HVAC", CAT, pl, targets));
+  });
+
+  it("INVERTED (BEFORE: PricingCalculator.tsx set `calculatorSurface: true` and the helper read it at its gate): no surface flag anywhere; the calculator and the BoQ page build the helper identically", () => {
+    const strip = (src: string) => src.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
+    expect(strip(CALCULATOR_SRC)).not.toContain("calculatorSurface");
+    const boq = readFileSync(join(__dirname, "..", "SheetPricingPage.tsx"), "utf-8");
+    expect(boq).toContain("makePricingSheetHelper");
+    expect(boq).not.toContain("calculatorSurface");
+    expect(strip(HELPER_SRC)).not.toContain("calculatorSurface");
+    expect(strip(HELPER_SRC)).toContain("if (!isEligibleConfig(cfg)) {");
   });
 });
 

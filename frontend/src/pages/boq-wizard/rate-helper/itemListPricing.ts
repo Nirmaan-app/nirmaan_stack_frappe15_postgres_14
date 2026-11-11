@@ -38,7 +38,7 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "../../pricing/rate-master/rateMasterTypes";
-import { resolveSize, composeSize, nearestRung, type SizeMatchSpec, type ComposeSpec } from "./ladderResolution";
+import { resolveSize, composeSize, coveringSets, nearestRung, type SizeMatchSpec, type ComposeSpec } from "./ladderResolution";
 import { noSkuSentence, type PlainFact } from "../../pricing/rate-master/plainEnglish";
 
 // ---------------------------------------------------------------------------------------------------------
@@ -133,7 +133,42 @@ export interface NumberReader {
    * axis, so Piping's pipe size is untouched. ABSENT => such a number takes the smallest size, as before.
    */
   bare_above_largest?: "refuse";
+  /**
+   * VRF-2b (owner R-CONV / Q3 / CFM 2026-11-03 21:14) -- A NUMBER STATED IN ONE OF SEVERAL UNITS, CONVERTED TO THE
+   * FAMILY'S OWN UNIT. See `CapacityUnits` / `readCapacity`. ABSENT => the reader is byte-identical.
+   */
+  units?: CapacityUnits;
 }
+
+/**
+ * VRF-2b (owner R-CONV, R-INPUTS; Q3 "a separate unit picker ... just beside the typing box"; CFM 2026-11-03 21:14
+ * "Refuse, named"; RECON 14:40 "both units given -> the sheet's unit") -- ONE CAPACITY, SEVERAL UNITS.
+ *
+ * Every SKU carries its own unit in `unit_attr` (VRF: `capacity_unit` = HP on an outdoor unit, TR indoors), so the
+ * FAMILY's unit is read off the catalogue, never named in code. A stated value carries a unit word (`words`, keyed by
+ * the unit as the screen writes it); a bare number is in the unit picked beside the typed box (the PICKER, an item
+ * attribute `<from[0]>__unit`), else the family's own. A value in another unit converts through `base`: every unit
+ * of `convert` is `factor` of it per one `base`, the factor being the Pricing Input named by `input` (read live, the
+ * `rate_ref` shape: kind *_pricing_input, `attributes.item` = the id, `rates.factor`). A value written only as an
+ * airflow (`refuse_words`) is NOT converted: it refuses with `refuse` ({said} = the airflow as written).
+ */
+export interface CapacityUnits {
+  /** The SKU attribute that carries each SKU's own unit ("capacity_unit"). */
+  unit_attr: string;
+  /** unit (as written on screen: "HP") -> its spellings, matched case-insensitively right after the number. */
+  words: Record<string, string[]>;
+  /** The unit every factor is per ("TR"). */
+  base: string;
+  /** unit -> the Pricing Input holding how many of that unit make one `base`, and the input's short label. */
+  convert: Record<string, { input: string; label: string }>;
+  /** Airflow spellings: a number carrying one is not a capacity. */
+  refuse_words: string[];
+  /** The refusal for a value stated ONLY as an airflow; carries {said}. */
+  refuse: string;
+}
+
+/** VRF-2b: the item attribute the unit PICKER writes beside a number's typed box (`capacity` -> `capacity__unit`). */
+export const UNIT_PICK_SUFFIX = "__unit";
 
 /**
  * SLICE 12e-2 (owner Q16 / Q15 / Q18, 2026-10-10) -- HOW A FAMILY ANSWER WRITTEN AS THE BoQ WRITES IT IS READ.
@@ -213,6 +248,23 @@ export interface DefaultSpec {
   /** SLICE 6 (owner S6, UL ONLY by config): an ABSENT answer is read as NOT MENTIONED, so this default fires
    * on it too. Absent / false => an absent answer stays "could not tell" and refuses (R2). */
   absent_as_none?: boolean;
+  /**
+   * VRF-2b (owner R-BRAND 2026-11-01 02:04 (a); VRF-R2 R6): a STATED value that is not one of the attribute's values --
+   * several brands ("Daikin / Toshiba") or one off the sheet ("Toshiba") -- prices as this default, marked as one, with
+   * the line naming the row's words ({said}). ABSENT => such a value is read as stated (and refuses as unstocked).
+   */
+  unlisted?: { several: string; off_sheet: string;
+    /** VRF-4 (R-BRAND (a) on a BoQ row): the model's COPIED words for this attribute ("brand_as_written"). Several makes,
+     *  or one the attribute does not list, stand in for the choice; one listed make fills a choice the model left blank. */
+    from_attr?: string;
+    /** VRF-5 (owner R5 / ANSWER 4 "2 ok"): SEVERAL makes stated -> the ruled default if it is one of them (`one_of`); else the
+     *  first stated make the catalogue stocks for the item (`first_stocked`); else the default (`none_stocked`). ABSENT =>
+     *  VRF-4's rule (several -> the default). `{said}` = the makes as written, `{make}` = the one priced. */
+    several_rule?: { one_of: string; first_stocked: string; none_stocked: string } };
+  /** VRF-5 (owner R2 "yes"): a default that gives way to `then` when the item's capacity is BELOW the smallest SKU carrying
+   *  the default (Outdoor Unit: discharge not stated + below the smallest Top unit of the brand -> Side). The line names that
+   *  smallest size (`{n}`, `{unit}`). A STATED value always wins. ABSENT => the default as before. */
+  below_smallest?: { size_attr: string; then: string; rule: string };
 }
 
 /**
@@ -460,6 +512,17 @@ export interface CompanionItem {
 
 export interface ItemListPricingSpec {
   kind: string;
+  /**
+   * VRF-2b (owner RECON 14:40, Q2 "Misc via extra_kinds"): FURTHER item kinds this block prices -- each family's SKUs are
+   * of ONE kind (VRF's units `hvac_vrf_item`, its four Misc items the shared `hvac_misc_item`). Every site that filtered
+   * on `kind` reads the set (`specKinds`); the ladder takes the family's own kind. ABSENT => `kind` alone, byte-identical.
+   */
+  extra_kinds?: string[];
+  /**
+   * VRF-2b (owner QR-2 A, 2026-11-03 15:14): a unit SPELLING of a declared class that prices as that class WITH a line
+   * ("Nos/Ro" -> "unit 'Nos/Ro' read as Nos"). The spelling must be one of `unit_classes`. ABSENT => no line.
+   */
+  unit_lines?: Record<string, string>;
   unit_class_attr: string;
   unit_classes: Record<string, string[]>;
   unit_words?: Record<string, string>;
@@ -575,6 +638,67 @@ export interface ItemListPricingSpec {
   /** SLICE 12c (owner Q8): what to do when a stated value is ABOVE the top rung of one named ladder
    * -- build it out of two or more rungs instead of refusing. ABSENT => it still refuses, exactly as
    * before. The tolerance and the layer ceiling are config, never code. */
+  /**
+   * VRF-3a (owner R-SPLIT (a) + (b) 2026-11-01 11:59, R-SPLIT-RULE 12:02, D-1 / D-2 / D-3 / D-8 15:03, SHAPE Q2 / Q3 2026-11-04
+   * 14:56) -- THE HELPER SPLIT. On the named families a composition on `compose.attr` is not one block of layers: it
+   * becomes SEPARATE LINES, each a real item the pricer can change, add to or remove (the panel helper does that at the
+   * `applyFamilyMerge` seam). `stated`: a split the row WRITES ("60 HP (18+18+24)", "26(14+12)HP", "20+18 HP") is read as
+   * one line per module, each through the ladder (next size up); a module above the largest refuses the row by name (D-2).
+   * `conditions`: words a row may state about the split ("at least 20 HP each", "Single module") -- quoted in an amber
+   * note, the split still follows the rule (D-3). On a config with this key, `compose` applies to these families ONLY
+   * and never as layers. ABSENT => byte-identical.
+   */
+  split?: { families: string[]; stated?: boolean; conditions?: { words: string[]; line: string };
+    /** VRF-6 (F8): "24HP (12HP x 2NOS)" / "12 HP x 2 Nos" is a written split too (n equal modules). ABSENT => only a "+" chain. */
+    stated_times?: boolean;
+    /** VRF-6 (F8, 00175 r17): a written module above the largest single unit is split itself (`composeSize`), never refusing
+     *  the row; `line` says so ({module}, {top}, {unit}, {layers}). ABSENT => it refuses by name, as before. */
+    split_over_top?: { line: string };
+    /** VRF-6 (F8, QR-1 Q3): a stated size no single SKU matches -- the best pair / set (exact first, else covering; fewest units,
+     *  then cheapest) before the next size up: `cheaper` = only when it costs less than the next-size-up single; `always` = it
+     *  always wins. `line` names both ({total}, {layers}, {up}, {unit}, {pair_cost}, {up_cost}). ABSENT => next size up.
+     *  `single_unless_cheaper` (owner QR-1 Q3 final, 2026-11-09 19:32 "option b", replacing both): the single that covers the
+     *  stated size stands UNLESS a covering pair (`coveringSets`, at most `max_units` units, ABSENT => `compose.max_layers`) is
+     *  cheaper -- then the cheaper pair with the least excess (ties: cheapest). `line` also takes {excess} / {up_excess};
+     *  `single_line` (optional) is the working line when the single stands ({layers} / {pair_cost} = the cheapest covering pair). */
+    pair_first?: { mode: "cheaper" | "always" | "single_unless_cheaper"; line: string; single_line?: string; max_units?: number };
+    /** VRF-6 (F8 / Q4): the note added when a split has three or more modules ({n}) */
+    many_line?: string;
+    /** VRF-8 (W2 / W3, owner 14:15): a WRITTEN split with a module the make / type does not stock is not followed: the split rule
+     *  prices the stated TOTAL, and `line` says so ({written}, {missing}, {unit}, {make}, {total}). ABSENT => VRF-6's per-module
+     *  next size up / `split_over_top`. */
+    stated_not_stocked?: { line: string };
+  };
+  /**
+   * VRF-3a K2 (owner SET 2026-11-04 17:00 / 17:37 / 17:39 / 18:49, boards 9 / 11) -- A ROW PRICED PER SET. `units` are the
+   * spellings that mean "per Set" (they sit in a unit class too, so the row prices); the panel shows `bar` (orange) and
+   * labels the per-item quantity `qty_label` ("Pieces in one Set of this row", default 1 amber, editable). `counted`: on
+   * its families (refnets) one Set is NOT one piece -- the pieces come from the system's unit counts and the BoQ quantity
+   * (`countedPieces`). ABSENT => byte-identical.
+   */
+  per_set?: PerSetSpec;
+  /** VRF-3a K2 (owner LOT "Refuse + review list", O-7): unit spellings that name a whole-lot price (Lot, LS, Job, per HP,
+   * "complete system") -- the row refuses with `line` ({unit} as written) and the panel shows the red `bar`. */
+  lot_units?: { units: string[]; bar: string; line: string;
+    /** VRF-9 (S7): the calculator honours a picked whole-lot unit ("per HP") and refuses with `line`, as the panel does */
+    calculator_refuses?: boolean;
+    /** VRF-5 (owner wording, brief B3): a unit's own bar title ("per HP" -> "PRICED PER HP ..."); absent = `bar` */
+    bar_by_unit?: Record<string, string> };
+  /**
+   * VRF-4 (owner R-WS / D-5 "option D" / D-9 "it should say check the quantity"; the list 2026-11-01 13:16 "give me th eexact
+   * rows") -- WORKING + STANDBY. The model copies the row's words into `attr`; ONLY words matching one of `words` (regex,
+   * case-insensitive: W+S, 1W+1S, N+N, 2N+N, "working + standby") raise the solid red bar ABOVE the card (`bar.title`,
+   * `bar.line` with {said} and {qty}) and ring the unit and quantity. Never a standby-only or heading-only mention. The
+   * price is ONE unit and never doubled: nothing here moves a figure. Read by the panel helper. ABSENT => no bar.
+   */
+  working_standby?: { attr: string; words: string[]; bar: { title: string; line: string } };
+  /**
+   * VRF-3b (owner O-5 / O-6 / B / SHEETS 2026-11-03; 2026-11-05 11:30-14:56, boards 12-15) -- THE EXTRAS A UNIT'S PRICE
+   * INCLUDES, priced from the OTHER sheets: copper (Piping), insulation (Insulation) and power / communication cable
+   * (Electrical), each by its own rules, as own lines under each indoor / outdoor unit, per Nos. Read by the panel helper
+   * (`withExtras`); `priceItemList` never reads it. ABSENT => byte-identical.
+   */
+  extras?: ExtrasSpec;
   compose?: ComposeSpec & {
     /** WHICH ladder composes. A value here is a ladder attribute id; no other axis composes. */
     attr: string;
@@ -627,6 +751,720 @@ export interface ItemListPricingSpec {
  * The shape is validated by `config_validation._validate_list_sections`, the cross-category half by
  * `validate_delegated_sections` (import and editor save).
  */
+/** VRF-3a K2: see `ItemListPricingSpec.per_set`. */
+export interface PerSetSpec {
+  units: string[];
+  qty_label: string;
+  bar: { title: string; line: string };
+  counted?: CountedSpec;
+}
+/**
+ * VRF-3a K2 (owner SET 17:00: "outdoor refnets = no. of ODUs -1 indoor refnets = no of IDUs -1"; 17:37 "values within +- 10%",
+ * "the user should also be able to change the qty"; 17:39 "+-10% or +-1 piece, whichever larger"; 18:49 "just round up and
+ * do it...give appropriate note for it"): the families one Set of which holds a COUNTED number of pieces. The three
+ * fields (what the row covers, the outdoor and indoor unit counts) are typed per item; `lines` are the sentences
+ * ({q} BoQ quantity, {E} expected, {W} tolerance, {p} pieces, {n} = q x p, {k} = n - E, {parts} the formula's terms).
+ */
+export interface CountedSpec {
+  families: string[];
+  covers: { id: string; label: string; note?: string; options: Array<{ value: string; sides: string[] }> };
+  counts: Array<{ side: string; id: string; label: string; word: string; note?: string }>;
+  tolerance: { share: number; min: number };
+  bar: string;
+  lines: { formula: string; match: string; below: string; rounded: string; misfit: string; counts_missing: string; qty_missing: string; typed: string };
+  /**
+   * VRF-4 (owner 2026-11-06 "q2 ok"): on a BoQ row the unit counts are ADDED UP BY CODE from the same sheet's rows the model
+   * read: each model item whose family is in `sides[side]`, times its row's BoQ quantity. The count fills a field the row
+   * did not answer, with `line` ({n} the count, {word} the side's word, {rows} the rows counted) as its note; it stays
+   * editable (a typed count wins). The calculator has no sheet and is unchanged. ABSENT => typed only, as before.
+   */
+  from_sheet?: { sides: Record<string, string[]>; line: string; none: string };
+  /**
+   * VRF-9 (S8, owner 01:01 "these are normal refnets. option a"): the row itself says what one Set holds ("Liquid and Gas
+   * considered as one Set") -- the answer `attr` (the copied set contents) carries `words` -> 1 Set = 1 piece, never rounded up
+   * by the expected count; `line` ({q}, {E}) when the BoQ quantity is below the expected count, else `line_plain`.
+   */
+  defined?: { attr: string; words: string; line: string; line_plain: string };
+}
+
+/** VRF-3a K2: the unit is one of the config's per-Set spellings. PURE. */
+export function isPerSetUnit(spec: ItemListPricingSpec, unit: string | null | undefined): boolean {
+  if (!spec.per_set || unit === null || unit === undefined || unit.trim() === "") return false;
+  const u = normUnit(unit);
+  return spec.per_set.units.some((x) => normUnit(x) === u);
+}
+
+/** VRF-3a K2: the unit is one of the config's whole-lot spellings. PURE. */
+export function isLotUnit(spec: ItemListPricingSpec, unit: string | null | undefined): boolean {
+  if (!spec.lot_units || unit === null || unit === undefined || unit.trim() === "") return false;
+  const u = normUnit(unit);
+  return spec.lot_units.units.some((x) => normUnit(x) === u);
+}
+
+// ── VRF-3b: the extras a unit's price includes (owner 2026-11-05; boards 12-15) ───────────────────────────────────────
+
+/** One band of a unit's size: up to and including `max` (null = everything above the band before it) reads `input`. */
+export interface ExtraBand { max: number | null; input: string }
+/** The include switches, in the calculator's order. `needs`: the include this one cannot stand without. */
+export type ExtraIncludeId = "copper" | "insulation" | "power" | "comm";
+export type ExtraLineId = "copper_supply" | "copper_return" | "ins_supply" | "ins_return" | "power" | "comm" | `acc_${string}`;
+export interface ExtrasSpec {
+  /** the unit families that carry extras, and which band table each reads (indoor / outdoor) */
+  roles: Record<string, "indoor" | "outdoor">;
+  /** the unit a role's bands are in, after conversion (indoor TR, outdoor HP) */
+  band_unit: { indoor: string; outdoor: string };
+  /** the unit class a row must be priced in for its units to carry extras (per Nos / per Set; never a Lot or a Kg row) */
+  row_class: string;
+  includes: Array<{ id: ExtraIncludeId; label: string; needs?: ExtraIncludeId; needs_line?: string }>;
+  pipe_bands: { indoor: ExtraBand[]; outdoor: ExtraBand[] };
+  power_bands: { indoor: ExtraBand[]; outdoor: ExtraBand[] };
+  comm_input: string;
+  copper_length_input: string;
+  cable_length_input: string;
+  /** the target of each line, priced by ITS category's own rules (Piping, Insulation; Electrical read-only) */
+  copper: { category: string; family: string; size_attr: string };
+  insulation: { category: string; family: string; attrs: Record<string, string>; thickness_attr: string; size_attr: string };
+  cable: { category: string; discipline: string; attrs: Record<string, string>; cores_attr: string; size_attr: string; label: string;
+    /** VRF-4 B2: Electrical's own attribute ids for the conductor and the armour (no longer named in code) */
+    conductor_attr?: string; armour_attr?: string };
+  /** the board's words: the line headings, the tags, the notes */
+  lines: Record<string, string>;
+  /**
+   * VRF-4 (owner 2026-11-06 "q1 ok": four per-item Yes / No includes, read from the ITEM): on a BoQ row the includes and
+   * the stated sizes come from the MODEL ITEM's own answers -- `includes` maps each include to its Yes / No question
+   * (`yes` is the value that means included); the `*_as_written` ids are copied texts the code reads into the lines'
+   * fields (`boqExtrasOf`). A split module reads its source item's answers. ABSENT => the row's `includes` cell, as before.
+   */
+  from_model?: ExtrasFromModel;
+  /** VRF-5 (owner R1 18:14-18:21, ANSWER 4): the ACCESSORIES a unit's price can include, each its own line under the unit.
+   *  ABSENT => no accessory line anywhere (v60 and older are byte-identical). */
+  accessories?: AccessorySpec[];
+  /** VRF-5 (owner R1 SAFEGUARD): where the BoQ states an inclusion decides whether it is added. ABSENT => every include is
+   *  added as before. */
+  safeguard?: ExtrasSafeguard;
+  /** VRF-5 (owner R1): further model items on a unit row whose family is no accessory -- one note point each, never a block */
+  folded?: { title: string; none_line: string; other_line: string };
+  /** VRF-5 (owner R4-R8): the row's SCOPE -- the model's answer per item (`from_model.scope`; the row takes the first item that
+   *  answers), the calculator's "BoQ scope" choice. ABSENT => supply + installation everywhere, as before. */
+  scope?: ScopeSpec;
+  /** VRF-6 (owner rulings 2026-11-09): reading rules applied to a BoQ row's model items before pricing (`prepareModelItems`). */
+  prepare?: PrepareSpec;
+  /** VRF-6: a "no capacity stated" refusal (`refusal`, verbatim) on a row whose text states two capacities ( `words`: a regex
+   *  with the number and the unit as groups 1 and 2) says `line` ({list}) instead. */
+  two_capacities?: { words: string; refusal: string; line: string };
+}
+
+/** VRF-6: see `ExtrasSpec.prepare`. Every key optional. */
+export interface PrepareSpec {
+  spaced_decimal?: { attr: string };
+  family_by_unit?: Array<{ family: string; unit_class: string; to: string; line: string }>;
+  same_as_outdoor?: { words: string; attr: string; outdoor_family: string; line: string; also_attr?: string };
+  row_cooling?: { attr: string; words: Record<string, string>; line: string };
+  /** VRF-7 (B11): `unless` -- words (regex) in the row or its own heading that stop the rule (a treated fresh air unit is not a
+   *  Ductable); `in: "parent"` reads the row and its OWN heading (description + notes) only, never a heading further up */
+  family_words?: Array<{ family: string; words: string; from?: string[]; line: string; in?: "row" | "heading" | "both" | "parent"; unless?: string }>;
+  attr_words?: Array<{ attr: string; value: string; families: string[]; words: string; line: string; in?: "row" | "heading" | "both"; unless_row?: string }>;
+  /** VRF-7 (A1, owner 01:53): a discharge type the BoQ states anywhere in the row's chain (nearest level first: the row, its
+   *  notes, then each heading up with its notes) decides when the model gave none, noted ({said}, {where}, {value}) */
+  discharge_words?: { attr: string; families: string[]; words: Record<string, string>; line: string };
+  /** VRF-7 (A5): cooling-and-heating wordings = Heat Pump (a safety net over the model) -- unless the row itself states
+   *  `unless_row` (its own "Cooling Type"); the words also count as a heading's heat-pump statement for `row_cooling` */
+  heat_words?: { attr: string; value: string; families: string[]; words: string; unless_row?: string; line: string };
+  /** VRF-7 (A2 safety net): "armoured" in a clause of the chain that names a cable -> that cable armoured (`attrs.power` /
+   *  `attrs.comm` set to `yes`); a clause naming the communication cable (`comm_words`) is the comm cable's */
+  armour_words?: { words: string; not_words?: string; cable_words: string; comm_words: string; attrs: { power: string; comm: string }; yes: string; line: string };
+  /** VRF-7 (B10 / C13): words that mean an include the model may have left unanswered -- the question set to `yes`, its
+   *  `_where` / `_words` answers filled from where the words sit, only on a unit of `role`, noted */
+  implied_includes?: Array<{ question: string; words: string; role: "indoor" | "outdoor" | "any"; yes: string; line: string;
+    /** VRF-8 (W1 / D2 / D6 safety nets): only where the model left the question unanswered (blank / "None"); its explicit No
+     *  stands. `not_words`: the clause holding the words must not carry these (a ceiling / pipe support is no ODU stand). */
+    only_blank?: boolean; not_words?: string }>;
+  /** VRF-7 (B9): a module setup the BoQ states ("16HP+16HP"; "minimum 2 units of at least 20 HP each") is followed BEFORE the
+   *  split rule when every module is stocked for the unit's make and type; else the split rule, noted */
+  stated_setup?: { attr: string; family: string; min_each: string; line: string; not_stocked: string };
+  /** VRF-8 (D4, owner 14:30): "single feeder / DB ... within N m of the ODU" -> the outdoor unit's power cable length is N m
+   *  (group 1 of `words`); noted ({said}, {where}, {n}) where the power cable is included */
+  feeder_length?: { words: string; attr: string; line: string;
+    /** VRF-9 (S7, R-D4): the note is said on EVERY module of the row (a split's each line), not only on the first */
+    every_module?: boolean };
+  /** VRF-8 (D5, owner 14:37 "as a safe choice, note 1 wins"): "breaker (if required)" includes the MCB + ELCB set (`question`
+   *  set to `yes`), noted with the electrical-contractor wording (`ec_words`) when that is stated too (`line_both`); the
+   *  electrical-contractor wording alone = NOT added (`line_ec_only`) */
+  breaker_words?: { question: string; yes: string; no: string; words: string; ec_words: string; line_both: string; line_ec_only: string };
+  /** VRF-8 (D8, owner 14:41): "necessary interconnections with power supply / refrigerant connections" = connection work only --
+   *  an include the model answered from those words is not added; noted ({label}, {said}, {where}) */
+  connection_only?: { words: string; questions: Record<string, string>; no: string; line: string };
+  /** VRF-8 (D9, owner 14:46): headings that disagree on cooling / heating -- the heading NEARER the row wins, noted. A text
+   *  naming heating is a heat-pump statement (`heat_words`, plus `heat_words` of A5); else `cool_words` names cooling only. */
+  mode_nearest?: { attr: string; families: string[]; cool: string; heat: string; cool_words: string; heat_words: string; line: string };
+  /** VRF-8 (D10, owner 14:47 "default should be used if this cannot be determined"): an installation-only row takes the make of
+   *  its matching supply row on the same sheet (same item-1 family and capacity); its module split then follows; noted */
+  install_follows?: { scope_values: string[]; attrs: string[]; line: string };
+  /** VRF-8 (D11, owner 14:48): one capacity stated twice in the row and another once -> the repeated one, noted
+   *  (`words`: a regex with the number and the unit as groups 1 and 2) */
+  repeated_size?: { attr: string; words: string; line: string };
+  /** VRF-8 (D12, owner 14:50): the unit's own heading carries SEVERAL short notes each naming a unit type (sub-headings saved as
+   *  notes) and the row names none -> the row refuses `refusal`. `unit_words`: family -> words (regex); also read by the D2
+   *  note to tell a sibling unit type's text (K1c). A note longer than `note_max` is no sub-heading. */
+  several_types?: { note_max: number; refusal: string;
+    /** VRF-9 (S1, owner R-D12): in the calculator (no heading tree) a unit whose TYPED item names two or more unit types
+     *  (`unit_words`) -- the panel's case typed in -- refuses with the same `refusal`; never priced as one of them */
+    typed?: boolean };
+  unit_words?: Record<string, string>;
+  /** VRF-9 (R4, owner "option C"): a row whose units have NO unit type told, under a chain text naming `words` ("Fan Coil
+   *  Units"), refuses `refusal` (not the generic "no item could be told"); in the calculator a TYPED item naming `words`
+   *  refuses the same */
+  family_refusals?: Array<{ words: string; refusal: string }>;
+  /** VRF-9 (R2 BMS cables / R3 civil supports): an include the model answered Yes FROM words naming `words` (its quoted BoQ
+   *  words) -- and none of `unless` -- is not that include: set to `no`, noted ({label}, {said}, {where}). `role` limits it. */
+  not_includes?: Array<{ question: string; words: string; unless?: string; role?: "indoor" | "outdoor"; no: string; line: string }>;
+  /** VRF-9 (S7, owner R-D14-1): a fresh-air unit (`family`) with no capacity answered takes the row's stated CFM / TR
+   *  (`words`, the whole match), else its stated HP (`hp_words`, group 1, as "N HP"); the capacity reader then converts and
+   *  takes the next size up. Noted ({said}). */
+  tfa_capacity?: { family: string; words: string; hp_words: string; line: string };
+  /** VRF-9 (S9 gas row / S10 frame row safety nets, owner 00:59-01:06): a unit with NO type told (blank / "None" / "none of
+   *  these") whose row's OWN text names `words` in a clause without `not_words` takes `family` (then `family_by_unit` maps it
+   *  to the item stocked in the row's unit), noted ({said}, {family}); `unit_classes` limits it to rows quoted in those */
+  row_family?: Array<{ family: string; words: string; not_words?: string; unit_classes?: string[]; line: string }>;
+  /** VRF-8 (D13, owner 14:52-14:54): an extra question the model left OUT (no answer at all) whose BoQ words sit in the chain
+   *  (the own-row rule's words, in a clause with none of `exclude_words`) is treated as stated -- the normal rules then decide */
+  missing_answers?: { exclude_words: string };
+  /** VRF-8 (D14-1): a fresh-air unit "complete with suitable outdoor unit" -> the outdoor unit item takes the HP the row states */
+  tfa_outdoor?: { words: string; hp_words: string; outdoor_family: string; line: string };
+  /** VRF-8 (D14-2): several makes stated and the first stocked one has no size close enough (its smallest is above the
+   *  catalogue's next size up for the stated capacity) -> the next stated make that has one; else the default; noted */
+  first_make_close?: { attr: string; from_attr: string; default: string; line_next: string; line_default: string };
+}
+
+/** VRF-5: see `ExtrasSpec.scope`. `options` = the choice values in order (the first = supply + installation). */
+export interface ScopeSpec {
+  options: string[];
+  supply_only: string;
+  install_only: string;
+  /** the Pricing Input whose `factor` is the installation-only uplift (0.5 = 50%) */
+  uplift_input: string;
+  title: string;
+  lines: Record<string, string>;
+  /** VRF-6 (owner Q5): a supply-only row under a heading / note (`words`) saying the rates include installation -- supply only
+   *  with `with_row` when the same sheet has an installation-only row of the same kind ({rows}); else supply + installation with
+   *  `no_row` ({said} = the words found). ABSENT => the row's scope answer alone, as before. */
+  conflict?: { words: string; with_row: string; no_row: string };
+  /** VRF-6 (INSTALLATION-ONLY): the uplift applies only when the sheet has no supply row of the same kind; with one, the normal
+   *  install (`normal_note` + `with_row` {rows}); without, the uplift + `no_row`. ABSENT => the uplift always, as before. */
+  supply_row?: { normal_note: string; with_row: string; no_row: string };
+  /** VRF-6 K2 (parity): the option meaning "installation only, its supply quoted on another row" -- the normal install, no uplift;
+   *  the calculator's way to say what the panel reads off the sheet (the panel shows it as the row's scope when it applies) */
+  install_only_normal?: string;
+  /** VRF-8 (D1, owner 14:2x "the note belongs to the parent. option b"): a supply + installation row under a "Supply of"
+   *  heading (`heading_words`) whose notes say installation (`install_words`) stays supply + installation, with `note`
+   *  ({heading}, {said}, {where}) */
+  supply_heading?: { heading_words: string; install_words: string; note: string };
+  /** VRF-9 (S3, owner R-D1 "scope note always"): a supply + installation row (the model's answer, or none) whose OWN text starts
+   *  a clause with "Supply of" / "Supply & providing" (`row_words`) and names no installation itself, under a chain text that
+   *  says installation (`install_words`, the nearest clause without `not_words`) -> supply + installation with `note`
+   *  ({row}, {said}, {where}), written whatever the model answered */
+  always_note?: { row_words: string; install_words: string; not_words?: string; note: string };
+  /** VRF-9 (S4, owner: VRF-7 ruled S+I): a SUPPLY-ONLY answer while a text at ANY level of the chain says installation
+   *  (`install_words`, nearest clause without `not_words`) -> supply + installation with `note` ({said}, {where}) -- unless the
+   *  row's own text states supply only (`keep_words`) or the sheet quotes installation of this kind on its own row (Q5) */
+  any_level?: { install_words: string; not_words?: string; keep_words?: string; note: string };
+  /** VRF-9 (S9, owner 00:59 "gas charging is always both"): a row priced on one of `families` (refrigerant gas charging /
+   *  topping up) is supply + installation whatever its scope words, with `note` ({said} = the scope read) */
+  always_both?: { families: string[]; note: string };
+  /** VRF-9 (S11, owner ANSWER 11): a BoQ row's helper panel offers the scope pick (supply + installation / supply only / installation
+   *  only) defaulting to the helper's own scope; a pick re-prices the row by the calculator's rules, and `note` ({helper} = the
+   *  helper's scope, {because} = its reason) says the user changed it. ABSENT => the panel shows the scope as a note only. */
+  panel_pick?: { note: string };
+}
+
+/** VRF-5: one accessory line (see `ExtrasSpec.accessories`). */
+export interface AccessorySpec {
+  id: string;
+  label: string;
+  title: string;
+  /** the unit roles that carry it (frame / gas / MCCB per outdoor unit; drain pump / remote / refnet per indoor unit) */
+  roles: Array<"indoor" | "outdoor">;
+  /** the VRF family that prices it by VRF's own rules, in its SKU's own unit (Kg / Nos) */
+  family?: string;
+  /** a choice the line sets on its item: the default and the words (regex, case-insensitive) that pick another value */
+  choice?: { attr: string; default: string; words: Record<string, string>;
+    /** VRF-6 (F1, owner Q-pre 1): words that decide FIRST, over the model's answer ("corded or cordless" -> Cordless) */
+    first_words?: Record<string, string>;
+    /** VRF-6 (F1): the model item's own answer for the choice (the remote type) -- read before the plain words / default */
+    model_attr?: string;
+    /** VRF-6 (F1): the row's own notes and its headings' notes are read with the row text and the headings */
+    read_notes?: boolean;
+    /** VRF-7 (D2): a type the BoQ's words decided (not the model's answer) kept although another type's words sit elsewhere in
+     *  the chain -- noted ({first}, {said}, {where}, {value}) */
+    conflict?: { line: string;
+      /** VRF-8 (W7 / D14-4): a phrase naming BOTH types ("cordless/corded") elsewhere in the chain is the other wording when the
+       *  type was decided by plain words (`both_line`: {first}, {said}, {where}, {value}); `pairs` adds both-type spellings
+       *  ("corded/wireless") taken out before the other type is looked for. K1c (owner 15:05 "option a"): a text naming another
+       *  unit type at its head (`prepare.unit_words`, first `head` characters) is a sibling unit's, never read. */
+      both_line?: string; pairs?: string; head?: number } };
+  /** borrowed from Electrical (read only): the item text built from the band's rating, priced by Electrical's own rules */
+  electrical?: { category: string; discipline: string; item_attr: string; qty_attr: string; label: string; template?: string; rating_key?: string;
+    /** VRF-5 (owner ANSWER 6): words (regex) naming a device priced as this one ("isolator" -> the default MCCB), and the line saying so */
+    alias?: { words: string; line: string };
+    /** the target's OTHER answers, as its own model gives an empty slot ("None" / "0") -- sent with the item */
+    fill?: Record<string, string>;
+    /** VRF-6 (team rule 2026-11-09): the item is found in the target's catalogue BY ITS ATTRIBUTES (device / pole / curve; plus
+     *  words its name must carry, "300 ?mA"), the smallest stocked rating at or above the one needed; `step_up_line` names a
+     *  step up ({want}, {got}, {item}). With `match` there is no `template`. */
+    match?: { kind?: string; attrs: Record<string, string>; name_words?: string; rating_attr: string; step_up_line: string;
+      /** VRF-7 (A6): the step up also as a review note ({label}, {hp}, {want}, {got}) */
+      step_up_note?: string };
+    /** VRF-6: the rating needed, by the unit's HP -- the first row whose `max` the HP does not exceed; above the last, the last
+     *  row (26 HP -> 63 A). Each row's Pricing Input `factor` is the rating. */
+    schedule?: Array<{ max: number; input: string }> };
+  /** the default quantity per unit: a band table on the unit's size (`<input>_<key>`; key `qty`, MCCB `amp`), or one flat input */
+  bands?: { indoor?: ExtraBand[]; outdoor?: ExtraBand[] };
+  input?: string;
+  /** VRF-6 (team rule "gas kg = HP of ODU"): the default quantity is the unit's priced HP x this Pricing Input's factor */
+  qty_per_size?: { input: string; line: string };
+  /** VRF-6 (F12, owner Q-pre 5): the line takes the unit's brand when the catalogue stocks the item in it; else the config
+   *  default brand with `line` ({brand}, {item}, {got}) */
+  follow_unit_brand?: { line: string };
+  /** VRF-6 (owner Q1): words (regex) that mean the unit has the item built in -- it is still added, with `line` */
+  builtin?: { words: string; line: string };
+  /** VRF-7 (D1): words (regex) in the chain that ask the reviewer to check the line (a unit-mounted starter panel's fused
+   *  switches) -- the line is kept, `line` ({said}) is a review note */
+  note_words?: { words: string; line: string };
+  /** the word of the quantity's unit ("Kg", "Nos") */
+  unit_word: string;
+}
+
+/** VRF-5: the R1 safeguard -- the model's answer of WHERE each inclusion is stated, and the own-row rule. */
+export interface ExtrasSafeguard {
+  /** the per-include question ids: `<includes question>` + suffix */
+  where_suffix: string;
+  wording_suffix: string;
+  qty_suffix: string;
+  /** the WHERE value that means the row's own text */
+  row_value: string;
+  /** per include id: the words (regex, case-insensitive) a row of its own quoting that item carries, and the VRF families
+   *  whose item-1 rows quote it */
+  own_row: Record<string, OwnRowRule>;
+  lines: Record<string, string>;
+  /**
+   * VRF-6 (F4, owner Q-pre 10): "category" = CATEGORY FIRST -- a row counts by its category (`OwnRowRule.categories`) or, on a
+   * row of the asking row's own category, by its model item-1 family; WORDS only for an uncategorised row; and the sheet's
+   * rows include every rate-editable row the run read (a sheet-level Preamble with a quantity, 00234 r55) plus the
+   * uncategorised line items. ABSENT => VRF-5's words / families over the same-discipline line items.
+   */
+  match?: "category";
+  /** VRF-6 (owner Q-pre 11): words in a unit's headings that mean the communication cable is included, and the note */
+  control_wiring?: { words: string; line: string };
+  /** VRF-6 (owner Q7): words in a note saying an item is quantified separately -- it wins over a heading's inclusion; the
+   *  includes it covers, and the note ({label}, {said}) */
+  note_wins?: { words: string; ids: string[]; line: string;
+    /** VRF-8 (W5): the note is said also where the model read no such include (never silent): {label}, {said}, {where} */
+    line_silent?: string };
+  /** VRF-8 (D14-7): a quote the model copied is shown only when the WHOLE quote is found in the row's chain (then with its
+   *  row); otherwise the line without the quote */
+  verified_quotes?: boolean;
+  /** VRF-9 (S5, owner R-D14-7): the notes the panel composes itself (the D1 starter-panel note, the two-wordings remote note,
+   *  the gas / frame / never-silent / armour quotes) quote ONE exact stretch of the BoQ text -- never an added "..." -- and name
+   *  the row each quote sits in (`{first_where}` in the two-wordings line, `{where}` in the D1 note) */
+  exact_quotes?: boolean;
+  /** VRF-7 (B7, owner 01:36): the own-row check runs for EVERY extra wherever it is stated -- the row itself included */
+  own_row_always?: boolean;
+  /** VRF-7 (B8): the per-include question (`<includes question>` + suffix) holding the BoQ words that state it; the notes then
+   *  quote them and say where they sit (`lines.added_q` / `excluded_q` / `not_added_q`, {words}, {where}) */
+  words_suffix?: string;
+}
+
+/** VRF-5 / VRF-6: one include's own-row rule (see `ExtrasSafeguard.own_row`). */
+export interface OwnRowRule {
+  words: string[];
+  not_words?: string[];
+  families?: string[];
+  /** VRF-6 (F4): the categories whose rows ARE this item's own rows (copper: the piping category) */
+  categories?: string[];
+  /** VRF-6 (F4): a row of one of these categories counts only when its text carries the words (insulation on a piping row) */
+  category_words?: Record<string, string[]>;
+  /** VRF-6 (F4, QR-1 Q4): a row of the category does NOT count when its model item-1 family is one of these (a drain pipe) */
+  category_not_families?: Record<string, string[]>;
+}
+
+/** VRF-4: see `ExtrasSpec.from_model`. */
+export interface ExtrasFromModel {
+  includes: Partial<Record<ExtraIncludeId, string>>;
+  yes: string;
+  copper_size?: string;
+  insulation_thickness?: string;
+  cable_spec?: string;
+  /** a regex (case-insensitive): a cable spec whose words match is the COMMUNICATION cable; else the power cable */
+  comm_words?: string;
+  length?: string;
+  /** VRF-5 (owner R1): each ACCESSORY's Yes / No question (`accessories[].id` -> question id); absent = none asked */
+  accessory_includes?: Record<string, string>;
+  /** VRF-5 (owner R4-R8): the row's scope question (asked per item; the row takes the first item that answers) */
+  scope?: string;
+  /** VRF-7 (A2, owner 01:3x "armoured only when specifically mentioned"): the cable's armoured Yes / No question per cable */
+  armoured?: { power?: string; comm?: string };
+  /** VRF-7 (A3): a length per cable / pipe item -- an item reads ONLY its own answer (`length` is then not read); none ->
+   *  the default, noted (`lines.length_default`) */
+  length_by_item?: { power?: string; comm?: string; copper?: string };
+}
+
+/** VRF-5 (owner R1 SAFEGUARD). PURE. What a MODEL ITEM says about every inclusion beyond `boqExtrasOf`: the accessories it
+ * answered `yes` to, and for every include (the four and the accessories) WHERE the BoQ states it, the wording and the
+ * quantity as written (the `safeguard` suffixes on the include's question id). */
+export function boqInclusionsOf(item: ExtractedListItem | undefined, fm: ExtrasFromModel | undefined, sg: ExtrasSafeguard | undefined): {
+  accessories: Set<string>; where: Record<string, string>; wording: Record<string, string>; qty: Record<string, string>;
+  /** VRF-7 (B8): the BoQ words that state each include (only with `sg.words_suffix`) */
+  words: Record<string, string>;
+} {
+  const out = { accessories: new Set<string>(), where: {} as Record<string, string>, wording: {} as Record<string, string>, qty: {} as Record<string, string>,
+    words: {} as Record<string, string> };
+  if (!item || !fm) return out;
+  const said = (id: string | undefined) => {
+    if (!id) return "";
+    const v = item.attributes?.[id]?.value;
+    return v === null || v === undefined || String(v).trim() === "None" ? "" : String(v).trim();
+  };
+  for (const [acc, q] of Object.entries(fm.accessory_includes ?? {})) if (said(q).toLowerCase() === fm.yes.toLowerCase()) out.accessories.add(acc);
+  if (sg) {
+    const all: Record<string, string> = { ...(fm.includes as Record<string, string>), ...(fm.accessory_includes ?? {}) };
+    for (const [id, q] of Object.entries(all)) {
+      const w = said(q + sg.where_suffix); if (w) out.where[id] = w;
+      const x = said(q + sg.wording_suffix); if (x) out.wording[id] = x;
+      const n = said(q + sg.qty_suffix); if (n) out.qty[id] = n;
+      if (sg.words_suffix) { const ws = said(q + sg.words_suffix); if (ws) out.words[id] = ws; }
+    }
+  }
+  return out;
+}
+
+/** VRF-3b. PURE. A Pricing Inputs TABLE ROW: every single-factor input whose id is `<prefix>_<key>`, as { key: factor }
+ * (`vrf_extra_pipe_outdoor_upto_12hp_supply_mm` -> supply_mm). One input per table cell, so the Pricing Inputs grid, its
+ * panel and its CSV carry each with the `factor` column they already have. A cell with no input, or no finite factor, is
+ * absent (its line asks for a size). Null when the row has no cell at all. */
+export function pricingInputRates(items: readonly RateMasterItem[], prefix: string): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  for (const it of items) {
+    if (!/_pricing_input$/.test(String(it?.kind ?? ""))) continue;
+    const id = String(it?.attributes?.item ?? "");
+    if (!id.startsWith(`${prefix}_`)) continue;
+    const v = (it.rates as Record<string, unknown> | undefined)?.factor;
+    const n = Number(v);
+    if (v !== null && v !== undefined && v !== "" && Number.isFinite(n)) out[id.slice(prefix.length + 1)] = n;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** VRF-3b (owner 13:46 "upto 4tr" ... "above 20 HP"). PURE. The band a size falls in: the first whose `max` it does not
+ * exceed (a band edge belongs to the band below: 4 TR is "upto 4tr"). Null when no band takes it (indoor above 8 TR on
+ * the cable table: "no default for this size") or the size is not known. */
+export function extraBandOf(bands: readonly ExtraBand[], value: number | null): ExtraBand | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  for (const b of bands) if (b.max === null || value <= b.max + 1e-9) return b;
+  return null;
+}
+
+/** VRF-3b (owner 13:46 "matched to the exact mm size in catalog which is closest"; 13:53 "show the one used"). PURE. The
+ * stocked size closest to a value; a tie takes the larger. Null for an empty list or an unreadable value. */
+export function closestSize(value: number | null, sizes: readonly number[]): number | null {
+  if (value === null || !Number.isFinite(value) || sizes.length === 0) return null;
+  let best: number | null = null;
+  for (const s of sizes) {
+    if (best === null || Math.abs(s - value) < Math.abs(best - value) - 1e-9 || (Math.abs(Math.abs(s - value) - Math.abs(best - value)) <= 1e-9 && s > best)) best = s;
+  }
+  return best;
+}
+
+/** VRF-3b (U3 "Other..." takes mm or inch). PURE. A typed size in mm: "15", "15 mm", "1.125 inch", "1 1/8\"", "7/8 in".
+ * Null when no one size can be read. */
+export function readTypedSizeMm(text: string): number | null {
+  const t = text.trim().toLowerCase().replace(/,/g, ".");
+  if (t === "") return null;
+  const inch = /(?:"|''|\binch(?:es)?\b|\bin\b)\s*$/.test(t);
+  const body = t.replace(/(?:"|''|\binch(?:es)?\b|\bin\b|\bmm\b|\bdia\b)/g, " ").trim();
+  let n: number | null = null;
+  const mixed = /^(\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(body);
+  const frac = /^(\d+)\s*\/\s*(\d+)$/.exec(body);
+  if (mixed) n = Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]);
+  else if (frac) n = Number(frac[1]) / Number(frac[2]);
+  else if (/^\d+(?:\.\d+)?$/.test(body)) n = Number(body);
+  if (n === null || !Number.isFinite(n) || n <= 0) return null;
+  return inch ? n * 25.4 : n;
+}
+
+/** VRF-3b. PURE. A cable spec as the line writes it: "4C x 10" -> cores 4, size 10 sqmm; null when it is not one. */
+export function parseCableSpec(text: string): { cores: number; sqmm: number } | null {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*c\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:sq\.?\s*mm|sqmm)?\s*$/i.exec(text);
+  return m ? { cores: Number(m[1]), sqmm: Number(m[2]) } : null;
+}
+
+/** VRF-3b. PURE. The spelling of a cable spec: 4, 10 -> "4C x 10". */
+export function cableSpecText(cores: number, sqmm: number): string {
+  const f = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(3))));
+  return `${f(cores)}C x ${f(sqmm)}`;
+}
+
+/**
+ * VRF-4 (owner 2026-11-06 "q1 ok"; brief B1: "a pair '12.7 / 6.4' = supply / return"). PURE. A size text the model COPIED,
+ * as one or two values: "12.7 mm / 6.4 mm" -> ["12.7 mm", "6.4 mm"]; '1/2" & 1/4"' -> ['1/2"', '1/4"']; "40/50" -> ["40",
+ * "50"]; "1/2"" stays ONE value (a fraction). A slash splits only where it has a space beside it, a unit before it, or
+ * stands between two numbers that are not a fraction (a decimal on either side, or both whole numbers of 3 or more).
+ * Nothing is resolved here: each value goes to its line as written, where the source category's own rule reads it.
+ */
+export function splitAsWrittenPair(text: string): string[] {
+  const t = String(text ?? "").trim();
+  if (t === "") return [];
+  const parts = t.split(/\s*(?:&|,|;|\band\b|\s\/\s*|(?<=mm|"|''|inch|in)\s*\/\s*)\s*/i).map((x) => x.trim()).filter((x) => x !== "");
+  if (parts.length >= 2) return parts.slice(0, 2);
+  const m = /^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*(mm)?\s*$/i.exec(t);
+  if (m) {
+    const [a, b] = [m[1], m[2]];
+    const decimal = a.includes(".") || b.includes(".");
+    if (decimal || (Number(a) >= 3 && Number(b) >= 3)) return [a + (m[3] ? " mm" : ""), b + (m[3] ? " mm" : "")];
+  }
+  return [t];
+}
+
+/** VRF-4. PURE. A cable as the BoQ WRITES it, anywhere in the text: "2C x 1.5 Sqmm copper", "4 core x 10 sqmm",
+ * "3 cores x 2.5 sq mm", "4Cx10" -> {cores, sqmm}; null when no "<n> core(s) / C x <size>" is written (the words are then
+ * shown as stated and the line asks for a spec). Reads the words only; whether Electrical stocks it is Electrical's rule. */
+export function readCableSpecWords(text: string): { cores: number; sqmm: number } | null {
+  const m = /(\d+(?:\.\d+)?)\s*(?:c|cores?|cr)\.?\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:sq\.?\s*mm|sqmm|mm2|mm²|sq)?/i.exec(String(text ?? ""));
+  return m ? { cores: Number(m[1]), sqmm: Number(m[2]) } : null;
+}
+
+/** VRF-4. PURE. A length the BoQ writes for the piping or cabling ("up to 15 m", "first 10 RMT", "15 mtr"), in metres as a
+ * plain number text; null when no length in metres is written. */
+export function readLengthWords(text: string): string | null {
+  const m = /(\d+(?:\.\d+)?)\s*(?:m|mtr|mtrs|meters?|metres?|rmt|r\.m\.?t?|rm|running\s+met(?:er|re)s?)\b/i.exec(String(text ?? ""));
+  return m ? String(Number(m[1])) : null;
+}
+
+/** VRF-5 (F2, brief B1: "a range '5-10 m' = the higher figure, noted"). PURE. A length in metres as the BoQ writes it, with
+ * the range it came from: "about 5-10 Rmt" -> {value "10", range ["5", "10"]}; "up to 15 m" -> {value "15"}; null when no
+ * length in metres is written. */
+export function readLengthRange(text: string): { value: string; range?: [string, string] } | null {
+  const t = String(text ?? "");
+  const r = /(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)\s*(?:m|mtr|mtrs|meters?|metres?|rmt|r\.m\.?t?|rm|running\s+met(?:er|re)s?)\b/i.exec(t);
+  if (r) {
+    const [a, b] = [Number(r[1]), Number(r[2])];
+    return { value: String(Math.max(a, b)), range: [String(a), String(b)] };
+  }
+  const one = readLengthWords(t);
+  return one === null ? null : { value: one };
+}
+
+/** VRF-5 (F2, brief B1: "a stated armour / conductor word sets that attribute"). PURE. The armour and conductor words a cable
+ * text states, as Electrical's own values: "armoured" -> ARMOURED ("unarmoured" -> UNARMOURED), "aluminium" -> ALUMINIUM,
+ * "copper" -> COPPER. Nothing stated -> absent. Whether Electrical stocks the result is Electrical's rule. */
+export function readCableKindWords(text: string, opts?: { abbrev?: boolean }): { armour?: string; conductor?: string } {
+  const t = String(text ?? "");
+  const out: { armour?: string; conductor?: string } = {};
+  if (/\bun-?armou?red\b/i.test(t)) out.armour = "UNARMOURED";
+  else if (/\barmou?red\b/i.test(t)) out.armour = "ARMOURED";
+  // VRF-6 (F11, 00093 r25 "FRLS, XLPE, AL Armoured"): with `abbrev` (a v62 config) "AL" / "Alu" is the aluminium conductor too
+  if (/\balumin(?:i)?um\b/i.test(t) || (opts?.abbrev === true && /\bal\b|\balu\b/i.test(t))) out.conductor = "ALUMINIUM";
+  else if (/\bcopper\b|\bcu\b/i.test(t)) out.conductor = "COPPER";
+  return out;
+}
+
+/** VRF-5 (owner R1 SAFEGUARD, P0 (b) matching rule). PURE. The rows of the BoQ that quote an included item ON THEIR OWN:
+ * another row whose text carries the include's `words`, or whose model item 1 is one of its `families` -- never the asking
+ * row and never a row whose item 1 is a unit (a unit row naming its inclusions is not a quote). Sorted by row. */
+export function ownRowQuotes(
+  rule: OwnRowRule | undefined,
+  rows: ReadonlyArray<{ row: number; text: string; family1?: string | null; sheet?: string; category?: string | null }>,
+  ownRow: number,
+  unitFamilies: ReadonlySet<string>,
+  /** VRF-6 (F4): category first -- `askingCategory` is the asking row's own category (its rows count by item-1 family) */
+  opts?: { categoryFirst: boolean; askingCategory: string | null },
+): Array<{ row: number; sheet?: string; text: string }> {
+  if (!rule) return [];
+  const re = (ws: string[] | undefined) => (ws ?? []).map((w) => { try { return new RegExp(w, "i"); } catch { return null; } }).filter((x): x is RegExp => x !== null);
+  const res = re(rule.words);
+  const nots = re(rule.not_words);
+  const fams = new Set(rule.families ?? []);
+  const cats = new Set(rule.categories ?? []);
+  const byWords = (text: string) => res.some((x) => x.test(text)) && !nots.some((x) => x.test(text));
+  const out: Array<{ row: number; sheet?: string; text: string }> = [];
+  for (const r of rows) {
+    if (r.row === ownRow && r.sheet === undefined) continue;
+    if (r.family1 && unitFamilies.has(r.family1)) continue;
+    let hit: boolean;
+    if (opts?.categoryFirst) {
+      const cat = (r.category ?? "").trim();
+      if (cat === "") hit = byWords(r.text);
+      else if (cats.has(cat)) {
+        const need = re(rule.category_words?.[cat]);
+        const notFam = new Set(rule.category_not_families?.[cat] ?? []);
+        hit = (need.length === 0 || need.some((x) => x.test(r.text))) && !(r.family1 && notFam.has(r.family1));
+      } else hit = cat === opts.askingCategory && !!r.family1 && fams.has(r.family1);
+    } else hit = (!!r.family1 && fams.has(r.family1)) || byWords(r.text);
+    if (hit) out.push({ row: r.row, ...(r.sheet !== undefined ? { sheet: r.sheet } : {}), text: r.text });
+  }
+  return out.sort((a, b) => (a.sheet ?? "").localeCompare(b.sheet ?? "") || a.row - b.row);
+}
+
+/** VRF-5 (owner R1). PURE. A quantity as the BoQ writes it for an accessory ("2 nos", "15 kg", "2") -> the number; null when
+ * no number is written. */
+export function readQtyWords(text: unknown): number | null {
+  const m = /(\d+(?:\.\d+)?)/.exec(String(text ?? ""));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * VRF-4 (owner "q1 ok"; brief B1). PURE. What a MODEL ITEM says about its extras, as the lines' own field ids
+ * (`<line>_<field>`): the includes it answered `yes` to, the copper size (a pair = supply / return; one value = both
+ * lines), the insulation thickness (the same), the cable spec (cores + sqmm, or the words as `<line>_spec` when they are
+ * not a spec; the COMMUNICATION line when the words match `comm_words`, else power) and the length (every line's). Raw
+ * values only: the line's own category resolves each.
+ */
+export function boqExtrasOf(item: ExtractedListItem | undefined, fm: ExtrasFromModel | undefined): { includes: Set<ExtraIncludeId>; values: Record<string, string> } {
+  const includes = new Set<ExtraIncludeId>();
+  const values: Record<string, string> = {};
+  if (!item || !fm) return { includes, values };
+  const said = (id: string | undefined) => {
+    if (!id) return "";
+    const v = item.attributes?.[id]?.value;
+    return v === null || v === undefined ? "" : String(v).trim();
+  };
+  for (const [inc, attr] of Object.entries(fm.includes) as Array<[ExtraIncludeId, string]>) {
+    if (said(attr).toLowerCase() === fm.yes.toLowerCase()) includes.add(inc);
+  }
+  const pair = (text: string, a: string, b: string, field: string) => {
+    const p = splitAsWrittenPair(text);
+    if (p.length === 0) return;
+    values[`${a}_${field}`] = p[0];
+    values[`${b}_${field}`] = p[1] ?? p[0];
+  };
+  pair(said(fm.copper_size), "copper_supply", "copper_return", "size");
+  pair(said(fm.insulation_thickness), "ins_supply", "ins_return", "thickness");
+  const cable = said(fm.cable_spec);
+  if (cable !== "") {
+    let comm = false;
+    try { comm = !!fm.comm_words && new RegExp(fm.comm_words, "i").test(cable); } catch { comm = false; }
+    const line = comm ? "comm" : "power";
+    const spec = readCableSpecWords(cable);
+    if (spec) { values[`${line}_cores`] = String(spec.cores); values[`${line}_sqmm`] = String(spec.sqmm); }
+    else values[`${line}_spec`] = cable;
+  }
+  // VRF-7 (A3): with `length_by_item` each item reads ONLY its own length answer; the shared one is not read
+  if (fm.length_by_item) {
+    const by = fm.length_by_item;
+    for (const [line, q] of [["power", by.power], ["comm", by.comm], ["copper_supply", by.copper], ["copper_return", by.copper]] as Array<[string, string | undefined]>) {
+      const l = readLengthWords(said(q));
+      if (l !== null) values[`${line}_length`] = l;
+    }
+    return { includes, values };
+  }
+  const len = readLengthWords(said(fm.length));
+  if (len !== null) for (const line of ["copper_supply", "copper_return", "power", "comm"]) values[`${line}_length`] = len;
+  return { includes, values };
+}
+
+/**
+ * VRF-4 (owner "q2 ok"). PURE. The outdoor / indoor unit counts of a sheet, ADDED UP from the rows the model read: each
+ * model item whose family is in a side's list, times its row's BoQ quantity (a row with no quantity counts 0 and is named).
+ * `rows` lists every row counted, per side, for the note. The asking row itself is never counted.
+ */
+export function sheetUnitCounts(
+  fromSheet: NonNullable<CountedSpec["from_sheet"]>,
+  rows: Iterable<{ excelRow: number; category?: string | null; items?: readonly ExtractedListItem[] }>,
+  ownRow: number,
+  category: string | null | undefined,
+  qtyOf: Readonly<Record<number, number>>,
+  famAttr: string,
+): Record<string, { n: number; rows: Array<{ row: number; units: number; qty: number | null }> }> {
+  const out: Record<string, { n: number; rows: Array<{ row: number; units: number; qty: number | null }> }> = {};
+  for (const side of Object.keys(fromSheet.sides)) out[side] = { n: 0, rows: [] };
+  for (const r of rows) {
+    if (r.excelRow === ownRow || !Array.isArray(r.items)) continue;
+    if (category && r.category && r.category !== category) continue;
+    for (const [side, fams] of Object.entries(fromSheet.sides)) {
+      const units = r.items.filter((it) => fams.includes(String(it.attributes?.[famAttr]?.value ?? ""))).length;
+      if (!units) continue;
+      const q = qtyOf[r.excelRow];
+      const qty = typeof q === "number" && Number.isFinite(q) ? q : null;
+      out[side].n += units * (qty ?? 0);
+      out[side].rows.push({ row: r.excelRow, units, qty });
+    }
+  }
+  for (const side of Object.keys(out)) out[side].rows.sort((a, b) => a.row - b.row);
+  return out;
+}
+
+/** VRF-4 (R-WS). PURE. The words that raise the working + standby bar: the item's copied text when it matches one of the
+ * config's `words` (case-insensitive), else null -- a standby-only "(Standby)" never matches. */
+export function workingStandbyWords(ws: ItemListPricingSpec["working_standby"], text: unknown): string | null {
+  if (!ws) return null;
+  const t = text === null || text === undefined ? "" : String(text).trim();
+  if (t === "") return null;
+  for (const w of ws.words) {
+    try { if (new RegExp(w, "i").test(t)) return t; } catch { /* a bad pattern never fires (the validator refuses one) */ }
+  }
+  return null;
+}
+
+export interface CountedPieces {
+  state: "match" | "below" | "rounded" | "misfit" | "counts_missing" | "qty_missing" | "defined";
+  pieces: number | null;
+  expected: number | null;
+  formula?: string;
+  sentence: string;
+}
+
+/**
+ * VRF-3a K2 -- HOW MANY PIECES ONE SET OF A COUNTED ITEM HOLDS (refnets). E = the sum, over the sides the row covers, of
+ * (that side's unit count - 1); W = the larger of `share` x E and `min`. The BoQ quantity q within W of E -> 1 piece per
+ * Set; q below E - W with E / q at least 2 -> ROUNDUP(E / q) pieces (a note when q x p overshoots E); anything else, or a
+ * count or the quantity missing -> no pieces (the row is withheld). PURE.
+ */
+export function countedPieces(c: CountedSpec, answers: Record<string, string | undefined>, rowQty: number | null | undefined): CountedPieces {
+  const fmtq = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2))));
+  const fill = (t: string, vals: Record<string, string>) => t.replace(/\{(\w+)\}/g, (m, k) => (k in vals ? vals[k] : m));
+  const covers = c.covers.options.find((o) => o.value === (answers[c.covers.id] ?? "").trim());
+  const sides = covers ? covers.sides : [];
+  // VRF-9 (S8): the BoQ says what one Set holds (liquid + gas = one Set) -> 1 piece per Set; the expected count only feeds the note
+  if (c.defined) {
+    let said = false;
+    try { said = new RegExp(c.defined.words, "i").test(String(answers[c.defined.attr] ?? "")); } catch { said = false; }
+    if (said) {
+      const ns = sides.map((sd) => { const def = c.counts.find((x) => x.side === sd); const raw = def ? (answers[def.id] ?? "").trim() : ""; return raw === "" ? NaN : Number(raw); });
+      const E = ns.length && ns.every((n) => Number.isInteger(n) && n >= 1) ? ns.reduce((a, n) => a + (n - 1), 0) : null;
+      const q = typeof rowQty === "number" && Number.isFinite(rowQty) && rowQty > 0 ? rowQty : null;
+      const below = E !== null && q !== null && q < E;
+      return { state: "defined", pieces: 1, expected: E, sentence: below ? fill(c.defined.line, { q: fmtq(q!), E: String(E) }) : c.defined.line_plain };
+    }
+  }
+  const counts = sides.map((sd) => {
+    const def = c.counts.find((x) => x.side === sd);
+    const raw = def ? (answers[def.id] ?? "").trim() : "";
+    const n = raw === "" ? NaN : Number(raw);
+    return { def, n };
+  });
+  if (!covers || !counts.length || counts.some((x) => !x.def || !Number.isInteger(x.n) || x.n < 1)) {
+    return { state: "counts_missing", pieces: null, expected: null, sentence: c.lines.counts_missing };
+  }
+  const E = counts.reduce((a, x) => a + (x.n - 1), 0);
+  const parts = counts.map((x) => `(${x.n} ${x.def!.word} - 1)`).join(" + ");
+  const formula = fill(c.lines.formula, { parts, E: String(E) });
+  const q = typeof rowQty === "number" && Number.isFinite(rowQty) && rowQty > 0 ? rowQty : null;
+  if (q === null) return { state: "qty_missing", pieces: null, expected: E, formula, sentence: c.lines.qty_missing };
+  const W = Math.max(c.tolerance.share * E, c.tolerance.min);
+  const vals: Record<string, string> = { q: fmtq(q), E: String(E), W: fmtq(W) };
+  if (Math.abs(q - E) <= W + 1e-9) return { state: "match", pieces: 1, expected: E, formula, sentence: fill(c.lines.match, vals) };
+  if (q < E - W && E / q >= 2) {
+    const p = Math.ceil(E / q - 1e-9);
+    const n = Math.round(q * p * 100) / 100;
+    const more = { ...vals, p: String(p), n: fmtq(n), k: fmtq(Math.round((n - E) * 100) / 100) };
+    return n === E
+      ? { state: "below", pieces: p, expected: E, formula, sentence: fill(c.lines.below, more) }
+      : { state: "rounded", pieces: p, expected: E, formula, sentence: fill(c.lines.rounded, more) };
+  }
+  return { state: "misfit", pieces: null, expected: E, formula, sentence: fill(c.lines.misfit, vals) };
+}
+
 export interface ListSection {
   id: string;
   label: string;
@@ -727,6 +1565,21 @@ export type PanelControl = "dropdown" | "text" | "dropdown_or_other";
 /** The controls a person can TYPE into; each one declares what to type (`panel_notes`). */
 export const TYPED_CONTROLS: ReadonlySet<PanelControl> = new Set(["text", "dropdown_or_other"]);
 
+/**
+ * VRF-10 (the VRF-9 review, owner rulings 2026-11-11 08:41-09:10; VRF10-1 point 4 "code only - no paid run, no asset mint": v65
+ * stays). The VRF-10 rules have no config key of their own: they switch on from a key only v65 has -- VRF-9's S11
+ * `extras.scope.panel_pick`, declared on hvac_vrf alone -- so v64 and older configs (and every other category) keep VRF-9's
+ * behaviour. The next mint can give them their own keys and move the note texts into the config. PURE.
+ */
+export function vrf10On(spec: ItemListPricingSpec | null | undefined): boolean {
+  return !!spec?.extras?.scope?.panel_pick;
+}
+
+/** VRF-10 (F1, owner QR-3 5a / 08:41 "a row with NO unit is never priced by assuming a unit"): on a VRF-10 config a BoQ row with
+ *  a blank unit refuses with VRF-8's sentence -- the 12c-U default unit (owner U2) stays for every other category. Calculator =
+ *  panel (the parity harness feeds the row's blank unit). */
+export const VRF10_NO_UNIT_REFUSAL = "no unit on this row (R12)";
+
 /** Read the block off a config; null when the config does not declare it. PURE. */
 export function itemListPricingSpec(config: RateCategoryConfig | null | undefined): ItemListPricingSpec | null {
   const spec = (config as { list_spec?: { pricing?: unknown } } | null | undefined)?.list_spec?.pricing;
@@ -825,6 +1678,56 @@ export interface ExtractedListItem {
   /** ADP-5a (SCOPE-5a-1): `applyFamilyMerge` priced this item as another family -- the family it was answered as, the
    * line to say and the number it is priced at. Set by that function only; absent on every other item. */
   merged?: { from: string; line: string; at?: string };
+  /** VRF-3a (Q3 hidden tag): the panel helper allows the helper split on this item -- set ONLY on a row none of whose items
+   * came from a split (the split never fires on its own lines, after an edit, or on a re-compute). Absent => no split. */
+  splitAllowed?: true;
+  /** VRF-6 U11 (owner 2026-11-09 18:52): the option the pricer stepped to on the helper's ranked list of singles / pairs
+   *  (`CoverChoice`); 0 or absent = the helper's own pick. Read only where `pair_first` is `single_unless_cheaper`. */
+  coverPick?: number;
+}
+
+/**
+ * VRF-6 U11 (owner 18:52 / 19:32): the ranked ways to cover a stated outdoor size no single SKU matches -- single units and
+ * pairs, ranked by the Q3 rule applied again and again (`rankCover`); option 0 is always the helper's own pick. `picked` is
+ * the option the pricer stepped to. The automatic price never changes: only a pricer's step picks another option.
+ */
+export interface CoverChoice {
+  attr: string;
+  unit: string;
+  /** the stated size */
+  total: number;
+  options: Array<{ layers: number[]; excess: number; cost: number | null }>;
+  picked: number;
+}
+
+/** VRF-6 U11 (owner 23:51, K1d: "i had specifed only 2, the one which gets selected and the next best option"): the toggle
+ *  offers exactly the helper's pick and the next best -- never a longer list. */
+export const COVER_OPTIONS_MAX = 2;
+
+/**
+ * VRF-6 U11 -- PURE. The ranked options: the covering singles (each stocked size at or above the stated one) and the covering
+ * sets, ranked by applying the Q3 rule to what is left, repeatedly: the smallest single left stands unless a set left is
+ * cheaper than it (then the cheaper set with the least excess, ties cheapest -- `coveringSets` order); no single left -> the
+ * first set left. So option 0 is exactly the helper's pick.
+ */
+export function rankCover(
+  want: number, sizes: number[], sets: Array<{ layers: number[]; excess: number; cost: number | null }>,
+  costOf: (rung: number) => number | null, max = COVER_OPTIONS_MAX,
+): CoverChoice["options"] {
+  const round = (x: number) => Math.round(x * 1e6) / 1e6;
+  const singles = [...new Set(sizes)].filter((z) => z >= want).sort((a, b) => a - b).map((z) => ({ layers: [z], excess: round(z - want), cost: costOf(z) }));
+  let pool = [...singles, ...sets];
+  const out: CoverChoice["options"] = [];
+  while (pool.length && out.length < max) {
+    const single = pool.find((o) => o.layers.length === 1);
+    const multi = pool.filter((o) => o.layers.length > 1);
+    const sc = single?.cost;
+    const cheaper = single ? (sc === null || sc === undefined ? [] : multi.filter((o) => o.cost !== null && o.cost < sc)) : multi;
+    const pick = cheaper[0] ?? single ?? multi[0];
+    out.push(pick);
+    pool = pool.filter((o) => o !== pick);
+  }
+  return out;
 }
 
 export interface DefaultedAttr {
@@ -834,6 +1737,8 @@ export interface DefaultedAttr {
   /** ADP-2 (owner H5): the stated fact a `derive_when_none` default was decided by ("air" = "supply"), so its line
    * names it: "supply air, damper not mentioned -> with damper". Absent on every ruled default. */
   when?: { attr: string; equals: string };
+  /** VRF-2b (R-BRAND): the value AS STATED that an `unlisted` default replaced ("Toshiba") -- the field shows the default. */
+  asWritten?: string;
 }
 
 export interface LadderHop {
@@ -874,6 +1779,34 @@ export interface ItemPriceResult {
    * to re-price it as several layered items. Carried on the result rather than handled here because
    * ONE item cannot return several prices, and the rungs are derived here and must not be derived
    * twice. */
+  /**
+   * VRF-3a: set INSTEAD of pricing when a `split` family's item is above the largest size of its resolved variant (the
+   * helper split) or states its own split (`stated`). A request to the panel helper to replace this item with one line
+   * per entry of `layers` -- largest first for the helper's split, as written for a stated one. State "blank", so a
+   * caller that does not split never prices the item.
+   */
+  splitInto?: {
+    attr: string;
+    /** the total in the family's unit (the reader's value, after any conversion) */
+    total: number;
+    layers: number[];
+    /** the layers add up exactly to the total */
+    exact: boolean;
+    /** the largest size of the item's resolved variant */
+    top: number;
+    /** the family's unit word for this axis ("HP"), "" where the reader declares none */
+    unit: string;
+    /** the reader's own line(s) for the total (a conversion: "43.2 TR x 1.25 (...) = 54 HP") */
+    readNote?: string;
+    /** a STATED split: the modules as written, their sum and the total as written (null when the row wrote none) */
+    stated?: { modules: number[]; sum: number; total: number | null; written: string };
+    /** VRF-6 (F8): a pair / set chosen before the next size up -- the sentence saying why (replaces "bigger than the largest") */
+    why?: string;
+    /** VRF-6 U11: the ranked options this split was one of (the hidden tag carries it, so the panel can step on) */
+    cover?: CoverChoice;
+  };
+  /** VRF-6 U11: the ranked singles / pairs a stated size no single SKU matches could take, and the one priced (a single) */
+  cover?: CoverChoice;
   composeInto?: {
     attr: string;
     /** The stated value AS THE NUMBER READER READ IT. ⚠️ Carried rather than re-read from the extracted
@@ -940,6 +1873,8 @@ export interface ItemPriceResult {
   /** ADP-2 (owner H7): typed-only numbers FILLED from the model's own reading (a plenum's sides from the size as
    * written, its area from the area band) -- the field shows the value used and this line. Present only then. */
   filledReads?: Record<string, { value: number; line: string }>;
+  /** VRF-2b (R-CONV): the line(s) a unit-converting reader wrote for a number, by SKU attribute -- the field shows it. */
+  unitReads?: Record<string, string>;
   /**
    * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
    *
@@ -2013,6 +2948,10 @@ export function matchStatedToOptionDetailed(
   stated: string,
   options: readonly string[],
   reader: NumberReader | undefined,
+  /** VRF-2b (R-CONV): how the STATED text is read where the reader converts units (`readCapacity` with the family's
+   * unit, so "12 TR" on an HP family reads 15, never 12). The options are bare numbers in the family's unit and are
+   * read as before. ABSENT => the stated text is read by `readNumber`, byte-identical. */
+  readStated?: (text: string) => NumberRead,
 ): { to: string; by: "text" | "number" } | null {
   if (options.length === 0) return null;
   const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -2020,15 +2959,349 @@ export function matchStatedToOptionDetailed(
   if (want === "") return null;
   for (const o of options) if (norm(o) === want) return { to: o, by: "text" };
   if (!reader) return null;
-  const read = (text: string): number | null => {
-    const r = readNumber(text, reader);
-    return r && "value" in r && Number.isFinite(r.value) ? r.value : null;
-  };
-  const n = read(stated);
+  const valueOf = (r: NumberRead): number | null => (r && "value" in r && Number.isFinite(r.value) ? r.value : null);
+  const read = (text: string): number | null => valueOf(readNumber(text, reader));
+  const n = readStated ? valueOf(readStated(stated)) : read(stated);
   if (n === null) return null;
   for (const o of options) if (read(o) === n) return { to: o, by: "number" };
   return null;
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// VRF-2b -- the capacity reader (several units, converted through the Pricing Inputs) and the item kinds
+// ---------------------------------------------------------------------------------------------------------
+
+/** VRF-2b (Q2 `extra_kinds`): every item kind this block prices -- `kind` plus `extra_kinds`. PURE. */
+export function specKinds(spec: ItemListPricingSpec): ReadonlySet<string> {
+  return new Set([spec.kind, ...(spec.extra_kinds ?? [])]);
+}
+
+/** VRF-2b: true when a catalogue row's kind is one this block prices. PURE. */
+export function kindIn(spec: ItemListPricingSpec, kind: unknown): boolean {
+  return kind === spec.kind || (spec.extra_kinds ?? []).includes(String(kind));
+}
+
+/** VRF-2b: the kind a FAMILY's SKUs carry (the first row of the family among the block's kinds), else `kind`. PURE. */
+export function familyKindOf(spec: ItemListPricingSpec, items: readonly RateMasterItem[], family: string): string {
+  if (!(spec.extra_kinds ?? []).length) return spec.kind;
+  const row = items.find((it) => kindIn(spec, it.kind) && it.attributes?.[familyAttr(spec)] === family);
+  return row ? String(row.kind) : spec.kind;
+}
+
+/** VRF-2b (R-INPUTS): a Pricing Input's live factor by its id -- the `rate_ref` read (kind *_pricing_input,
+ * `attributes.item` = id, `rates.factor`); null when absent or not a positive number. PURE. */
+export function pricingInputFactor(items: readonly RateMasterItem[], id: string): number | null {
+  const it = items.find((x) => /_pricing_input$/.test(String(x?.kind ?? "")) && String(x?.attributes?.item ?? "") === id);
+  const f = Number((it?.rates as Record<string, unknown> | undefined)?.factor);
+  return Number.isFinite(f) && f > 0 ? f : null;
+}
+
+/** VRF-2b: the unit a family's SKUs carry in `units.unit_attr` (the first one stated), else null. PURE. */
+export function familyUnitOf(spec: ItemListPricingSpec, items: readonly RateMasterItem[], family: string | null | undefined, reader: NumberReader | undefined): string | null {
+  const u = reader?.units;
+  if (!u || !family) return null;
+  for (const it of items) {
+    if (!kindIn(spec, it.kind) || it.attributes?.[familyAttr(spec)] !== family) continue;
+    const v = it.attributes?.[u.unit_attr];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/** VRF-2b: the units the picker offers for a reader -- the `words` keys in config order. PURE. */
+export function unitPickerUnits(reader: NumberReader | undefined): string[] {
+  return reader?.units ? Object.keys(reader.units.words) : [];
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+const round2 = (v: number) => Math.round(v * 100 + 1e-9) / 100;
+
+/** VRF-2b: the context `readCapacity` reads a stated value in. */
+export interface CapacityContext {
+  /** The family's own unit (`familyUnitOf`); null = no family yet -> the number is read as written, unconverted. */
+  familyUnit: string | null;
+  /** A Pricing Input's live factor by id (`pricingInputFactor` over the helper's items). */
+  factorOf: (id: string) => number | null;
+  /** The unit the PICKER beside the typed box holds, if any. */
+  picker?: string | null;
+  /** The family's name, for the both-units line. */
+  family?: string | null;
+}
+
+/**
+ * VRF-2b (owner R-CONV; CFM "Refuse, named"; RECON "both units given -> the sheet's unit"; Q3 the picker) -- READ A
+ * CAPACITY STATED IN ANY OF THE READER'S UNITS AND CONVERT IT TO THE FAMILY'S. PURE.
+ *
+ *   * A number followed by a unit word is in that unit; a bare number is in the picker's unit, else the family's.
+ *     A unit word written in the box beats the picker, with a line.
+ *   * A number followed by an airflow word (CFM, CMH, m3/h) is NOT a capacity. A text stating ONLY airflow refuses
+ *     with the config's sentence naming it; beside a capacity it is set aside with a line. K5: when the text outside
+ *     its brackets gives an airflow and no unit-word capacity, and ONE bracket holds a capacity in the reader's units,
+ *     that capacity is read with a line ("(2.0 TR) in brackets is read -> 2 TR"), a bare number outside named and not
+ *     read (QR-K5a B); two bracketed capacities refuse as several values.
+ *   * Two different capacity units in one text: the family's unit is used and the other named in a line; neither in
+ *     the family's unit refuses (no guess).
+ *   * Everything else -- several values, a range, brackets -- is read by `readNumber` exactly as today.
+ *   * The converted value is rounded to 2 decimals (the precision sizes match at) before the ladder.
+ * The result's `note` is the working line(s); `unitLine` carries the same for the field.
+ */
+export function readCapacity(text: string | number | null | undefined, reader: NumberReader, ctx: CapacityContext): NumberRead {
+  const U = reader.units;
+  const { units: _u, ...plain } = reader;
+  if (!U) return readNumber(text, plain);
+  if (text === null || text === undefined) return null;
+  const fam = ctx.familyUnit;
+  const unitKeys = Object.keys(U.words);
+  const canon = (u: string | null | undefined): string | null => {
+    if (!u) return null;
+    const k = unitKeys.find((x) => x.toLowerCase() === String(u).trim().toLowerCase());
+    return k ?? null;
+  };
+  const picker = canon(ctx.picker ?? null);
+  if (typeof text === "number") {
+    if (!Number.isFinite(text)) return { blank: `${reader.name} is not a number` };
+    return convertCapacity(text, picker ?? fam, reader, ctx, []);
+  }
+  const raw = String(text).trim();
+  if (raw === "" || raw === "None") return null;
+  let s = unicodeFractions(raw).toLowerCase().replace(/\([^)]*\)/g, " ");
+  // airflow words first (they may hold digits: "m3/h"), each replaced by a digit-free sentinel
+  const airWords = [...U.refuse_words].map((w, i) => ({ w, i })).sort((a, b) => b.w.length - a.w.length);
+  for (const { w, i } of airWords) s = s.replace(new RegExp(`${escapeRe(w.toLowerCase())}(?![a-z0-9])`, "g"), ` airflow${String.fromCharCode(97 + i)} `);
+  s = s.replace(/\s+/g, " ").trim();
+  const found = numbersIn(s);
+  type Tagged = Found & { unit: string | null; air: number | null };
+  const tagged: Tagged[] = found.map((f) => {
+    const after = s.slice(f.end);
+    const air = /^\s*airflow([a-z])/.exec(after);
+    if (air) return { ...f, unit: null, air: air[1].charCodeAt(0) - 97 };
+    for (const k of unitKeys) {
+      for (const w of U.words[k]) {
+        if (new RegExp(`^\\s*${escapeRe(w.toLowerCase())}(?![a-z0-9])`).test(after)) return { ...f, unit: k, air: null };
+      }
+    }
+    return { ...f, unit: null, air: null };
+  });
+  // VRF-3a (R1, board 10): a bare number followed by a range gap ("-", an en dash or "to") and then an AIRFLOW number belongs
+  // to that airflow -- "1700-1800cfm" is one airflow range, never a capacity of 1700 beside an airflow of 1800. It is
+  // said as the range ("1700-1800 CFM"). Only here, in the `units` branch: every other reader is byte-identical.
+  const rangeTo = new Map<number, number>();
+  for (let i = 0; i + 1 < tagged.length; i++) {
+    const a = tagged[i], b = tagged[i + 1];
+    if (a.air !== null || a.unit !== null || b.air === null) continue;
+    if (!/^\s*(?:-|\u2013|to)\s*$/.test(s.slice(a.end, b.start))) continue;
+    tagged[i] = { ...a, air: b.air };
+    rangeTo.set(i, i + 1);
+  }
+  const rangeEnds = new Set(rangeTo.values());
+  const airflow = tagged.filter((t) => t.air !== null);
+  const caps = tagged.filter((t) => t.unit !== null);
+  const bare = tagged.filter((t) => t.air === null && t.unit === null);
+  const airSaid = tagged.flatMap((t, i) => {
+    if (t.air === null || rangeEnds.has(i)) return [];
+    const to = rangeTo.get(i);
+    return [`${fmt(t.n)}${to !== undefined ? `-${fmt(tagged[to].n)}` : ""} ${U.refuse_words[t.air].toUpperCase()}`];
+  });
+  if (found.length === 0) return { blank: `no number in '${raw}' for ${reader.name}` };
+  if (caps.length === 0 && airflow.length > 0) {
+    // VRF-2b K5 (owner 2026-11-04 "Now, before push"; QR-K5a "option B"): outside its brackets the text gives an airflow
+    // and NO capacity with a unit word, but a bracket holds a capacity in one of the reader's units ("670Cfm Wall
+    // Mounted Type (2.0 TR)", "610Cfm Cassette Type (2.0TR) - 1-way") -- that bracketed capacity is read, converting as
+    // usual, with a line; a bare number outside (the "1" of "1-way") is named and not read. Two or more bracketed
+    // capacities refuse as "several values". No bracketed capacity -> as before: airflow alone refuses, and a bare
+    // number beside the airflow is read (QR-1b item 4). Brackets anywhere else are stripped exactly as before.
+    const held = bracketedCapacities(unicodeFractions(raw), U, airWords, unitKeys);
+    if (held.length > 1) return { blank: `several values stated for ${reader.name} ('${raw}')` };
+    if (held.length === 1) {
+      const b = held[0];
+      const inner = readCapacity(b.inner, reader, ctx);
+      if (!inner || !("value" in inner)) return inner;
+      const k5 = [`${airSaid.join(", ")} is an airflow - not read`];
+      if (bare.length) k5.push(`${bare.map((t) => fmt(t.n)).join(", ")} outside the brackets ${bare.length === 1 ? "is" : "are"} not read`);
+      k5.push(`(${b.inner.trim()}) in brackets is read -> ${fmt(b.n)} ${b.unit}`);
+      if (inner.note) k5.push(inner.note);
+      return { value: inner.value, note: k5.join("; ") };
+    }
+    if (bare.length === 0) return { blank: U.refuse.replace("{said}", airSaid.join(", ")) };
+  }
+  const lines: string[] = [];
+  if (airflow.length) lines.push(`${airSaid.join(", ")} is an airflow - not read`);
+  // the text without its airflow parts, for the ordinary reader (ranges, several values, ...)
+  let rest = s;
+  for (const t of [...airflow].sort((a, b) => b.start - a.start)) {
+    // VRF-3a (R1): a range's first number goes with its gap (the second number and its word go on their own turn)
+    const ti = tagged.indexOf(t);
+    const to = rangeTo.get(ti);
+    if (to !== undefined) { rest = rest.slice(0, t.start) + " " + rest.slice(tagged[to].start); continue; }
+    const m = /^\s*airflow[a-z]/.exec(s.slice(t.end));
+    rest = rest.slice(0, t.start) + " " + rest.slice(t.end + (m ? m[0].length : 0));
+  }
+  rest = rest.replace(/\s+/g, " ").trim();
+  const unitsSeen = [...new Set(caps.map((c) => c.unit as string))];
+  if (unitsSeen.length >= 2) {
+    const famHits = fam ? caps.filter((c) => c.unit === fam) : [];
+    if (bare.length || famHits.length !== 1) {
+      if (!famHits.length) {
+        return { blank: `the row states ${caps.map((c) => `${fmt(c.n)} ${c.unit}`).join(" and ")} - none in ${fam ?? "the item's unit"} - price this row by hand` };
+      }
+      return { blank: `several values stated for ${reader.name} ('${raw}')` };
+    }
+    const others = caps.filter((c) => c.unit !== fam).map((c) => `${fmt(c.n)} ${c.unit}`);
+    lines.push(`the row states ${fmt(famHits[0].n)} ${fam} and ${others.join(" and ")} - ${fmt(famHits[0].n)} ${fam} is used (${ctx.family ?? "the item"} is stocked in ${fam}); ${others.join(" and ")} ${others.length === 1 ? "is" : "are"} not read`);
+    return convertCapacity(famHits[0].n, fam, reader, ctx, lines);
+  }
+  const stated = unitsSeen.length === 1 ? unitsSeen[0] : null;
+  // the ordinary reader sees the text AS WRITTEN unless airflow parts were set aside -- its refusals quote the row's own
+  // words ("several values stated for capacity ('20+18 HP')"), exactly as today
+  const r = readNumber(airflow.length ? rest : raw, plain);
+  if (!r || !("value" in r)) return r;
+  if (r.note) lines.push(r.note);
+  if (stated && picker && picker !== stated && ctx.picker) lines.push(`you typed ${stated} - ${stated} is used, not the picker's ${picker}`);
+  return convertCapacity(r.value, stated ?? picker ?? fam, reader, ctx, lines);
+}
+
+/**
+ * VRF-2b K5: every capacity written inside a bracket -- a number followed by one of the reader's unit words (an
+ * airflow word inside the bracket is skipped, never read). Each hit carries its bracket's inner text as written. PURE.
+ */
+function bracketedCapacities(text: string, U: CapacityUnits, airWords: Array<{ w: string; i: number }>, unitKeys: string[]):
+  Array<{ inner: string; n: number; unit: string }> {
+  const out: Array<{ inner: string; n: number; unit: string }> = [];
+  for (const m of text.matchAll(/\(([^)]*)\)/g)) {
+    const inner = m[1];
+    let low = inner.toLowerCase();
+    for (const { w, i } of airWords) low = low.replace(new RegExp(`${escapeRe(w.toLowerCase())}(?![a-z0-9])`, "g"), ` airflow${String.fromCharCode(97 + i)} `);
+    for (const f of numbersIn(low)) {
+      const after = low.slice(f.end);
+      if (/^\s*airflow[a-z]/.test(after)) continue;
+      const unit = unitKeys.find((k) => U.words[k].some((w) => new RegExp(`^\\s*${escapeRe(w.toLowerCase())}(?![a-z0-9])`).test(after)));
+      if (unit) out.push({ inner, n: f.n, unit });
+    }
+  }
+  return out;
+}
+
+/**
+ * VRF-3a (owner R-SPLIT (a), SHAPE Q2 "Make 3 lines") -- A SPLIT THE ROW WRITES, read off a capacity text: ONE chain of two
+ * or more numbers joined by "+" ("18+18+24", "14HP+24HP"), optionally in brackets after the total ("60 HP (18+18+24)",
+ * "26(14+12)HP", "38 HP - Out door unit (14HP+24HP)"). The unit is the one unit word written on the modules, after the
+ * bracket or on the total; none -> bare (the family's unit, or the picker's on a typed box). Null when the text holds no
+ * chain, more than one chain, two different unit words, or a working + standby count ("2# 12 HP" stays one unit: W+S is
+ * VRF-4's) -- the ordinary reader then reads it exactly as before. PURE.
+ */
+export function readStatedSplit(text: string | number | null | undefined, reader: NumberReader,
+  /** VRF-6 (F8): also read "<total> (<a> x <n> NOS)" / "<a> x <n> Nos" as n equal modules */
+  opts?: { times?: boolean }):
+  { modules: number[]; total: number | null; unit: string | null; written: string } | null {
+  const U = reader.units;
+  if (!U || text === null || text === undefined || typeof text === "number") return null;
+  const raw = unicodeFractions(String(text)).trim();
+  if (raw === "") return null;
+  const low = raw.toLowerCase();
+  if (/\d\s*#/.test(low)) return null;
+  const words = Object.entries(U.words).flatMap(([k, ws]) => ws.map((w) => ({ k, w: w.toLowerCase() }))).sort((a, b) => b.w.length - a.w.length);
+  const W = words.map((x) => escapeRe(x.w)).join("|");
+  const NUM = "\\d+(?:\\.\\d+)?";
+  const UNIT = `(?:\\s*(?:${W})(?![a-z0-9]))?`;
+  if (!raw.includes("+")) return opts?.times ? readTimesSplit(low, raw, words, NUM, UNIT) : null;
+  const chains = [...low.matchAll(new RegExp(`${NUM}${UNIT}(?:\\s*\\+\\s*${NUM}${UNIT})+`, "g"))];
+  if (chains.length !== 1) return null;
+  const ch = chains[0];
+  const start = ch.index ?? 0;
+  const end = start + ch[0].length;
+  const unitOf = (frag: string): string | null => {
+    const w = words.find((x) => new RegExp(`^\\s*${escapeRe(x.w)}(?![a-z0-9])`).test(frag));
+    return w ? w.k : null;
+  };
+  const modules: number[] = [];
+  const units = new Set<string>();
+  for (const m of ch[0].matchAll(new RegExp(NUM, "g"))) {
+    modules.push(Number(m[0]));
+    const u = unitOf(ch[0].slice((m.index ?? 0) + m[0].length));
+    if (u) units.add(u);
+  }
+  if (modules.length < 2 || modules.some((n) => !(n > 0))) return null;
+  const before = low.slice(0, start);
+  const after = low.slice(end);
+  const bracketed = /\(\s*$/.test(before) && /^\s*\)/.test(after);
+  if (bracketed) {
+    const u = unitOf(after.replace(/^\s*\)/, ""));
+    if (u) units.add(u);
+  }
+  let total: number | null = null;
+  if (bracketed) {
+    const nums = [...before.matchAll(new RegExp(NUM, "g"))];
+    const last = nums[nums.length - 1];
+    if (last) {
+      total = Number(last[0]);
+      const u = unitOf(before.slice((last.index ?? 0) + last[0].length));
+      if (u) units.add(u);
+    }
+  }
+  if (units.size > 1) return null;
+  return { modules, total, unit: units.size ? [...units][0] : null, written: raw.slice(start, end).replace(/\s+/g, "") };
+}
+
+/** VRF-6 (F8, 00119 r9). PURE. "24HP (12HP x 2NOS)", "12 HP x 2 Nos", "2 Nos x 12 HP" -> n equal modules (n 2..6); a total
+ * written before the bracket is kept. Null when no such count is written (a lone "x" with no Nos / units word never reads). */
+function readTimesSplit(low: string, raw: string, words: Array<{ k: string; w: string }>, NUM: string, UNIT: string):
+  { modules: number[]; total: number | null; unit: string | null; written: string } | null {
+  const COUNT = "(?:nos?\\.?|no'?s|numbers?|units?|sets?|modules?)";
+  const unitOf = (frag: string): string | null => {
+    const w = words.find((x) => new RegExp(`^\\s*${escapeRe(x.w)}(?![a-z0-9])`).test(frag));
+    return w ? w.k : null;
+  };
+  const a = new RegExp(`(${NUM})(${UNIT})\\s*[x×*]\\s*(\\d+)\\s*${COUNT}(?![a-z])`).exec(low);
+  const b = a ? null : new RegExp(`(\\d+)\\s*${COUNT}\\s*[x×*]\\s*(${NUM})(${UNIT})`).exec(low);
+  const m = a ?? b;
+  if (!m) return null;
+  const size = Number(a ? m[1] : m[2]);
+  const n = Number(a ? m[3] : m[1]);
+  if (!(size > 0) || !Number.isInteger(n) || n < 2 || n > 6) return null;
+  const unit = unitOf(a ? m[2] : m[3]);
+  const start = m.index ?? 0;
+  const before = low.slice(0, start);
+  let total: number | null = null;
+  let tUnit: string | null = null;
+  if (/\(\s*$/.test(before)) {
+    const nums = [...before.matchAll(new RegExp(NUM, "g"))];
+    const last = nums[nums.length - 1];
+    if (last) { total = Number(last[0]); tUnit = unitOf(before.slice((last.index ?? 0) + last[0].length)); }
+  }
+  if (unit && tUnit && unit !== tUnit) return null;
+  return { modules: Array.from({ length: n }, () => size), total, unit: unit ?? tUnit, written: raw.slice(start, start + m[0].length).replace(/\s+/g, "") };
+}
+
+/** VRF-2b: convert `value` (in unit `from`) to the family's unit through `base`, writing the line. PURE. */
+function convertCapacity(value: number, from: string | null, reader: NumberReader, ctx: CapacityContext, lines: string[]): NumberRead {
+  const U = reader.units!;
+  const fam = ctx.familyUnit;
+  const done = (v: number): NumberRead => (lines.length ? { value: v, note: lines.join("; ") } : { value: v });
+  if (!from || !fam || from === fam) return done(value);
+  const factor = (u: string): { f: number; label: string } | { missing: string } | null => {
+    if (u === U.base) return null;
+    const c = U.convert[u];
+    if (!c) return { missing: u };
+    const f = ctx.factorOf(c.input);
+    return f === null ? { missing: c.label } : { f, label: c.label };
+  };
+  const fFrom = factor(from);
+  const fTo = factor(fam);
+  for (const x of [fFrom, fTo]) {
+    if (x && "missing" in x) return { blank: `${reader.name} in ${from} cannot be converted to ${fam}: the Pricing Input for ${x.missing} is missing - price this row by hand` };
+  }
+  const a = fFrom as { f: number; label: string } | null;
+  const b = fTo as { f: number; label: string } | null;
+  const inBase = a ? value / a.f : value;
+  const out = round2(b ? inBase * b.f : inBase);
+  const parts = [`${fmt(value)} ${from}`];
+  if (a) parts.push(`/ ${fmt4(a.f)} (${a.label}, Pricing Inputs)`);
+  if (b) parts.push(`x ${fmt4(b.f)} (${b.label}, Pricing Inputs)`);
+  lines.push(`${parts.join(" ")} = ${fmt(out)} ${fam}`);
+  return done(out);
+}
+
+const fmt4 = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4))));
 
 // ---------------------------------------------------------------------------------------------------------
 // the projection (read-time, in memory, never written back)
@@ -2038,7 +3311,7 @@ export function matchStatedToOptionDetailed(
  * Items whose unit is not in the table are left without the key (they can never match a classed selection). PURE. */
 export function projectUnitClass(spec: ItemListPricingSpec, items: RateMasterItem[]): RateMasterItem[] {
   return items.map((it) => {
-    if (it.kind !== spec.kind) return it;
+    if (!kindIn(spec, it.kind)) return it;
     const cls = unitClassOf(spec, it.unit);
     if (cls === null) return it;
     return { ...it, attributes: { ...it.attributes, [spec.unit_class_attr]: cls } };
@@ -3098,6 +4371,8 @@ function priceOneItem(
   const noneSaid = new Set<string>();
   // SLICE 12e-2 (owner Q14): the SECOND inch conversion carried beside a read, per axis, for the ladder
   const altReads: Record<string, { alt: number; raw: string }> = {};
+  // VRF-3a: a split the row writes, per axis -- the modules in the family's unit, read in the units branch below
+  const statedSplits: Record<string, { modules: number[]; written: string; total: number | null; sum: number; note?: string }> = {};
   // SLICE 12e-3b: an axis whose stated text was two or more sizes -- the sizes as named and the one taken
   const severalReads: Record<string, { sizes: string[]; chosen: string }> = {};
   // SLICE 12e-4b (owner F-3): an axis whose taken size came from a list written with no unit at all
@@ -3138,7 +4413,8 @@ function priceOneItem(
       // only (T6: a pricer's typed entry is never parsed as layers). It used to run only when the single-number
       // read came back BLANK -- and "Double layer of 19mm thick" is not blank to that reader, it is a 19, so
       // every such row priced ONE layer. A cell the layers reader does not accept is read exactly as before.
-      if (spec.compose && attr === spec.compose.attr && layersFrom === null) {
+      // VRF-3a: a config with `split` never reads its axis as layers (its own stated split reads the modules as lines)
+      if (spec.compose && attr === spec.compose.attr && layersFrom === null && !spec.split) {
         for (const src of reader.from) {
           const cell = item.attributes?.[src];
           if (!cell || cell.typed === true) continue;
@@ -3208,6 +4484,43 @@ function priceOneItem(
           const typedText = typedEcho && "head" in typedEcho ? typedEcho.head : cell?.value;
           if (cell && cell.typed === true && cell.value !== null && cell.value !== "" && !isOneSizeEntry(typedText)) {
             got = { blank: ONE_SIZE_MESSAGE };
+            break;
+          }
+        }
+      }
+      // VRF-2b (owner R-CONV / Q3): a reader declaring `units` reads the value in its stated unit (or the picker's, on a
+      // typed box) and converts it to the family's unit through the Pricing Inputs, with the line
+      if (got === null && reader.units) {
+        const famUnit = familyUnitOf(spec, projected, family, reader);
+        for (const src of reader.from) {
+          const cell = item.attributes?.[src];
+          const pick = item.attributes?.[`${src}${UNIT_PICK_SUFFIX}`]?.value;
+          // the PICKER counts only where the pricer set it beside a typed box; untouched, a bare number is in the family's unit
+          const picker = cell?.typed === true && typeof pick === "string" && pick.trim() ? pick : null;
+          // VRF-3a (R-SPLIT (a), SHAPE Q2): a split the row writes is read as its modules -- each converted like a capacity
+          // -- and handed to the ladder below as one line per module. Only on a `split.stated` family the helper may split.
+          const capCtx = { familyUnit: famUnit, factorOf: (id: string) => pricingInputFactor(projected, id), picker, family };
+          const ss = item.splitAllowed && spec.split?.stated && family !== null && spec.split.families.includes(family) && attr === spec.compose?.attr
+            ? readStatedSplit(rawValue(item, src), reader, { times: spec.split?.stated_times === true }) : null;
+          if (ss) {
+            const said = (n: number) => (ss.unit ? `${fmt(n)} ${ss.unit}` : fmt(n));
+            const mods = ss.modules.map((m) => readCapacity(said(m), reader, capCtx));
+            const tot = ss.total !== null ? readCapacity(said(ss.total), reader, capCtx) : null;
+            if (mods.every((m) => m !== null && "value" in m) && (tot === null || "value" in tot)) {
+              const vals = mods.map((m) => (m as { value: number }).value);
+              const notes = [...new Set(mods.map((m) => (m as { note?: string }).note).filter((x): x is string => !!x))];
+              statedSplits[attr] = {
+                modules: vals, written: ss.written, total: tot && "value" in tot ? tot.value : null,
+                sum: Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100,
+                ...(notes.length ? { note: notes.join("; ") } : {}),
+              };
+              got = { value: Math.max(...vals) };
+              break;
+            }
+          }
+          got = readCapacity(rawValue(item, src), reader, { familyUnit: famUnit, factorOf: (id) => pricingInputFactor(projected, id), picker, family });
+          if (got !== null) {
+            if ("value" in got && got.note) (out.unitReads ??= {})[attr] = got.note;
             break;
           }
         }
@@ -3293,7 +4606,7 @@ function priceOneItem(
       if ("blank" in got) {
         // SLICE 12d-1b (owner T4): the compose axis may be STATED AS LAYERS ("65 mm + 32 mm"). A model answer
         // that reads so is carried to the composition path below; a pricer's TYPED entry is not (T6).
-        if (spec.compose && attr === spec.compose.attr && layersFrom === null) {
+        if (spec.compose && attr === spec.compose.attr && layersFrom === null && !spec.split) {
           for (const src of reader.from) {
             const cell = item.attributes?.[src];
             if (!cell || cell.typed === true) continue;
@@ -3308,6 +4621,44 @@ function priceOneItem(
       continue;
     }
     let v = rawValue(item, attr);
+    // VRF-4 (R-BRAND (a) on a BoQ row): the make(s) the model COPIED stand in for the choice where they say more -- several
+    // makes, or one the attribute does not list; one listed make fills a choice left blank. A typed value is the pricer's.
+    const unlFrom = spec.defaults?.[attr]?.unlisted?.from_attr;
+    if (unlFrom && item.attributes?.[attr]?.typed !== true) {
+      const w = rawValue(item, unlFrom);
+      const said = w === null ? "" : String(w).trim();
+      if (said !== "") {
+        const listedVals = spec.choice_defs?.[attr]?.values ?? [];
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const parts = [...new Set(said.split(/\s*(?:\/|,|&|\+|\band\b|\bor\b)\s*/i).map((x) => x.trim()).filter((x) => x !== "").map(norm))];
+        const one = parts.length === 1 ? listedVals.find((x) => norm(x) === parts[0]) : undefined;
+        const choiceListed = v !== null && v !== "None" && listedVals.includes(String(v));
+        const sr = spec.defaults?.[attr]?.unlisted?.several_rule;
+        if (parts.length >= 2 && sr) {
+          // VRF-5 (owner R5): the default if it is one of the stated makes; else the first stated make the catalogue stocks
+          // for THIS item (its family, its kind); else the default with the line naming the makes
+          const dv = ruledDefaultValue(spec, attr, family);
+          const stockedFor = (make: string) => projected.some((it) => kindIn(spec, it.kind) && it.attributes?.[familyAttr(spec)] === family
+            && norm(String((it as { brand?: unknown }).brand ?? it.attributes?.[attr] ?? "")) === norm(make));
+          const listedSaid = parts.map((p) => listedVals.find((x) => norm(x) === p)).filter((x): x is string => x !== undefined);
+          const first = listedSaid.find((m) => stockedFor(m));
+          if (dv !== undefined && parts.includes(norm(dv))) {
+            read[attr] = dv;
+            readDefaulted.push({ attr, value: dv, rule: sr.one_of.replace("{said}", said).replace("{make}", dv), asWritten: said });
+          } else if (first !== undefined) {
+            read[attr] = first;
+            readDefaulted.push({ attr, value: first, rule: sr.first_stocked.replace("{said}", said).replace("{make}", first), asWritten: said });
+          } else if (dv !== undefined) {
+            read[attr] = dv;
+            readDefaulted.push({ attr, value: dv, rule: sr.none_stocked.replace("{said}", said).replace("{make}", dv), asWritten: said });
+          }
+          if (dv !== undefined || first !== undefined) continue;
+        }
+        if (parts.length >= 2) v = said;
+        else if (one !== undefined) { if (!choiceListed) v = one; }
+        else if (!choiceListed) v = said;
+      }
+    }
     // SLICE 12e-5b (owner R2): an UNANSWERED choice the BoQ named in a word the catalogue does not stock ("26 G GI
     // cladding", copied as written) prices as the stocked option the config maps it to, with its amber line
     if (v === null || v === "None") {
@@ -3335,7 +4686,46 @@ function priceOneItem(
       }
       continue;
     }
+    // VRF-2b (owner R-BRAND (a)): a STATED value that is not one of the attribute's values -- several ("Daikin /
+    // Toshiba") or one off the sheet ("Toshiba") -- prices as the ruled default, marked, naming the row's words
+    const unl = spec.defaults?.[attr]?.unlisted;
+    const listed = spec.choice_defs?.[attr]?.values ?? [];
+    if (unl && listed.length && !listed.includes(String(v))) {
+      const dv = ruledDefaultValue(spec, attr, family);
+      if (dv !== undefined) {
+        const said = String(v).trim();
+        const several = said.split(/\s*(?:\/|,|&|\+|\band\b|\bor\b)\s*/i).filter((x) => x.trim() !== "").length >= 2;
+        read[attr] = dv;
+        readDefaulted.push({ attr, value: dv, rule: (several ? unl.several : unl.off_sheet).replace("{said}", said), asWritten: said });
+        continue;
+      }
+    }
     read[attr] = v;
+  }
+  // VRF-5 (owner R2 "yes"): a DEFAULTED value that gives way below the smallest SKU carrying it -- the brand (R5) and the other
+  // choices are already settled above, so "the smallest Top unit of the brand" is read on exactly the SKUs this item matches
+  for (const d of readDefaulted.slice()) {
+    const bs = spec.defaults?.[d.attr]?.below_smallest;
+    if (!bs || d.value === bs.then) continue;
+    const size = read[bs.size_attr];
+    if (typeof size !== "number" || !Number.isFinite(size)) continue;
+    const fa = familyAttr(spec);
+    // VRF-7 (A1, owner 2026-11-10: a regression since VRF-6): only the choices the FAMILY prices on narrow the SKUs -- a
+    // remote type the model put on an outdoor unit (no outdoor SKU carries one) emptied the list, so the Side step never ran
+    const famNeeds = family !== null && spec.families[family] ? new Set(spec.families[family].needs) : null;
+    const sizes = projected.filter((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === family
+      && String(it.attributes?.[d.attr] ?? "") === String(d.value)
+      && Object.entries(read).every(([k, v]) => k === d.attr || k === bs.size_attr || !(spec.choice_attrs ?? []).includes(k)
+        || (famNeeds !== null && !famNeeds.has(k))
+        || String(k === "brand" ? ((it as { brand?: unknown }).brand ?? it.attributes?.[k] ?? "") : (it.attributes?.[k] ?? "")) === String(v)))
+      .map((it) => Number(it.attributes?.[bs.size_attr])).filter((n) => Number.isFinite(n));
+    if (!sizes.length) continue;
+    const smallest = Math.min(...sizes);
+    if (size >= smallest) continue;
+    read[d.attr] = bs.then;
+    const i = readDefaulted.indexOf(d);
+    const unitWord = String(projected.find((it) => kindIn(spec, it.kind) && it.attributes?.[fa] === family)?.attributes?.capacity_unit ?? "");
+    readDefaulted.splice(i, 1, { attr: d.attr, value: bs.then, rule: bs.rule.replace("{n}", fmt(smallest)).replace("{unit}", unitWord).trim() });
   }
   // R13: a derived default ("supply air" -> with damper on the linear / plain grille), ONLY over a "None"
   for (const rule of spec.derive_when_none ?? []) {
@@ -3607,7 +4997,7 @@ function priceOneItem(
   let outerSetAside: number[] | null = null;
   if (skRule && skRule.key.every((k) => k in read)) {
     const famRows = projected.filter(
-      (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
+      (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
     );
     const stated = skRule.key.map((k) => Number(read[k]));
     const statedText = stated.map(fmt).join("x");
@@ -3773,7 +5163,7 @@ function priceOneItem(
   for (const n of needs) {
     const rd = spec.numbers[n];
     if (!rd?.not_stocked || !(n in sel)) continue;
-    const rows = projected.filter((it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && n in it.attributes);
+    const rows = projected.filter((it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && n in it.attributes);
     if (!rows.length || rows.some((it) => sameValue(it.attributes[n], sel[n]))) continue;
     // ADP-3a (U4, N-slot): the refusal is about THIS field -- the panel outlines it and names it under the box
     return { ...blank(rd.not_stocked.replace("{value}", fmt(Number(sel[n])))), selection: sel, defaulted: out.defaulted, refusedFor: n };
@@ -3782,7 +5172,7 @@ function priceOneItem(
   // (5) the ladders (R6): the family's rows of the target class that carry the attribute, narrowed by the
   //     other stated keys those rows carry; exact else next up; above the largest = refuse
   const familyRows = projected.filter(
-    (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
+    (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target,
   );
   const keysCarried = new Set<string>();
   for (const it of familyRows) for (const k of Object.keys(it.attributes)) keysCarried.add(k);
@@ -3818,9 +5208,10 @@ function priceOneItem(
     // category whose SKUs carry no `item_detail` builds an EMPTY ladder and every row reports
     // "no SKU for this combination" -- which is exactly what Insulation did, with nothing on screen
     // hinting that a display field was the cause. ABSENT => "item_detail", so ADP is byte-identical.
-    const rungs = buildModuleLadder(familyRows, { kind: spec.kind, where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
+    const rungs = buildModuleLadder(familyRows, { kind: familyKindOf(spec, familyRows, family), where, size_from: { attr }, label_attr: spec.label_attr ?? "item_detail" });
     const name = reasonName(spec, attr);
-    const want = Number(sel[attr]);
+    // VRF-8 (W2): `let` -- an unstocked written split hands its stated TOTAL to the split rule below
+    let want = Number(sel[attr]);
     /**
      * ⚠️ A FAMILY WHOSE ROWS CARRY THIS ATTRIBUTE AT ALL IS LADDERING ON IT; ONE WHOSE ROWS CARRY IT
      * NOWHERE IS NOT. For the second, the stated value is an INPUT TO A FORMULA, not a choice between
@@ -3841,6 +5232,70 @@ function priceOneItem(
     // not a miss. Resolving FIRST matters: without it, 22.2 would ladder UP to 28.58 and buy a size the
     // row never asked for. ABSENT `size_match` => `matched` is null and the ladder decides, as before.
     const sizes = rungs.map((r) => r.size);
+    // VRF-3a (R-SPLIT (a), D-2): a split the row writes becomes one line per module, each on this variant's ladder (next
+    // size up there); a module above this variant's largest refuses the row, naming it
+    // VRF-6 (F8): one rung's cost on this ladder (the compose cost key), for a split of a too-large module and the pair-first rule
+    const rungCost = (rung: number): number | null => {
+      const ck = spec.compose?.cost_key;
+      if (!ck) return null;
+      for (const it of familyRows) {
+        if (Number(it.attributes[attr]) !== rung) continue;
+        if (!Object.entries(where).every(([k, v]) => k === attr || it.attributes[k] === v)) continue;
+        const c = (it.rates ?? {})[ck];
+        if (typeof c === "number" && Number.isFinite(c)) return c;
+      }
+      return null;
+    };
+    let st: (typeof statedSplits)[string] | undefined = statedSplits[attr];
+    // VRF-8 (W2 / W3, owner 14:15 "the split rule on the TOTAL, never a per-module bump / re-split"): a written module setup with
+    // a module this make / type does not stock (a size between rungs, or above the largest) is NOT followed -- the stated total
+    // goes to the split rule like any capacity, and the line says the setup could not be followed
+    const sns = spec.split?.stated_not_stocked;
+    if (st && sns) {
+      const missing = [...new Set(st.modules.filter((m) => !sizes.some((s) => Math.abs(s - m) < 1e-9)))];
+      if (missing.length) {
+        const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+        const total = st.total ?? st.sum;
+        const make = [where.brand, where.cooling].filter((v) => v !== undefined && v !== null && String(v) !== "").join(" ");
+        const line = sns.line.replace("{written}", st.modules.map(fmt).join("+")).replace("{missing}", missing.map(fmt).join(" / "))
+          .split("{unit}").join(famUnit).replace("{make}", make || "this make").replace("{total}", fmt(total));
+        (out.unitReads ??= {})[attr] = [st.note, line].filter((x): x is string => !!x).join("; ");
+        out.working.push(line);
+        want = total;
+        sel[attr] = total;
+        st = undefined;
+      }
+    }
+    if (st) {
+      const top = rungs[rungs.length - 1];
+      const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+      const u = famUnit ? ` ${famUnit}` : "";
+      const over = st.modules.find((m) => m > top.size);
+      let modules = [...st.modules];
+      let overNote: string | undefined;
+      if (over !== undefined) {
+        // VRF-6 (F8, 00175 r17): a written module above the largest single unit is split itself, never refusing the row
+        const sot = spec.split?.split_over_top;
+        const parts = sot && spec.compose ? modules.map((m) => (m > top.size ? composeSize(m, rungs.map((r) => r.size), spec.compose, rungCost) : null)) : null;
+        if (!sot || !parts || modules.some((m, i) => m > top.size && !parts[i])) {
+          return { ...blank(`Module ${fmt(over)}${u} is above the largest size on the sheet (${fmt(top.size)}${u}) - this row is not priced; price it by hand`), selection: sel, sizeRefused: attr };
+        }
+        const lines: string[] = [];
+        modules = modules.flatMap((m, i) => {
+          const p = parts[i];
+          if (!p) return [m];
+          const ls = [...p.layers].sort((a, b) => b - a);
+          lines.push(sot.line.replace("{module}", fmt(m)).replace("{top}", fmt(top.size)).split("{unit}").join(u.trim()).replace("{layers}", ls.map(fmt).join(" + ")));
+          return ls;
+        });
+        overNote = lines.join(" ");
+      }
+      const readNote = [st.note, overNote].filter((x): x is string => !!x).join("; ");
+      return { ...blank(`split into ${modules.length} lines`), selection: { ...sel },
+               splitInto: { attr, total: st.total ?? st.sum, layers: modules, exact: st.total === null || st.total === st.sum, top: top.size, unit: famUnit,
+                            ...(readNote ? { readNote } : {}),
+                            stated: { modules, sum: st.sum, total: st.total, written: st.written } } };
+    }
     let matched = resolveSize(want, sizes, spec.size_match);
     /**
      * SLICE 12e-2 (owner Q14 / Q14a, 2026-10-10) -- THE LADDER'S TWO EXTRA RUNGS, each by key presence.
@@ -3913,7 +5368,8 @@ function priceOneItem(
       const aboveAsInches = spec.numbers[attr]?.bare_above_largest === "refuse" && !mirroredCell && [want * 25.4, want * inchAlt].every((mm) => mm > hi);
       if (bare && (couldBeInches || aboveAsInches)) return { ...blank(noUnitMessage(fmt(want))), selection: sel, sizeRefused: attr };
     }
-    const fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
+    let fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
+    let userSingle = false;
     if (!fit) {
       const top = rungs[rungs.length - 1];
       // SLICE 12c (owner Q8): above the top rung, build it out of rungs rather than refuse -- but only
@@ -3939,12 +5395,88 @@ function priceOneItem(
             return null;
           }
         : undefined;
+      // VRF-3a (R-SPLIT (b), R-SPLIT-RULE, D-1 / D-8): on a config with `split`, a composition applies ONLY to its families,
+      // and becomes separate LINES (`splitInto`) -- never layers -- and only where the panel helper allows it (Q3). Every
+      // other family of such a config refuses above the largest exactly as before (DUCTABLE: "no splitting").
+      if (spec.split && spec.compose && spec.compose.attr === attr) {
+        const splitFam = family !== null && spec.split.families.includes(family);
+        const sp = splitFam && item.splitAllowed ? composeSize(want, sizes, spec.compose, costOf) : null;
+        if (sp) {
+          const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+          const readNote = out.unitReads?.[attr];
+          return { ...blank(`split into ${sp.layers.length} lines`), selection: { ...sel },
+                   splitInto: { attr, total: want, layers: [...sp.layers].sort((a, b) => b - a), exact: sp.delta === 0, top: top.size, unit: famUnit,
+                                ...(readNote ? { readNote } : {}) } };
+        }
+        return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel, sizeRefused: attr };
+      }
       const comp = spec.compose && spec.compose.attr === attr ? composeSize(want, sizes, spec.compose, costOf) : null;
       if (comp) {
         return { ...out, selection: { ...sel }, composeInto: { attr, stated: want, layers: [...comp.layers].sort((a, b) => a - b), delta: comp.delta, top: top.size, ...pipeAsReadOf() } };
       }
       // SLICE 12e-6 (AC9 b): the axis is named, so a section taking its size from it repeats this sentence (12e-4d AC2)
       return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel, sizeRefused: attr };
+    }
+    // VRF-6 (F8, QR-1 Q3): no single SKU is the stated size -- the best pair / set (exact first, else covering; fewest units, then
+    // cheapest: `composeSize` above_only) comes before the next size up ("cheaper": only when its cost is below the single's)
+    const pf = spec.split?.pair_first;
+    if (pf && pf.mode === "single_unless_cheaper" && !fit.exact && spec.compose && spec.compose.attr === attr && family !== null && spec.split!.families.includes(family) && item.splitAllowed) {
+      // VRF-6 (owner QR-1 Q3 final, 19:32): the single that covers stands unless a covering pair is cheaper -- then the cheaper
+      // pair with the least excess (ties: cheapest). A cost nobody read never proves a pair cheaper.
+      const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+      const sets = coveringSets(want, sizes, Math.min(pf.max_units ?? spec.compose.max_layers, spec.compose.max_layers), rungCost);
+      const upM = fit.modules;
+      const upCost = rungCost(upM);
+      const upExcess = Math.round((upM - want) * 1e6) / 1e6;
+      const fill = (t: string, s: (typeof sets)[number]) => t.replace("{total}", fmt(want)).split("{layers}").join(s.layers.map(fmt).join(" + "))
+        .replace("{up}", fmt(upM)).split("{unit}").join(famUnit).replace("{excess}", fmt(s.excess)).replace("{up_excess}", fmt(upExcess))
+        .replace("{pair_cost}", s.cost !== null ? String(Math.round(s.cost)) : "-").replace("{up_cost}", upCost !== null ? String(Math.round(upCost)) : "-");
+      const cheaper = upCost === null ? [] : sets.filter((s) => s.cost !== null && s.cost < upCost);
+      // VRF-6 U11 (owner 18:52 / 19:32): the ranked options (option 0 = the helper's pick below); a pricer's step picks another
+      const opts = rankCover(want, sizes, sets, rungCost);
+      const pickN = opts.length ? Math.min(Math.max(0, Math.floor(Number(item.coverPick ?? 0)) || 0), opts.length - 1) : 0;
+      const cover: CoverChoice | undefined = opts.length > 1 ? { attr, unit: famUnit, total: want, options: opts, picked: pickN } : undefined;
+      const lay = (o: { layers: number[] }) => o.layers.map(fmt).join(" + ");
+      const userLine = cover && pickN > 0
+        ? `Next-best option (chosen by the user): ${lay(opts[pickN])} ${famUnit} = ${fmt(opts[pickN].layers.reduce((x, y) => x + y, 0))} ${famUnit}, `
+          + `${fmt(opts[pickN].excess)} ${famUnit} over the BoQ's ${fmt(want)} ${famUnit}; the helper's pick was ${lay(opts[0])} ${famUnit}.`
+        : undefined;
+      if (userLine && opts[pickN].layers.length > 1) {
+        const readNote = out.unitReads?.[attr];
+        return { ...blank(`split into ${opts[pickN].layers.length} lines`), selection: { ...sel }, cover,
+                 splitInto: { attr, total: want, layers: [...opts[pickN].layers], exact: opts[pickN].excess === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why: userLine, cover, ...(readNote ? { readNote } : {}) } };
+      }
+      if (userLine) {
+        // the pricer stepped to a SINGLE: priced at that size, said so
+        out.working.push(userLine);
+        out.cover = cover;
+        fit = { ...fit, label: fmt(opts[pickN].layers[0]), modules: opts[pickN].layers[0], exact: false };
+        userSingle = true;
+      } else {
+      if (cheaper.length) {
+        const pick = cheaper[0];
+        const readNote = out.unitReads?.[attr];
+        return { ...blank(`split into ${pick.layers.length} lines`), selection: { ...sel }, ...(cover ? { cover } : {}),
+                 splitInto: { attr, total: want, layers: [...pick.layers], exact: pick.excess === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why: fill(pf.line, pick), ...(cover ? { cover } : {}), ...(readNote ? { readNote } : {}) } };
+      }
+      const cheapest = [...sets].filter((s) => s.cost !== null).sort((x, y) => (x.cost as number) - (y.cost as number) || x.excess - y.excess)[0];
+      if (cheapest && pf.single_line) out.working.push(fill(pf.single_line, cheapest));
+      if (cover) out.cover = cover;
+      }
+    } else if (pf && !fit.exact && spec.compose && spec.compose.attr === attr && family !== null && spec.split!.families.includes(family) && item.splitAllowed) {
+      const comp = composeSize(want, sizes, spec.compose, rungCost);
+      const pairCost = comp ? comp.layers.reduce<number | null>((a, r) => { const c = rungCost(r); return a === null || c === null ? null : a + c; }, 0) : null;
+      const upCost = rungCost(fit.modules);
+      const take = comp && (pf.mode === "always" || (pairCost !== null && upCost !== null && pairCost < upCost));
+      if (comp && take) {
+        const famUnit = spec.numbers[attr]?.units ? (familyUnitOf(spec, projected, family, spec.numbers[attr]) ?? "") : (spec.numbers[attr]?.unit ?? "");
+        const layers = [...comp.layers].sort((a, b) => b - a);
+        const why = pf.line.replace("{total}", fmt(want)).split("{layers}").join(layers.map(fmt).join(" + ")).replace("{up}", fmt(fit.modules))
+          .split("{unit}").join(famUnit).replace("{pair_cost}", pairCost !== null ? String(Math.round(pairCost)) : "-").replace("{up_cost}", upCost !== null ? String(Math.round(upCost)) : "-");
+        const readNote = out.unitReads?.[attr];
+        return { ...blank(`split into ${layers.length} lines`), selection: { ...sel },
+                 splitInto: { attr, total: want, layers, exact: comp.delta === 0, top: rungs[rungs.length - 1].size, unit: famUnit, why, ...(readNote ? { readNote } : {}) } };
+      }
     }
     resolvedLadders.add(attr);
     // SLICE 12e-2: `how` is written ONLY where a declaring key is present (owner Q17 / Q11 / Q14 / Q14a)
@@ -3963,12 +5495,12 @@ function priceOneItem(
       ...(severalReads[attr] ? { several: severalReads[attr] } : {}),
       ...(!declares && belowSmallest ? { belowSmallest: true as const } : {}) });
     if (!fit.exact) {
-      out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (${belowSmallest ? "the smallest size" : "next size up"}, R6)`);
+      out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (${belowSmallest ? "the smallest size" : userSingle ? "the option the user chose" : "next size up"}, R6)`);
       sel[attr] = fit.modules;
     }
     // a SKU without the ladder attribute is not on the ladder and must not match a laddered selection
     candidates = candidates.filter(
-      (it) => !(it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && !(attr in it.attributes)),
+      (it) => !(kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && it.attributes[spec.unit_class_attr] === target && !(attr in it.attributes)),
     );
   }
   out.selection = { ...sel };
@@ -4362,13 +5894,22 @@ export function priceItemList(
    */
   let resolvedUnit: { lead: string; word: string } | undefined;
   if (rateOnlyWithUnit !== null) resolvedUnit = { lead: `BoQ says ${unit.trim()} (rate only)`, word: rateOnlyWithUnit };
+  // VRF-2b (owner QR-2 A): a spelling the config prices as its class WITH a line ("Nos/Ro" -> "unit 'Nos/Ro' read as Nos")
+  const unitLine = (() => {
+    if (!spec.unit_lines || unit.trim() === "") return null;
+    const n = normUnit(unit);
+    for (const [k, v] of Object.entries(spec.unit_lines)) if (normUnit(k) === n) return v;
+    return null;
+  })();
   const unitResolved = (priced: boolean): { unitNote: string; rateUnit: string } | Record<string, never> =>
     resolvedUnit
       ? {
           unitNote: `${resolvedUnit.lead} -> ${priced ? "priced per" : "unit taken as"} ${resolvedUnit.word}, the catalogue's unit for this item`,
           rateUnit: resolvedUnit.word,
         }
-      : {};
+      : unitLine !== null && cls !== null
+        ? { unitNote: unitLine, rateUnit: unitWord(spec, cls) }
+        : {};
   /**
    * SLICE 12c-U (owner U2 / U3 / U4, 2026-10-07) -- A ROW THAT STATES NO UNIT IS PRICED IN THE
    * CATALOGUE'S UNIT FOR ITS ITEM, OR REFUSES NAMING THE CHOICE. It is never guessed.
@@ -4388,6 +5929,10 @@ export function priceItemList(
    * ⚠️ `unitClassOf` IS CONSULTED FIRST, so a real unit can never be read as "rate only", and a
    * category that declared a unit spelled like one would keep it.
    */
+  // VRF-10 (F1): a blank unit is never priced by assuming one -- refused before the 12c-U default unit below
+  if (cls === null && unit.trim() === "" && vrf10On(spec)) {
+    return { unit, unitClass: null, priced: false, reason: VRF10_NO_UNIT_REFUSAL, items: [] };
+  }
   if (cls === null && (unit.trim() === "" || isRateOnlyUnit(unit))) {
     const rateOnly = isRateOnlyUnit(unit);
     const lead = rateOnly
@@ -4408,6 +5953,10 @@ export function priceItemList(
       };
     }
     // classes.length === 0: nothing to price in at all -- fall through to the unchanged refusal
+  }
+  // VRF-3a K2 (owner LOT "Refuse + review list"): a whole-lot unit refuses with the config's own line, naming the unit as written
+  if (cls === null && isLotUnit(spec, unit)) {
+    return { unit, unitClass: null, priced: false, reason: spec.lot_units!.line.replace("{unit}", unit.trim()), items: [] };
   }
   if (cls === null) {
     // SLICE 12d-4a (owner D11): on a row the catalogue cannot price AT ALL (an unstocked material), that is
@@ -4653,7 +6202,7 @@ export function fieldOptionsFromSkus(
     fam.units[cls] ? [cls] : (fam.convert?.[cls] ?? []).map((o) => o.to),
   );
   const famRows = projected.filter(
-    (it) => it.kind === spec.kind && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
+    (it) => kindIn(spec, it.kind) && it.attributes[familyAttr(spec)] === family && (classes.size === 0 || classes.has(String(it.attributes[spec.unit_class_attr]))),
   );
   const carrying = famRows.filter((it) => attr in it.attributes);
   /**
@@ -5010,6 +6559,8 @@ export function sizeFieldHelp(
   spec: ItemListPricingSpec,
   attr: string,
   stocked: readonly string[],
+  /** VRF-3a: the block's family -- on a config with `split`, only its families split above the largest. */
+  family?: string | null,
 ): SizeFieldHelp | null {
   const reader = spec.numbers[attr];
   if (!reader) return null;
@@ -5089,7 +6640,22 @@ export function sizeFieldHelp(
   }
 
   // (4) ABOVE THE LARGEST -- layers, or a refusal
-  if (composes && spec.compose) {
+  // VRF-3a (R-SPLIT (b), R-SPLIT-RULE): on a config with `split` the composition is the helper's split into separate units,
+  // and only on its families (every other family refuses above the largest) -- the example is built by the same search
+  if (composes && spec.compose && spec.split) {
+    const c = spec.compose;
+    const ex = spec.split.families.includes(family ?? "") ? composeSize(largest * 2 - smallest, nums, c) : null;
+    if (ex && ex.layers.length > 1) {
+      const target = largest * 2 - smallest;
+      lines.push(`Bigger than the largest stocked size (${sizeText(largest)}) is split by the helper into separate units -- the fewest `
+                 + `units, adding up exactly (else the smallest total above), the cheapest of the equal splits: ${sizeText(target)} is `
+                 + `priced as ${[...ex.layers].sort((a, b) => b - a).map(sizeText).join(" + ")}, each its own item.`);
+      if (spec.split.stated) lines.push(`A split the BoQ writes (${sizeText(smallest)}+${sizeText(smallest)}) is priced as one item per module.`);
+    } else {
+      lines.push(`Larger than the largest stocked size (${sizeText(largest)}${unit}) is not priced, `
+                 + `and the reason is shown.`);
+    }
+  } else if (composes && spec.compose) {
     const c = spec.compose;
     const target = largest + Math.max(2, Math.round(smallest / 2));
     const comp = composeSize(target, nums, c);
@@ -5123,7 +6689,7 @@ export function sizeFieldHelp(
   }
 
   const egs = nums.slice(0, 2).map(sizeText).join(", ");
-  const note = composes
+  const note = composes && !spec.split
     ? `Type the ${name} in ${reader.unit ?? "mm"} as the BoQ states it, e.g. ${egs}, `
       + `or ${sizeText(smallest)}+${sizeText(smallest)} for two layers.`
     : `Type the ${name} the BoQ states, in ${reader.unit ?? "mm"} (e.g. ${egs}).`;

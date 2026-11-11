@@ -293,3 +293,36 @@ class TestReviewShowsTheInvoiceCounts(FrappeTestCase):
         # Posted as the provider's workbook: the endpoint takes only the .xlsx (spec #1585 story 1).
         payload = _post(cb.preview_cashbook_statement, as_statement_xlsx(FIXTURE.read_bytes()), "statement.xlsx")
         self.assertEqual(payload["invoices"], {"one_file": 2, "merged": 1, "waiting": 2})
+
+
+class TestASavedBillIsOneFileOnDisk(FrappeTestCase):
+    """The import of 2026-11-07 saved 1,301 bills and left 1,301 files in `private/files` that no File row names:
+    the bytes were written once by the saver and once more by the File's own insert, under a suffixed name, and
+    only the second copy is the one `file_url` names (and the one the storage hook removes). Production backups
+    grew from 324 MB to 1,001 MB overnight. A dev env keeps uploads on local disk, so the disk is read directly."""
+
+    def test_the_only_new_file_is_the_one_the_file_url_names(self):
+        files_dir = Path(frappe.get_site_path("private", "files"))
+        before = {path.name for path in files_dir.iterdir()}
+        transfer_id = f"TESTOBO{frappe.generate_hash(length=10)}"
+        content = b"\x89PNG made-up bill " + frappe.generate_hash(length=32).encode()
+
+        with patch.object(bills, "fetch_bill", return_value=BillFile(content, "png")):
+            saved, problem = bills.download_and_save_bills(transfer_id, ["https://bills.example/one.png"])
+
+        new = sorted({path.name for path in files_dir.iterdir()} - before)
+        self.addCleanup(_remove_saved, saved, [files_dir / name for name in new])
+        self.assertIsNone(problem)
+        self.assertEqual(new, [saved.file_url.rsplit("/", 1)[-1]])
+        self.assertEqual((files_dir / new[0]).read_bytes(), content)
+
+
+def _remove_saved(saved, paths: list[Path]) -> None:
+    """The test's own File row and every file it left on disk, the leaked copy included; a raw delete, because the
+    storage app's `on_trash` would look for the bytes in a bucket."""
+    frappe.db.rollback()
+    if saved is not None:
+        frappe.db.delete("File", {"name": saved.name})
+        frappe.db.commit()
+    for path in paths:
+        path.unlink(missing_ok=True)

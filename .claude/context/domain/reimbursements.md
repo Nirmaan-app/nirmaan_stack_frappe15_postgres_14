@@ -160,7 +160,7 @@ its endings. Decision record: `docs/adr/0040-an-approved-reimbursement-becomes-a
 - **The person corrects their own account** from their profile's Payee tab (`own_accounts.edit_own_account`, the Payee module's `edit_payee_reply` underneath). Refused for someone else's account and for one a Vendor is also paid into (`links.linked_vendors`). Claims keep their copy.
 - **Receipts are merged before anything is written.** The dialog uploads every file loose (no doctype: claimants
   hold read only). `receipts.plan_receipts` reads them and merges the PDFs and pictures into one PDF IN MEMORY
-  first; only then is the claim saved and `apply_receipts` stores the PDF (`save_file` commits inside the storage
+  first; only then is the claim saved and `apply_receipts` stores the PDF (`store_file` commits inside the storage
   hook, so nothing after it can be rolled back). Other files are adopted onto the claim as they are. Files a save
   replaces are deleted LAST, after the commit, through `services/stored_files.delete_files`.
 - **Deleting a claim detaches its Files first** (`receipts.detach_claim_files`), so Frappe's own delete doesn't
