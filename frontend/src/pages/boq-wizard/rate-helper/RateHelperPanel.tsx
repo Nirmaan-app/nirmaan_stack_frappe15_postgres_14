@@ -198,6 +198,13 @@ export const LONG_OPTION_CHARS = 80;
  *  ⚠️ KEYED ON LENGTH ALONE. No category, kind or attribute id may enter this function: the moment
  *  one does, this becomes an LMS special case and the next long-description category silently does
  *  not get the read-out. `test_lrd_05` greps this source to keep it that way. */
+/** VRF-10 (F5c, the VRF-9 F-1 finding; 00380 3F r217-219, 00218 r221): the 12e-2 sentence 'BoQ says "X": priced as Y (your rule).'
+ *  shows only where the block HAS a family, and never on a refused block whose raw item is the "None" sentinel (a Fan Coil
+ *  refusal) -- a sentence naming no family, or quoting "None", says nothing true. PURE. */
+export function showFamilyRawLine(b: Pick<ItemBlockView, "familyRaw" | "familyLine" | "family" | "state">): boolean {
+  return !!b.familyRaw && !b.familyLine && !!b.family && !(b.state !== "priced" && b.familyRaw.trim() === "None");
+}
+
 export function shouldShowLongOptionReadout(
   value: string | number | null | undefined,
   hasOptions: boolean,
@@ -1726,7 +1733,9 @@ function ItemListBlocks({
               {b.helperLine}
             </p>
           )}
-          {b.familyRaw && !b.familyLine && (
+          {/* VRF-10 (F5c, the VRF-9 F-1 finding; 00380 3F r217-219): never on a block with no family ("priced as  (your rule)"),
+              nor on a refused block whose raw item is the "None" sentinel (the Fan Coil refusal rows) */}
+          {showFamilyRawLine(b) && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
               BoQ says &ldquo;{b.familyRawLabel ?? b.familyRaw}&rdquo;: priced as {b.family} (your rule).
             </p>

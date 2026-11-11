@@ -1565,6 +1565,21 @@ export type PanelControl = "dropdown" | "text" | "dropdown_or_other";
 /** The controls a person can TYPE into; each one declares what to type (`panel_notes`). */
 export const TYPED_CONTROLS: ReadonlySet<PanelControl> = new Set(["text", "dropdown_or_other"]);
 
+/**
+ * VRF-10 (the VRF-9 review, owner rulings 2026-11-11 08:41-09:10; VRF10-1 point 4 "code only - no paid run, no asset mint": v65
+ * stays). The VRF-10 rules have no config key of their own: they switch on from a key only v65 has -- VRF-9's S11
+ * `extras.scope.panel_pick`, declared on hvac_vrf alone -- so v64 and older configs (and every other category) keep VRF-9's
+ * behaviour. The next mint can give them their own keys and move the note texts into the config. PURE.
+ */
+export function vrf10On(spec: ItemListPricingSpec | null | undefined): boolean {
+  return !!spec?.extras?.scope?.panel_pick;
+}
+
+/** VRF-10 (F1, owner QR-3 5a / 08:41 "a row with NO unit is never priced by assuming a unit"): on a VRF-10 config a BoQ row with
+ *  a blank unit refuses with VRF-8's sentence -- the 12c-U default unit (owner U2) stays for every other category. Calculator =
+ *  panel (the parity harness feeds the row's blank unit). */
+export const VRF10_NO_UNIT_REFUSAL = "no unit on this row (R12)";
+
 /** Read the block off a config; null when the config does not declare it. PURE. */
 export function itemListPricingSpec(config: RateCategoryConfig | null | undefined): ItemListPricingSpec | null {
   const spec = (config as { list_spec?: { pricing?: unknown } } | null | undefined)?.list_spec?.pricing;
@@ -5914,6 +5929,10 @@ export function priceItemList(
    * ⚠️ `unitClassOf` IS CONSULTED FIRST, so a real unit can never be read as "rate only", and a
    * category that declared a unit spelled like one would keep it.
    */
+  // VRF-10 (F1): a blank unit is never priced by assuming one -- refused before the 12c-U default unit below
+  if (cls === null && unit.trim() === "" && vrf10On(spec)) {
+    return { unit, unitClass: null, priced: false, reason: VRF10_NO_UNIT_REFUSAL, items: [] };
+  }
   if (cls === null && (unit.trim() === "" || isRateOnlyUnit(unit))) {
     const rateOnly = isRateOnlyUnit(unit);
     const lead = rateOnly

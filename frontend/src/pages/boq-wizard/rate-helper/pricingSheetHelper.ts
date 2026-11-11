@@ -129,6 +129,7 @@ import {
   type ItemPriceResult,
   type LadderHop,
   type CoverChoice,
+  vrf10On,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -3870,8 +3871,11 @@ function computeItemListOwn(
   // with the panel's own lot line instead of pricing per Nos
   const keepLot = unitPickable && !!spec.lot_units?.calculator_refuses && picked !== undefined && picked !== "" && !unitChoices.includes(picked) && isLotUnit(spec, picked);
   if (keepPick || keepLot) unitChoices.push(picked!);
+  // VRF-10 (F1): on a VRF-10 config a unit typed as BLANK (a BoQ row with no unit, copied in as it is; the screen's picker never
+  // sends "") stays blank -- the row then refuses with the panel's "no unit on this row" instead of pricing per the first unit
+  const blankKept = unitPickable && picked === "" && vrf10On(spec);
   const unit = unitPickable
-    ? ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? "")
+    ? (blankKept ? "" : ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? ""))
     : ctx.unit!;
   const defs = listSpecDefs(category);
   const rowClass = unitClassOf(spec, unit);
@@ -5215,6 +5219,52 @@ function withExtras(
 export const SCOPE_OVERRIDE_KEY = "__scope__";
 
 /**
+ * VRF-10 (owner rulings 2026-11-11 08:41-09:10 from the VRF-9 review; no mint, so the words and notes live here and switch on with
+ * `vrf10On`). F2 / F3 / F6 scope rules, applied in `withScopeCore` on a BoQ row only (the calculator keeps the pricer's pick):
+ *   supply_words  a clause that READS supply-type: starts "Supply" / "Supplying" and names no installation / fixing in the clause
+ *                 ("Supply of ...", "Supply & providing ...", "Supply, port clearance, transport of ...")
+ *   plain_supply  the BoQ saying supply only plainly (F6 (ii)): "supply only", "excluding installation", "without installation",
+ *                 "installation by others / by the client", "installation not included"
+ *   frame         the MS frame / stand items (F3): always supply + installation unless the sheet quotes the frame's supply and its
+ *                 installation on separate rows
+ *   f6_sheet      (QR-1 Q2 (a)) a sheet that quotes installation on its own VRF rows keeps every supply-only row supply only
+ */
+export const VRF10_SCOPE = {
+  supply_words: "^\\s*supply(?:ing)?\\b(?![^.;|\\n]*?\\b(?:install\\w*|SITC|erect\\w*|fix(?:ing|ed)?|commission\\w*))",
+  plain_supply: "\\bsupply\\s+only\\b|\\bonly\\s+supply\\b|\\bexclud\\w*\\s+(?:of\\s+)?install\\w*|\\bwithout\\s+install\\w*|\\binstall\\w*[^.;|\\n]{0,40}?\\bby\\s+(?:others|the\\s+(?:client|owner)|client|owner)\\b|\\binstall\\w*[^.;|\\n]{0,20}?\\bnot\\s+(?:included|in\\s+(?:the\\s+)?scope)\\b",
+  frame_families: ["MS frame / stand for ODU", "MS Angle Base Frame Structure"],
+  frame_note: "BoQ: an MS frame / stand row is always supply + installation unless the BoQ quotes its supply and its installation on separate rows (the row read \"{said}\") - priced as supply + installation (owner F3)",
+  frame_kept_note: "This sheet quotes the MS frame's supply and its installation on separate rows ({rows}) - kept as \"{said}\" (owner F3).",
+  f2_note: "BoQ: \"{supply}\" ({supply_where}) reads as supply, but \"{said}\" ({where}) says installation - priced as supply + installation (owner F2)",
+  f6_note: "BoQ says \"{said}\" ({where}) - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
+  f6_note_unquoted: "The BoQ reading was \"Supply only\" but no supply-only words were found - priced as supply + installation: installation is included unless the BoQ says \"supply only\" or quotes installation on its own row. Use the scope pick if this BoQ is supply only. (owner F6)",
+  f6_sheet: true,
+  /** (QR-1 Q2 (a), ANSWER 2 relay: "a sheet with any installation-only row (ANY category)") a sheet line of another category -- no
+   *  scope answer of its own -- reads installation-only when its text starts with installation work and names no supply */
+  install_only_words: "^\\s*(?:shifting\\s*[,&]?\\s*(?:and\\s+)?)?(?:assembly\\s*[,&]?\\s*(?:and\\s+)?)?(?:install\\w*|instal\\w*|erection|fixing)\\b",
+  install_only_not: "\\bsupply\\w*|\\bSITC\\b|\\bprovid\\w*|\\bprocur\\w*",
+  f6_sheet_note: "This sheet quotes installation on its own rows ({rows}) - supply only (owner F6).",
+} as const;
+
+/** VRF-10 (F5a). The controller family whose "ON / OFF controller" note is kept only for a single-function controller, and the
+ *  OTHER functions that make a multi-function one (a touch manager: mode, temperature, fan speed, schedule, monitoring ...). */
+export const VRF10_ONOFF = {
+  family: "Touch Screen Central Controller",
+  other_functions: "\\bmode\\b|\\btemp(?:erature)?\\b|\\bfan\\s*speed\\b|\\bschedul\\w*|\\btimer\\b|\\bmonitor\\w*|\\bset\\s*point\\b|\\berror\\b|\\bfault\\b|\\bweekly\\b|\\bgroup\\s+control\\b|\\binterlock\\w*",
+} as const;
+
+/** VRF-10 (F5a). PURE. Whether the clause of `text` that names ON / OFF (`words`) also names another controller function. */
+export function onOffAmongOthers(words: string, text: string): boolean {
+  for (const cl of text.split(/[.;|\n]+/)) {
+    let hit = false;
+    try { hit = new RegExp(words, "i").test(cl); } catch { return false; }
+    if (!hit) continue;
+    try { if (new RegExp(VRF10_ONOFF.other_functions, "i").test(cl)) return true; } catch { return false; }
+  }
+  return false;
+}
+
+/**
  * VRF-5 (owner R4 "you can add"; R6 "for installation only use 1.5 times the installation rate as per catalog and declare the
  * same in the note clearly"; R7 "1.5 is after applying any installtion markup or any other required markip"; R8 "model the 1.5
  * multiplier as 50% installation only multiplier in the pricing input sheets"). The ROW's scope, applied LAST to every line of
@@ -5279,11 +5329,21 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   // VRF-9 (S9, owner 00:59 "gas charging is always both"): a refrigerant gas charging / topping-up row is supply + installation,
   // whatever its scope words
   const ab = sc.always_both;
-  if (forced === undefined && !calculator && ab && (value === sc.supply_only || value === sc.install_only || (!!sc.install_only_normal && value === sc.install_only_normal))
-    && view.items.some((b) => !!b.family && ab.families.includes(b.family))) {
+  const v10 = vrf10On(spec);
+  // VRF-10 (F5b, F3): the model's own item families too -- a row refused for its unit (a gas row per "Lot") has no priced family
+  const rawFams = v10 ? (ext?.items ?? []).map((it) => it.attributes?.[familyAttr(spec)]?.value).filter((x): x is string => typeof x === "string" && x !== "") : [];
+  const notBoth = value === sc.supply_only || value === sc.install_only || (!!sc.install_only_normal && value === sc.install_only_normal);
+  if (forced === undefined && !calculator && ab && notBoth
+    && (view.items.some((b) => !!b.family && ab.families.includes(b.family)) || rawFams.some((f) => ab.families.includes(f)))) {
     return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: ab.note.replace("{said}", value) } } };
   }
-  if (forced === undefined && !calculator && sc.conflict && value === sc.supply_only) {
+  // VRF-10 (F3, owner 08:41 "ms stand is always supply + install unless they are mentioned in separate rows"): a row priced on the
+  // MS frame / stand item is supply + installation whatever its scope words -- unless the sheet quotes the frame's supply and its
+  // installation on separate rows: then this row keeps its own scope and the note names the other row(s)
+  let keepScope = false;
+  let frameKeptNote: string | undefined;
+  const VS = VRF10_SCOPE;
+  if (forced === undefined && !calculator && !keepScope && sc.conflict && value === sc.supply_only) {
     const text = [...(ctx.headings ?? []), ...(ctx.headingNotes ?? []), ...(ctx.ownNotes ?? [])].join(" | ");
     let said: string | null = null;
     try { const m = new RegExp(sc.conflict.words, "i").exec(text); said = m ? m[0].trim() : null; } catch { said = null; }
@@ -5301,12 +5361,25 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   // a top heading) -> supply + installation, noted -- unless the row itself says supply only, or the sheet quotes installation of
   // this kind on its own row (Q5 above keeps supply only then)
   const al = sc.any_level;
-  if (forced === undefined && !calculator && al && value === sc.supply_only && extraNote === undefined && !sameKind((s) => s === sc.install_only).length) {
+  if (forced === undefined && !calculator && !keepScope && al && value === sc.supply_only && extraNote === undefined && !sameKind((s) => s === sc.install_only).length) {
     const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
     let keep = false;
     try { keep = !!al.keep_words && new RegExp(al.keep_words, "i").test(own); } catch { keep = false; }
+    // VRF-10 (F6 (ii)): the BoQ saying supply only plainly on the row OR its chain ("installation by the client", "excluding
+    // installation") keeps supply only here too
+    if (!keep && v10 && nearestClause(VS.plain_supply, undefined, chainOf(ctx))) keep = true;
     const hit = keep ? null : nearestClause(al.install_words, al.not_words, chainOf(ctx));
     if (hit) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: al.note.replace("{said}", hit.said).replace("{where}", hit.where) } } };
+  }
+  // VRF-10 (F3): after Q5 / S4 -- a frame row they settle keeps their note (QR-1 Q3 (a)'s principle); else F3 decides
+  if (forced === undefined && !calculator && v10 && notBoth && extraNote === undefined
+    && (view.items.some((b) => !!b.family && (VS.frame_families as readonly string[]).includes(b.family)) || rawFams.some((f) => (VS.frame_families as readonly string[]).includes(f)))) {
+    const wantOther = (s: string) => (value === sc.supply_only ? s === sc.install_only || s === sc.install_only_normal : s === sc.supply_only);
+    const other = (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined && !!l.family1
+      && (VS.frame_families as readonly string[]).includes(l.family1) && typeof l.scope1 === "string" && wantOther(l.scope1)).map((l) => l.row).sort((a, b) => a - b);
+    if (!other.length) return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: VS.frame_note.replace("{said}", value) } } };
+    keepScope = true;
+    frameKeptNote = VS.frame_kept_note.replace("{rows}", rowsWord(other)).replace("{said}", value);
   }
   // VRF-8 (D1, owner 14:2x "this is supply + installation. the note belongs to the parent. option b"): a supply + installation row
   // under a "Supply of ..." heading whose notes say installation keeps supply + installation, with a note quoting both
@@ -5347,6 +5420,39 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     const inst = sup ? nearestClause(an.install_words, an.not_words, ch.filter((e) => !isOwn(e.where))) : null;
     if (sup && inst) {
       const note = an.note.replace("{row}", sup.said).replace("{said}", inst.said).replace("{where}", inst.where);
+      return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+    }
+    // VRF-10 (F2, owner 08:41; 00363 r51-52): installation said at ANY level beats a NEARER supply-type wording that is not "Supply
+    // of" ("Supply, port clearance, transport of ..." on the parent's note) -- the note quotes BOTH, with where each sits. A row that
+    // is supply + installation by the plain default (no supply-type wording anywhere) gets no note (QR-3 1a stands)
+    if (v10 && !ownInstall && !sup) {
+      let at = -1;
+      let sw: { said: string; where: string } | null = null;
+      for (let k = 0; k < ch.length && !sw; k++) { sw = nearestClause(VS.supply_words, an.not_words, [ch[k]]); if (sw) at = k; }
+      const iw = sw ? nearestClause(an.install_words, an.not_words, ch.slice(at + 1).filter((e) => !isOwn(e.where))) : null;
+      if (sw && iw) {
+        const note = VS.f2_note.replace("{supply}", sw.said).replace("{supply_where}", sw.where).replace("{said}", iw.said).replace("{where}", iw.where);
+        return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
+      }
+    }
+  }
+  // VRF-10 (F6, owner 08:48 / 08:51 "b is correct. you can give an appropriate note"; ANSWER 1 09:09 "supply + install is the general
+  // principle until install is mentioned separately or we are extremely sure that it is a supply only"): a stored "Supply only" that
+  // no rule above settled is supply + installation, noted -- unless (i) the sheet quotes installation of this item on its own row
+  // (Q5 / the same-kind check; QR-1 Q2 (a): any VRF installation-only row on the sheet), or (ii) the row or its chain says supply only
+  // plainly. Both exceptions keep supply only and its note. The S11 pick defaults to the result.
+  if (forced === undefined && !calculator && !keepScope && v10 && value === sc.supply_only && extraNote === undefined) {
+    const own = sameKind((s) => s === sc.install_only || s === sc.install_only_normal);
+    const instText = (t: string) => { try { return new RegExp(VS.install_only_words, "i").test(t) && !new RegExp(VS.install_only_not, "i").test(t); } catch { return false; } };
+    const onSheet = VS.f6_sheet ? (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined
+      && (typeof l.scope1 === "string" ? l.scope1 === sc.install_only || l.scope1 === sc.install_only_normal : instText(l.text ?? ""))).map((l) => l.row).sort((a, b) => a - b) : [];
+    const ch6 = chainOf(ctx);
+    // the row's own text too (as S4 reads it), beside its chain
+    const plain = nearestClause(VS.plain_supply, undefined, [{ where: "", text: [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ") }, ...ch6]);
+    if (!own.length && onSheet.length) extraNote = VS.f6_sheet_note.replace("{rows}", rowsWord(onSheet));
+    else if (!own.length && !plain) {
+      const sw = nearestClause(VS.supply_words, undefined, ch6);
+      const note = sw ? VS.f6_note.replace("{said}", sw.said).replace("{where}", sw.where) : VS.f6_note_unquoted;
       return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
     }
   }
@@ -5417,7 +5523,7 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     }
   }
   const note0 = supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
-  const note = extraNote ? `${note0} ${extraNote}` : note0;
+  const note = [note0, extraNote, frameKeptNote].filter((x) => !!x).join(" ");
   const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };
   if (refuse) {
@@ -5608,6 +5714,10 @@ function prepareModelItems(spec: ItemListPricingSpec, ctx: RowContextWithUnit, e
       if (said && val(it, fa) !== fam && val(it, fa) !== fw.family) continue;
       if (said && (fam === fw.family || fam === "" || fam === "None" || /^none of these$/i.test(fam) || (fw.from ?? []).includes(fam))) {
         if (fam !== fw.family) it = setVal(it, fa, fw.family);
+        // VRF-10 (F5a, owner 08:41; 00380 2F r246): the "ON / OFF controller" note only where ON / OFF is the controller's ONLY
+        // function -- a touch manager listing ON / OFF among mode, temperature, fan speed ... is no ON / OFF controller (the family
+        // is set as before; only the note goes)
+        if (vrf10On(spec) && fw.family === VRF10_ONOFF.family && onOffAmongOthers(fw.words, textOf(fw.in))) continue;
         notes.push(fw.line.replace("{said}", said).replace("{family}", fw.family));
       }
     }
@@ -6032,16 +6142,43 @@ function withPrepNotes(spec: ItemListPricingSpec, res: HelperResult, notes: stri
 
 /** VRF-8 (D12, owner 14:50). A row the reading rules refuse (several unit types under its heading): no figure, every unit says why,
  *  the row's reason names it (U8). The notes stay. Absent `refuse` => the result as is. */
-function withPrepRefusal(res: HelperResult, refuse: string | undefined, noType = false): HelperResult {
+function withPrepRefusal(res: HelperResult, refuse: string | undefined, noType = false,
+                         /** VRF-10 (F4, owner QR-2 (a) "the data still shows it"): the refused unit carries ONLY the refusal -- no SKU line, no
+                          *  working, no fields (no capacity snapped to the inherited family's sizes), no review notes ("priced as a Ductable unit") */
+                         bare = false): HelperResult {
   const r = res as ItemListSuggestion;
   if (!refuse || !r.itemList) return res;
   const { totals: _t, ...v } = r.itemList;
   // VRF-9 (S1, QR-2 (a)): with `several_types.typed` a unit refused for several unit types shows no inherited type -- the panel does
   // not pick one (the calculator's typed case then matches it block for block)
-  const items = v.items.map((b) => ({ ...b, state: "blank" as const, reason: refuse, figures: {}, ...(noType ? { family: null, ...(b.extras ? { extras: { ...b.extras, lines: [], removed: [] } } : {}) } : {}) }));
+  const items = v.items.map((b) => {
+    const nb = { ...b, state: "blank" as const, reason: refuse, figures: {}, ...(noType ? { family: null, ...(b.extras ? { extras: { ...b.extras, lines: [], removed: [] } } : {}) } : {}) };
+    if (!bare) return nb;
+    const { skuLine: _s, extras: _e, ...rest } = nb;
+    return { ...rest, working: [], fields: [], readOnly: [] };
+  });
   return { ...r, values: {}, workings: { ...(r.workings ?? { attributes: [], matchedRows: [] }), derivation: [refuse], finalValues: {} },
            itemList: { ...v, rowPriced: false, reason: refuse, items, lineCount: { lines: v.lineCount?.lines ?? items.length, bad: v.lineCount?.lines ?? items.length } } } as HelperResult;
 }
+
+/** VRF-10 (F4, owner 08:41; 00197 r315-316): on a VRF-10 config a row that does not price carries no PRICED extra line under a unit
+ *  that did not price (a blank / refused item) -- the line would read as a figure for an item nobody priced. Figures do not move: the
+ *  row is unpriced either way. Panel and calculator alike (parity). Absent the key => the result as is. */
+function withBlankBare(spec: ItemListPricingSpec, res: HelperResult): HelperResult {
+  const r = res as ItemListSuggestion;
+  if (!vrf10On(spec) || !r.itemList || r.itemList.rowPriced) return res;
+  let changed = false;
+  const items = r.itemList.items.map((b) => {
+    if (b.state === "priced" || !b.extras || !b.extras.lines.some((l) => l.state === "priced")) return b;
+    changed = true;
+    // the line stays (its review note and the row's item count still name it) but carries no figure
+    return { ...b, extras: { ...b.extras, lines: b.extras.lines.map((l) => (l.state === "priced" ? { ...l, state: "blank" as const, figures: {}, reason: VRF10_BLANK_LINE_REASON } : l)) } };
+  });
+  return changed ? ({ ...r, itemList: { ...r.itemList, items } } as HelperResult) : res;
+}
+
+/** VRF-10 (F4): the reason an extra line under a unit that did not price shows instead of a figure. */
+export const VRF10_BLANK_LINE_REASON = "not priced - the unit it belongs to is not priced";
 
 /** VRF-9 (S1, owner R-D12; R4, owner "option C"). THE CALCULATOR (no heading tree): a unit whose TYPED item names two or more unit
  *  types (`prepare.unit_words`; the panel's "several unit types" case typed in) refuses with `several_types.refusal`; a typed item
@@ -6165,7 +6302,8 @@ function computeItemList(
     // "none of these" is no type either)
     const noType = !!prep.refuse && ((!!spec.extras.prepare?.several_types?.typed && prep.refuse === spec.extras.prepare.several_types.refusal)
       || (spec.extras.prepare?.family_refusals ?? []).some((f) => f.refusal === prep.refuse));
-    return withPrepRefusal(withTypedRefusals(spec, ctx, withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes))), prep.refuse, noType);
+    return withBlankBare(spec, withPrepRefusal(withTypedRefusals(spec, ctx, withTwoCapacities(spec, ctx, withPrepNotes(spec, done, prep.notes, prep.unitNotes))), prep.refuse, noType,
+      noType && vrf10On(spec)));
   }
   // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);

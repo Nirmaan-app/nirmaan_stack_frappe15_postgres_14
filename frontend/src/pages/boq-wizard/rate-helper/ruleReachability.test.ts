@@ -2558,8 +2558,69 @@ describe("VRF-9 (v65) -- R-39: every VRF Derivation-tab rule v65 adds fires from
     const t65 = titles(A65);
     const t64 = titles(A64);
     expect(t64).toHaveLength(73);
-    expect(t65).toHaveLength(86);
+    // VRF-10 (mechanical authority, this slice's own ruling: its 3 Derivation lines ride v65's `scope.panel_pick`, 13l) -- BEFORE:
+    // expect(t65).toHaveLength(86); expect(t65.slice(73)).toEqual(Object.values(VT)). The 13 VRF-9 lines still follow v64's 73.
+    expect(t65).toHaveLength(89);
     expect(t65.slice(0, 73)).toEqual(t64);
-    expect(t65.slice(73)).toEqual(Object.values(VT));
+    expect(t65.slice(73, 86)).toEqual(Object.values(VT));
+  });
+});
+
+/**
+ * VRF-10 (v65, no mint) -- R-39: the 3 Derivation-tab lines VRF-10 adds (13l, on v65's `scope.panel_pick`) and the changed unit line
+ * (F1) fire from the panel's entry point, positive AND negative (v64 = VRF-9). THE VRF GUARD: v65's titles = 73 + 13 + these 3.
+ */
+describe("VRF-10 (v65) -- R-39: every Derivation-tab line VRF-10 adds or changes fires from the panel's entry point; THE VRF GUARD", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  type V = NonNullable<ItemListSuggestion["itemList"]>;
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A65 = rd("rate_master_hvac_all_v65.json");
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const VRF = "hvac_vrf";
+  const asItems = (a: A) => a.items.map((it) => ({ ...it, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const rules = (a: A) => itemListRuleOrder(a.category_configs.find((c) => c.category_id === VRF), asItems(a));
+  type R = { items: Array<Record<string, string | null>>; unit?: string; text?: string; headings?: string[]; ancestorNotes?: string[] };
+  const on = (a: A) => (r: R): V => {
+    const items = [...asItems(a), ...asItems(E72)];
+    const cfgs = new Map<string, RateCategoryConfig>([...a.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+    const results = [{ excel_row: 9, description: r.text ?? "", category_id: VRF, attributes: {}, items: r.items.map((x) => ({ attributes: Object.fromEntries(Object.entries(x).map(([k, v]) => [k, { value: v, confidence: 0.9 }])) })) }];
+    const h = makePricingSheetHelper({ configsByCategory: cfgs, items, extractionByRow: buildExtractionByRow(results as never) });
+    return (h.compute({ excelRow: 9, description: r.text ?? "", nodeType: "Line Item", category: VRF, discipline: "HVAC", rateKinds: ["supply_rate", "install_rate", "combined_rate"],
+      unit: r.unit ?? "Nos", quantity: 1, headings: r.headings ?? [], ownNotes: [], headingNotes: [], ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}) } as never, {}) as unknown as ItemListSuggestion).itemList!;
+  };
+  const v65 = on(A65);
+  const v64 = on(A64);
+  const VT = {
+    dflt: "Supply + installation is the default scope",
+    frame: "An MS frame / stand row is supply + installation",
+    both: "Installation said higher up beats any supply-type wording: the note quotes both",
+  };
+  const hw = (s: typeof v65) => s({ items: [{ item: "Hi-Wall", capacity: "1.0 TR", scope: "Supply only" }], text: "1.0 TR - Hi-Wall", headings: ["Supply of HI-WALL TYPE indoor unit"] });
+  const fr = (s: typeof v65) => s({ items: [{ item: "MS Angle Base Frame Structure", scope: "Supply only" }], unit: "Kg", text: "Supply & providing of MS stand for VRV ODU" });
+  const f2 = (s: typeof v65) => s({ items: [{ item: "Outdoor Unit", capacity: "14 HP", scope: "Supply + installation" }], text: "38 HP ODU", headings: ["VRV HIGHSIDE", "OUTDOOR UNITS"],
+    ancestorNotes: ["Supply, port clearance, transport of units", "Supply, Installation, testing & commissioning of the VRV system"] });
+  const nu = (s: typeof v65) => s({ items: [{ item: "Outdoor Unit", capacity: "16 HP" }], unit: "", text: "16 hp" });
+  const CASES: Array<{ rule: string; kind: "pos" | "neg"; ok: () => boolean }> = [
+    { rule: VT.dflt, kind: "pos", ok: () => hw(v65).scope?.value === "Supply + installation" && /owner F6/.test(hw(v65).scope?.note ?? "") },
+    { rule: VT.dflt, kind: "neg", ok: () => hw(v64).scope?.value === "Supply only" },
+    { rule: VT.frame, kind: "pos", ok: () => fr(v65).totals?.install_rate === 40 },
+    { rule: VT.frame, kind: "neg", ok: () => fr(v64).totals?.install_rate === 0 },
+    { rule: VT.both, kind: "pos", ok: () => /owner F2/.test(f2(v65).scope?.note ?? "") },
+    { rule: VT.both, kind: "neg", ok: () => !f2(v64).scope?.note },
+    { rule: "unit", kind: "pos", ok: () => nu(v65).reason === "no unit on this row" },
+    { rule: "unit", kind: "neg", ok: () => nu(v64).rowPriced === true },
+  ];
+  it("every VRF-10 line fires on v65 and not on v64 (positive AND negative)", () => {
+    expect(CASES.filter((c) => !c.ok()).map((c) => `${c.rule} (${c.kind})`)).toEqual([]);
+    expect(CASES).toHaveLength(8);
+  });
+  it("THE VRF GUARD: v65 = 86 + the 3 VRF-10 lines, last; the unit line says a blank unit refuses on v65 only", () => {
+    const t65 = rules(A65).map((l) => l.title);
+    expect(t65).toHaveLength(89);
+    expect(t65.slice(86)).toEqual(Object.values(VT));
+    const unitLine = (a: A) => rules(a).find((l) => l.title === "The row's unit decides which kind of rate applies")?.detail ?? "";
+    expect(unitLine(A65)).toContain("a row with no unit is refused 'no unit on this row'");
+    expect(unitLine(A64)).toContain("a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit");
   });
 });

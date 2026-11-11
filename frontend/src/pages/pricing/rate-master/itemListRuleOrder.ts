@@ -424,7 +424,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       // VRF-2b (owner QR-1 U7 A): a category whose every kind is priced in ONE of several classes names them in its words too
       [classes.length ? `the units it knows: ${list(plain || oneClassPerKind(pr) ? classes.map((c) => String(pr.unit_words?.[c] ?? c)) : classes)}` : "",
        factors.length ? `${list(factors, 4)} convert to the catalogue's own unit` : "",
-       classes.length ? "a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit and says so; a row stating several units refuses, naming them" : "",
+       // VRF-10 (F1; the rules ride v65's `scope.panel_pick`): on that config a row with NO unit refuses instead
+       classes.length ? ((pr.extras as { scope?: { panel_pick?: unknown } } | undefined)?.scope?.panel_pick
+         ? "a row with no unit is refused 'no unit on this row' -- never priced by assuming a unit; a rate-only unit (R/O, QRO) is priced in the item's own unit and says so; a row stating several units refuses, naming them"
+         : "a row with no unit, or a rate-only unit (R/O, QRO), is priced in the item's own unit and says so; a row stating several units refuses, naming them") : "",
        // SLICE 12e-2 (owner Q19 / C2): the configured refusal for any other unit, in its own words
        // VRF-2b (owner QR-3 A): a spelling the config prices with a line ("'Nos/Ro' is read as Nos")
        pr.unit_lines && typeof pr.unit_lines === "object" && Object.keys(pr.unit_lines).length
@@ -1546,6 +1549,16 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   if (prep9?.row_family) {
     add("A gas-charging or ODU-frame row with no item read",
         "a row the model read no item for, whose own text names refrigerant gas charging (quoted per kg) or the outdoor units' MS base frame / stand / structure (never a civil pedestal), is priced on that item -- a frame quoted per Kg on the per-Kg frame item");
+  }
+  // -- 13l. VRF-10 (the VRF-9 review, owner rulings 2026-11-11 08:41-09:10) -- ADDED LAST, only where the VRF-10 rules are on (they
+  // ride v65's `scope.panel_pick`; no mint): the scope rules F2 / F3 / F6 (F1 is the unit line above; F4 / F5 change no rule)
+  if ((sc9 as { panel_pick?: unknown } | null)?.panel_pick) {
+    add("Supply + installation is the default scope",
+        "a row read as supply only is priced supply + installation, with a note quoting the BoQ's supply wording ('Supply of ...' alone is not supply only) -- unless the sheet quotes installation on its own rows, or the BoQ says supply only plainly ('supply only', 'excluding installation', 'installation by the client'); the scope pick on the panel starts at the same choice");
+    add("An MS frame / stand row is supply + installation",
+        "a row priced on the MS frame / stand item (per Nos or per Kg) is supply + installation whatever its scope words, unless the sheet quotes the frame's supply and its installation on separate rows -- then each row keeps its own scope and names the other");
+    add("Installation said higher up beats any supply-type wording: the note quotes both",
+        "where installation is said at any level above a nearer wording that reads as supply ('Supply, port clearance, transport of ...', not only 'Supply of'), the row is supply + installation with a note quoting both and where each sits; a row with no supply-type wording anywhere gets no note");
   }
   // ── 14. ADP-4a (owner A1 / D1): WHY -- each line's reason on the plain wording, at the end of its detail ──
   if (plain) {

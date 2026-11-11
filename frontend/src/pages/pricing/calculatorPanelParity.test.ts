@@ -3676,3 +3676,62 @@ describe("VRF-9 B2 -- the calculator refuses wherever the panel refuses; panel =
     expect(run(CASES[4][1], CFG64).divergences.map((d) => d.what)).toContain("item row reason");
   });
 });
+
+/**
+ * VRF-10 B1 (the VRF-9 review, owner rulings 2026-11-11 08:41-09:10; parity for every VRF-10 rule) -- panel = calculator on every
+ * case on LIVE v65 (the rules ride its `scope.panel_pick`), the count asserted, ZERO named exceptions. A BoQ row with a blank unit is
+ * typed into the calculator with its unit left blank, and the calculator refuses with the panel's "no unit on this row" (F1); the
+ * scope the panel settles (F2 / F3 / F5b / F6) is the calculator's "BoQ scope" pick, so both price the same lines.
+ */
+describe("VRF-10 B1 -- panel = calculator on every VRF-10 case, zero exceptions", () => {
+  type A = { discipline: string; items: Array<Omit<RateMasterItem, "discipline"> & { brand?: string | null }>; category_configs: RateCategoryConfig[] };
+  const rd = (n: string) => readJsonFixture<A>(new URL(`../../../../nirmaan_stack/services/boq_rate_master/data/${n}`, import.meta.url));
+  const A65 = rd("rate_master_hvac_all_v65.json");
+  const A64 = rd("rate_master_hvac_all_v64.json");
+  const E72 = rd("rate_master_electrical_all_v72.json");
+  const asItems = (a: A) => a.items.map((it, i) => ({ ...it, name: `${a.discipline}-${i}`, discipline: a.discipline, attributes: it.brand ? { ...it.attributes, brand: it.brand } : { ...it.attributes } } as RateMasterItem));
+  const ITEMS = [...asItems(A65), ...asItems(E72)];
+  const cfgs = (a: A) => new Map<string, RateCategoryConfig>([...a.category_configs, ...E72.category_configs].map((c) => [c.category_id, c]));
+  const CFG65 = cfgs(A65);
+  const CFG64 = cfgs(A64);
+  const run = (c: ParityCase, m = CFG65) => runParity(m, ITEMS, c, "full");
+  const vc = (unit: string, item: Record<string, string | null>, more: Partial<ParityCase> = {}): ParityCase => ({ cat: "hvac_vrf", unit, desc: "", attrs: {}, items: [item], ...more });
+  const D12N = ["Hi-Wall Split Units", "4 Way Compact Cassette Units", "4 Way Cassette Units", "Ceiling Suspended Ductable Units"];
+  const N50 = "Supply, port clearance, transport of AIR COOLED Variable Refrigerant Flow Modular type Outdoor units suitable with high efficiency";
+  const N20 = "Supply, Installation,testing & commissioning of Variable Refrigerant volume - modular type air-conditioning system complete with indoor units";
+  const TM = "SITC of Central Remote Controller / i - touch manager. The CRC shall consists of LCD display, basic functions like ON / OFF, mode settings, temperature setting, fan speed";
+  const CASES: Array<[string, ParityCase]> = [
+    ["F1 a frame row with a blank unit (00029 r402)", vc("", { item: "MS frame / stand for ODU", scope: "Supply + installation" }, { desc: "Supply, Fabrication and Installation of MS frame using channels/angle iron sections for VRF outdoor units" })],
+    ["F1 an ODU '16 hp' with a blank unit (00234 r12)", vc("", { item: "Outdoor Unit", brand: "Blue Star", capacity: "16 HP" }, { desc: "16 hp" })],
+    ["F2 supply-type parent note + installation above (00363 r51)", vc("Nos", { item: "Outdoor Unit", brand: "Blue Star", capacity: "14 HP", scope: "Supply + installation" }, { desc: "38 HP - Out door unit", headings: ["VRV HIGHSIDE WORKS", "OUTDOOR UNITS"], ancestorNotes: [N50, N20] })],
+    ["F3 the per-Kg frame read supply only (00009 r80)", vc("Kg", { item: "MS Angle Base Frame Structure", scope: "Supply only" }, { desc: "Supply & providing of MS stand for VRV ODU along with proper supports-suitable for above configuration" })],
+    ["F3 the per-Nos frame read supply only (00397 r172)", vc("Nos", { item: "MS frame / stand for ODU", scope: "Supply only" }, { desc: "Supply & providing of MS stand for VRV/DX ODU along with proper supports" })],
+    ["F4 several unit types, the bare refusal (00380 2F r209)", vc("Nos", { item: null, capacity: "2.0 TR" }, { desc: "2.0 TR", headings: ["SITC of VRF indoor units"], headingNotes: D12N })],
+    ["F4 a capacity refusal with a remote read (00197 r315)", vc("Nos", { item: "Ductable", brand: "Blue Star", capacity: "40 TR", remote_type: "Cordless", includes_remote: "Yes", includes_remote_where: "Heading", includes_remote_wording: "Scope" }, { desc: "40 TR - Ceiling Suspended", headings: ["Supply of Ceiling Suspended type AC with cordless remote"] })],
+    ["F5a a touch manager listing ON / OFF (00380 2F r246)", vc("Set", { item: "Touch Screen Central Controller" }, { desc: TM })],
+    ["F5b a gas row per Lot read installation only (00149 r259)", vc("Lot", { item: "Refrigerant Gas Filling (R-410)", scope: "Installation only" }, { desc: "Pressure testing each circuit with nitrogen Gas, Vaccumising. First Charge of Refrigerant" })],
+    ["F6 'Supply of' heading, read supply only (00075 r54)", vc("Nos", { item: "Hi-Wall", capacity: "1.0 TR", scope: "Supply only" }, { desc: "1.0 TR - Hi-Wall", headings: ["Supply of HI-WALL TYPE indoor unit as per the specification"] })],
+    ["F6 (ii) the row says supply only", vc("Nos", { item: "Hi-Wall", capacity: "1.0 TR", scope: "Supply only" }, { desc: "1.0 TR - Hi-Wall (supply only)", headings: ["Supply of HI-WALL TYPE indoor unit"] })],
+  ];
+
+  it("every case: 0 divergences -- the count asserted, no named exception", () => {
+    const out = CASES.map(([name, c]) => ({ name, div: run(c).divergences }));
+    expect(out.filter((o) => o.div.length).map((o) => ({ name: o.name, div: o.div }))).toEqual([]);
+    expect(CASES).toHaveLength(11);
+  }, 600000);
+
+  it("the F1 refusal reaches the calculator with the panel's sentence; F3 / F6 / F5b scopes are the calculator's pick", () => {
+    const both = (i: number) => { const r = run(CASES[i][1]); return [r.panel, r.calculator].map((s) => (s as ItemListSuggestion).itemList!); };
+    for (const i of [0, 1]) expect(both(i).map((v) => [v.rowPriced, v.reason])).toEqual([[false, "no unit on this row"], [false, "no unit on this row"]]);
+    expect(both(3).map((v) => [v.totals?.supply_rate, v.totals?.install_rate])).toEqual([[140, 40], [140, 40]]);
+    expect(both(9)[0].scope?.value).toBe("Supply + installation");
+    expect(both(9)[1].scope?.value).toBe("Supply + installation");
+    expect(both(8).map((v) => v.scope?.value)).toEqual(["Supply + installation", "Supply + installation"]);
+  });
+
+  it("NEGATIVE: on v64 the blank-unit row prices per Nos on both paths, and the frame row stays supply only (VRF-9)", () => {
+    const r = run(CASES[1][1], CFG64);
+    expect([(r.panel as ItemListSuggestion).itemList!.rowPriced, (r.calculator as ItemListSuggestion).itemList!.rowPriced]).toEqual([true, true]);
+    expect((run(CASES[3][1], CFG64).panel as ItemListSuggestion).itemList!.totals?.install_rate).toBe(0);
+  });
+});
