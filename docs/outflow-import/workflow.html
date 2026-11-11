@@ -1247,7 +1247,7 @@ Nothing in this file is new. No records were created.
 
   <div class="call">
     <span class="lead">Why the backend gate matters more than usual</span>
-    <p>These endpoints do their own <code>save_file</code> and <code>insert(ignore_permissions=True)</code>,
+    <p>These endpoints do their own <code>store_file</code> and <code>insert(ignore_permissions=True)</code>,
       so Frappe's own permission machinery never runs. Without <code>require_outflow_access</code> every
       endpoint would be reachable by any logged-in user. Hiding the sidebar entry protects nothing.</p>
   </div>
@@ -1281,7 +1281,7 @@ Nothing in this file is new. No records were created.
     <li>
       <span class="sh">Parse — <b>before any write whatsoever</b></span>
       <p>This ordering is the design. A malformed statement leaves <em>no</em> File, <em>no</em> batch,
-        <em>no</em> rows. It matters here specifically because <code>save_file</code> is not
+        <em>no</em> rows. It matters here specifically because <code>store_file</code> is not
         rollback-able: the cloud-attachment hook uploads, rewrites <code>file_url</code>, deletes the
         local copy and calls <code>frappe.db.commit()</code> <em>inside</em> this request. Anything
         written before that point is committed mid-flight.</p>

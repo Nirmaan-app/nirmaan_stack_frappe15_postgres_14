@@ -26,7 +26,6 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import file_manager
 from werkzeug.datastructures import FileStorage, MultiDict
 
 from nirmaan_stack.api.outflow_import import cashbook as cb
@@ -34,6 +33,7 @@ from nirmaan_stack.api.outflow_import.test_cashbook_import import FIXTURE, _purg
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 from nirmaan_stack.services.outflow_import.tests.cashbook_xlsx import as_statement_xlsx
+from nirmaan_stack.services.stored_files import store_file
 
 ACTOR = "Administrator"
 
@@ -74,11 +74,8 @@ def _post_confirm(content: bytes):
     return cb.confirm_cashbook_import()
 
 
-_real_save_file = file_manager.save_file
-
-
-def _save_file_and_commit(*args, **kwargs):
-    saved = _real_save_file(*args, **kwargs)
+def _store_file_and_commit(*args, **kwargs):
+    saved = store_file(*args, **kwargs)
     frappe.db.commit()
     return saved
 
@@ -178,12 +175,12 @@ class TestTwoOverlappingConfirms(OneExpensePerTxnIdCase):
         "Already imported" skip."""
         batches = []
         self.addCleanup(self._purge_confirmed, batches)
-        # The jobs run below, on their own connections, not on the live queue. And `save_file` commits, as it
+        # The jobs run below, on their own connections, not on the live queue. And `store_file` commits, as it
         # does in production: `frappe_gcp_attachment.controller.file_upload_to_gcs` (a File `after_insert`)
         # calls `frappe.db.commit()`, so `_stage` runs in a NEW transaction. A dev env turns that upload off,
         # and without the commit the late confirm's `_stage` would trip over the batch naming-series row
         # instead -- a conflict production never has.
-        with patch("frappe.enqueue"), patch("frappe.utils.file_manager.save_file", _save_file_and_commit):
+        with patch("frappe.enqueue"), patch.object(cb, "store_file", _store_file_and_commit):
             late_out, early_out = self._late_and_early(
                 lambda: _post_confirm(self._file(self.data)),
                 lambda: _post_confirm(self._file(self.data[:6])),

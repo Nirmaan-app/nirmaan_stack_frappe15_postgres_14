@@ -9,10 +9,10 @@ in `services/outflow_import`; this module owns none of them.
 THE ORDER OF OPERATIONS IS THE DESIGN, and it differs deliberately from the BoQ upload it is
 otherwise modelled on:
 
-    authorize -> read bytes -> **parse in memory** -> save_file -> create batch + rows -> commit
+    authorize -> read bytes -> **parse in memory** -> store_file -> create batch + rows -> commit
 
-Parsing BEFORE `save_file` means a malformed statement writes NOTHING AT ALL -- no File, no batch,
-no rows. That matters here specifically because `save_file` is not rollback-able: the
+Parsing BEFORE `store_file` means a malformed statement writes NOTHING AT ALL -- no File, no batch,
+no rows. That matters here specifically because `store_file` is not rollback-able: the
 `frappe_gcp_attachment` File `after_insert` hook uploads to cloud storage, rewrites `file_url`,
 deletes the local copy and calls `frappe.db.commit()` INSIDE this request. Anything written before
 that point is committed mid-flight. Parsing first sidesteps the whole hazard.
@@ -30,7 +30,6 @@ werkzeug stream exactly ONCE -- it is consumed on read.
 import os
 
 import frappe
-from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.internal_transfers import record_for_line, recorded_line_of_move
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -65,6 +64,7 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_batch_status,
     derive_staged_row_outcome,
 )
+from nirmaan_stack.services.stored_files import store_file
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
@@ -84,7 +84,7 @@ _BANK_STATEMENT_SOURCES = BANK_STATEMENT_SOURCES
 # name, and a renamed export still parses correctly.
 _ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
 
-# Well under `save_file`'s own 10 MB cap. A statement is kilobytes; anything approaching this is a
+# Well under `store_file`'s own 10 MB cap. A statement is kilobytes; anything approaching this is a
 # wrong file, and refusing it here gives a better message than the framework's.
 _MAX_FILE_BYTES = 5 * 1024 * 1024
 
@@ -244,7 +244,7 @@ def upload_outflow_statement():
     # the earlier-sightings question once and the two can never disagree about which lines repeat.
     plan = _plan_lines(parsed)
 
-    # ⚠️ THE REFUSAL HAPPENS BEFORE `save_file`, WHICH IS THE ONLY PLACE IT CAN. `save_file` is not
+    # ⚠️ THE REFUSAL HAPPENS BEFORE `store_file`, WHICH IS THE ONLY PLACE IT CAN. `store_file` is not
     # rollback-able -- the cloud attachment hook commits inside this request -- so a refusal after
     # it would leave an orphan File behind for a statement we declined. Owner ruling Q2: a wholly
     # duplicated sheet writes NOTHING AT ALL.
@@ -252,7 +252,7 @@ def upload_outflow_statement():
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
-    ret = save_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
+    ret = store_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
     # Read file_url OFF THE RETURNED DOC: the cloud hook rewrites it on this same object during
     # insert, so any URL computed beforehand is already wrong.
     file_url = ret.file_url

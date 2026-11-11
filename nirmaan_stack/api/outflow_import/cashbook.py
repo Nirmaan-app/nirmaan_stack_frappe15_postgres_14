@@ -119,6 +119,7 @@ from nirmaan_stack.services.outflow_import.status import (
 )
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_ALREADY_IMPORTED
+from nirmaan_stack.services.stored_files import store_file
 
 SOURCE = "Cashbook"
 
@@ -168,8 +169,8 @@ def confirm_cashbook_import():
     plan = _plan_claiming_reopens(parsed)
     late = _late_bills(parsed, plan)
 
-    # ⚠️ THE REFUSAL COMES BEFORE `save_file`, the only place it can (ADR-0031, as on the Cashfree
-    # path): `save_file` commits inside this request, so a refusal after it would leave an orphan File
+    # ⚠️ THE REFUSAL COMES BEFORE `store_file`, the only place it can (ADR-0031, as on the Cashfree
+    # path): `store_file` commits inside this request, so a refusal after it would leave an orphan File
     # for a statement we declined. A file of nothing but exact repeats writes NOTHING AT ALL -- unless some of
     # them bring a bill for an Expense still waiting for one (#1593).
     fills = internal_transfer_records.zero_records_to_fill(parsed.rows)
@@ -177,13 +178,11 @@ def confirm_cashbook_import():
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
-    from frappe.utils.file_manager import save_file
-
-    # Saved BEFORE the batch because `save_file` is not rollback-able -- the cloud attachment hook
+    # Saved BEFORE the batch because `store_file` is not rollback-able -- the cloud attachment hook
     # commits inside this request -- and the URL is read off the returned doc because that same
     # hook rewrites it during insert.
-    saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
-    # ⚠️ CLAIMED AGAIN (code review S6): `save_file`'s commit released the claim's row locks, so another import could
+    saved = store_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
+    # ⚠️ CLAIMED AGAIN (code review S6): `store_file`'s commit released the claim's row locks, so another import could
     # have re-opened one of the lines since. This claim holds to the commit below, through `_stage`'s re-open.
     if plan.reopening:
         plan = _plan_claiming_reopens(parsed)
@@ -349,7 +348,7 @@ def _cashbook_worker(
     other hundred -- the reviewer has already approved the whole batch, and stopping would leave
     them with no way to tell which rows went through.
 
-    ⚠️ A CREATED LINE'S BILLS ARE COPIED AFTER ITS COMMIT, NEVER INSIDE IT (#1591). `save_file` commits
+    ⚠️ A CREATED LINE'S BILLS ARE COPIED AFTER ITS COMMIT, NEVER INSIDE IT (#1591). `store_file` commits
     mid-save, so the download and the save run between the line's transaction and a short second one that
     attaches the invoice (`cashbook_bills.copy_created_line_bills`). A bill that cannot be copied never fails the line.
 
@@ -634,7 +633,7 @@ def _read_and_parse():
 
     # ADR-0015 Amendment B decision 2: the job must still be able to fetch every bill, so a statement
     # whose earliest link is dead, or dies within the hour, is refused here -- before confirm's
-    # `save_file`, so a refusal saves nothing.
+    # `store_file`, so a refusal saves nothing.
     expired = expired_links_refusal(
         parsed.rows, now=_utc_now(), tz=ZoneInfo(frappe.utils.get_system_timezone())
     )
