@@ -971,6 +971,10 @@ export interface ScopeSpec {
   /** VRF-9 (S9, owner 00:59 "gas charging is always both"): a row priced on one of `families` (refrigerant gas charging /
    *  topping up) is supply + installation whatever its scope words, with `note` ({said} = the scope read) */
   always_both?: { families: string[]; note: string };
+  /** VRF-9 (S11, owner ANSWER 11): a BoQ row's helper panel offers the scope pick (supply + installation / supply only / installation
+   *  only) defaulting to the helper's own scope; a pick re-prices the row by the calculator's rules, and `note` ({helper} = the
+   *  helper's scope, {because} = its reason) says the user changed it. ABSENT => the panel shows the scope as a note only. */
+  panel_pick?: { note: string };
 }
 
 /** VRF-5: one accessory line (see `ExtrasSpec.accessories`). */

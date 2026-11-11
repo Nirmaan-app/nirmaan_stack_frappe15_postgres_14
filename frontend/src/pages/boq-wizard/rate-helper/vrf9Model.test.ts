@@ -54,11 +54,11 @@ const sheet = (rows: Record<number, Row>, cfg = vrf9()) => {
   const priced = Object.entries(rows).map(([er, r]) => ({ source_row_number: Number(er), qty_total: r.qty ?? 1, node_type: r.node ?? "Line Item", description: r.text ?? "", unit: r.unit ?? "Nos" }));
   const rowQuantities = rowQuantitiesOf(priced as never);
   const sheetLines = sheetLinesOf(priced as never);
-  return (er: number): ItemListView => {
+  return (er: number, ov: Record<string, string> = {}): ItemListView => {
     const r = rows[er];
     const res = helper.compute({ excelRow: er, description: r.text ?? "", nodeType: "Line Item", category: r.category ?? VRF, discipline: "HVAC", rateKinds: KINDS,
       unit: r.unit ?? "Nos", quantity: r.qty ?? 1, rowQuantities, sheetLines, headings: r.headings ?? [], ownNotes: r.ownNotes ?? [], headingNotes: r.headingNotes ?? [],
-      ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}), ...(r.chainRows ? { chainRows: r.chainRows } : {}) } as never, {}) as unknown as ItemListSuggestion;
+      ...(r.ancestorNotes ? { ancestorNotes: r.ancestorNotes } : {}), ...(r.chainRows ? { chainRows: r.chainRows } : {}) } as never, ov) as unknown as ItemListSuggestion;
     return res.itemList!;
   };
 };
@@ -349,6 +349,37 @@ describe("VRF-9 R4 -- a Fan Coil Unit with no type told refuses with its own rea
     expect(r217(v64()).reason).toMatch(/no item could be told/);
     const v = one({ items: [{ item: "Cassette", capacity: "1.0 TR" }], text: "1.0 TR", chainRows: ch([217, "this row", "1.0 TR"], [216, "heading row 216", "Fan Coil Units"]) });
     expect(v.rowPriced).toBe(true);
+  });
+});
+
+describe("VRF-9 S11 (ANSWER 11) -- the scope pick on a BoQ row's helper panel", () => {
+  const SC = "__scope__";
+  const SUP = (cfg = vrf9()) => sheet({ 9: { items: [ODU({ scope: "Supply only" })], text: "10 HP ODU - supply only" } }, cfg);
+  it("a supply-only row offers the three options at the helper's choice; picking supply + installation re-prices it, noted", () => {
+    const s = SUP();
+    const v0 = s(9);
+    expect(v0.scope?.picker?.options).toEqual(["Supply + installation", "Supply only", "Installation only"]);
+    expect(v0.scope?.picker?.value).toBe("Supply only");
+    expect(v0.totals?.install_rate).toBe(0);
+    const v1 = s(9, { [SC]: "Supply + installation" });
+    expect(v1.scope?.value).toBe("Supply + installation");
+    expect(v1.totals?.install_rate).toBeGreaterThan(0);
+    expect(v1.scope?.note ?? "").toMatch(/^Scope changed by user \(the helper chose Supply only because: BoQ says supply only/);
+    // back to the helper's own choice -> the helper's result again
+    expect(s(9, { [SC]: "Supply only" }).totals).toEqual(v0.totals);
+  });
+  it("installation only: x (1 + 50%) without a supply row on the sheet; the normal rate when the sheet quotes the supply (S12)", () => {
+    const alone = sheet({ 9: { items: [ODU({ scope: "Supply + installation" })], text: "10 HP ODU" } })(9, { [SC]: "Installation only" });
+    expect(alone.totals?.supply_rate).toBe(0);
+    expect(alone.scope?.note ?? "").toMatch(/x \(1 \+ 50%\)/);
+    const withSupply = sheet({ 9: { items: [ODU({ scope: "Supply + installation" })], text: "10 HP ODU" },
+      5: { items: [ODU({ scope: "Supply only" })], text: "10 HP ODU supply" } })(9, { [SC]: "Installation only" });
+    expect(withSupply.scope?.note ?? "").toMatch(/normal installation rate applies/);
+  });
+  it("NEGATIVE: v64 (no panel_pick) offers no pick on a BoQ row and ignores a stray scope override", () => {
+    const s = SUP(v64());
+    expect(s(9).scope?.picker).toBeUndefined();
+    expect(s(9, { [SC]: "Supply + installation" }).totals?.install_rate).toBe(0);
   });
 });
 

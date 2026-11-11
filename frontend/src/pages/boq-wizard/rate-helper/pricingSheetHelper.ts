@@ -5222,14 +5222,43 @@ export const SCOPE_OVERRIDE_KEY = "__scope__";
  * (after every markup / rounding) x (1 + the Pricing Input uplift), rounded up to the rupee once, after the multiplier; a line
  * with no install rate refuses with a note. A config without `extras.scope`, and a supply + installation row, are unchanged.
  */
+/** VRF-9 (S11, owner ANSWER 11). The row's scope with, on a BoQ row of a config with `scope.panel_pick`, the user's pick: the panel
+ *  offers the three options defaulting to the helper's own scope; a different pick re-prices the row by the same rules as the
+ *  calculator (supply only / installation only with the uplift or the normal rate when the sheet quotes the supply / both) and the
+ *  note says the user changed it, naming the helper's choice and why. No pick (or the helper's own) => the helper's result + the pick. */
 function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
-                   overrides: Record<string, string> | undefined, res: ItemListSuggestion, _probe?: OwnPassProbe): ItemListSuggestion {
+                   overrides: Record<string, string> | undefined, res: ItemListSuggestion, probe?: OwnPassProbe): ItemListSuggestion {
+  const sc = spec.extras?.scope;
+  const view = res.itemList;
+  const calculator = !!view && (view.unitPickable || ctx.noRow === true);
+  if (!sc || !view || calculator || !sc.panel_pick) return withScopeCore(spec, items, ctx, ext, overrides, res, probe);
+  const helper = withScopeCore(spec, items, ctx, ext, overrides, res, probe);
+  const hs = helper.itemList?.scope;
+  const toPick = (v: string | undefined) => (v && sc.install_only_normal && v === sc.install_only_normal ? sc.install_only : v) ?? sc.options[0];
+  const hv = toPick(hs?.value);
+  const options = sc.options.filter((o) => o !== sc.install_only_normal);
+  const pick = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  if (!pick || !options.includes(pick) || pick === hv) {
+    return { ...helper, itemList: { ...helper.itemList!, scope: { ...(hs ?? { value: hv }), picker: { title: sc.title, options, value: hv } } } };
+  }
+  const forced = withScopeCore(spec, items, ctx, ext, overrides, res, probe, pick);
+  const fs = forced.itemList?.scope;
+  const because = hs?.note ? ` because: ${hs.note}` : "";
+  const lead = sc.panel_pick.note.replace("{helper}", hv).replace("{because}", because);
+  return { ...forced, itemList: { ...forced.itemList!, scope: { value: fs?.value ?? pick, note: fs?.note ? `${lead} ${fs.note}` : lead, picker: { title: sc.title, options, value: pick } } } };
+}
+
+function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
+                       overrides: Record<string, string> | undefined, res: ItemListSuggestion, _probe?: OwnPassProbe,
+                       /** VRF-9 (S11): the user's pick on a BoQ row -- priced as chosen; the reading rules that would decide it are skipped */
+                       forced?: string): ItemListSuggestion {
   const sc = spec.extras?.scope;
   const view = res.itemList;
   if (!sc || !view) return res;
   const calculator = view.unitPickable || ctx.noRow === true;
   let value = "";
-  if (calculator) value = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
+  if (forced !== undefined) value = forced;
+  else if (calculator) value = String(overrides?.[SCOPE_OVERRIDE_KEY] ?? "").trim();
   else {
     const id = spec.extras?.from_model?.scope;
     for (const it of id ? (ext?.items ?? []) : []) {
@@ -5250,11 +5279,11 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   // VRF-9 (S9, owner 00:59 "gas charging is always both"): a refrigerant gas charging / topping-up row is supply + installation,
   // whatever its scope words
   const ab = sc.always_both;
-  if (!calculator && ab && (value === sc.supply_only || value === sc.install_only || (!!sc.install_only_normal && value === sc.install_only_normal))
+  if (forced === undefined && !calculator && ab && (value === sc.supply_only || value === sc.install_only || (!!sc.install_only_normal && value === sc.install_only_normal))
     && view.items.some((b) => !!b.family && ab.families.includes(b.family))) {
     return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: ab.note.replace("{said}", value) } } };
   }
-  if (!calculator && sc.conflict && value === sc.supply_only) {
+  if (forced === undefined && !calculator && sc.conflict && value === sc.supply_only) {
     const text = [...(ctx.headings ?? []), ...(ctx.headingNotes ?? []), ...(ctx.ownNotes ?? [])].join(" | ");
     let said: string | null = null;
     try { const m = new RegExp(sc.conflict.words, "i").exec(text); said = m ? m[0].trim() : null; } catch { said = null; }
@@ -5272,7 +5301,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   // a top heading) -> supply + installation, noted -- unless the row itself says supply only, or the sheet quotes installation of
   // this kind on its own row (Q5 above keeps supply only then)
   const al = sc.any_level;
-  if (!calculator && al && value === sc.supply_only && extraNote === undefined && !sameKind((s) => s === sc.install_only).length) {
+  if (forced === undefined && !calculator && al && value === sc.supply_only && extraNote === undefined && !sameKind((s) => s === sc.install_only).length) {
     const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
     let keep = false;
     try { keep = !!al.keep_words && new RegExp(al.keep_words, "i").test(own); } catch { keep = false; }
@@ -5282,7 +5311,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   // VRF-8 (D1, owner 14:2x "this is supply + installation. the note belongs to the parent. option b"): a supply + installation row
   // under a "Supply of ..." heading whose notes say installation keeps supply + installation, with a note quoting both
   const sh = sc.supply_heading;
-  if (!calculator && sh && value !== sc.supply_only && value !== sc.install_only && value !== sc.install_only_normal) {
+  if (forced === undefined && !calculator && sh && value !== sc.supply_only && value !== sc.install_only && value !== sc.install_only_normal) {
     const ch = chainOf(ctx);
     // the unit's own heading (a heading entry, never a heading's NOTE) and the notes of that level -- `chainRows` lists a heading
     // before its notes; a context built without them lists the notes first, so both sides of the heading are read, up to the next one
@@ -5308,7 +5337,7 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   // providing" and whose own text names no installation, under a text that says installation -> the note quoting both, written
   // whatever the model answered for the scope (blank included)
   const an = sc.always_note;
-  if (!calculator && an && value !== sc.supply_only && value !== sc.install_only && !(sc.install_only_normal && value === sc.install_only_normal)) {
+  if (forced === undefined && !calculator && an && value !== sc.supply_only && value !== sc.install_only && !(sc.install_only_normal && value === sc.install_only_normal)) {
     const ch = chainOf(ctx);
     const isOwn = (w: string) => w === CHAIN_ROW_PLACE || w === CHAIN_ROW_NOTE_PLACE;
     const own = ch.filter((e) => isOwn(e.where));
