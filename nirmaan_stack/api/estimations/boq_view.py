@@ -74,6 +74,7 @@ def get_estimates_overview(project: str = None) -> dict:
     for boq, sheet_name, count in frappe.db.sql(
         f"""select e.boq, ps.sheet_name, count(*) {_ESTIMATE_LINE_JOIN}
            where e.boq in %(boqs)s and ({_LINE_MISSING} or coalesce(n.is_current, 0) = 0)
+             and coalesce(e.settled, 0) = 0
            group by e.boq, ps.sheet_name""", {"boqs": tuple(boq_names)}):
         older[(boq, sheet_name)] = count
 
@@ -106,8 +107,9 @@ def _items_by_estimate(names: list) -> dict:
 def get_estimates(boq: str = None, sheet_name: str = None) -> dict:
     """Every estimate of a Selected BOQ (or of one sheet of it, named verbatim), with its items and its line item.
 
-    Returns {"current": [...], "older": [...]}: `current` are on the sheets' current line items; `older` are left on
-    an older version by a re-commit (shown in the older-version notice, re-attached by `reattach_estimates`), or on
+    Returns {"current": [...], "older": [...]}: `current` are on the sheets' current line items; `older` are the ones
+    on an older version that still need a person -- not copied yet, their line changed (shown in the older-version
+    notice; copied by the after-commit job or `reattach_estimates`) -- history left out, or on
     a line item that was deleted (state `line_missing`; with no sheet name when its sheet is gone too, and then
     listed on every sheet). Each entry: {name, modified, boq_node, item_count, line: {sheet_name, excel_row, sl_no,
     description, unit, qty, is_current}, items: [...]}; an older entry also has {version, state, target_node, copy}
@@ -126,7 +128,7 @@ def get_estimates(boq: str = None, sheet_name: str = None) -> dict:
         params["sheet_name"] = sheet_name
     rows = frappe.db.sql(
         f"""select e.name, e.modified, e.boq_node, coalesce(e.item_count, 0) as item_count,
-                   ps.sheet_name, n.source_row_number as excel_row, n.code as sl_no, n.description, n.unit, n.qty,
+                   coalesce(e.settled, 0) as settled, ps.sheet_name, n.source_row_number as excel_row, n.code as sl_no, n.description, n.unit, n.qty,
                    coalesce(n.is_current, 0) as is_current, n.sort_order, ps.commit_version as version,
                    {_LINE_MISSING} as line_missing
             {_ESTIMATE_LINE_JOIN}
@@ -150,20 +152,23 @@ def get_estimates(boq: str = None, sheet_name: str = None) -> dict:
             "items": items.get(r.name, []),
         }
         if r.line_missing:
-            entry.update(version=r.version, state=rules.STATE_LINE_MISSING, target_node=None, copy=None)
+            state = rules.STATE_HISTORY if r.settled else rules.STATE_LINE_MISSING
+            entry.update(version=r.version, state=state, target_node=None, copy=None)
         elif not is_current:
-            entry["version"] = r.version
+            entry.update(version=r.version, settled=bool(r.settled))
         (current if is_current else older).append(entry)
     on_versions = [e for e in older if "state" not in e]
     if on_versions:
         _set_older_states(boq, on_versions, current)
-    return {"current": current, "older": older}
+    # Owner 2026-11-12 (option B): each older version keeps its estimates as history -- settled (copied forward, or
+    # resolved by a person), or stood for by a newer version's estimate. History needs nothing, so it is not listed;
+    # it stays in the table with its version.
+    return {"current": current, "older": [e for e in older if e.get("state") != rules.STATE_HISTORY]}
 
 
 def _set_older_states(boq: str, older: list, current: list) -> None:
-    """Adds `state`, `target_node` and `copy` to each older entry (see `rules.older_states`), per sheet name: Re-attach
-    copies an older estimate onto its unchanged line of the current version and keeps the older one as a backup.
-    `older` holds only estimates whose old line item still exists (a missing one is `line_missing` already)."""
+    """Adds `state`, `target_node` and `copy` to each older entry (see `rules.older_states`), per sheet name. `older`
+    holds only estimates whose old line item still exists (a missing one has its state already)."""
     sheet_names = sorted({e["line"]["sheet_name"] for e in older})
     lines = frappe.db.sql(
         """select n.name as node, n.source_row_number as excel_row, n.description, s.sheet_name
@@ -177,7 +182,8 @@ def _set_older_states(boq: str, older: list, current: list) -> None:
         sheet_older = [e for e in older if e["line"]["sheet_name"] == sheet_name]
         states = rules.older_states(
             [{"estimate": e["name"], "excel_row": e["line"]["excel_row"], "description": e["line"]["description"],
-              "version": e.get("version"), "modified": e["modified"], "items": e["items"]} for e in sheet_older],
+              "version": e.get("version"), "modified": e["modified"], "items": e["items"],
+              "settled": e.get("settled")} for e in sheet_older],
             [ln for ln in lines if ln.sheet_name == sheet_name],
             on_line,
         )

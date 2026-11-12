@@ -2,8 +2,7 @@ import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig 
 import { useCallback, useMemo } from "react";
 
 import type {
-  EstimatesOverview, EstimatesReply, ReattachReply, RemoveOlderReply, SaveEstimateReply, SheetRow, SheetRowsReply,
-  UndoReattachReply,
+  EstimatesOverview, EstimatesReply, ReattachReply, SaveEstimateReply, SettleOlderReply, SheetRow, SheetRowsReply,
 } from "@/utils/estimations/estimateTypes";
 
 const API = "nirmaan_stack.api.estimations";
@@ -59,14 +58,12 @@ export function useRefreshEstimates() {
 export function useEstimateWrites() {
   const save = useFrappePostCall<{ message: SaveEstimateReply }>(`${API}.estimate_writes.save_estimate`);
   const reattach = useFrappePostCall<{ message: ReattachReply }>(`${API}.estimate_writes.reattach_estimates`);
-  const undo = useFrappePostCall<{ message: UndoReattachReply }>(`${API}.estimate_writes.undo_reattach`);
-  const removeOld = useFrappePostCall<{ message: RemoveOlderReply }>(`${API}.estimate_writes.remove_older`);
+  const settleOld = useFrappePostCall<{ message: SettleOlderReply }>(`${API}.estimate_writes.settle_older`);
   return {
     saveEstimate: save.call, saving: save.loading,
     reattachEstimates: reattach.call,
-    undoReattach: undo.call,
-    removeOlder: removeOld.call,
-    olderBusy: reattach.loading || undo.loading || removeOld.loading,
+    settleOlder: settleOld.call,
+    olderBusy: reattach.loading || settleOld.loading,
   };
 }
 

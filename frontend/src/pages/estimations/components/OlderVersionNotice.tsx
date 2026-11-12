@@ -31,9 +31,7 @@ const itemsSummary = (e: EstimateEntry) =>
   e.items.map((i) => `${i.item_name} ×${formatQty(i.quantity)}${i.unit ? ` ${i.unit}` : ""}`).join(", ");
 
 const STATE_TEXT: Record<OlderState, string> = {
-  can_copy: "Unchanged on the new version: Re-attach copies it there.",
-  copied: "Copied to the new version. This older one is kept as a backup.",
-  line_has_other: "The new version's line already has different materials, so this older one is not a backup. Add its materials to a line, or remove it.",
+  can_copy: "Unchanged on the new version but not copied there yet (it normally is, right after a commit). Re-attach copies it now.",
   changed: "This line changed on the new version, so it cannot be copied. Add its materials to a line, or remove it.",
   line_missing: "Its line item no longer exists in the BOQ (it was deleted). Add its materials to a line, or remove it.",
 };
@@ -41,18 +39,18 @@ const STATE_TEXT: Record<OlderState, string> = {
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Decision M, as revised by the owner on 11 Nov: estimates a re-commit left on an older version of this sheet. The
- * BOQ commit is unchanged. What each one can do comes from the server (`state`, the same in every view):
- *  - can_copy: Re-attach COPIES it onto its unchanged line of the new version and keeps it as a backup;
- *  - copied: Undo (deletes the copy, keeps the backup) or Remove old (deletes the backup, keeps the copy);
- *  - line_has_other: the line holds different materials (a copy edited since, or typed by hand -- nothing tells
- *    them apart), so it is never a backup: like changed, Add to a line or Remove; Undo and Remove all old skip it;
- *  - changed: Add to a line (form opens on a chosen line with its materials; the backup goes after Save) or Remove;
+ * Estimates on an older version of this sheet that still need a person (owner, 12 Nov). After every commit the
+ * estimates are copied to the new version by a job, and each older version keeps its own as history; history is not
+ * listed (the server leaves it out). What each listed one can do comes from the server (`state`, same in every view):
+ *  - can_copy: its line is unchanged but it was not copied yet (a BOQ not Selected at commit time, a copy a rule
+ *    refused): Re-attach copies it;
+ *  - changed: its line changed: Add to a line (form opens on a chosen line with its materials; the older estimate is
+ *    settled after a save that keeps materials) or Remove (settled: kept in its version's history, no longer listed);
  *  - line_missing: its line item was deleted from the BOQ tables; the same two choices as changed.
- * Global buttons do the same for every row they apply to. Every delete asks first.
+ * Every delete asks first.
  */
 export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, sheetName, older, canEdit, onDone, lines, onAddTo }) => {
-  const { reattachEstimates, undoReattach, removeOlder, olderBusy } = useEstimateWrites();
+  const { reattachEstimates, settleOlder, olderBusy } = useEstimateWrites();
   const [confirming, setConfirming] = useState<string | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
   const [chosenLine, setChosenLine] = useState("");
@@ -60,10 +58,7 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
 
   const of = (s: OlderState) => older.filter((e) => e.state === s);
   const canCopy = of("can_copy");
-  const copied = of("copied");
-  // A backup is only an older estimate whose materials are exactly on its new line: removing it loses nothing.
-  const backups = copied;
-  const changed = [...of("changed"), ...of("line_has_other"), ...of("line_missing")];
+  const changed = [...of("changed"), ...of("line_missing")];
   const args = { boq, sheet_name: sheetName };
 
   const act = async (work: () => Promise<string | { title: string; description: string }>) => {
@@ -78,7 +73,7 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
   };
   const reattach = () => act(async () => {
     const r = (await reattachEstimates(args)).message;
-    const title = `Copied ${plural(r.copied, "estimate", "estimates")} to the new version. The older ones are kept as backups.`;
+    const title = `Copied ${plural(r.copied, "estimate", "estimates")} to the new version.`;
     const failed = r.failed ?? [];
     if (!failed.length) return title;
     // Each copy is saved on its own: a refused one does not stop the rest, and stays here to fix, add or remove.
@@ -87,14 +82,9 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
       description: failed.map((f) => `Row ${f.excel_row ?? "—"}: ${f.reason}`).join(" · "),
     };
   });
-  const undo = (names?: string[]) => act(async () => {
-    const r = (await undoReattach({ ...args, estimates: JSON.stringify(names ?? []) })).message;
-    return `Undone: removed ${plural(r.undone, "copy", "copies")} from the new version` +
-      (r.skipped.length ? `; ${r.skipped.length} kept because the new line has different materials.` : ".");
-  });
-  const remove = (names?: string[]) => act(async () => {
-    const r = (await removeOlder({ ...args, estimates: JSON.stringify(names ?? []) })).message;
-    return `Removed ${plural(r.removed, "older estimate", "older estimates")}.`;
+  const remove = (names: string[]) => act(async () => {
+    const r = (await settleOlder({ ...args, estimates: JSON.stringify(names) })).message;
+    return `Removed from the new version: ${plural(r.settled, "older estimate", "older estimates")}. It stays in the older version's history.`;
   });
 
   const openForm = (e: EstimateEntry) => {
@@ -102,12 +92,12 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
     if (!line) return;
     setChoosing(null);
     setChosenLine("");
-    // The older estimate is removed only after a save that keeps materials on the line; a cancelled form, or a save
+    // The older estimate is settled only after a save that keeps materials on the line; a cancelled form, or a save
     // with every row removed, leaves it listed.
     onAddTo(line, {
       rows: e.items, fromRow: e.line.excel_row,
       onKept: () => {
-        void removeOlder({ ...args, estimates: JSON.stringify([e.name]) })
+        void settleOlder({ ...args, estimates: JSON.stringify([e.name]) })
           .catch((err) => toast({ title: "The materials were saved, but the older estimate is still listed", description: getFrappeErrorText(err), variant: "destructive" }))
           .finally(onDone);
       },
@@ -123,8 +113,7 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
   ) : null;
 
   const summary = [
-    canCopy.length ? plural(canCopy.length, "can be copied", "can be copied") : "",
-    backups.length ? plural(backups.length, "is copied and kept as a backup", "are copied and kept as backups") : "",
+    canCopy.length ? plural(canCopy.length, "not copied yet", "not copied yet") : "",
     changed.length ? plural(changed.length, "changed line needs a decision", "changed lines need a decision") : "",
   ].filter(Boolean).join(" · ");
 
@@ -132,19 +121,15 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
     <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
       <div className="flex flex-col gap-2">
         <span>
-          <b>{plural(older.length, "material estimate is", "material estimates are")} on an older version of this sheet</b>, because it was
-          committed again. Only the new version is counted. {summary && <span className="text-amber-800">({summary})</span>}
+          <b>{plural(older.length, "material estimate", "material estimates")} from an older version of this sheet
+          {older.length === 1 ? " is" : " are"} not on the new version yet.</b> Only the new version is counted.
+          {summary && <span className="text-amber-800"> ({summary})</span>}
         </span>
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
             {canCopy.length > 0 && (
               <Button size="sm" variant="outline" disabled={olderBusy} onClick={reattach}>Re-attach ({canCopy.length})</Button>
             )}
-            {copied.length > 0 && (
-              <Button size="sm" variant="outline" disabled={olderBusy} onClick={() => undo()}>Undo all ({copied.length})</Button>
-            )}
-            {backups.length > 0 && (confirmButton("all", `Delete ${plural(backups.length, "backup", "backups")}? The copies on the new version stay.`, () => remove())
-              ?? <Button size="sm" variant="outline" disabled={olderBusy} onClick={() => setConfirming("all")}>Remove all old ({backups.length})</Button>)}
           </div>
         )}
       </div>
@@ -157,7 +142,7 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
               {e.items.length > 0 && <span className="block text-amber-800/80">{itemsSummary(e)}</span>}
               {e.state && <span className="block italic">{STATE_TEXT[e.state]}</span>}
             </span>
-            {canEdit && (confirmButton(`one:${e.name}`, "Delete this older estimate?", () => remove([e.name])) ?? (choosing === e.name ? (
+            {canEdit && (confirmButton(`one:${e.name}`, "Not carry it to the new version? It stays in the older version's history.", () => remove([e.name])) ?? (choosing === e.name ? (
               <span className="flex flex-wrap items-center gap-1">
                 <select className="h-6 max-w-[22rem] rounded border bg-background px-1 text-[11px]" value={chosenLine}
                   aria-label={`Line to add row ${e.line.excel_row ?? ""}'s materials to`} onChange={(ev) => setChosenLine(ev.target.value)}>
@@ -169,14 +154,11 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
               </span>
             ) : (
               <span className="flex items-center gap-1">
-                {e.state === "copied" && (
-                  <Button size="sm" variant="outline" className="h-6 text-[11px]" disabled={olderBusy} onClick={() => undo([e.name])}>Undo</Button>
-                )}
-                {(e.state === "changed" || e.state === "line_has_other" || e.state === "line_missing") && e.items.length > 0 && lines.length > 0 && (
+                {(e.state === "changed" || e.state === "line_missing") && e.items.length > 0 && lines.length > 0 && (
                   <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => { setConfirming(null); setChoosing(e.name); }}>Add to a line…</Button>
                 )}
                 <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => { setChoosing(null); setConfirming(`one:${e.name}`); }}>
-                  {e.state === "copied" ? "Remove old" : "Remove"}
+                  Remove
                 </Button>
               </span>
             )))}

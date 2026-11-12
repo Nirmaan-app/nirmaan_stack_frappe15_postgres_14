@@ -140,13 +140,8 @@ class TestReattachMatches(FrappeTestCase):
 class TestOlderStates(FrappeTestCase):
     PANEL = {"item_type": "Normal", "item_id": "ITEM-1", "make": "M", "unit": "NOS", "quantity": 4}
 
-    def test_the_signature_ignores_order_names_and_case(self):
-        a = [dict(self.PANEL, name="r1"), {"item_type": "Custom", "item_name": " Sealant ", "unit": "kgs", "quantity": 2.5}]
-        b = [{"item_type": "Custom", "item_name": "sealant", "unit": "KGS", "quantity": 2.5}, dict(self.PANEL, make="m")]
-        self.assertEqual(rules.items_signature(a), rules.items_signature(b))
-        self.assertNotEqual(rules.items_signature(a), rules.items_signature([dict(self.PANEL, quantity=5)]))
-
     def test_each_state(self):
+        # Owner 2026-11-12: copied forward after every commit; each older version keeps its own as history.
         older = [
             {"estimate": "E-free", "excel_row": 2, "description": "a", "items": [self.PANEL]},
             {"estimate": "E-copied", "excel_row": 3, "description": "b", "items": [self.PANEL]},
@@ -157,10 +152,36 @@ class TestOlderStates(FrappeTestCase):
         on_line = {"N3": {"estimate": "C3", "items": [dict(self.PANEL, name="x")]},
                    "N4": {"estimate": "C4", "items": [dict(self.PANEL, quantity=9)]}}
         states = rules.older_states(older, current, on_line)
+        # Its line holds an estimate (the copy, edited or not): history. Not copied yet: can_copy. Text changed: changed.
         self.assertEqual({k: v["state"] for k, v in states.items()},
-                         {"E-free": "can_copy", "E-copied": "copied", "E-edited": "line_has_other", "E-changed": "changed"})
-        self.assertEqual((states["E-copied"]["node"], states["E-copied"]["copy"]), ("N3", "C3"))
+                         {"E-free": "can_copy", "E-copied": "history", "E-edited": "history", "E-changed": "changed"})
+        self.assertEqual((states["E-free"]["node"], states["E-copied"]["copy"]), ("N2", "C3"))
         self.assertEqual((states["E-changed"]["node"], states["E-changed"]["copy"]), (None, None))
+
+    def test_an_older_version_replaced_by_a_newer_one_is_history_not_a_changed_line(self):
+        # v1's row 15 was copied to v2, v2's to v3: on v3, v1's estimate is history (v2's stands for that line), never
+        # listed as "changed". Only the newest one per row and text counts.
+        older = [{"estimate": "E-v1", "excel_row": 15, "description": "x", "version": 1, "modified": "2026-11-01", "items": [self.PANEL]},
+                 {"estimate": "E-v2", "excel_row": 15, "description": "x", "version": 2, "modified": "2026-11-05", "items": [self.PANEL]}]
+        current = [{"node": "N15", "excel_row": 15, "description": "x"}]
+        on_line = {"N15": {"estimate": "C15", "items": [self.PANEL]}}
+        self.assertEqual({k: v["state"] for k, v in rules.older_states(older, current, on_line).items()},
+                         {"E-v1": "history", "E-v2": "history"})
+        # Not copied yet: the v2 one is copied, the v1 one stays history.
+        self.assertEqual({k: v["state"] for k, v in rules.older_states(older, current, {}).items()},
+                         {"E-v1": "history", "E-v2": "can_copy"})
+
+    def test_a_settled_estimate_is_history_and_keeps_older_ones_history(self):
+        # Option B: settled = dealt with (copied forward, or resolved by a person). It is history, and an older version's
+        # estimate for the same line stays history too -- resolving the newest never brings an older one back.
+        older = [{"estimate": "E-v1", "excel_row": 16, "description": "old text", "version": 1, "modified": "2026-11-01"},
+                 {"estimate": "E-v2", "excel_row": 16, "description": "old text", "version": 2, "modified": "2026-11-05"}]
+        current = [{"node": "N16", "excel_row": 16, "description": "new text"}]
+        self.assertEqual({k: v["state"] for k, v in rules.older_states(older, current, {}).items()},
+                         {"E-v1": "history", "E-v2": "changed"})
+        older[1]["settled"] = 1
+        self.assertEqual({k: v["state"] for k, v in rules.older_states(older, current, {}).items()},
+                         {"E-v1": "history", "E-v2": "history"})
 
 
 class TestDuplicateProblem(FrappeTestCase):
