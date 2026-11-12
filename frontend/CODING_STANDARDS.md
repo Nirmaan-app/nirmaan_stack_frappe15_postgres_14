@@ -44,7 +44,6 @@ src/
 └── constants/roles.ts            # shared role-profile lists
 ```
 
-- `src/pages/Retired Components/` holds old implementations, kept for reference only; build new work elsewhere.
 - Page table configs go in the page's `config/*.config.ts`.
 - Vendor reads and writes go through `src/pages/vendors/data/` (`useVendorQueries.ts`, `useVendorMutations.ts`),
   which capture API errors to Sentry.
