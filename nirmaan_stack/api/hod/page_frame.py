@@ -56,10 +56,11 @@ PAGE_MARGIN_BOTTOM = 14
 MARGIN_BOTTOM = PAGE_HEIGHT - MARGIN_TOP - SHEET_HEIGHT  # 19
 MARGIN_SIDE = 12
 
-# The documents whose pages carry the box. Only the O&M Manual runs long enough to break across pages and
-# need one drawn this way; every other document draws its own sheet within a single page, where ordinary
-# CSS works. Keyed on `services/hod/index` document keys.
-FRAMED = ("om_manual",)
+# The documents whose pages carry the box: the two that run long enough to break across pages. The O&M
+# Manual's text, and the Inventory List's rows (one row per area -- 24 areas took two landscape pages, and
+# its CSS box hung open at the foot of the first). Every other document draws its own sheet within a single
+# page, where ordinary CSS works. Keyed on `services/hod/index` document keys.
+FRAMED = ("om_manual", "inventory_list")
 
 
 def needs_frame(document: str) -> bool:

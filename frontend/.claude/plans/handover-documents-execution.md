@@ -92,7 +92,7 @@ What each document keeps in `form_data`:
 | Document | Keys |
 |---|---|
 | Escalation Chart | `date`, `levels` — as many as the project adds (3 by default), each name / designation / phone / email |
-| Inventory List | `date`, `materials` (column names), `locations` (`name`, `qty[]`) |
+| Inventory List | `date`, `materials` (column names), `locations` (`name`, `qty[]`); the dialog's `entries` never reach the DB |
 | Attic Stock List | `date`, `rows` |
 | Key List | `date`, `rows`, `receiver`, `belongs_to` (default the project customer) |
 | O&M Manual | `included` (sub-systems), `blanks` (name → value) |
@@ -193,7 +193,15 @@ closes up, while NA stays on the sheet with its answer.
   worth previewing.) The cell takes `busy` (disable — any build blocks every From Nirmaan row) and
   `working` (spin — this row's own work only).
 - `DocumentDialog`: routes to the right form:
-  - `forms/TableForms`: Escalation, Attic, Key List, Inventory matrix;
+  - `forms/TableForms`: Escalation, Attic, Key List;
+  - `forms/InventoryForm` (owner 2026-10-15): filled ONE LOCATION AT A TIME -- a card per location holding
+    material + count rows, one card open, the rest folded to a summary line; the material box offers the
+    materials already on the list (a `datalist`) and snaps case/spacing to the spelling it has. The matrix
+    the PDF prints is only the collapsed Preview at the foot. The draft carries `entries`; `finalize`
+    stores the matrix (`hodRules.inventoryMatrixOf`): stored column order kept, a material a location
+    lacks (or one entered with no count) is a 0 cell (owner 2026-10-15: "empty means we show 0"), and a
+    stored blank or 0 cell reads back as "not there". Unedited, the stored matrix is kept with only its
+    empty cells made 0. A location or a material entered twice blocks Mark as Done (`inventoryProblem`);
   - `forms/TemplateForms`: O&M blanks + part ticks, Do's & Don'ts, Tools (Remarks per tool), Warranty, Completion;
   - `forms/MaintenanceForm`: part ticks, date of the check, Result (OK / Not OK / NA) + Remarks per item and
     Comments per sheet;
@@ -288,6 +296,12 @@ the person picks the records they want; the header checkbox takes them all in on
   whatever is left empty prints blank.
 - Checklist: one page, Commission-style signature row. It prints **YES only for Completed**.
 - Inventory is landscape, via a top-level `.print-format { orientation: Landscape; }`.
+- Inventory runs over as many pages as its rows need (2026-10-15; a 24-area list took two and its CSS box hung
+  open at the foot of page 1). The rows FLOW: `<thead>` repeats the header row on every page, and the box is
+  stamped on every page (`page_frame.FRAMED`, 22mm bottom margin). The signature band prints ONCE, on the last
+  page under the TOTAL (owner 2026-10-15) -- NOT as the page footer, which repeats on every page and, with
+  JavaScript off in wkhtmltopdf, cannot tell the last one. The last row, the TOTAL and the band are one outer
+  row, so a page never opens on the TOTAL or the signatures alone.
 - Blank rows when nothing is entered: Attic 14, Key List 8, Inventory 8, so each fits one page.
 - Rules that took a while to find:
   - Custom HTML ignores the Print Format margin fields. The top-level `.print-format{margin-*}` rule becomes the

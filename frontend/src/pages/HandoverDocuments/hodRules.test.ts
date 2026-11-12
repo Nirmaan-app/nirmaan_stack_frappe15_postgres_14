@@ -9,7 +9,15 @@ import {
   levelLabel,
   binderContents,
   needsSaving,
+  canonicalMaterial,
+  duplicateItems,
+  duplicateLocations,
+  inventoryEntries,
+  inventoryMatrix,
+  inventoryMatrixOf,
+  inventoryProblem,
   inventoryTotals,
+  materialUse,
   printedNumbers,
   maintenanceDate,
   maintenanceSheet,
@@ -75,6 +83,147 @@ describe("inventoryTotals", () => {
     expect(
       inventoryTotals([{ qty: [4, 2, "6"] }, { qty: [2, "", null] }], 3),
     ).toEqual([6, 2, 6]);
+  });
+});
+
+describe("Inventory List: location entries <-> printed matrix", () => {
+  const stored = {
+    materials: ["Diffuser", "Grille", "Damper"],
+    locations: [
+      { name: "OPS - 02", qty: ["15", 0, "3"] },
+      { name: "Lounge", qty: ["", "", "4"] },
+    ],
+  };
+
+  it("reads the stored matrix as locations, a blank or 0 cell meaning not there", () => {
+    expect(inventoryEntries(stored)).toEqual([
+      {
+        name: "OPS - 02",
+        items: [
+          { material: "Diffuser", qty: "15" },
+          { material: "Damper", qty: "3" },
+        ],
+      },
+      { name: "Lounge", items: [{ material: "Damper", qty: "4" }] },
+    ]);
+  });
+
+  it("an unedited list keeps its cells, an empty one becoming 0", () => {
+    expect(inventoryMatrixOf(stored)).toEqual({
+      materials: stored.materials,
+      locations: [
+        { name: "OPS - 02", qty: ["15", 0, "3"] },
+        { name: "Lounge", qty: ["0", "0", "4"] },
+      ],
+    });
+  });
+
+  it("keeps the stored column order, adds new materials after, 0 for what a location lacks", () => {
+    const entries = [
+      { name: "Lounge", items: [{ material: "Sensor", qty: "2" }, { material: "damper ", qty: "4" }] },
+      { name: "OPS - 02", items: [{ material: "Diffuser", qty: "15" }] },
+    ];
+    expect(inventoryMatrix(entries, stored.materials)).toEqual({
+      materials: ["Diffuser", "damper", "Sensor"],
+      locations: [
+        { name: "Lounge", qty: ["0", "4", "2"] },
+        { name: "OPS - 02", qty: ["15", "0", "0"] },
+      ],
+    });
+  });
+
+  it("one column per material whatever the case or spacing; a repeat in one location adds nothing", () => {
+    const entries = [
+      { name: "A", items: [{ material: "Fan Coil  Unit", qty: "1" }, { material: "fan coil unit", qty: "9" }] },
+      { name: "B", items: [{ material: " FAN COIL UNIT", qty: "2" }] },
+    ];
+    expect(inventoryMatrix(entries, [])).toEqual({
+      materials: ["Fan Coil Unit"],
+      locations: [
+        { name: "A", qty: ["1"] },
+        { name: "B", qty: ["2"] },
+      ],
+    });
+    expect([...duplicateItems(entries[0].items)]).toEqual([1]);
+  });
+
+  it("a material entered with no count prints 0", () => {
+    expect(
+      inventoryMatrix([{ name: "A", items: [{ material: "Damper", qty: " " }] }], []),
+    ).toEqual({ materials: ["Damper"], locations: [{ name: "A", qty: ["0"] }] });
+  });
+
+  it("drops a location with no name and no material, and a material nobody has", () => {
+    const entries = [
+      { name: "  ", items: [{ material: "", qty: "5" }] },
+      { name: "Store", items: [] },
+    ];
+    expect(inventoryMatrix(entries, ["Diffuser"])).toEqual({
+      materials: [],
+      locations: [{ name: "Store", qty: [] }],
+    });
+  });
+
+  it("round-trips: a 0 cell reads back as not there and is written back as 0", () => {
+    const clean = {
+      materials: ["Diffuser", "Damper"],
+      locations: [
+        { name: "A", qty: ["1", "0"] },
+        { name: "B", qty: ["0", "2"] },
+      ],
+    };
+    expect(
+      inventoryMatrixOf({ ...clean, entries: inventoryEntries(clean) }),
+    ).toEqual(clean);
+  });
+
+  it("snaps a typed material to the spelling already on the list, not to itself", () => {
+    const entries = [
+      { name: "A", items: [{ material: "Fan coil unit", qty: "1" }] },
+      { name: "B", items: [{ material: "fan COIL unit ", qty: "" }] },
+    ];
+    expect(canonicalMaterial(entries, "fan COIL unit ", { entry: 1, item: 0 })).toBe("Fan coil unit");
+    expect(canonicalMaterial(entries, " Thermostat ", { entry: 1, item: 0 })).toBe("Thermostat");
+    expect(canonicalMaterial([entries[1]], "fan COIL unit ", { entry: 0, item: 0 })).toBe("fan COIL unit");
+  });
+
+  it("a location name entered twice is a repeat of the first, whatever the case or spacing", () => {
+    const entries = [
+      { name: "test location 2", items: [] },
+      { name: "OPS - 02", items: [] },
+      { name: " Test  Location 2", items: [] },
+      { name: "", items: [] },
+      { name: "", items: [] },
+    ];
+    expect([...duplicateLocations(entries)]).toEqual([[2, 0]]);
+  });
+
+  it("will not mark an edited list Done with a repeated location or material", () => {
+    const loc = { name: "Lounge", items: [{ material: "Damper", qty: "1" }] };
+    expect(inventoryProblem({ entries: [loc, { ...loc, name: "lounge" }] })).toBe(
+      'Location 2 "lounge" is already location 1. Each location can be entered only once.',
+    );
+    expect(
+      inventoryProblem({
+        entries: [{ name: "Lounge", items: [...loc.items, { material: "damper ", qty: "2" }] }],
+      }),
+    ).toBe('Location 1 has "damper" twice. Remove one of them.');
+    expect(inventoryProblem({ entries: [loc, { ...loc, name: "Store" }] })).toBe("");
+    // An unedited list is the stored matrix, saved as it is.
+    expect(
+      inventoryProblem({ materials: ["Damper"], locations: [{ name: "A" }, { name: "A" }] }),
+    ).toBe("");
+  });
+
+  it("counts the locations that use each material", () => {
+    const entries = [
+      { name: "A", items: [{ material: "Damper", qty: "1" }, { material: "damper", qty: "1" }] },
+      { name: "B", items: [{ material: "DAMPER", qty: "2" }, { material: "Grille", qty: "1" }] },
+    ];
+    expect(materialUse(entries)).toEqual([
+      { name: "Damper", locations: 2 },
+      { name: "Grille", locations: 1 },
+    ]);
   });
 });
 

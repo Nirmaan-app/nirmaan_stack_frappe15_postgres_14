@@ -1,4 +1,5 @@
-// The typed-in handover documents: Escalation Chart, Attic Stock List, Key List, Inventory List.
+// The typed-in handover documents: Escalation Chart, Attic Stock List, Key List (the Inventory List has
+// its own file, `InventoryForm.tsx`).
 // Each is a controlled editor over the row's `form_data` (shapes in ../types.ts, read by
 // api/hod/print_context.py). Saving is the dialog's job.
 
@@ -12,16 +13,13 @@ import { Label } from "@/components/ui/label";
 import {
   asObjectList,
   asString,
-  asStringList,
   DEFAULT_ESCALATION_LEVELS,
-  inventoryTotals,
   levelLabel,
   visibleRows,
 } from "../hodRules";
 import type {
   AtticRow,
   EscalationLevel,
-  InventoryLocation,
   KeyReceiver,
   KeyRow,
 } from "../types";
@@ -332,197 +330,6 @@ export const KeyListForm: React.FC<FormProps & { customerName: string }> = ({
           </div>
         </div>
       </div>
-    </div>
-  );
-};
-
-// ------------------------------------------------------------------------- Inventory List
-
-export const InventoryForm: React.FC<FormProps> = ({
-  value,
-  onChange,
-  readOnly,
-}) => {
-  const materials = asStringList(value.materials) ?? [
-    "Material",
-    "Material",
-    "Material",
-  ];
-  const locations = asObjectList<InventoryLocation>(value.locations);
-  const totals = inventoryTotals(locations, materials.length);
-
-  const setMaterials = (next: string[]) =>
-    onChange({
-      ...value,
-      materials: next,
-      locations: locations.map((l) => ({
-        ...l,
-        qty: next.map((_, j) => l.qty?.[j] ?? ""),
-      })),
-    });
-  const setLocations = (next: InventoryLocation[]) =>
-    onChange({ ...value, materials, locations: next });
-  const setQty = (i: number, j: number, v: string) =>
-    setLocations(
-      locations.map((l, k) =>
-        k === i
-          ? {
-              ...l,
-              qty: materials.map((_, m) => (m === j ? v : (l.qty?.[m] ?? ""))),
-            }
-          : l,
-      ),
-    );
-
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-gray-500">
-        Columns are the materials, rows are the locations. The PDF prints
-        landscape and adds a total per material.
-      </p>
-      <div className="overflow-x-auto rounded-md border">
-        <table
-          className="w-full border-collapse"
-          style={{ minWidth: 260 + materials.length * 120 }}
-        >
-          <thead>
-            <tr>
-              <th className={`${th} w-12 text-center`}>S No</th>
-              <th className={`${th} w-56`}>Location</th>
-              {materials.map((m, j) => (
-                <th key={j} className={`${th} min-w-[110px]`}>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      className={`${cell} font-semibold`}
-                      value={m}
-                      disabled={readOnly}
-                      onChange={(e) =>
-                        setMaterials(
-                          materials.map((x, k) =>
-                            k === j ? e.target.value : x,
-                          ),
-                        )
-                      }
-                    />
-                    {!readOnly && materials.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0 text-gray-400 hover:text-red-600"
-                        title="Remove column"
-                        onClick={() =>
-                          onChange({
-                            ...value,
-                            materials: materials.filter((_, k) => k !== j),
-                            locations: locations.map((l) => ({
-                              ...l,
-                              qty: (l.qty || []).filter((_, k) => k !== j),
-                            })),
-                          })
-                        }
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </th>
-              ))}
-              {!readOnly && <th className={`${th} w-10`} />}
-            </tr>
-          </thead>
-          <tbody>
-            {locations.map((l, i) => (
-              <tr key={i} className="border-b">
-                <td className="px-2 py-1 text-center text-sm text-gray-500">
-                  {i + 1}
-                </td>
-                <td className="px-1 py-1">
-                  <Input
-                    className={cell}
-                    value={asString(l.name)}
-                    disabled={readOnly}
-                    onChange={(e) =>
-                      setLocations(
-                        locations.map((x, k) =>
-                          k === i ? { ...x, name: e.target.value } : x,
-                        ),
-                      )
-                    }
-                  />
-                </td>
-                {materials.map((_, j) => (
-                  <td key={j} className="px-1 py-1">
-                    <Input
-                      className={`${cell} text-center`}
-                      inputMode="decimal"
-                      value={asString(l.qty?.[j])}
-                      disabled={readOnly}
-                      onChange={(e) => setQty(i, j, e.target.value)}
-                    />
-                  </td>
-                ))}
-                {!readOnly && (
-                  <td className="px-1 py-1 text-center">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-gray-400 hover:text-red-600"
-                      title="Remove location"
-                      onClick={() =>
-                        setLocations(locations.filter((_, k) => k !== i))
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </td>
-                )}
-              </tr>
-            ))}
-            {locations.length > 0 && (
-              <tr className="bg-gray-50">
-                <td />
-                <td className="px-2 py-1.5 text-right text-sm font-semibold">
-                  Total
-                </td>
-                {totals.map((t, j) => (
-                  <td
-                    key={j}
-                    className="px-2 py-1.5 text-center text-sm font-semibold"
-                  >
-                    {t}
-                  </td>
-                ))}
-                {!readOnly && <td />}
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {!readOnly && (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={() =>
-              setLocations([
-                ...locations,
-                { name: "", qty: materials.map(() => "") },
-              ])
-            }
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add location
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={() => setMaterials([...materials, "Material"])}
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add material
-          </Button>
-        </div>
-      )}
     </div>
   );
 };

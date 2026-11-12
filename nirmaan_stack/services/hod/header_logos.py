@@ -51,9 +51,10 @@ BUNDLED_LOGO = "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/l
 BUNDLED_ROLE = "mep_contractor"
 BUNDLED_NAME = "Nirmaan"
 
-# What a blank pick means: Nirmaan alone (owner 2026-09-25). A fresh project therefore prints the one
-# logo that is always right, and the team adds the client / GC deliberately rather than by default.
-DEFAULT_ROLES = (BUNDLED_ROLE,)
+# Printed on EVERY project whatever else is picked (owner 2026-10-16: Nirmaan "always checked, and
+# disabled" in the dialog) -- it heads our own handover and carries the seal in the signature band. A blank
+# pick is therefore still Nirmaan alone (owner 2026-09-25), and the client / GC are added deliberately.
+ALWAYS_ROLES = (BUNDLED_ROLE,)
 
 
 def _text(value) -> str:
@@ -103,15 +104,14 @@ def header_logos(setting, stored) -> list:
 	"""What actually prints: `[{"role", "label", "name", "logo"}, ...]` in ROLE_ORDER.
 
 	The picked roles, narrowed to the ones still selectable -- a logo removed from the TDS Setting
-	after it was picked simply stops printing rather than leaving a gap. NOTHING PICKED falls back to
-	DEFAULT_ROLES, i.e. Nirmaan alone (owner 2026-09-25), so a project's documents are headed correctly
-	before anyone configures this -- which is also why no backfill is needed for the projects that
-	predate the setting.
+	after it was picked simply stops printing rather than leaving a gap -- plus ALWAYS_ROLES, i.e.
+	Nirmaan, whether or not it was picked (owner 2026-10-16). Nothing picked is Nirmaan alone (owner
+	2026-09-25), so a project's documents are headed correctly before anyone configures this, and a pick
+	saved without Nirmaan (before its box was locked) needs no backfill: Nirmaan prints anyway.
 	"""
 	usable = selectable(setting)
-	picked = [role for role in parse_roles(stored) if role in usable]
-	if not picked:
-		picked = [role for role in DEFAULT_ROLES if role in usable]
+	wanted = set(parse_roles(stored)) | set(ALWAYS_ROLES)
+	picked = [role for role in ROLE_ORDER if role in wanted and role in usable]
 	return [
 		{
 			"role": role,
