@@ -51842,9 +51842,28 @@ files 4,479 / 4,479); tsc 0 new; vacuity 24 breaks red, sources sha-equal.
 - second_opinion stays OFF;
 - the push, the laptop realign / sync and the db-pull are the owner's / laptop's (PENDING-LAPTOP).
 
-## BOQ Estimates (project page → Estimates tab: BOQ View, Line Item View, Estimate Items) - as built 2026-11-11
+## BOQ Estimates (project page → Estimates tab: BOQ View, Line Item View, Estimate Items) - as built 2026-11-12
 
-Commits on develop: e3dfed894 (doctypes and save rules), ee6c7f4ff (API), b869c3808 (Estimates tab), 3f2c1d95c (walk
-doc). The walk, the code-review fixes and the BOQ regression record (BOQ test modules, baseline sheet totals, BOQ code
-diff, browser walks of upload / pricing / viewer / re-commit / revision / template / Convert to Won / Select-Draft /
-Tendering merge and undo, Project Lead read-only) are kept in `docs/browser-walk-boq-estimates.md` (owner's choice).
+Branch `boq/estimates-items` (unpushed), rebased 12 Nov onto develop d5b563bf3. Commits, oldest first (hashes as of that
+rebase):
+
+| Commit | What |
+|---|---|
+| 6bee670d9 | `BOQ Line Estimate` + `BOQ Line Estimate Item` doctypes and the save rules (`services/estimations/rules.py`, controller) |
+| 2ae293565 | API: overview and estimate reads, save, re-attach (`api/estimations/`) |
+| 45b26df7a | Estimates project tab: BOQ View, Line Item View, Estimate Items |
+| 0b5790432, 7d9006cb4, 4b8ce9365, 05ff3fe70 | Walk doc and this pointer |
+| 8402317aa | Code-review fixes (safe Remove, per-estimate Re-attach, page jump, Draft BOQs refused) |
+| fbf9f4460 | Material rows keep item / category / package / make as **text, not links**; a Re-attach copy keeps saved values |
+| 309b1a283 | **After every commit, estimates are copied to the new version** (BoQ Sheet `after_insert` queues a job after the commit's transaction); the older one is marked **Settled** and kept as history |
+| 6cd82082e | BOQ View: one Expand all / Collapse all toggle (headings + materials); "Estimate Items" column; plain "Custom" badge |
+| 19f1c6122 | "+ Add item" picker: item first fills its category, a category change empties the item, item + qty required; full test coverage |
+
+What it changes in BoQ: one `doc_events` hook (BoQ Sheet `after_insert`, read-only, queues a job; the commit never waits
+on it) and `BOQ Line Estimate` in `ignore_links_on_delete` (an estimate never blocks deleting a BOQ, sheet or line). No
+BoQ file is edited; BOQ View reads `get_priced_rows` and the `boq-wizard/collapse.ts` helpers read-only. Invariants:
+`boq-backend.md` and `boq-frontend.md` § Load-bearing invariants.
+
+Tests: estimates backend 65 (+ index manifest, role mirrors), frontend 137; BOQ Python set and affected modules re-run on
+a restored copy of localhost, `yarn test`, `yarn typecheck`, browser walks. The full record (walks, review fixes, the BOQ
+regression, the pre-PR run) is kept in `docs/browser-walk-boq-estimates.md` (owner's choice).
