@@ -61,7 +61,7 @@ export type ApprovalColumnId =
   | "vendor" | "paid_to" | "project" | "amount" | "tier" | "raised_by"
   | "approved_on" | "paid_on" | "utr_ref" | "proof" | "payment_by"
   | "reconciled_on" | "status" | "project_value" | "cashflow_gap" | "payment_source"
-  | "invoice" | "bill_check";
+  | "invoice" | "bill_check" | "rejection_reason" | "rejected_on";
 
 /**
  * The Payment Source column's value for a row no live bank line reaches (owner, 2026-11-06). The server sends
@@ -104,7 +104,12 @@ export interface ApprovalQueueRow {
   raised_by: string;
   /** The Expense Request an expense came from; blank on a Direct Expense and on a payment (#1472). */
   request_id: string;
+  /** Why a PO / WO payment was rejected (`Project Payments.rejection_reason`): the 30-day rule's reason or the one
+   *  the rejecter typed. Blank on every other row, and on an expense (its reason is on its timeline). */
+  rejection_reason?: string;
   creation: string;
+  /** Last change. On a Rejected row nothing changes after the reject but a delete, so it reads "Rejected on". */
+  modified?: string;
   approved_on: string | null;
   paid_on: string | null;
   utr_ref: string;
@@ -253,7 +258,7 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // Blank on a PO / WO payment row: one payment can cover many invoices.
   [PP_TABS.ALL_PAYMENTS]: [
     "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source",
-    "invoice", "bill_check", "status", "requested_on", "raised_by",
+    "invoice", "bill_check", "status", "rejection_reason", "requested_on", "raised_by",
   ],
   // "Payment By Me" — `actions` holds the Delete, on REJECTED rows only (owner, 17 Sep 2026), and
   // the expense Edit pencil (2026-09-21), and a Paid expense's Upload / Edit Inv for Admin, Accounts and HR
@@ -261,9 +266,10 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // place after a confirm (2026-09-21 — a PO / SR payment used to be sent to its PO / SR page).
   // No `raised_by` for most users, since every row is their own; an Admin sees EVERY row here, and
   // AllPayments appends `raised_by`.
+  // `rejection_reason` (2026-11-12): filled on a Rejected PO / WO payment, "—" on every other row.
   [PP_TABS.PAYMENT_BY_ME]: [
     "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "payment_source", "status",
-    "requested_on",
+    "rejection_reason", "requested_on",
   ],
   // PO Wise groups by PO, so it is payments-only and keeps its own rendering.
   [PP_TABS.PO_WISE]: [
@@ -363,6 +369,88 @@ export const getApprovalsStaticFilters = (
     }
   }
 };
+
+/**
+ * The three views inside "Payment Raised By Me" (2026-11-12): All (the tab as it always was), Paid and
+ * Rejected. Still the viewer's own rows only: a view only adds a status to the tab's `raised_by = @me`.
+ * The view is the page's `?by_me_view=` param; an unknown or missing one reads as All, so every old link and
+ * bookmark of the tab still opens what it did.
+ */
+export const BY_ME_VIEWS = {
+  ALL: "all",
+  PAID: "paid",
+  REJECTED: "rejected",
+} as const;
+
+export type ByMeView = typeof BY_ME_VIEWS[keyof typeof BY_ME_VIEWS];
+
+/** The URL param that holds the view. Named for the tab, not plain `view`, which other pages (Assets) use; it is
+ *  cleared when the tab is left (`hooks/useByMeView`), so it never rides along on another tab's link. */
+export const BY_ME_VIEW_PARAM = "by_me_view";
+
+export const BY_ME_VIEW_OPTIONS: ReadonlyArray<{ value: ByMeView; label: string; status: string | null }> = [
+  { value: BY_ME_VIEWS.ALL, label: "All", status: null },
+  { value: BY_ME_VIEWS.PAID, label: "Paid", status: APPROVAL_STATUS.PAID },
+  { value: BY_ME_VIEWS.REJECTED, label: "Rejected", status: APPROVAL_STATUS.REJECTED },
+];
+
+/** `?view=` read as a view; anything else is All. */
+export const parseByMeView = (value?: string | null): ByMeView =>
+  BY_ME_VIEW_OPTIONS.find((o) => o.value === value)?.value ?? BY_ME_VIEWS.ALL;
+
+/** The status a view adds to the tab's filter; none for All. */
+export const byMeViewFilters = (view: ByMeView): Array<[string, string, string]> => {
+  const status = BY_ME_VIEW_OPTIONS.find((o) => o.value === view)?.status;
+  return status ? [["status", "=", status]] : [];
+};
+
+/**
+ * Columns per view. All is the tab's own list. Paid drops Status and the Reason (one value down the page)
+ * and keeps the payment's UTR and source. Rejected drops Status and Paid on, and adds the Reason and the date
+ * of the reject; its Against cell links to the PO / WO page, where the rejected payment can be deleted to
+ * free its term.
+ */
+export const BY_ME_VIEW_COLUMNS: Record<ByMeView, ApprovalColumnId[]> = {
+  [BY_ME_VIEWS.ALL]: TAB_COLUMNS[PP_TABS.PAYMENT_BY_ME],
+  [BY_ME_VIEWS.PAID]: [
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on", "utr_ref",
+    "payment_source", "requested_on",
+  ],
+  [BY_ME_VIEWS.REJECTED]: [
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "rejection_reason", "rejected_on",
+    "requested_on",
+  ],
+};
+
+/** Newest first, on each view's own step. */
+export const BY_ME_VIEW_SORT: Record<ByMeView, string> = {
+  [BY_ME_VIEWS.ALL]: TAB_DEFAULT_SORT[PP_TABS.PAYMENT_BY_ME],
+  [BY_ME_VIEWS.PAID]: "paid_on desc",
+  [BY_ME_VIEWS.REJECTED]: "modified desc",
+};
+
+/** The counts endpoint's "Payment Raised By Me" figures (`get_approval_queue_counts`). */
+export interface ByMeCountsMessage {
+  by_me?: number;
+  by_me_counts?: Record<string, number>;
+}
+
+/** Each view's badge: All is the tab's own badge, Paid and Rejected its rows at that status. Undefined until
+ *  the counts have loaded, so a badge shows nothing rather than a false 0. */
+export const byMeViewCounts = (message?: ByMeCountsMessage | null): Partial<Record<ByMeView, number>> => {
+  if (!message) return {};
+  const byStatus = message.by_me_counts ?? {};
+  return {
+    [BY_ME_VIEWS.ALL]: message.by_me ?? Object.values(byStatus).reduce((a, b) => a + b, 0),
+    [BY_ME_VIEWS.PAID]: byStatus[APPROVAL_STATUS.PAID] ?? 0,
+    [BY_ME_VIEWS.REJECTED]: byStatus[APPROVAL_STATUS.REJECTED] ?? 0,
+  };
+};
+
+/** The table-state key's tab part: All keeps the tab's own key (saved filters and deep links stay); Paid and
+ *  Rejected get their own, so a filter set in one view does not leak into another. */
+export const byMeViewStateTab = (tab: string, view: ByMeView): string =>
+  view === BY_ME_VIEWS.ALL ? tab : `${tab} ${view}`;
 
 export const buildApprovalsUrlSyncKey = (tab: ApprovalTab): string =>
   `approvals_${tab.toLowerCase().replace(/\s+/g, "_")}`;
