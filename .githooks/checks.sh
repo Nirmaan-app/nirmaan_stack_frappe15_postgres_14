@@ -17,7 +17,12 @@ failed=0
 
 if [ -f scripts/residence_check.py ]; then
     out=$(python3 scripts/residence_check.py 2>&1)
-    if [ $? -ne 0 ]; then
+    rc=$?
+    if [ $rc -eq 127 ] || ! command -v python3 >/dev/null 2>&1; then
+        echo "✘ $hook rejected: python3 was not found, so scripts/residence_check.py could not run." >&2
+        echo "    Install Python 3 so 'python3' is on PATH." >&2
+        failed=1
+    elif [ $rc -ne 0 ]; then
         echo "✘ $hook rejected: scripts/residence_check.py counts a new violation." >&2
         printf '%s\n' "$out" | grep -v '^✓' >&2
         failed=1
@@ -33,9 +38,10 @@ staged() {
 }
 
 if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
-    if [ -x frontend/node_modules/.bin/eslint ]; then
+    if [ -f frontend/node_modules/eslint/bin/eslint.js ]; then
         # --no-warn-ignored: a staged file under an ignored folder (src/components/ui/) is not a warning.
-        if ! staged | (cd frontend && xargs -0 node_modules/.bin/eslint --no-warn-ignored); then
+        # The heap is yarn lint's (package.json): typed linting outgrows node's default.
+        if ! staged | (cd frontend && xargs -0 node --max-old-space-size=3072 node_modules/eslint/bin/eslint.js --no-warn-ignored); then
             echo "✘ $hook rejected: ESLint (frontend/eslint.config.js) found a violation in a staged file." >&2
             echo "    A rule broken anew: fix it. 'unused suppression': you fixed old ones -- run" >&2
             echo "    'yarn lint --prune-suppressions' in frontend/ and stage eslint-suppressions.json." >&2

@@ -8,7 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -187,10 +187,14 @@ class RunModes(unittest.TestCase):
         self.baseline_path.write_text(json.dumps(self.baseline), encoding="utf-8")
 
     def run_check(self, checks, *argv):
-        out = io.StringIO()
-        with redirect_stdout(out):
+        rc, out, _ = self.run_check_err(checks, *argv)
+        return rc, out
+
+    def run_check_err(self, checks, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
             rc = main(list(argv), checks=checks, baseline_path=self.baseline_path)
-        return rc, out.getvalue()
+        return rc, out.getvalue(), err.getvalue()
 
     def stored(self):
         return json.loads(self.baseline_path.read_text(encoding="utf-8"))
@@ -221,9 +225,26 @@ class RunModes(unittest.TestCase):
         self.assertNotIn("s1_big", out)
 
     def test_an_unknown_name_is_refused(self):
-        rc, out = self.run_check([_fake_check("s1_big", "S1", 5)], "--check", "--only", "S1,Z9")
+        rc, out, err = self.run_check_err([_fake_check("s1_big", "S1", 5)], "--check", "--only", "S1,Z9")
         self.assertEqual(rc, 2)
-        self.assertIn("Z9", out)
+        self.assertIn("Z9", err)
+        self.assertEqual(out, "")
+
+    def test_only_with_init_is_refused_and_writes_no_baseline(self):
+        before = self.baseline_path.read_bytes()
+        rc, out, err = self.run_check_err([_fake_check("s1_big", "S1", 5)], "--init", "--only", "S1")
+        self.assertEqual(rc, 2)
+        self.assertIn("--init", err)
+        self.assertEqual(out, "")
+        self.assertEqual(self.baseline_path.read_bytes(), before)
+
+    def test_only_ci_runs_the_ci_subset(self):
+        checks = [_fake_check(n, n, 0) for n in CI_SUBSET] + [_fake_check("b3_state", "B3", 99)]
+        rc, out = self.run_check(checks, "--check", "--only", "ci")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("b3_state", out)
+        for n in CI_SUBSET:
+            self.assertIn(f"✓ {n} ", out)
 
     def test_ci_subset_names_the_six_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
@@ -234,7 +255,7 @@ class RunModes(unittest.TestCase):
 
     def test_ci_runs_the_ci_subset_check_only(self):
         workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
-        self.assertIn(f"python3 scripts/residence_check.py --check --only {','.join(CI_SUBSET)}\n", workflow)
+        self.assertIn("python3 scripts/residence_check.py --check --only ci\n", workflow)
 
 
 class TaxAddedOntoAmountPaid(unittest.TestCase):

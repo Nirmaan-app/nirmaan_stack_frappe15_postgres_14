@@ -5,8 +5,10 @@
 //
 // Per .ts/.tsx file it
 //   - points `frappe-react-sdk` imports at `@/lib/frappe` (only when that module exports every imported name),
-//   - turns `JSON.parse(x)` into `parseJson(x)` (not with a reviver), `await r.json()` into
-//     `parseJson(await r.text())` and any other `r.json()` into `r.text().then(parseJson)`, adding the import,
+//   - turns `JSON.parse(x)` into `parseJson(x)` (not with a reviver), and, where `r` is a fetch Response,
+//     `await r.json()` into `parseJson(await r.text())` and any other `r.json()` into `r.text().then(parseJson)`,
+//     adding the import. A `.json()` whose receiver it cannot tell is a fetch Response, or one inside an optional
+//     chain (`r?.json()`), is left for a person, with a note,
 //   - turns `catch (e: any)` into `catch (e)`.
 // It reads the code with the TypeScript parser and edits only those spans, so the rest of the text stays byte for
 // byte. What it leaves for a person is printed as a note. After it: type the SDK calls with the generated DocType
@@ -18,7 +20,66 @@ import ts from "typescript";
 
 const SDK = "frappe-react-sdk";
 const TYPED_SDK = "@/lib/frappe";
-const PARSE_IMPORT = `import { parseJson } from "@/lib/parseJson";\n`;
+const PARSE_IMPORT = `import { parseJson } from "@/lib/parseJson";`;
+
+/** `(await x)` -> `x`: the expression under any parentheses and awaits. */
+function unwrap(node) {
+  while (ts.isParenthesizedExpression(node) || ts.isAwaitExpression(node)) node = node.expression;
+  return node;
+}
+
+const isFetchCall = (node) => {
+  const n = unwrap(node);
+  if (!ts.isCallExpression(n)) return false;
+  const f = n.expression;
+  return (ts.isIdentifier(f) && f.text === "fetch")
+    || (ts.isPropertyAccessExpression(f) && f.name.text === "fetch" && ts.isIdentifier(f.expression)
+      && ["window", "globalThis", "self"].includes(f.expression.text));
+};
+
+const isResponseType = (type) => !!type && ts.isTypeReferenceNode(type) && type.typeName.getText() === "Response";
+
+/** The parameter or `const`/`let`/`var` that `id` names, found by walking out through its scopes; else undefined. */
+function declarationOf(id) {
+  const name = id.text;
+  for (let scope = id.parent; scope; scope = scope.parent) {
+    if (ts.isFunctionLike(scope)) {
+      const p = scope.parameters?.find((q) => ts.isIdentifier(q.name) && q.name.text === name);
+      if (p) return p;
+    }
+    if (scope.statements) {
+      for (const st of scope.statements) {
+        if (!ts.isVariableStatement(st)) continue;
+        const d = st.declarationList.declarations.find((v) => ts.isIdentifier(v.name) && v.name.text === name);
+        if (d) return d;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * True when `receiver` is a fetch Response by its syntax alone: `fetch(...)` itself (awaited or in parentheses),
+ * a variable or parameter typed `Response`, a variable set from `await fetch(...)`, or the first parameter of the
+ * callback that `fetch(...).then(...)` is given. Anything else is not known, so it is left for a person.
+ */
+function isFetchResponse(receiver) {
+  const r = unwrap(receiver);
+  if (isFetchCall(r)) return true;
+  if (!ts.isIdentifier(r)) return false;
+  const decl = declarationOf(r);
+  if (!decl) return false;
+  if (isResponseType(decl.type)) return true;
+  if (ts.isVariableDeclaration(decl)) return !!decl.initializer && isFetchCall(decl.initializer);
+  const fn = decl.parent;
+  const call = fn.parent;
+  return ts.isParameter(decl) && fn.parameters[0] === decl && ts.isCallExpression(call) && call.arguments[0] === fn
+    && ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === "then"
+    && isFetchCall(call.expression.expression);
+}
+
+/** True when the call is part of an optional chain (`r?.json()`, `a?.r.json()`). */
+const inOptionalChain = (call) => !!(call.flags & ts.NodeFlags.OptionalChain);
 
 /** The names `src/lib/frappe.ts` exports, read from its code. */
 export function readSdkExports(file = join(import.meta.dirname, "../src/lib/frappe.ts")) {
@@ -87,6 +148,17 @@ export function migrateSource(text, fileName, { sdkExports }) {
           notes.push(`line ${line(node)}: JSON.parse with a reviver; left as it was`);
         }
       } else if (callee.name.text === "json" && node.arguments.length === 0) {
+        if (inOptionalChain(node)) {
+          notes.push(`line ${line(node)}: ${src(node)} is in an optional chain; left for a person (a nullish `
+            + "receiver must stay nullish)");
+          return;
+        }
+        if (!isFetchResponse(callee.expression)) {
+          notes.push(`line ${line(node)}: ${src(node)}: its receiver is not known to be a fetch Response; left for `
+            + "a person");
+          ts.forEachChild(node, visit);
+          return;
+        }
         const receiver = src(callee.expression);
         const parent = node.parent;
         if (ts.isAwaitExpression(parent)) {
@@ -109,9 +181,17 @@ export function migrateSource(text, fileName, { sdkExports }) {
   visit(sf);
 
   if (needsParse && !/import\s*\{[^}]*\bparseJson\b[^}]*\}\s*from\s*["']@\/lib\/parseJson["']/.test(text)) {
+    // On a line of its own after the last import (after that line's \n, so a CRLF ending is never split), or first.
+    const eol = text.includes("\r\n") ? "\r\n" : "\n";
     const imports = sf.statements.filter(ts.isImportDeclaration);
-    const at = imports.length ? imports[imports.length - 1].getEnd() + 1 : 0;
-    edits.push({ start: at, end: at, text: PARSE_IMPORT });
+    if (!imports.length) {
+      edits.push({ start: 0, end: 0, text: PARSE_IMPORT + eol });
+    } else {
+      const nl = text.indexOf("\n", imports[imports.length - 1].getEnd());
+      edits.push(nl === -1
+        ? { start: text.length, end: text.length, text: eol + PARSE_IMPORT + eol }
+        : { start: nl + 1, end: nl + 1, text: PARSE_IMPORT + eol });
+    }
   }
 
   let out = text;

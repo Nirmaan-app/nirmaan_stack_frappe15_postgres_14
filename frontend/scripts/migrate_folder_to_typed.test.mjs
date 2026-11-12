@@ -51,16 +51,67 @@ describe("migrateSource", () => {
     expect(out.notes).toEqual([expect.stringContaining("reviver")]);
   });
 
-  it("turns an awaited res.json() into parseJson(await res.text())", () => {
-    expect(migrate(`const d = await res.json();\n`).text).toBe(
-      `import { parseJson } from "@/lib/parseJson";\nconst d = parseJson(await res.text());\n`,
+  it("turns an awaited res.json() of a fetch Response into parseJson(await res.text())", () => {
+    expect(migrate(`const res = await fetch(u);\nconst d = await res.json();\n`).text).toBe(
+      `import { parseJson } from "@/lib/parseJson";\nconst res = await fetch(u);\nconst d = parseJson(await res.text());\n`,
     );
   });
 
-  it("turns a non-awaited res.json() into res.text().then(parseJson)", () => {
+  it("turns a non-awaited r.json() of a fetch Response into r.text().then(parseJson)", () => {
     expect(migrate(`fetch(u).then((r) => r.json());\n`).text).toBe(
       `import { parseJson } from "@/lib/parseJson";\nfetch(u).then((r) => r.text().then(parseJson));\n`,
     );
+  });
+
+  it("rewrites .json() on (await fetch(u)) and on a value typed Response", () => {
+    expect(migrate(`async function g() { return await (await fetch(u)).json(); }\n`).text).toBe(
+      `import { parseJson } from "@/lib/parseJson";\nasync function g() { return parseJson(await (await fetch(u)).text()); }\n`,
+    );
+    expect(migrate(`async function f(r: Response) { return await r.json(); }\n`).text).toBe(
+      `import { parseJson } from "@/lib/parseJson";\nasync function f(r: Response) { return parseJson(await r.text()); }\n`,
+    );
+  });
+
+  it("leaves .json() on anything not known to be a fetch Response, with a note", () => {
+    for (const src of [
+      `const d = await res.json();\n`,
+      `const store = makeStore();\nconst d = store.json();\n`,
+      `api.get(u).then((r) => r.json());\n`,
+      `function f(res) { const fetch = 1; return res.json(); }\n`,
+    ]) {
+      const out = migrate(src);
+      expect(out.text, src).toBe(src);
+      expect(out.changes, src).toEqual([]);
+      expect(out.notes, src).toEqual([expect.stringMatching(/\.json\(\).*not known to be a fetch Response/)]);
+    }
+  });
+
+  it("leaves an optional-chain .json() for a person, so a nullish receiver stays nullish", () => {
+    for (const src of [
+      `const r = await fetch(u);\nconst d = await r?.json();\n`,
+      `fetch(u).then((r) => r?.json());\n`,
+      `const d = await box?.res.json();\n`,
+    ]) {
+      const out = migrate(src);
+      expect(out.text, src).toBe(src);
+      expect(out.notes, src).toEqual([expect.stringContaining("optional chain")]);
+    }
+  });
+
+  it("adds the parseJson import on a line of its own in a CRLF file", () => {
+    const src = `import a from "a";\r\nimport b from "b";\r\nconst v = JSON.parse(raw);\r\n`;
+    expect(migrate(src).text).toBe(
+      `import a from "a";\r\nimport b from "b";\r\nimport { parseJson } from "@/lib/parseJson";\r\nconst v = parseJson(raw);\r\n`,
+    );
+    expect(migrate(`const v = JSON.parse(raw);\r\n`).text).toBe(
+      `import { parseJson } from "@/lib/parseJson";\r\nconst v = parseJson(raw);\r\n`,
+    );
+  });
+
+  it("adds the parseJson import after a last import that ends the file without a newline", () => {
+    expect(migrate(`import a from "a";`).text).toBe(`import a from "a";`);
+    const out = migrate(`const v = JSON.parse(raw);\nimport a from "a";`).text;
+    expect(out).toBe(`const v = parseJson(raw);\nimport a from "a";\nimport { parseJson } from "@/lib/parseJson";\n`);
   });
 
   it("drops the any from catch (e: any)", () => {

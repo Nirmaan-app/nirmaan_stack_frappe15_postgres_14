@@ -36,6 +36,8 @@ Preconditions:
   only), 04-09 as the Admin (list, create a made-up `Zephyr Walk Builders <stamp>` customer, its page, edit and
   save its contact person). Every screen is checked against `customers_db.py` (saved as `db-*.json`); exits 1 on
   any miss. `--part view` runs 01-03 alone and writes nothing.
+  With no customer to open (none, all inside the list's 5-minute cache, or all made-up) it exits 1 saying
+  which; `python3 -m unittest test_walk_customers` (from `BIN`) tests that choice.
 - **Read the DB.** `DEVENV script <task> BIN/customers_db.py list|customer <id>|by-company <name>|pincode`.
 - **The page.** Wait for `Customer ID` and `Total Projects`; labels render uppercase in `inner_text`.
 - **The edit form.** The pen is `button:has(svg.lucide-file-pen-line)`; the form is the `dialog`, its 11 inputs in

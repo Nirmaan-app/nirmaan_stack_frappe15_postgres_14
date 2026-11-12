@@ -119,141 +119,163 @@ def check_edit_form(page, sheet, rec: dict) -> None:
         check(g == w, f"edit form {name} holds {w!r} (screen: {g!r})")
 
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--task", required=True)
-ap.add_argument("--user", required=True)
-ap.add_argument("--password", required=True)
-ap.add_argument("--admin-user")
-ap.add_argument("--admin-password")
-ap.add_argument("--part", choices=["all", "view"], default="all",
-                help="view: the Accountant's read-only steps 01-03 alone (writes nothing)")
-a = ap.parse_args()
-if a.part == "all" and not (a.admin_user and a.admin_password):
-    ap.error("--part all needs --admin-user and --admin-password")
 
-stamp = time.strftime("%m%d%H%M%S")
-letters = "".join("ABCDEFGHJK"[int(d)] for d in stamp[-5:])
-made_up = {
-    "company_name": f"{MADE_UP_PREFIX} {stamp}",
-    "customer_nickname": f"ZWB{stamp}",
-    "company_gst": f"29{letters}{stamp[-4:]}W1Z5",
-    "company_contact_person": "Walk Contact Person",
-    "phone": "9000012345",
-    "email": f"walk1694.{stamp}@example.com",
-    "line1": "Made-up Plot 7, Test Layout",
-    "line2": "Walk Road",
-}
-
-with session(a.task, a.user, a.password) as (page, out):
-    listing = db(a.task, out, "list", "list")
-    pin = db(a.task, out, "pincode", "pincode")
-
-    # 01: the list, as the sidebar opens it
-    # The list's API caches a page for 5 minutes (CACHE_EXPIRY, data_table/constants.py), and this env serves no
-    # realtime event to clear it, so a customer made in the last 5 minutes may not be listed yet.
-    listed = [r for r in listing["newest"] if r["age_sec"] > 300]
-    for r in listing["newest"]:
+def pick_customers(listing: dict) -> tuple[list[dict], dict]:
+    """The list rows step 01 checks (those older than the list's 5-minute cache), and the customer steps 02-03
+    open: the newest one this walk did not make. Exits 1, saying why, when the env has no such customer."""
+    newest = listing["newest"]
+    if not newest:
+        sys.exit("walk: the env DB has no customer to walk; load data with customers in it")
+    listed = [r for r in newest if r["age_sec"] > 300]
+    for r in newest:
         if r["age_sec"] <= 300:
             print(f"not walked: list row {r['name']} (made {r['age_sec']} s ago, inside the list's 5-minute cache)")
-    sidebar(page, "Customers")
-    page.get_by_role("link", name=listed[0]["company_name"], exact=True).wait_for(timeout=60_000)
-    page.wait_for_load_state("networkidle")
-    save(page, out, "01-list")
-    text = text_of(page)
-    check(bool(re.search(rf"\b{listing['total']}\s+Customers", text)), f"the list counts {listing['total']} Customers")
-    for row in listed:
-        shown(text, row["company_name"], f"list row {row['name']}")
-        shown(text, row["name"][-6:], f"list row {row['name']} ID")
+    if not listed:
+        sys.exit("walk: every one of the ten newest customers was made inside the list's 5-minute cache, so the "
+                 "list may not show them yet; run the walk again in 5 minutes")
+    real = next((r for r in newest if not r["company_name"].startswith(MADE_UP_PREFIX)), None)
+    if real is None:
+        sys.exit(f"walk: the ten newest customers are all made-up ones ({MADE_UP_PREFIX} ...), so there is no real "
+                 "customer to open; load fresh data")
+    return listed, real
 
-    # 02: a real customer's page (the newest that this walk did not make)
-    real = next(r for r in listing["newest"] if not r["company_name"].startswith(MADE_UP_PREFIX))
-    page.get_by_role("link", name=real["company_name"], exact=True).first.click()
-    wait_customer_page(page)
-    save(page, out, "02-customer")
-    rec = db(a.task, out, "customer", "customer", real["name"])
-    check_customer_page(page, rec)
 
-    # 03: its edit form, read only
-    sheet = open_edit(page)
-    check_edit_form(page, sheet, rec)
-    save(page, out, "03-edit-form")
-    page.keyboard.press("Escape")
-    print(f"evidence (accountant): {out}")
-    if misses:
-        raise SystemExit(1)
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task", required=True)
+    ap.add_argument("--user", required=True)
+    ap.add_argument("--password", required=True)
+    ap.add_argument("--admin-user")
+    ap.add_argument("--admin-password")
+    ap.add_argument("--part", choices=["all", "view"], default="all",
+                    help="view: the Accountant's read-only steps 01-03 alone (writes nothing)")
+    a = ap.parse_args()
+    if a.part == "all" and not (a.admin_user and a.admin_password):
+        ap.error("--part all needs --admin-user and --admin-password")
 
-if a.part == "view":
+    stamp = time.strftime("%m%d%H%M%S")
+    letters = "".join("ABCDEFGHJK"[int(d)] for d in stamp[-5:])
+    made_up = {
+        "company_name": f"{MADE_UP_PREFIX} {stamp}",
+        "customer_nickname": f"ZWB{stamp}",
+        "company_gst": f"29{letters}{stamp[-4:]}W1Z5",
+        "company_contact_person": "Walk Contact Person",
+        "phone": "9000012345",
+        "email": f"walk1694.{stamp}@example.com",
+        "line1": "Made-up Plot 7, Test Layout",
+        "line2": "Walk Road",
+    }
+
+    with session(a.task, a.user, a.password) as (page, out):
+        listing = db(a.task, out, "list", "list")
+        pin = db(a.task, out, "pincode", "pincode")
+
+        # 01: the list, as the sidebar opens it
+        # The list's API caches a page for 5 minutes (CACHE_EXPIRY, data_table/constants.py), and this env serves no
+        # realtime event to clear it, so a customer made in the last 5 minutes may not be listed yet.
+        listed, real = pick_customers(listing)
+        sidebar(page, "Customers")
+        page.get_by_role("link", name=listed[0]["company_name"], exact=True).wait_for(timeout=60_000)
+        page.wait_for_load_state("networkidle")
+        save(page, out, "01-list")
+        text = text_of(page)
+        check(bool(re.search(rf"\b{listing['total']}\s+Customers", text)), f"the list counts {listing['total']} Customers")
+        for row in listed:
+            shown(text, row["company_name"], f"list row {row['name']}")
+            shown(text, row["name"][-6:], f"list row {row['name']} ID")
+
+        # 02: a real customer's page (the newest that this walk did not make)
+        page.get_by_role("link", name=real["company_name"], exact=True).first.click()
+        wait_customer_page(page)
+        save(page, out, "02-customer")
+        rec = db(a.task, out, "customer", "customer", real["name"])
+        check_customer_page(page, rec)
+
+        # 03: its edit form, read only
+        sheet = open_edit(page)
+        check_edit_form(page, sheet, rec)
+        save(page, out, "03-edit-form")
+        page.keyboard.press("Escape")
+        print(f"evidence (accountant): {out}")
+        if misses:
+            raise SystemExit(1)
+
+    if a.part == "view":
+        print("all checks seen")
+        return
+
+    with session(a.task, a.admin_user, a.admin_password) as (page, out):
+        # 04: the Admin's way in
+        page.locator('[data-sidebar="menu-button"]').get_by_text("Admin Options", exact=True).click()
+        page.locator('[data-sidebar="menu-sub-button"]').get_by_text("Customers", exact=True).click()
+        page.get_by_role("link", name=listed[0]["company_name"], exact=True).wait_for(timeout=60_000)
+        page.wait_for_load_state("networkidle")
+        save(page, out, "04-admin-list")
+        check(bool(re.search(rf"\b{listing['total']}\s+Customers", text_of(page))),
+              f"the Admin's list counts {listing['total']} Customers")
+
+        # 05-06: create a made-up customer
+        page.get_by_role("button", name=re.compile(r"Add\s*New Customer")).click()
+        page.get_by_placeholder("Company Name").wait_for()
+        page.get_by_placeholder("Company Name").fill(made_up["company_name"])
+        page.get_by_placeholder(re.compile(r"^Short, memorable name")).fill(made_up["customer_nickname"])
+        page.get_by_placeholder("GST Number").fill(made_up["company_gst"])
+        page.get_by_placeholder("Contact Person").fill(made_up["company_contact_person"])
+        page.get_by_placeholder("Phone Number").fill(made_up["phone"])
+        page.get_by_placeholder("Email").fill(made_up["email"])
+        page.get_by_placeholder("Address Line 1").fill(made_up["line1"])
+        page.get_by_placeholder("Address Line 2").fill(made_up["line2"])
+        page.get_by_placeholder("6 digit PIN").fill(pin["pincode"])
+        page.get_by_placeholder(pin["city"]).wait_for(timeout=30_000)  # the PIN's city arrived
+        check(page.locator('input[name="company_city"]').input_value() == pin["city"], f"PIN fills City {pin['city']!r}")
+        check(page.locator('input[name="company_state"]').input_value() == pin["state"], f"PIN fills State {pin['state']!r}")
+        save(page, out, "05-create-form")
+        page.get_by_role("button", name="Submit").click()
+        page.wait_for_url(re.compile(r"/customers(\?|$)"), timeout=30_000)
+        # The plain list may still be the cached page (see 01), so find the new customer the way a user would: the
+        # search box (search by company name), whose query is not cached yet.
+        page.get_by_placeholder(re.compile(r"^Search by company name")).fill(made_up["company_name"])
+        page.get_by_role("link", name=made_up["company_name"], exact=True).wait_for(timeout=60_000)
+        save(page, out, "06-created")
+
+        created = db(a.task, out, "created", "by-company", made_up["company_name"])["rows"]
+        check(len(created) == 1, f"the DB holds the made-up customer once ({len(created)})")
+        new = created[0]
+        c, addr = new["customer"], new["address"] or {}
+        for field, want in [("customer_nickname", made_up["customer_nickname"]), ("company_gst", made_up["company_gst"]),
+                            ("company_contact_person", made_up["company_contact_person"]),
+                            ("company_phone", made_up["phone"]), ("company_email", made_up["email"])]:
+            check(c[field] == want, f"DB {field} is {want!r} ({c[field]!r})")
+        for field, want in [("address_line1", made_up["line1"]), ("address_line2", made_up["line2"]),
+                            ("city", pin["city"]), ("state", pin["state"]), ("pincode", pin["pincode"])]:
+            check(addr.get(field) == want, f"DB address {field} is {want!r} ({addr.get(field)!r})")
+
+        # 07: the made-up customer's page
+        page.get_by_role("link", name=made_up["company_name"], exact=True).click()
+        wait_customer_page(page)
+        save(page, out, "07-new-customer")
+        check_customer_page(page, new)
+
+        # 08-09: its edit form, then one change saved
+        sheet = open_edit(page)
+        check_edit_form(page, sheet, new)
+        save(page, out, "08-new-edit")
+        edited = "Walk Contact Edited"
+        sheet.locator("input").nth(4).fill(edited)
+        sheet.get_by_role("button", name="Update").click()
+        page.get_by_text("details updated successfully").first.wait_for(timeout=30_000)
+        save(page, out, "09-edited")
+        after = db(a.task, out, "edited", "customer", c["name"])
+        check(after["customer"]["company_contact_person"] == edited,
+              f"DB contact person is {edited!r} after Update ({after['customer']['company_contact_person']!r})")
+
+        print(f"customer: {real['name']}; made-up customer: {c['name']}")
+        print(f"evidence (admin): {out}")
+        if misses:
+            print(f"{len(misses)} check(s) FAILED")
+            raise SystemExit(1)
     print("all checks seen")
-    sys.exit(0)
 
-with session(a.task, a.admin_user, a.admin_password) as (page, out):
-    # 04: the Admin's way in
-    page.locator('[data-sidebar="menu-button"]').get_by_text("Admin Options", exact=True).click()
-    page.locator('[data-sidebar="menu-sub-button"]').get_by_text("Customers", exact=True).click()
-    page.get_by_role("link", name=listed[0]["company_name"], exact=True).wait_for(timeout=60_000)
-    page.wait_for_load_state("networkidle")
-    save(page, out, "04-admin-list")
-    check(bool(re.search(rf"\b{listing['total']}\s+Customers", text_of(page))),
-          f"the Admin's list counts {listing['total']} Customers")
 
-    # 05-06: create a made-up customer
-    page.get_by_role("button", name=re.compile(r"Add\s*New Customer")).click()
-    page.get_by_placeholder("Company Name").wait_for()
-    page.get_by_placeholder("Company Name").fill(made_up["company_name"])
-    page.get_by_placeholder(re.compile(r"^Short, memorable name")).fill(made_up["customer_nickname"])
-    page.get_by_placeholder("GST Number").fill(made_up["company_gst"])
-    page.get_by_placeholder("Contact Person").fill(made_up["company_contact_person"])
-    page.get_by_placeholder("Phone Number").fill(made_up["phone"])
-    page.get_by_placeholder("Email").fill(made_up["email"])
-    page.get_by_placeholder("Address Line 1").fill(made_up["line1"])
-    page.get_by_placeholder("Address Line 2").fill(made_up["line2"])
-    page.get_by_placeholder("6 digit PIN").fill(pin["pincode"])
-    page.get_by_placeholder(pin["city"]).wait_for(timeout=30_000)  # the PIN's city arrived
-    check(page.locator('input[name="company_city"]').input_value() == pin["city"], f"PIN fills City {pin['city']!r}")
-    check(page.locator('input[name="company_state"]').input_value() == pin["state"], f"PIN fills State {pin['state']!r}")
-    save(page, out, "05-create-form")
-    page.get_by_role("button", name="Submit").click()
-    page.wait_for_url(re.compile(r"/customers(\?|$)"), timeout=30_000)
-    # The plain list may still be the cached page (see 01), so find the new customer the way a user would: the
-    # search box (search by company name), whose query is not cached yet.
-    page.get_by_placeholder(re.compile(r"^Search by company name")).fill(made_up["company_name"])
-    page.get_by_role("link", name=made_up["company_name"], exact=True).wait_for(timeout=60_000)
-    save(page, out, "06-created")
-
-    created = db(a.task, out, "created", "by-company", made_up["company_name"])["rows"]
-    check(len(created) == 1, f"the DB holds the made-up customer once ({len(created)})")
-    new = created[0]
-    c, addr = new["customer"], new["address"] or {}
-    for field, want in [("customer_nickname", made_up["customer_nickname"]), ("company_gst", made_up["company_gst"]),
-                        ("company_contact_person", made_up["company_contact_person"]),
-                        ("company_phone", made_up["phone"]), ("company_email", made_up["email"])]:
-        check(c[field] == want, f"DB {field} is {want!r} ({c[field]!r})")
-    for field, want in [("address_line1", made_up["line1"]), ("address_line2", made_up["line2"]),
-                        ("city", pin["city"]), ("state", pin["state"]), ("pincode", pin["pincode"])]:
-        check(addr.get(field) == want, f"DB address {field} is {want!r} ({addr.get(field)!r})")
-
-    # 07: the made-up customer's page
-    page.get_by_role("link", name=made_up["company_name"], exact=True).click()
-    wait_customer_page(page)
-    save(page, out, "07-new-customer")
-    check_customer_page(page, new)
-
-    # 08-09: its edit form, then one change saved
-    sheet = open_edit(page)
-    check_edit_form(page, sheet, new)
-    save(page, out, "08-new-edit")
-    edited = "Walk Contact Edited"
-    sheet.locator("input").nth(4).fill(edited)
-    sheet.get_by_role("button", name="Update").click()
-    page.get_by_text("details updated successfully").first.wait_for(timeout=30_000)
-    save(page, out, "09-edited")
-    after = db(a.task, out, "edited", "customer", c["name"])
-    check(after["customer"]["company_contact_person"] == edited,
-          f"DB contact person is {edited!r} after Update ({after['customer']['company_contact_person']!r})")
-
-    print(f"customer: {real['name']}; made-up customer: {c['name']}")
-    print(f"evidence (admin): {out}")
-    if misses:
-        print(f"{len(misses)} check(s) FAILED")
-        raise SystemExit(1)
-print("all checks seen")
+if __name__ == "__main__":
+    main()

@@ -18,7 +18,8 @@ Usage:
     python3 scripts/residence_check.py --init   # (re)generate the baseline file
     python3 scripts/residence_check.py          # check current tree against baseline
     python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
-    python3 scripts/residence_check.py --check --only S1,R1   # CI: named checks, baseline never rewritten
+    python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
+    python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
 
 Stdlib only; run from anywhere (repo root is resolved from __file__).
 """
@@ -767,18 +768,24 @@ def main(argv: list[str] | None = None, checks: list[Check] | None = None,
                         help="Also print each counted violation (path:line) of the checks that can locate them.")
     parser.add_argument("--only", metavar="NAMES",
                         help="Comma-separated check ids or rule ids (S1, P1, ...) to run instead of all checks; "
-                             f"CI runs --only {','.join(CI_SUBSET)}.")
+                             f"'ci' names the checks CI runs ({','.join(CI_SUBSET)}).")
     parser.add_argument("--check", action="store_true",
                         help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
     args = parser.parse_args(argv)
+    if args.init and args.only:
+        print("--only cannot be combined with --init: --init measures every check and rewrites the whole baseline.",
+              file=sys.stderr)
+        return 2
     if args.init:
         return do_init()
     checks = CHECKS if checks is None else checks
     if args.only:
         try:
-            checks = select_checks(checks, [n.strip() for n in args.only.split(",") if n.strip()])
+            names = [n.strip() for n in args.only.split(",") if n.strip()]
+            names = [x for n in names for x in (CI_SUBSET if n == "ci" else [n])]
+            checks = select_checks(checks, names)
         except ValueError as e:
-            print(f"--only names no check: {e}")
+            print(f"--only names no check: {e}", file=sys.stderr)
             return 2
     return do_check(checks, baseline_path, list_all=args.list, tighten=not args.check)
 

@@ -98,14 +98,14 @@ def render_interface(dt: dict) -> str:
 def doctype_jsons(root: Path) -> list[Path]:
     """Every `<root>/**/doctype/<folder>/<folder>.json` that defines a DocType."""
     return [p for p in sorted(root.glob("**/doctype/*/*.json"))
-            if p.stem == p.parent.name and json.loads(p.read_text()).get("doctype") == "DocType"]
+            if p.stem == p.parent.name and json.loads(p.read_text(encoding="utf-8")).get("doctype") == "DocType"]
 
 
 def render_folder(root: Path) -> dict[str, str]:
     """File name -> content for every DocType under ``root``."""
     files: dict[str, str] = {}
     for path in doctype_jsons(root):
-        dt = json.loads(path.read_text())
+        dt = json.loads(path.read_text(encoding="utf-8"))
         name = module_name(dt["name"]) + ".ts"
         if name in files:
             raise ValueError(f"two DocTypes map to {name}; rename one")
@@ -121,7 +121,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     wanted = render_folder(args.doctypes)
-    have = {p.name: p.read_text() for p in args.out.glob("*.ts")} if args.out.is_dir() else {}
+    have = {p.name: p.read_text(encoding="utf-8") for p in args.out.glob("*.ts")} if args.out.is_dir() else {}
     stale = sorted(n for n in wanted.keys() | have.keys() if wanted.get(n) != have.get(n))
     if args.check:
         if stale:
@@ -132,7 +132,9 @@ def main(argv=None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     for name in stale:
         if name in wanted:
-            (args.out / name).write_text(wanted[name])
+            # newline="\n": the same bytes on Windows, so --check agrees on every OS.
+            with open(args.out / name, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(wanted[name])
         else:
             (args.out / name).unlink()
     print(f"{len(wanted)} DocTypes, {len(stale)} file(s) written or removed in {args.out}")

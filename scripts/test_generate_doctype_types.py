@@ -4,6 +4,7 @@ Stdlib only, like the script:  python3 -m unittest scripts.test_generate_doctype
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from generate_doctype_types import main, render_interface  # noqa: E402
+
+SCRIPT = Path(__file__).resolve().parent / "generate_doctype_types.py"
 
 
 def doctype(name, fields, **meta):
@@ -164,6 +167,20 @@ class Folder(unittest.TestCase):
         self.assertEqual(self.run_main("--check"), 1)
         self.run_main()
         self.assertEqual(sorted(self.snapshot()), ["SampleOrderItem.ts"])
+
+    @unittest.skipIf(sys.version_info < (3, 10), "EncodingWarning arrived in Python 3.10")
+    def test_a_non_ascii_option_round_trips_whatever_the_platform_encoding(self):
+        # Windows reads and writes in cp1252 unless told otherwise: -X warn_default_encoding turns every
+        # read or write that leaves the encoding to the platform into an error, here on any OS.
+        self.write_doctype(doctype("Sample Order", [field("site", "Select", options="Bengaluru\nPune \u2013 Hinjewadi")]))
+        cmd = [sys.executable, "-X", "warn_default_encoding", "-W", "error::EncodingWarning", str(SCRIPT),
+               "--doctypes", str(self.src.parent), "--out", str(self.out)]
+        for flags in ([], ["--check"]):
+            run = subprocess.run(cmd + flags, capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(run.returncode, 0, run.stderr)
+        raw = (self.out / "SampleOrder.ts").read_bytes()
+        self.assertIn('"Pune \u2013 Hinjewadi"'.encode("utf-8"), raw)
+        self.assertNotIn(b"\r\n", raw)
 
 
 class RealDocTypes(unittest.TestCase):

@@ -13,6 +13,8 @@ Prints one JSON line:
   pincode     one Pincodes row with a city and state, for the create form.
 """
 
+from __future__ import annotations
+
 import json
 import sys
 
@@ -24,8 +26,11 @@ LIST_FIELDS = ["name", "company_name", "customer_nickname", "company_contact_per
 ADDRESS_FIELDS = ["address_line1", "address_line2", "city", "state", "pincode"]
 
 
-def customer(name: str) -> dict:
+def customer(name: str) -> dict | None:
+    """The customer's row, address and project counts; None when no Customers row has that ID."""
     row = frappe.db.get_value("Customers", name, ["*"], as_dict=True)
+    if row is None:
+        return None
     address = (frappe.db.get_value("Address", row.company_address, ADDRESS_FIELDS, as_dict=True)
                if row.company_address else None)
     return {
@@ -44,15 +49,20 @@ if mode == "list":
     out = {"total": frappe.db.count("Customers"), "newest": newest}
 elif mode == "customer":
     out = customer(args[0])
+    if out is None:
+        sys.exit(f"customers_db: no Customers row with ID {args[0]!r}")
 elif mode == "by-company":
     out = {"rows": [customer(n) for n in frappe.get_all("Customers", {"company_name": args[0]}, pluck="name")]}
 elif mode == "pincode":
-    out = frappe.db.sql(
+    rows = frappe.db.sql(
         """select pincode, city, state from "tabPincodes"
            where coalesce(city, '') != '' and coalesce(state, '') != '' and length(pincode) = 6
            order by pincode limit 1""",
         as_dict=True,
-    )[0]
+    )
+    if not rows:
+        sys.exit("customers_db: no Pincodes row with a 6-digit PIN, a city and a state")
+    out = rows[0]
 else:
     sys.exit(f"customers_db: unknown mode {mode!r}")
 print(json.dumps(out, default=str))
