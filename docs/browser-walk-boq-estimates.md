@@ -286,6 +286,88 @@ ever settled) fail the right tests. Test estimates removed afterwards.
 
 ---
 
+## Pre-PR test run, 2026-11-12
+
+### "+ Add item" picker (owner, 12 Nov)
+
+Rules in `utils/estimations/itemPicker.ts` (pure, tested), used by `NormalItemPicker`:
+
+- Picking an item first fills in its category (the item list then narrows to that category; the item stays in it).
+- Picking a category first lists only that category's items.
+- Changing or clearing the category empties the item and make. Picking the same category again changes nothing.
+  Clearing the item keeps the category.
+- Item and qty are required. Each error shows under its own field and clears when that field changes: "Pick an item
+  from the Items list.", "Enter a quantity above 0.", and the NOS / SET whole-number rule (the server's own messages).
+
+### Tests added (every file the branch changed now has tests)
+
+| Area | File | Tests |
+|---|---|---|
+| Guards, through every way in (endpoints and plain insert / save / delete) | `api/estimations/test_estimate_guards.py` | 12 |
+| Doctype shape on the site, meta and database (catches a missed migrate) | `doctype/boq_line_estimate/test_boq_line_estimate.py` | 7 |
+| Frontend role list mirrors the server's | `services/test_role_mirrors.py` | +1 pair |
+| BOQ View toggle, grid, materials parts, older-version notice, form, Line Item View, Estimate Items, tab, hooks | 11 `*.dom.test.tsx` files under `pages/estimations/` | 93 |
+| Picker rules, rule edges, `canEditEstimates`, tab wiring in `project.tsx` | `itemPicker.test.ts` (16), `estimateRules.test.ts` (+7), `roles.test.ts` (+2), `estimatesTabWiring.test.ts` (4) | 29 |
+
+Totals: backend estimates 65 tests (API 16, guards 12, rules 30, doctype 7), plus the index manifest (19) and role mirrors (4); frontend estimates 137 (was 15). The guard tests cover:
+
+- Viewers, by role: Project Lead, Project Manager, Procurement Executive, Accountant, and the Estimates Executive role
+  without its profile. Each is refused at every way in: the endpoints, and a plain insert, save or delete.
+- Admin, PMO and Estimates Executive can add, change and delete.
+- An estimate can only sit on a current line item, one per line (a unique index too).
+- Completed and Handover projects refuse every change and still read.
+- 13 invalid rows are refused with their row number.
+- The server fills the copied fields, and a request that names another BOQ or sheet gets the line's own.
+- Malformed requests are refused or do nothing.
+- The copy job logs what it could not copy, and is safe to run twice.
+- A real BoQ Sheet insert queues the copy.
+- An estimate never blocks deleting its line, sheet or BOQ.
+
+**Breaking each guard on purpose** (mutation checks): 8 backend and 12 frontend changes that break a guard. Each made
+its test fail, and each file was restored byte for byte (sha256).
+
+### Regression on a restored copy, not the live site
+
+All backend runs used a throwaway site restored from a fresh localhost backup (scheduler paused, emails muted, its
+own database and cache). Localhost's table counts were identical before and after.
+
+| Set | Result |
+|---|---|
+| BOQ Python set (109 modules, 4,854 tests, parallel runner) | 108 clean. `test_the_forked_path_really_forks` failed once under the parallel load; alone it passed 3 of 3 runs. |
+| Other affected modules (35: importers of `role_profiles`, hooks / `ignore_links_on_delete` users, `test_boq_delete_cascade`) | 32 clean. 5 tests in 3 modules (`test_card_refunds`, `test_cashbook_bills`, `test_expense_requests`) fail the same way with develop's `hooks.py` put back: cloud file storage on the restored copy, and a stray ignored `expense_category/__pycache__` folder. Not this branch. |
+| `yarn test` (408 files, 10,406 tests) | 10,403 pass. 3 timed out at 5 s under full-suite load (`ruleReachability.test.ts`, `plainEnglish.test.ts`, not touched by this branch); alone both files pass, 439 / 439. |
+| `yarn typecheck` | 0 new errors |
+| Residence check | All rules hold |
+
+### Browser walk (Admin, testProject1, BOQ "reg walk v1")
+
+| Step | Result |
+|---|---|
+| Column header | **Estimate Items**, after Row type (BOQ View) and last (Line Item View) |
+| Custom badge | Reads **Custom** in the form, BOQ View, Line Item View and Estimate Items |
+| Collapse all | Only the top heading stays, "DUCTING WORKS (+1 line)"; materials close; `estRow` leaves the URL |
+| Search while folded, then clear it | The match shows through the fold; clearing brings the fold back |
+| Expand all | Every row back, every line's materials open |
+| + Add item, Add with nothing filled | "Pick an item…" under Item, "Enter a quantity above 0." under Qty |
+| Item first | Category filled in (Air Distribution Products; HVAC Junk); makes and the Qty unit followed |
+| Category changed, then cleared | Item and make emptied each time |
+| Category first | Item list narrowed to that category |
+| 2.5 on a NOS item | "NOS is counted in whole numbers…" under Qty; 4 accepted |
+| Save; then add a custom item and save | "Saved 1 material" → "Saved 2 materials"; sheet count 0/1 → 1/1; similar items offered first |
+| Line Item View, Estimate Items | Both materials, category and badge correct; Open line lands on row 6 |
+| Remove both, Save | "Material estimate removed"; count back to 0/1 |
+
+Seen, not bugs:
+
+- The console shows `Uncaught SyntaxError: Unexpected token '{'` on every load of the dev server.
+  `index.html` has `frappe.boot = {{ boot }};`, which only Frappe renders; vite serves it raw. It happens on develop
+  too and never in production.
+- Escape closes the whole form (the dialog's normal close key).
+
+Nothing from the walk is left on the BOQ, and the user signed out.
+
+---
+
 ## To check
 
 ### Logins needed

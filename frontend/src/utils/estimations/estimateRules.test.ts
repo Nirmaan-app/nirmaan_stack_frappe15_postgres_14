@@ -109,3 +109,50 @@ describe("form checks", () => {
     expect(["Completed", "Handover", "WIP", "CEO Hold"].map(projectAllowsEstimateEdits)).toEqual([false, false, true, true]);
   });
 });
+
+describe("form checks: edges the server also refuses", () => {
+  const normal = (quantity: number, unit = "sqm") => ({ item_type: "Normal" as const, item_id: "I1", unit, quantity });
+
+  it("refuses an endless or non-numeric quantity instead of letting it through", () => {
+    for (const q of [Infinity, -Infinity, NaN, -1]) expect(itemRowProblem(normal(q)), String(q)).toMatch(/above 0/);
+  });
+
+  it("counts NOS and SET in whole pieces whatever the case and spaces, and nothing else", () => {
+    expect(itemRowProblem(normal(1.5, " nos "))).toMatch(/whole numbers/);
+    expect(itemRowProblem(normal(1.5, "Set"))).toMatch(/whole numbers/);
+    expect(itemRowProblem(normal(1.5, "kg"))).toBeNull();
+    expect(itemRowProblem(normal(2, "NOS"))).toBeNull();
+  });
+
+  it("asks a custom item for its name and unit too", () => {
+    expect(itemRowProblem({ item_type: "Custom", item_name: "  ", unit: "pkt", category: "C", quantity: 1 })).toMatch(/name/);
+    expect(itemRowProblem({ item_type: "Custom", item_name: "x", unit: "", category: "C", quantity: 1 })).toMatch(/unit/);
+  });
+
+  it("never lets a custom row clash with a normal one, and repeats a custom name only in another unit", () => {
+    const custom = { item_type: "Custom" as const, item_name: "Clip", unit: "pkt", category: "C", quantity: 1 };
+    expect(duplicateProblem([{ item_type: "Normal", item_id: "Clip", item_name: "Clip", quantity: 1 }, custom])).toBeNull();
+    expect(duplicateProblem([custom, { ...custom, item_name: " clip ", unit: "PKT" }])).toMatch(/custom item/);
+    expect(duplicateProblem([custom, { ...custom, unit: "nos" }])).toBeNull();
+  });
+
+  it("treats a missing or padded project status as its plain value", () => {
+    expect([null, undefined, "", " Completed "].map(projectAllowsEstimateEdits)).toEqual([true, true, true, false]);
+  });
+});
+
+describe("materialTotals: the type filter and units", () => {
+  const e = entry("L1", [
+    { item_type: "Normal", item_id: "I1", item_name: "Made-up frame", make: null, unit: "rmt", quantity: 2 },
+    { item_type: "Normal", item_id: "I1", item_name: "Made-up frame", make: null, unit: "nos", quantity: 3 },
+    { item_type: "Custom", item_name: "Spacer Clip", unit: "pkt", quantity: 4 },
+  ]);
+
+  it("Normal leaves custom items out, and different units are never added together", () => {
+    expect(materialTotals([e], "Normal").map((t) => [t.unit, t.quantity])).toEqual([["nos", 3], ["rmt", 2]]);
+  });
+
+  it("is empty with no estimates", () => {
+    expect(materialTotals([])).toEqual([]);
+  });
+});
