@@ -296,7 +296,8 @@ export const DERIVATION_RULINGS: Readonly<Record<string, Readonly<Record<string,
  * 12d-4c caller and pin stands; do not copy either back here.
  */
 import { plainSentence, pricingInputLabel } from "./plainEnglish";
-import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel } from "../../boq-wizard/rate-helper/itemListPricing";
+import { GI_FRAMEWORK_CLADDING, PIECE_LENGTH_MIN_MM, familyDisplayName, itemListPricingSpec, plainBoxSurface, plainItemListWording, stockedUnitsWords, waysLabel,
+         type AccessorySpec, type CapacityUnits, type CountedSpec, type DefaultSpec, type ItemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
 export { plainSentence };
 
 /**
@@ -333,17 +334,17 @@ export function extractionRulesCardShown(config: unknown): boolean {
 const famWordRaw = (f: string) => String(f).trim();
 
 /** VRF-2b (QR-3 A): the unit the line-1 refusal example quotes -- "nos", unless the category prices "nos". PURE. */
-function refusalExampleUnit(pr: any): string {
+function refusalExampleUnit(pr: ItemListPricingSpec): string {
   // VRF-3a K2: a whole-lot spelling has its own refusal, so it is never this sentence's example; "Mtr" follows the three
   // only where all three are known or lot units (VRF from v58) -- every earlier pick is unchanged
-  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+  const known = new Set([...Object.values(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
   return ["nos", "Set", "Lot", ...(pr?.lot_units ? ["Mtr"] : [])].find((u) => !known.has(u.toLowerCase())) ?? "nos";
 }
 
 /** VRF-2b (QR-3 A): the line-13 examples of a unit the catalogue does not know -- 'Lot', 'Nos/Ro', with a known one
  * swapped for 'Set'. Unchanged ('Lot', 'Nos/Ro') for every category that knows neither. PURE. */
-function unknownUnitExamples(pr: any): string {
-  const known = new Set([...Object.values<any>(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
+function unknownUnitExamples(pr: ItemListPricingSpec): string {
+  const known = new Set([...Object.values(pr?.unit_classes ?? {}).flat(), ...(pr?.lot_units?.units ?? [])].map((x) => String(x).trim().toLowerCase()));
   const pick = ["Lot", "Nos/Ro", "Set", ...(pr?.lot_units ? ["Mtr", "Sqm"] : [])].filter((u) => !known.has(u.toLowerCase())).slice(0, 2);
   return pick.map((u) => `'${u}'`).join(", ");
 }
@@ -351,8 +352,8 @@ function unknownUnitExamples(pr: any): string {
 /** VRF-2b (QR-3 A): a block pricing SEVERAL item kinds (`extra_kinds`) in several unit classes, each family in exactly
  * ONE class (VRF: the units per Nos, the Misc per Nos or per Kg). Keyed on `extra_kinds`, so every category that declares
  * none -- Insulation and Piping in every version -- keeps its lines byte for byte. PURE. */
-function oneClassPerKind(pr: any): boolean {
-  const fams = Object.values<any>(pr?.families ?? {});
+function oneClassPerKind(pr: ItemListPricingSpec): boolean {
+  const fams = Object.values(pr?.families ?? {});
   return Array.isArray(pr?.extra_kinds) && pr.extra_kinds.length > 0
     && Object.keys(pr?.unit_classes ?? {}).length > 1 && fams.length > 0 && fams.every((f) => Object.keys(f?.units ?? {}).length === 1);
 }
@@ -830,7 +831,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         `${list(defaultLines, 6)} -- shown as assumed, never silently`);
   }
   // VRF-2b (owner R-BRAND (a)): a stated value the attribute does not list prices as the default, naming the row's words
-  for (const [a, d] of Object.entries<any>(pr.defaults ?? {})) {
+  for (const [a, d] of Object.entries<DefaultSpec>(pr.defaults ?? {})) {
     if (!d?.unlisted || typeof d.value !== "string") continue;
     // owner QR-1b (2026-11-04 01:26, fix 1): "... priced as Blue Star, naming the row's words" -- one sentence, a comma
     add(`Several ${name(a)}s, or one ${name(a)} not on the sheet, are priced as ${d.value}, naming the row's words`,
@@ -950,7 +951,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // VRF-2b (owner R-CONV / CFM / RECON): a value stated in another unit is converted first
     const cu = pr.numbers?.[a]?.units;
     if (cu && typeof cu === "object") {
-      const conv = Object.entries<any>(cu.convert ?? {});
+      const conv = Object.entries<CapacityUnits["convert"][string]>(cu.convert ?? {});
       // owner QR-1b (2026-11-04 01:26, fix 2): the title names every unit, the base first -- "in TR, HP or kW"
       const unitsNamed = [String(cu.base ?? ""), ...Object.keys(cu.words ?? {}).filter((u) => u !== cu.base)].filter(Boolean);
       add(`A ${name(a)} in ${unitsNamed.slice(0, -1).join(", ")}${unitsNamed.length > 1 ? " or " : ""}${unitsNamed[unitsNamed.length - 1] ?? ""} that is not the item's own unit is converted first`,
@@ -1224,7 +1225,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add(`A row priced per Set takes one Set as one piece${except}`,
         `${quoteList(ps.units.map(String))} are priced as one piece per Set, with an orange bar saying so; '${String(ps.qty_label ?? "")}' starts at 1 and can be changed`);
     if (cnt && Array.isArray(cnt.families) && Array.isArray(cnt.counts)) {
-      const sides = cnt.counts.map((c: any) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
+      const sides = cnt.counts.map((c: CountedSpec["counts"][number]) => `${String(c.word)} = ${String(c.word)} units - 1`).join(", ");
       add(`A ${list(cnt.families.map((f: unknown) => famWord(String(f))))} on a Set row holds the pieces the system's unit counts give`,
           `${sides} -- what the row covers decides which; the BoQ quantity within ${Math.round(Number(cnt.tolerance?.share ?? 0) * 100)}% of that count (at least ${String(cnt.tolerance?.min ?? 1)}) -> 1 piece per Set; well below it -> the count shared over the Sets, rounded up, with a note; anything else, or a count missing, is not priced; pieces the pricer types win${
             cnt.from_sheet ? "; on a BoQ row the unit counts are added up from the sheet's VRF rows the model read (each unit x its row's quantity), named in a note, and can be changed" : ""}`);
@@ -1262,7 +1263,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // in the config (a config without them adds nothing)
   const ex5 = pr.extras && typeof pr.extras === "object" ? pr.extras : null;
   if (ex5 && Array.isArray(ex5.accessories) && ex5.accessories.length) {
-    const accText = ex5.accessories.map((a: any) => `${String(a.label).toLowerCase()} (${(a.roles ?? []).join(" / ")} unit${a.electrical ? `, by ${String(a.electrical.label)}'s rules` : ""})`).join(", ");
+    const accText = ex5.accessories.map((a: AccessorySpec) => `${String(a.label).toLowerCase()} (${(a.roles ?? []).join(" / ")} unit${a.electrical ? `, by ${String(a.electrical.label)}'s rules` : ""})`).join(", ");
     add("A unit's price can include its accessories, each as its own line",
         `${accText}; on a BoQ row read PER ITEM from the model's Yes / No answers, and an accessory the model lists as an item of its own on a unit row is folded into that line; the quantity is the BoQ's, else the Pricing Inputs default by the unit's band (outdoor) or per indoor unit; ticked in the calculator; a line that cannot price (no catalogue match, a default not set) shows why and never holds the row`);
   }
