@@ -250,6 +250,40 @@ in the **Copied** state, so **Undo**, **Remove old**, **Undo all** and **Remove 
 
 All ten review findings are now fixed (10 kept by the owner's choice).
 
+## Estimates are always copied to the new version; older ones are settled, never deleted (owner, 2026-11-12)
+
+Every commit creates a new set of BOQ line items and freezes the old ones (the BOQ keeps every version: Version 1 …
+N in the viewer). So each version keeps its own estimates as history, and the new version gets a copy:
+
+- **After each commit, automatically.** A hook on `BoQ Sheet` (`after_insert`, current data sheets only, and only if
+  the BOQ has any estimate) queues a background job once the commit has gone through (`enqueue_after_commit`). The
+  BOQ commit code is unchanged and never waits on it; a commit that fails queues nothing. A BOQ that is not Selected
+  is skipped.
+- **Copied, old one settled.** Each estimate on an unchanged line (same Excel row and exact text) is copied onto the
+  new line with its saved materials, name and unit, and the older one is marked **Settled** (new hidden read-only
+  check on `BOQ Line Estimate`, option B). Each copy is saved on its own; one refused by a rule is logged and listed.
+- **The notice lists only what needs a person** (not settled, and the newest for its line): a line whose text changed
+  or is gone (**Add to a line…** / **Remove**), or one not copied yet (**Re-attach**). **Remove** and a kept
+  **Add to a line…** save mark it settled -- it stays in its version's history and earlier versions' estimates for
+  the same line never come back. Undo and "Remove all old" are gone. No version picker for now (owner).
+
+### Browser walk, 12 Nov (Admin, test BOQ, v5 → v9)
+
+| Step | Result |
+|---|---|
+| Add a custom material on row 5 in the BOQ View form; row 6 through the same save | "Saved 1 material on row 5" |
+| Re-commit with no changes (v6) | Both copied within seconds; originals kept on v5; no notice; "HVAC 2/2" |
+| Row 6 → Note in review, re-commit (v7) | Row 5 copied; notice lists only row 6 as changed (Add to a line… / Remove); Estimate Items: "1 … not counted here yet" |
+| Found: resolving row 6 deleted its v6 estimate and the v5 one came back | Fixed with option B (settled), then re-walked: |
+| Row 5 → Note, row 6 → Item, re-commit (v8) | Notice lists only row 5's v7 estimate; its v5 and v6 ones stay history |
+| Add to a line… → row 6 → remove the material → Save | "Material estimate removed"; the older one stays listed |
+| Remove → "Not carry it to the new version? It stays in the older version's history." → Yes | "Removed from the new version …"; notice gone; the estimate kept and settled; v5 / v6 did not come back |
+| BOQ to Draft, re-commit (v9) | No copy (Draft skipped) |
+| Mark Selected → notice "(1 not copied yet)", Re-attach (1) | "Copied 1 estimate to the new version"; source kept on v8, settled; "HVAC 1/1" |
+
+Tests: estimates API 16, rules 30, frontend 15, all pass; mutation checks (settled ignored when finding the newest; nothing
+ever settled) fail the right tests. Test estimates removed afterwards.
+
 ---
 
 ## To check
