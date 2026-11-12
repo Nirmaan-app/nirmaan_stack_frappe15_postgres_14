@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { buildChildrenByParent, collapsibleParents, isHiddenByCollapse, type CollapseRow } from "@/pages/boq-wizard/collapse";
 import { gridRows, isLineItem } from "@/utils/estimations/estimateRules";
 import type { EstimateEntry, SheetRow } from "@/utils/estimations/estimateTypes";
 
@@ -58,7 +59,43 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
   const { expanded, highlight, toggle, expandMany, collapseAll } = useFocusedLines(rows, focusRow, onFocusRow);
 
   const byNode = useMemo(() => new Map<string, EstimateEntry>(estimates.current.map((e) => [e.boq_node, e])), [estimates]);
-  const visible = useMemo(() => gridRows(rows, { ...show, search }), [rows, show, search]);
+  const filtered = useMemo(() => gridRows(rows, { ...show, search }), [rows, show, search]);
+
+  // One toggle for headings + materials (owner 12 Nov). Collapse all folds every heading (only top-level rows stay,
+  // as in the BOQ sheet viewer -- its collapse helpers, imported read-only) and closes every line's materials;
+  // Expand all shows every row and opens every line that has materials. A search shows its matches regardless.
+  const [headingsCollapsed, setHeadingsCollapsed] = useState(false);
+  useEffect(() => setHeadingsCollapsed(false), [boq.name, activeSheet]);
+  const byRowIndex = useMemo(() => new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r])), [rows]);
+  const childrenByParent = useMemo(() => buildChildrenByParent(rows), [rows]);
+  const folded = headingsCollapsed && search.trim() === "";
+  const collapsedSet = useMemo(
+    () => (folded ? collapsibleParents(childrenByParent) : new Set<number>()),
+    [folded, childrenByParent],
+  );
+  const visible = useMemo(
+    () => (collapsedSet.size ? filtered.filter((r) => !isHiddenByCollapse(r, collapsedSet, byRowIndex)) : filtered),
+    [filtered, collapsedSet, byRowIndex],
+  );
+  // "+N lines" on each folded top-level heading: the line items hidden under it.
+  const hiddenUnder = useMemo(() => {
+    if (!collapsedSet.size) return undefined;
+    const counts = new Map<number, number>();
+    for (const r of filtered) {
+      if (!isLineItem(r) || !isHiddenByCollapse(r, collapsedSet, byRowIndex)) continue;
+      let cur: CollapseRow = r;
+      for (let hops = 0; hops < 50; hops++) {
+        const p = cur.effective_parent_index;
+        const parent = p == null || p < 0 ? undefined : byRowIndex.get(p);
+        if (!parent) break;
+        cur = parent;
+      }
+      counts.set(cur.row_index, (counts.get(cur.row_index) ?? 0) + 1);
+    }
+    return counts;
+  }, [filtered, collapsedSet, byRowIndex]);
+  const withMaterials = rows.filter((r) => isLineItem(r) && byNode.get(r.name)?.items.length).map((r) => r.name);
+  const allOpen = !headingsCollapsed && withMaterials.every((n) => expanded.has(n));
   const refresh = () => { void refreshEstimates(boq.name); onCountsChanged(); };
 
   const edit = (row: SheetRow, extra?: Pick<EditTarget, "carried">) => onEdit({
@@ -80,10 +117,13 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
         lines={currentLines} onAddTo={(line, carried) => edit(line, { carried })} />
       <div className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs">
         <Button variant="outline" size="sm" className="h-7 text-xs"
-          onClick={() => expandMany(rows.filter((r) => isLineItem(r) && byNode.get(r.name)?.items.length).map((r) => r.name))}>
-          ▾ Expand all materials
+          title={allOpen ? "Fold every heading and close every line's materials." : "Show every row and open every line's materials."}
+          onClick={() => {
+            if (allOpen) { setHeadingsCollapsed(true); collapseAll(); }
+            else { setHeadingsCollapsed(false); expandMany(withMaterials); }
+          }}>
+          {allOpen ? "▸ Collapse all" : "▾ Expand all"}
         </Button>
-        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={collapseAll}>▸ Collapse all</Button>
         <Input className="h-7 w-48 text-xs" placeholder="Search description…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search description" />
         <span className="text-muted-foreground">Show:</span>
         {([["showNotes", "Notes"], ["showSubtotals", "Subtotals"], ["showSpacers", "Spacers"]] as const).map(([key, label]) => (
@@ -97,6 +137,7 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
           rows={visible} estimates={byNode} expanded={expanded} highlight={highlight} canEdit={canEdit}
           onToggle={(node) => toggle(node, rows.find((r) => r.name === node)?.source_row_number ?? null)}
           onEdit={edit} onOpenInLineView={(row) => onOpenLine(activeSheet ?? "", row.source_row_number)}
+          hiddenUnder={hiddenUnder}
         />
       )}
     </div>

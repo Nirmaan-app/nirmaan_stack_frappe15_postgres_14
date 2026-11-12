@@ -15,7 +15,7 @@ export const ItemTypeBadge: React.FC<{ type: EstimateItemRow["item_type"] }> = (
     <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700">Normal</span>
   ) : (
     <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700" title="Not in Items list">
-      Custom · not in Items list
+      Custom
     </span>
   );
 
