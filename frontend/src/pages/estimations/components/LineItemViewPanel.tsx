@@ -70,7 +70,7 @@ export const LineItemViewPanel: React.FC<PanelProps> = ({
           <table className="w-full min-w-[680px] text-xs">
             <thead className="bg-muted/60 text-left text-muted-foreground">
               <tr><th className="w-8" /><th className="px-2 py-2">Sl.No</th><th className="px-2 py-2">Description</th>
-                <th className="px-2 py-2">Unit</th><th className="px-2 py-2 text-right">BOQ qty</th><th className="px-2 py-2">Materials</th></tr>
+                <th className="px-2 py-2">Unit</th><th className="px-2 py-2 text-right">BOQ qty</th><th className="px-2 py-2">Estimate Items</th></tr>
             </thead>
             <tbody>
               {groups.map((g, gi) => (

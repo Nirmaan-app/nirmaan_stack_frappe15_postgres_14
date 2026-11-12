@@ -25,6 +25,8 @@ interface EstimateSheetGridProps {
   onToggle: (node: string) => void;
   onEdit: (row: GridRow) => void;
   onOpenInLineView: (row: GridRow) => void;
+  /** Headings folded by Collapse all: row_index -> how many rows are hidden under it ("+N lines"). */
+  hiddenUnder?: Map<number, number>;
 }
 
 /**
@@ -33,7 +35,7 @@ interface EstimateSheetGridProps {
  * The shared Pricing grid is not used or changed.
  */
 export const EstimateSheetGrid: React.FC<EstimateSheetGridProps> = ({
-  rows, estimates, expanded, highlight, canEdit, onToggle, onEdit, onOpenInLineView,
+  rows, estimates, expanded, highlight, canEdit, onToggle, onEdit, onOpenInLineView, hiddenUnder,
 }) => (
   <div className="overflow-x-auto rounded-md border">
     <table className="w-full min-w-[1040px] text-xs">
@@ -41,7 +43,7 @@ export const EstimateSheetGrid: React.FC<EstimateSheetGridProps> = ({
         <tr>
           <th className="px-2 py-2">Excel</th><th className="px-2 py-2">Sl.No</th><th className="px-2 py-2">Parent</th>
           <th className="px-2 py-2">Row type</th>
-          <th className="min-w-[150px] border-x-2 border-amber-400 bg-amber-50 px-2 py-2 text-amber-800">Materials</th>
+          <th className="min-w-[150px] border-x-2 border-amber-400 bg-amber-50 px-2 py-2 text-amber-800">Estimate Items</th>
           <th className="px-2 py-2">Description</th><th className="px-2 py-2">Unit</th>
           <th className="px-2 py-2 text-right">Qty</th><th className="px-2 py-2 text-right">Rate (Supply)</th>
           <th className="px-2 py-2 text-right">Rate (Install)</th><th className="px-2 py-2 text-right">Amount</th>
@@ -72,6 +74,11 @@ export const EstimateSheetGrid: React.FC<EstimateSheetGridProps> = ({
                 </td>
                 <td className={`max-w-[320px] whitespace-pre-wrap px-2 py-1.5 ${label === "Note" ? "italic text-muted-foreground" : ""} ${label === "Preamble" ? "font-semibold" : ""}`}>
                   {row.description}
+                  {!!hiddenUnder?.get(row.row_index) && (
+                    <span className="ml-1.5 text-[10px] font-normal not-italic text-muted-foreground">
+                      (+{hiddenUnder.get(row.row_index)} {hiddenUnder.get(row.row_index) === 1 ? "line" : "lines"})
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5">{row.unit ?? ""}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{item ? formatQty(row.qty_total) : ""}</td>
