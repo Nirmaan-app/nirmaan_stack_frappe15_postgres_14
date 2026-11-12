@@ -1,9 +1,4 @@
 {
-  "a1_explicit_any": {
-    "count": 1718,
-    "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
-    "rule": "A1"
-  },
   "b1_pure_module_purity": {
     "count": 0,
     "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",

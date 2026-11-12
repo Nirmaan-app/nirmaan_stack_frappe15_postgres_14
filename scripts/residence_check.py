@@ -364,7 +364,8 @@ def payment_sum_copies() -> list[str]:
     return [f"{rel}:{n}" for rel, n in sorted(found)]
 
 
-# --- Rules S1, A1, R1: what the code review kept finding by hand (retro of spec #1442) ----------
+# --- Rules S1, R1: what the code review kept finding by hand (retro of spec #1442) --------------
+# (A1, the `any` count, moved to ESLint's no-explicit-any: ADR-0049.)
 # Hand-written source only: tests, patches (append-only) and shadcn's generated components are left out.
 
 def _hand_written(p: Path) -> bool:
@@ -389,29 +390,6 @@ def oversized_files() -> list[str]:
         if n > MAX_FILE_LINES:
             found.append(f"{p.relative_to(REPO_ROOT).as_posix()} ({n} lines)")
     return sorted(found)
-
-
-# `x: any`, `as any`, `any[]`, `Record<string, any>`. The lookaheads keep prose out ("Note: any value").
-_TS_EXPLICIT_ANY = (
-    re.compile(r":\s*any\b(?=\s*(?:[)\];,=|&>\[]|$))"),
-    re.compile(r"\bas\s+any\b(?=\s*(?:[)\];,.]|$))"),
-    re.compile(r"[<,]\s*any\s*(?=[>,\]])"),
-)
-
-
-def explicit_any_lines_ts(src: str) -> list[int]:
-    """1-based lines of a TS/TSX source that type something as `any`."""
-    return [i + 1 for i, line in enumerate(src.splitlines())
-            if not _is_comment_line(line) and any(p.search(line) for p in _TS_EXPLICIT_ANY)]
-
-
-def explicit_any_copies() -> list[str]:
-    found = []
-    for p in _source_files():
-        if p.suffix in (".ts", ".tsx"):
-            rel = p.relative_to(REPO_ROOT).as_posix()
-            found.extend(f"{rel}:{n}" for n in explicit_any_lines_ts(read(p)))
-    return found
 
 
 # A function that turns a number into "₹1,234" text. The homes stay; every other one is a copy.
@@ -612,7 +590,7 @@ CHECKS: list[Check] = [
         measure=lambda: len(payment_sum_copies()),
         locate=payment_sum_copies,
     ),
-    # The three below are not ADR-0010 rules: they are review findings a script can make, so a change
+    # The two below are not ADR-0010 rules: they are review findings a script can make, so a change
     # meets them at commit time instead of in review (.githooks/pre-commit runs this file).
     Check(
         id="s1_oversized_files",
@@ -622,15 +600,6 @@ CHECKS: list[Check] = [
                    "(CODING_STANDARDS.md § Where code goes, File size).",
         measure=lambda: len(oversized_files()),
         locate=oversized_files,
-    ),
-    Check(
-        id="a1_explicit_any",
-        rule="A1",
-        description="Frontend lines (not tests or components/ui) that type something as `any`.",
-        route_hint="type unknown data as `unknown` and narrow it; `catch (err: unknown)` "
-                   "(frontend/CODING_STANDARDS.md § Writing TypeScript and styling).",
-        measure=lambda: len(explicit_any_copies()),
-        locate=explicit_any_copies,
     ),
     Check(
         id="r1_rupee_formatters",

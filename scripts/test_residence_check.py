@@ -1,8 +1,9 @@
-"""Tests for the P1, A1 and R1 rules of residence_check.py, and for what a failure prints.
+"""Tests for the P1 and R1 rules (and A1's retirement) of residence_check.py, and for what a failure prints.
 
 Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -10,7 +11,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from residence_check import (  # noqa: E402
-    explicit_any_lines_ts,
+    BASELINE_PATH,
+    CHECKS,
     locations_to_show,
     payment_sum_lines_jinja,
     payment_sum_lines_py,
@@ -123,25 +125,15 @@ class BackendPaymentSums(unittest.TestCase):
         self.assertEqual(payment_sum_lines_py(src), [])
 
 
-class ExplicitAny(unittest.TestCase):
-    def test_each_way_of_typing_as_any_is_counted(self):
-        src = (
-            "} catch (err: any) {\n"
-            "const rows = data as any;\n"
-            "const list: any[] = [];\n"
-            "type R = Record<string, any>;\n"
-            "function f(a: any, b: number) {}\n"
-        )
-        self.assertEqual(explicit_any_lines_ts(src), [1, 2, 3, 4, 5])
+class TheAnyCountIsEslints(unittest.TestCase):
+    """ADR-0049: ESLint's no-explicit-any (frontend/eslint-suppressions.json) counts `any`, so this check does not."""
 
-    def test_unknown_prose_and_comments_are_not_counted(self):
-        src = (
-            "} catch (err: unknown) {\n"
-            'const note = "Note: any value works";\n'
-            "// const rows = data as any;\n"
-            "const company = anyCompany;\n"
-        )
-        self.assertEqual(explicit_any_lines_ts(src), [])
+    def test_no_check_counts_any(self):
+        self.assertNotIn("A1", [c.rule for c in CHECKS])
+
+    def test_every_baseline_entry_belongs_to_a_check(self):
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(baseline), sorted(c.id for c in CHECKS))
 
 
 class RupeeFormatters(unittest.TestCase):

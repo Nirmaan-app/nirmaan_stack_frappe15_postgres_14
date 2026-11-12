@@ -466,8 +466,9 @@ breaks it); its name is how a refusal is recognised (`services/outflow_import/im
 
 `.githooks/pre-commit` runs `python3 scripts/residence_check.py` (from the app root) on every commit — it
 ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on increase; auto-tighten on
-decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1), `any` in frontend code (A1) and rupee
-formatters outside their two homes (R1), so a review need not hunt for those by hand. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
+decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1) and rupee formatters outside their two
+homes (R1), so a review need not hunt for those by hand. `any` in frontend code is ESLint's to count (`yarn lint`
+in `frontend/`, ADR-0049). Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
 `.claude/hooks/README.md`).
 
 ---

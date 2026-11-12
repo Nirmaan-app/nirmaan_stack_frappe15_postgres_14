@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   checks:
-    name: vitest + typecheck
+    name: vitest + typecheck + lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -46,3 +46,6 @@ jobs:
         run: yarn typecheck
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Lint (typed ESLint; new violations only, against eslint-suppressions.json)
+        run: yarn lint

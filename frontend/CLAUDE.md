@@ -36,6 +36,8 @@ Four standards fail silently when broken, so they are summarised here too (full 
 - `yarn typecheck` prints only type errors that are new against `tsc-baseline.json` (keyed by file, code and
   message, not line) and exits 1 on any. Re-baseline (`yarn typecheck --update-baseline`) only to lock in old
   errors you fixed, never to hide a new one.
+- `yarn lint` (typed ESLint, ADR-0049) fails on a rule violation not frozen in `eslint-suppressions.json`, and on a
+  frozen one that is gone: run `yarn lint --prune-suppressions` and commit the file. CI runs it on every PR.
 - `python3 scripts/residence_check.py` runs from the app root, not `frontend/`.
 
 ## Domain docs
