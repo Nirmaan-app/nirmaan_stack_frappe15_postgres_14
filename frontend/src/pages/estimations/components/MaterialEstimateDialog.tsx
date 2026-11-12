@@ -68,7 +68,7 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
     try {
       await saveEstimate({ boq_node: target.node, items: JSON.stringify(rows), expected_modified: target.entry?.modified ?? "" });
       toast({ title: rows.length ? `Saved ${rows.length} material${rows.length === 1 ? "" : "s"} on row ${target.excelRow ?? ""}` : "Material estimate removed" });
-      // Carried materials: the older estimate goes only once its materials are kept on this line.
+      // Carried materials: the older estimate is settled only once its materials are kept on this line.
       if (rows.length) target.carried?.onKept();
       target.afterSave();
       onClose();
@@ -87,7 +87,7 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
         {target.carried && (
           <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
             {target.carried.rows.length} material{target.carried.rows.length === 1 ? "" : "s"} copied from the older version of
-            row {target.carried.fromRow ?? "—"}. Check the quantities, then Save. The older estimate is removed after a save that keeps materials here.
+            row {target.carried.fromRow ?? "—"}. Check the quantities, then Save. The older estimate leaves the list after a save that keeps materials here (it stays in its version's history).
           </p>
         )}
 

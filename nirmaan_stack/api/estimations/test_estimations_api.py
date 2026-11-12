@@ -263,12 +263,13 @@ class TestEstimationsApi(FrappeTestCase):
         self.assertEqual(out["copied"], 1)
         self.assertEqual([(f["estimate"], f["excel_row"]) for f in out["failed"]], [(bad, 18)])
         self.assertIn("whole numbers", out["failed"][0]["reason"])
-        self.assertEqual(self._on("new15"), [[12]])  # the good one was copied
+        self.assertEqual(self._on("new15"), [[12]])  # the good one was copied (and is history now, not listed)
         self.assertEqual(self._on("new18"), [])  # the refused one was not
-        self.assertEqual(self._older_states(), {good: "copied", bad: "can_copy"})  # still there to fix or remove
+        self.assertEqual(self._older_states(), {bad: "can_copy"})  # still there to fix or remove
         self.assertEqual(frappe.local.message_log, [])  # reported in the reply, not as an error message
 
-    def test_reattach_copies_unchanged_lines_keeps_the_older_ones_and_lists_changed_ones(self):
+    def test_reattach_copies_unchanged_lines_keeps_history_and_lists_changed_ones(self):
+        # Owner 2026-11-12: copied, not moved -- the BOQ keeps every version, and so does each version's estimate.
         self.addCleanup(self._purge)
         e15, e16 = self._older("old15", self.sheet_v1, 12), self._older("old16", self.sheet_v1, 5)
         frappe.db.commit()
@@ -279,87 +280,74 @@ class TestEstimationsApi(FrappeTestCase):
         self.assertEqual(out["copied"], 1)
         self.assertEqual([u["excel_row"] for u in out["unmatched"]], [16])  # listed, never guessed
         self.assertEqual(self._on("new15"), [[12]])  # the copy on the current version
-        self.assertEqual(frappe.db.get_value(DOCTYPE, e15, "boq_node"), self.nodes["old15"])  # the backup stays
-        self.assertEqual(self._older_states(), {e15: "copied", e16: "changed"})
+        self.assertEqual(frappe.db.get_value(DOCTYPE, e15, ["boq_node", "settled"]), (self.nodes["old15"], 1))  # kept, settled
+        self.assertEqual(self._older_states(), {e16: "changed"})  # history is not listed
 
         # A second Re-attach has nothing left to copy; the trimmed sheet name finds nothing (matched verbatim).
         self.assertEqual(estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)["copied"], 0)
         self.assertEqual(estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name.strip()),
                          {"copied": 0, "unmatched": [], "failed": []})
 
-    def test_undo_removes_the_copy_but_never_an_edited_one(self):
-        self.addCleanup(self._purge)
-        e15 = self._older("old15", self.sheet_v1, 12)
-        frappe.db.commit()
-        estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
-        self.assertEqual(estimate_writes.undo_reattach(boq=self.boq, sheet_name=self.sheet_name),
-                         {"undone": 1, "skipped": []})
-        self.assertEqual(self._on("new15"), [])
-        self.assertEqual(self._older_states(), {e15: "can_copy"})  # back to waiting, the backup untouched
-
-        # Copied again, then edited on the current version: Undo would lose the edit, so it is refused.
-        estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
-        copy = boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["current"][0]
-        estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[dict(copy["items"][0], quantity=20)],
-                                      expected_modified=copy["modified"])
-        self.assertEqual(self._older_states(), {e15: "line_has_other"})
-        self.assertEqual(estimate_writes.undo_reattach(boq=self.boq, sheet_name=self.sheet_name, estimates=[e15]),
-                         {"undone": 0, "skipped": [e15]})
-        self.assertEqual(self._on("new15"), [[20]])
-
-    def test_remove_old_deletes_backups_and_keeps_the_copies(self):
+    def test_history_is_never_listed_and_remove_settles_only_chosen_ones(self):
+        # An older estimate whose line already holds materials (a copy edited since, or typed by hand) is history: not
+        # listed, not settled from the notice. Remove settles only chosen estimates that still need a person; "[]"
+        # (review issue 1), [], None and "" settle nothing.
         self.addCleanup(self._purge)
         e15, e16 = self._older("old15", self.sheet_v1, 12), self._older("old16", self.sheet_v1, 5)
         frappe.db.commit()
-        estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
-        # "Remove all old", sent exactly as the screen sends it ("[]", review issue 1), takes the copied backups only;
-        # the changed row still needs a person. An empty list and no argument at all mean the same.
-        self.assertEqual(estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name, estimates="[]"),
-                         {"removed": 1})
-        self.assertIsNone(frappe.db.exists(DOCTYPE, e15))
-        self.assertEqual(self._on("new15"), [[12]])
+        estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[self._row(quantity=20)])  # typed by hand
         self.assertEqual(self._older_states(), {e16: "changed"})
-        for none_chosen in ([], None, ""):
-            self.assertEqual(estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name,
-                                                          estimates=none_chosen), {"removed": 0}, none_chosen)
-        self.assertTrue(frappe.db.exists(DOCTYPE, e16))
-        # Remove on one row takes that row, whatever its state.
-        self.assertEqual(estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name, estimates=[e16]),
-                         {"removed": 1})
+        for none_chosen in ("[]", [], None, ""):
+            self.assertEqual(estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name,
+                                                          estimates=none_chosen), {"settled": 0}, none_chosen)
+        self.assertEqual(estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name, estimates=[e15]),
+                         {"settled": 0})  # history: not listed, so not settled here
+        self.assertEqual(estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)["copied"], 0)
+        self.assertTrue(frappe.db.exists(DOCTYPE, e15))
+        self.assertEqual(self._on("new15"), [[20]])
+        self.assertEqual(estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name, estimates=[e16]),
+                         {"settled": 1})
+        # Option B: settled, not deleted -- kept on its version as history, no longer listed.
+        self.assertEqual(frappe.db.get_value(DOCTYPE, e16, "settled"), 1)
         self.assertEqual(self._older_states(), {})
 
-    def test_materials_typed_on_the_new_line_never_make_the_older_one_a_backup(self):
-        # Review issue 3: after the re-commit, before any Re-attach, someone types other materials on row 15 of the
-        # new version. The older row-15 estimate was never copied: it must not count as a backup, so neither
-        # "Remove all old" nor Undo touches it or the typed one.
+    def test_settling_a_changed_line_never_brings_an_earlier_versions_estimate_back(self):
+        # The walk on 12 Nov: row 16 had estimates on v0 and v1 (same text), and its text changed on v2. Resolving the
+        # v1 one (Remove, or Add to a line) used to delete it, and then the v0 one came back into the notice. Now it
+        # is settled, and the v0 one stays history.
         self.addCleanup(self._purge)
-        e15 = self._older("old15", self.sheet_v1, 12)
+        v0_16 = f"TEST-EST-N-v0_16-{self.s}"
+        frappe.get_doc({"doctype": "BOQ Nodes", "name": v0_16, "boq": self.boq, "sheet": self.sheet_v0, "is_current": 0,
+                        "source_row_number": 16, "node_type": "Line Item", "description": "Made-up diffuser",
+                        "qty": 10, "unit": "Sqm", "sort_order": 16}).db_insert()
+        self.created["BOQ Nodes"].append(v0_16)
+        self.nodes["v0_16"] = v0_16
+        e_v0 = self._older("v0_16", self.sheet_v0, 4, name=f"TEST-EST-E-v0-16-{self.s}", stamp="2026-11-01 10:00:00")
+        e_v1 = self._older("old16", self.sheet_v1, 5, name=f"TEST-EST-E-v1-16-{self.s}", stamp="2026-11-05 10:00:00")
         frappe.db.commit()
-        estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[self._row(quantity=20)])
-        self.assertEqual(self._older_states(), {e15: "line_has_other"})
+        self.assertEqual(self._older_states(), {e_v1: "changed"})  # v0's is history: v1's stands for that line
 
-        self.assertEqual(estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name, estimates="[]"),
-                         {"removed": 0})
-        self.assertEqual(estimate_writes.undo_reattach(boq=self.boq, sheet_name=self.sheet_name, estimates="[]"),
-                         {"undone": 0, "skipped": [e15]})
-        self.assertEqual(estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)["copied"], 0)
-        self.assertTrue(frappe.db.exists(DOCTYPE, e15))  # the older materials are still there
-        self.assertEqual(self._on("new15"), [[20]])  # and so are the typed ones
+        self.assertEqual(estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name, estimates=[e_v1]),
+                         {"settled": 1})
+        self.assertEqual(self._older_states(), {})  # v0's does not come back
+        self.assertTrue(frappe.db.exists(DOCTYPE, e_v0) and frappe.db.exists(DOCTYPE, e_v1))  # both kept as history
 
     def test_reattach_copies_the_newest_estimate_when_two_want_one_line(self):
-        # Committed twice without a Re-attach: one estimate on version 0's row 15, a later one on version 1's row 15.
-        # Re-attach copies the version-1 one (qty 10) to the current row 15; the version-0 one (qty 6) is listed.
-        # Names are chosen so the OLDER estimate sorts first by name: only the newest-first rule can pick the other.
+        # Committed twice without a copy in between: one estimate on version 0's row 15, a later one on version 1's.
+        # The version-1 one (qty 10) is copied to the current row 15; the version-0 one is history (version 1's stands
+        # for that line), so it is neither copied nor listed. Names are chosen so the OLDER estimate sorts first by
+        # name: only the newest-first rule can pick the other.
         self.addCleanup(self._purge)
         stale = self._older("v0_15", self.sheet_v0, 6, name=f"TEST-EST-E-A-stale-{self.s}", stamp="2026-11-01 10:00:00")
         latest = self._older("old15", self.sheet_v1, 10, name=f"TEST-EST-E-Z-latest-{self.s}", stamp="2026-11-05 10:00:00")
         frappe.db.commit()
+        self.assertEqual(self._older_states(), {latest: "can_copy"})
 
         out = estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
-        self.assertEqual(out["copied"], 1)
+        self.assertEqual((out["copied"], out["unmatched"]), (1, []))
         self.assertEqual(self._on("new15"), [[10]])
-        self.assertEqual([u["estimate"] for u in out["unmatched"]], [stale])
-        self.assertEqual(self._older_states(), {stale: "changed", latest: "copied"})
+        self.assertEqual(self._older_states(), {})
+        self.assertTrue(frappe.db.exists(DOCTYPE, stale) and frappe.db.exists(DOCTYPE, latest))  # both kept
 
     def test_an_estimate_whose_line_was_deleted_is_listed_never_hidden(self):
         # An estimate never blocks deleting a BOQ line item or sheet (hooks.py `ignore_links_on_delete`). Once its line
@@ -391,10 +379,10 @@ class TestEstimationsApi(FrappeTestCase):
         # Never copied; listed by Re-attach as needing a person; not a backup, so "Remove all old" leaves it.
         out = estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
         self.assertEqual((out["copied"], sorted(u["estimate"] for u in out["unmatched"])), (0, sorted([a, b])))
-        self.assertEqual(estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name), {"removed": 0})
+        self.assertEqual(estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name), {"settled": 0})
         # Remove on the row deletes it.
-        self.assertEqual(estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name, estimates=[a, b]),
-                         {"removed": 2})
+        self.assertEqual(estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name, estimates=[a, b]),
+                         {"settled": 2})
         self.assertEqual(self._older_states(), {})
 
     def test_a_deleted_items_record_never_blocks_or_breaks_an_estimate(self):
@@ -420,9 +408,9 @@ class TestEstimationsApi(FrappeTestCase):
         row = boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["current"][0]["items"][0]
         self.assertEqual((row["item_id"], row["item_name"], row["unit"], row["quantity"]), (gone, "Made-up bracket", "NOS", 6))
 
-    def test_a_reattach_copy_keeps_the_saved_name_and_unit(self):
+    def test_a_copy_keeps_the_saved_name_and_unit(self):
         # Review fix 5: the item was renamed and its unit changed in the Items list after the estimate was saved.
-        # The Re-attach copy keeps the backup's saved name and unit (12 sqm stays 12 sqm), so it is an exact copy.
+        # The copy keeps the older estimate's saved name and unit (12 sqm stays 12 sqm), not today's Items values.
         self.addCleanup(self._purge)
 
         def restore_item():
@@ -439,9 +427,39 @@ class TestEstimationsApi(FrappeTestCase):
         copy = [e for e in boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["current"]
                 if e["boq_node"] == self.nodes["new15"]][0]["items"][0]
         self.assertEqual((copy["item_name"], copy["unit"], copy["quantity"]), ("Made-up panel", "sqm", 12))
-        self.assertEqual(self._older_states(), {e15: "copied"})  # so Undo works
-        self.assertEqual(estimate_writes.undo_reattach(boq=self.boq, sheet_name=self.sheet_name, estimates="[]"),
-                         {"undone": 1, "skipped": []})
+        self.assertTrue(frappe.db.exists(DOCTYPE, e15))  # the older one stays on its version
+
+    def test_a_commit_queues_the_copy_and_the_job_copies_the_estimates(self):
+        # Owner 2026-11-12: after a commit, estimates are always copied to the new version. The BoQ Sheet insert queues
+        # a job only after the commit's transaction (enqueue_after_commit), and only when the BOQ has estimates; the
+        # job copies the matched ones, keeps the older ones on their version, and leaves changed lines for a person.
+        from nirmaan_stack.integrations.controllers import boq_line_estimate as controller
+
+        self.addCleanup(self._purge)
+        e15, e16 = self._older("old15", self.sheet_v1, 12), self._older("old16", self.sheet_v1, 5)
+        frappe.db.commit()
+
+        def sheet(**over):
+            return frappe._dict(dict({"is_current": 1, "treat_as": "data", "boq": self.boq,
+                                      "sheet_name": self.sheet_name}, **over))
+
+        with patch("frappe.enqueue") as enqueue:
+            controller.queue_copy_after_commit(sheet())
+            enqueue.assert_called_once_with(controller.COPY_AFTER_COMMIT_JOB, queue="default",
+                                            enqueue_after_commit=True, boq=self.boq, sheet_name=self.sheet_name)
+            enqueue.reset_mock()
+            for skipped in (sheet(is_current=0), sheet(treat_as="master_preamble"), sheet(boq=self.other_boq)):
+                controller.queue_copy_after_commit(skipped)  # frozen version, specs sheet, BOQ with no estimates
+            enqueue.assert_not_called()
+
+        out = estimate_writes.copy_estimates_after_commit(self.boq, self.sheet_name)
+        self.assertEqual((out["copied"], out["failed"]), (1, []))
+        self.assertEqual(self._on("new15"), [[12]])
+        self.assertEqual(frappe.db.get_value(DOCTYPE, e15, ["boq_node", "settled"]), (self.nodes["old15"], 1))  # history
+        self.assertEqual(self._older_states(), {e16: "changed"})  # its text changed: still for a person
+        # A BOQ that is not Selected is left alone (estimates are saved only on Selected BOQs).
+        self.assertEqual(estimate_writes.copy_estimates_after_commit(self.other_boq, self.sheet_name),
+                         {"copied": 0, "failed": []})
 
     def test_a_draft_boq_reads_empty(self):
         self.assertEqual(boq_view.get_estimates(boq=self.other_boq), {"current": [], "older": []})
@@ -472,9 +490,7 @@ class TestEstimationsApi(FrappeTestCase):
         with self.assertRaises(frappe.PermissionError):
             estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
         with self.assertRaises(frappe.PermissionError):
-            estimate_writes.undo_reattach(boq=self.boq, sheet_name=self.sheet_name)
-        with self.assertRaises(frappe.PermissionError):
-            estimate_writes.remove_older(boq=self.boq, sheet_name=self.sheet_name)
+            estimate_writes.settle_older(boq=self.boq, sheet_name=self.sheet_name)
 
     def test_project_access_limits_reads_and_writes(self):
         # Same role and profile, different User Permissions: the user allowed on the project reads and saves; the

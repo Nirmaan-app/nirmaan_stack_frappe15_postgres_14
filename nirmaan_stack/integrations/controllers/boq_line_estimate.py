@@ -50,10 +50,10 @@ def _fill_from_items(doc) -> None:
     another item (decision: an estimate keeps what was chosen even if the Items record changes later). A saved row
     that still points to the same item keeps its stored name, unit and category, whatever the request sent.
 
-    A Re-attach copy (`doc.flags.reattach_copy`, set only by `estimate_writes.reattach_estimates`, never by a request)
-    keeps the backup's saved name, unit and category as they are: refreshing them from today's Items record could turn
-    10 NOS into 10 SQM, and the copy would no longer match its backup (review issue 5). Every rule still runs on it.
-    An item whose Items record is gone keeps its saved text too (the fields are text, not links)."""
+    A copy to a new version (`doc.flags.reattach_copy`, set only by `estimate_writes`, never by a request) keeps the
+    older estimate's saved name, unit and category as they are: refreshing them from today's Items record could turn
+    10 NOS into 10 SQM (review issue 5). Every rule still runs on it. An item whose Items record is gone keeps its saved
+    text too (the fields are text, not links)."""
     if doc.flags.get("reattach_copy"):
         return
     before = doc.get_doc_before_save()
@@ -128,3 +128,20 @@ def on_trash(doc, method=None):
         problem = rules.project_problem(_project_status(project))
         if problem:
             frappe.throw(_(problem))
+
+
+COPY_AFTER_COMMIT_JOB = "nirmaan_stack.api.estimations.estimate_writes.copy_estimates_after_commit"
+
+
+def queue_copy_after_commit(doc, method=None):
+    """BoQ Sheet `after_insert` (hooks.py): a sheet was committed, so copy its estimates to the new version (owner
+    2026-11-12: always, copied; each older version keeps its own as history). Only queues a background job, and only AFTER the commit's own transaction is
+    committed (`enqueue_after_commit`): the BOQ commit is unchanged, never waits on estimates, and a commit that
+    fails and rolls back queues nothing. A BOQ with no estimates costs one indexed lookup and queues nothing.
+    Reads only; the job writes BOQ Line Estimate rows only."""
+    if not doc.get("is_current") or doc.get("treat_as") != "data" or not doc.get("boq"):
+        return
+    if not frappe.db.exists("BOQ Line Estimate", {"boq": doc.boq}):
+        return
+    frappe.enqueue(COPY_AFTER_COMMIT_JOB, queue="default", enqueue_after_commit=True,
+                   boq=doc.boq, sheet_name=doc.sheet_name)

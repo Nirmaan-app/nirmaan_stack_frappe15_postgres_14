@@ -675,6 +675,12 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.boq_line_estimate.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.boq_line_estimate.on_trash",
     },
+    # Owner 2026-11-12: after a commit, a sheet's estimates are always copied to the new version (each older version
+    # keeps its own as history). Queues a background job only once the commit has gone through; the BOQ commit itself
+    # is unchanged and never waits on it.
+    "BoQ Sheet": {
+        "after_insert": "nirmaan_stack.integrations.controllers.boq_line_estimate.queue_copy_after_commit",
+    },
 }
 
 # Scheduled Tasks
