@@ -56,13 +56,12 @@ export interface EstimateLine {
 
 /** One estimate with its items. */
 /**
- * Where an estimate left on an older version stands (server `rules.older_states`): `can_copy` = its line is unchanged
- * and Re-attach will copy it there; `copied` = its line holds exactly its materials (Undo or Remove old);
- * `line_has_other` = its line holds different materials, a copy edited since or typed by hand, so never a backup
- * (Add to a line, or Remove); `changed` = its line changed (Add to a line,
- * or Remove); `line_missing` = its line item was deleted from the BOQ (Add to a line, or Remove).
+ * Where an older-version estimate that still needs a person stands (server `rules.older_states`; history -- estimates
+ * already copied forward, or replaced by a newer version's -- is left out by the server): `can_copy` = its line is
+ * unchanged but it was not copied yet (Re-attach copies it); `changed` = its line changed (Add to a line, or Remove);
+ * `line_missing` = its line item was deleted from the BOQ (Add to a line, or Remove).
  */
-export type OlderState = "can_copy" | "copied" | "line_has_other" | "changed" | "line_missing";
+export type OlderState = "can_copy" | "changed" | "line_missing";
 
 export interface EstimateEntry {
   name: string;
@@ -109,20 +108,14 @@ export interface SheetRowsReply {
 /** `save_estimate` reply. */
 export type SaveEstimateReply = { name: string; modified: string; item_count: number } | { deleted: true };
 
-/** `reattach_estimates` reply. `failed`: copies a save rule refused (the others were still copied). */
+/** `reattach_estimates` reply: estimates copied to the new version. `failed`: copies a save rule refused (the others were still copied). */
 export interface ReattachReply {
   copied: number;
   unmatched: { estimate: string; excel_row: number | null; description: string | null }[];
   failed: { estimate: string; excel_row: number | null; description: string | null; reason: string }[];
 }
 
-/** `undo_reattach` reply: copies removed, and older estimates whose copy was edited (left alone). */
-export interface UndoReattachReply {
-  undone: number;
-  skipped: string[];
-}
-
-/** `remove_older` reply. */
-export interface RemoveOlderReply {
-  removed: number;
+/** `settle_older` reply: older estimates marked settled (kept on their version as history, no longer listed). */
+export interface SettleOlderReply {
+  settled: number;
 }

@@ -32,15 +32,12 @@ export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sh
     [estimates, sheetName],
   );
   const totals = useMemo(() => materialTotals(entries, type), [entries, type]);
-  // Estimates a re-commit left on an older version are not counted here until they are re-attached; say so, so
-  // they never look lost.
-  // Backups (copied by Re-attach) are counted through their copies; the rest are not counted until someone acts.
-  const { olderCount, backupCount } = useMemo(() => {
-    // An estimate whose line and sheet were both deleted has no sheet name; the server lists it on every sheet.
-    const here = estimates.older.filter((e) => sheetName == null || e.line.sheet_name == null || e.line.sheet_name === sheetName);
-    const backups = here.filter((e) => e.state === "copied").length;
-    return { olderCount: here.length - backups, backupCount: backups };
-  }, [estimates, sheetName]);
+  // Estimates on an older version that are not on the new one yet (history -- already copied forward -- is left
+  // out by the server); say so, so they never look lost.
+  const olderCount = useMemo(
+    () => estimates.older.filter((e) => sheetName == null || e.line.sheet_name == null || e.line.sheet_name === sheetName).length,
+    [estimates, sheetName],
+  );
   if (!boq) return null;
 
   return (
@@ -53,13 +50,7 @@ export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sh
       {olderCount > 0 && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
           <b>{olderCount} material estimate{olderCount === 1 ? " is" : "s are"} on an older version</b> of {sheetName == null ? "this BOQ's sheets" : "this sheet"} and
-          {olderCount === 1 ? " is" : " are"} not counted here yet. Re-attach, add to a line or remove {olderCount === 1 ? "it" : "them"} in BOQ View or Line Item View.
-        </p>
-      )}
-      {backupCount > 0 && (
-        <p className="text-xs text-muted-foreground" role="status">
-          {backupCount} older backup{backupCount === 1 ? " is" : "s are"} kept after Re-attach; {backupCount === 1 ? "its copy is" : "their copies are"} counted here.
-          Undo or remove {backupCount === 1 ? "it" : "them"} in BOQ View or Line Item View.
+          {olderCount === 1 ? " is" : " are"} not counted here yet. Copy, add to a line or remove {olderCount === 1 ? "it" : "them"} in BOQ View or Line Item View.
         </p>
       )}
       {isLoading ? <p className="text-sm text-muted-foreground">Loading materials…</p> : mode === "line" ? (

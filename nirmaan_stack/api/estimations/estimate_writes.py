@@ -1,5 +1,6 @@
-"""Writes behind the Estimates tab: save one line's material estimate; after a re-commit, re-attach (copy) estimates
-to the current version, undo that, or remove the older ones.
+"""Writes behind the Estimates tab: save one line's material estimate; after a re-commit, copy estimates to the
+current version (automatically after the commit, or with Re-attach for leftovers; each older version keeps its own as
+history), and settle an older one that still needs a person.
 
 Thin orchestrators (ADR-0010 B4): load, change, save through the document layer, commit. Every rule (who may
 edit, which line, which rows are valid) runs in the BOQ Line Estimate controller
@@ -88,39 +89,27 @@ def _names(estimates) -> list:
     return list(names or [])
 
 
-def _chosen(older: list, estimates) -> list:
-    """`older` narrowed to the names in `estimates`; all of them when none were chosen."""
-    names = set(_names(estimates))
-    return [e for e in older if e["name"] in names] if names else older
+def _copy_matched(older: list) -> tuple[int, list]:
+    """COPY each older estimate whose line is unchanged on the current version (state can_copy: same Excel row and
+    text, the line holding no estimate; newest first) onto that line. Owner 2026-11-12: copied, not moved -- the BOQ
+    keeps every version, so each version keeps its own estimates as history. The copy keeps the older one's saved
+    name / unit / category (`doc.flags.reattach_copy`, review issue 5); the controller runs every rule on it.
 
-
-@frappe.whitelist(methods=["POST"])
-def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
-    """Decision M, as the owner revised it on 11 Nov: COPY each estimate a re-commit left on an older version of
-    `sheet_name` (matched verbatim) onto its unchanged line of the current version, keeping the older one as a backup
-    (Undo removes the copy; Remove old removes the backup). A line is unchanged when its Excel row and description
-    text are; lines that changed, or were deleted, are listed, never guessed. Writes only BOQ Line Estimate rows.
-
-    Each copy is saved on its own (review issue 4): one that fails a save rule (say 2.5 on a NOS item, saved before
-    that rule existed) is rolled back to its savepoint and listed in `failed` with the reason; the others are still
-    copied. The failed one stays "can be copied", so it can be fixed and re-attached, added to a line or removed.
-
-    Returns {"copied": n, "unmatched": [{estimate, excel_row, description}],
-    "failed": [{estimate, excel_row, description, reason}]}.
-    """
-    assert_can_edit()
-    older = _older_of_sheet(boq, sheet_name)
+    Each copy is saved on its own savepoint (review issue 4): one refused by a save rule (say 2.5 on a NOS item,
+    saved before that rule existed) is rolled back and listed in `failed` with the reason; the others are still
+    copied. Returns (copied, failed)."""
     copied, failed = 0, []
     for e in older:
         if e["state"] != rules.STATE_CAN_COPY:
             continue
-        savepoint = f"reattach_{frappe.generate_hash(length=8)}"
+        savepoint = f"copy_{frappe.generate_hash(length=8)}"
         frappe.db.savepoint(savepoint)
         try:
             doc = frappe.get_doc({"doctype": DOCTYPE, "boq_node": e["target_node"]})
             _set_items(doc, [{f: row.get(f) for f in ITEM_FIELDS} for row in e["items"]])
-            doc.flags.reattach_copy = True  # keep the backup's saved name / unit / category (review issue 5)
+            doc.flags.reattach_copy = True
             doc.insert()
+            _mark_settled([e["name"]])
             copied += 1
         except (frappe.ValidationError, frappe.PermissionError) as exc:
             # Back to the savepoint (on PostgreSQL a failed statement poisons the transaction until then), and drop
@@ -129,6 +118,49 @@ def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
             frappe.clear_last_message()
             failed.append({"estimate": e["name"], "excel_row": e["line"]["excel_row"],
                            "description": e["line"]["description"], "reason": str(exc)})
+    return copied, failed
+
+
+def _mark_settled(names: list) -> None:
+    """Mark older estimates settled (option B, owner 12 Nov): copied forward, or resolved by a person. A raw
+    `set_value` on purpose: these sit on a frozen line item, so a document save is refused by the controller (an
+    estimate is saved only on a current line), and `settled` is a plain status flag -- no derived field, no hook,
+    nothing else to recompute. `modified` is left alone: the estimate's materials did not change."""
+    for name in names:
+        frappe.db.set_value(DOCTYPE, name, "settled", 1, update_modified=False)
+
+
+def copy_estimates_after_commit(boq: str, sheet_name: str) -> dict:
+    """Background job, queued by the BoQ Sheet `after_insert` hook once a commit has gone through: copy the sheet's
+    estimates onto the version just committed. The BOQ commit itself is unchanged and never waits on this. Runs as
+    Administrator (a system copy); a BOQ that is not Selected is left alone (estimates are saved only on Selected
+    BOQs) -- Re-attach copies them later. Lines that changed stay in the older-version notice.
+    Returns {"copied", "failed"} (failures logged)."""
+    frappe.set_user("Administrator")
+    if frappe.db.get_value("BOQs", boq, "status") != rules.SELECTED_BOQ_STATUS:
+        return {"copied": 0, "failed": []}
+    copied, failed = _copy_matched(_older_of_sheet(boq, sheet_name))
+    frappe.db.commit()
+    if failed:
+        frappe.log_error(title="BOQ estimates: some could not be copied to the new version",
+                         message=frappe.as_json({"boq": boq, "sheet_name": sheet_name, "failed": failed}))
+    return {"copied": copied, "failed": failed}
+
+
+@frappe.whitelist(methods=["POST"])
+def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
+    """The manual button for what the after-commit copy left behind (a BOQ that was not Selected then, a copy a rule
+    refused, estimates from before the automatic copy): COPY each estimate still waiting on an older version of
+    `sheet_name` (matched verbatim) onto its unchanged line of the current version. A line is unchanged when its Excel
+    row and description text are; lines that changed, or were deleted, are listed, never guessed. Writes only BOQ
+    Line Estimate rows.
+
+    Returns {"copied": n, "unmatched": [{estimate, excel_row, description}],
+    "failed": [{estimate, excel_row, description, reason}]}.
+    """
+    assert_can_edit()
+    older = _older_of_sheet(boq, sheet_name)
+    copied, failed = _copy_matched(older)
     frappe.db.commit()
     return {
         "copied": copied,
@@ -139,41 +171,24 @@ def reattach_estimates(boq: str = None, sheet_name: str = None) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def undo_reattach(boq: str = None, sheet_name: str = None, estimates=None) -> dict:
-    """Undo a Re-attach: delete the copy on the current version of each chosen older estimate (all of the sheet's
-    when `estimates` is empty) whose copy still holds exactly its materials. The older estimate stays, ready to be
-    re-attached again. A line that now holds other materials (a copy edited since, or typed by hand) is never
-    deleted; it is listed in `skipped`.
+def settle_older(boq: str = None, sheet_name: str = None, estimates=None) -> dict:
+    """Resolve the chosen older estimates of `sheet_name` that still need a person (a line that changed or is gone, or
+    one not copied yet): the notice's Remove, and "Add to a line…" after its save. Option B (owner 12 Nov): they are
+    marked settled, not deleted -- each version keeps its own as history; settled ones are never listed again. Nothing
+    is settled when none are chosen (an empty list, or "[]", review issue 1). Refused on a read-only project.
 
-    Returns {"undone": n, "skipped": [older estimate names]}.
+    Returns {"settled": n}.
     """
     assert_can_edit()
-    chosen = _chosen(_older_of_sheet(boq, sheet_name), estimates)
-    undone, skipped = 0, []
-    for e in chosen:
-        if e["state"] == rules.STATE_COPIED:
-            frappe.get_doc(DOCTYPE, e["copy"], for_update=True).delete()
-            undone += 1
-        elif e["state"] == rules.STATE_LINE_HAS_OTHER:
-            skipped.append(e["name"])
+    names = set(_names(estimates))
+    chosen = [e for e in _older_of_sheet(boq, sheet_name) if e["name"] in names]
+    if chosen:
+        from nirmaan_stack.integrations.controllers.boq_line_estimate import project_of_boq
+
+        project = project_of_boq(boq)
+        problem = rules.project_problem(frappe.db.get_value("Projects", project, "status") if project else None)
+        if problem:
+            frappe.throw(_(problem))
+    _mark_settled([e["name"] for e in chosen])
     frappe.db.commit()
-    return {"undone": undone, "skipped": skipped}
-
-
-@frappe.whitelist(methods=["POST"])
-def remove_older(boq: str = None, sheet_name: str = None, estimates=None) -> dict:
-    """Delete older estimates of `sheet_name`: the chosen ones (any state), or, when none are chosen ("Remove all
-    old", which sends "[]"), only the backups -- older estimates whose materials are exactly on their line of the
-    current version, so deleting them loses nothing. Every other older estimate still needs a person.
-    Copies on the current version are never touched.
-
-    Returns {"removed": n}.
-    """
-    assert_can_edit()
-    older = _older_of_sheet(boq, sheet_name)
-    chosen = _chosen(older, estimates) if _names(estimates) else [
-        e for e in older if e["state"] == rules.STATE_COPIED]
-    for e in chosen:
-        frappe.get_doc(DOCTYPE, e["name"], for_update=True).delete()
-    frappe.db.commit()
-    return {"removed": len(chosen)}
+    return {"settled": len(chosen)}

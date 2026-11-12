@@ -137,58 +137,52 @@ def reattach_matches(older: list[dict], current: list[dict], taken: set) -> tupl
     return moves, unmatched
 
 
-# The state of an estimate a re-commit left on an older version (owner, 11 Nov: Re-attach COPIES onto the new
-# version and keeps the old one as a backup; Undo removes the copy; Remove old removes the backup).
-STATE_CAN_COPY = "can_copy"  # its line is unchanged and has no estimate yet: Re-attach copies it there
-STATE_COPIED = "copied"  # its line on the new version holds exactly its materials: Undo or Remove old
-# Its unchanged line on the new version holds OTHER materials: a copy edited since, or materials typed there by
-# hand -- nothing recorded tells the two apart (review issue 3). So it is never treated as a backup: not undone,
-# not taken by "Remove all old", and offered like a changed line (Add to a line, or Remove), so no material that
-# exists only here is lost.
-STATE_LINE_HAS_OTHER = "line_has_other"
-STATE_CHANGED = "changed"  # its line changed (or another older estimate took it): Add to a line, or Remove
+# The state of an estimate on an older version of a sheet. Owner 2026-11-12: after every commit the estimates are
+# COPIED to the new version (a job right after the commit; Re-attach for leftovers), and every older version keeps its
+# own as history -- the BOQ keeps every version too. Only estimates that still need a person are shown.
+STATE_CAN_COPY = "can_copy"  # its line is unchanged and holds no estimate yet: the job or Re-attach copies it there
+STATE_CHANGED = "changed"  # its line changed on the new version, so it is never guessed: Add to a line, or Remove
 # Its line item (or that line's sheet) was deleted from the BOQ tables, which an estimate does not prevent
 # (hooks.py `ignore_links_on_delete`). Never copied; listed so it is not hidden: Add to a line, or Remove.
 STATE_LINE_MISSING = "line_missing"
-
-
-def items_signature(items: list[dict]) -> tuple:
-    """What an estimate's materials are, ignoring row order and row names: two estimates with the same signature
-    hold the same materials. A Normal row is its item, make, unit and quantity; a custom row its name, unit and
-    quantity (case and surrounding spaces ignored)."""
-    sig = []
-    for row in items:
-        normal = _clean(row.get("item_type")) == ITEM_TYPE_NORMAL
-        key = _clean(row.get("item_id")) if normal else _clean(row.get("item_name")).lower()
-        make = _clean(row.get("make")).lower() if normal else ""
-        sig.append((normal, key, make, _clean(row.get("unit")).lower(), round(float(row.get("quantity") or 0), 6)))
-    return tuple(sorted(sig))
+# History, kept on its version and needing nothing: it is settled (copied forward after a commit, or a person resolved
+# it -- option B, owner 12 Nov: never deleted, so each version keeps its own), or a newer version's estimate stands for
+# the same row and text, or its line on the new version already holds an estimate.
+STATE_HISTORY = "history"
 
 
 def older_states(older: list[dict], current: list[dict], current_estimates: dict) -> dict:
     """The state of each older estimate of one sheet.
 
-    `older` holds {estimate, excel_row, description, version, modified, items}; `current` the sheet's current line
-    items as {node, excel_row, description}; `current_estimates` maps a current line item to the estimate on it as
-    {estimate, items}. An older estimate's line on the new version is found by the Re-attach rule (same Excel row and
-    text, newest first). Returns {estimate: {state, node, copy}}: `node` is that line (None when it changed) and
-    `copy` the estimate on it, if any.
+    `older` holds {estimate, excel_row, description, version, modified, items, settled}; `current` the sheet's current
+    line items as {node, excel_row, description}; `current_estimates` maps a current line item to the estimate on it as
+    {estimate, items}. A settled one is history. Per Excel row and text only the newest older estimate counts, settled
+    or not (the older ones are history: a newer version already stands for that line, so resolving the newest never
+    brings an older one back). Its line on the new version is found by the Re-attach rule (same Excel row and text).
+    Returns {estimate: {state, node, copy}}: `node` is that line (None when it changed) and `copy` the estimate on it.
     """
-    targets, _unmatched = reattach_matches(older, current, set())
+    def line_key(o):
+        return (o.get("excel_row"), o.get("description") or "")
+
+    newest: dict = {}
+    for old in sorted(older, key=lambda o: (o.get("version") or 0, str(o.get("modified") or "")), reverse=True):
+        newest.setdefault(line_key(old), old["estimate"])
+    candidates = [o for o in older if newest[line_key(o)] == o["estimate"] and not o.get("settled")]
+    targets, _unmatched = reattach_matches(candidates, current, set())
     out = {}
     for old in older:
+        if old.get("settled") or newest[line_key(old)] != old["estimate"]:
+            out[old["estimate"]] = {"state": STATE_HISTORY, "node": None, "copy": None}
+            continue
         node = targets.get(old["estimate"])
         if not node:
             out[old["estimate"]] = {"state": STATE_CHANGED, "node": None, "copy": None}
             continue
         on_line = current_estimates.get(node)
-        if not on_line:
-            state, copy = STATE_CAN_COPY, None
-        elif items_signature(on_line["items"]) == items_signature(old.get("items") or []):
-            state, copy = STATE_COPIED, on_line["estimate"]
+        if on_line:
+            out[old["estimate"]] = {"state": STATE_HISTORY, "node": node, "copy": on_line["estimate"]}
         else:
-            state, copy = STATE_LINE_HAS_OTHER, on_line["estimate"]
-        out[old["estimate"]] = {"state": state, "node": node, "copy": copy}
+            out[old["estimate"]] = {"state": STATE_CAN_COPY, "node": node, "copy": None}
     return out
 
 
