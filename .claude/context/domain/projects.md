@@ -159,6 +159,12 @@ the Material Usage "Est. Qty" column are gone; the `Project Estimates` doctype a
 summary's items per work package in `project.tsx`; it never depended on estimates. An old
 `?page=projectspends` / `?page=projectestimates` link lands on the role's landing tab.
 
+**The Estimates tab (`?page=estimates`, 2026-11-11) is a different, new feature** — not the removed Project Estimates.
+It holds BOQ View, Line Item View and Estimate Items (sub-tab in `estTab`): the materials each line item of the
+project's Selected BOQs needs, saved as `BOQ Line Estimate`. It sits right after the BoQ tab and is shown wherever BoQ
+is. Who edits: `frontend/.claude/context/role-access.md` § BOQ Estimates. APIs: `.claude/context/apis.md` § BOQ
+Estimates. BoQ touch points: `boq-backend.md` § BOQ Estimates touch points. Record: `docs/browser-walk-boq-estimates.md`.
+
 ## Project Ledger (Financials → first sub-tab)
 
 The customer receivable ledger narrowed to one project: Project Invoices raised (amount incl. GST) vs Project
