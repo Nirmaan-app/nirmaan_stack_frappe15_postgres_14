@@ -8,7 +8,9 @@ import {
   canAddInflow,
   canAddProjectInvoice,
   canDeleteInflow,
+  canEditEstimates,
   canEditProjectInvoice,
+  ESTIMATE_EDIT_PROFILES,
   isNirmaanAdmin,
 } from "./roles";
 
@@ -134,5 +136,23 @@ describe("client money pages and reports: PMO opens them view-only (owner, 2026-
   it("no longer narrows PMO's Reports › Projects list (source)", () => {
     expect(read("pages/reports/ReportsContainer.tsx")).not.toContain(`role === "${PMO}"`);
     expect(read("pages/reports/store/useReportStore.ts")).not.toContain(`userRole === "${PMO}"`);
+  });
+});
+
+describe("material estimates: Admin, PMO and Estimates Executive edit (plan \"BOQ Estimates\", decision C)", () => {
+  // The server's twin is role_profiles.ESTIMATE_EDIT_PROFILES (pinned by test_role_mirrors).
+  it("lists exactly the three editing profiles", () => {
+    expect([...ESTIMATE_EDIT_PROFILES].sort()).toEqual([
+      "Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile", "Nirmaan PMO Executive Profile",
+    ]);
+  });
+
+  it("lets those profiles and the Administrator user edit, and no one else", () => {
+    for (const role of ESTIMATE_EDIT_PROFILES) expect(canEditEstimates(role, "made-up@example.com"), role).toBe(true);
+    expect(canEditEstimates("", "Administrator")).toBe(true);
+    for (const role of ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile",
+      "Nirmaan Procurement Executive Profile", "Nirmaan Accountant Profile", "Loading", "", null, undefined]) {
+      expect(canEditEstimates(role, "made-up@example.com"), String(role)).toBe(false);
+    }
   });
 });

@@ -77,6 +77,7 @@ class TheScreensShowWhatTheServerAllows(unittest.TestCase):
             ("PAYMENT_L1_PROFILES", ROLES_TS, role_profiles.PAYMENT_L1_PROFILES),
             ("ACCOUNTANT_PROFILES", ROLES_TS, role_profiles.ACCOUNTANT_PROFILES),
             ("REPORTS_BULK_DOWNLOAD_PROFILES", ROLES_TS, role_profiles.REPORTS_BULK_DOWNLOAD_PROFILES),
+            ("ESTIMATE_EDIT_PROFILES", ROLES_TS, role_profiles.ESTIMATE_EDIT_PROFILES),
             ("SR_ADMIN_ROLES", FRONTEND / "pages/ServiceRequests/config/srTabs.constants.ts",
              role_profiles.WO_DECIDE_PROFILES),
         )

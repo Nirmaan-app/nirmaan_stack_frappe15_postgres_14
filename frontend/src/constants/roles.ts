@@ -837,3 +837,18 @@ export const REIMBURSEMENT_VIEW_ALL_PROFILES: readonly string[] = [
   ACCOUNTANT_PROFILE,
   ACCOUNTANT_LEAD_PROFILE,
 ];
+
+/**
+ * May add, change or delete a BOQ line's material estimate (project page → Estimates; plan "BOQ Estimates",
+ * decision C). Everyone else who can open the tab views. Mirrored server-side by
+ * `role_profiles.ESTIMATE_EDIT_PROFILES`, the enforcement boundary.
+ */
+export const ESTIMATE_EDIT_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  "Nirmaan Estimates Executive Profile",
+];
+
+/** True when this user may edit material estimates (see `ESTIMATE_EDIT_PROFILES`). */
+export const canEditEstimates = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && ESTIMATE_EDIT_PROFILES.includes(role));

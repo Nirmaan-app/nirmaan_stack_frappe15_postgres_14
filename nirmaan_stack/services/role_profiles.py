@@ -231,6 +231,12 @@ REIMBURSEMENT_VIEW_ALL_PROFILES = (
     ACCOUNTANT_LEAD_PROFILE,
 )
 
+ESTIMATES_EXECUTIVE_PROFILE = "Nirmaan Estimates Executive Profile"
+# New Estimations (BOQ line-item material estimates, plan decision C): who may add, change or delete a
+# `BOQ Line Estimate`. The DocPerm alone cannot say this: the `Nirmaan Estimates Executive` Role is also
+# carried by Project Lead, and System Manager by six profiles, so the controller gates on these profiles.
+ESTIMATE_EDIT_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, ESTIMATES_EXECUTIVE_PROFILE)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".

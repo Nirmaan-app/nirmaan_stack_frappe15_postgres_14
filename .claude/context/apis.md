@@ -37,6 +37,22 @@ Backend API endpoints in `nirmaan_stack/api/`.
   inflows received, date-ordered); calls the customer ledger's shared `receivable_ledger` with `{"project": ...}`.
   Refuses a profile outside `role_profiles.PROJECT_LEDGER_PROFILES` and a user who can't read the project
 
+### BOQ Estimates (`api/estimations/`)
+The project page's Estimates tab. Reads need BOQs read access; every call is limited to the projects the user's
+User Permissions allow. Writes need an editing profile (Admin, PMO, Estimates Executive) and all rules run in the
+`BOQ Line Estimate` controller.
+- `boq_view.get_estimates_overview(project)` - the project's Selected BOQs and per-sheet counts (line items,
+  estimated, older)
+- `boq_view.get_estimates(boq, sheet_name)` - `{current, older}`: estimates on current lines, and older-version ones
+  that still need a person (`state` can_copy / changed / line_missing; settled history left out)
+- `estimate_writes.save_estimate(boq_node, items, expected_modified)` - create / replace / delete (empty list) one
+  line's estimate; refuses a stale save
+- `estimate_writes.reattach_estimates(boq, sheet_name)` - copy unchanged-line estimates to the current version
+  (`{copied, unmatched, failed}`)
+- `estimate_writes.settle_older(boq, sheet_name, estimates)` - Remove: mark chosen older estimates settled
+- `estimate_writes.copy_estimates_after_commit(boq, sheet_name)` - background job queued by the BoQ Sheet
+  `after_insert` hook after every commit (not whitelisted)
+
 ### PO Delivery Documents (`api/po_delivery_documentss.py`)
 - `create_po_delivery_documents()` - Create DC/MIR record with file upload and item quantities
 - `get_po_delivery_documents()` - Get delivery docs for a specific PO (enriched with child items and attachment URLs)

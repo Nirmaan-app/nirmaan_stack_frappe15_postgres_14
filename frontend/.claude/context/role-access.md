@@ -508,6 +508,26 @@ Compliance reminders (GSTR, TDS, PF…). Rules and the Next Due Date: `../../../
 - `item.tsx:153`
 - `POVendorLedger.tsx:53-54`
 
+### BOQ Estimates (project page → Estimates tab, `pages/estimations/`, owner 2026-11-11)
+
+- **Who sees the tab:** wherever the BoQ tab is shown, right after it (`project.tsx`; pinned by
+  `estimatesTabWiring.test.ts`). So not Accountant. Billing Executive gets it from the Estimates Executive tab list,
+  read-only. The server also needs BOQs read access, and limits every read to the user's permitted projects.
+- **Who edits** (+ Add, Edit, Remove, Re-attach, Add to a line): `canEditEstimates(role, userId)` in
+  `constants/roles.ts` = `ESTIMATE_EDIT_PROFILES` (Admin, PMO Executive, Estimates Executive) or the Administrator
+  user. The server's twin, `role_profiles.ESTIMATE_EDIT_PROFILES`, is the boundary (`test_role_mirrors` pins the two
+  lists together). The `BOQ Line Estimate` DocPerm gives create / write / delete to ten roles, so the controller's
+  profile check is what refuses Project Lead, Project Manager, Procurement, Accountant and the rest — through the API
+  and through `/api/resource` (`test_estimate_guards`).
+- **Read-only projects:** on Completed and Handover projects nobody edits; editors see "Material estimates are
+  read-only on a … project."
+
+| Action | Admin | PMO | Estimates Exec | Proj Lead / PM / Procurement / Billing / others with BoQ |
+|---|:-:|:-:|:-:|:-:|
+| See the tab, BOQ View, Line Item View, Estimate Items | Y | Y | Y | Y |
+| Add / edit / remove a line's materials | Y | Y | Y | - |
+| Re-attach, Add to a line, Remove (older-version notice) | Y | Y | Y | - |
+
 ---
 
 ## Action Capabilities Summary

@@ -1,0 +1,226 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BLE-.YY.-.#####",
+ "creation": "2026-11-11 11:22:01.264890",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "line_section",
+  "boq_node",
+  "item_count",
+  "settled",
+  "column_break_line",
+  "boq",
+  "boq_sheet",
+  "items_section",
+  "items"
+ ],
+ "fields": [
+  {
+   "fieldname": "line_section",
+   "fieldtype": "Section Break",
+   "label": "BOQ Line Item"
+  },
+  {
+   "description": "The BOQ line item this estimate is for. One estimate per line item. Only references the line item; never changes it.",
+   "fieldname": "boq_node",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BOQ Line Item",
+   "options": "BOQ Nodes",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "description": "Number of items. Set on every save.",
+   "fieldname": "item_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Item Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_line",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Copied from the line item on save, for filtering.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "BOQ",
+   "options": "BOQs",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Copied from the line item on save, for filtering.",
+   "fieldname": "boq_sheet",
+   "fieldtype": "Link",
+   "label": "BOQ Sheet",
+   "options": "BoQ Sheet",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "items_section",
+   "fieldtype": "Section Break",
+   "label": "Items"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "BOQ Line Estimate Item"
+  },
+  {
+   "default": "0",
+   "description": "Set by the system: this estimate on an older version was copied forward after a commit, or a person resolved it (Remove / Add to a line). It stays on its version as history and is not listed in the older-version notice.",
+   "fieldname": "settled",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Settled",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-12 11:49:22.472549",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BOQ Line Estimate",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

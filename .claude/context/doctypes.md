@@ -160,6 +160,8 @@ Asset Category
 |---------|---------|
 | **BOQ** | Bill of quantities documents |
 | **BOQ Item** | Child table — BOQ line items |
+| **BOQ Line Estimate** | The materials one BOQ line item needs (project page → Estimates). One per line (`boq_node` unique); `boq` / `boq_sheet` copied from the line on save; `settled` (hidden, read-only) marks an older version's estimate copied forward or resolved — kept as history, never deleted. Edited only by Admin / PMO / Estimates Executive profiles; read-only on Completed / Handover projects. In `ignore_links_on_delete` |
+| **BOQ Line Estimate Item** | Child table — one material: `item_type` Normal / Custom, `item_id`, `item_name`, `unit`, `quantity`, `category`, `procurement_package`, `make`, `comment`. Item, category, package and make are **text, not links** (owner 2026-11-11) |
 
 ## Work Plan & Material Delivery
 
