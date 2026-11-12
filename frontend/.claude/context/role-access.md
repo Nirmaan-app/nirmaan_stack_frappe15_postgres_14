@@ -292,7 +292,13 @@ The PO routes have no route guard: Sales / HR / Design who open a PO link see am
 | PMO, Project Lead, procurement (`PROCUREMENT_PROFILES`) | Y | Y | Y | - | - | - |
 | Design, HR, Sales, Estimates, Billing, Project Manager | - | - | - | - | - | - |
 
-Accountants match "Payment need to paid" (Approved rows), where they can delete too. A PO payment has **no edit** anywhere in the app (see "Payments
+Accountants match "Payment need to paid" (Approved rows), where they can delete too.
+
+**Rejection reason (2026-11-12)** — no new access rule. A Rejected payment's reason shows to everyone who can see
+the row: one line under Rejected in Transaction Details (`components/RejectionReasonNote.tsx`, whole text on hover),
+the Reason column of All Payments and Payment Raised By Me, and Payment Raised By Me's Rejected view (own rows only,
+every role that has the tab, PMO and HR included). Typing a reason is part of the reject itself, so it follows the
+existing reject gates (L1 / CEO tier). A PO payment has **no edit** anywhere in the app (see "Payments
 queue — edit & revert" below).
 
 **Key files:** `RenderPurchaseOrdersTab.tsx`, `PurchaseOrder.tsx`, `components/PODetails.tsx`,
