@@ -18,7 +18,7 @@ from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_pai
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
-from nirmaan_stack.services.cheques.decide import held_by_a_live_cheque, refuse_lone_approval
+from nirmaan_stack.services.cheques.decide import DECIDING_FLAG, held_by_a_live_cheque, refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.payment_mode import (
     validate_cheque_mode,
@@ -108,6 +108,19 @@ def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
 
     except Exception as e:
         frappe.log_error(f"Failed during PO term search-and-update for payment {payment_doc.name}. Error: {e}", "Payment Sync Failed")
+
+
+def _add_rejection_comment(doc):
+    """The "Rejected: <reason>" timeline comment, for a reject that carries a `rejection_reason`: the approve dialog's
+    single reject (L1 and CEO), the 30-day rule (`services/stale_payment_reject`) and Desk. Every reject path then
+    leaves the same comment. Bulk reject (`bulk_approval`) and a cheque's reject (`DECIDING_FLAG`) write their own,
+    after their commit, so they are skipped here; a reject with no reason writes none.
+
+    Runs inside the save, so a caller's savepoint that rolls the reject back takes the comment with it."""
+    reason = (doc.get("rejection_reason") or "").strip()
+    if not reason or doc.flags.get("bulk_approval") or doc.flags.get(DECIDING_FLAG):
+        return
+    doc.add_comment("Comment", text=_("Rejected: {0}").format(reason))
 
 
 def _get_ceo_user():
@@ -679,6 +692,7 @@ def on_update(doc, method):
         # tax was already in a challan.
         payment_tds.give_back_tax_on_reject(doc)
         on_payment_rejected(doc)
+        _add_rejection_comment(doc)
 
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)
