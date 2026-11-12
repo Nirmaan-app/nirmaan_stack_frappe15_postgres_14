@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
+import { RejectionReasonNote } from "@/pages/ProjectPayments/components/RejectionReasonNote";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -414,9 +415,12 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : payment?.status === "Paid" ? (
                         <Badge variant="green">Paid</Badge>
                       ) : payment?.status === "Rejected" ? (
-                        <Badge variant="outline" className="border-red-500 text-red-600">
-                          Rejected
-                        </Badge>
+                        <>
+                          <Badge variant="outline" className="border-red-500 text-red-600">
+                            Rejected
+                          </Badge>
+                          <RejectionReasonNote payment={payment} />
+                        </>
                       ) : (
                         <Badge variant="outline">{payment?.status}</Badge>
                       )}
