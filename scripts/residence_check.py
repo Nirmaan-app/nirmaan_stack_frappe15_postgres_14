@@ -536,8 +536,11 @@ CHECKS: list[Check] = [
         description="Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
         route_hint="writes to shared docs should go through the write-safety seam (useEditingLock) — "
                    "extend it, don't add a raw updateDoc call (ADR-0010 rule F5).",
+        # src/lib/frappe.ts re-exports the SDK hooks with typed defaults (ADR-0049): it names the hook and
+        # writes nothing, so it is not a write site.
         measure=lambda: count_files(
-            iter_files("frontend/src", (".ts", ".tsx")),
+            [p for p in iter_files("frontend/src", (".ts", ".tsx"))
+             if p != REPO_ROOT / "frontend/src/lib/frappe.ts"],
             re.compile(r"useFrappeUpdateDoc|updateDoc\("),
         ),
     ),

@@ -86,9 +86,15 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
 
 ## Fetching or mutating data
 
-- **Read and write through `frappe-react-sdk`:** `useFrappeGetDocList`, `useFrappeGetDoc`,
-  `useFrappePostCall`. Call a backend mutation as
-  `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`.
+- **Read and write through `frappe-react-sdk`, imported from `@/lib/frappe`:** `useFrappeGetDocList`,
+  `useFrappeGetDoc`, `useFrappePostCall`. Call a backend mutation as
+  `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`. `@/lib/frappe` re-exports the SDK unchanged except
+  that each hook's type defaults to `unknown` instead of `any`: pass the type (`useFrappeGetDoc<Customers>(…)`)
+  or narrow the result. ESLint bans importing `frappe-react-sdk` anywhere else (ADR-0049); files that did before
+  are frozen in `eslint-suppressions.json` and move over folder by folder.
+- **Parse JSON text with `parseJson()`** (`src/lib/parseJson.ts`), which returns `unknown` and otherwise behaves as
+  `JSON.parse` (invalid JSON or `""` throws a `SyntaxError`). ESLint bans raw `JSON.parse` and `.json()`; for a
+  fetch response use `parseJson(await response.text())`.
 - **`useFrappeGetDoc`'s third argument is the SWR key, not options.** Fetch conditionally with
   `useFrappeGetDoc(doctype, id, id ? undefined : null)`; passing `{ enabled: !!id }` there becomes the cache
   key and breaks SWR deduplication. The same `swrKey` slot sits third on `useFrappeGetDocList`.
