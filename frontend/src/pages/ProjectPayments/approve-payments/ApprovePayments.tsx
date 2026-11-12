@@ -690,7 +690,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           await updateDoc(DOCTYPE, selectedPayment.name, {
             status: newStatus,
             amount: amount,
-            approval_date: new Date().toISOString().split("T")[0],
+            // Only an approval stamps the L1 date: the summary's "L1 Approval" cards count by it, so a reject
+            // stamping it was counted as an approval. Bulk reject never stamped it (2026-11-12).
+            ...(newStatus === PAYMENT_STATUS.REJECTED ? {} : { approval_date: new Date().toISOString().split("T")[0] }),
             // The reason the dialog required on a reject (2026-11-12); an approve leaves the field alone.
             ...rejectionFields(newStatus, reason),
           });

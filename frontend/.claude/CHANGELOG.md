@@ -4,6 +4,16 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-12 — L1 single reject no longer stamps `approval_date`
+
+`approve-payments/ApprovePayments.tsx`: the L1 dialog's update writes `approval_date` only on an approve. A reject
+stamped it, and the summary's "L1 Approval Today / Last 7 days" cards (`get_project_payment_summary`, counted by
+`approval_date` alone) counted the reject as an approval with its amount. Bulk reject and both CEO rejects never
+stamped a date. Rows rejected before this keep their date (an L1 reject and "L1 approved, CEO rejected" look the
+same in the data, so there is no safe clean-up). Typecheck 0 new; payments unit 349/349.
+
+---
+
 ## 2026-11-12 — Rejection reason: required on reject, shown in the Payments queue and on PO / WO pages
 
 Branch `feat/payment-reject-reason` (uncommitted). Backend and schema: `../../.claude/CHANGELOG.md` (same date);

@@ -82,7 +82,8 @@ No defects in the change itself.
 
 - **An L1 reject counts as "L1 Approval Today".** After step 4 the summary card went 1 → 2 (+₹15,340). The L1
   reject in `ApprovePayments.tsx` has always written `approval_date` with the status, and the card counts by that
-  date. Not touched by this change; stopping it means the L1 reject stops stamping `approval_date`.
+  date. **Fixed after the walk:** the L1 single reject no longer stamps `approval_date` (as bulk reject never did);
+  payments rejected before keep their date. Not re-walked.
 - **Back leaves the page instead of stepping through views.** The switch writes `?view=` with
   `urlStateManager.updateParam`, which uses `replaceState`, the same as the page's tabs and table filters. The
   link, a bookmark and a reload keep the view. The comment in `hooks/useByMeView.ts` said otherwise and was fixed.
