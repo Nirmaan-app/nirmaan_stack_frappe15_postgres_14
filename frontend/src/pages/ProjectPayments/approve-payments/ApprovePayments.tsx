@@ -36,6 +36,7 @@ import {
   DIALOG_ACTION_TYPES,
   DialogActionType,
 } from "./constants";
+import { rejectionFields } from "./rejectReason";
 import PaymentSummaryCards from "../PaymentSummaryCards";
 import { useUserData } from "@/hooks/useUserData";
 import { canViewPaymentSummary } from "@/constants/roles";
@@ -642,9 +643,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             );
             successMessage = expenseDecided(status);
           } else if (actionType === DIALOG_ACTION_TYPES.REJECT) {
-            // CEO rejection: no amount edits — flip status to Rejected.
+            // CEO rejection: no amount edits — flip status to Rejected, with the reason the dialog required.
             await updateDoc(ceoDoctype, selectedPayment.name, {
               status: PAYMENT_STATUS.REJECTED,
+              ...rejectionFields(PAYMENT_STATUS.REJECTED, reason),
             });
           } else {
             // CEO approval: call the whitelisted API so the backend can enforce
@@ -689,6 +691,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             status: newStatus,
             amount: amount,
             approval_date: new Date().toISOString().split("T")[0],
+            // The reason the dialog required on a reject (2026-11-12); an approve leaves the field alone.
+            ...rejectionFields(newStatus, reason),
           });
 
           // A cheque skips "Payment need to paid". The approval above has just been saved, TDS
