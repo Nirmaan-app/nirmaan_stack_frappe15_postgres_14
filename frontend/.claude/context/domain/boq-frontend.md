@@ -176,6 +176,21 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
   `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
   options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").
 
+### Shared with the Estimates tab (`src/pages/estimations/`, owner 2026-11-12)
+
+The project page's Estimates tab reads two BoQ pieces, unchanged and read-only. A change to either changes its BOQ View:
+
+- **`get_priced_rows`** (`useSheetRows` in `pages/estimations/hooks/useEstimatesData.ts`) supplies the sheet's rows; the
+  Estimates grid reads `name`, `row_index`, `effective_parent_index`, `source_row_number`, `classification`,
+  `sl_no_value`, `description`, `unit`, `qty_total`, `rate_supply`, `rate_install` and `amount_total`
+  (`utils/estimations/estimateTypes.ts` `SheetRow`).
+- **`pages/boq-wizard/collapse.ts`** (`buildChildrenByParent`, `collapsibleParents`, `isHiddenByCollapse`,
+  `CollapseRow`) drives BOQ View's Expand all / Collapse all and its "(+N lines)" counts (`BoqViewPanel.tsx`; tests
+  `BoqViewPanel.dom.test.tsx`). Keep these exports' meaning, or update both callers.
+
+No BoQ file was edited for the Estimates tab. Its tab entry sits next to BoQ in `pages/projects/project.tsx`
+(`estimatesTabWiring.test.ts` pins "wherever BoQ is shown").
+
 **Wizard-screen detail (project picker, global entry + in-project tab, sidebar gating, colour tokens, UI
 library, the Tendering create-modal, `useBoqWizardStore`, the upload screen / drop zone, the
 blank-until-parsed + confirm-reset rule, the `uploadStatus` lifecycle, both socket-listener patterns, the

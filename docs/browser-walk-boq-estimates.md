@@ -24,8 +24,9 @@ own projects, whose Selected BOQs have no committed sheet yet.
   Everyone else with access sees the estimates but can't change them.
 - Clean up after each session: on every line you used, **Edit → Remove** each item **→ Save**. Then sign out.
 
-**Status on 2026-11-11:** none of the walks' estimates is left; all test users signed out. (One estimate on another
-BOQ of Project A, created by Administrator outside these walks, was left alone.)
+**Status on 2026-11-12:** all test users signed out. The synthetic test BOQ on Project A (now Draft) still holds 2
+estimates from the re-commit checks; everything else from the walks was removed. Details and the options:
+**Cleanup decision** below.
 
 ---
 
@@ -329,7 +330,7 @@ its test fail, and each file was restored byte for byte (sha256).
 ### Regression on a restored copy, not the live site
 
 All backend runs used a throwaway site restored from a fresh localhost backup (scheduler paused, emails muted, its
-own database and cache). Localhost's table counts were identical before and after.
+own database and cache; dropped after the run, 12 Nov). Localhost's table counts were identical before and after.
 
 | Set | Result |
 |---|---|
@@ -374,8 +375,8 @@ Nothing from the walk is left on the BOQ, and the user signed out.
 
 | # | Walk | Expect |
 |---|---|---|
-| 1a | **Project Manager** on a project with a committed sheet, open Estimates on a line with an estimate | Counts and items show. No **+ Add**, no **Edit**. |
-| 1b | **Project Lead** profile (needs an enabled user) | Read-only like 1a |
+| 1a | **Project Manager** on a project with a committed sheet, open Estimates on a line with an estimate | **Done 12 Nov**, see "1a and REG-11, 12 Nov" below. |
+| 1b | **Project Lead** profile | **Done 11 Nov**, see the regression table below. The server side is also tested for Project Lead, Project Manager, Procurement Executive and Accountant (`test_estimate_guards`). |
 
 ### BOQ regression walks, done 11 Nov (as Admin, on the test project "testProject1")
 
@@ -407,13 +408,37 @@ or permissions left). Left on testProject1 (no screen deletes a BOQ): BOQ-26-004
 
 | ID | Walk | Note |
 |---|---|---|
-| REG-11 | Each role opens the BoQ tab and Rate Master | Not in this round. The only change to that code is the added Estimates tab entry (`project.tsx`). |
+| REG-11 | Each role opens the BoQ tab and Rate Master | **Done 12 Nov** (diff check + 3 roles in the browser), see "1a and REG-11, 12 Nov" below. |
+
+### 1a and REG-11, 12 Nov (throwaway users, testProject1)
+
+Admin added one material on BOQ-26-00434 row 6 for the walk; three throwaway users were made through Users → Create New
+User (Project Manager assigned to testProject1; Accountant and Billing Executive see all projects). Passwords were set
+by a script in the Admin tab (no screen sets one; the owner approved).
+
+| Check | Result |
+|---|---|
+| REG-11, code | `git diff` vs develop: `project.tsx` and `roles.ts` only add lines (the Estimates tab entries and one constant); 0 lines removed. Sidebar, routes, route guards, boq-wizard, pricing, `api/boq`, `api/pricing`, the rate-master service and the BoQ doctypes' JSON are unchanged. So every role's BoQ / Rate Master access is develop's. |
+| 1a Project Manager | Projects lists only testProject1 (project scoping). Tabs: BoQ, then Estimates. BOQ View: HVAC 1/1, row 6 "▸ 1 item", no **+ Add** / **Edit**; opened, the material shows with only **Open in Line Item View** (no **Edit material estimate**). Line Item View and Estimate Items read-only. Sidebar: no Rate Master, pricing or Upload BoQ (as develop). |
+| Accountant | No BoQ and no Estimates tab on the project (as develop). Sidebar: no Rate Master, pricing or Upload BoQ. |
+| Billing Executive | Sidebar as `role-access.md` (no pricing, Rate Master or Upload BoQ). Tabs: BoQ, then Estimates. **Both fail to load (403)**: the role has no BOQs read on this site, so the BoQ tab says "Failed to load BoQs" and Estimates "The BOQs could not be loaded". Same gate, same result; not caused by this branch. |
+| Seen once, not reproduced | The first **▸** click on row 6 right after opening the BOQ did not open it; every later click (4 tries, including the same sequence) opened it on the first click. |
+
+Clean-up: the material removed (HVAC 0/1); the three users removed with Delete User (disabled, no roles, no project
+permissions, no Nirmaan Users row; checked read-only); every session signed out.
 
 ### Cleanup decision
 
-- The synthetic test BOQ used for the re-commit checks is **Selected** on Project A (so it shows in Estimates), with
-  one copied estimate and its backup. When done: remove both, move it back to Draft. No screen can delete the BOQ
-  itself; either leave it, or run a backend script (dry run first) that removes its line rows, sheets and the BOQ.
+State on localhost, checked 2026-11-12 (read-only query):
+
+- **The synthetic test BOQ on Project A** (used for the re-commit checks) is now **Draft**, and still holds 2
+  estimates: one on a current line, one on an older version. Draft BOQs are not shown in Estimates, so no screen can
+  remove them now. Either mark it Selected, Remove / Edit → Remove them, and move it back to Draft; or leave it; or run
+  a backend script (dry run first) that removes its estimates, line rows, sheets and the BOQ.
+- **A real Selected BOQ on Project A** holds 4 estimates owned by Administrator, all on current lines. They are not
+  from these walks; left alone.
+- **testProject1:** BOQ-26-00434 (Selected, no estimates), 00435 and 00436 (Draft) from the regression walks. The
+  project stays Won (Convert to Won is one-way).
 
 ---
 
@@ -427,6 +452,13 @@ or permissions left). Left on testProject1 (no screen deletes a BOQ): BOQ-26-004
 | REG-06 | Sheet totals of the 3 step 0 baseline BOQs (most priced, a revision, a Selected one; 5 sheets), read-only | Same on all 9 numbers per sheet: version, nodes, line items, qty sum, amount sum, nodes checksum, priced cells, rate sum, pricing checksum. 0 differences. |
 | REG-13 | `git diff develop` of BOQ code (api/boq, boq* doctypes except the two new ones, boq-wizard frontend, boqs/boq_nodes controllers) | 0 lines |
 
-### Still owed
+### Still owed (owner)
 
-- `bench migrate` (creates the two new doctypes on the site).
+- **`bench migrate`** on every site other than localhost. It creates the two doctypes, the hidden `settled` field and
+  the indexes, and changes the item fields to text. The `hooks.py` changes (BoQ Sheet `after_insert`,
+  `ignore_links_on_delete`) need only the code. A site that was not migrated fails `test_boq_line_estimate` by name.
+- **Push** the branch and open the PR.
+- **Leftover test data:** see Cleanup decision above.
+- **Billing Executive has no BOQs read on localhost** (not this branch): its BoQ tab shows "Failed to load BoQs" and the
+  Estimates tab "The BOQs could not be loaded" (403). `project.tsx` notes the role needs BOQs read. Grant it (Role
+  Permission Manager) or leave it; owner's call.

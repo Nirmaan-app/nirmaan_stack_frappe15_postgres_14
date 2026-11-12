@@ -262,6 +262,23 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   change and must stay:** `pricingRollup` sums a node's own amount PLUS its descendants', so a priced
   parent item double-counts -- advisory only, it never blocks.
 
+### BOQ Estimates touch points (branch `boq/estimates-items`, owner 2026-11-12)
+
+The Estimates tab (`BOQ Line Estimate`, a line item's materials) only READS the BoQ tables. Its two hooks into BoQ:
+
+- **Every `BoQ Sheet` insert runs `integrations/controllers/boq_line_estimate.queue_copy_after_commit`
+  (`hooks.py` `doc_events`, `after_insert`).** It reads only, returns at once for a frozen version, a specs sheet or a
+  BOQ with no estimates, and otherwise queues `estimate_writes.copy_estimates_after_commit` with
+  `enqueue_after_commit=True`: the commit never waits on it, and a commit that rolls back queues nothing. A change to
+  how a commit inserts `BoQ Sheet` rows (bulk insert, `db_insert`, a different `is_current` / `treat_as` order) can
+  silently stop the copy; `test_estimate_guards.test_a_committed_sheet_queues_the_copy_through_the_real_hook` pins it.
+- **`BOQ Line Estimate` is in `hooks.py` `ignore_links_on_delete`.** An estimate never blocks deleting a BOQ, sheet or
+  line item. It is then read as "line missing" and stays removable. Frappe checks a child row's links by its parent's
+  doctype, so the item rows' fields are plain text (`CODING_STANDARDS.md`, fieldtype change).
+
+Matching across versions is same Excel row + exact description text (no stable id across commits); older estimates are
+kept and marked `settled`, never deleted. Record: `docs/browser-walk-boq-estimates.md`.
+
 ### Clean-up invariants (CU-A, 2026-10-18)
 
 - **Index manifest (a new `search_index` field needs a manifest entry):** every index nirmaan needs is
