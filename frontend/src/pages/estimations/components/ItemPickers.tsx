@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { FuzzySearchSelect, rankByTokenScore, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { Input } from "@/components/ui/input";
 import type { EstimateItemRow } from "@/utils/estimations/estimateTypes";
+import {
+  initialPicker, itemsInCategory, pickCategory, pickerErrors, pickItem, type PickerErrors, type PickerState,
+} from "@/utils/estimations/itemPicker";
 
 import type { useItemsCatalog } from "../hooks/useEstimatesData";
 
@@ -36,18 +39,21 @@ interface NormalPickerProps {
   onCancel: () => void;
 }
 
-/** "+ Add item": category (optional) → item from the Items list → make (optional) → qty. */
+/**
+ * "+ Add item": category (optional) → item from the Items list → make (optional) → qty. Picking an item fills in its
+ * category; changing the category empties the item and make; item and qty are required (`utils/estimations/itemPicker`).
+ */
 export const NormalItemPicker: React.FC<NormalPickerProps> = ({ catalog, presetItem, presetQty, onAdd, onCancel }) => {
-  const presetCategory = catalog.items.find((i) => i.name === presetItem)?.category ?? null;
-  const [category, setCategory] = useState<string | null>(presetCategory);
-  const [itemId, setItemId] = useState<string | null>(presetItem ?? null);
-  const [make, setMake] = useState<string | null>(null);
+  const [state, setState] = useState<PickerState>(() => initialPicker(catalog.items, presetItem));
+  const { category, itemId, make } = state;
   const [qty, setQty] = useState(presetQty ?? "");
+  const [fieldErrors, setFieldErrors] = useState<PickerErrors>({});
+  /** A rule the row breaks as a whole (a duplicate, say), shown below the fields. */
   const [error, setError] = useState<string | null>(null);
 
   const categoryOptions = useMemo<Option[]>(() => catalog.categories.map((c) => ({ value: c.name, label: c.name })), [catalog.categories]);
   const itemOptions = useMemo<Option[]>(
-    () => catalog.items.filter((i) => !category || i.category === category)
+    () => itemsInCategory(catalog.items, category)
       .map((i) => ({ value: i.name, label: i.item_name, unit: i.unit_name, category: i.category })),
     [catalog.items, category],
   );
@@ -57,10 +63,21 @@ export const NormalItemPicker: React.FC<NormalPickerProps> = ({ catalog, presetI
     [catalog.makesByCategory, picked?.category, category],
   );
 
+  const onCategory = (value: string | null) => {
+    const next = pickCategory(state, value);
+    if (next !== state) { setState(next); setFieldErrors({}); setError(null); }
+  };
+  const onItem = (value: string | null) => {
+    setState(pickItem(state, catalog.items, value));
+    setFieldErrors((e) => ({ ...e, item: undefined }));
+    setError(null);
+  };
+
   const add = () => {
-    if (!itemId) return setError("Pick an item from the Items list.");
-    const problem = onAdd(rowFromItem(catalog, itemId, Number(qty), make));
-    setError(problem);
+    const problems = pickerErrors(state, catalog.items, qty);
+    setFieldErrors(problems);
+    if (problems.item || problems.qty || !itemId) return setError(null);
+    setError(onAdd(rowFromItem(catalog, itemId, Number(qty), make)));
   };
 
   return (
@@ -69,17 +86,25 @@ export const NormalItemPicker: React.FC<NormalPickerProps> = ({ catalog, presetI
       <div className="grid gap-2 sm:grid-cols-2">
         <FuzzySearchSelect<Option> {...portal} allOptions={categoryOptions} tokenSearchConfig={SEARCH} placeholder="Category (optional)" isClearable
           value={categoryOptions.find((o) => o.value === category) ?? null}
-          onChange={(o) => { setCategory(o?.value ?? null); setItemId(null); setMake(null); }} />
-        <FuzzySearchSelect<Option> {...portal} allOptions={itemOptions} tokenSearchConfig={SEARCH} placeholder="Search item…" isClearable
-          value={itemOptions.find((o) => o.value === itemId) ?? null}
-          onChange={(o) => { setItemId(o?.value ?? null); setMake(null); }} />
+          onChange={(o) => onCategory(o?.value ?? null)} />
+        <div>
+          <FuzzySearchSelect<Option> {...portal} allOptions={itemOptions} tokenSearchConfig={SEARCH} placeholder="Search item… *" isClearable
+            value={itemOptions.find((o) => o.value === itemId) ?? null}
+            onChange={(o) => onItem(o?.value ?? null)} />
+          {fieldErrors.item && <p className="mt-1 text-xs font-semibold text-red-600" role="alert">{fieldErrors.item}</p>}
+        </div>
         <FuzzySearchSelect<Option> {...portal} allOptions={makeOptions} tokenSearchConfig={SEARCH} isClearable
           placeholder={makeOptions.length ? "Make (optional)" : "No makes for this category"} isDisabled={!makeOptions.length}
-          value={makeOptions.find((o) => o.value === make) ?? null} onChange={(o) => setMake(o?.value ?? null)} />
-        <Input type="number" min={0} step="any" value={qty} onChange={(e) => setQty(e.target.value)}
-          placeholder={`Qty${picked?.unit_name ? ` (${picked.unit_name})` : ""}`} aria-label="Quantity" />
+          value={makeOptions.find((o) => o.value === make) ?? null} onChange={(o) => setState((s) => ({ ...s, make: o?.value ?? null }))} />
+        <div>
+          <Input type="number" min={0} step="any" value={qty}
+            onChange={(e) => { setQty(e.target.value); setFieldErrors((f) => ({ ...f, qty: undefined })); setError(null); }}
+            placeholder={`Qty${picked?.unit_name ? ` (${picked.unit_name})` : ""} *`} aria-label="Quantity"
+            aria-invalid={!!fieldErrors.qty} className={fieldErrors.qty ? "border-red-500" : undefined} />
+          {fieldErrors.qty && <p className="mt-1 text-xs font-semibold text-red-600" role="alert">{fieldErrors.qty}</p>}
+        </div>
       </div>
-      {picked && <p className="text-xs text-sky-700">Picked: <b>{picked.item_name}</b> · {picked.name} · unit {picked.unit_name || "—"}</p>}
+      {picked && <p className="text-xs text-sky-700">Picked: <b>{picked.item_name}</b> · {picked.name} · unit {picked.unit_name || "—"} · category {picked.category || "—"}</p>}
       {error && <p className="text-xs font-semibold text-red-600" role="alert">{error}</p>}
       <div className="flex gap-2"><Button size="sm" onClick={add}>Add</Button><Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button></div>
     </div>

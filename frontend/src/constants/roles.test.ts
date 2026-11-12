@@ -8,10 +8,12 @@ import {
   canAddInflow,
   canAddProjectInvoice,
   canDeleteInflow,
+  canEditEstimates,
   canEditMTC,
   canEditProjectInvoice,
   canManageMTC,
   canUploadMTC,
+  ESTIMATE_EDIT_PROFILES,
   isNirmaanAdmin,
 } from "./roles";
 
@@ -169,5 +171,23 @@ describe("Material Test Certificate rights (the server's role_profiles MTC rules
     expect(canEditMTC(PM, "pm@x", undefined)).toBe(false);
     expect(canEditMTC(BUYER, "buyer@x", "pm@x")).toBe(true);
     expect(canEditMTC(ACCOUNTANT, "acc@x", "acc@x")).toBe(false);
+  });
+});
+
+describe("material estimates: Admin, PMO and Estimates Executive edit (plan \"BOQ Estimates\", decision C)", () => {
+  // The server's twin is role_profiles.ESTIMATE_EDIT_PROFILES (pinned by test_role_mirrors).
+  it("lists exactly the three editing profiles", () => {
+    expect([...ESTIMATE_EDIT_PROFILES].sort()).toEqual([
+      "Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile", "Nirmaan PMO Executive Profile",
+    ]);
+  });
+
+  it("lets those profiles and the Administrator user edit, and no one else", () => {
+    for (const role of ESTIMATE_EDIT_PROFILES) expect(canEditEstimates(role, "made-up@example.com"), role).toBe(true);
+    expect(canEditEstimates("", "Administrator")).toBe(true);
+    for (const role of ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile",
+      "Nirmaan Procurement Executive Profile", "Nirmaan Accountant Profile", "Loading", "", null, undefined]) {
+      expect(canEditEstimates(role, "made-up@example.com"), String(role)).toBe(false);
+    }
   });
 });
