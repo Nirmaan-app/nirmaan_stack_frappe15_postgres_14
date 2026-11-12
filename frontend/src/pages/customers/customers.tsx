@@ -8,7 +8,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 
 import { CustomersSummaryCard } from "./components/CustomersSummaryCard"; // Adjust path
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { Customers as CustomersType } from "@/types/NirmaanStack/Customers";
+import { CustomersDocType as CustomersType } from "@/types/doctypes/Customers";
 import { formatDate } from "@/utils/FormatDate";
 
 import {
@@ -39,7 +39,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Customer ID",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return row.name;
           },
         },
@@ -60,7 +60,7 @@ export default function CustomersPage() {
         size: 250,
         meta: {
           exportHeaderName: "Company Name",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return row.company_name;
           },
         },
@@ -78,7 +78,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Nickname",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return row.customer_nickname;
           },
         },
@@ -96,7 +96,7 @@ export default function CustomersPage() {
         size: 200,
         meta: {
           exportHeaderName: "Contact Person",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return row.company_contact_person;
           },
         },
@@ -130,7 +130,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Phone",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return row.company_phone;
           },
         },
@@ -148,7 +148,7 @@ export default function CustomersPage() {
         size: 220,
         meta: {
           exportHeaderName: "Email",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return row.company_email;
           },
         },
@@ -166,7 +166,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Customer Creation Date",
-          exportValue: (row: any) => {
+          exportValue: (row: CustomersType) => {
             return formatDate(row.creation);
           },
         },

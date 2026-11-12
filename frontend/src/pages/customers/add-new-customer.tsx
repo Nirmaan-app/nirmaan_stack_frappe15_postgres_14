@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "@/lib/frappe";
 import { ListChecks, ListRestart } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -20,6 +20,7 @@ import * as z from "zod";
 // import { useQueryClient } from "@tanstack/react-query";
 import { SheetClose } from "@/components/ui/sheet";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
+import { PincodesDocType } from "@/types/doctypes/Pincodes";
 // import { exampleFunction } from "@/reactQuery/customFunctions";
 
 const customerFormSchema = z.object({
@@ -106,7 +107,7 @@ const customerFormSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerFormSchema>;
 
-export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}> = ({ company_mutate, navigation = true }) => {
+export const NewCustomer : React.FC<{company_mutate?: () => void, navigation?: boolean}> = ({ company_mutate, navigation = true }) => {
 
     const form = useForm<CustomerFormValues>({
         resolver: zodResolver(customerFormSchema),
@@ -154,8 +155,8 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
                 });
 
                 // Mutate customer data after successful creation
-                await mutate("Customers", async () => {
-                    const data = await fetchDocList("Customers");
+                await mutate<unknown[]>("Customers", async () => {
+                    const data: unknown[] = await fetchDocList("Customers");
                     return data;
                 }, {
                     rollbackOnError: true,
@@ -165,7 +166,7 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
                 });
 
                 if (!navigation) {
-                    company_mutate();
+                    company_mutate?.();
                 }
 
                 // Success toast notification
@@ -194,7 +195,7 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
             }
         } catch (err) {
             // Error handling for address creation or customer creation failure
-            if (err?.exc_type === "CustomerGSTExistError") {
+            if (typeof err === "object" && err !== null && "exc_type" in err && err.exc_type === "CustomerGSTExistError") {
                 toast({
                     title: "Duplicate Value Error!",
                     description: `Provided GST Already binded with other Customer!`,
@@ -332,7 +333,7 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
 
     const [pincode, setPincode] = useState("")
 
-    const { data: pincode_data, isLoading: pincode_loading, error: pincode_error } = useFrappeGetDoc("Pincodes", pincode)
+    const { data: pincode_data } = useFrappeGetDoc<PincodesDocType>("Pincodes", pincode)
     // const { city, state } = usePincode(pincode)
 
     const debouncedFetch = useCallback(

@@ -91,7 +91,9 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
   `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`. `@/lib/frappe` re-exports the SDK unchanged except
   that each hook's type defaults to `unknown` instead of `any`: pass the type (`useFrappeGetDoc<Customers>(…)`)
   or narrow the result. ESLint bans importing `frappe-react-sdk` anywhere else (ADR-0049); files that did before
-  are frozen in `eslint-suppressions.json` and move over folder by folder.
+  are frozen in `eslint-suppressions.json` and move over folder by folder. A folder's move starts with
+  `node scripts/migrate_folder_to_typed.mjs <folder> [--dry-run]` (the imports, `JSON.parse`, `.json()`,
+  `catch (e: any)`); the folder then joins the `no-unsafe-*` block in `eslint.config.js`.
 - **Parse JSON text with `parseJson()`** (`src/lib/parseJson.ts`), which returns `unknown` and otherwise behaves as
   `JSON.parse` (invalid JSON or `""` throws a `SyntaxError`). ESLint bans raw `JSON.parse` and `.json()`; for a
   fetch response use `parseJson(await response.text())`.

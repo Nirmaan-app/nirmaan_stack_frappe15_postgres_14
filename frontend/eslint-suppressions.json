@@ -3602,52 +3602,6 @@
       "count": 1
     }
   },
-  "src/pages/customers/CustomerFinancials.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/customers/CustomerOverview.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/customers/add-new-customer.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/customers/components/CustomersSummaryCard.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/customers/customer.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    },
-    "react-hooks/rules-of-hooks": {
-      "count": 8
-    }
-  },
-  "src/pages/customers/customers.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    }
-  },
-  "src/pages/customers/data/useCustomerLedger.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/pages/customers/edit-customer.tsx": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/pages/debug.tsx": {
     "no-restricted-imports": {
       "count": 1

@@ -7,8 +7,9 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Customers } from "@/types/NirmaanStack/Customers";
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { CustomersDocType } from "@/types/doctypes/Customers";
+import { Address } from "@/types/NirmaanStack/Address";
+import { useFrappeGetDoc } from "@/lib/frappe";
 import { useCounts } from "@/hooks/useCounts";
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -29,7 +30,7 @@ import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 
 interface CustomerOverviewProps {
-  data?: Customers;
+  data?: CustomersDocType;
   customerId?: string;
   tab: string;
   onClick: (value: string) => void;
@@ -128,7 +129,7 @@ export const CustomerOverview: React.FC<CustomerOverviewProps> = ({
   onClick,
 }) => {
   // Fetch address data
-  const { data: customerAddress } = useFrappeGetDoc(
+  const { data: customerAddress } = useFrappeGetDoc<Address>(
     "Address",
     data?.company_address,
     data?.company_address ? `Address ${data?.company_address}` : null,
@@ -160,8 +161,11 @@ export const CustomerOverview: React.FC<CustomerOverviewProps> = ({
     ],
     `customer_overview_counts_${customerId || "all"}`
   );
-  const totalProjectCount = countsData?.message?.total as number | undefined;
-  const activeProjectCount = countsData?.message?.active as number | undefined;
+  // Both specs have no group_field, so each result is a number.
+  const total = countsData?.message?.total;
+  const active = countsData?.message?.active;
+  const totalProjectCount = typeof total === "number" ? total : undefined;
+  const activeProjectCount = typeof active === "number" ? active : undefined;
 
   // Format address for display
   const formattedAddress = useMemo(() => {

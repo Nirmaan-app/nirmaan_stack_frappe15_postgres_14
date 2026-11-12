@@ -48,6 +48,28 @@ export default defineConfig([
     },
   },
   {
+    // Folders moved to the typed path (ADR-0049): the `no-unsafe-*` rules are on, with no suppressions. A folder
+    // joins this list in the change that moves it; the list goes when the rules are on for all of src/.
+    // Not yet no-unsafe-type-assertion: utils/tableFilters.ts's dateFilterFn takes a whole TanStack Row though it
+    // reads only row.getValue, so a caller filtering plain rows (customers/data/useReceivableLedgerRows.ts) must
+    // cast a stand-in row. It joins once that shared util takes `Pick<Row, "getValue">`.
+    files: ["src/pages/customers/**/*.{ts,tsx}"],
+    rules: Object.fromEntries(
+      [
+        "no-unsafe-argument",
+        "no-unsafe-assignment",
+        "no-unsafe-call",
+        "no-unsafe-declaration-merging",
+        "no-unsafe-enum-assignment",
+        "no-unsafe-enum-comparison",
+        "no-unsafe-function-type",
+        "no-unsafe-member-access",
+        "no-unsafe-return",
+        "no-unsafe-unary-minus",
+      ].map((rule) => [`@typescript-eslint/${rule}`, "error"]),
+    ),
+  },
+  {
     // The two homes the bans above point to, and the test that checks the SDK module against the SDK itself.
     files: ["src/lib/frappe.ts", "src/lib/frappe.test.ts"],
     rules: { "no-restricted-imports": "off" },

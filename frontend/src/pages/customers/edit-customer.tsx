@@ -2,7 +2,7 @@ import {
   useFrappeGetDoc,
   useFrappeUpdateDoc,
   useSWRConfig,
-} from "frappe-react-sdk";
+} from "@/lib/frappe";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import {
@@ -16,12 +16,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
+import { useParams } from "react-router-dom";
+import { ListChecks, ListRestart } from "lucide-react";
 import useCustomFetchHook from "@/reactQuery/customFunctions";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCallback, useEffect, useState } from "react";
+import { CustomersDocType } from "@/types/doctypes/Customers";
+import { PincodesDocType } from "@/types/doctypes/Pincodes";
+import { Address } from "@/types/NirmaanStack/Address";
 const CustomerFormSchema = z.object({
   company_name: z
     .string({
@@ -75,11 +78,11 @@ const CustomerFormSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
 
-const EditCustomer = ({ toggleEditSheet }) => {
+const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
 
   const { customerId: id } = useParams<{ customerId: string }>();
 
-  const { data, mutate: customerMutate } = useFrappeGetDoc(
+  const { data, mutate: customerMutate } = useFrappeGetDoc<CustomersDocType>(
     "Customers",
     id,
     `Customers ${id}`,
@@ -90,7 +93,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
 
   const companyAddress = data?.company_address;
 
-  const { data: addressData, mutate: addressMutate } = useFrappeGetDoc(
+  const { data: addressData, mutate: addressMutate } = useFrappeGetDoc<Address>(
     "Address",
     companyAddress,
     `Address ${companyAddress}`,
@@ -106,11 +109,11 @@ const EditCustomer = ({ toggleEditSheet }) => {
   const [state, setState] = useState(addressData?.state || "");
   const [pincode, setPincode] = useState("");
 
-  const {
-    data: pincode_data,
-    isLoading: pincode_loading,
-    error: pincode_error,
-  } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
+  const { data: pincode_data } = useFrappeGetDoc<PincodesDocType>(
+    "Pincodes",
+    pincode,
+    `Pincodes ${pincode}`
+  );
 
   const debouncedFetch = useCallback((value: string) => {
     if (value.length >= 6) {
@@ -166,7 +169,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
       });
     }
 
-    setPincode(addressData?.pincode);
+    setPincode(addressData?.pincode ?? "");
   }, [data, addressData, form]);
 
   const hasChanges = () => {
@@ -195,7 +198,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
       data?.company_gst !== values.company_gst;
 
     if (hasCustomerChanged) {
-      await updateDoc("Customers", id, {
+      await updateDoc("Customers", id ?? null, {
         company_name: values.company_name,
         customer_nickname: values.customer_nickname,
         company_email: values.company_email,
@@ -216,7 +219,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
       addressData?.pincode !== values.pin_code;
 
     if (hasAddressChanged) {
-      await updateDoc("Address", companyAddress, {
+      await updateDoc("Address", companyAddress ?? null, {
         address_title: values.company_name,
         address_line1: values.address_line1,
         address_line2: values.address_line2,
@@ -242,10 +245,10 @@ const EditCustomer = ({ toggleEditSheet }) => {
       await updateCustomerDetails(values);
       await updateAddressDetails(values);
 
-      await mutate(
+      await mutate<unknown[]>(
         "Customers",
         async () => {
-          const data = await fetchDocList("Customers");
+          const data: unknown[] = await fetchDocList("Customers");
           return data;
         },
         {
