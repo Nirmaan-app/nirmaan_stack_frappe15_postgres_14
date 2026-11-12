@@ -16,6 +16,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { TailSpin } from 'react-loader-spinner';
 import { DIALOG_ACTION_TYPES, DialogActionType } from '../constants';
 import { computeSplit, isAmountKeystroke, isSplittable } from '../paymentSplit';
+import { rejectNeedsReason, rejectReasonBox } from '../rejectReason';
 import { usePaymentTdsForecasts } from '../../hooks/usePaymentTdsForecasts';
 import { toTdsForecast } from '../../tdsPreview';
 import { TDS_BORNE_BY } from '@/types/NirmaanStack/PaymentTDSDeduction';
@@ -36,7 +37,8 @@ interface PaymentActionDialogProps {
     type: DialogActionType;
     paymentData: ProjectPayments | null;
     vendorName?: string; // Pass pre-fetched vendor name
-    /** `reason` is sent by a cheque reject (#1481) and an expense reject (#1497); both require one. */
+    /** `reason` is sent by every reject: a cheque's (#1481), an expense's (#1497) and a PO / WO payment's
+     *  (saved to `rejection_reason`, 2026-11-12); each requires one. */
     onSubmit: (actionType: DialogActionType, amount: number, reason?: string) => Promise<void>;
     isLoading: boolean; // Loading state passed from parent
     /**
@@ -126,7 +128,11 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
     const [acknowledged, setAcknowledged] = useState(false);
     const monthBlocked = approvesReimbursement
         && (month.isLoading || (monthTickNeeded(monthRow, month.failed) && !acknowledged));
-    const needsReason = rejectsCheque || rejectsExpense;
+    // A PO / WO payment's reject needs one too (2026-11-12): it is saved on the payment (`rejection_reason`)
+    // and shown in the Reason column and on the order's page.
+    const rejectsPayment =
+        rejectReasonBox(type, { isExpense, onCheque: !!chequeApproval, chequeLoading }) === "payment";
+    const needsReason = rejectNeedsReason(type) && (rejectsCheque || rejectsExpense || rejectsPayment);
     const chequeBlocked =
         chequeLoading || (throughCheque && !!chequeApproval?.problem) || (needsReason && !reason.trim());
     // An Office Rent expense whose request does not name the landlord cannot be approved (the server
@@ -312,6 +318,25 @@ export const PaymentActionDialog: React.FC<PaymentActionDialogProps> = ({
                                 The claim is rejected too, and the person who raised it sees this reason.
                             </p>
                         )}
+                    </div>
+                )}
+                {paymentData && rejectsPayment && (
+                    <div>
+                        <label htmlFor="payment-reject-reason" className="text-xs font-medium text-muted-foreground">
+                            Reason for rejection <span className="text-red-600">*</span>
+                        </label>
+                        <Textarea
+                            id="payment-reject-reason"
+                            rows={3}
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            disabled={isLoading}
+                            required
+                            placeholder="Why is this payment rejected?"
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                            Saved on the payment and shown to the person who raised it.
+                        </p>
                     </div>
                 )}
                 {paymentData && showMode && type === DIALOG_ACTION_TYPES.APPROVE && !throughCheque && !chequeLoading && (

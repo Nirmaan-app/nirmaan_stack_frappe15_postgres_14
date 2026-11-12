@@ -4,6 +4,49 @@ Changes made by AI coding assistants (Claude Code / Gemini).
 
 ---
 
+## 2026-11-12: Rejection reason on Project Payments; the 30-day rule
+
+**Summary** (branch `feat/payment-reject-reason`, uncommitted): every reject of a PO / WO payment saves its reason
+on the payment, and a nightly job rejects Online payments nobody approved within 30 days of the request (GLOSSARY
+*Rejection reason*, *30-day rule*). **Schema:** new field `Project Payments.rejection_reason` (Small Text, read-only,
+`depends_on: eval:doc.status=="Rejected"`, not mandatory). **Owner owes `bench migrate`** on every other site (the
+column, and the new cron line in Scheduled Job Type). No patch: no payment was Rejected when the field came in, so
+nothing to backfill. Plan, decisions and test record: artifact "30-Day Payment Auto-Reject".
+
+| File | Change |
+|---|---|
+| `doctype/project_payments/project_payments.json` | `rejection_reason` after `status` |
+| `services/stale_payment_reject.py` (new) | `select_stale(today)` (read-only query), `reject_stale_payments(dry_run, today, commit)` (PO row lock then payment lock, re-check under lock, savepoint + commit per payment, Error Log on failure), `run_nightly()` (summary to `logs/janitor.log`). `REASON = "System rejected: Request is older than 30 days and was not approved."` Skips Cheque mode, a live Payment cheque, a CEO Hold project |
+| `hooks.py` | `run_nightly` added to the existing `"0 2 * * *"` cron list |
+| `api/payments/bulk_actions.py` | `_process_group(..., rejection_reason=None)`; a reject sets the trimmed reason in the same save as the status. Timeline comment unchanged (raw text) |
+| `services/cheques/decide.py` | `reject_cheque` sets `rejection_reason = reason` on each payment it rejects |
+| `api/approvals/get_approval_queue.py` | union column `rejection_reason` (blank on both expense branches, positional after `invoice`); counts return `by_me_counts` (Payment Raised By Me by status) |
+| `api/payments/test_payment_rejection_reason.py` (new) | 23 tests |
+| `GLOSSARY.md`, `BACKEND_ARCHITECTURE.md`, `docs/browser-walk-reject-reason.md`, `frontend/.claude/context/role-access.md` | terms, scheduled task, walk record, access note |
+
+Frontend: `../frontend/.claude/CHANGELOG.md` (same date).
+
+**Code-review fixes (same day):** `integrations/controllers/project_payments._add_rejection_comment` writes the
+"Rejected: <reason>" comment in the save for every reject that carries a reason (single reject, the 30-day rule,
+Desk), skipping `bulk_approval` and `DECIDING_FLAG` saves, which write their own; the 30-day rule no longer writes
+its own comment, and `_refuse_unless_term_rejected` rolls a payment back (reported under `failed`) when its PO term
+does not reach Rejected, because `_find_and_update_po_term` only logs a failed PO save. CODING_STANDARDS register
+bullet for the field; `.claude/context/workflows.md` scheduled-jobs line. Held (owner): route the job to the long
+queue. Not changed (owner, 2026-11-12): a Rejected payment is meant to be deleted and requested again, never revived.
+
+### Verification
+
+- `api.payments.test_payment_rejection_reason` 25/25 after the review fixes (23 before); (no disk for a test copy). Key-table counts before
+  and after every run identical (Project Payments 8,712, the 98 stale payments, expenses, POs, terms, cheques,
+  projects, vendors, attachments). First run 21/23: two test-setup errors (fixture vendor without
+  `vendor_category`; an expectation on the untrimmed comment), fixed.
+- Dry run on localhost (copy of production, newest payment 2026-11-06): 98 payments, ₹74,89,561; nothing written.
+- Browser walk 16/16 (`docs/browser-walk-reject-reason.md`).
+- NOT re-run: the existing `test_cheque_reject`, `test_cheque_bulk` and other bulk-action suites against the
+  `bulk_actions.py` / `decide.py` edits.
+
+---
+
 ## 2026-11-06: Generated invoice amount — at least what is paid, at most the Work Order
 
 **Summary** (branch `fixes/06-11`, uncommitted): a WO Generated Invoice now bills **at least** the Amount Paid

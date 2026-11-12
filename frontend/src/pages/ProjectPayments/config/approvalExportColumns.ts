@@ -39,6 +39,7 @@ import {
   TIER_LABEL,
 } from "./approvalsTable.config";
 import { ApprovalColumnCtx } from "./approvalColumns";
+import { rejectionReasonText } from "../components/rejectionReason";
 
 /** A date cell that is genuinely empty stays empty — never "N/A", never today. */
 const day = (value?: string | null): string => (value ? formatDate(value) : "");
@@ -70,6 +71,8 @@ export const buildApprovalExportColumns = (
   // but it is what makes a merged export traceable back to a doctype.
   col("doctype", "Ledger", (r) => r.doctype),
   col("status", "Status", (r) => r.status),
+  // Why a PO / WO payment was rejected (blank on every other row): the 30-day rule's reason or the rejecter's.
+  col("rejection_reason", "Rejection Reason", (r) => rejectionReasonText(r) ?? ""),
 
   col("against_primary", "Against", (r) => r.against_primary || ""),
   col("against_secondary", "Against (Detail)", (r) => r.against_secondary || ""),

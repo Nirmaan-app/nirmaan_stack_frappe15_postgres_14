@@ -374,6 +374,7 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             succeeded=succeeded,
             failed=failed,
             pending_comments=pending_comments,
+            rejection_reason=rejection_reason,
         )
 
     # Commit BEFORE emitting notifications / writing comments (fix E7) — push
@@ -465,6 +466,7 @@ def _process_group(
     succeeded: list[str],
     failed: list[dict],
     pending_comments: list[str],
+    rejection_reason: Optional[str] = None,
 ):
     """Process all payments belonging to one parent doc atomically.
 
@@ -537,6 +539,9 @@ def _process_group(
             # payment write later fails; ``po_dirty`` is only flipped on a
             # successful save below.
             pay.status = target_status
+            if action == "reject":
+                # The reason the screens show (Reason column, PO page); the timeline comment stays too.
+                pay.rejection_reason = (rejection_reason or "").strip()
             if action == "approve" and approve_date_field:
                 pay.set(approve_date_field, nowdate())
 

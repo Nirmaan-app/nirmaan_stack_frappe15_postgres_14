@@ -71,6 +71,11 @@ Pending → Approved → Vendor Selected → Vendor Approved → Closed
 ### Daily Cron Jobs
 - `populate_target_rates_by_unit()` - Calculate historical rate benchmarks
 - `update_item_status()` - Sync item statuses
+- `services/stale_payment_reject.run_nightly()` (cron `0 2 * * *`) - the **30-day rule** (GLOSSARY): rejects an Online
+  PO / WO payment still Requested or CEO Pending more than 30 days after it was raised, with its `rejection_reason`;
+  one savepoint and commit per payment, a payment whose PO term does not reach Rejected is rolled back and reported.
+  Dry run: `bench --site <site> execute nirmaan_stack.services.stale_payment_reject.reject_stale_payments --kwargs "{'dry_run': True}"`.
+  Walk record (on-demand reference): `docs/browser-walk-reject-reason.md`.
 
 ### Adding Scheduled Task
 ```python
