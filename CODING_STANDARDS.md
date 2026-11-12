@@ -364,6 +364,7 @@ Never hand-edit these paths; change the source or use the tool named:
 | `patches/` | Append-only migration history — never modify existing files |
 | `www/frontend.html` | Auto-generated SPA shell |
 | `frontend/src/components/ui/` | shadcn/ui generated components — update via shadcn CLI |
+| `frontend/src/types/doctypes/` | Generated from the DocType JSON (ADR-0049) — run `python3 scripts/generate_doctype_types.py` after a DocType change; CI fails when it is stale |
 | `nirmaan_stack/public/` | Compiled frontend assets — edit source in `frontend/src/` instead |
 | `services/file_extractor.py` | Intentionally deleted — do not recreate (nor the `DocumentSearch` page) |
 

@@ -33,6 +33,12 @@ jobs:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
+      - name: DocType types are current (frontend/src/types/doctypes/ against the DocType JSON)
+        working-directory: .
+        run: |
+          python3 -m unittest scripts.test_generate_doctype_types
+          python3 scripts/generate_doctype_types.py --check
+
       - name: Unit tests
         run: yarn vitest run
 
