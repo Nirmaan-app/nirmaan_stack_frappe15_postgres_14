@@ -38,6 +38,10 @@ Four standards fail silently when broken, so they are summarised here too (full 
   errors you fixed, never to hide a new one.
 - `yarn lint` (typed ESLint, ADR-0049) fails on a rule violation not frozen in `eslint-suppressions.json`, and on a
   frozen one that is gone: run `yarn lint --prune-suppressions` and commit the file. CI runs it on every PR.
+- `yarn type-coverage` (CI, every PR) fails when `type-coverage --strict` falls below the `--at-least` in
+  `package.json`. The percentage only goes up: raise the threshold in the same PR whenever it rises.
+- `yarn install` switches the repo's git hooks on (`prepare` sets `core.hooksPath` to `.githooks` when unset):
+  pre-commit and pre-merge-commit run the residence ratchet and ESLint on the staged frontend files.
 - `python3 scripts/residence_check.py` runs from the app root, not `frontend/`.
 
 ## Domain docs

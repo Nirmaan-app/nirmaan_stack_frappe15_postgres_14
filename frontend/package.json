@@ -11,9 +11,11 @@
     "test:watch": "vitest",
     "typecheck": "node scripts/typecheck.mjs",
     "lint": "NODE_OPTIONS=--max-old-space-size=3072 eslint src",
+    "type-coverage": "type-coverage --strict --at-least 97.45",
     "test-local": "cypress open --e2e --browser chrome",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",
-    "copy-sw": "cp ../nirmaan_stack/public/frontend/firebase-messaging-sw.js ../nirmaan_stack/www/firebase-messaging-sw.js"
+    "copy-sw": "cp ../nirmaan_stack/public/frontend/firebase-messaging-sw.js ../nirmaan_stack/www/firebase-messaging-sw.js",
+    "prepare": "node scripts/install_git_hooks.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -87,9 +89,14 @@
     "jsdom": "^26",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
+    "type-coverage": "2.30.4",
     "typescript": "^5.2.2",
     "typescript-eslint": "8.72.1",
     "vite": "^5.1.4",
     "vitest": "^4.1.9"
+  },
+  "resolutions": {
+    "type-coverage-core": "2.30.4",
+    "type-coverage-core/tslib": "2.8.1"
   }
 }

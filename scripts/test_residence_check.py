@@ -3,9 +3,12 @@
 Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
 """
 
+import io
 import json
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -13,7 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from residence_check import (  # noqa: E402
     BASELINE_PATH,
     CHECKS,
+    CI_SUBSET,
+    Check,
     locations_to_show,
+    main,
+    select_checks,
     payment_sum_lines_jinja,
     payment_sum_lines_py,
     payment_sum_lines_ts,
@@ -161,6 +168,74 @@ class WhatAFailurePrints(unittest.TestCase):
         shown = locations_to_show(where, set())
         self.assertEqual(len(shown), 21)
         self.assertEqual(shown[-1], "... 5 more (--list prints them all)")
+
+def _fake_check(cid: str, rule: str, count: int) -> Check:
+    return Check(id=cid, rule=rule, description=cid, route_hint="move it", measure=lambda: count)
+
+
+class RunModes(unittest.TestCase):
+    """The local run (all checks, tightening the baseline) and the CI run (a named subset, check-only)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.baseline_path = Path(tmp.name) / "baseline.json"
+        self.baseline = {
+            "s1_big": {"count": 5, "rule": "S1", "description": ""},
+            "b3_state": {"count": 5, "rule": "B3", "description": ""},
+        }
+        self.baseline_path.write_text(json.dumps(self.baseline), encoding="utf-8")
+
+    def run_check(self, checks, *argv):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = main(list(argv), checks=checks, baseline_path=self.baseline_path)
+        return rc, out.getvalue()
+
+    def stored(self):
+        return json.loads(self.baseline_path.read_text(encoding="utf-8"))
+
+    def test_the_local_run_tightens_the_baseline_when_a_count_falls(self):
+        rc, _ = self.run_check([_fake_check("s1_big", "S1", 3), _fake_check("b3_state", "B3", 5)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.stored()["s1_big"]["count"], 3)
+
+    def test_check_only_passes_a_fallen_count_and_leaves_the_baseline_file_alone(self):
+        before = self.baseline_path.read_bytes()
+        rc, _ = self.run_check([_fake_check("s1_big", "S1", 3), _fake_check("b3_state", "B3", 5)], "--check")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.baseline_path.read_bytes(), before)
+
+    def test_check_only_fails_a_risen_count(self):
+        rc, out = self.run_check([_fake_check("s1_big", "S1", 6)], "--check")
+        self.assertEqual(rc, 1)
+        self.assertIn("✗ s1_big", out)
+
+    def test_only_runs_the_named_checks_by_rule_or_id(self):
+        checks = [_fake_check("s1_big", "S1", 5), _fake_check("b3_state", "B3", 99)]
+        rc, out = self.run_check(checks, "--check", "--only", "S1")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("b3_state", out)
+        rc, out = self.run_check(checks, "--check", "--only", "b3_state")
+        self.assertEqual(rc, 1)
+        self.assertNotIn("s1_big", out)
+
+    def test_an_unknown_name_is_refused(self):
+        rc, out = self.run_check([_fake_check("s1_big", "S1", 5)], "--check", "--only", "S1,Z9")
+        self.assertEqual(rc, 2)
+        self.assertIn("Z9", out)
+
+    def test_ci_subset_names_the_six_checks_outside_adr_0010(self):
+        ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
+        self.assertEqual(sorted(ids), sorted([
+            "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
+            "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
+        ]))
+
+    def test_ci_runs_the_ci_subset_check_only(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
+        self.assertIn(f"python3 scripts/residence_check.py --check --only {','.join(CI_SUBSET)}\n", workflow)
+
 
 class TaxAddedOntoAmountPaid(unittest.TestCase):
     """A Work Order's `amount_paid` already holds the TDS withheld from the vendor (ADR-0034 Amendment A),

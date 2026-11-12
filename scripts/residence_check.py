@@ -18,6 +18,7 @@ Usage:
     python3 scripts/residence_check.py --init   # (re)generate the baseline file
     python3 scripts/residence_check.py          # check current tree against baseline
     python3 scripts/residence_check.py --list   # ... and print each counted violation (P1)
+    python3 scripts/residence_check.py --check --only S1,R1   # CI: named checks, baseline never rewritten
 
 Stdlib only; run from anywhere (repo root is resolved from __file__).
 """
@@ -694,8 +695,8 @@ def measure_all() -> dict[str, dict]:
     }
 
 
-def write_baseline(data: dict[str, dict]) -> None:
-    BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def write_baseline(data: dict[str, dict], path: Path = BASELINE_PATH) -> None:
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def do_init() -> int:
@@ -707,21 +708,38 @@ def do_init() -> int:
     return 0
 
 
-def do_check(list_all: bool = False) -> int:
-    if not BASELINE_PATH.exists():
-        print(f"No baseline at {BASELINE_PATH} — run with --init first.", file=sys.stderr)
+# The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
+# (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2"]
+
+
+def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
+    """The checks a name list picks: each name is a check id or a rule id (a rule picks all its checks).
+    Raises ValueError naming the names that match no check."""
+    unknown = [n for n in names if not any(n in (c.id, c.rule) for c in checks)]
+    if unknown:
+        raise ValueError(", ".join(unknown))
+    return [c for c in checks if c.id in names or c.rule in names]
+
+
+def do_check(checks: list[Check], baseline_path: Path, list_all: bool = False, tighten: bool = True) -> int:
+    if not baseline_path.exists():
+        print(f"No baseline at {baseline_path} — run with --init first.", file=sys.stderr)
         return 2
-    baseline = json.loads(read(BASELINE_PATH))
+    baseline = json.loads(read(baseline_path))
 
     failed = False
     rewrites: dict[str, int] = {}
-    for c in CHECKS:
+    for c in checks:
         where = c.locate() if c.locate else None
         current = len(where) if where is not None else c.measure()
         base_count = baseline.get(c.id, {}).get("count", 0)
         verdict = compare(c.id, current, base_count)
         mark = "✓" if verdict.ok else "✗"
-        print(f"{mark} {c.id} (rule {c.rule}): current={current} baseline={base_count} — {verdict.message}")
+        message = verdict.message
+        if verdict.new_baseline is not None and not tighten:
+            message = f"debt retired ({base_count} -> {current}) — check-only, the baseline file is left as it is"
+        print(f"{mark} {c.id} (rule {c.rule}): current={current} baseline={base_count} — {message}")
         if not verdict.ok:
             failed = True
             print(f"    -> {c.route_hint}")
@@ -731,23 +749,38 @@ def do_check(list_all: bool = False) -> int:
         if verdict.new_baseline is not None:
             rewrites[c.id] = verdict.new_baseline
 
-    if rewrites:
+    if rewrites and tighten:
         for cid, new_count in rewrites.items():
             baseline[cid]["count"] = new_count
-        write_baseline(baseline)
+        write_baseline(baseline, baseline_path)
         print(f"Tightened baseline for: {', '.join(sorted(rewrites))}")
 
     return 1 if failed else 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None, checks: list[Check] | None = None,
+         baseline_path: Path = BASELINE_PATH) -> int:
     parser = argparse.ArgumentParser(description="ADR-0010 module-residence ratchet.")
     parser.add_argument("--init", action="store_true",
                         help="Measure all checks and (over)write the baseline file, then exit.")
     parser.add_argument("--list", action="store_true",
                         help="Also print each counted violation (path:line) of the checks that can locate them.")
-    args = parser.parse_args()
-    return do_init() if args.init else do_check(list_all=args.list)
+    parser.add_argument("--only", metavar="NAMES",
+                        help="Comma-separated check ids or rule ids (S1, P1, ...) to run instead of all checks; "
+                             f"CI runs --only {','.join(CI_SUBSET)}.")
+    parser.add_argument("--check", action="store_true",
+                        help="Check only: a count that fell passes but the baseline file is not rewritten (CI).")
+    args = parser.parse_args(argv)
+    if args.init:
+        return do_init()
+    checks = CHECKS if checks is None else checks
+    if args.only:
+        try:
+            checks = select_checks(checks, [n.strip() for n in args.only.split(",") if n.strip()])
+        except ValueError as e:
+            print(f"--only names no check: {e}")
+            return 2
+    return do_check(checks, baseline_path, list_all=args.list, tighten=not args.check)
 
 
 if __name__ == "__main__":
