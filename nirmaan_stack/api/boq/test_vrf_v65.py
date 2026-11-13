@@ -262,8 +262,8 @@ class TestVrf9AssetV65(FrappeTestCase):
     def test_06_v65_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V65))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 66)  # VP-1 (HVAC v66 minted + loaded; mechanical authority): BEFORE nums[-1] == 65
-        self.assertEqual(nums, list(range(1, 67)))  # VP-1 (HVAC v66 minted + loaded; mechanical authority): BEFORE list(range(1, 66))
+        self.assertEqual(nums[-1], 67)  # VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66 (VP-1), 65
+        self.assertEqual(nums, list(range(1, 68)))  # VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67)) (VP-1), list(range(1, 66))
         self.assertTrue(os.path.exists(_asset_path(V64)))
 
     def test_07_live_catalogue_is_v65(self):
