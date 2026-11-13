@@ -51952,3 +51952,42 @@ run `dev_isolate --yes` then `--verify` before DONE (it also rotates every User 
 
 **Tests:** K1 targeted vitest related 98 files / 5,165 passed (= VP-1's after counts + 3 new), tsc 0 new; vacuity 2 breaks red. No Python
 file changed (no Python suite).
+
+## Slice VP-3 - the VP-2 review rulings (D1-D8, C1-C5): reading rules, the description unit (every category), HVAC v67, one re-read of 442 valve rows, pre-pack - as built 2026-11-13
+
+Desktop, from 21e30a96d (vp2end data). Deliverables: `BoQ main lane\VP-3\` (Report, Ledger, reread_list.tsv, Rows.xlsx,
+D6_unit_moves.xlsx, PrePack.xlsx, review_chunks\ (7), payload_archive\part1, the PP1 suite logs, cert screenshots .png).
+
+**Commits:** K1 aa496e847 - `valveReviewNets` in pricingSheetHelper.ts (D1 PIBCV accessory fold, D2 dual plate, D3 portable / handed
+over = supply only, D4 a gauge's tied sizeless valve folds into the gauge, D5 the air vent's size moves to the ball valve + a stray inch
+mark, D7b BV / Bal at 40 mm and below = Ball Valve (amber), D7c strainer list / integral strainer / a with + without Set as 3 blocks;
+the row's scope answer kept over a fold), the D6 description-unit fallback for EVERY category, C3 refusal order in itemListPricing.ts
+(+36 tests); K2 c327cd0a7 - HVAC v67 (valve + Misc config only: the D1-D7c guidance, C1 'insula(?:t|i)' + Misc insulation line, C2
+air-vent line, C4 per-metre bar, C5 Set in Misc's count class; items byte-identical) + 33 pin moves + the series pins + test_valve_v67
+(5) + vp3Config (12); K1b c9029db9c - the D1 / D4 / D7c lines also when the model already reads the row the ruled way (+7 tests);
+K3 docs (this entry, boq-rate-master.md VP-3 section).
+
+**P0:** every Errors-tab row reproduced at HEAD (page harness = VP-2's page figures, 1,540 / 1,540). D6 (i): 00245 'HVAC ' and 00183
+'Fire & Safety Works' parsed the Unit column as a second description column, so neither the page nor the helper had a unit (no
+mismatch); D6 (ii): 110 rows on those 2 sheets, 67 answered -> 42 figure / state + 25 note-only moves, declared before the build.
+
+**Re-read:** 442 rows / 53 sheets (172 review + 239 control + 31 parenting; valve rows only), selected-rows path, cap 1,564,301 ->
+AUTO-GO; 55 calls, 998,229 tokens, all attempt 1. Controls hold (792 prior runs byte-identical, 4,205 carried rows equal), audit
+442 / 442 byte-equal + EA-7 PASS, hand check 20 / 20. Replay vp3end (ac7 f3d0352a / ac7v2 9240cedd, 29,857 rows) = the new baseline;
+every move declared (B4 334 + re-read 187).
+
+**Result:** review rows priced 41 -> 158; 119 of the 123 with a review figure at exactly that figure (3 stay S + I by D3's
+consistency half; 00104 r48 'Installation of pressure gauges' prices S + I: Misc carries no scope question - open); control 26 moved,
+each tied to a ruling, 1 wording-only regression (00430 r463); the 442 rows Rs 2.45 cr -> 3.29 cr.
+
+**Cert C1-C12 PASS (25 screenshots)** at :8080 after the de-stale; calculator = panel (C11); dev_isolate --yes / --verify after it.
+
+**Pre-pack:** PP1 Python full BoQ set 123 modules / 5,001 OK, vitest boq-wizard + pricing 185 / 7,552, tsc FULL 0 new (= CATCHUP-1 +
+the valve tests only). PP2 every stored row at production (23c014fd9 + v65 / v72) vs the tip: 1,526 differ, 0 UNEXPLAINED (valve
+1,493; the other 33 = declared D6 rows). PP3 v65 -> v67: 0 items lost / changed, +137 items, 2 new configs, Piping N5 notes only.
+PP4 on scratch DBs: v67 load 12 s; rollback = DB restore (48-78 s) -> v65 by content, valve config absent; a plain v65 re-load is
+REFUSED by the validator and leaves the valve config active (lesson 62). PP5: no migrate; build + restart; check rows in PrePack.xlsx.
+
+**Open:** the D3 net is literal ("handed over" in an SITC row would read supply only); Misc items carry no scope question; the DATA-1
+keep-copy backup 20261112_193210 was deleted by VP-3's own `bench backup` (Frappe deletes backups over 23 h; content kept as the
+`_pre_data1` database) - keep-copies must live outside the backups folder; ANSWER 2 echoed 48 min late (the watch lost its event).

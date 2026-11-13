@@ -3390,6 +3390,55 @@ read by the frontend tests (`vp1.harness.ts` = v65 + the fixture), by `scripts/_
 - **A later borrower (QR-2 Q5 (a)):** fire fighting, sprinklers, CHW Units borrow valve items through the same `sections` mechanism
   (`category_id: hvac_valve_package`); nothing built now. Second opinion is OFF on both new configs (owner 2026-11-09 18:52).
 
+**VP-3: THE VP-2 REVIEW RULINGS -- READING RULES OVER THE MODEL'S VALVE ITEMS (CODE), THE DESCRIPTION UNIT FOR EVERY CATEGORY,
+THE GUIDANCE AND C-WORDING KEYS (HVAC v67) (owner D1-D8 / C1-C5, 2026-11-13 17:26-17:47; K1 aa496e847, K2 v67).**
+- **The reading rules (`pricingSheetHelper.ts` `valveReviewNets`, gated on the valve item kind `hvac_valve_item`):** they settle a
+  Valve Package BoQ row's MODEL items BEFORE the sections split (a gauge's valve and a PIBCV's thermostat sit across the valve and
+  Misc sections) and leave each change's line on the item it changed (`NET_LINES_ATTR` working lines, `NET_FAMILY_LINE_ATTR` the amber
+  family line; attributes, so a changed item -- which starts from its family alone -- drops them). The text read is the row's own
+  words and its NEAREST heading. The calculator has no model items and never reaches them. The row's scope answer survives a fold.
+  D1 a "none of these" thermostat / controller / actuator / actuator panel beside a PIBCV folds into the PIBCV item ("thermostat /
+  actuator included in the PIBCV item"); words naming another valve are never folded; a 2-way valve "with thermostat" keeps its
+  refusal. D2 "dual plate" in the item's words / row / nearest heading -> nrv_type Dual Plate, over the flanged rule. D3 "portable" /
+  "handed over" -> Supply only, the words quoted ("Supply of" / "Supply and provisioning" stay S + I: guidance only). D4 a ball / gate
+  / needle valve with no size of its own, on a row with a Pressure Gauge whose text ties it ("for isolation", "of suitable size",
+  "cost ... included / considered", "include the cost", "with syphon"), folds into the gauge; a valve with its own size stays. D5 an
+  air vent's readable size moves to a sizeless ball valve on the same row; "<n>mm\"" (a stray inch mark) reads n mm; below 15 mm ->
+  15 by the existing ladder. D7b "BV" / "Bal valve" (never "ball valve", "balancing") at 40 mm and below -> Ball Valve, amber,
+  switchable; above 40 the model's reading stands. D7c "<valve> with strainer" / an integral or built-in strainer -> + a Y-strainer at
+  the valve's size (strainer_type left to its Y-Type default; below 50 -> 50 by the ladder), each its own block; a per-Set row whose
+  text names one valve WITH and one WITHOUT strainer -> three blocks (valve with, valve without, strainer), each with its line;
+  a strainer the model already listed is never doubled. D7a, D8: guidance / no change (D8: every PIBCV row keeps the premium item).
+  A last pass (K1b c9029db9c) writes the D1 / D4 / D7c line also when the MODEL already read the row the ruled way (one PIBCV item
+  under accessory words; a gauge alone where the row ties a ball / gate / sluice valve to it; a listed strainer under strainer words;
+  a Set read as two valves + strainer) -- never twice (`hasLine` checks the "(owner Dx)" tag).
+- **D6, EVERY CATEGORY (`pricingSheetHelper.ts` `compute` -> `descriptionUnitOf` / `withDescriptionUnitNote`):** a BoQ row with NO
+  unit whose description's LAST " | " piece is a unit spelling (`DESCRIPTION_UNIT_RE`: Nos, No., Set, Rmt, Mtr, Sq.m, Kg, Lot, Job ...)
+  is priced in that unit with the line "Unit read from the description: <unit>" (item list: `unitNote`; attribute path:
+  `workings.unitNote`); the usual unit rules then apply (Lot / Rmt refuse on a valve, Set needs contents). Only that piece: never a
+  unit word inside a sentence ("1 Kg" extinguisher, "BTU Meter"), never a size, never the calculator. The case behind it: a parse
+  that read the Unit column as a second description column (00245 'HVAC ', 00183 'Fire & Safety Works': `column_descriptors` C =
+  description), so neither the page nor the helper had a unit -- no page / helper mismatch existed (D6 (i)).
+- **C3 (`itemListPricing.ts`, per-item configs only -- `unstocked_materials.per_item`: Valve Package, Misc):** the row's refusal names
+  the item that cannot be priced at all (an unstocked item, a size above the sheet) before an item that only misses a fact the pricer
+  can give (`MISSING_FACT_REASON`: "no ... stated", "no ... could be told"); an item with no type whose own words name an unstocked
+  word is refused by that word ("No SKU in the catalogue for On-Off type 2/3 way motorised valves"), not "no valve type could be
+  told". Insulation (no per_item) keeps R21's first-blank order.
+- **HVAC v67 (`scripts/_instruments/mint_hvac_v67_vp3.py`; v66 + the Valve Package and Misc configs only, items byte-identical):**
+  the guidance -- valve_type note (D1 PIBCV parts, D4 a gauge's tied valve, D5 the air vent's size is the ball valve's, D7b BV / Bal,
+  D7c strainer = two items, a Set spelling its contents = each item, a kit's parts each listed), valve_type_as_written (D7c each part's
+  own words), size_mm (D5 stray inch mark), nrv_type (D2 a stated type wins), actuation / operation (D7a 4-20 mA / analog /
+  proportional = Modulating), scope (D3), Misc item (D4); C1 the valve insulation `text_notes` pattern "insula(?:t|i)" + the Misc
+  insulation line on all four Misc families; C2 an Automatic Air Vent `text_notes` line (one price for any size); C4
+  `lot_units.bar_by_unit` Rmt / Mtr -> "PRICED PER METRE - NOT A VALVE UNIT. PRICE THIS ROW BY HAND." (the existing key); C5 Misc
+  `unit_classes.count` + Set / Sets (a Set row's named instrument prices per Set). `itemListRuleOrder` renders no `text_notes`: the
+  Derivation tab gains no rule; Misc's unit rule's example of an unknown unit moves 'Set' -> 'Lot' (G3). test_valve_v67 proves the
+  asset = the mint's own transformation of v66; vp3ReviewFixes / vp3Config the screen.
+- **Rolling v67 back is a DATABASE RESTORE, never a re-load of v65 (VP-3 PP4, lesson 62):** loading the v65 export over a live v67
+  with this code is REFUSED by `validate_delegated_sections` (the still-active `hvac_valve_package` offers Misc items that v65 would
+  deactivate; "Nothing was written"), so the valve config stays active. Restoring the pre-deploy backup returns v65 by content with
+  no valve or Misc config.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
