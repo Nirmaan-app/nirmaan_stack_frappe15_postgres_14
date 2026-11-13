@@ -173,6 +173,21 @@ export interface CapacityUnits {
 export const UNIT_PICK_SUFFIX = "__unit";
 
 /**
+ * VP-3 (owner VP-2 review rulings D1-D7c, 2026-11-13) -- THE LINES A READING RULE OVER THE MODEL'S ITEMS LEAVES ON AN ITEM.
+ * `valveReviewNets` (pricingSheetHelper) settles a Valve Package row's model items before pricing and says why on the item it
+ * changed: `NET_LINES_ATTR` holds its working lines, one per text line, `NET_FAMILY_LINE_ATTR` the amber family line of an item whose
+ * kind the rule decided. They ride as attributes so they follow the item through every path (its own block, a borrowed
+ * section) and fall away the moment the pricer changes the item (a changed item starts from its family alone). No config
+ * declares them; no field shows them; the pricing never matches on them.
+ */
+export const NET_LINES_ATTR = "__net_lines";
+export const NET_FAMILY_LINE_ATTR = "__net_family_line";
+
+/** VP-3 (C3, owner "ok"): a refusal for a fact the row did not give ("no valve size stated", "no valve type could be told") --
+ *  the pricer can supply it; a refusal for anything else (an unstocked item, a size above the sheet) cannot be fixed on the row. */
+export const MISSING_FACT_REASON = /^no [^:]*?(?:stated|could be told)/i;
+
+/**
  * SLICE 12e-2 (owner Q16 / Q15 / Q18, 2026-10-10) -- HOW A FAMILY ANSWER WRITTEN AS THE BoQ WRITES IT IS READ.
  *
  * The calculator's Pipe type "Other..." box (and, in 12e-4, the model's answer) may carry a spelling that is
@@ -3522,6 +3537,13 @@ export function stockedUnitsWords(spec: ItemListPricingSpec, family: string): st
   return classes.map((c) => `per ${unitWord(spec, c)}`).join(" or ");
 }
 
+/** VP-3. The working lines a reading rule left on an item (`NET_LINES_ATTR`, one line per text line), or []. PURE. */
+export function netLinesOf(item: ExtractedListItem | undefined): string[] {
+  const raw = item?.attributes?.[NET_LINES_ATTR]?.value;
+  if (typeof raw !== "string") return [];
+  return raw.split("\n").map((x) => x.trim()).filter((x) => x !== "");
+}
+
 function rawValue(item: ExtractedListItem, id: string): string | number | null {
   const cell = item.attributes?.[id];
   if (!cell) return null;
@@ -4321,7 +4343,13 @@ function priceOneItem(
   }
   // SLICE 12d-1a (owner R6): category-NEUTRAL -- the sentence names the family in the config's own label
   // ("no item family could be told", "no insulation material could be told"); it used to say "ADP kind".
-  if (out.familyRaw === null || out.familyRaw === "None") return blank(`no ${(spec.family_label ?? "item family").toLowerCase()} could be told for this item`);
+  if (out.familyRaw === null || out.familyRaw === "None") {
+    // VP-3 (C3, owner "ok"): on a per-item config (Valve Package, Misc) an item whose own words name an unstocked thing refuses
+    // naming it ("No SKU in the catalogue for 2/3 way motorised valves"), not "no valve type could be told"
+    const named = spec.unstocked_materials?.per_item ? namedMaterialRefusal(spec, item, ownText) : null;
+    if (named !== null) return blank(named);
+    return blank(`no ${(spec.family_label ?? "item family").toLowerCase()} could be told for this item`);
+  }
   let family = spec.family_alias?.[out.familyRaw] ?? out.familyRaw;
   // SLICE 12e-2 (owner Q16 / Q18): a config declaring `family_text` reads the answer through the ONE reader --
   // a stocked spelling (any case), a mapped one (GI -> MS, with its line), a refused one (SS, with its own
@@ -4382,6 +4410,14 @@ function priceOneItem(
     out.familyLine = materialMapped.line;
     out.working.push(materialMapped.line);
   }
+  // VP-3 (D7b): a reading rule decided this item's kind -- its amber line, in place of any line above
+  const netFamilyLine = rawValue(item, NET_FAMILY_LINE_ATTR);
+  if (typeof netFamilyLine === "string" && netFamilyLine.trim() !== "") {
+    out.familyLine = netFamilyLine;
+    out.working.push(netFamilyLine);
+  }
+  // VP-3 (D1-D7c): the lines the reading rules left on this item (a folded accessory, a moved size, a stated type, the scope words)
+  out.working.push(...netLinesOf(item));
   out.family = family;
   if (spec.family_alias?.[out.familyRaw]) out.working.push(`'${out.familyRaw}' prices as ${family} (R3)`);
   // SLICE 12d-4a: the named-material refusal is ONE function (`namedMaterialRefusal`) -- the T5 no-SKU
@@ -6154,7 +6190,11 @@ export function priceItemList(
     });
     priced = expanded;
   }
-  const firstBlank = priced.find((p) => p.state === "blank");
+  // VP-3 (C3, owner "ok"): on a per-item config (Valve Package, Misc) the row names the item that cannot be priced at all (an
+  // unstocked item, a size above the sheet) before one that only misses a fact the pricer can give (a size, a type)
+  const firstBlank = (spec.unstocked_materials?.per_item
+    ? priced.find((p) => p.state === "blank" && !MISSING_FACT_REASON.test(String(p.reason ?? "")))
+    : undefined) ?? priced.find((p) => p.state === "blank");
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
     const who = priced.length > 1 ? `item ${firstBlank.index + 1}${firstBlank.family ? ` (${firstBlank.family})` : ""}: ` : "";

@@ -132,6 +132,9 @@ import {
   type ScopeSpec,
   headingTexts,
   vrf10On,
+  NET_FAMILY_LINE_ATTR,
+  NET_LINES_ATTR,
+  netLinesOf,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -1454,7 +1457,14 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     return null;
   }
 
+  /** VP-3 (D6): a BoQ row with no unit whose description ends in a unit piece is priced in that unit, with its line. */
   function compute(ctx: RateHelperRowContext, overrides?: Record<string, string>): HelperResult {
+    const du = descriptionUnitOf(ctx);
+    if (du === null) return computeRow(ctx, overrides);
+    return withDescriptionUnitNote(computeRow({ ...ctx, unit: du } as RateHelperRowContext, overrides), du);
+  }
+
+  function computeRow(ctx: RateHelperRowContext, overrides?: Record<string, string>): HelperResult {
     const ext = extractionByRow.get(ctx.excelRow);
     const inRun = !!ext;
 
@@ -6300,6 +6310,250 @@ export function mirroredNumber(res: ItemPriceResult | undefined, attr: string): 
 
 type ConfigOf = (categoryId: string) => RateCategoryConfig | null;
 
+/** VP-3: the item kind whose rows `valveReviewNets` reads (the Valve Package; its config prices `hvac_valve_item`). */
+export const VALVE_NETS_KIND = "hvac_valve_item";
+
+/**
+ * VP-3 -- THE WORDS OF THE VP-2 REVIEW RULINGS (owner 2026-11-13 17:26-17:47), in one place. Each line names its ruling; the
+ * tag is dropped at render (plainEnglish). The patterns are the BoQ wordings the rulings quote.
+ */
+export const VALVE_NETS = {
+  pibcv: "PIBCV",
+  /** D1: a PIBCV's own parts the model listed as a second item */
+  accessory: /\b(?:thermostats?|controllers?|actuators?|actuator\s+panels?)\b/i,
+  d1_line: "BoQ names {said} with the PIBCV: thermostat / actuator included in the PIBCV item (owner D1)",
+  /** D2 */
+  dual_plate: /dual[\s-]*plate/i,
+  nrv: "NRV / Check Valve",
+  d2_line: "BoQ says \"{said}\" -> priced as the Dual Plate NRV (a stated type wins over the flanged rule) (owner D2)",
+  /** D3 */
+  supply_only_words: /\bportable\b|\bhanded\s+over\b/gi,
+  d3_line: "BoQ says {said} -> supply only, installation 0 (owner D3)",
+  /** D4: a ball / gate valve the row ties to the gauge */
+  gauge: "Pressure Gauge",
+  gauge_valve_families: ["Ball Valve", "Sluice / Gate Valve"],
+  gauge_valve_words: /\b(?:ball|gate|needle|sluice)\b/i,
+  gauge_tie: /\bfor\s+(?:the\s+)?isolat\w*|\bisolat\w*\s+valve|\bof\s+suitable\s+size|\bsuitable\s+size|\bcost\b[^.;|]{0,60}?\b(?:included|considered|include)\b|\binclude\w*\s+the\s+cost\b|\bprice\s+should\s+include\b|\bs[iy]phon\w*/i,
+  d4_line: "BoQ's \"{valve}\" goes with the pressure gauge (\"{tie}\"): part of the gauge, not priced separately (owner D4)",
+  /** D5 */
+  air_vent: "Automatic Air Vent",
+  ball: "Ball Valve",
+  d5_line: "The row's one size ({size}) belongs to the ball valve; the air vent has one price for any size (owner D5)",
+  stray_inch: /(\d+(?:\.\d+)?)\s*mm\s*(?:"|''|”|″)/i,
+  d5_inch_line: "BoQ says {said} -> read as {mm} mm (a stray inch mark after \"mm\") (owner D5)",
+  /** D7b: an abbreviated ball valve; never "ball valve" or "balancing" */
+  bv: /\bBV\b|\b[Bb][Aa][Ll]\.?\s*[Vv][Aa][Ll][Vv][Ee][Ss]?\b/,
+  bv_at_most: 40,
+  d7b_line: "BoQ says \"{said}\" at {size} mm -> read as a Ball Valve (an abbreviated BV / Bal valve at 40 mm and below) - change the item if the BoQ means another valve (owner D7b)",
+  /** D7c */
+  strainer: "Strainer",
+  with_strainer: /\bwith\s+(?:an?\s+)?(?:(?:integral|built[\s-]*in|inbuilt)\s+)?(?:y[\s-]*(?:type\s*)?)?strainers?\b/i,
+  integral_strainer: /\b(?:integral|built[\s-]*in|inbuilt)\s+(?:y[\s-]*(?:type\s*)?)?strainers?\b|\bstrainers?\s+(?:built[\s-]*in|integral|inbuilt)\b/i,
+  without_strainer: /\bwith\s*out\s+(?:an?\s+)?strainers?\b/i,
+  d7c_with_line: "BoQ says \"{said}\" -> the {valve} and a Y-strainer at the same size, each its own item (owner D7c)",
+  d7c_integral_line: "BoQ asks for an integral strainer; our ball valve has none, so a Y-strainer is added (owner D7c)",
+  d7c_strainer_line: "The Y-strainer of \"{said}\", at the valve's size (owner D7c)",
+  d7c_set_with: "One {valve} WITH strainer in each Set (the heading: \"{said}\") (owner D7c)",
+  d7c_set_without: "One {valve} WITHOUT strainer in each Set (the heading: \"{without}\") (owner D7c)",
+  d7c_set_strainer: "The Y-strainer of the Set's \"with strainer\" valve, at the valve's size (owner D7c)",
+} as const;
+
+/**
+ * VP-3 (owner VP-2 review rulings D1-D7c, 2026-11-13). PURE. A Valve Package BoQ row's MODEL items as the review's rulings read
+ * them, before pricing; every change leaves its line on the item it changed (`NET_LINES_ATTR`, `NET_FAMILY_LINE_ATTR`). The text a
+ * rule reads is the row's own words and its NEAREST heading (the heading that describes the row's item). The calculator has no
+ * model items and never reaches this; a row the rules do not touch keeps its items byte for byte.
+ *   D1  a thermostat / controller / actuator / actuator panel listed beside a PIBCV is part of the PIBCV item: one item + line
+ *       (only a PIBCV row; a 2-way valve "with thermostat" keeps its refusal)
+ *   D2  "dual plate" in the item's words, the row or its heading -> the NRV's type is Dual Plate (a stated type wins over the
+ *       flanged rule)
+ *   D3  "portable" / "handed over" -> supply only, installation 0, with the words quoted
+ *   D4  a ball / gate / needle valve with no size of its own, on a row with a pressure gauge that ties it to the gauge ("for
+ *       isolation", "of suitable size", "cost included", "with syphon") is part of the gauge: one item + line on the gauge
+ *   D5  an air vent + ball valve row: the one size goes to the ball valve; "15mm\"" (mm with a stray inch mark) is 15 mm
+ *   D7b "BV" / "Bal valve" at 40 mm and below -> Ball Valve, amber, switchable; above 40 mm the model's reading stands
+ *   D7c "valve with strainer" / an integral strainer -> the valve + a Y-strainer at its size; a Set whose heading names one valve
+ *       with and one without strainer -> those three items per Set, each its own block with its own line
+ */
+export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems, configOf: ConfigOf): ExtractionRowWithItems {
+  const N = VALVE_NETS;
+  const fa = familyAttr(spec);
+  const asw = spec.no_sku_named_by ?? "valve_type_as_written";
+  const noSku = new Set(spec.no_sku_families ?? []);
+  const reader = spec.numbers?.size_mm;
+  const secOf = new Map<string, { fa: string; asw: string }>();
+  for (const s of delegatedSections(spec)) {
+    const ds = itemListPricingSpec(configOf(s.category_id));
+    if (ds) secOf.set(s.id, { fa: familyAttr(ds), asw: ds.no_sku_named_by ?? "item_as_written" });
+  }
+  const isSec = (it: ExtractedListItem) => typeof it.section === "string" && secOf.has(it.section);
+  const famOf = (it: ExtractedListItem) => { const a = isSec(it) ? secOf.get(it.section!)!.fa : fa; const v = it.attributes?.[a]?.value; return typeof v === "string" ? v.trim() : ""; };
+  const asOf = (it: ExtractedListItem) => { const a = isSec(it) ? secOf.get(it.section!)!.asw : asw; const v = it.attributes?.[a]?.value; return typeof v === "string" && v.trim() !== "None" ? v.trim() : ""; };
+  const val = (it: ExtractedListItem, a: string) => { const v = it.attributes?.[a]?.value; return v === null || v === undefined || String(v).trim() === "None" ? "" : String(v).trim(); };
+  const setVal = (it: ExtractedListItem, a: string, v: string | null): ExtractedListItem => ({ ...it, attributes: { ...it.attributes, [a]: { ...(it.attributes?.[a] ?? { confidence: 1 }), value: v } } });
+  const addLine = (it: ExtractedListItem, line: string): ExtractedListItem => setVal(it, NET_LINES_ATTR, [...netLinesOf(it), line.replace(/\s*\n\s*/g, " ")].join("\n"));
+  const sizeOf = (text: string): number | null => {
+    if (!reader || text === "") return null;
+    const r = readNumber(text, reader);
+    return r && "value" in r ? r.value : null;
+  };
+  const blankFam = (f: string) => f === "" || noSku.has(f);
+  const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  const parent = (ctx.headings ?? []).length ? (ctx.headings ?? [])[(ctx.headings ?? []).length - 1] : "";
+  const near = [own, parent].join(" | ");
+  let items = [...(ext.items ?? [])];
+
+  // D5 (stray inch mark): "15mm\"" is 15 mm -- before any size is read below
+  items = items.map((it) => {
+    if (isSec(it)) return it;
+    const s = val(it, "size_mm"); const m = s.match(N.stray_inch);
+    if (!m) return it;
+    return addLine(setVal(it, "size_mm", s.replace(N.stray_inch, `${m[1]} mm`)), N.d5_inch_line.replace("{said}", m[0].trim()).replace("{mm}", m[1]));
+  });
+
+  // D1: a PIBCV's thermostat / controller / actuator (panel) is part of the PIBCV
+  const pib = items.findIndex((it) => !isSec(it) && famOf(it) === N.pibcv);
+  if (pib !== -1) {
+    const folded: string[] = [];
+    const kept = items.filter((it, i) => {
+      if (i === pib || famOf(it) === N.pibcv || !blankFam(famOf(it))) return true;
+      const w = asOf(it);
+      if (!w || !N.accessory.test(w) || /valve/i.test(w.replace(/valve\s+body/gi, ""))) return true;
+      folded.push(w); return false;
+    });
+    if (folded.length) {
+      const at = kept.findIndex((it) => !isSec(it) && famOf(it) === N.pibcv);
+      kept[at] = addLine(kept[at], N.d1_line.replace("{said}", folded.map((w) => `"${w}"`).join(", ")));
+      items = kept;
+    }
+  }
+
+  // D2: "dual plate" stated -> Dual Plate NRV
+  items = items.map((it) => {
+    if (isSec(it) || famOf(it) !== N.nrv) return it;
+    const w = asOf(it);
+    const m = `${w} | ${near}`.match(N.dual_plate);
+    if (!m || val(it, "nrv_type") === "Dual Plate" || /\bball\b/i.test(w)) return it;
+    return addLine(setVal(it, "nrv_type", "Dual Plate"), N.d2_line.replace("{said}", m[0]));
+  });
+
+  // D4: the gauge's own isolating valve
+  const gauge = items.findIndex((it) => isSec(it) && famOf(it) === N.gauge);
+  if (gauge !== -1) {
+    const tie = near.match(N.gauge_tie);
+    if (tie) {
+      const folded: string[] = [];
+      const kept = items.filter((it) => {
+        if (isSec(it)) return true;
+        const f = famOf(it); const w = asOf(it);
+        const valveLike = (N.gauge_valve_families as readonly string[]).includes(f) || (blankFam(f) && N.gauge_valve_words.test(w));
+        if (!valveLike || sizeOf(val(it, "size_mm")) !== null) return true;
+        folded.push(w || f); return false;
+      });
+      if (folded.length) {
+        const at = kept.findIndex((it) => isSec(it) && famOf(it) === N.gauge);
+        kept[at] = addLine(kept[at], N.d4_line.replace("{valve}", folded.join(", ")).replace("{tie}", tie[0].trim()));
+        items = kept;
+      }
+    }
+  }
+
+  // D5: air vent + ball valve -- the one size belongs to the ball valve
+  const vent = items.find((it) => !isSec(it) && famOf(it) === N.air_vent && sizeOf(val(it, "size_mm")) !== null);
+  if (vent) {
+    const sz = val(vent, "size_mm");
+    items = items.map((it) => (isSec(it) || famOf(it) !== N.ball || sizeOf(val(it, "size_mm")) !== null) ? it
+      : addLine(setVal(it, "size_mm", sz), N.d5_line.replace("{size}", sz)));
+  }
+
+  // D7b: an abbreviated "BV" / "Bal valve" at 40 mm and below is a ball valve
+  items = items.map((it) => {
+    if (isSec(it)) return it;
+    const w = asOf(it);
+    const m = w.match(N.bv) ?? own.match(N.bv);
+    if (!m) return it;
+    const size = sizeOf(val(it, "size_mm"));
+    if (size === null || size > N.bv_at_most) return it;
+    const line = N.d7b_line.replace("{said}", m[0].trim()).replace("{size}", String(size));
+    return setVal(setVal(it, fa, N.ball), NET_FAMILY_LINE_ATTR, line);
+  });
+
+  // D7c: strainers and Sets
+  const valveIdx = items.findIndex((it) => !isSec(it) && !blankFam(famOf(it)) && ![N.strainer, N.air_vent].includes(famOf(it) as never));
+  const hasStrainer = items.some((it) => !isSec(it) && famOf(it) === N.strainer);
+  const withS = near.match(N.with_strainer); const integral = near.match(N.integral_strainer); const without = near.match(N.without_strainer);
+  const valvesN = items.filter((it) => !isSec(it) && !blankFam(famOf(it)) && ![N.strainer, N.air_vent].includes(famOf(it) as never)).length;
+  if (valveIdx !== -1 && !hasStrainer && (withS || integral)) {
+    const v = items[valveIdx]; const vf = famOf(v);
+    const strainer: ExtractedListItem = { attributes: {
+      [fa]: { value: N.strainer, confidence: 1 }, [asw]: { value: (withS ?? integral)![0].trim(), confidence: 1 },
+      size_mm: { value: val(v, "size_mm") || null, confidence: 1 }, strainer_type: { value: "None", confidence: 1 },
+      ...(val(v, "scope") ? { scope: { value: val(v, "scope"), confidence: 1 } } : {}) } };
+    if (without && isPerSetUnit(spec, ctx.unit) && valvesN === 1) {
+      const said = (withS ?? integral)![0].trim();
+      const withV = addLine(v, N.d7c_set_with.replace("{valve}", vf).replace("{said}", said));
+      const withoutV = addLine(v, N.d7c_set_without.replace("{valve}", vf).replace("{without}", without[0].trim()));
+      const st = addLine(strainer, N.d7c_set_strainer);
+      items = [...items.slice(0, valveIdx), withV, withoutV, st, ...items.slice(valveIdx + 1)];
+    } else if (!without) {
+      const said = (withS ?? integral)![0].trim();
+      const lead = integral ? N.d7c_integral_line : N.d7c_with_line.replace("{said}", said).replace("{valve}", vf);
+      const st = addLine(strainer, integral ? N.d7c_integral_line : N.d7c_strainer_line.replace("{said}", said));
+      items = [...items.slice(0, valveIdx), addLine(v, lead), st, ...items.slice(valveIdx + 1)];
+    }
+  }
+
+  // the row's scope answer survives a fold (D1 / D4): it is read off the first item that carries one, which may be the folded one
+  const scopeAttr = spec.scope?.model_attr ?? "scope";
+  const rowScope = (ext.items ?? []).map((it) => val(it, scopeAttr)).find((v) => v !== "");
+  if (rowScope && items.length && !items.some((it) => val(it, scopeAttr) !== "")) items = [setVal(items[0], scopeAttr, rowScope), ...items.slice(1)];
+
+  // D3: portable / handed over -> supply only (every item carries the row's scope answer)
+  const so = [...near.matchAll(N.supply_only_words)].map((m) => m[0].trim());
+  if (so.length && spec.scope?.supply_only) {
+    const said = [...new Set(so.map((s) => s.toLowerCase()))].map((s) => `"${s}"`).join(" / ");
+    items = items.map((it, i) => {
+      const s = setVal(it, spec.scope!.model_attr ?? "scope", spec.scope!.supply_only);
+      return i === 0 ? addLine(s, N.d3_line.replace("{said}", said)) : s;
+    });
+  }
+  return items === ext.items ? ext : { ...ext, items };
+}
+
+/**
+ * VP-3 (owner D6, "option a ... the helper ... check description for units if there is no unit column or unit column is blank";
+ * scope "option b" = EVERY CATEGORY). PURE. A BoQ row with NO unit whose description ends in a unit written as its own piece
+ * (" | Nos" -- the BoQ's unit column read into the description, BOQ-26-00245 'HVAC ' / 00183 'Fire & Safety Works') takes that
+ * unit, with the line `Unit read from the description: <unit>`. Only a CLEAR unit word: the last " | " piece must be a unit
+ * spelling and nothing else; never a guess from a size, a count or a word inside a sentence. The calculator (no row) never.
+ */
+export const DESCRIPTION_UNIT_RE = /^\s*(?:nos?|no'?s|nr|numbers?|each|ea|pcs?|pieces?|sets?|pairs?|rmt|r\.?m\.?|rm|rmtrs?|mtrs?|mts|meters?|metres?|m|kgs?|sq\.?\s?m(?:tr|t)?s?|sqm|m2|cum|lots?|l\.?s\.?|lumpsum|lump\s?sum|jobs?|ltrs?|litres?)\s*\.?\s*$/i;
+export const DESCRIPTION_UNIT_NOTE = "Unit read from the description: {unit}";
+export function descriptionUnitOf(ctx: RateHelperRowContext): string | null {
+  const c = ctx as RowContextWithUnit;
+  if (c.noRow === true || typeof c.unit !== "string" || c.unit.trim() !== "") return null;
+  const parts = String(c.description ?? "").split(" | ");
+  if (parts.length < 2) return null;
+  const last = parts[parts.length - 1];
+  return DESCRIPTION_UNIT_RE.test(last) ? last.trim() : null;
+}
+
+/** VP-3 (D6). The result of a row priced in the unit read from its description, with the line saying so (the item-list view's
+ *  unit note, the attribute path's unit note); a "coming soon" / error result is returned as it is. PURE. */
+function withDescriptionUnitNote(res: HelperResult, unit: string): HelperResult {
+  const note = plainPricerText(DESCRIPTION_UNIT_NOTE.replace("{unit}", unit));
+  const r = res as ItemListSuggestion;
+  if (r.itemList) {
+    const prev = r.itemList.unitNote;
+    return { ...r, itemList: { ...r.itemList, unitNote: prev ? `${note}. ${prev}` : note } } as HelperResult;
+  }
+  const w = (res as { workings?: { unitNote?: string } }).workings;
+  if (res.kind === "suggestion" && w) {
+    return { ...res, workings: { ...w, unitNote: w.unitNote ? `${note}. ${w.unitNote}` : note } } as HelperResult;
+  }
+  return res;
+}
+
 function computeItemList(
   category: RateCategoryConfig,
   spec: ItemListPricingSpec,
@@ -6312,6 +6566,9 @@ function computeItemList(
   /** VRF-3b: Electrical's own per-metre cable rate (the helper's compute on that category) -- read by `extras` only */
   cableRate?: CableRate,
 ): HelperResult {
+  // VP-3 (owner VP-2 review rulings D1-D7c, 2026-11-13): the Valve Package's reading rules over the model's items, BEFORE the
+  // sections are told apart -- a gauge's valve and a PIBCV's thermostat sit across them. Every other category: untouched.
+  if (ext?.items?.length && spec.kind === VALVE_NETS_KIND) ext = valveReviewNets(spec, ctx, ext, configOf);
   const declared = delegatedSections(spec);
   // VRF-3b: a config declaring `extras` (VRF) prices its own items exactly as before, then its units' extra lines
   if (declared.length === 0 && spec.extras) {
