@@ -6503,6 +6503,41 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
     }
   }
 
+  // THE RULINGS' NOTES WHEN THE MODEL ALREADY READ THE ROW THE RULED WAY (owner D1 / D4 / D7c: "one item + note", "each item shown
+  // separately ... with its own note"): the same line, on the same item, whether a rule above changed the items or the model's answer
+  // was already right -- never twice
+  const hasLine = (it: ExtractedListItem, ruling: string) => netLinesOf(it).some((l) => l.includes(`(owner ${ruling})`));
+  {
+    const at = items.findIndex((it) => !isSec(it) && famOf(it) === N.pibcv);
+    const said = near.match(N.accessory);
+    if (at !== -1 && said && !hasLine(items[at], "D1")) items[at] = addLine(items[at], N.d1_line.replace("{said}", `"${said[0].trim()}"`));
+  }
+  {
+    const at = items.findIndex((it) => isSec(it) && famOf(it) === N.gauge);
+    // a needle valve / cock / syphon already has the QR-1 Q3 fittings line (Misc `text_notes`): only the ball / gate valve the ruling names
+    const tie = near.match(N.gauge_tie); const valveWords = near.match(/\b(?:ball|gate|sluice)\b/i);
+    const ownValve = items.some((it) => !isSec(it) && ((N.gauge_valve_families as readonly string[]).includes(famOf(it)) || N.gauge_valve_words.test(asOf(it))));
+    if (at !== -1 && tie && valveWords && !ownValve && !hasLine(items[at], "D4")) {
+      items[at] = addLine(items[at], N.d4_line.replace("{valve}", `${valveWords[0].trim()} valve`).replace("{tie}", tie[0].trim()));
+    }
+  }
+  {
+    const st = items.findIndex((it) => !isSec(it) && famOf(it) === N.strainer);
+    const vIdx = items.map((it, i) => (!isSec(it) && !blankFam(famOf(it)) && ![N.strainer, N.air_vent].includes(famOf(it) as never) ? i : -1)).filter((i) => i !== -1);
+    const withS2 = near.match(N.with_strainer); const integral2 = near.match(N.integral_strainer); const without2 = near.match(N.without_strainer);
+    if (st !== -1 && vIdx.length && (withS2 || integral2) && !hasLine(items[st], "D7c")) {
+      const said = (withS2 ?? integral2)![0].trim();
+      if (without2 && isPerSetUnit(spec, ctx.unit) && vIdx.length === 2) {
+        const vf = famOf(items[vIdx[0]]);
+        items[vIdx[0]] = addLine(items[vIdx[0]], N.d7c_set_with.replace("{valve}", vf).replace("{said}", said));
+        items[vIdx[1]] = addLine(items[vIdx[1]], N.d7c_set_without.replace("{valve}", famOf(items[vIdx[1]])).replace("{without}", without2[0].trim()));
+        items[st] = addLine(items[st], N.d7c_set_strainer);
+      } else if (!without2) {
+        items[st] = addLine(items[st], integral2 ? N.d7c_integral_line : N.d7c_strainer_line.replace("{said}", said));
+      }
+    }
+  }
+
   // the row's scope answer survives a fold (D1 / D4): it is read off the first item that carries one, which may be the folded one
   const scopeAttr = spec.scope?.model_attr ?? "scope";
   const rowScope = (ext.items ?? []).map((it) => val(it, scopeAttr)).find((v) => v !== "");

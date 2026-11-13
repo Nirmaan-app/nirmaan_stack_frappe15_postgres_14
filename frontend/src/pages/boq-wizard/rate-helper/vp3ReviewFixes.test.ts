@@ -230,6 +230,42 @@ describe("VP-3 C3 -- the refusal names the item that actually refuses", () => {
   });
 });
 
+describe("VP-3 the rulings' notes when the MODEL already reads the row the ruled way (D1 / D4 / D7c: one item + note; each item its own note)", () => {
+  it("POSITIVE D1: one PIBCV item under 'PIBCV ... along with thermostat' -> the accessory line, priced 50,699 / 1,000", () => {
+    const v = one({ items: [V("PIBCV", "50 mm")], text: "50 mm Dia", headings: ["PIBCV 2 way Modulating Valves along with thermostat"] });
+    expect(totals(v)).toEqual([50699, 1000]);
+    expect(all(v)).toMatch(/BoQ names \\"thermostat\\" with the PIBCV: thermostat \/ actuator included in the PIBCV item/);
+  });
+  it("NEGATIVE D1: a PIBCV row naming no thermostat / controller / actuator -> no line; a folded row carries the line once", () => {
+    expect(all(one({ items: [V("PIBCV", "50 mm")], text: "PIBCV 50 mm" }))).not.toMatch(/included in the PIBCV item/);
+    const v = one({ items: [V("PIBCV", "50 mm"), NONE("Thermostat")], text: "50 mm", headings: ["PIBCV along with thermostat"] });
+    expect(all(v).match(/included in the PIBCV item/g)?.length).toBe(1);
+  });
+  it("POSITIVE D4: the gauge alone, the row tying a ball valve to it -> the gauge line", () => {
+    const v = one({ items: [M("Pressure Gauge")], text: "Pressure Guages, Ball valve shall be provided and cost of the same shall be considered in this item" });
+    expect(totals(v)).toEqual([2175, 500]);
+    expect(misc(v)).toMatch(/goes with the pressure gauge/);
+  });
+  it("NEGATIVE D4: a gauge with only a needle valve / syphon keeps the QR-1 Q3 fittings line alone; a gauge + its own sized valve gets no D4 line", () => {
+    const v = one({ items: [M("Pressure Gauge")], text: "Pressure gauge with needle valve and syphon" });
+    expect(misc(v)).not.toMatch(/goes with the pressure gauge/);
+    expect(misc(one({ items: [V("Ball Valve", "25 mm"), M("Pressure Gauge")], text: "Pressure gauge with isolation 25 mm ball valve" }))).not.toMatch(/goes with the pressure gauge/);
+  });
+  it("POSITIVE D7c: the model listed valve + strainer under 'with strainer' -> the strainer's line; an integral strainer -> the ruled line", () => {
+    expect(all(one({ items: [V("Ball Valve", "25 mm"), V("Strainer", "25 mm")], headings: ["Ball Valve with strainer"] }))).toMatch(/The Y-strainer of \\"with strainer\\"/);
+    expect(all(one({ items: [V("Ball Valve", "25 mm"), V("Strainer", "25 mm")], text: "Ball valve with integral strainer 25 mm" }))).toMatch(/our ball valve has none, so a Y-strainer is added/);
+  });
+  it("POSITIVE D7c: a Set the model read as 2 ball valves + a strainer -> each its own line", () => {
+    const v = one({ items: [V("Ball Valve", "25 mm"), V("Ball Valve", "25 mm"), V("Strainer", "25 mm")], unit: "Sets", headings: ["ball valves one with Y-strainer and other without strainer"] });
+    expect(totals(v)).toEqual([4505, 3000]);
+    expect(all(v)).toMatch(/One Ball Valve WITH strainer in each Set/);
+    expect(all(v)).toMatch(/One Ball Valve WITHOUT strainer in each Set/);
+  });
+  it("NEGATIVE D7c: no strainer words -> a listed strainer gets no D7c line", () => {
+    expect(all(one({ items: [V("Ball Valve", "25 mm"), V("Strainer", "25 mm")], text: "Ball valve and Y strainer 25 mm" }))).not.toMatch(/owner D7c|Y-strainer of/);
+  });
+});
+
 describe("VP-3 the nets' plumbing", () => {
   it("a changed item drops the net lines (the pricer's change starts from the family alone)", () => {
     expect(netLinesOf({ attributes: { [NET_LINES_ATTR]: { value: "a\nb" } } } as never)).toEqual(["a", "b"]);
