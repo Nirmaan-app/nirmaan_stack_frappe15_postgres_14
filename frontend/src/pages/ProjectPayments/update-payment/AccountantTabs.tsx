@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
@@ -28,6 +28,7 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
+    APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     APPROVAL_FETCH_FIELDS,
     APPROVAL_DATE_COLUMNS,
     APPROVAL_STATUS,
@@ -336,20 +337,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     // --- CEO Hold Row Highlighting ---
 
-
-    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
-    //
-    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
-    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
-    // changed EXPENSE never reaches it, even though expense rows are in this table.
-    // These two listeners close that gap for both expense ledgers.
-    //
-    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
-    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
-    // and every mutate() in the hook is commented out.)
-    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
-    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
-
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {
             // A payment hold first: on this tab it is the one that blocks Mark as Paid.
@@ -386,6 +373,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
+        // Expense rows are in this table too: their changes refresh it as quietly as a payment's.
+        liveRefreshDoctypes: APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     });
     usePublishRefetch(refetchRef, refetch);
 

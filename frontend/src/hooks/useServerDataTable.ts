@@ -19,8 +19,12 @@ import {
     RowData,
     getPaginationRowModel,
 } from '@tanstack/react-table';
-import { useFrappeDocTypeEventListener, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappePostCall } from 'frappe-react-sdk';
 import { debounce } from 'lodash';
+import type { MutableRefObject } from 'react';
+import { useServerTableLiveRefresh } from '@/hooks/useServerTableLiveRefresh';
+import type { LiveRefreshViewerState } from '@/hooks/realtime/liveRefreshController';
+import { keepTicksForRows, lastPageIndex, nameAsRowId, namesAsRowIds, sameReply } from '@/hooks/realtime/liveRefreshRows';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -32,9 +36,24 @@ declare module '@tanstack/react-table' {
     interface TableMeta<TData extends RowData> {
         /** Search now with the text typed so far, skipping the wait (Enter in the search box). Set by `useServerDataTable`. */
         flushSearch?: () => void;
+        /** Another user's change waiting for this table, set by `useServerDataTable`: see `TableLiveRefresh`. */
+        liveRefresh?: TableLiveRefresh;
         /** Pages keep passing their own fields (`dateRange` in ProjectReports). */
         [key: string]: unknown;
     }
+}
+
+/**
+ * What the table knows about another user's change, for the shared DataTable. One object per table that keeps
+ * its identity (so it never redraws the rows); `pending` and `apply` are updated on every render.
+ */
+export interface TableLiveRefresh {
+    /** A change is waiting because the viewer is busy: show the "New changes" chip. */
+    pending: boolean;
+    /** Apply the waiting change now (the chip's click). */
+    apply: () => void;
+    /** DataTable writes here what the viewer is doing (scroll, mouse, focus). Writing causes no redraw. */
+    viewer: MutableRefObject<LiveRefreshViewerState>;
 }
 
 // --- Configuration ---
@@ -234,6 +253,17 @@ export interface ServerDataTableConfig<TData> {
     clientTotalCount?: number;
     shouldCache?: boolean;
     meta?: TableMeta<TData> | undefined
+    /**
+     * Refresh the rows quietly when another user inserts, saves or deletes a document of `doctype` (default on).
+     * The refresh waits while the viewer is busy (rows ticked, a dialog open, the tab hidden), shows no spinner
+     * and keeps the rows on screen if it fails. Rules: `realtime/liveRefreshController.ts`.
+     */
+    liveRefresh?: boolean;
+    /**
+     * Other doctypes whose changes also change these rows (for example expenses shown in a payments table). They
+     * refresh the table the same quiet way as `doctype`. Use this instead of a separate list_update listener.
+     */
+    liveRefreshDoctypes?: readonly string[];
 }
 
 export interface ServerDataTableResult<TData> {
@@ -347,7 +377,9 @@ export function useServerDataTable<TData extends { name: string }>({
     shouldCache = false,
     meta,
     apiEndpoint: customApiEndpoint, // Rename to avoid clash with const variable or usage
-    customParams
+    customParams,
+    liveRefresh: liveRefreshEnabled = true,
+    liveRefreshDoctypes,
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
     // --- NEW: Determine if operating in client-side mode ---
@@ -408,9 +440,6 @@ export function useServerDataTable<TData extends { name: string }>({
     const { call: triggerFetch, loading: isCallingApi, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint); // Get Frappe call method from context
     const { call: triggerExportFetch } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint);
 
-    // --- SWR Mutate for Cache Invalidation ---
-    const { mutate } = useSWRConfig();
-    // -----------------------------------------
     // --- State Management ---
     const [pagination, setPaginationState] = useState<PaginationState>(() => ({
         pageIndex: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageIdx`, 0) : (initialState.pagination?.pageIndex ?? 0),
@@ -641,8 +670,17 @@ export function useServerDataTable<TData extends { name: string }>({
     // change made while an earlier request is still running starts its own request, and whichever reply
     // arrives last, the table ends on the newest request's rows (Speed Plan bug B2).
     const latestRequestRef = useRef(0);
+    // Live refresh (another user's change). A quiet fetch shows no spinner and keeps the rows on screen if it
+    // fails; it never starts while a fetch the viewer asked for is running, and waits for it instead, so the
+    // viewer's own search, filter or page always wins (`refreshQuietly` below).
+    const quietRequestIdRef = useRef(0);      // the request number of the newest quiet fetch
+    const loudInFlightRef = useRef(false);    // a fetch the viewer asked for is running
+    const quietWaitingRef = useRef(false);    // a change arrived during that fetch: refresh after it
+    const lastReplyRef = useRef<unknown>(null); // what the rows on screen came from, for "nothing changed"
+    const fetchDataRef = useRef<(options?: { quiet?: boolean }) => Promise<void>>(async () => {});
 
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (options?: { quiet?: boolean }) => {
+        const quiet = options?.quiet === true;
         // --- If clientData is provided, we don't fetch from backend ---
         if (isClientSideMode) {
             // console.log("[useServerDataTable] Client-side mode: Using provided clientData.");
@@ -655,10 +693,15 @@ export function useServerDataTable<TData extends { name: string }>({
         // --- End clientData handling ---
 
         const requestId = ++latestRequestRef.current;
-        setIsLoading(true); // Set loading true when fetch starts
-        setIsAggregatesLoading(true); // Start aggregates loading
-        setError(null); // Clear previous error
-        resetApiState(); // Reset error/completion state of useFrappePostCall
+        if (quiet) {
+            quietRequestIdRef.current = requestId;
+        } else {
+            loudInFlightRef.current = true;
+            setIsLoading(true); // Set loading true when fetch starts
+            setIsAggregatesLoading(true); // Start aggregates loading
+            setError(null); // Clear previous error
+            resetApiState(); // Reset error/completion state of useFrappePostCall
+        }
 
         // --- Parameter preparation for YOUR backend API ---
         const orderByForApi = sorting.length > 0
@@ -711,7 +754,9 @@ export function useServerDataTable<TData extends { name: string }>({
             current_search_fields: searchTermForApi && selectedSearchField ? JSON.stringify([selectedSearchField]) : undefined,
             is_item_search: searchTermForApi && isJsonField, // NEW: True if selectedSearchField.is_json is true
             require_pending_items: requirePendingItems,
-            to_cache: shouldCache,
+            // A live refresh exists because the data changed: the server's 5-minute list cache would hand back
+            // the rows from before the change.
+            to_cache: quiet ? false : shouldCache,
             // -----------------------------
             // --- NEW ---
             aggregates_config: aggregatesConfig && aggregatesConfig.length > 0
@@ -735,6 +780,29 @@ export function useServerDataTable<TData extends { name: string }>({
         try {
             const response = await triggerFetch(payload);
             if (requestId !== latestRequestRef.current) return; // a newer request has started: its rows win
+            if (quiet) {
+                const reply = response.message;
+                if (!reply) return;
+                const shownBefore = lastReplyRef.current;
+                lastReplyRef.current = reply;
+                // Nothing the viewer can see changed (another project's record, a field not shown): no redraw.
+                if (shownBefore !== null && sameReply(shownBefore, reply)) return;
+                setData(reply.data);
+                setTotalCount(reply.total_count);
+                setAggregates(reply.aggregates || null);
+                setGroupByResult(reply.group_by_result || null);
+                // A ticked record that left the list (another user approved or deleted it) can no longer ride
+                // along in a bulk action; a new record is never ticked by itself.
+                if (!onRowSelectionChange) {
+                    setRowSelection(prev => keepTicksForRows(prev, reply.data, getRowId));
+                }
+                // The last page emptied (its rows moved away): show the new last page, not an empty table.
+                if (reply.data.length === 0 && reply.total_count > 0 && pagination.pageIndex > 0) {
+                    setPagination(p => ({ ...p, pageIndex: lastPageIndex(reply.total_count, p.pageSize) }));
+                }
+                return;
+            }
+            lastReplyRef.current = response.message ?? null;
             if (response.message) {
                 setData(response.message.data);
                 setTotalCount(response.message.total_count);
@@ -750,6 +818,13 @@ export function useServerDataTable<TData extends { name: string }>({
             }
         } catch (err: any) {
             if (requestId !== latestRequestRef.current) return;
+            if (quiet) {
+                // A background refresh failing must not blank the list or pop up an error: the rows stay, and
+                // the next change (or the viewer's own action) fetches again.
+                console.warn(`[useServerDataTable ${doctype}] Live refresh failed; keeping the rows on screen.`, err);
+                return;
+            }
+            lastReplyRef.current = null;
             console.error("Error fetching data via custom backend adapter:", err);
 
             // Check if this is a CSRF error and show user-friendly message
@@ -768,12 +843,19 @@ export function useServerDataTable<TData extends { name: string }>({
             setAggregates(null); // Reset on error
             setGroupByResult(null); // NEW
         } finally {
-            if (requestId === latestRequestRef.current) { // an older reply leaves the newer request loading
+            if (requestId === latestRequestRef.current && !quiet) { // an older reply leaves the newer request loading
                 setIsLoading(false);
                 setIsAggregatesLoading(false);
+                loudInFlightRef.current = false;
+                if (quietWaitingRef.current) {
+                    // A change arrived while this request ran, so its reply may be from before it.
+                    quietWaitingRef.current = false;
+                    setTimeout(() => { void fetchDataRef.current({ quiet: true }); }, 0);
+                }
             }
         }
     }, [
+        onRowSelectionChange, getRowId, setPagination,
         isClientSideMode,
         triggerFetch, resetApiState, doctype, JSON.stringify(fetchFields),
         pagination.pageIndex, pagination.pageSize, JSON.stringify(sorting),
@@ -836,37 +918,32 @@ export function useServerDataTable<TData extends { name: string }>({
         fetchData();
     }, [fetchData, isClientSideMode]); // Dependency is the memoized fetchData function
 
-    // --- Real-time Event Listener using useFrappeEventListener ---
-    const handleRealtimeEvent = useCallback((message: any) => {
-        // Development builds only: these show whether live updates reach an open table (Speed Plan bug B1).
-        if (import.meta.env.DEV) console.log(`[useServerDataTable ${doctype}] Socket event received:`, message?.event, message);
-        // Check if the event is relevant to the current doctype
-        if (!isClientSideMode && message?.doctype === doctype) {
-            if (import.meta.env.DEV) console.log(`[useServerDataTable ${doctype}] Relevant event received. Invalidating cache and refetching.`);
-
-            // --- SWR Cache Invalidation ---
-            // Invalidate based on a prefix to catch all variations of filters/pagination for this list
-            // This tells SWR to mark data starting with this key pattern as stale.
-            // The second argument `false` means don't refetch immediately IF the hook isn't mounted/visible.
-            // SWR will revalidate automatically on focus or mount if data is stale.
-            // We might still want an immediate refetch if the table *is* visible.
-            // mutate(
-            //     (key) => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint && key[2]?.includes(`"doctype":"${doctype}"`), // More precise invalidation if needed
-            //     undefined, // Setting data to undefined forces refetch on next render/focus
-            //     { revalidate: true } // Trigger revalidation (refetch) immediately if component is mounted
-            // );
-
-            // OR a simpler invalidation (might be less precise but often works):
-            // mutate(key => Array.isArray(key) && key[0] === SWR_KEY_PREFIX && key[1] === apiEndpoint, undefined, { revalidate: true });
-
-            // Since we manage data with useState now, we might need to directly trigger fetchData
-            fetchData(); // Call fetchData directly to update our local state
-            toast({ title: "Data Updated", description: "Data updated successfully.", variant: "success" });
+    // --- Live refresh: another user inserted, saved or deleted a document of `doctype` ---
+    // Through `useServerTableLiveRefresh` (the shared listener the SDK's clean-up cannot remove, Speed Plan bug B1).
+    // It groups changes, waits while the viewer is busy or the tab is hidden, and refreshes once after a reconnect.
+    // No toast: the rows simply update.
+    fetchDataRef.current = fetchData;
+    const refreshQuietly = useCallback(() => {
+        if (loudInFlightRef.current) {
+            quietWaitingRef.current = true; // the viewer's own request finishes first; refresh right after it
+            return;
         }
-    }, [doctype, apiEndpoint, mutate, fetchData, isClientSideMode]); // Add fetchData to deps
-
-
-    useFrappeDocTypeEventListener(doctype, handleRealtimeEvent);
+        void fetchDataRef.current({ quiet: true });
+    }, []);
+    const hasTicks = Object.values(rowSelection).some(Boolean);
+    const live = useServerTableLiveRefresh({
+        doctype,
+        alsoDoctypes: liveRefreshDoctypes,
+        refresh: refreshQuietly,
+        enabled: liveRefreshEnabled && !isClientSideMode,
+        hasSelection: hasTicks,
+    });
+    // One object for the table's lifetime (so the meta, and with it every row, keeps its identity); its fields
+    // follow the hook on every render.
+    const liveMetaRef = useRef<TableLiveRefresh>({ pending: live.pending, apply: live.apply, viewer: live.viewerRef });
+    liveMetaRef.current.pending = live.pending;
+    liveMetaRef.current.apply = live.apply;
+    liveMetaRef.current.viewer = live.viewerRef;
 
     // The table's rows as of the last render, for `reviseRowSelection` (which runs on click).
     const rowsRef = useRef<Row<TData>[]>([]);
@@ -879,10 +956,17 @@ export function useServerDataTable<TData extends { name: string }>({
         [reviseRowSelection],
     );
 
-    // The page's own meta, plus Enter-to-search for the shared search box.
+    // The page's own meta, plus Enter-to-search for the shared search box and the live-refresh state.
     const tableMeta = useMemo<TableMeta<TData>>(
-        () => ({ ...meta, flushSearch: () => debouncedSetApiSearchTerm.flush() }),
+        () => ({ ...meta, flushSearch: () => debouncedSetApiSearchTerm.flush(), liveRefresh: liveMetaRef.current }),
         [meta, debouncedSetApiSearchTerm]
+    );
+
+    // Row ids: the page's own, else the document name when every row has its own (so a tick stays on its record
+    // when another user's change moves rows, and a row keeps its identity across a refresh), else the position.
+    const tableRowId = useMemo(
+        () => getRowId ?? (namesAsRowIds(data) ? nameAsRowId : undefined),
+        [getRowId, data]
     );
 
     // --- TanStack Table Instance ---
@@ -927,7 +1011,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // Configuration
         getPaginationRowModel: getPaginationRowModel(),
         enableRowSelection: configEnableRowSelection,
-        getRowId,
+        getRowId: tableRowId,
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });
@@ -1024,7 +1108,8 @@ export function useServerDataTable<TData extends { name: string }>({
         table,
         data,
         totalCount,
-        isLoading: isLoading || isCallingApi,
+        // The SDK's `loading` is true for a quiet live refresh too; that one must not show the table's spinner.
+        isLoading: isLoading || (isCallingApi && quietRequestIdRef.current !== latestRequestRef.current),
         // Only the newest request's failure (set in `fetchData`). The SDK call's own `error` is one state shared by
         // every call, so a superseded request failing late would show its error over the newer request's rows.
         error,

@@ -12,10 +12,12 @@ import { createRoot, Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  ColumnDef, getCoreRowModel, RowSelectionState, useReactTable, VisibilityState,
+  ColumnDef, getCoreRowModel, RowSelectionState, TableMeta, useReactTable, VisibilityState,
 } from "@tanstack/react-table";
 
 import { DataTable } from "./new-data-table";
+import { createViewerState } from "@/hooks/realtime/liveRefreshController";
+import type { TableLiveRefresh } from "@/hooks/useServerDataTable";
 
 // ─── jsdom's gaps (test-environment shims, never product code) ────────────────────────────────
 class StubResizeObserver {
@@ -60,10 +62,11 @@ interface HarnessProps {
   searchTerm?: string;
   columnVisibility?: VisibilityState;
   rowSelection?: RowSelectionState;
+  meta?: TableMeta<Item>;
   virtualized?: boolean;
 }
 
-function Harness({ data, columns, searchTerm = "", columnVisibility = {}, rowSelection = {}, virtualized = false }: HarnessProps) {
+function Harness({ data, columns, searchTerm = "", columnVisibility = {}, rowSelection = {}, meta, virtualized = false }: HarnessProps) {
   const table = useReactTable({
     data,
     columns,
@@ -71,6 +74,7 @@ function Harness({ data, columns, searchTerm = "", columnVisibility = {}, rowSel
     getRowId: r => r.id,
     enableRowSelection: true,
     state: { columnVisibility, rowSelection },
+    meta,
   });
   return (
     <DataTable<Item>
@@ -151,6 +155,91 @@ describe("DataTable rows are memoised", () => {
     expect(states).toEqual([null, "selected", null]);
     const boxes = bodyRows().map(r => r.querySelector("[role='checkbox']")?.getAttribute("aria-checked"));
     expect(boxes).toEqual(["false", "true", "false"]);
+  });
+});
+
+// ─── live refresh (another user's change) ──────────────────────────────────────────────────────
+// useServerDataTable puts a `liveRefresh` object on the table meta. The table draws the "New changes" chip
+// from it and writes what the viewer is doing into its `viewer` ref, which the hook reads to decide whether a
+// change may move the rows.
+describe("DataTable live refresh", () => {
+  const makeLive = (pending = false) => {
+    let applied = 0;
+    const live: TableLiveRefresh = {
+      pending,
+      apply: () => { applied += 1; },
+      viewer: { current: createViewerState() },
+    };
+    return { live, applied: () => applied };
+  };
+  const chip = () => Array.from(container.querySelectorAll("button")).find(b => b.textContent?.includes("New changes")) ?? null;
+  const scrollBox = () => container.querySelector("tbody")!.closest(".overflow-y-auto") as HTMLDivElement;
+
+  it("shows no chip while nothing is waiting, and none on a table without live refresh", () => {
+    render({ data: DATA, columns: COLUMNS_A, meta: { liveRefresh: makeLive(false).live } });
+    expect(chip()).toBeNull();
+    render({ data: DATA, columns: COLUMNS_A });
+    expect(chip()).toBeNull();
+  });
+
+  it("shows the chip while a change is waiting, and applies it on click", () => {
+    const { live, applied } = makeLive(true);
+    render({ data: DATA, columns: COLUMNS_A, meta: { liveRefresh: live } });
+    expect(chip()?.textContent).toContain("New changes · Refresh");
+    act(() => { chip()!.click(); });
+    expect(applied()).toBe(1);
+  });
+
+  it("the chip appearing redraws no row", () => {
+    const { live } = makeLive(false);
+    const meta = { liveRefresh: live };
+    render({ data: DATA, columns: COLUMNS_A, meta });
+    const before = { ...draws };
+    live.pending = true; // the hook flips the field on the same object, and the page redraws
+    render({ data: DATA, columns: COLUMNS_A, meta });
+    expect(chip()).not.toBeNull();
+    expect(draws).toEqual(before);
+  });
+
+  it("tells the hook when the mouse is over the rows, and when it left", () => {
+    const { live } = makeLive();
+    render({ data: DATA, columns: COLUMNS_A, meta: { liveRefresh: live } });
+    const cell = container.querySelector("tbody td")!;
+
+    act(() => { cell.dispatchEvent(new MouseEvent("pointerover", { bubbles: true, relatedTarget: document.body })); });
+    expect(live.viewer.current.pointerInRows).toBe(true);
+
+    const before = Date.now();
+    act(() => { cell.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body })); });
+    expect(live.viewer.current.pointerInRows).toBe(false);
+    expect(live.viewer.current.pointerLeftAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it("tells the hook when the list is scrolled away from its first row", () => {
+    const { live } = makeLive();
+    render({ data: DATA, columns: COLUMNS_A, meta: { liveRefresh: live } });
+    const box = scrollBox();
+
+    Object.defineProperty(box, "scrollTop", { value: 200, configurable: true });
+    act(() => { box.dispatchEvent(new Event("scroll")); });
+    expect(live.viewer.current.scrolledDown).toBe(true);
+
+    Object.defineProperty(box, "scrollTop", { value: 0, configurable: true });
+    act(() => { box.dispatchEvent(new Event("scroll")); });
+    expect(live.viewer.current.scrolledDown).toBe(false);
+  });
+
+  it("tells the hook while keyboard focus is inside the rows", () => {
+    const { live } = makeLive();
+    render({ data: DATA, columns: COLUMNS_A, meta: { liveRefresh: live } });
+    const rowCheckbox = container.querySelector("tbody [role='checkbox']") as HTMLElement;
+    const search = container.querySelector("input[aria-label='Search by Name...']") as HTMLInputElement;
+
+    act(() => { rowCheckbox.focus(); });
+    expect(live.viewer.current.focusInRows).toBe(true);
+
+    act(() => { search.focus(); });
+    expect(live.viewer.current.focusInRows).toBe(false);
   });
 });
 

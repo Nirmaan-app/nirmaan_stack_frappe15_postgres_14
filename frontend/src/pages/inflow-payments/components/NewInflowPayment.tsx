@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
-import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappeDocTypeEventListener, useFrappePostCall } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useListUpdate } from "@/hooks/useListUpdate";
 import memoize from 'lodash/memoize';
 import { AlertCircle, ArrowDownToLine, Building2, Calendar, CreditCard, FileText, Hash, IndianRupee, Loader2, Sparkles } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
@@ -119,7 +120,7 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
     );
 
     // --- Event Listener for Realtime Updates ---
-    useFrappeDocTypeEventListener("Project Inflows", (event) => {
+    useListUpdate("Project Inflows", (event) => {
         console.log("Project Inflows event received in NewInflowPayment:", event);
         projectInflowsMutate(); // Revalidate SWR cache for projectInflows
     });

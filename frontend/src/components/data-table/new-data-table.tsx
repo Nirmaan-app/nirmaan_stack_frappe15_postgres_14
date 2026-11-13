@@ -10,7 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileUp, Loader2 } from "lucide-react";
+import { FileUp, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -256,6 +256,28 @@ export function DataTable<T>({
     return () => observer.disconnect();
   }, []);
 
+  /* ───────── live refresh: another user's change (useServerDataTable, Speed Plan task 14) ───────── */
+  // The hook decides when a change may move the rows; this table tells it what the viewer is doing. Each
+  // signal is written to a ref, so scrolling and mouse movement cause no redraw. Tables built without
+  // `useServerDataTable` have no `liveRefresh` and skip all of this.
+  const liveRefresh = table.options.meta?.liveRefresh;
+  const viewer = liveRefresh?.viewer;
+  const onBoxScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    // Away from the first row: a new row arriving on top would push what the viewer is reading down.
+    if (viewer) viewer.current.scrolledDown = event.currentTarget.scrollTop > estimatedRowHeight;
+  }, [viewer, estimatedRowHeight]);
+  const rowsViewerHandlers = React.useMemo<React.HTMLAttributes<HTMLTableSectionElement>>(() => viewer ? {
+    onPointerEnter: () => { viewer.current.pointerInRows = true; },
+    onPointerLeave: () => {
+      viewer.current.pointerInRows = false;
+      viewer.current.pointerLeftAt = Date.now();
+    },
+    onFocus: () => { viewer.current.focusInRows = true; },
+    onBlur: event => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) viewer.current.focusInRows = false;
+    },
+  } : {}, [viewer]);
+
   const rows = table.getRowModel().rows;
   // Worked out once per render and handed to every memoised row.
   const visibleKey = table.getVisibleLeafColumns().map(c => c.id).join("|");
@@ -380,10 +402,14 @@ export function DataTable<T>({
         </div>
       )}
 
-      {/* ───── Table container ───── */}
+      {/* ───── Table container ─────
+          The outer box holds the height and the "New changes" chip, which floats over the bottom of the table
+          so it appears without moving any row. */}
+      <div className="relative flex min-h-0 flex-1 flex-col"
+        style={boxMaxHeight ? { maxHeight: boxMaxHeight } : undefined}>
       <div ref={parentRef}
-        style={boxMaxHeight ? { maxHeight: boxMaxHeight } : undefined}
-        className={`rounded-md border overflow-x-auto flex-1 overflow-y-auto relative`}>
+        onScroll={viewer ? onBoxScroll : undefined}
+        className={`rounded-md border overflow-x-auto flex-1 min-h-0 overflow-y-auto relative`}>
         {/* Setting position relative for proper stacking context */}
 
         <Table className="w-full table-fixed">
@@ -496,7 +522,7 @@ export function DataTable<T>({
           </TableHeader>
 
           {/* ---- Body with padding rows ---- */}
-          <TableBody>
+          <TableBody {...rowsViewerHandlers}>
             {isLoading ? (
               <TableBodySkeleton rows={10} colSpan={table.getVisibleLeafColumns().length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)} />
             ) : (
@@ -542,6 +568,16 @@ export function DataTable<T>({
             )}
           </TableBody>
         </Table>
+      </div>
+      {liveRefresh?.pending && (
+        <div role="status" className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" style={{ zIndex: 50 }}>
+          <Button type="button" size="sm" onClick={liveRefresh.apply}
+            className="pointer-events-auto gap-1.5 rounded-full shadow-md">
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            New changes · Refresh
+          </Button>
+        </div>
+      )}
       </div>
 
       {/* pagination */}

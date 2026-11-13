@@ -1,4 +1,5 @@
-import { useFrappeDocTypeEventListener, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useListUpdate } from "@/hooks/useListUpdate";
 
 import type { GSTPaymentRequestRow, GstRequestStatus } from "@/types/NirmaanStack/GSTPaymentRequest";
 import {
@@ -19,7 +20,7 @@ export const useGstPaymentRequests = (scope: GstRequestsScope | null) => {
 	const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: GSTPaymentRequestRow[] }>(
 		GST_REQUESTS_API, params, key,
 	);
-	useFrappeDocTypeEventListener("GST Payment Request", () => { if (key) mutate(); });
+	useListUpdate("GST Payment Request", () => { if (key) mutate(); });
 	return { rows: data?.message ?? [], isLoading, error, mutate };
 };
 
