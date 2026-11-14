@@ -231,6 +231,24 @@
     "tabBoQ Rate Master Item"
    ]
   },
+  "nirmaan_stack.api.boq.test_valve_v68": {
+   "seconds": 9.2,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
+  "nirmaan_stack.api.boq.test_valve_v69": {
+   "seconds": 9.4,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
   "nirmaan_stack.api.boq.test_vrf_v55": {
    "seconds": 15.9,
    "series": [],
@@ -2553,6 +2571,12 @@
   },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_vp1": {
    "seconds": 13.9,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_vp4": {
+   "seconds": 7.5,
    "series": [],
    "writes": [],
    "reads": []
