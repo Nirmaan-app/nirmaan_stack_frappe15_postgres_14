@@ -51991,3 +51991,43 @@ REFUSED by the validator and leaves the valve config active (lesson 62). PP5: no
 **Open:** the D3 net is literal ("handed over" in an SITC row would read supply only); Misc items carry no scope question; the DATA-1
 keep-copy backup 20261112_193210 was deleted by VP-3's own `bench backup` (Frappe deletes backups over 23 h; content kept as the
 `_pre_data1` database) - keep-copies must live outside the backups folder; ANSWER 2 echoed 48 min late (the watch lost its event).
+
+## Slice VP-4 (run as VP-4L on the laptop) - the VP-3 re-review rulings (R1-R4, W1, W2, T1-T5), HVAC v68, a 324-row re-read, the Valve Payload Library, the all-rows three-layer pack - as built 2026-11-14
+
+Laptop (the desktop was offline; owner 2026-11-14 10:22), from 1195778f1. Deliverables: `BoQ main lane\VP-4L\` (Report, Ledger,
+reread_list.tsv, AllRows.xlsx, Rows.xlsx, allrows\review_chunks (23), payload_archive\part1, hand_check, cert screenshots (47)) and
+`BoQ main lane\Valve_Payload_Library\` (permanent).
+
+**Commits:** K1 e65fae4a1 - `valveReviewNets` R1 (a sizeless ball valve tied to the strainer's drain folds into the strainer), R2
+(balancing + modulating in one valve = PIBCV), R3 (thermometer provision = Misc test plug), R4 (high rangeability control valve =
+2-Way Modulating, 20-32), W1 (a written count prices that many), W2 (the row's own size before the appended text wins); T1 NB note,
+T2 the heading's own note block + the flange `unless` key (validator), T3 / T4 / T5 wording; ac5_dump.py runs ordered (+33 tests, +3
+Python). K2 918ee43b4 - HVAC v68 (valve + Misc configs only: the R1-R4 / W1 / W2 guidance, T2 `unless`, T3 pattern) + pin moves +
+test_valve_v68. K1b 06173f010 - `scripts/valve_library.py` (build / verify / manifest / rebuild-pack), the pack harness and the
+read-only page fetch. K1c e0f27f1c0 - found at the cert: the R1 / R2 / R3 / W1 / W2 lines also when the model already reads the row
+the ruled way (+10 tests); the T2 test's cast. K3 docs (this entry, boq-rate-master.md VP-4 section).
+
+**P0:** QR-1 (a): the D0 replay hash differed from vp3end only by an unordered runs select on a restored DB (fixed: ordered); 00104 r52
+3,000 vs 2,000 was the replay harness's single-row context (stored data identical). Library premise 1,493 / 1,493 found on the laptop.
+
+**Re-read:** 324 rows / 42 sheets (valve rows only), 46 calls, 634,902 tokens (62% of the 1,023,223 cap), auto-go. Controls hold (845
+prior runs byte-identical, 3,479 carried rows equal), audit 324 / 324 byte-equal + EA-7 PASS, hand check 20 / 20. 10 figure moves vs
+VP-3 = exactly the named ruling rows (all by code); 0 by the re-read answers; 0 regressions; the 324 rows Rs 2,09,56,424 ->
+2,10,86,271. Replay vp4lend2 (after K1c; ac7 fb0ce5f0 / ac7v2 b6aba63e, 29,857 rows) = the new baseline.
+
+**Library:** 1,493 rows (VP-4L 324 / VP-3 270 / VP-2 p2 409 / p1 490), history 594, specs 3, MANIFEST 2,102 files; all 2,259 archived
+records re-cut equal (offsets are UTF-8 bytes); LIB2 PASS; LIB3 rebuild-pack on 20 random rows = the pack 20 / 20.
+
+**Pack:** all 1,493 rows panel + calculator (resolved fields): 1,477 EQUAL + 16 WORDING (both refuse), 0 FIGURE; as typed, 30 + 1 rows
+differ only because the calculator's typed-size box refuses "32 mm NB" / "Φ 40 mm" (open, UI). Chat-Claude's blind review of the pack:
+0 WRONG, 0 WRONG_REFUSAL, 16 DOUBTFUL (-> VP-5), 61 PARENTING.
+
+**Cert C1-C10 PASS (47 screenshots)** at :8080 after the de-stale (owner login on the laptop); calculator = panel on every step and on
+one row per family; dev_isolate --yes / --verify after it.
+
+**Tests:** K1 vitest related 122 / 5,885, Python 11 / 92; K2 Python 19 / 1,223, vitest 9 / 243; K1c vitest related 100 / 4,746, tsc 0
+new; vacuity K1 14 + K1c 7 breaks red. PRE-PACK (PP1-PP5) DEFERRED TO VP-5 (owner 22:41: one pre-pack at the end of VP-5); a PP1
+Python run was stopped at 22:45 by that ruling (70 modules OK, partial - not a result).
+
+**Open:** the calculator's typed-size forms ("32 mm NB", "Φ 40 mm"); Error Log 410 -> 346 = Frappe's log clean-up ran when bench started;
+the desktop's partial VP-4 session (O8) needs a catch-up decision; nothing pushed (the 4 VP-3 commits + VP-4's ride together).

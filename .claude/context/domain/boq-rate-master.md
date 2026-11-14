@@ -3439,6 +3439,54 @@ THE GUIDANCE AND C-WORDING KEYS (HVAC v67) (owner D1-D8 / C1-C5, 2026-11-13 17:2
   deactivate; "Nothing was written"), so the valve config stays active. Restoring the pre-deploy backup returns v65 by content with
   no valve or Misc config.
 
+**VP-4: THE VP-3 RE-REVIEW RULINGS (R1-R4, W1, W2) AS READING RULES + GUIDANCE (HVAC v68), THE T1-T5 WORDING, THE VALVE PAYLOAD
+LIBRARY AND ITS RE-USE TOOL (owner 2026-11-13 23:35 "1 yes / 2 yes / 3 yes / 4 yes", QR-1 "a a a"; K1 e65fae4a1, K2 918ee43b4 v68,
+K1b 06173f010 tools, K1c e0f27f1c0).**
+- **The reading rules (`pricingSheetHelper.ts` `valveReviewNets`, same gate and line mechanism as VP-3's):** R1 a ball valve with NO
+  size of its own that the BoQ ties to the strainer's drain ("ball valve for strainer drain", "drain valve ... included / part of")
+  folds into the strainer (one item + line); a ball valve with its own size stays its own item. R2 "balancing" + "modulating" in ONE
+  valve's words -> the PIBCV (actuation / operation cleared); the nearest heading counts only for an item already read as a 2-way /
+  balancing valve; never a second PIBCV on a row that has one (D1 folds that row). R3 "provision ... (digital) thermometer /
+  thermowell" -> the Misc Test Plug / Thermowell, whichever section the model used. R4 "high rangeability (control valve)" -> 2-Way
+  Valve, operation Modulating; the sheet stocks 20-32 mm, so above 32 the ladder refuses (T3 wording); a named unstocked item under
+  that heading keeps its own words. W1 a count written before a listed item ("two", "2 nos", "pair of"; never "two way" / "2-way")
+  prices that many: the item's own quantity where its block has one, else that many items. W2 the row's OWN words (the description
+  before its appended " | " text) state a size -> it wins over the appended text's size (and fills an item that read none).
+- **K1c (found at the VP-4 cert):** with the v68 guidance the re-read model returns the ruled reading itself, so the rules above had
+  nothing to change and the named rows showed the ruled figure without the ruling's line. A last pass writes the same line on the same
+  item whatever made the reading, never twice (`hasLine`), each on that ruling's own words only: R1 a strainer under a strainer-drain
+  tie with no ball valve item; R2 a PIBCV whose own words are balancing + modulating (never one calling itself PIBCV / pressure
+  independent / dynamic); R3 the Misc test plug for a thermometer provision; W1 a written count already on the item's quantity; W2 the
+  row's own size against an appended size WRITTEN in mm / NB ("PN 16", "RS 485" are not sizes). All 1,493 valve rows: 0 figure moves.
+- **T1-T5 (wording; figures never move):** T1 an inch size on a valve / Misc block is named by its nominal bore in the note ("BoQ says
+  3/4" -> 20 mm (3/4" = 20 NB)"; `NOMINAL_BORE_MM`, `nominalBoreOf`, `NB_NOTE_KINDS`). T2 a valve row reads its heading's OWN note block
+  (`ctx.ownHeadingNotes` = the note rows before the first Line Item after the heading, `rateSuggestionModel.rowOwnHeadingNotes`), not
+  every note under the heading; the flange `text_notes` entry carries `unless: {attr: flanged, equals: No, own_words: true}` -- no
+  flange line off an item read flanged = No unless the row's own words name flanges (`itemListPricing.textNoteLines`; the validator
+  admits the key). T3 the insulation pattern also reads "insualtion" / "insulaion" (never "insolation"); the above-32 refusal reads
+  "valve size N is above the largest size on the sheet (32)". T4 a D7c strainer the ladder moved carries ONE note (its D7c line with
+  the size it is priced at; the ladder line and the field note dropped). T5 on a per_item config several unstocked items are all named
+  in the row refusal, joined "; ".
+- **HVAC v68 (`scripts/_instruments/mint_hvac_v68_vp4.py`; v67 + the Valve Package and Misc configs only, items byte-identical):** the
+  model guidance for R1-R4 / W1 / W2 in the question notes ("PART of the strainer", "is a PIBCV", "'high rangeability control valve'
+  is a 2-Way Valve with operation Modulating", "copy the count with the item's own words", "the row's own size wins", "is a Test Plug
+  / Thermowell"), T2 `unless`, T3 pattern; second opinion OFF. test_valve_v68 proves the asset = the mint's own transformation of v67.
+  Rolling back stays a DATABASE RESTORE (lesson 62).
+- **THE VALVE PAYLOAD LIBRARY** (`<OneDrive Desktop>\BoQ main lane\Valve_Payload_Library\`, permanent, outside the repo): for every
+  priceable valve row (1,493) the payload AS SENT and the RAW REPLY behind its current stored answer, CUT from the paid runs' capture
+  files by UTF-8 BYTE offset (never rebuilt) -- rows\ (one JSON per row: pointers, shas, payload, reply, stored items), history\ (every
+  earlier record), specs\ (each items spec once), capture_logs\ (sha-equal copies), INDEX.tsv, MANIFEST.tsv, README.md.
+  `scripts/valve_library.py`: `build` (from the archive parts, newest first; the current record = the newest whose reply equals the
+  stored answer at value level), `verify` (LIB2: re-cut byte-equal, record sha, EA-7, reply = stored, 0 orphans, MANIFEST re-hashed;
+  with `--pages` the stored-answer sha against a fresh page fetch -- canonical JSON, a whole-number float as its int), `manifest`,
+  `rebuild-pack --rows <keys|ALL>` (a read-only page fetch `scripts/_instruments/valve_page_fetch.py`, then
+  `scripts/_instruments/valve_pack_harness.ts`: the panel through the page's context + `makePricingSheetHelper`, the calculator through
+  `calculatorConfigMap` + `calculatorCtx` with an empty extraction map fed the panel's RESOLVED fields via the parity feed, strict
+  `compareResults`, the as-typed feed beside it; writes pack_rows.jsonl + review_chunks; no model call, the capture log untouched).
+- **Calculator vs panel on all 1,493 rows (VP-4):** 1,477 EQUAL + 16 WORDING (both refuse), 0 FIGURE. As TYPED (the model's own size
+  text in the Other box) 30 rows refuse in the calculator only and 1 differs: the calculator's typed-size box (slice 12e-2) accepts
+  one clean size, so "32 mm NB" / "Φ 40 mm" refuse there; typed as the panel resolves them they price equal. Open item, a UI change.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds
