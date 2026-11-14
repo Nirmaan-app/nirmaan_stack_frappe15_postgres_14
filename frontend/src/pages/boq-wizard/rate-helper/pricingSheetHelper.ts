@@ -6705,6 +6705,56 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
     if (expanded.length !== items.length || expanded.some((it, i) => it !== items[i])) items = expanded;
   }
 
+  // VP-4 K1c -- THE RE-REVIEW RULINGS' NOTES WHEN THE MODEL ALREADY READ THE ROW THE RULED WAY (VP-3 K1b's shape; owner R1-R3 / W1 /
+  // W2 "+ note"): with the v68 guidance the re-read model returns the ruled reading itself (the strainer alone, the PIBCV, the Misc
+  // test plug, the count on the item, the row's own size), so the rules above have nothing to change and their line was missing. The
+  // same line on the same item, whatever made the reading -- never twice; each one reads only that ruling's own words.
+  {
+    // R1: the strainer alone, the BoQ tying a (ball / drain) valve to the strainer's drain, and no ball valve item of its own
+    const st = items.findIndex((it) => !isSec(it) && famOf(it) === N.strainer);
+    const tie = near.match(N.strainer_drain);
+    const ballItem = items.some((it) => !isSec(it) && (famOf(it) === N.ball || (blankFam(famOf(it)) && /\b(?:ball|drain)\b/i.test(asOf(it)))));
+    if (st !== -1 && tie && !ballItem && !hasLine(items[st], "R1")) {
+      const valve = (near.match(/\bball\s+valves?\b|\bdrain\s+valves?\b/i)?.[0] ?? "drain valve").trim();
+      items[st] = addLine(items[st], N.r1_line.replace("{valve}", valve).replace("{tie}", tie[0].trim()));
+    }
+  }
+  items = items.map((it) => {
+    // R2: a PIBCV whose OWN words are a balancing valve with modulating actuation (never a valve that already calls itself a PIBCV /
+    // pressure independent / dynamic balancing valve)
+    if (isSec(it) || famOf(it) !== N.pibcv || hasLine(it, "R2")) return it;
+    const w = asOf(it); const m = w.match(N.balancing_modulating);
+    if (!m || /\bpibcv\b|pressure\s+independent|\bdynamic\b/i.test(w)) return it;
+    return addLine(it, N.r2_line.replace("{said}", w.trim()));
+  });
+  items = items.map((it) => {
+    // R3: the Misc test plug whose own words are a thermometer / thermowell provision
+    if (famOf(it) !== N.test_plug || hasLine(it, "R3")) return it;
+    const m = asOf(it).match(N.provision_thermo);
+    return m ? addLine(it, N.r3_line.replace("{said}", asOf(it).trim())) : it;
+  });
+  items = items.map((it) => {
+    // W1: an item whose own words write a count the model already put on its block (the item's quantity = that count)
+    if (hasLine(it, "W1")) return it;
+    const w = asOf(it); const m = w.match(N.count_lead);
+    if (!m) return it;
+    const n = m[1] ? COUNT_WORDS[m[1].toLowerCase()] : m[2] ? Number(m[2]) : COUNT_WORDS.pair;
+    const qa = isSec(it) ? secOf.get(it.section!)?.qty : spec.qty_attribute_id;
+    return n > 1 && qa && Number(val(it, qa)) === n ? addLine(it, N.w1_line.replace("{said}", w).replace("{n}", String(n))) : it;
+  });
+  {
+    // W2: the row's own words state a size, the appended text states a DIFFERENT one WRITTEN AS A SIZE ("40mm dia.", "65 NB" -- never
+    // a "PN 16" rating or an "RS 485" protocol), and the item already carries the row's own size
+    const parts = String(ctx.description ?? "").split(" | ");
+    const ownSize = parts.length > 1 ? sizeOf(parts[0]) : null;
+    const appWritten = ownSize !== null ? parts.slice(1).join(" | ").match(/\b(\d+(?:\.\d+)?)\s*(?:mm|nb)\b/i) : null;
+    const appSize = appWritten ? Number(appWritten[1]) : null;
+    if (ownSize !== null && appSize !== null && appSize !== ownSize) {
+      items = items.map((it) => (isSec(it) || famOf(it) === N.air_vent || hasLine(it, "W2") || sizeOf(val(it, "size_mm")) !== ownSize) ? it
+        : addLine(it, N.w2_line.replace(/\{own\}/g, `${fmtNum(ownSize)} mm`).replace("{other}", `${fmtNum(appSize)} mm`)));
+    }
+  }
+
   // the row's scope answer survives a fold (D1 / D4): it is read off the first item that carries one, which may be the folded one
   const scopeAttr = spec.scope?.model_attr ?? "scope";
   const rowScope = (ext.items ?? []).map((it) => val(it, scopeAttr)).find((v) => v !== "");

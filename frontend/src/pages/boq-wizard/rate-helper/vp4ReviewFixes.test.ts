@@ -218,7 +218,7 @@ describe("VP-4 T2 -- the heading's own note block; the flange note off a flanged
   // the `unless` key the v68 config sets on the flange note, on a clone of v67's valve config
   const withUnless = () => {
     const cfg = baseCfg();
-    const c = structuredClone(cfg.get(VALVE)!) as { list_spec: { pricing: { text_notes: Array<{ pattern: string; unless?: unknown }> } } };
+    const c = structuredClone(cfg.get(VALVE)!) as unknown as { list_spec: { pricing: { text_notes: Array<{ pattern: string; unless?: unknown }> } } };
     for (const tn of c.list_spec.pricing.text_notes) if (tn.pattern === "flang") tn.unless = { attr: "flanged", equals: "No", own_words: true };
     cfg.set(VALVE, c as never);
     return cfg;
@@ -258,5 +258,57 @@ describe("VP-4 T5 -- a kit with several unstocked items names every one", () => 
   it("NEGATIVE: one unstocked item -> the refusal names it alone, as before", () => {
     const v = one({ items: [V("Ball Valve", "32 mm"), NONE("by pass arrangement")], text: "32 mm" });
     expect(v.reason).toMatch(/^item 2 \(none of these\): No SKU in the catalogue for by pass arrangement/);
+  });
+});
+
+// VP-4 K1c (found at the cert): with the v68 guidance the re-read model returns the ruled reading itself, so the rules above had
+// nothing to change and the ruling's line was missing. The same line on the same item, whatever made the reading -- never twice.
+const count = (s: string, sub: string) => s.split(sub).length - 1;
+describe("VP-4 K1c -- the re-review rulings' notes when the model already read the row the ruled way", () => {
+  const drainHead = ["HVAC SYSTEM", "Y Strainer ... Strainer to have drain provision. Ball valve for strainer drain to be considered as part of supply of this item."];
+  it("R1 POSITIVE: the strainer alone under a 'ball valve for strainer drain' heading -> the R1 line, 4,898 / 1,000 (00247 r232)", () => {
+    const v = one({ items: [V("Strainer", "80 mmdia", { strainer_type: "Y-Type", flanged: "Yes" })], text: "80 mmdia", headings: drainHead });
+    expect(totals(v)).toEqual([4898, 1000]);
+    expect(all(v)).toMatch(/drain ball valve included in the strainer item/);
+  });
+  it("R1 NEGATIVE: a strainer with no drain words carries no R1 line; the model's sizeless drain valve still gets ONE line", () => {
+    expect(all(one({ items: [V("Strainer", "80 mm", { strainer_type: "Y-Type" })], text: "80 mm", headings: ["Y Strainer with flanges"] }))).not.toMatch(/drain ball valve/);
+    const v = one({ items: [V("Strainer", "80 mm", { strainer_type: "Y-Type" }), V("Ball Valve", null, { valve_type_as_written: "Ball valve for strainer drain" })], text: "80 mm", headings: drainHead });
+    expect(count(all(v), "drain ball valve included in the strainer item")).toBe(1);
+  });
+  it("R2 POSITIVE: the model's PIBCV whose own words are '2 way Modulating Balancing Valves' -> the R2 line, 50,699 / 1,000 (00165 r24)", () => {
+    const v = one({ items: [V("PIBCV", "50 mm", { valve_type_as_written: "2 way Modulating Balancing Valves", flanged: "Yes" })], text: "50 mm" });
+    expect(totals(v)).toEqual([50699, 1000]);
+    expect(all(v)).toMatch(/a balancing valve with modulating actuation is the PIBCV/);
+  });
+  it("R2 NEGATIVE: a PIBCV that calls itself pressure independent / dynamic carries no R2 line", () => {
+    const v = one({ items: [V("PIBCV", "80 mm", { valve_type_as_written: "Pressure Independent dynamic balancing valve cum modulating flow control valve" })], text: "80 mm" });
+    expect(all(v)).not.toMatch(/modulating actuation is the PIBCV/);
+  });
+  it("R3 POSITIVE: the model's Misc test plug for a thermometer provision -> the R3 line, 720 / 100 (00016 r200)", () => {
+    const v = one({ items: [M("Test Plug / Thermowell", "Provision in chilled water lines to connected digital thermometer in future")], text: "Provision ..." });
+    expect(totals(v)).toEqual([720, 100]);
+    expect(all(v)).toMatch(/priced as a test plug \/ thermowell provision/);
+  });
+  it("R3 NEGATIVE: a plain test point carries no R3 line", () => {
+    expect(all(one({ items: [M("Test Plug / Thermowell", "Test points 6 mm brass body")], text: "Test points" }))).not.toMatch(/thermowell provision/);
+  });
+  it("W1 POSITIVE: the model already put the written count on the item ('2 No. Ball valve', qty 2) -> the W1 line, twice the price", () => {
+    const v = one({ items: [V("Ball Valve", "25 mm", { valve_type_as_written: "2 No. Ball valve", qty_per_row_unit: "2" })], text: "25 mm" });
+    expect(all(v)).toMatch(/2 of this item/);
+    const single = one({ items: [V("Ball Valve", "25 mm")], text: "25 mm" });
+    expect(v.totals?.supply_rate).toBe(2 * (single.totals?.supply_rate ?? 0));
+  });
+  it("W1 NEGATIVE: a 2-way valve with quantity 2 is not a written count", () => {
+    expect(all(one({ items: [V("2-Way Valve", "25 mm", { valve_type_as_written: "2 way valve", operation: "On/Off", qty_per_row_unit: "2" })], text: "25 mm" }))).not.toMatch(/of this item/);
+  });
+  it("W2 POSITIVE: the model already read the row's own 25 mm; the appended text says 40mm dia. -> the W2 line (00368 r17)", () => {
+    const v = one({ items: [V("Ball Valve", "25mm dia.", { flanged: "Yes" })], text: "Ball valves - 25mm dia. | Supply and fixing in position, the following GM ball valves ... Zolloto make.. 40mm dia. (Screwed end)" });
+    expect(totals(v)).toEqual([682, 1000]);
+    expect(all(v)).toMatch(/The row's own words say 25 mm; the appended text says 40 mm/);
+  });
+  it("W2 NEGATIVE: 'PN 16' / 'RS 485' in the appended text is not a size (00368 r11 / r34)", () => {
+    const v = one({ items: [V("Butterfly Valve", "100 mm NB")], text: "Butterfly valves-100 mm NB | Supply & Fixing of PN 16 rating butterfly valves ... Modbus RS 485" });
+    expect(all(v)).not.toMatch(/the row's own size/);
   });
 });

@@ -32,15 +32,21 @@ const items = mergeItemsByName(allItems as never);
 const calc = makePricingSheetHelper({ configsByCategory: calculatorConfigMap(configsByCategory, "HVAC"), items, extractionByRow: new Map() } as never);
 
 const fig = (f: any) => (f ? { supply: f.supply_rate ?? null, install: f.install_rate ?? null, total: f.combined_rate ?? null } : null);
+const block = (b: any, section: string | null) => ({ section, family: b.family, familyRaw: b.familyRaw, state: b.state, reason: b.reason ?? null,
+  sku: b.skuLine ?? null, qty: b.qty, figures: fig(b.figures), working: b.working ?? [],
+  fields: (b.fields ?? []).map((f: any) => `${f.id}=${f.otherMode ? f.typedValue : f.value}`) });
 function side(res: any) {
   const il = res?.itemList;
   return {
     kind: res?.kind ?? null, reason: res?.reason ?? il?.reason ?? null, rowPriced: il?.rowPriced ?? null, unit: il?.unit ?? null,
     unitClass: il?.unitClass ?? null, rateUnit: il?.rateUnit ?? null, unitNote: il?.unitNote ?? null, totals: fig(il?.totals ?? res?.values),
     values: res?.values ?? null, split: il?.split?.note ?? null, scope: il?.scope?.value ?? null,
-    items: (il?.items ?? []).map((b: any) => ({ family: b.family, familyRaw: b.familyRaw, state: b.state, reason: b.reason ?? null,
-      sku: b.skuLine ?? null, qty: b.qty, figures: fig(b.figures), working: b.working ?? [],
-      fields: (b.fields ?? []).map((f: any) => `${f.id}=${f.otherMode ? f.typedValue : f.value}`) })),
+    items: [
+      ...(il?.items ?? []).map((b: any) => block(b, null)),
+      // the sections that belong to no item (the Misc section: gauges, thermometers, test plugs, bellows) -- the panel draws them after
+      // the items, with their own SKU, figures and lines
+      ...((il?.sections?.independent ?? []) as any[]).flatMap((sv: any) => (sv.view?.items ?? []).map((b: any) => block(b, sv.sectionId))),
+    ],
     notes: res && res.kind === "suggestion" ? itemFieldNotes(res) : [],
     workingLines: (res?.workings?.lines ?? res?.workings?.notes ?? []),
   };
@@ -71,8 +77,9 @@ function diffClass(divs: any[], p: any, c: any): { cls: string; why: string } {
   if (!divs.length) return { cls: "EQUAL", why: "" };
   const kindOrPriced = divs.find((d) => d.what === "kind" || d.what === "item rowPriced");
   if (kindOrPriced) return { cls: "ONE-SIDED REFUSAL", why: `${kindOrPriced.what}: panel ${kindOrPriced.panel} / calculator ${kindOrPriced.calculator}` };
-  const pf = JSON.stringify([p.totals, p.items.map((b: any) => [b.family, b.state, b.figures, b.qty])]);
-  const cf = JSON.stringify([c.totals, c.items.map((b: any) => [b.family, b.state, b.figures, b.qty])]);
+  // FIGURES only: the row totals and every PRICED block's family / figures / qty (a blank block drawn on one side only is wording)
+  const figs = (x: any) => JSON.stringify([x.totals, x.items.filter((b: any) => b.state === "priced").map((b: any) => [b.family, b.figures, b.qty])]);
+  const pf = figs(p), cf = figs(c);
   if (pf !== cf || divs.some((d) => FIGURE_WHAT.has(d.what) && d.what !== "blocks" && d.what !== "item blocks")) {
     return { cls: "FIGURE", why: divs.map((d) => d.what).join(", ") };
   }
