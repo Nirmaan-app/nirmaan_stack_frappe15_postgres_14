@@ -198,7 +198,7 @@ def build(a):
             r["rank"] = rank
             recs[r["key"]].append(r)
     if a.live_capture:
-        ld = os.path.join(out, "capture_logs", "laptop_live_after_VP-4L")
+        ld = os.path.join(out, "capture_logs", "laptop_live_after_" + a.live_label)
         os.makedirs(ld, exist_ok=True)
         for f in sorted(os.listdir(a.live_capture)):
             shutil.copyfile(os.path.join(a.live_capture, f), os.path.join(ld, f))
@@ -502,6 +502,7 @@ def main(argv=None):
     b.add_argument("--valve-keys", required=True)
     b.add_argument("--out", required=True)
     b.add_argument("--live-capture")
+    b.add_argument("--live-label", default="VP-4L", help="the live copies go to capture_logs/laptop_live_after_<label>")
     v = sp.add_parser("verify")
     v.add_argument("--lib", required=True)
     v.add_argument("--pages")
