@@ -41,6 +41,8 @@ function side(res: any) {
     kind: res?.kind ?? null, reason: res?.reason ?? il?.reason ?? null, rowPriced: il?.rowPriced ?? null, unit: il?.unit ?? null,
     unitClass: il?.unitClass ?? null, rateUnit: il?.rateUnit ?? null, unitNote: il?.unitNote ?? null, totals: fig(il?.totals ?? res?.values),
     values: res?.values ?? null, split: il?.split?.note ?? null, scope: il?.scope?.value ?? null,
+    // VP-5: the scope answer's own note (E11 / QR-2 / VR9 wording) is what the panel shows under Scope -- the pack must show it too
+    scopeNote: il?.scope?.note ?? null,
     items: [
       ...(il?.items ?? []).map((b: any) => block(b, null)),
       // the sections that belong to no item (the Misc section: gauges, thermometers, test plugs, bellows) -- the panel draws them after

@@ -346,7 +346,7 @@ def _payload_items(rec):
 
 CONTAINER = "frappe_docker_devcontainer-frappe-1"
 APP = "/workspace/development/frappe-bench/apps/nirmaan_stack"
-ASSETS = [APP + "/nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v68.json",
+ASSETS = [APP + "/nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v69.json",
           APP + "/nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v72.json"]
 CHUNK_BYTES = 300_000
 
@@ -387,7 +387,7 @@ def row_block(lib_row, pk):
                                                                               s.get("unitClass"), _fig(s.get("totals"))))
         if s.get("reason"):
             out.append("  refusal / reason: %s" % s["reason"])
-        for k in ("unitNote", "split", "scope"):
+        for k in ("unitNote", "split", "scope", "scopeNote"):
             if s.get(k):
                 out.append("  %s: %s" % (k, s[k]))
         for i, b in enumerate(s.get("items") or [], 1):
