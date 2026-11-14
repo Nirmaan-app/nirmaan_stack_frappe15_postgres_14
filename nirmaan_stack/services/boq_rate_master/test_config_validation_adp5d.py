@@ -93,7 +93,8 @@ class TestAdp5dConfigKeys(unittest.TestCase):
         for k in ("stream_heading_default", "text_notes", "companion_items"):
             self.assertIn(k, config_validation._PRICING_KEYS)
         self.assertEqual(config_validation._PRICING_STREAM_HEADING_KEYS, {"attr", "streams_attr", "families", "words", "line", "rule"})
-        self.assertEqual(config_validation._PRICING_TEXT_NOTE_KEYS, {"families", "from_text", "pattern", "unit_classes", "when", "line", "rule"})
+        # VP-4 (T2, owner QR-1 Q2 (a)) adds `unless` (BEFORE: the set without it); its shape is pinned in test_config_validation_vp4
+        self.assertEqual(config_validation._PRICING_TEXT_NOTE_KEYS, {"families", "from_text", "pattern", "unit_classes", "when", "unless", "line", "rule"})
         self.assertEqual(config_validation._PRICING_COMPANION_KEYS, {"families", "words", "unit_class", "item", "line", "rule"})
         self.assertIn("rule_by_family", config_validation._PRICING_NUMBER_DEFAULT_KEYS)
 

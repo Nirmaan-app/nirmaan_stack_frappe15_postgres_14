@@ -3112,6 +3112,8 @@ function itemBlockView(
   // writes into the working, not onto a hop) can be quoted under its field and re-opened with the pick's words
   const blockWorking = layersWorking(layers, res);
   const ladRewrites: Array<{ from: string; to: string }> = [];
+  // VP-4 T4: a working line replaced whole (the D7c strainer line that now says the size it is priced at)
+  const lineSwaps = new Map<string, string>();
   const fields: ItemFieldView[] = fieldDefs.map((f) => {
     const raw = assembled.attributes[f.id]?.value;
     const stated = raw === null || raw === undefined ? "" : String(raw);
@@ -3205,7 +3207,14 @@ function itemBlockView(
         : hop.how === "alt" ? ""
         : " (the sheet's own spelling of this size)";
       const sevLead = sev ? `${said} ${stated.trim()}: ${severalSizesTaken(sev.sizes, sev.chosen)}` : undefined;
-      if (!(hop.how === "exact" && hop.requested === hop.fitted && bare)) {
+      // VP-4 T1 (owner QR-1 Q1 (a)): a valve / Misc size written in inches is named by its nominal bore -- "BoQ says 3/4" -> 20 mm
+      // (3/4" = 20 NB)" -- never "19.05 mm, next size up"; the ladder's own words follow only where the NB is not a stocked size.
+      // Wording only: the figure stays the ladder's.
+      const nb = !sev && !ladLead && NB_NOTE_KINDS.has(spec.kind) ? nominalBoreOf(entered, hop.requested) : null;
+      if (nb !== null) {
+        note = `${said} ${entered} -> ${nb}${u} (${entered} = ${nb} NB)`
+          + (hop.fitted !== nb ? ` -> priced as ${fmtNum(hop.fitted)}${u}${landed}` : "");
+      } else if (!(hop.how === "exact" && hop.requested === hop.fitted && bare)) {
         note = `${sevLead ?? ladLead ?? `${said} ${entered}`}${read} -> priced as ${fmtNum(hop.fitted)}${u}${landed}`;
       } else if (sevLead) {
         note = sevLead;
@@ -3224,6 +3233,19 @@ function itemBlockView(
       // value the BoQ stated keeps its line exactly as before (`typedSizeEcho` is reached only by a typed one)
       const quoted = userEdited ? typedSizeEcho(stated, hop.requested, u) : `${fmtNum(hop.requested)}${u}`;
       note = `${ladLead ?? `${said} ${quoted}`} -> priced as ${fmtNum(hop.fitted)}${u} ${hopLandedWords(hop)}`;
+    }
+    // VP-4 T4: a D7c strainer whose size the ladder moved (below the smallest / between two) carries ONE note -- its own D7c line,
+    // saying the size it is priced at -- not that line plus the size line
+    if (spec.kind === VALVE_NETS_KIND && hop && hop.requested !== hop.fitted && f.skuAttr === "size_mm") {
+      const d7c = blockWorking.find((w) => w.includes("(owner D7c)") && w.includes(VALVE_NETS.d7c_at_valve_size));
+      if (d7c) {
+        // the same landing words as the size line it replaces (`hop.how`, where the axis declares them)
+        const landedWords = hop.how === "smallest" ? "(the smallest size)" : hop.how === "up" ? "(next size up)" : hopLandedWords(hop);
+        lineSwaps.set(d7c, d7c.replace(VALVE_NETS.d7c_at_valve_size, VALVE_NETS.d7c_priced_at.replace("{size}", fmtNum(hop.fitted)).replace("{landed}", landedWords)));
+        // and the ladder's own working line for that size ("valve size 40 is not on the sheet -> 50 ...") goes: the D7c line says it
+        for (const w of blockWorking) if (w.includes(" is not on the sheet -> ") && w.includes(`-> ${fmtNum(hop.fitted)} `)) lineSwaps.set(w, "");
+        note = undefined;
+      }
     }
     if (isSizeDropdown) {
       // SLICE 6b (V3, X3): the field shows the size that will be PRICED -- the ladder result -- with the note naming
@@ -3548,9 +3570,9 @@ function itemBlockView(
     ...(res.sku ? { skuLine: res.sku.item_name === undefined && !res.sku.item_detail && res.family
       ? `${res.family} (${res.sku.unit ?? ""})`
       : `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
-    working: withoutRestatements(spec, res, family, edit, fields, ladRewrites.length
+    working: withoutRestatements(spec, res, family, edit, fields, (ladRewrites.length
       ? blockWorking.map((w) => { const r = ladRewrites.find((x) => w.startsWith(`${x.from} -> `)); return r ? `${r.to}${w.slice(r.from.length)}` : w; })
-      : blockWorking),
+      : blockWorking).map((w) => lineSwaps.get(w) ?? w).filter((w) => w !== "")),
     figures,
   };
 }
@@ -6356,7 +6378,54 @@ export const VALVE_NETS = {
   d7c_set_with: "One {valve} WITH strainer in each Set (the heading: \"{said}\") (owner D7c)",
   d7c_set_without: "One {valve} WITHOUT strainer in each Set (the heading: \"{without}\") (owner D7c)",
   d7c_set_strainer: "The Y-strainer of the Set's \"with strainer\" valve, at the valve's size (owner D7c)",
+  /** T4: the D7c strainer line's own words for the size it is priced at, when the ladder moved it (one note, not two) */
+  d7c_at_valve_size: "at the valve's size",
+  d7c_priced_at: "priced at {size} mm {landed}",
+  // ── VP-4 (owner VP-3 re-review rulings R1-R4 / W1 / W2, 2026-11-13 23:35 "1 yes / 2 yes / 3 yes / 4 yes") ──
+  /** R1: a ball valve the BoQ ties to a strainer's drain is part of the strainer */
+  strainer_drain: /\bstrainers?\s+drain\b|\bball\s+valves?\s+for\s+(?:the\s+)?(?:strainers?\s+)?drain\b|\bdrain\s+(?:ball\s+)?valves?\b[^.;|]{0,80}?\b(?:included|part\s+of|considered)\b/i,
+  r1_line: "BoQ's \"{valve}\" is the strainer's drain (\"{tie}\"): drain ball valve included in the strainer item (owner R1)",
+  /** R2: balancing + modulating actuation in ONE valve ("2 way modulating balancing valve") */
+  balancing_modulating: /\bbalanc\w*[^|.;,]{0,30}?\bmodulat\w*|\bmodulat\w*[^|.;,]{0,30}?\bbalanc\w*/i,
+  two_way: "2-Way Valve",
+  balancing: "Balancing Valve",
+  r2_line: "BoQ says \"{said}\" -> a balancing valve with modulating actuation is the PIBCV (owner R2)",
+  r2_clear: ["actuation", "operation"],
+  /** R3: "provision ... to connect (digital) thermometer in future" = the Misc test plug */
+  provision_thermo: /\bprovision\b[^.;|]{0,80}?\b(?:thermometers?|thermowells?)\b/i,
+  test_plug: "Test Plug / Thermowell",
+  misc_section: "misc",
+  r3_line: "BoQ asks for \"{said}\" -> priced as a test plug / thermowell provision (owner R3)",
+  /** R4: a high rangeability control valve = a 2-way modulating valve (the ladder refuses above the sheet's largest) */
+  rangeability: /\bhigh\s+rangeability\b[^|.;]{0,40}?\bcontrol\s+valves?\b|\bhigh\s+rangeability\b/i,
+  operation_attr: "operation",
+  modulating: "Modulating",
+  r4_line: "BoQ says \"{said}\" -> read as a 2-way modulating valve (owner R4)",
+  /** W1: a count written in the row for a listed item ("two", "2 nos", "pair of") -- never "two way" / "2-way" */
+  count_lead: /^\s*(?:(two|three|four|five|six)|([2-6])\s*(?:nos?\.?|numbers?)?|(pair)\s+of)\s+(?![-\s]*way\b)(?=\S)/i,
+  w1_line: "BoQ says \"{said}\" -> {n} of this item (owner W1)",
+  /** W2: the row's OWN text (before the appended heading / description text) states a size -> it wins */
+  w2_line: "The row's own words say {own}; the appended text says {other} -> the row's own size, {own} (owner W2)",
 } as const;
+/** VP-4 (W1): the count words the rule reads, by their written form */
+const COUNT_WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, pair: 2 };
+
+/** VP-4 (T1, owner QR-1 Q1 (a)): the item kinds whose size NOTE names an inch size by its nominal bore -- the valve and Misc blocks. */
+export const NB_NOTE_KINDS: ReadonlySet<string> = new Set(["hvac_valve_item", "hvac_misc_item"]);
+/** VP-4 (T1). The fixed nominal-bore table: inches -> NB mm (1/2" = 15 ... 12" = 300). */
+export const NOMINAL_BORE_MM: ReadonlyArray<readonly [number, number]> = [
+  [0.5, 15], [0.75, 20], [1, 25], [1.25, 32], [1.5, 40], [2, 50], [2.5, 65], [3, 80], [4, 100], [5, 125], [6, 150], [8, 200], [10, 250], [12, 300],
+];
+/**
+ * VP-4 (T1). PURE. The nominal bore of a size WRITTEN IN INCHES (an inch mark or "inch" in the text as entered) whose exact read
+ * (`requestedMm` = inches x 25.4) is a table size; else null -- an mm, NB or DN size, or an inch size off the table, keeps its line.
+ */
+export function nominalBoreOf(entered: string, requestedMm: number): number | null {
+  if (!/["”″]|''|\binch(?:es)?\b|\bin\b/i.test(entered)) return null;
+  const inches = requestedMm / 25.4;
+  const hit = NOMINAL_BORE_MM.find(([i]) => Math.abs(i - inches) < 0.002);
+  return hit ? hit[1] : null;
+}
 
 /**
  * VP-3 (owner VP-2 review rulings D1-D7c, 2026-11-13). PURE. A Valve Package BoQ row's MODEL items as the review's rulings read
@@ -6381,10 +6450,10 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
   const asw = spec.no_sku_named_by ?? "valve_type_as_written";
   const noSku = new Set(spec.no_sku_families ?? []);
   const reader = spec.numbers?.size_mm;
-  const secOf = new Map<string, { fa: string; asw: string }>();
+  const secOf = new Map<string, { fa: string; asw: string; qty?: string }>();
   for (const s of delegatedSections(spec)) {
     const ds = itemListPricingSpec(configOf(s.category_id));
-    if (ds) secOf.set(s.id, { fa: familyAttr(ds), asw: ds.no_sku_named_by ?? "item_as_written" });
+    if (ds) secOf.set(s.id, { fa: familyAttr(ds), asw: ds.no_sku_named_by ?? "item_as_written", qty: ds.qty_attribute_id });
   }
   const isSec = (it: ExtractedListItem) => typeof it.section === "string" && secOf.has(it.section);
   const famOf = (it: ExtractedListItem) => { const a = isSec(it) ? secOf.get(it.section!)!.fa : fa; const v = it.attributes?.[a]?.value; return typeof v === "string" ? v.trim() : ""; };
@@ -6410,6 +6479,63 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
     if (!m) return it;
     return addLine(setVal(it, "size_mm", s.replace(N.stray_inch, `${m[1]} mm`)), N.d5_inch_line.replace("{said}", m[0].trim()).replace("{mm}", m[1]));
   });
+
+  // VP-4 W2: the row's OWN words (the description before its appended " | " text) state a size -> that size wins over a size the
+  // appended text states (and fills an item that read none); a row with no appended text, or one stating no size of its own, untouched
+  {
+    const parts = String(ctx.description ?? "").split(" | ");
+    const ownSize = parts.length > 1 ? sizeOf(parts[0]) : null;
+    if (ownSize !== null) {
+      const appSize = sizeOf(parts.slice(1).join(" | "));
+      items = items.map((it) => {
+        if (isSec(it) || famOf(it) === N.air_vent) return it;
+        const cur = sizeOf(val(it, "size_mm"));
+        if (cur === ownSize || (cur !== null && cur !== appSize)) return it;
+        const other = appSize !== null ? `${fmtNum(appSize)} mm` : "no size";
+        return addLine(setVal(it, "size_mm", `${fmtNum(ownSize)} mm`), N.w2_line.replace(/\{own\}/g, `${fmtNum(ownSize)} mm`).replace("{other}", other));
+      });
+    }
+  }
+
+  // VP-4 R2: "balancing" + "modulating" in ONE valve's words -> the PIBCV. The row's nearest text counts only for an item the model
+  // already read as a 2-way / balancing valve; an item with no family (a "none of these" thermostat beside a PIBCV) only on its own
+  // words; and never a second PIBCV on a row that already has one (D1's accessory fold reads that row)
+  const hasPibcv = items.some((it) => !isSec(it) && famOf(it) === N.pibcv);
+  items = items.map((it) => {
+    if (isSec(it) || hasPibcv) return it;
+    const f = famOf(it);
+    if (f !== N.two_way && f !== N.balancing && !blankFam(f)) return it;
+    const m = asOf(it).match(N.balancing_modulating) ?? (blankFam(f) ? null : near.match(N.balancing_modulating));
+    if (!m) return it;
+    let out = setVal(it, fa, N.pibcv);
+    for (const a of N.r2_clear) if (val(out, a) !== "") out = setVal(out, a, null);
+    return addLine(out, N.r2_line.replace("{said}", (asOf(it) || m[0]).trim()));
+  });
+
+  // VP-4 R4: a high rangeability control valve is a 2-way MODULATING valve (20-32 mm; the ladder refuses above the sheet's largest)
+  items = items.map((it) => {
+    if (isSec(it)) return it;
+    const f = famOf(it);
+    if (f !== N.two_way && !blankFam(f)) return it;
+    // the row's nearest text counts for a 2-way valve, or for a "none of these" with no words of its own; a named unstocked item keeps
+    // its own words (a thermostat beside the valve stays a thermostat)
+    const m = asOf(it).match(N.rangeability) ?? (f === N.two_way || asOf(it) === "" ? near.match(N.rangeability) : null);
+    if (!m) return it;
+    return addLine(setVal(setVal(it, fa, N.two_way), N.operation_attr, N.modulating), N.r4_line.replace("{said}", (asOf(it) || m[0]).trim()));
+  });
+
+  // VP-4 R3: a "provision ... (digital) thermometer (in future)" is the Misc test plug -- whichever section the model put it in
+  if (secOf.has(N.misc_section)) {
+    const ms = secOf.get(N.misc_section)!;
+    items = items.map((it) => {
+      const w = asOf(it);
+      const m = w.match(N.provision_thermo) ?? (items.length === 1 ? own.match(N.provision_thermo) : null);
+      if (!m || famOf(it) === N.test_plug) return it;
+      const plug: ExtractedListItem = { section: N.misc_section, attributes: {
+        [ms.fa]: { value: N.test_plug, confidence: 1 }, [ms.asw]: { value: w || m[0].trim(), confidence: 1 } } };
+      return addLine(plug, N.r3_line.replace("{said}", (w || m[0]).trim()));
+    });
+  }
 
   // D1: a PIBCV's thermostat / controller / actuator (panel) is part of the PIBCV
   const pib = items.findIndex((it) => !isSec(it) && famOf(it) === N.pibcv);
@@ -6453,6 +6579,29 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
       if (folded.length) {
         const at = kept.findIndex((it) => isSec(it) && famOf(it) === N.gauge);
         kept[at] = addLine(kept[at], N.d4_line.replace("{valve}", folded.join(", ")).replace("{tie}", tie[0].trim()));
+        items = kept;
+      }
+    }
+  }
+
+  // VP-4 R1: a ball valve with no size of its own that the BoQ ties to the strainer's drain is part of the strainer (D4's shape):
+  // one item + line on the strainer. A valve with its own size stays its own item.
+  {
+    const st = items.findIndex((it) => !isSec(it) && famOf(it) === N.strainer);
+    if (st !== -1) {
+      const folded: string[] = []; let tie = "";
+      const kept = items.filter((it, i) => {
+        if (i === st || isSec(it)) return true;
+        const f = famOf(it); const w = asOf(it);
+        const valveLike = f === N.ball || (blankFam(f) && /\b(?:ball|drain)\b/i.test(w));
+        if (!valveLike || sizeOf(val(it, "size_mm")) !== null) return true;
+        const m = w.match(N.strainer_drain) ?? near.match(N.strainer_drain);
+        if (!m) return true;
+        folded.push(w || f); tie = m[0].trim(); return false;
+      });
+      if (folded.length) {
+        const at = kept.findIndex((it) => !isSec(it) && famOf(it) === N.strainer);
+        kept[at] = addLine(kept[at], N.r1_line.replace("{valve}", folded.join(", ")).replace("{tie}", tie));
         items = kept;
       }
     }
@@ -6538,6 +6687,24 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
     }
   }
 
+  // VP-4 W1: a count the row writes for a listed item ("two pressure/temperature test points", "2 nos ...", "pair of ...") prices
+  // that many of it: the item's own count where its block reads one (the valve's qty_per_row_unit), else that many items of it
+  {
+    const expanded: ExtractedListItem[] = [];
+    for (const it of items) {
+      const w = asOf(it);
+      const m = w.match(N.count_lead);
+      const n = m ? (m[1] ? COUNT_WORDS[m[1].toLowerCase()] : m[2] ? Number(m[2]) : COUNT_WORDS.pair) : 1;
+      const qa = isSec(it) ? secOf.get(it.section!)!.qty : spec.qty_attribute_id;
+      const stated = qa ? Number(val(it, qa)) : NaN;
+      if (!m || !(n > 1) || (Number.isFinite(stated) && stated > 1)) { expanded.push(it); continue; }
+      const line = N.w1_line.replace("{said}", w).replace("{n}", String(n));
+      if (qa) { expanded.push(addLine(setVal(it, qa, String(n)), line)); continue; }
+      for (let k = 0; k < n; k++) expanded.push(addLine(it, line));
+    }
+    if (expanded.length !== items.length || expanded.some((it, i) => it !== items[i])) items = expanded;
+  }
+
   // the row's scope answer survives a fold (D1 / D4): it is read off the first item that carries one, which may be the folded one
   const scopeAttr = spec.scope?.model_attr ?? "scope";
   const rowScope = (ext.items ?? []).map((it) => val(it, scopeAttr)).find((v) => v !== "");
@@ -6604,6 +6771,9 @@ function computeItemList(
   // VP-3 (owner VP-2 review rulings D1-D7c, 2026-11-13): the Valve Package's reading rules over the model's items, BEFORE the
   // sections are told apart -- a gauge's valve and a PIBCV's thermostat sit across them. Every other category: untouched.
   if (ext?.items?.length && spec.kind === VALVE_NETS_KIND) ext = valveReviewNets(spec, ctx, ext, configOf);
+  // VP-4 T2 (owner QR-1 Q2 (a)): on a Valve Package row (and its Misc section) the heading's notes are its OWN note block -- a note
+  // row past the first line item under that heading is another section's (00140 r421's 60 note rows) and never reaches these notes
+  if (spec.kind === VALVE_NETS_KIND && Array.isArray(ctx.ownHeadingNotes)) ctx = { ...ctx, headingNotes: ctx.ownHeadingNotes };
   const declared = delegatedSections(spec);
   // VRF-3b: a config declaring `extras` (VRF) prices its own items exactly as before, then its units' extra lines
   if (declared.length === 0 && spec.extras) {

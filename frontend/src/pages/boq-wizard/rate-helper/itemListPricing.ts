@@ -517,6 +517,9 @@ export interface TextNote {
   pattern: string;
   unit_classes?: string[];
   when?: { attr: string; equals: string };
+  /** VP-4 (T2, owner QR-1 Q2 (a)): NOT shown on an item whose raw answer for `attr` is `equals` (the model read the item as not
+   *  flanged) -- unless, with `own_words`, the row's OWN words match the pattern. ABSENT => the line shows as before. */
+  unless?: { attr: string; equals: string; own_words?: boolean };
   line: string;
   rule: string;
 }
@@ -2521,6 +2524,12 @@ export function textNoteLines(
     if (!heads.all.trim() && !ownText.trim()) continue;
     let hit = false;
     try { hit = new RegExp(tn.pattern, "i").test(text); } catch { hit = false; }
+    // VP-4 (T2): the item the model read the configured way (flanged = No) carries no line -- unless its row's own words say so
+    if (hit && tn.unless && String(rawValue(item, tn.unless.attr) ?? "") === tn.unless.equals) {
+      let own = false;
+      try { own = !!tn.unless.own_words && new RegExp(tn.pattern, "i").test(ownText); } catch { own = false; }
+      if (!own) hit = false;
+    }
     if (hit && !out.includes(tn.line)) out.push(tn.line);
   }
   return out;
@@ -6197,8 +6206,15 @@ export function priceItemList(
     : undefined) ?? priced.find((p) => p.state === "blank");
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
-    const who = priced.length > 1 ? `item ${firstBlank.index + 1}${firstBlank.family ? ` (${firstBlank.family})` : ""}: ` : "";
-    return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced, ...unitResolved(false) };
+    const whoOf = (p: typeof firstBlank) => (priced.length > 1 ? `item ${p.index + 1}${p.family ? ` (${p.family})` : ""}: ` : "");
+    // VP-4 T5 (block 65): a kit with SEVERAL items that cannot be priced at all names EVERY one of them, not only the first
+    const unstocked = spec.unstocked_materials?.per_item
+      ? priced.filter((p) => p.state === "blank" && !MISSING_FACT_REASON.test(String(p.reason ?? "")))
+      : [];
+    const reason = unstocked.length > 1
+      ? unstocked.map((p) => `${whoOf(p)}${p.reason}`).join("; ")
+      : `${whoOf(firstBlank)}${firstBlank.reason}`;
+    return { unit, unitClass: cls, priced: false, reason, items: priced, ...unitResolved(false) };
   }
   const sum = (k: string) => priced.reduce((a, p) => a + (p.figures[k] ?? 0), 0);
   return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced, ...unitResolved(true) };

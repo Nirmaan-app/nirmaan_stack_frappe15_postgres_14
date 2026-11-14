@@ -86,6 +86,8 @@ export function buildRowContext(
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
     ...(rows ? { ownNotes: rowOwnNotes(row, rows) } : {}),
     ...(rows ? { headingNotes: rowHeadingNotes(row, rows) } : {}),
+    // VP-4 (T2): the parent heading's OWN note block -- read only by the Valve Package / Misc notes
+    ...(rows ? { ownHeadingNotes: rowOwnHeadingNotes(row, rows) } : {}),
     // VRF-6 (owner Q6): every heading's notes above the row -- read only by the VRF-6 reading rules
     ...(rows ? { ancestorNotes: rowAncestorNotes(row, rows) } : {}),
     // VRF-7 (B8 / A1): the chain with its excel rows, nearest first -- read only by the VRF-7 rules
@@ -173,6 +175,34 @@ export function rowHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): str
   keep((p as { row_notes?: unknown }).row_notes);
   const notes = rows
     .filter((r) => (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION && r.effective_parent_index === p.row_index)
+    .sort((a, b) => a.row_index - b.row_index);
+  for (const n of notes) keep(n.description);
+  return out;
+}
+
+/**
+ * VP-4 (T2, owner QR-1 Q2 (a): "a heading's note row counts only when no line item sits between the heading and the note").
+ * PURE. The parent heading's notes exactly as `rowHeadingNotes` builds them -- its appended notes and its own note always -- but of
+ * its child NOTE rows only those with no Line Item row between the heading and the note. On sheets whose parse filed every later
+ * section's heading as a note row of one heading (00140 r421: 60 note rows), the notes past the first line item are another
+ * section's, not this row's.
+ */
+export function rowOwnHeadingNotes(row: PricedRow, rows: readonly PricedRow[]): string[] {
+  const parent = row.effective_parent_index;
+  if (typeof parent !== "number" || parent < 0 || parent === row.row_index) return [];
+  const p = rows.find((r) => r.row_index === parent);
+  if (!p) return [];
+  const out: string[] = [];
+  const keep = (v: unknown) => { if (typeof v === "string" && v.trim() !== "") out.push(v.trim()); };
+  const ap = (p as { append_notes_raw?: unknown }).append_notes_raw;
+  if (ap && typeof ap === "object" && !Array.isArray(ap)) for (const v of Object.values(ap as Record<string, unknown>)) keep(v);
+  keep((p as { row_notes?: unknown }).row_notes);
+  const firstItem = rows
+    .filter((r) => r.row_index > p.row_index && (r.node_type ?? "").trim() === "Line Item")
+    .reduce((m, r) => Math.min(m, r.row_index), Number.POSITIVE_INFINITY);
+  const notes = rows
+    .filter((r) => (r as { effective_classification?: unknown }).effective_classification === NOTE_CLASSIFICATION
+      && r.effective_parent_index === p.row_index && r.row_index < firstItem)
     .sort((a, b) => a.row_index - b.row_index);
   for (const n of notes) keep(n.description);
   return out;

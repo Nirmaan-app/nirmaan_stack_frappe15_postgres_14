@@ -616,7 +616,9 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # baffle's grille), priced on its own unit path. Arrives WITH `_validate_companion_items`.
                  "companion_items"}
 _PRICING_STREAM_HEADING_KEYS = {"attr", "streams_attr", "families", "words", "line", "rule"}
-_PRICING_TEXT_NOTE_KEYS = {"families", "from_text", "pattern", "unit_classes", "when", "line", "rule"}
+# VP-4 (T2, owner QR-1 Q2 (a)): `unless` -- the line is NOT shown on an item whose raw answer for `attr` is `equals` (unless, with
+# `own_words`, the row's own words match the pattern)
+_PRICING_TEXT_NOTE_KEYS = {"families", "from_text", "pattern", "unit_classes", "when", "unless", "line", "rule"}
 _PRICING_TEXT_NOTE_REQUIRED = {"families", "from_text", "pattern", "line", "rule"}
 _PRICING_TEXT_NOTE_SOURCES = {"headings", "own_and_headings"}
 _PRICING_COMPANION_KEYS = {"families", "words", "unit_class", "item", "line", "rule"}
@@ -839,6 +841,13 @@ def _validate_text_notes(rules, by_id, fams, ucls):
             if not isinstance(w, dict) or set(w) != {"attr", "equals"} or w["attr"] not in by_id \
                     or not isinstance(w["equals"], str) or not w["equals"].strip():
                 _vthrow(f"{rloc}.when must be {{attr, equals}}: an item attribute and the value it holds.")
+        if "unless" in r:
+            u = r["unless"]
+            if not isinstance(u, dict) or not ({"attr", "equals"} <= set(u) <= {"attr", "equals", "own_words"}) or u["attr"] not in by_id \
+                    or not isinstance(u["equals"], str) or not u["equals"].strip() \
+                    or ("own_words" in u and not isinstance(u["own_words"], bool)):
+                _vthrow(f"{rloc}.unless must be {{attr, equals[, own_words]}}: an item attribute, the value it holds, and whether the "
+                        "row's own words still show the line.")
         _strings_ok(r, rloc, ("line", "rule"))
 
 

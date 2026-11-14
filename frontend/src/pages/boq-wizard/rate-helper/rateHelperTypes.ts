@@ -633,6 +633,10 @@ export interface RateHelperRowContext {
   /** VRF-6 (owner Q6): the notes of EVERY heading above the row, nearest first (`rowAncestorNotes`) -- read only by the VRF-6
    *  reading rules (`extras.prepare`). Absent where the page's rows were not passed. */
   ancestorNotes?: string[];
+  /** VP-4 (T2, owner QR-1 Q2 (a)): the parent heading's notes as `headingNotes`, but only the note rows with NO line item between
+   *  the heading and the note (the heading's own note block; its appended / own notes always) -- read only by the Valve Package /
+   *  Misc notes (`rowOwnHeadingNotes`). Absent where the page's rows were not passed. */
+  ownHeadingNotes?: string[];
   /** VRF-7 (A1 / B8, owner 01:36 / 01:53): the row's chain NEAREST FIRST, each text with the excel row it sits on and what it
    *  is ("this row", "note row n", "heading row n", "sheet note row n") -- read only by the VRF-7 rules (`rowChainOf`) */
   chainRows?: ReadonlyArray<{ row: number; where: string; text: string }>;
