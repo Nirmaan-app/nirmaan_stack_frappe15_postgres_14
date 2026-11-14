@@ -112,15 +112,19 @@ class TestValveAssetV67(FrappeTestCase):
     def test_04_v67_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V67))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 67)
-        self.assertEqual(nums, list(range(1, 68)))
+        self.assertEqual(nums[-1], 68)  # VP-4 (HVAC v68 minted + loaded; mechanical authority): BEFORE nums[-1] == 67
+        self.assertEqual(nums, list(range(1, 69)))  # VP-4 (HVAC v68 minted + loaded; mechanical authority): BEFORE list(range(1, 68))
         self.assertTrue(os.path.exists(_asset_path(V66)))
 
     def test_05_live_catalogue_is_v67(self):
+        # INVERTED at VP-4 (HVAC v68 LOADED; mechanical authority): the live Valve Package / Misc configs are v68's (the VP-3 re-review
+        # rulings' guidance, T2 / T3 keys; proved by test_valve_v68) and no longer v67's. BEFORE: live == v67's
+        v68 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v68.json")["category_configs"]}
         for cid in (VALVE, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
-            self.assertEqual(_norm(live), _norm(self.cfg[cid]), cid)
+            self.assertEqual(_norm(live), _norm(v68[cid]), cid)
+            self.assertNotEqual(_norm(live), _norm(self.cfg[cid]), cid)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
         self.assertEqual(n, 722)

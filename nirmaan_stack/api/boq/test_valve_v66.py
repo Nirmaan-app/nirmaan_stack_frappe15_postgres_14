@@ -142,14 +142,16 @@ class TestValveAssetV66(FrappeTestCase):
     def test_05_v66_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V66))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 67)  # VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66
-        self.assertEqual(nums, list(range(1, 68)))  # VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67))
+        self.assertEqual(nums[-1], 68)  # VP-4 (HVAC v68 minted + loaded; mechanical authority): BEFORE nums[-1] == 67; VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66
+        self.assertEqual(nums, list(range(1, 69)))  # VP-4 (HVAC v68 minted + loaded; mechanical authority): BEFORE list(range(1, 68)); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67))
         self.assertTrue(os.path.exists(_asset_path(V65)))
 
     def test_06_live_catalogue_is_v66(self):
         # INVERTED at VP-3 (HVAC v67 LOADED; mechanical authority): the live Valve Package / Misc configs are v67's (the VP-2 review
         # rulings' guidance and C1 / C2 / C4 / C5 keys, proved by test_valve_v67); Piping stays v66's. BEFORE: (VALVE, MISC, PIPING) vs v66
-        v67 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v67.json")["category_configs"]}
+        # VP-4 (HVAC v68 LOADED; mechanical authority): the live Valve Package / Misc configs are v68's now (proved by test_valve_v68).
+        # BEFORE: equal to v67's
+        v67 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v68.json")["category_configs"]}
         for cid in (VALVE, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
