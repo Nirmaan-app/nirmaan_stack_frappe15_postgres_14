@@ -155,6 +155,17 @@ describe("VP-5 E9 -- an air vent only the heading names", () => {
     const v = one([V("Automatic Air Vent", null), V("Ball Valve", "25 mm")], "Automatic air vent with 25 mm ball valve", ["AUTO AIR VENT"]);
     expect(fams(v)).toEqual(["Automatic Air Vent", "Ball Valve"]);
   });
+  it("NEGATIVE: an 'Air Purge valve' IS the air vent -> both stay (00313 r295, 00425 r118 name it; no 'with' here)", () => {
+    for (const text of ["Supply & Installation of Air Purge valves and Ball Valve 15 mm", "Air release valve, ball valve 15 mm"]) {
+      const v = one([V("Automatic Air Vent", null), V("Ball Valve", "15 mm")], text, ["AUTO AIR VENT"]);
+      expect(fams(v)).toEqual(["Automatic Air Vent", "Ball Valve"]);
+    }
+  });
+  it("NEGATIVE: '... With 15 mm ball valve' under the air vent heading -> both stay, 1,372 / 2,000 (VP-3 C2; 00086 r161)", () => {
+    const v = one([V("Automatic Air Vent", null), V("Ball Valve", "15 mm")], "15 mm dia. With 15 mm ball valve", ["AUTOMATIC AIR VENT"]);
+    expect(fams(v)).toEqual(["Automatic Air Vent", "Ball Valve"]);
+    expect(totals(v)).toEqual([1372, 2000]);
+  });
 });
 
 describe("VP-5 E10 -- 'with out valve'", () => {

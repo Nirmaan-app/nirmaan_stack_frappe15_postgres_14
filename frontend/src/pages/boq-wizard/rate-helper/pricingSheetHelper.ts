@@ -6483,8 +6483,13 @@ export const VALVE_NETS = {
   onoff_pi: /\bpressure\s+independent\b[^|.;]{0,40}?\bon[-\s]?off\b|\bon[-\s]?off\b[^|.;]{0,40}?\bpressure\s+independent\b/i,
   e8_line: "BoQ asks for an on-off pressure independent valve; priced as our PIBCV (modulating) - check the price (owner E8)",
   /** E9: an air vent named only in the heading over a row that describes only a ball valve -> the ball valve alone (no note) */
-  air_vent_words: /\bair\s*vents?\b|\bairvents?\b|\bAAV\b/i,
+  // an air purge / air release valve or air eliminator IS our Automatic Air Vent (the valve_type note's own list): a row naming one
+  // names the air vent itself (VP-5 B4: the 'Air Purge valves with Ball Valve' rows)
+  air_vent_words: /\bair\s*vents?\b|\bairvents?\b|\bAAV\b|\bair\s*(?:purge|purger|purging|release|eliminator)s?\b/i,
   ball_words: /\bball\s+valves?\b/i,
+  // "... WITH (a) ball valve": the ball valve goes with another item (the heading's), so the row does not describe the ball valve
+  // alone and the heading's air vent stays (VP-3 C2 'air vent of any size' rows: '15 mm dia. With 15 mm ball valve')
+  ball_as_accessory: /\bwith\b[^|]*?\bball\s+valves?\b/i,
   /** E10: "with out valve" -> supply + installation kept, with the check note */
   without_valve: /\bwith\s*out\s+valves?\b/i,
   e10_line: "BoQ says \"{said}\" - this may be installation only; check before quoting (owner E10)",
@@ -6846,7 +6851,7 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
     // E9: an air vent the row's own words do not name (only the heading does), on a row that describes a ball valve -> the ball valve
     // alone at the row's size; no note (E9 adds no line to the screen)
     const ballAt = items.findIndex((it) => !isSec(it) && famOf(it) === N.ball);
-    if (ballAt !== -1 && N.ball_words.test(own) && !N.air_vent_words.test(own)) {
+    if (ballAt !== -1 && N.ball_words.test(own) && !N.air_vent_words.test(own) && !N.ball_as_accessory.test(own)) {
       const kept = items.filter((it) => isSec(it) || famOf(it) !== N.air_vent || N.air_vent_words.test(own));
       if (kept.length !== items.length) items = kept;
     }
