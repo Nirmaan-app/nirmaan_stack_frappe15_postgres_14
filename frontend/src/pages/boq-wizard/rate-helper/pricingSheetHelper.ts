@@ -5366,7 +5366,8 @@ export const VP5_SCOPE = {
   /** QR-2 (a): the pair rule's supply row -- its own words start with supply and name no installation */
   supply_row_words: /^\s*(?:supply|supplying)\b/i,
   install_words: /\binstall\w*|\bfixing\b|\bcommission\w*|\bSITC\b|\berection\b|\blaying\b/i,
-  pair_note: "The installation of this item is quoted on its own row ({rows}) - priced supply only here (owner QR-2)",
+  // owner-approved wording (02:24, VP5-16): shown ALONE, without the standard supply-only sentence
+  pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here (owner QR-2)",
 } as const;
 
 function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
@@ -5403,6 +5404,7 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     && l.family1 === fam0 && typeof l.scope1 === "string" && pred(l.scope1)).map((l) => l.row).sort((a, b) => a - b);
   const rowsWord = (rs: number[]) => rs.slice(0, 4).map((r) => `row ${r}`).join(", ") + (rs.length > 4 ? ` and ${rs.length - 4} more` : "");
   let extraNote: string | undefined;
+  let pairRule = false;
   // VRF-9 (S9, owner 00:59 "gas charging is always both"): a refrigerant gas charging / topping-up row is supply + installation,
   // whatever its scope words
   const ab = sc.always_both;
@@ -5543,7 +5545,8 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
       const inst = sameKind((s) => s === sc.install_only || (!!sc.install_only_normal && s === sc.install_only_normal));
       if (inst.length) {
         value = sc.supply_only;
-        extraNote = VP5_SCOPE.pair_note.replace("{rows}", rowsWord(inst));
+        extraNote = VP5_SCOPE.pair_note;
+        pairRule = true;
       }
     }
   }
@@ -5628,7 +5631,9 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
       totals = adj(view.totals, L.row_title ?? "the row");
     }
   }
-  const note0 = supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
+  // VP-5 (owner 02:24 "yes" on VP5-16): a row priced supply only by the PAIR rule shows the pair note alone -- the BoQ does not say
+  // "supply only", so the standard supply-only sentence is not shown; a real supply-only row keeps it
+  const note0 = pairRule ? undefined : supplyOnly ? L.supply_only_note : (normalRate && sc.supply_row ? sc.supply_row.normal_note : L.install_only_note.replace("{pct}", pct || "-"));
   const note = [note0, extraNote, frameKeptNote].filter((x) => !!x).join(" ");
   const scopeView = { value: shownValue, note: points.length ? `${note} ${points.join("; ")}` : note, ...(picker ? { picker: { ...picker, value } } : {}) };
   if (!view.rowPriced || !totals) return { ...res, itemList: { ...view, scope: scopeView } };

@@ -222,10 +222,19 @@ describe("VP-5 E11 -- installation only: one rule for valves and Misc", () => {
     ];
     const v = sheet(rows, 53);
     expect(totals(v)).toEqual([1224, 0]);
-    expect(v.scope?.note ?? "").toMatch(/The installation of this item is quoted on its own row \(row 54\) - priced supply only here/);
+    // owner 02:24 (VP5-16): the pair note ALONE, in the approved wording; the standard supply-only sentence is not shown
+    expect(v.scope?.note ?? "").toMatch(/^Installation is quoted on its own row on this sheet, so priced supply only here/);
+    expect(v.scope?.note ?? "").not.toMatch(/BoQ says supply only/);
+  });
+  it("PAIR NEGATIVE (wording): a real supply-only row keeps the standard supply-only note and no pair note", () => {
+    const v = one([V("Ball Valve", "32", { scope: "Supply only" })], "Supply only of brass ball valves");
+    expect(totals(v)).toEqual([1224, 0]);
+    expect(v.scope?.note ?? "").toMatch(/BoQ says supply only - no installation/);
+    expect(v.scope?.note ?? "").not.toMatch(/priced supply only here/);
   });
   it("PAIR (QR-2 a) POSITIVE: the Misc supply row the same way -> 2,175 / 0 (00104 r47), its scope blank or S + I", () => {
     expect(totals(sheet(gaugeSheet("Supply + installation"), 47))).toEqual([2175, 0]);
+    expect(sheet(gaugeSheet("Supply + installation"), 47).scope?.note ?? "").toMatch(/^Installation is quoted on its own row on this sheet, so priced supply only here/);
     const blank: SheetRow[] = [{ ...gaugeSheet("x")[0], items: [M("Pressure Gauge", "Pressure Gauges")] }, gaugeSheet("x")[1]];
     expect(totals(sheet(blank, 47))).toEqual([2175, 0]);
   });
