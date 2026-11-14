@@ -395,8 +395,11 @@ def row_block(lib_row, pk):
                                                                       _fig(b.get("figures")), (" | " + b["reason"]) if b.get("reason") else ""))
             for w in b.get("working") or []:
                 out.append("      %s" % w)
+        # VP-5 E12 (owner QR-1 Q3 (a)): a field with no note is not a line -- the panel renders a field note only when it has text,
+        # and the parity helper `itemFieldNotes` returns "" for such a field, which VP-4's chunks printed as a blank "note:" line
         for nline in s.get("notes") or []:
-            out.append("  note: %s" % nline)
+            if str(nline or "").strip():
+                out.append("  note: %s" % nline)
     out.append("--- DIFF calculator vs panel: %s%s" % (pk["diff"], (" (" + pk["diff_why"] + ")") if pk.get("diff_why") else ""))
     for f in pk.get("resolved_fields") or []:
         out.append("  calculator fed the panel's resolved %s" % f)

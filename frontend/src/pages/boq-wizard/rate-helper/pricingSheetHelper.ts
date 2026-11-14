@@ -1531,7 +1531,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const withLines = ownScope && onSheet.sheetLines
         ? { ...onSheet, sheetLines: onSheet.sheetLines.filter((l) => l.sheet === undefined && !l.preamble && rowCats?.get(l.row) === category.category_id).map((l) => {
             const it0 = (extractionByRow.get(l.row) as ExtractionRowWithItems | undefined)?.items?.[0];
-            const v = it0?.attributes?.[familyAttr(listSpec)]?.value;
+            // VP-5 (E11, owner QR-1 Q2): a Misc item (a delegated section's item) names its family by ITS config's family attribute,
+            // so an installation-only Misc row finds its supply row (and the reverse) the way a valve row does
+            const secCfg = typeof it0?.section === "string" ? delegatedSections(listSpec).find((s) => s.id === it0.section) : undefined;
+            const secSpec = secCfg ? itemListPricingSpec(configOf(secCfg.category_id)) : null;
+            const v = it0?.attributes?.[secSpec ? familyAttr(secSpec) : familyAttr(listSpec)]?.value;
             const sc = ownScope.model_attr ? it0?.attributes?.[ownScope.model_attr]?.value : undefined;
             return { ...l, family1: typeof v === "string" && v !== "" ? v : null, ...(typeof sc === "string" && sc.trim() !== "" && sc.trim() !== "None" ? { scope1: sc.trim() } : {}) };
           }) }
@@ -5351,6 +5355,20 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   return { ...forced, itemList: { ...forced.itemList!, scope: { value: fs?.value ?? pick, note: fs?.note ? `${lead} ${fs.note}` : lead, picker: { title: sc.title, options, value: pick } } } };
 }
 
+/** VP-5 E11 (owner 2026-11-14 22:2x-22:40 "option a ... supply + install if there is no supply alone row ... refixing old valves:
+ *  1.5x is correct"; QR-1 Q1 (a) the refix words read strictly). Only a config with `scope.supply_row` (the Valve Package) uses them. */
+export const VP5_SCOPE = {
+  /** material handling in a scope list ("lifting, shifting, positioning at site") is never a refix -- removed before the refix test */
+  handling: /\blifting\s*[,/&]?\s*(?:and\s+)?shifting\b|\bshifting\s*[,/&]\s*(?:positioning|placement|storing|handling|unloading)\b|\bunloading\s*,\s*shifting\b/gi,
+  refix: /\b(?:dismantl\w*\s+(?:and|&)\s+re-?fix\w*|re-?fix\w*|re-?install\w*|re-?install(?:ation)?|shifting|relocat\w*)\b|\b(?:existing|old)\s+(?:valves?|gauges?|guages?|thermometers?|strainers?|meters?|instruments?|items?|units?|fittings?)\b/i,
+  both_note: "BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end) (owner E11)",
+  refix_note: "BoQ says \"{said}\": refixing existing items - installation only with the uplift (owner E11)",
+  /** QR-2 (a): the pair rule's supply row -- its own words start with supply and name no installation */
+  supply_row_words: /^\s*(?:supply|supplying)\b/i,
+  install_words: /\binstall\w*|\bfixing\b|\bcommission\w*|\bSITC\b|\berection\b|\blaying\b/i,
+  pair_note: "The installation of this item is quoted on its own row ({rows}) - priced supply only here (owner QR-2)",
+} as const;
+
 function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
                        overrides: Record<string, string> | undefined, res: ItemListSuggestion, _probe?: OwnPassProbe,
                        /** VRF-9 (S11): the user's pick on a BoQ row -- priced as chosen; the reading rules that would decide it are skipped */
@@ -5374,7 +5392,13 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   // VRF-6 (owner Q5, Divyansh 11:38-11:55; INSTALLATION-ONLY 11:50 / 11:55): on a BoQ row, the same sheet's rows of the SAME kind
   // of item (item-1 family) and their scope answers decide -- a supply-only row under a note that includes installation, and an
   // installation-only row, each carry a note naming the rows that decided
-  const fam0 = (() => { const v = ext?.items?.[0]?.attributes?.[familyAttr(spec)]?.value; return typeof v === "string" && v !== "" ? v : null; })();
+  const fam0 = (() => {
+    const v = ext?.items?.[0]?.attributes?.[familyAttr(spec)]?.value;
+    if (typeof v === "string" && v !== "") return v;
+    // VP-5 (E11): a Misc item 1 -> the family its own sheet line carries (read through the Misc config's family attribute)
+    const own = (ctx.sheetLines ?? []).find((l) => l.row === ctx.excelRow && l.sheet === undefined);
+    return typeof own?.family1 === "string" && own.family1 !== "" ? own.family1 : null;
+  })();
   const sameKind = (pred: (s: string) => boolean) => (ctx.sheetLines ?? []).filter((l) => l.row !== ctx.excelRow && l.sheet === undefined && fam0 !== null
     && l.family1 === fam0 && typeof l.scope1 === "string" && pred(l.scope1)).map((l) => l.row).sort((a, b) => a - b);
   const rowsWord = (rs: number[]) => rs.slice(0, 4).map((r) => `row ${r}`).join(", ") + (rs.length > 4 ? ` and ${rs.length - 4} more` : "");
@@ -5509,6 +5533,20 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
       return { ...res, itemList: { ...view, scope: { value: sc.options[0], note } } };
     }
   }
+  // VP-5 (owner QR-2 (a), 2026-11-15 00:32 "option a"): THE PAIR RULE, valves AND Misc -- a SUPPLY row (its own words start "Supply
+  // of" / "Supplying of" and name no installation) whose same-kind installation-only row is on the same sheet prices Supply only, with
+  // a note naming that row: the installation is charged once, on its own row. The Valve Package only (VRF keeps its own rules).
+  if (forced === undefined && !calculator && !spec.extras && sc.supply_row && value !== sc.supply_only && value !== sc.install_only
+    && !(sc.install_only_normal && value === sc.install_only_normal)) {
+    const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+    if (VP5_SCOPE.supply_row_words.test(ownText) && !VP5_SCOPE.install_words.test(ownText)) {
+      const inst = sameKind((s) => s === sc.install_only || (!!sc.install_only_normal && s === sc.install_only_normal));
+      if (inst.length) {
+        value = sc.supply_only;
+        extraNote = VP5_SCOPE.pair_note.replace("{rows}", rowsWord(inst));
+      }
+    }
+  }
   // VRF-6 K2 (parity): the calculator's own way to say "installation only, its supply quoted on another row"
   const installNormal = !!sc.install_only_normal && value === sc.install_only_normal;
   if (value !== sc.supply_only && value !== sc.install_only && !installNormal) {
@@ -5518,10 +5556,25 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   // VRF-6 (INSTALLATION-ONLY): x (1 + uplift) only when the sheet has no supply row for this kind of item; with one, the normal rate
   const supplyRows = !supplyOnly && !installNormal && !calculator && sc.supply_row ? sameKind((s) => s !== sc.install_only && s !== sc.install_only_normal) : [];
   const normalRate = installNormal || supplyRows.length > 0;
+  // VP-5 E11 (owner 2026-11-14, QR-1 Q1 (a)): ONE rule for valves AND Misc on a BoQ row read installation-only --
+  //   (i)   the sheet quotes this item's supply on its own row -> installation only at the normal rate (above, VR9);
+  //   (ii)  the row REFIXES / reinstalls / shifts / relocates the item itself, or "existing / old" qualifies the item (never a pipe or
+  //         line; "lifting, shifting, positioning at site" is material handling, not a refix) -> installation x (1 + uplift) + note;
+  //   (iii) otherwise -> SUPPLY + INSTALLATION, with the note (we do end to end).
+  // The calculator states its scope itself and never reaches (ii) / (iii).
+  let refixSaid: string | null = null;
+  // the Valve Package only (its scope is `pricing.scope`; VRF's lives under `extras` and keeps its own installation-only rule, VRF-6)
+  if (!supplyOnly && !installNormal && !calculator && forced === undefined && !spec.extras && sc.supply_row && supplyRows.length === 0) {
+    const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+    const m = ownText.replace(VP5_SCOPE.handling, " ").match(VP5_SCOPE.refix);
+    if (m) refixSaid = m[0].trim();
+    else return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: VP5_SCOPE.both_note } } };
+  }
   const uplift0 = supplyOnly ? null : pricingInputFactor(items, sc.uplift_input);
   const uplift = normalRate ? 0 : uplift0;
   if (!supplyOnly && !calculator && sc.supply_row && !installNormal) {
-    extraNote = supplyRows.length ? sc.supply_row.with_row.replace("{rows}", rowsWord(supplyRows)) : sc.supply_row.no_row;
+    extraNote = supplyRows.length ? sc.supply_row.with_row.replace("{rows}", rowsWord(supplyRows))
+      : refixSaid !== null ? VP5_SCOPE.refix_note.replace("{said}", refixSaid) : sc.supply_row.no_row;
   }
   // the row's scope as the calculator states it: a panel row whose sheet quotes the supply elsewhere shows the normal-rate option
   const shownValue = supplyRows.length && sc.install_only_normal ? sc.install_only_normal : value;
@@ -6406,6 +6459,35 @@ export const VALVE_NETS = {
   w1_line: "BoQ says \"{said}\" -> {n} of this item (owner W1)",
   /** W2: the row's OWN text (before the appended heading / description text) states a size -> it wins */
   w2_line: "The row's own words say {own}; the appended text says {other} -> the row's own size, {own} (owner W2)",
+  // ── VP-5 (owner VP-4 all-rows review rulings E1-E11, 2026-11-14 22:08-22:40; notes approved by UI change control) ──
+  /** E1: a "with and without strainer" heading over size-only rows -> the plain valve + this note (no strainer added) */
+  with_without_strainer: /\bwith\s+(?:and|&)\s+without\s+(?:y[-\s]?)?strainers?\b/i,
+  e1_line: "BoQ says \"{said}\" but not how many have one - add Y-strainers by hand (owner E1)",
+  /** E2: a swing check NRV is not stocked -> refused; never swapped to Flanged / Dual Plate */
+  swing_check: /\bswing[-\s]*check\b|\bswing\s+type\b/i,
+  e2_named: "swing check NRV",
+  /** E3: a differential pressure gauge prices as the ordinary Misc pressure gauge, with the note */
+  differential: /\bdifferential\s+pressure\b|\bD\.?P\.?\s+gauge\b/i,
+  e3_line: "BoQ asks for a differential pressure gauge (owner E3)",
+  /** E4: a thermometer "with (necessary) isolation valves" -> one thermometer; the valves are part of it */
+  thermo_isolation: /\bthermometers?\b[^|.;]{0,60}?\bisolation\s+valves?\b/i,
+  thermometer: "Temperature Gauge / Thermometer",
+  e4_line: "BoQ's \"{said}\": the isolation valves are part of the thermometer (owner E4)",
+  /** E6: a pressure gauge PROVISION (sockets / valves to fix a gauge later) -> the Misc test plug; the gauge is not included */
+  gauge_provision: /\b(?:pressure\s+)?(?:gauge|guage)s?\s+provision\b|\bprovision\b[^|.;]{0,80}?\b(?:gauge|guage)s?\b/i,
+  e6_line: "BoQ asks for \"{said}\" -> priced as a gauge provision (socket / test point); the gauge itself is not included (owner E6)",
+  /** E7: a balancing valve with INTEGRATED P/T test points -> no extra test plug item (W1 counts only separately counted ones) */
+  integrated_pt: /\bintegrated\s+(?:p\s*\/\s*t|pressure[^|.;]{0,20}?temperature)\s+test\s+(?:points?|ports?|plugs?)\b/i,
+  e7_line: "BoQ says \"{said}\": integrated P/T test points are part of the balancing valve (owner E7)",
+  /** E8: an on-off pressure independent valve keeps the PIBCV price, with the check note */
+  onoff_pi: /\bpressure\s+independent\b[^|.;]{0,40}?\bon[-\s]?off\b|\bon[-\s]?off\b[^|.;]{0,40}?\bpressure\s+independent\b/i,
+  e8_line: "BoQ asks for an on-off pressure independent valve; priced as our PIBCV (modulating) - check the price (owner E8)",
+  /** E9: an air vent named only in the heading over a row that describes only a ball valve -> the ball valve alone (no note) */
+  air_vent_words: /\bair\s*vents?\b|\bairvents?\b|\bAAV\b/i,
+  ball_words: /\bball\s+valves?\b/i,
+  /** E10: "with out valve" -> supply + installation kept, with the check note */
+  without_valve: /\bwith\s*out\s+valves?\b/i,
+  e10_line: "BoQ says \"{said}\" - this may be installation only; check before quoting (owner E10)",
 } as const;
 /** VP-4 (W1): the count words the rule reads, by their written form */
 const COUNT_WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, pair: 2 };
@@ -6754,6 +6836,84 @@ export function valveReviewNets(spec: ItemListPricingSpec, ctx: RowContextWithUn
         : addLine(it, N.w2_line.replace(/\{own\}/g, `${fmtNum(ownSize)} mm`).replace("{other}", `${fmtNum(appSize)} mm`)));
     }
   }
+
+  // VP-5 E1-E10 (owner VP-4 all-rows review rulings, 2026-11-14 22:08-22:40). Each reads that ruling's own words; a note is written
+  // whether a rule or the model made the reading, never twice (VP-4 K1c lesson); a rule that changes nothing leaves the row as it was.
+  const ownTag = (it: ExtractedListItem, ruling: string) => hasLine(it, ruling) || val(it, NET_FAMILY_LINE_ATTR).includes(`(owner ${ruling})`);
+  // an amber line under the family where the slot is free, else a working line
+  const warnLine = (it: ExtractedListItem, line: string) => (val(it, NET_FAMILY_LINE_ATTR) === "" ? setVal(it, NET_FAMILY_LINE_ATTR, line) : addLine(it, line));
+  {
+    // E9: an air vent the row's own words do not name (only the heading does), on a row that describes a ball valve -> the ball valve
+    // alone at the row's size; no note (E9 adds no line to the screen)
+    const ballAt = items.findIndex((it) => !isSec(it) && famOf(it) === N.ball);
+    if (ballAt !== -1 && N.ball_words.test(own) && !N.air_vent_words.test(own)) {
+      const kept = items.filter((it) => isSec(it) || famOf(it) !== N.air_vent || N.air_vent_words.test(own));
+      if (kept.length !== items.length) items = kept;
+    }
+  }
+  items = items.map((it) => {
+    // E2: an NRV the row or its heading calls swing check -> refused by name (never priced as Flanged / Dual Plate)
+    if (isSec(it) || famOf(it) !== N.nrv || !(N.swing_check.test(asOf(it)) || N.swing_check.test(near))) return it;
+    const none = [...noSku][0] ?? "none of these";
+    let out = setVal(setVal(it, fa, none), asw, N.e2_named);
+    for (const a of ["nrv_type", "flanged"]) if (val(out, a) !== "") out = setVal(out, a, null);
+    return out;
+  });
+  {
+    // E4: a thermometer row whose words list isolation valves -> one thermometer; a sizeless valve the model listed folds into it
+    const m = own.match(N.thermo_isolation);
+    const at = items.findIndex((it) => famOf(it) === N.thermometer);
+    if (m && at !== -1) {
+      const valveish = (it: ExtractedListItem) => !isSec(it) && sizeOf(val(it, "size_mm")) === null
+        && (famOf(it) === N.ball || blankFam(famOf(it)) || /\b(?:isolation|ball|gate)\b/i.test(asOf(it)));
+      const kept = items.filter((it) => !valveish(it));
+      const at2 = kept.findIndex((it) => famOf(it) === N.thermometer);
+      if (at2 !== -1 && !ownTag(kept[at2], "E4")) kept[at2] = addLine(kept[at2], N.e4_line.replace("{said}", m[0].trim()));
+      items = kept;
+    }
+  }
+  if (secOf.has(N.misc_section)) {
+    // E6: a pressure gauge PROVISION (sockets / ball valves / siphon to fix a gauge later) -> the Misc test plug + note
+    const ms = secOf.get(N.misc_section)!;
+    const m = own.match(N.gauge_provision);
+    if (m && items.length >= 1) {
+      const target = items.findIndex((it) => N.gauge_provision.test(asOf(it)) || famOf(it) === N.gauge || famOf(it) === N.test_plug || (isSec(it) && blankFam(famOf(it))));
+      if (target !== -1) {
+        const prev = items[target];
+        const plug: ExtractedListItem = famOf(prev) === N.test_plug && isSec(prev) ? prev : { section: N.misc_section, attributes: {
+          [ms.fa]: { value: N.test_plug, confidence: 1 }, [ms.asw]: { value: asOf(prev) || m[0].trim(), confidence: 1 } } };
+        const lined = ownTag(plug, "E6") ? plug : addLine(plug, N.e6_line.replace("{said}", (asOf(prev) || m[0]).trim()));
+        // the provision's own valves / siphon are part of it: a sizeless valve the model listed beside it folds in
+        items = items.flatMap((it, i) => (i === target ? [lined] : (!isSec(it) && sizeOf(val(it, "size_mm")) === null && (famOf(it) === N.ball || blankFam(famOf(it)))) ? [] : [it]));
+      }
+    }
+  }
+  {
+    // E7: a balancing valve whose heading / words say INTEGRATED P/T test points -> no extra test plug (unless the BoQ counts them)
+    const m = near.match(N.integrated_pt);
+    const at = items.findIndex((it) => !isSec(it) && famOf(it) === N.balancing);
+    if (m && at !== -1) {
+      const kept = items.filter((it) => famOf(it) !== N.test_plug || N.count_lead.test(asOf(it)));
+      const at2 = kept.findIndex((it) => !isSec(it) && famOf(it) === N.balancing);
+      if (!ownTag(kept[at2], "E7")) kept[at2] = addLine(kept[at2], N.e7_line.replace("{said}", m[0].trim()));
+      items = kept;
+    }
+  }
+  items = items.map((it) => {
+    // E1 (a valve under "with and without strainer" over a size-only row, no strainer listed), E3 (a differential pressure gauge),
+    // E8 (an on-off pressure independent valve priced as the PIBCV), E10 ("with out valve"): the price stands; the note warns
+    if (!isSec(it) && famOf(it) !== "" && !blankFam(famOf(it)) && famOf(it) !== N.strainer && !ownTag(it, "E1")) {
+      const m = near.match(N.with_without_strainer);
+      if (m && !N.with_without_strainer.test(own) && !items.some((x) => famOf(x) === N.strainer)) it = warnLine(it, N.e1_line.replace("{said}", m[0].trim()));
+    }
+    if (famOf(it) === N.gauge && !ownTag(it, "E3") && (N.differential.test(asOf(it)) || N.differential.test(own))) it = warnLine(it, N.e3_line);
+    if (!isSec(it) && famOf(it) === N.pibcv && !ownTag(it, "E8") && (N.onoff_pi.test(asOf(it)) || N.onoff_pi.test(near))) it = warnLine(it, N.e8_line);
+    if (!isSec(it) && famOf(it) !== "" && !blankFam(famOf(it)) && !ownTag(it, "E10")) {
+      const m = own.match(N.without_valve);
+      if (m) it = warnLine(it, N.e10_line.replace("{said}", m[0].trim()));
+    }
+    return it;
+  });
 
   // the row's scope answer survives a fold (D1 / D4): it is read off the first item that carries one, which may be the folded one
   const scopeAttr = spec.scope?.model_attr ?? "scope";

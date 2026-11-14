@@ -117,8 +117,16 @@ describe("VP-3 D4 -- a gauge's tied, sizeless ball / gate valve is part of the g
     const v = one({ items: [V("Ball Valve", "25 mm"), M("Pressure Gauge")], text: "Pressure gauge with isolation 25 mm ball valve" });
     expect(totals(v)).toEqual([2175 + 682, 500 + 1000]);
   });
-  it("POSITIVE: the row's scope answer, carried by the folded valve, survives (installation only: 0 / 500 x 1.5 = 750)", () => {
+  // INVERTED at VP-5 (owner E11, mechanical authority: this slice's own ruling): an installation-only row with NO supply row on the
+  // sheet and no refix words is case (iii) -> supply + installation + note. BEFORE: [0, 750] (x 1.5 whenever no supply row).
+  // D4's point (the folded valve's scope answer survives) is kept by the refix variant below, still 0 / 750.
+  it("POSITIVE: the row's scope answer, carried by the folded valve, survives (installation only, no supply row -> E11 (iii) S + I)", () => {
     const v = one({ items: [V("Ball Valve", null, { scope: "Installation only" }), M("Pressure Gauge")], text: "Installation of pressure gauges and ball valves with syphon tube" });
+    expect(totals(v)).toEqual([2175, 500]);
+    expect(JSON.stringify(v)).toMatch(/no supply row is quoted for it - priced supply \+ installation/);
+  });
+  it("POSITIVE: the folded valve's installation-only answer survives on a refix row (E11 (ii): 0 / 500 x 1.5 = 750)", () => {
+    const v = one({ items: [V("Ball Valve", null, { scope: "Installation only" }), M("Pressure Gauge")], text: "Refixing of existing pressure gauges and ball valves with syphon tube" });
     expect(totals(v)).toEqual([0, 750]);
   });
   it("NEGATIVE: no gauge on the row -> a sizeless ball valve still refuses for its size", () => {
