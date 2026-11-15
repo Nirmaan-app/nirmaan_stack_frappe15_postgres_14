@@ -13390,7 +13390,11 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # INVERTED at DU-1 Part B (owner DR1 / DR13 / DR7, 2026-11-13; G-3 2026-11-15) by mechanical authority:
                             # BEFORE the set ended at "derivation_reasons". The three keys are declared by Ducting alone from v71 on;
                             # v7 predates them, ADP declares none
-                            "family_alias_offered", "no_sku_refusals", "sheet_insulation"})
+                            "family_alias_offered", "no_sku_refusals", "sheet_insulation",
+                            # INVERTED at DU-2 K1 (owner 2026-11-15 23:29 finding a; 23:57 R-NOTE-ORDER) by mechanical authority:
+                            # BEFORE the set ended at "sheet_insulation". The two keys are declared by Ducting alone from v72 on;
+                            # v7 predates them, ADP declares none
+                            "family_alias_needs", "no_sku_refuse_default"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)

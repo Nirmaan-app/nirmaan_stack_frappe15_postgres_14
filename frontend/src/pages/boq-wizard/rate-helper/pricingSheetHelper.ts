@@ -3102,7 +3102,8 @@ function itemBlockView(
   for (const [k, v] of Object.entries({ ...(res.readValues ?? {}), ...res.selection })) {
     if (typeof v === "string" || typeof v === "number") answers[k] = v;
   }
-  const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
+  // DU-2 (finding a): an alias family ("Round (GI) - per metre") shows only the boxes it reads (`family_alias_needs`)
+  const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers }, res.familyRaw);
   const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
   /**
    * SLICE 12e-6 (AC9 a, owner U7; 12e-5b2 review "ok with 12e-6"): on a COMPOSED block the cladding belongs to the
@@ -3284,7 +3285,11 @@ function itemBlockView(
              * size fits" -- beside a correct price, which reads as a failure that somehow still produced
              * a figure. The size WAS used; the sheet simply stocks none to choose between.
              */
-            note = `${said} ${value}${vU}: used to work out this item's rate (the sheet stocks no sizes to choose from here)`;
+            // DU-2 (DU-1 cert finding c, owner 2026-11-15 23:29 "fix in DU 2"): a box that offers the config's OWN sizes (DR17, the
+            // sheet's round diameters) names them -- "the sheet stocks no sizes" beside a list of six was not true
+            note = f.optionSource === "definition" && (f.options ?? []).length
+              ? `${said} ${value}${vU}: used to work out this item's rate (a typed size - the list offers ${(f.options ?? []).join(", ")}${u}; any size is priced)`
+              : `${said} ${value}${vU}: used to work out this item's rate (the sheet stocks no sizes to choose from here)`;
           } else if (reasonIsMine) {
             note = `${ladLead ?? `${said} ${value}${vU}`}: ${res.reason}`;
             value = "";
@@ -3567,7 +3572,9 @@ function itemBlockView(
         label: `${c.picked > 0 ? "Next-best option (chosen by you)" : "The helper's pick"}: ${o.layers.map(fmtN).join(" + ")}${u} for the BoQ's ${fmtN(c.total)}${u}` } };
     })(),
     family,
-    familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
+    // DU-2 (DU-1 cert finding b, owner 2026-11-15 23:29 "fix in DU 2"): a family the pricer PICKED (or an item they added) is not
+    // something the BoQ says -- no 'BoQ says "X": priced as Y (your rule)' line under it
+    familyRaw: res.familyRaw !== null && res.familyRaw !== family && edit.family === null && edit.base !== null ? res.familyRaw : null,
     // SLICE 12e-2 (owner Q16 / Q15 / P1): the `family_text` line, and the family CONTROL where the config
     // declares the family attribute `dropdown_or_other` -- the typed box is bound to what the pricer typed
     // (`edit.family`), never to the resolved family (the 12c FINISH lesson on the size box).
@@ -4261,6 +4268,8 @@ function computeItemListOwn(
   const splitView = anyHelper ? splitViewOf(spec, edits, layersBySource) : undefined;
   // VRF-3a K2 (U4 / U5 / U6): the bold bar, the ringed unit line, the quantity label and the calculator's quantity field
   const unitBar = ((): ItemListView["unitBar"] => {
+    // DU-2 (R-NOTE-ORDER): a row refused as not a duct (re-file) shows no whole-lot bar -- the re-file note is what it needs
+    if (priced.refile) return undefined;
     if (isLotUnit(spec, unit) && spec.lot_units) {
       // VRF-5 (owner wording): a unit with its own bar title ("per HP") says so; every other lot unit keeps the one bar
       const own = Object.entries(spec.lot_units.bar_by_unit ?? {}).find(([u]) => u.trim().toLowerCase() === unit.trim().toLowerCase())?.[1];

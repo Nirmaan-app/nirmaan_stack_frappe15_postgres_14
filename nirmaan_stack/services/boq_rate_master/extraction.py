@@ -935,6 +935,11 @@ def build_items_spec(cfg, configs=None, discipline=None):
             for d in sub.get("attribute_definitions") or []:
                 if d.get("id") == fam_id and isinstance(d.get("values"), list):
                     d["values"] = [v for v in d["values"] if v in offered or v not in tfams]
+                    # DU-2 (P0 defect, R-PAINT, owner 2026-11-15 23:57): the borrower's own family note -- Misc's note is the Valve
+                    # Package's ("a thermometer ...; a pressure gauge ...") and would send a paint row to "none of these". A section
+                    # without `family_note` (the Valve Package's) asks exactly as before.
+                    if isinstance(s.get("family_note"), str) and s["family_note"].strip():
+                        d["note"] = s["family_note"].strip()
         sections.append({"id": s["id"], "label": s.get("label") or s["id"], "items_spec": sub})
     if sections:
         out["sections"] = sections

@@ -331,7 +331,10 @@ SECTIONS_KEY = "sections"
 _SECTION_OWN_KEYS = {"id", "label", "add_label"}
 _SECTION_DELEGATED_KEYS = _SECTION_OWN_KEYS | {"category_id", "unit_class", "families", "include_when", "absent", "mirror",
                                                 # DU-1 (DR5): on an owner row of these unit classes the section prices per its unit x the item's area
-                                                "area_basis"}
+                                                "area_basis",
+                                                # DU-2 (P0 defect, R-PAINT): the family question's note this borrower asks with (Misc's own note is
+                                                # the Valve Package's) -- read only where the borrowed config declares borrowers_ask_offered_only
+                                                "family_note"}
 _SECTION_INCLUDE_KEYS = {"attr", "equals"}
 _SECTION_ABSENT_KEYS = {"value", "line"}
 _SECTION_MIRROR_KEYS = {"from", "to", "tag", "line"}
@@ -381,6 +384,8 @@ def _validate_list_sections(spec, by_id, cfg):
         fams = s.get("families")
         if not isinstance(fams, list) or not fams or not all(_nonblank(f) for f in fams) or len(set(fams)) != len(fams):
             _vthrow(f"{sloc}.families must be a non-empty list of distinct family names.")
+        if "family_note" in s and not _nonblank(s.get("family_note")):
+            _vthrow(f"{sloc}.family_note must be a non-empty string.")
         inc = s.get("include_when")
         if inc is None and "absent" in s:
             _vthrow(f"{sloc}.absent is only meaningful with include_when.")
@@ -1307,6 +1312,10 @@ _PRICING_KEYS = _PRICING_KEYS | {"rule_lines", "derivation_reasons"}
 # (a no-SKU item's own sentence by its words, DR13), `sheet_insulation` (the per-sheet duct-insulation check + the G-3 quantity check,
 # DR7). Each arrives WITH its shape check below. ABSENT => as before.
 _PRICING_KEYS = _PRICING_KEYS | {"family_alias_offered", "no_sku_refusals", "sheet_insulation"}
+# DU-2 (owner 2026-11-15 23:29 finding a; 23:57 R-NOTE-ORDER): `family_alias_needs` (the attributes an alias family reads -- its target's
+# conversions needing others are not used for it, their boxes not shown), `no_sku_refuse_default` (the re-file sentence for a no-SKU
+# item no `no_sku_refusals` entry names). Each arrives WITH its shape check below. ABSENT => as before.
+_PRICING_KEYS = _PRICING_KEYS | {"family_alias_needs", "no_sku_refuse_default"}
 _SHEET_INSULATION_KEYS = {"category", "section", "duct_words", "insulation_words", "acoustic_words", "doubtful_heading_words",
                           "mode", "high", "low", "area_units", "lines"}
 _SHEET_INSULATION_LINES = {"dropped", "ratio", "added", "unpriced", "missing_doubtful"}
@@ -3655,6 +3664,21 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             if not isinstance(r["words"], list) or not r["words"] or not all(_nonempty_str(w) for w in r["words"]):
                 _vthrow(f"{rloc}.words must be a non-empty list of words.")
             _strings_ok(r, rloc, ("refuse",))
+    if "family_alias_needs" in pr:
+        fan = pr["family_alias_needs"]
+        alias_map = pr.get("family_alias") or {}
+        known = set(pr.get("numbers") or {}) | set(pr.get("match_attrs") or []) | set(pr.get("choice_attrs") or [])
+        if not isinstance(fan, dict) or not fan:
+            _vthrow("list_spec.pricing.family_alias_needs must be a non-empty object.")
+        for a, needs in fan.items():
+            if a not in alias_map:
+                _vthrow(f"list_spec.pricing.family_alias_needs: '{a}' is not a family_alias key.")
+            if not isinstance(needs, list) or not needs or not all(isinstance(n, str) and n in known for n in needs) or len(set(needs)) != len(needs):
+                _vthrow(f"list_spec.pricing.family_alias_needs['{a}'] must list this config's priced attributes (each once).")
+    if "no_sku_refuse_default" in pr:
+        if not pr.get("no_sku_refusals"):
+            _vthrow("list_spec.pricing.no_sku_refuse_default needs no_sku_refusals (the default after its entries).")
+        _strings_ok(pr, "list_spec.pricing", ("no_sku_refuse_default",))
     if "sheet_insulation" in pr:
         _validate_sheet_insulation(pr["sheet_insulation"], spec)
     for nk, nd in (pr.get("numbers") or {}).items():

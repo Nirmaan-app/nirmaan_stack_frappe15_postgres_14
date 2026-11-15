@@ -615,6 +615,13 @@ export interface ItemListPricingSpec {
   /** DU-1 (Ducting mockup "Round per metre" as a duct type; DR1): alias families OFFERED in the kind picker beside the families, each
    *  priced as its `family_alias` target (no SKU of its own, no rate copied). ABSENT => the picker lists the families only. */
   family_alias_offered?: string[];
+  /** DU-2 (DU-1 cert finding a, owner 2026-11-15 23:29 "fix in DU 2"): the attributes an ALIAS family reads -- a conversion of its target
+   *  needing any other attribute is not used for the alias, and its field is not shown ("Round (GI) - per metre" reads the diameter,
+   *  never the flat-oval Width / Height its Spiral / Oval target also prices by). ABSENT => an alias reads all its target's ways. */
+  family_alias_needs?: Record<string, string[]>;
+  /** DU-2 (R-NOTE-ORDER, owner 2026-11-15 23:57): the re-file sentence for a no-SKU item no `no_sku_refusals` entry names ("{named}" =
+   *  the as-written words); ABSENT => the no-SKU sentence as before. */
+  no_sku_refuse_default?: string;
   /** DU-1 (DR13): a no-SKU item whose as-written words (else the row's own text) name one of `words` refuses with `refuse`, the first
    *  entry that hits ("Reads as a damper, not a duct - re-file this row under ADP"); none hits -> the no-SKU sentence as before. */
   no_sku_refusals?: Array<{ words: string[]; refuse: string }>;
@@ -2052,6 +2059,8 @@ export interface ItemPriceResult {
 }
 
 export interface RowPriceResult {
+  /** DU-2 (R-NOTE-ORDER): the row refused because its item is not a duct (a re-file sentence), before any unit check */
+  refile?: true;
   unit: string;
   unitClass: string | null;
   priced: boolean;
@@ -2867,7 +2876,8 @@ export function unicodeFractions(text: string): string {
     .replace(/[¼½¾⅛-⅞⅓⅔]/g, (f) => VULGAR_FRACTIONS[f]);
 }
 
-const SHEET_GAUGE_RE = /(?<![\d.])(\d{1,2})\s*-?\s*(?:g\b|swg\b|gauge\b|guage\b|gage\b|ga\b|wg\b)/gi;
+// DU-2 (R-TYPO, owner 2026-11-15 23:57 "yes": BOQ-26-00283 r24 "24 gause" = 24G): the misspelling "gause" reads as a gauge too
+const SHEET_GAUGE_RE = /(?<![\d.])(\d{1,2})\s*-?\s*(?:g\b|swg\b|gauge\b|guage\b|gause\b|gage\b|ga\b|wg\b)/gi;
 const SHEET_MM_RE = /(?<![\d.])(\d*\.\d+|\d+(?:\.\d+)?)\s*mm\b/gi;
 
 /** DU-1. PURE. The gauge label of a sheet mm on a gauge axis ("0.6" -> "24G"); null when no gauge carries that mm. */
@@ -4020,6 +4030,8 @@ export function namedMaterialRefusal(spec: ItemListPricingSpec, item: ExtractedL
     for (const r of spec.no_sku_refusals ?? []) {
       if (wordStartHit(namedText ?? ownText, r.words) !== null) return r.refuse;
     }
+    // DU-2 (R-NOTE-ORDER): no entry names it -> the config's own re-file sentence, naming the item as written
+    if (spec.no_sku_refuse_default) return spec.no_sku_refuse_default.replace("{named}", namedText ?? "this item");
     // SLICE 12d-1b (owner T5): where the config names the attribute that carries the material AS WRITTEN and
     // the model answered it, the refusal names that material; otherwise the sentence is the one it always was.
     return namedText !== null
@@ -4709,7 +4721,7 @@ function priceOneItem(
   // ADP-1 (owner H3): what this family's rule for the row's unit READS -- its needs, its unit block's, else its
   // conversions'. A `typed_only` number is read only here, so no other family or unit reads, shows or mentions it.
   const readsHere = new Set<string>([...fam.needs, ...(fam.units[rowUnitClass]?.needs ?? []),
-    ...(fam.units[rowUnitClass] ? [] : (fam.convert?.[rowUnitClass] ?? []).flatMap((o) => o.needs))]);
+    ...(fam.units[rowUnitClass] ? [] : convertOptionsFor(spec, fam, rowUnitClass, out.familyRaw).flatMap((o) => o.needs))]);
   // ADP-3b (owner D3): a `second_key` family reads its outer size beside its primary (the square diffuser's neck), so
   // the outer size's typed face boxes are read wherever the primary is
   for (const k of spec.second_key ?? []) if (k.families.includes(String(family)) && readsHere.has(k.primary)) for (const a of k.key) readsHere.add(a);
@@ -5224,7 +5236,7 @@ function priceOneItem(
     // ADP-4b (owner fix (b), 2026-10-21; AC5 "same rule everywhere"): a unit the family declares `units_not_offered`
     // is neither priced nor stocked -- its conversions do not run, so the row refuses below naming the stocked units
     // (the double-skin plenum per number, as its Derivation line says; 0 stored rows)
-    const options = (fam.units_not_offered ?? []).includes(rowUnitClass) ? [] : (fam.convert?.[rowUnitClass] ?? []);
+    const options = (fam.units_not_offered ?? []).includes(rowUnitClass) ? [] : convertOptionsFor(spec, fam, rowUnitClass, out.familyRaw);
     // ADP-1 (owner H3 (d)): a need the config gives a ruled number default for THIS family (the 1 m piece length) does
     // not stop its option being chosen -- the needs loop below fills it, marked. A need read but unreadable still does
     // (its refusal names it). No shipped option before ADP-1 needs such a number, so every other choice is unchanged.
@@ -6327,6 +6339,17 @@ export function priceItemList(
    * ⚠️ `unitClassOf` IS CONSULTED FIRST, so a real unit can never be read as "rate only", and a
    * category that declared a unit spelled like one would keep it.
    */
+  // DU-2 (R-NOTE-ORDER, owner 2026-11-15 23:57: non-ducts filed Ducting "stay unpriced, but the note must be the RE-FILE note, not
+  // 'unit not priceable': the not-a-duct check runs BEFORE the unit check"): on a config declaring its re-file sentences
+  // (`no_sku_refusals` -- Ducting only), a row whose first item the model read as no SKU refuses with that sentence before the
+  // blank-unit, whole-lot and unit checks below. A config without the key never reaches this.
+  if (cls === null && spec.no_sku_refusals && extracted && extracted.length) {
+    const firstFam = rawValue(extracted[0], familyAttr(spec));
+    if (firstFam !== null && (spec.no_sku_families ?? []).includes(String(firstFam))) {
+      const refile = namedMaterialRefusal(spec, extracted[0], ownText);
+      if (refile !== null) return { unit, unitClass: null, priced: false, reason: refile, items: [], refile: true };
+    }
+  }
   // VRF-10 (F1): a blank unit is never priced by assuming one -- refused before the 12c-U default unit below
   // VP-1 (N2): the same refusal on a config declaring `blank_unit_refuses` (Valve Package)
   if (cls === null && unit.trim() === "" && (vrf10On(spec) || spec.blank_unit_refuses === true)) {
@@ -6684,12 +6707,22 @@ function sameValue(a: unknown, b: string | number): boolean {
  * `derive_when_none` rule that applies to the family -- in that order, deduplicated. A family the block
  * does not price, or no family, gives []. PURE.
  */
+/** DU-2 (finding a). PURE. A family's conversions for a unit class, without the ones an alias family may not read
+ *  (`family_alias_needs`); no alias entry -> every conversion, as before. */
+export function convertOptionsFor(spec: ItemListPricingSpec, fam: FamilySpec, cls: string, rawFamily?: string | null): ConversionOption[] {
+  const all = fam.convert?.[cls] ?? [];
+  const allowed = rawFamily ? spec.family_alias_needs?.[rawFamily] : undefined;
+  return allowed ? all.filter((o) => o.needs.every((n) => allowed.includes(n))) : all;
+}
+
 export function itemFieldDefs(
   spec: ItemListPricingSpec,
   defs: ListSpecDef[],
   family: string | null | undefined,
   rowUnitClass: string | null | undefined,
   skus?: { items: RateMasterItem[]; answers?: Record<string, string | number> },
+  /** DU-2 (finding a): the family as answered / picked, when it is an alias of `family` */
+  rawFamily?: string | null,
 ): ItemFieldDef[] {
   if (!family || !spec.families[family]) return [];
   const controlOf = (skuAttr: string, fallback: PanelControl): PanelControl => spec.panel_controls?.[skuAttr] ?? fallback;
@@ -6712,7 +6745,7 @@ export function itemFieldDefs(
   const ids: string[] = [...fam.needs];
   const cls = rowUnitClass ?? "";
   if (fam.units[cls]) ids.push(...(fam.units[cls].needs ?? []));
-  else for (const o of fam.convert?.[cls] ?? []) ids.push(...o.needs);
+  else for (const o of convertOptionsFor(spec, fam, cls, rawFamily)) ids.push(...o.needs);
   for (const rule of spec.derive_when_none ?? []) {
     if (rule.families.includes(family) && ids.includes(rule.attr)) ids.push(rule.when.attr);
   }
@@ -6867,7 +6900,7 @@ export function itemFieldDefs(
   // Height" (ADP-2's words, byte for byte), one box for one fact is its own label -- the SAME helper the refusal
   // uses (`waysLabel`), handed the labels these fields carry so the two can never word one box two ways.
   const labelOfBox = (box: string) => out.find((f) => f.id === box)?.label;
-  const eitherOr = fam.units[cls] ? [] : (fam.convert?.[cls] ?? []);
+  const eitherOr = fam.units[cls] ? [] : convertOptionsFor(spec, fam, cls, rawFamily);
   const ways: string[][] = eitherOr.length > 1 ? eitherOr.map((o) => o.needs) : [];
   let group: string | undefined = ways.length > 1 ? waysLabel(spec, ways, labelOfBox) : undefined;
   if (sk && ids.includes(sk.primary) && out.some((f) => f.secondKey)) {

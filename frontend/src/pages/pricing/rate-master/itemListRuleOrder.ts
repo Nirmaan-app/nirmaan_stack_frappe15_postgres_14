@@ -468,6 +468,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
        Array.isArray(pr.family_alias_offered) && pr.family_alias_offered.length
          ? `${list(pr.family_alias_offered.map((a: unknown) => famShown(String(a))), 3)} ${pr.family_alias_offered.length === 1 ? "is" : "are"} offered in the kind list as ${pr.family_alias_offered.length === 1 ? "its" : "their"} own choice` : ""]
         .filter(Boolean).join("; ") || undefined, "kind");
+  // DU-2 (finding a): an alias that reads only some of its target's numbers -- each its own line
+  for (const [a, needs] of Object.entries((pr.family_alias_needs ?? {}) as Record<string, unknown>)) {
+    if (!Array.isArray(needs) || !needs.length) continue;
+    add(`${famShown(a)} reads only its ${list(needs.map((n: unknown) => name(String(n))))}`,
+        `the other ways ${famWord(String(pr.family_alias?.[a] ?? a))} prices by are not used for it, and their boxes are not shown`, "family_alias_needs");
+  }
 
   // ── 2b. SLICE 12e-2 (owner Q16 / Q15 / Q18): a kind written as the BoQ writes it ─────────────────
   const famAttrId = String(ls?.family_attribute_id ?? "family");
@@ -971,6 +977,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   for (const r of (Array.isArray(pr.no_sku_refusals) ? pr.no_sku_refusals : []) as Array<{ words?: unknown; refuse?: unknown }>) {
     if (!Array.isArray(r?.words) || typeof r.refuse !== "string") continue;
     add(`A row whose words name ${list(r.words.map((w: unknown) => `'${String(w)}'`), 3)} refuses`, `'${plainSentence(r.refuse)}'`, "no_sku_refusals");
+  }
+  // DU-2 (R-NOTE-ORDER): the re-file sentence for a not-a-duct row no word above names
+  if (typeof pr.no_sku_refuse_default === "string" && pr.no_sku_refuse_default.trim()) {
+    add("A row read as none of the kinds that no word above names refuses", `'${plainSentence(String(pr.no_sku_refuse_default).replace("{named}", "<the item as written>"))}'`, "no_sku_refuse_default");
   }
   for (const e of (Array.isArray(pr.existing_work) ? pr.existing_work : []) as Array<{ words?: unknown; install_times?: unknown; line?: unknown }>) {
     if (!Array.isArray(e?.words) || typeof e.install_times !== "number") continue;

@@ -11,7 +11,7 @@
 // opt-in key, splits the definitions into text vs derived for rendering, and reads the two reserved
 // flag keys the server stores on a not-understood item.
 
-import { extrasUses, pipelinesOf, unitsConvertUses } from "./pricingInputReach";
+import { extrasUses, pipelinesOf, scopeUses, unitsConvertUses } from "./pricingInputReach";
 import { formatDate } from "@/utils/FormatDate";
 import type {
   AttributeDefinition, DerivedRateTerm, RateCategoryConfig, RateComposition, RateMasterItem,
@@ -991,6 +991,14 @@ export function pricingInputUsedBy(
     }
     // VRF-3b: VRF's extras read one input per table cell -- one use each (the `config_validation.extras_input_ids` twin)
     for (const u of extrasUses(cfg, [])) {
+      const e = out[u.input] ?? { sites: 0, categories: [] };
+      e.sites += 1;
+      if (!e.categories.includes(cid)) e.categories.push(cid);
+      out[u.input] = e;
+    }
+    // DU-2 (DU-1 cert C8, owner 2026-11-15 23:29 "1b"): a pricing-level scope's installation-only uplift (Valve Package,
+    // Ducting) -- one use, the `config_validation.extras_input_ids` VP-1 (N1) twin the server already counts
+    for (const u of scopeUses(cfg, [])) {
       const e = out[u.input] ?? { sites: 0, categories: [] };
       e.sites += 1;
       if (!e.categories.includes(cid)) e.categories.push(cid);
