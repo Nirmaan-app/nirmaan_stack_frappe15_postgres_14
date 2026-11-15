@@ -9,8 +9,12 @@
 #
 # Usage: sh .githooks/checks.sh <hook name>      (git runs a hook from the root of the working tree)
 #
-# ESLint reads the files as they are in the working tree, not as staged. It is skipped, with a note, where the
-# frontend is not installed (no frontend/node_modules): CI runs `yarn lint` on every pull request anyway.
+# ESLint lints the staged copy, never the working tree's: git's index is copied (git checkout-index) into a temporary
+# folder -- frontend/src, the ESLint and TypeScript configs and eslint-suppressions.json, all as staged -- and
+# ESLint runs there with the real frontend/node_modules linked in. The CLI is used as `yarn lint` uses it, because
+# `eslint --stdin` ignores the suppressions file. No `git stash`: the stash is shared with every other checkout.
+# It is skipped, with a note, where the frontend is not installed (no frontend/node_modules): CI runs `yarn lint`
+# on every pull request anyway.
 
 hook="${1:-pre-commit}"
 failed=0
@@ -39,9 +43,14 @@ staged() {
 
 if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
     if [ -f frontend/node_modules/eslint/bin/eslint.js ]; then
+        index_copy=$(mktemp -d "${TMPDIR:-/tmp}/nirmaan-staged-lint.XXXXXX")
+        trap 'rm -rf "$index_copy"' EXIT
+        git ls-files -z -- frontend/src frontend/eslint.config.js frontend/eslint-suppressions.json \
+            'frontend/tsconfig*.json' frontend/package.json | git checkout-index -z --stdin --prefix="$index_copy/"
+        ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
         # --no-warn-ignored: a staged file under an ignored folder (src/components/ui/) is not a warning.
         # The heap is yarn lint's (package.json): typed linting outgrows node's default.
-        if ! staged | (cd frontend && xargs -0 node --max-old-space-size=3072 node_modules/eslint/bin/eslint.js --no-warn-ignored); then
+        if ! staged | (cd "$index_copy/frontend" && xargs -0 node --max-old-space-size=3072 node_modules/eslint/bin/eslint.js --no-warn-ignored); then
             echo "✘ $hook rejected: ESLint (frontend/eslint.config.js) found a violation in a staged file." >&2
             echo "    A rule broken anew: fix it. 'unused suppression': you fixed old ones -- run" >&2
             echo "    'yarn lint --prune-suppressions' in frontend/ and stage eslint-suppressions.json." >&2
