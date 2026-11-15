@@ -96,11 +96,24 @@ describe("VP-3 C5 -- a Set row's named gauge", () => {
 
 describe("VP-3 the Derivation tab: v67 adds NO rule (the C1 / C2 lines are row notes, `text_notes`, which the rule list never renders)", () => {
   const lines = (a: Asset, id: string) => itemListRuleOrder(cfgOf(a).get(id)!, toItems(a) as never).map((l: { title: string; detail?: string }) => `${l.title} | ${l.detail ?? ""}`);
+  // DU-1 FIX-1 (owner 2026-11-15 13:30 / QR-1 Q1 (a)): the rule list now renders every `text_notes` entry (the row notes C1 / C2) as its
+  // own line; VP-3's claim -- v67 adds no RULE -- is pinned on the list without those note lines (mechanical authority)
+  const NOTE_LINE = / carries a note \| /;
+  // ... and the Lot line's `bar_by_unit` clause (VP-3 C4's Rmt / Mtr bar, now said on that line -- DU-1, VP-DRV R05) set aside too
+  const rules = (a: Asset, id: string) => lines(a, id).filter((l) => !NOTE_LINE.test(l)).map((l) => l.replace(/; 'Rmt' shows '[^']*', 'Mtr' shows '[^']*'$/, ""));
   it("Valve Package: the rule list (titles and details) of v67 = v66's", () => {
-    expect(lines(h67, VALVE)).toEqual(lines(h66, VALVE));
+    // INVERTED at DU-1 FIX-1: BEFORE expect(lines(h67, VALVE)).toEqual(lines(h66, VALVE)) -- now the same on the rules, and the note
+    // lines differ by exactly v67's C2 air-vent note
+    expect(rules(h67, VALVE)).toEqual(rules(h66, VALVE));
+    const notes = (a: Asset) => lines(a, VALVE).filter((l) => NOTE_LINE.test(l));
+    expect(notes(h67).length - notes(h66).length).toBe(1);
+    expect(notes(h67).filter((l) => !notes(h66).includes(l)).join(" ")).toMatch(/One price for an automatic air vent of any size/);
   });
   it("Misc: = v66's but the unit rule's example of an unknown unit, 'Set' -> 'Lot' (C5 made Set a Misc unit; G3: the example is a unit the category does not know)", () => {
-    const was = lines(h66, MISC), now = lines(h67, MISC);
+    // INVERTED at DU-1 FIX-1: BEFORE `lines(...)` for both -- the comparison is on the rules (v67's C1 Misc insulation note is a
+    // note line, set aside)
+    const was = rules(h66, MISC), now = rules(h67, MISC);
+    expect(lines(h67, MISC).filter((l) => NOTE_LINE.test(l) && !lines(h66, MISC).includes(l)).join(" ")).toMatch(/Insulation is not on our sheets/);
     expect(now.length).toBe(was.length);
     const moved = now.map((l, i) => (l === was[i] ? null : i)).filter((i): i is number => i !== null);
     expect(moved).toEqual([0]);

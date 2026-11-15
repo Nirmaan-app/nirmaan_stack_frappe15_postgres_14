@@ -13356,7 +13356,11 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # INVERTED at VP-1 (owner VR9 / UNIT / VR1, 2026-11-13) by mechanical authority: BEFORE the set
                             # ended at "working_standby". The three keys are read only by Valve Package / Piping from v66 on;
                             # v7 predates them, ADP declares none
-                            "scope", "blank_unit_refuses", "sheet_heading_notes"})
+                            "scope", "blank_unit_refuses", "sheet_heading_notes",
+                            # INVERTED at DU-1 (owner 2026-11-15 13:30-13:41, the Derivation coverage rule; VP-DRV FIX-3) by
+                            # mechanical authority: BEFORE the set ended at "sheet_heading_notes". The two display-only keys are
+                            # declared by Valve Package / Misc from v70 on; v7 predates them, ADP declares none
+                            "rule_lines", "derivation_reasons"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)

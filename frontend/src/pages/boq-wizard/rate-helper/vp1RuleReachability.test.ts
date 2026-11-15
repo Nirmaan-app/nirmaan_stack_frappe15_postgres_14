@@ -35,6 +35,15 @@ const panel = (items: Item[], unit = "Nos", text = "valve row", ov: Record<strin
     extractionByRow: buildExtractionByRow([{ excel_row: 9, description: text, category_id: VALVE, attributes: {}, items: items.map(mi) }] as never) });
   return (h.compute({ excelRow: 9, description: text, nodeType: "Line Item", category: VALVE, discipline: "HVAC", rateKinds: KINDS, unit, headings: [], ownNotes: [], headingNotes: [] } as never, ov) as unknown as ItemListSuggestion).itemList!;
 };
+// DU-1: a panel row whose sheet holds other line items the run read (the pair rule reads each one's item 1 family and scope answer
+// from the run -- `compute` rebuilds `sheetLines` from the extraction map)
+const panelSheet = (items: Item[], text: string, others: Array<{ row: number; text: string; items: Item[] }>): ItemListView => {
+  const h = makePricingSheetHelper({ configsByCategory: CFG, items: ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 9, description: text, category_id: VALVE, attributes: {}, items: items.map(mi) },
+      ...others.map((o) => ({ excel_row: o.row, description: o.text, category_id: VALVE, attributes: {}, items: o.items.map(mi) }))] as never) });
+  const sheetLines = [{ row: 9, text }, ...others.map((o) => ({ row: o.row, text: o.text }))];
+  return (h.compute({ excelRow: 9, description: text, nodeType: "Line Item", category: VALVE, discipline: "HVAC", rateKinds: KINDS, unit: "Nos", headings: [], ownNotes: [], headingNotes: [], sheetLines } as never, {}) as unknown as ItemListSuggestion).itemList!;
+};
 const calc = (blocks: unknown[], ov: Record<string, string> = {}): ItemListView => {
   const h = makePricingSheetHelper({ configsByCategory: CFG, items: ITEMS, extractionByRow: new Map() });
   return (h.compute(calculatorCtx("HVAC", VALVE), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: blocks }), [ROW_UNIT_OVERRIDE_KEY]: "Nos", ...ov }) as unknown as ItemListSuggestion).itemList!;
@@ -67,6 +76,14 @@ const R = {
   set: "A row priced per Set takes one Set as one piece",
   lot: "A row priced per Lot is not priced",
   scope: "The BoQ scope: supply + installation unless the row says otherwise",
+  // DU-1 FIX-1 / FIX-2 (owner 2026-11-15 13:30-13:41 + QR-1 Q1 (a)): the lines the tab now generates for rules that already ran
+  drain: "A 'drain' in the valve type as written with no type the catalogue stocks is priced as the Ball Valve",
+  noteFlange: "A Butterfly Valve, Motorised Butterfly Valve, Balancing Valve, PIBCV, Sluice / Gate Valve, Strainer, Ball Valve, BTU Meter, 2-Way Valve, Test & Drain Valve, Automatic Air Vent row whose own words or its headings call for it carries a note",
+  noteBalancing: "A Balancing Valve row whose own words or its headings call for it carries a note",
+  noteInsulation: "A row whose own words or its headings call for it carries a note",
+  pair: "A 'Supply of' row whose installation is quoted on its own row of the sheet is priced supply only",
+  noteThermowell: "A Temperature Gauge / Thermometer row whose own words or its headings call for it carries a note",
+  noteGaugeFittings: "A Pressure Gauge row whose own words or its headings call for it carries a note",
   // Misc's own tab
   inchesM: "A size written in inches is converted to millimetres",
   typedM: "A typed size is one size, in mm or inches",
@@ -122,6 +139,17 @@ const VALVE_CASES: Case[] = [
   { rule: R.lot, kind: "neg", run: () => panel([V("Ball Valve", "32 mm")], "Nos"), not: ["is not a valve unit"], priced: true },
   { rule: R.scope, kind: "pos", run: () => panel([V("Ball Valve", "25 mm")], "Nos", "valve row", { [SCOPE_OVERRIDE_KEY]: "Supply only" }), re: ["Scope changed by user"], priced: true, figures: [682, 0] },
   { rule: R.scope, kind: "neg", run: () => panel([V("Ball Valve", "25 mm")]), not: ["Scope changed by user"], priced: true, figures: [682, 1000] },
+  // DU-1 FIX-1 / FIX-2: each new line with a positive and a negative case from the panel's entry point
+  { rule: R.drain, kind: "pos", run: () => panel([V("none of these", "25 mm", { valve_type_as_written: "Drain valve" })]), re: ["BoQ says a drain valve -> priced as the Ball Valve of the same size"], priced: true, figures: [682, 1000] },
+  { rule: R.drain, kind: "neg", run: () => panel([V("none of these", "25 mm", { valve_type_as_written: "Globe valve" })]), not: ["drain valve"], priced: false },
+  { rule: R.noteFlange, kind: "pos", run: () => panel([V("Butterfly Valve", "150 mm")], "Nos", "Butterfly valve 150 mm with flanges"), re: ["flanges, nuts, bolts and gaskets are part of fitting the valve"], priced: true, figures: [5708, 1000] },
+  { rule: R.noteFlange, kind: "neg", run: () => panel([V("Butterfly Valve", "150 mm")], "Nos", "Butterfly valve 150 mm"), not: ["flanges, nuts, bolts"], priced: true, figures: [5708, 1000] },
+  { rule: R.noteBalancing, kind: "pos", run: () => panel([V("Balancing Valve", "50 mm")], "Nos", "Balancing valve 50 mm"), re: ["the only balancing valve on our sheet"], priced: true },
+  { rule: R.noteBalancing, kind: "neg", run: () => panel([V("Ball Valve", "50 mm")], "Nos", "Ball valve 50 mm"), not: ["the only balancing valve on our sheet"], priced: true },
+  { rule: R.noteInsulation, kind: "pos", run: () => panel([V("Ball Valve", "25 mm")], "Nos", "Ball valve 25 mm with insulation"), re: ["Valve insulation is not on our sheets"], priced: true, figures: [682, 1000] },
+  { rule: R.noteInsulation, kind: "neg", run: () => panel([V("Ball Valve", "25 mm")], "Nos", "Ball valve 25 mm"), not: ["Valve insulation is not on our sheets"], priced: true, figures: [682, 1000] },
+  { rule: R.pair, kind: "pos", run: () => panelSheet([V("Ball Valve", "25 mm")], "Supply of ball valve 25 mm", [{ row: 12, text: "Installation of ball valve 25 mm", items: [V("Ball Valve", "25 mm", { scope: "Installation only" })] }]), re: ["Installation is quoted on its own row on this sheet, so priced supply only here"], priced: true, figures: [682, 0] },
+  { rule: R.pair, kind: "neg", run: () => panelSheet([V("Ball Valve", "25 mm")], "Supply of ball valve 25 mm", []), not: ["Installation is quoted on its own row"], priced: true, figures: [682, 1000] },
 ];
 const MISC_CASES: Case[] = [
   { rule: R.unit, kind: "pos", run: () => panel([M("Pressure Gauge")], ""), re: ["no unit on this row"], priced: false },
@@ -150,6 +178,11 @@ const MISC_CASES: Case[] = [
   { rule: R.qty, kind: "neg", run: () => calc([], { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [], sections: { misc: [{ base: null, family: "Pressure Gauge", attrs: {} }] } }) }), not: ["per row unit"], priced: true, figures: [2175, 500] },
   { rule: R.a3Unit, kind: "pos", run: () => panel([M("Pressure Gauge")], "Sqm"), re: ["Pressure Gauge is not stocked per 'Sqm' (stocked per Nos)"], priced: false },
   { rule: R.a3Unit, kind: "neg", run: () => panel([M("Pressure Gauge")], "nos"), not: ["is not stocked per"], priced: true },
+  // DU-1 FIX-1: Misc's text_notes lines (nested under the Valve Package's Misc line), each positive and negative
+  { rule: R.noteThermowell, kind: "pos", run: () => panel([M("Temperature Gauge / Thermometer")], "Nos", "Thermometer with thermowell"), re: ["thermowell with the thermometer"] },
+  { rule: R.noteThermowell, kind: "neg", run: () => panel([M("Temperature Gauge / Thermometer")], "Nos", "Thermometer"), not: ["thermowell with the thermometer"] },
+  { rule: R.noteGaugeFittings, kind: "pos", run: () => panel([M("Pressure Gauge")], "Nos", "Pressure gauge with syphon"), re: ["gauge's own fittings"], priced: true, figures: [2175, 500] },
+  { rule: R.noteGaugeFittings, kind: "neg", run: () => panel([M("Pressure Gauge")], "Nos", "Pressure gauge"), not: ["gauge's own fittings"], priced: true, figures: [2175, 500] },
 ];
 
 const run = (c: Case, label: string) => it(`${label} ${c.kind.toUpperCase()}: ${c.rule}`, () => {

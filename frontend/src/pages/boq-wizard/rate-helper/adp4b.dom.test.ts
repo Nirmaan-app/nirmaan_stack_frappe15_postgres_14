@@ -42,11 +42,13 @@ const ITEMS: RateMasterItem[] = mergeItemsByName(V50.items.map((it) => ({ ...it,
 const E_ITEMS: RateMasterItem[] = V66.items.map((it) => ({ ...it, discipline: V66.discipline } as RateMasterItem));
 
 /** Render the Derivation tab as the page does, and hand back the DOM. */
-function renderDerivation(config: RateCategoryConfig, items: RateMasterItem[], discipline: string) {
+// DU-1 FIX-4: a category whose delegated section borrows a borrow-only category (the Valve Package -> Misc) reads that config; the
+// page fetches it, this harness hands it over from the same asset (no Frappe provider here)
+function renderDerivation(config: RateCategoryConfig, items: RateMasterItem[], discipline: string, sectionConfigs?: Record<string, RateCategoryConfig>) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  act(() => { root.render(createElement(RateMasterDerivation, { items, config, calculatorPage: calculatorPageLabel(discipline, CALCULATOR_WORKBOOKS) })); });
+  act(() => { root.render(createElement(RateMasterDerivation, { items, config, calculatorPage: calculatorPageLabel(discipline, CALCULATOR_WORKBOOKS), sectionConfigs })); });
   return { host, cleanup: () => { act(() => root.unmount()); host.remove(); } };
 }
 
@@ -83,7 +85,7 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
         // VP-1: the Valve Package from v66, config and items (BEFORE: the two-way VRF-1 choice below for every category)
         const valve = c.category_id === "hvac_valve_package";
         const config = valve ? cfgOf(H66, c.category_id) : c.category_id === "hvac_vrf" ? cfgOf(V55, c.category_id) : cfgOf(assetOf(p.discipline), c.category_id);
-        const { host, cleanup } = renderDerivation(config, valve ? H66_ITEMS : itemsOf(p.discipline), p.discipline);
+        const { host, cleanup } = renderDerivation(config, valve ? H66_ITEMS : itemsOf(p.discipline), p.discipline, valve ? { hvac_misc: cfgOf(H66, "hvac_misc") } : undefined);
         try {
           const list = host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length;
           const notice = host.querySelector('[data-testid="rate-master-derivation-notice"]')?.textContent ?? null;
@@ -142,13 +144,16 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
       "Electrical/point_wiring": "list 12",
       "Electrical/electrical_pricing_inputs": PRICING_INPUTS_DERIVATION_LINE,
       "HVAC/hvac_adp": "list 38",
-      "HVAC/hvac_insulation": "list 43",
+      // INVERTED at DU-1 FIX-1 (owner QR-1 Q1 (a), 2026-11-15: every material_text entry has its line; mechanical authority): WAS "list 43"
+      "HVAC/hvac_insulation": "list 44",
       "HVAC/hvac_piping": "list 25",
       // VRF-1: the data-only VRF category has no rules list, so its tab is the one generic line -- no rules card, no inputs
       "HVAC/hvac_vrf": "This category's rules are not listed yet. To see how a row is priced, open HVAC Pricing -> Calculator.",
       "HVAC/hvac_pricing_inputs": PRICING_INPUTS_DERIVATION_LINE,
       // VP-1: the Valve Package's rules list (the 23 lines vp1RuleReachability pins one by one)
-      "HVAC/hvac_valve_package": "list 23",
+      // INVERTED at DU-1 FIX-1 / FIX-2 / FIX-4 (owner 2026-11-15 13:30-13:41 + QR-1 Q1 (a); mechanical authority): WAS "list 23" -- + the
+      // drain-valve and text_notes lines, the pair-rule line, and Misc's own rules nested under its section line (each an <li>)
+      "HVAC/hvac_valve_package": "list 43",
     });
   });
 

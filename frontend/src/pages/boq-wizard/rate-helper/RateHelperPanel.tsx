@@ -285,12 +285,18 @@ function CopyFigureButton({ value, label }: { value: number; label: string }) {
  * SLICE 6 -- THE ONE RENDERER of a line's three figures (Supply / Install / Combined, each with its copy control).
  * It used to live inline in `renderSection`; the item blocks and the row total needed the same three figures,
  * and the calculator pin ("no second figure render anywhere") is exactly right to refuse a copy -- so the row
- * moved into a component and every surface mounts it. `copy` off = the figures alone (the row total).
+ * moved into a component and every surface mounts it. `copy` off = the figures alone (no mount uses it since DU-1 R2: the row total
+ * now carries the copy control too, stacked one figure per line).
  */
-function FiguresRow({ figures, copy = true, muted = false, unit }: {
+function FiguresRow({ figures, copy = true, muted = false, stacked = false, unit }: {
   figures: Partial<Record<string, number>> | undefined;
   copy?: boolean;
   muted?: boolean;
+  /** DU-1 R2 (owner 2026-11-15 14:42 "the supply install and combined prices shown at the bottom needs to be copyable. this is
+   *  also a general requiremnt for all helpers" / "use the same c opy icon we use in other helpers"; signed-off mockup: "Supply /
+   *  Install / Combined each on its own line WITH the copy icon"): the row total mounts THIS renderer with its copy control on and
+   *  each figure on its own line. Every other mount keeps the one wrapping line. */
+  stacked?: boolean;
   /** SLICE 11 (owner addition): the unit the figure is a rate IN, as the BoQ writes it -- shown on every
    * priced item and on the row total. OMITTED on the non-item-list surface, which is what keeps Electrical's
    * render byte-identical: the label is opt-in per call site, never a property of this component.
@@ -301,7 +307,7 @@ function FiguresRow({ figures, copy = true, muted = false, unit }: {
 }) {
   const label = typeof unit === "string" && unit.trim() !== "" ? unit.trim() : null;
   return (
-    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+    <div className={stacked ? "mt-1 flex flex-col gap-y-0.5 text-xs" : "mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs"} data-testid={stacked ? "row-total-figures" : undefined}>
       {DISPLAY_RATE_KINDS.map((k) => {
         const v = figures?.[k];
         return (
@@ -2207,7 +2213,7 @@ function ItemListBlocks({
           Row total per 1 {view.unit} &middot; {BOQ_RATE_LABEL}
         </div>
         {view.rowPriced ? (
-          <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />
+          <FiguresRow figures={rowTotals(view)} muted stacked unit={view.rateUnit ?? view.unit} />
         ) : (
           <div className="mt-0.5 text-xs">
             {n === 0 ? "No items yet." : needPersonSentence(bad, n)}

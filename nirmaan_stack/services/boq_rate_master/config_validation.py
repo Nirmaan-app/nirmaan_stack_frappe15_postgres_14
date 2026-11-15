@@ -618,7 +618,9 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
 _PRICING_STREAM_HEADING_KEYS = {"attr", "streams_attr", "families", "words", "line", "rule"}
 # VP-4 (T2, owner QR-1 Q2 (a)): `unless` -- the line is NOT shown on an item whose raw answer for `attr` is `equals` (unless, with
 # `own_words`, the row's own words match the pattern)
-_PRICING_TEXT_NOTE_KEYS = {"families", "from_text", "pattern", "unit_classes", "when", "unless", "line", "rule"}
+_PRICING_TEXT_NOTE_KEYS = {"families", "from_text", "pattern", "unit_classes", "when", "unless", "line", "rule",
+                           # DU-1 FIX-1: the Derivation tab's own words for the entry (the `read_notes.rule_line` precedent). Display only.
+                           "rule_line"}
 _PRICING_TEXT_NOTE_REQUIRED = {"families", "from_text", "pattern", "line", "rule"}
 _PRICING_TEXT_NOTE_SOURCES = {"headings", "own_and_headings"}
 _PRICING_COMPANION_KEYS = {"families", "words", "unit_class", "item", "line", "rule"}
@@ -849,6 +851,49 @@ def _validate_text_notes(rules, by_id, fams, ucls):
                 _vthrow(f"{rloc}.unless must be {{attr, equals[, own_words]}}: an item attribute, the value it holds, and whether the "
                         "row's own words still show the line.")
         _strings_ok(r, rloc, ("line", "rule"))
+        if "rule_line" in r:
+            _strings_ok(r, rloc, ("rule_line",))
+
+
+def _validate_rule_lines(lines, loc="list_spec.pricing.rule_lines"):
+    """DU-1 FIX-3 -- `list_spec.pricing.rule_lines`: a non-empty list of {rule, title[, detail]}, each a non-empty string, the rule
+    ids unique (one line per code rule)."""
+    if not isinstance(lines, list) or not lines:
+        _vthrow(f"{loc} must be a non-empty list.")
+    seen = set()
+    for i, r in enumerate(lines):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _RULE_LINE_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        _strings_ok(r, rloc, ("rule", "title") + (("detail",) if "detail" in r else ()))
+        if r["rule"] in seen:
+            _vthrow(f"{rloc}.rule '{r['rule']}' is declared twice.")
+        seen.add(r["rule"])
+
+
+def _validate_derivation_reasons(rs, loc="list_spec.pricing.derivation_reasons"):
+    """DU-1 -- `list_spec.pricing.derivation_reasons`: a non-empty list of {why, and exactly one of rule / title}; a title is a
+    regular expression matched against a line's title."""
+    if not isinstance(rs, list) or not rs:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rs):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _DERIVATION_REASON_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if ("rule" in r) == ("title" in r):
+            _vthrow(f"{rloc} must carry exactly one of rule / title.")
+        _strings_ok(r, rloc, ("why",) + (("rule",) if "rule" in r else ("title",)))
+        if "title" in r:
+            try:
+                re.compile(r["title"])
+            except re.error:
+                _vthrow(f"{rloc}.title must be a regular expression.")
 
 
 def _validate_companion_items(rules, by_id, fams, ucls, family_attr):
@@ -1148,6 +1193,14 @@ _PRICING_KEYS = _PRICING_KEYS | {"working_standby"}
 # shape, `_validate_scope`, plus `model_attr`), `blank_unit_refuses` (owner UNIT ruling: no unit -> refused), `sheet_heading_notes`
 # (owner VR1: the display line on a row whose headings match, naming the sheet's rows of another category). ABSENT => as before.
 _PRICING_KEYS = _PRICING_KEYS | {"scope", "blank_unit_refuses", "sheet_heading_notes"}
+# DU-1 (owner 2026-11-15 13:30-13:41 "we need to make sutre that the derivatrion screen captures all th erules" / "a derivation
+# coverage check before deployment"; VP-DRV FIX-3): `rule_lines` -- the Derivation tab's lines for rules written in CODE, each naming
+# the code rule it states (the frontend `derivationCoverage` fails a code rule without its line and a line naming no code rule);
+# `derivation_reasons` (owner 14:33 "2 ok": a "why" on every line, ADP's pattern) -- per line, by its declared rule id or a title
+# pattern. Display only: neither is read by pricing or by the model's question. ABSENT => as before.
+_PRICING_KEYS = _PRICING_KEYS | {"rule_lines", "derivation_reasons"}
+_RULE_LINE_KEYS = {"rule", "title", "detail"}
+_DERIVATION_REASON_KEYS = {"rule", "title", "why"}
 # VP-1 (G7): `typed_dn` on a one-size typed reader -- a typed "DN 50" is 50 mm. ABSENT => a typed DN refuses, as before.
 _PRICING_NUMBER_KEYS = _PRICING_NUMBER_KEYS | {"typed_dn"}
 _EXTRAS_OPTIONAL_KEYS = {"from_model"}
@@ -3445,6 +3498,11 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_stream_heading_default(pr["stream_heading_default"], by_id, choice_attrs, fams, pr.get("defaults"))
     if "text_notes" in pr:
         _validate_text_notes(pr["text_notes"], by_id, fams, ucls)
+    # DU-1 (FIX-3 / reasons): display-only Derivation keys, PRESENCE-tested like every key above
+    if "rule_lines" in pr:
+        _validate_rule_lines(pr["rule_lines"])
+    if "derivation_reasons" in pr:
+        _validate_derivation_reasons(pr["derivation_reasons"])
     if "companion_items" in pr:
         _validate_companion_items(pr["companion_items"], by_id, fams, ucls, spec.get("family_attribute_id") or "family")
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
