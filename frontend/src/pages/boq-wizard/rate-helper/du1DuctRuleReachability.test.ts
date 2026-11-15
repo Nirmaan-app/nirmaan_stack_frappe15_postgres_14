@@ -113,6 +113,9 @@ const R = {
   refileDefault: title(/^A row read as none of the kinds/),
   plenumNote: title(/^A duct row naming plenum boxes/),
   noteOrder: title(/^A row read as not a duct refuses with its re-file sentence/),
+  // DU-2 K1b (v73)
+  pir: title(/^A PIR duct row with no gauge read takes the panel thickness/),
+  labour: title(/^A 'labour charges' duct row read installation only/),
 };
 
 const C: Case[] = [
@@ -259,6 +262,11 @@ const C: Case[] = [
   // R-DUCT (Q6 / QR-1 Q2 (a)): a duct row naming plenum boxes / attenuators prices the duct with the note
   { rule: R.plenumNote, kind: "pos", run: () => panel([D(RECT, "24G")], "Sqm", "GI duct connected to plenum boxes and cross talk attenuators"), priced: true, figures: [1080, 260], re: ["Also names plenum boxes / attenuators / silencers / flexible duct"] },
   { rule: R.plenumNote, kind: "neg", run: () => panel([D(RECT, "24G")], "Sqm", "GI duct"), priced: true, figures: [1080, 260], not: ["Also names plenum boxes"] },
+  // DU-2 K1b (v73): PIR thickness from the row's own words; a labour row = the duct's installation only
+  { rule: R.pir, kind: "pos", run: () => panel([D(PIR, null)], "Sqm", "SITC of 20mm thick PIR Panels"), priced: true, figures: [1280, 340], re: ["the row's own words say"] },
+  { rule: R.pir, kind: "neg", run: () => panel([D(PIR, null)], "Sqm", "SITC of PIR Panels"), priced: false },
+  { rule: R.labour, kind: "pos", run: () => panel([D(RECT, "24G", { scope: "Installation only" })], "Sqm", "Labour Charges for GI Duct Erections"), priced: true, figures: [0, 260], re: ["labour only - duct installation priced"] },
+  { rule: R.labour, kind: "neg", run: () => panel([D(RECT, "24G", { scope: "Installation only" })], "Sqm", "Installation of GI ducts"), priced: true, figures: [1080, 260], not: ["labour only"] },
 ];
 
 describe(`DU-1 Ducting rule reachability on ${LATEST}: every Derivation line fires, positive and negative`, () => {

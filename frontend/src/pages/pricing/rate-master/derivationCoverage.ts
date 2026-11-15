@@ -33,7 +33,9 @@ export const CODE_RULES: Readonly<Record<string, readonly string[]>> = {
   // section (G1, `SECTION_GAUGE_WORDS`), removal / refixing (DR14, `existing_work`) and the scope's own uplift on a supply row (O10)
   hvac_duct_item: ["DR3", "DR12", "DR4", "DR2", "DR7", "G3", "G1", "DR14", "O10",
                    // DU-2: the not-a-duct re-file sentence before any unit check (R-NOTE-ORDER, `priceItemListRow` gated on no_sku_refusals)
-                   "R-NOTE-ORDER"],
+                   "R-NOTE-ORDER",
+                   // DU-2 K1b: a PIR row's thickness from its own words (owner R-DUCT / R-DOUBT); a labour row = the duct's installation only (QR-1 Q1 (a))
+                   "R-PIR", "R-LABOUR"],
 };
 
 /** Keys under `list_spec.pricing` that carry no pricing rule of their own (display / matching plumbing). Every OTHER key is a rule

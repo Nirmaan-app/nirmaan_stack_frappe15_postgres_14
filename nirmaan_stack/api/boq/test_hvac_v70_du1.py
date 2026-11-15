@@ -120,8 +120,8 @@ class TestHvacAssetV70(FrappeTestCase):
     def test_05_v70_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V70))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 72)  # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71
-        self.assertEqual(nums, list(range(1, 73)))  # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71))  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72))
+        self.assertEqual(nums[-1], 73)  # DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE nums[-1] == 72; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71
+        self.assertEqual(nums, list(range(1, 74)))  # DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE list(range(1, 73)); DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71))  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72))
         self.assertTrue(os.path.exists(_asset_path(V69)))
 
     def test_06_live_catalogue_is_v70(self):
