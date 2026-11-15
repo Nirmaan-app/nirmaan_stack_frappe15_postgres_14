@@ -210,6 +210,18 @@ describe(`DU-2 K1 fixes on ${LATEST}`, () => {
     expect(JSON.stringify(v)).not.toContain("Duct insulation is quoted on its own row");
     expect((v.totals?.supply_rate ?? 0) > 1080).toBe(true);
   });
+  // CH-DU2-5 W1: the re-file words never refuse a row the model reads as a duct (00436 r55 'ducts with acoustic lining')
+  it("W1 pos: 'sheet metal ducts with acoustic lining' read as a duct + its lining -> priced as duct + insulation, never re-filed", () => {
+    const v = panel(WITH, [D(null, "24G", { duct_type_as_written: "sheet metal ducts with acoustic lining", insulated: "Yes" }),
+      { _section: "insulation", item: "Acoustic Nitrile Insulation", thickness_mm: "10 mm", cladding: "None" }], "Sqm", "SITC of sheet metal ducts with acoustic lining");
+    expect(v.rowPriced).toBe(true);
+    expect(JSON.stringify(v)).not.toContain("re-file this row");
+  });
+  it("W1 neg: the same words read by the model as not a duct ('none of these') refuse with the Insulation re-file note", () => {
+    const v = panel(WITH, [{ duct_type: "none of these", duct_type_as_written: "acoustic lining", insulated: null }], "Sqm", "acoustic lining of ducts");
+    expect(v.rowPriced).toBe(false);
+    expect(JSON.stringify(v)).toContain("re-file this row under Insulation");
+  });
   it("R-TYPO neg: a word that is no gauge spelling ('24 gaus') is not read as a gauge", () => {
     const v = panel(WITH, [D(RECT, "24 gaus")]);
     expect(v.rowPriced).toBe(false);
