@@ -28,6 +28,22 @@ the full corrections-owed list.
 _Moved verbatim from root `CLAUDE.md` when it was cut down to material every task needs (CLAUDE.md restructure, pass 2). CLAUDE.md now carries a one-line pointer here._ Where a rule below differs from an older copy further down this file, **this section
 is current**: it is the text root `CLAUDE.md` carried until the move, after pass 1 pruned it.
 
+**EVERY RULE A CATEGORY PRICES BY IS ON ITS RATE MASTER DERIVATION TAB, BEFORE IT DEPLOYS (owner 2026-11-15 13:30-13:41,
+verbatim: "going forwrad we need to add a derivation coverage check before deployment to ensure all rules (model + code+ anywhere
+else) are captured in the dderivation tab for that category in the rate master").** The tab lives on Rate Master > <discipline> >
+<category> only. `frontend/src/pages/pricing/rate-master/derivationCoverage.ts` is the check: MISSING (a config key whose removal does
+not move the tab; a code rule registered in `CODE_RULES` for the category's item kind with no declared line; a borrowed section
+without its own lines nested), ORPHAN (a declared line naming no registered rule), UNREASONED (a category with `derivation_reasons`
+whose line has none) must all be 0. Rules written in CODE are stated by `list_spec.pricing.rule_lines` [{rule, title, detail?}]
+(display only, never sent to the model); a new code rule is registered in `CODE_RULES` in the same commit. The guard test
+`derivationCoverage.latest.test.ts` holds every category in GUARDED (Valve Package, Misc, Ducting) to 0 / 0 / 0 on the newest asset.
+WRONG WORDING is the owner's read, not a machine check.
+
+**THE ROW TOTAL'S SUPPLY / INSTALL / COMBINED EACH CARRY THE SAME COPY ICON AS THE BOQ-RATES LINES, ON THE PANEL AND THE CALCULATOR,
+FOR EVERY CATEGORY (owner 2026-11-15 14:42-14:45, R2).** Built once in RateHelperPanel's row total (DU-1 A1); the final-value box
+beside "Use this value" stays on every helper (R1). New category builds carry `_relay/DU-1/HVAC_Helper_Feature_Standard_v1_1.md`
+(the FEAT-0 feature list) as acceptance lines.
+
 **HISTORICAL MATCHING'S MODEL NAMES LIVE IN THE AI SETTINGS, NEVER IN CODE (owner BUILD REQUIREMENTS; DEV2-B1 open
 item 4).** The card model and the judge model are `match_card_model` / `match_judge_model` on `BOQ Upload Review AI
 Settings`, read through `ai_settings.get_boq_match_settings` / `require_match_settings`, with NO code fallback and no
@@ -5480,3 +5496,44 @@ nothing.
    KIND-OF-NUMBER column like `amount` and `rate`, with the meaning carried by the ITEM (cladding
    overlap; GI framework sheet factor), and the ban is kept in full force on the seven percentage
    columns. That reading is mine, not the owner's, and is worth one line of confirmation.
+
+## Ducting (HVAC v71) - DU-1 Part B (2026-11-15) - as built
+
+Commits: B1 f5533b997 (mechanisms, inert without the config), B2 375f055a9 (v71 + tests + pin moves), B2b 95984671c (four defects the
+all-rows preview found + the mint's reproducible uids). Mint `scripts/_instruments/mint_hvac_v71_du1b.py`; design DU-D0 + rulings
+DR1-DR18 (DR16 replaced by O10), QR-1 (a) + (c), G-1 / G-3 / G-4 / G-5 / G-6, the feature rulings (14:33) and NOTE 3 (19:04).
+
+**What v71 adds:** the `hvac_ducting` config (item kind `hvac_duct_item`), the 15 sheet SKUs (Rectangular / Spiral-Oval GI 26-18G, PIR
+20 / 30 mm, Fire Rated MS 22-18G; BCS duct + 110 accessories per sq.m, x 1.4, ROUNDUP tens), 5 Misc-tab SKUs Misc gains (Paint, Fire
+Retardant Spray Paint, Air Balancing per sq.m of duct / per CFM / per sq.ft carpet) and `ducting_install_only_uplift` (0%). Every other
+config and item byte-identical to v70; every other model request unchanged.
+
+**How a Ducting row prices (config, not code, wherever possible):**
+- Kind: the model's duct type; the offered alias "Round (GI) - per metre" prices as Spiral / Oval (`family_alias` + `family_alias_offered`);
+  no shape -> Rectangular, amber (DR8, `family_when_none`); an as-written word the `family_text` reader resolves decides first
+  (MS / black steel / MS welded -> Fire Rated MS; aluminium refused; stainless steel = butterfly valves, re-file) (DR11).
+- Gauge (`numbers.thickness_mm.gauge`): gauge words win over a written mm; a standard thickness reads as its gauge (0.63 = 24G);
+  several gauges -> this row's size band (DR12; a gauge with no size words states no band); no gauge -> the owner's size table by the
+  duct's size, data in config (DR4), also for a round duct per metre; next THICKER for an unstocked gauge, thinner than 26G -> 26G,
+  thicker than 18G / MS 16G -> by hand (DR2); `size_match.dp` [2] (0.83 mm is not 0.8). A gauge PICKED in the field reads as its mm.
+- Units: per sq.m; per sq.ft x 0.0929 (`unit_factors`); per metre = round (spiral rate x 3.14 x dia + 110, ROUND half up per QR-1 (c))
+  or rectangular / oval by their sides (G-5 perimeter pipelines); CFM is a unit class only for Air Balancing; Lot / LS / Nos / Kg red bar.
+- Diameter: a dropdown of the sheet's round diameters 80-300 + "Other..." (`numbers.dia_mm.offered`, NOTE 3); any diameter prices by area.
+- Insulation: the `insulation` section borrows Insulation LIVE (DR5; no rate copied); per metre by area (`area_basis`); G-1: the
+  section never reads the duct's gauge words. DR7 / G-3 (`sheet_insulation`): a sheet that quotes duct insulation on its own rows
+  does not get it priced again; mode `doubtful_only` (default) drops the line on a plain sheet and compares areas only on a doubtful
+  one (acoustic vs thermal, AHU / plant-room heading): >= 70% -> not priced, < 30% -> priced with a note, between -> left for a person;
+  mode `all` compares on every sheet (B4: both modes give the same outcome on today's rows). Never in the calculator.
+- Misc section: Paint / Fire Retardant per sq.m and per sq.ft (a `direct` convert option, needs []); Air Balancing per sq.ft is its carpet
+  item; any other unit unpriced. Misc's `borrowers_ask_offered_only` keeps each borrower's question to its own section families.
+- Scope (O10): the Valve rule as built + the pair rule, with Ducting's own uplift on the supply-row case (G-4; 0% = normal rate). DR14
+  removal / refixing (`existing_work`): 0.5 / 1.0 / both 1.5 x the duct's installation, no supply, no insulation.
+- Notes: flanges / TDF and access doors etc. (DR10 `text_notes`); non-ducts refuse with a re-file sentence (DR13 `no_sku_refusals`).
+
+**Proofs:** 97-row parity re-based per QR-1 (live Insulation line); 97/97 reachability, panel = calculator; rule reachability (guard =
+the tab's top-level lines, pos + neg); Derivation guard MISSING / ORPHAN / UNREASONED 0; field audit MISSING NOTES 0; replay = vp5end3
+byte-equal after each load; B4 preview of all 1,513 Ducting rows (stub reading): 1,300 priced, vs DU-D0 D7 1,381 identical and every
+other row explained.
+
+**Open (DU-2):** a removal stated only in the heading prices as new work (existing_work reads the row's own words, ADP's rule as built);
+DR7 / G-3 mode and limits for the owner to pick after DU-2's both-mode table.

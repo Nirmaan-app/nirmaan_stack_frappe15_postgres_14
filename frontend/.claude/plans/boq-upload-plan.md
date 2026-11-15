@@ -52080,3 +52080,23 @@ with the cert tab closed first. The Scope note shows its owner tag on screen ("(
 **Open:** the 7 DOUBTFUL rows (bare "Purge Valve" refused x3; "Thermowell with Valve" refused (00234 r222 + 3 same-wording rows); FCU Set
 "with & without strainer" 00357 r135-137 priced 2 ball valves + 1 strainer) - owner rulings later; the calculator's typed-size forms (from
 VP-4); vp4l_b2check scratch DB left (VP-4L's); nothing pushed (15 commits since origin's 21e30a96d + K3).
+
+## Slices DU-R0 / DU-R1 / DU-D0 / VP-DRV / FEAT-0 - read-only recon, design, Derivation audit and feature inventory (2026-11-13 .. 15) - DELIVERED
+
+DU-R0 (Ducting recon: 1,513 Ducting rows; the double-insulation question), DU-R1 (payload re-recon beside VP-2; 77 rows moved), DU-D0
+(Ducting design: the rulings DR1-DR18, QR-1 (a) + (c), G-1 Insulation cladding words vs the duct gauge; 1,368 / 145 priced by the design
+model), VP-DRV (the Valve Package Derivation tab misses 33 of 64 rules -> DU-1 Part A), FEAT-0 (the 50-feature HVAC helper inventory ->
+`_relay/DU-1/HVAC_Helper_Feature_Standard_v1_1.md`). All read-only; reports in `BoQ main lane\<slice>\` on the laptop.
+
+## Slice DU-1 (laptop) - Valve Derivation coverage + HVAC v70, the Ducting helper + HVAC v71 - as built 2026-11-15
+
+**Part A (A1 66a99e8a8, A2 c2e7641ce):** FIX-1..4 (every text_notes / material_text entry its line; scope / unit / pair lines; declared
+rule lines for code rules; borrowed sections nested), the guard `derivationCoverage` (+ latest-asset test), R2 copy icons on the row
+total (panel + calculator, every category); v70 = v69 + the Valve / Misc declared lines; replay 0 moves.
+**Part B (B1 f5533b997, B2 375f055a9, B2b 95984671c):** the Ducting helper per DU-D0 + every ruling (see boq-rate-master.md "Ducting
+(HVAC v71)"); v71 loaded three times, each after a proven backup (BRMS-26-00523 / -00581 / -00582), every replay = vp5end3 byte-equal.
+Defects found and fixed in the slice: a picked gauge never read; DR11 unreachable behind DR8; G-3 sq.ft vs sq.m and the row's own area;
+a 0% uplift read as "not set"; the section-family filter had changed Piping's request (now gated on Misc's key); four from the B4
+preview (DR4 per metre, DR3 0.83 mm, DR12 no-band gauge, DR14 insulation); the mint re-minting uids after a load.
+**B4 preview (stub, no model call):** 1,300 / 1,513 Ducting rows priced; vs DU-D0 D7 1,381 identical, 132 explained (44 D7 re-read,
+49 G-3, 38 half-up, 1 heading-only removal). **Open for DU-2:** heading-only removal; DR7 / G-3 mode and limits; the cert (C1-C9).
