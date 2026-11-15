@@ -36085,8 +36085,7 @@
      "choice_attrs": [],
      "size_match": {
       "dp": [
-       2,
-       1
+       2
       ],
       "below_smallest": "smallest"
      },

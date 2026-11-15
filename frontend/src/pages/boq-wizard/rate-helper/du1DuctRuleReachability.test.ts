@@ -176,6 +176,13 @@ const C: Case[] = [
   { rule: R.dr2, kind: "pos", run: () => panel([D(RECT, "28G")]), priced: true, figures: [970, 260], re: ["28G is thinner than the thinnest gauge on the sheet - priced as 26G"] },
   { rule: R.dr2, kind: "neg", run: () => panel([D(RECT, "16G")]), priced: false, re: ["thicker than the thickest gauge on the sheet"] },
   { rule: R.fit, kind: "pos", run: () => panel([D(RECT, "0.7 mm")]), priced: true, figures: [1310, 260] },
+  // B4 preview fixes (each found on real rows): 0.83 mm is not 0.8 -> the next thicker (20G, DR3); a round duct per metre with its
+  // diameter and no gauge takes the size table (DR4); "20G / 22G" with no band words is no band (DR12); a removal row prices no insulation
+  { rule: R.fit, kind: "pos", run: () => panel([D(RECT, "0.83 mm")]), priced: true, figures: [1520, 260] },
+  { rule: R.dr4, kind: "pos", run: () => panel([D(ROUND, null, { size_as_written: "150 mm dia" })], "Mts", "round duct 150 mm dia"), priced: true, figures: [670, 130], re: ["taken from the standard size table"] },
+  { rule: R.dr12, kind: "neg", run: () => panel([D(RECT, "20G / 22G", { size_as_written: "751 - 1500 mm" })]), priced: false, re: ["none matches its size band"] },
+  { rule: R.dr14, kind: "pos", run: () => panel([D(RECT, null, { insulated: "Yes" }), INS()], "Sqm", "Removal of existing rect duct with insulation"), priced: true, figures: [0, 130],
+    re: ["the insulation is not priced"] },
   { rule: R.fit, kind: "neg", run: () => panel([D(RECT, "0.8 mm")]), priced: true, figures: [1310, 260], not: ["next thicker"] },
   { rule: R.g1, kind: "pos", run: () => panel([D(SPIRAL, "24G", { insulated: "Yes" }), INS()], "Sqm", "GI spiral duct 24G with 9 mm thermal insulation"), priced: true },
   { rule: R.g1, kind: "neg", run: () => panel([D(SPIRAL, "24G", { insulated: "No" })], "Sqm", "GI spiral duct 24G"), priced: true, figures: [1240, 280] },

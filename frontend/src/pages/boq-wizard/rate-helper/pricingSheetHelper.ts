@@ -7312,6 +7312,12 @@ function computeItemList(
         return { ...rest, value, typedValue: value, defaulted: assumed, ...(assumed ? { rule: plainPricerText(r.s.absent!.line, items) } : {}), blank: false };
       });
       if (value !== inc.equals) continue;
+      // DU-1 (DR14, owner 2026-11-13 19:58): work on EXISTING ducts (removal / refixing) is the installation share alone -- no supply
+      // and no insulation: the row's insulation section is not priced, said once in the row's working
+      if (r.s.id === spec.sheet_insulation?.section && existingWorkOf(spec, [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ")) !== null) {
+        sheetInsulationLines.add("Removal / refixing of existing ducts: the insulation is not priced (the installation share alone)");
+        continue;
+      }
       // DU-1 (DR7 / G-3): the sheet's own duct-insulation rows decide whether this insulation line is priced, added with a note,
       // left unpriced, or not priced at all -- never in the calculator (it has no sheet)
       const siCfg = spec.sheet_insulation;

@@ -2936,7 +2936,8 @@ export function readGauge(text: unknown, g: GaugeReading, rowSize: number | null
       const clause = said.slice(x.end, gauges[i + 1]?.at ?? said.length);
       const nums = [...clause.replace(/,/g, "").matchAll(/(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1])).filter((v) => v >= 50);
       const above = /\babove\b|\bover\b|\bbeyond\b|>\s*\d/i.test(clause);
-      const lo = above ? (nums[0] ?? null) : nums.length >= 2 ? nums[0] : 0;
+      // a gauge with no size words after it ("20G / 22G") states no band at all -- it is never the band of every size
+      const lo = above ? (nums[0] ?? null) : nums.length >= 2 ? nums[0] : nums.length ? 0 : null;
       const hi = above ? null : nums.length ? nums[nums.length - 1] : null;
       return { g: x.g, lo, hi };
     }).filter((b) => b.hi !== null || b.lo !== null);
@@ -5229,7 +5230,16 @@ function priceOneItem(
     // (its refusal names it). No shipped option before ADP-1 needs such a number, so every other choice is unchanged.
     const ruledNumber = (n: string): boolean => {
       const nd = spec.number_defaults?.[n];
-      return !!nd && Number.isFinite(nd.value) && !(n in unreadable) && (!nd.families || nd.families.includes(family));
+      if (nd && Number.isFinite(nd.value) && !(n in unreadable) && (!nd.families || nd.families.includes(family))) return true;
+      // DU-1 (DR4): a gauge axis the owner's size table fills from the size as written (a round duct per metre with its diameter
+      // and no gauge) does not stop its option being chosen either -- the needs loop fills it, marked "from the size table"
+      const gr = spec.numbers[n]?.gauge;
+      if (gr?.by_size && !(n in unreadable) && gr.families.includes(family) && gr.by_size.bands[family]) {
+        const size = largestSizeMm(rawValue(item, gr.by_size.from));
+        const band = size === null ? null : gaugeBandFor(gr, family, size);
+        return !!band && gr.mm[band.gauge] !== undefined;
+      }
+      return false;
     };
     const chosen = options.find((o) => o.needs.every((n) => n in read || ruledNumber(n)));
     if (chosen) {

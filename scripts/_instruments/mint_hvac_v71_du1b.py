@@ -337,7 +337,7 @@ def ducting_config(cfgs):
                     "duct_h_mm": {"from": ["duct_h_mm"], "name": "height (or minor axis)", "unit": "mm", "typed_only": True, "length_from": "size_as_written", "face_side": "height", "label": "Height / minor axis (mm)"},
                 },
                 "ladders": ["thickness_mm"], "match_attrs": ["thickness_mm", "dia_mm", "duct_w_mm", "duct_h_mm"], "choice_attrs": [],
-                "size_match": {"dp": [2, 1], "below_smallest": "smallest"},
+                "size_match": {"dp": [2], "below_smallest": "smallest"},   # DR3: 2 places only - 0.83 mm is not 0.8 (the next thicker, 20G)
                 "families": families,
                 "family_alias": {ROUND: SPIRAL},
                 "family_alias_offered": [ROUND],
@@ -506,7 +506,13 @@ def build(out):
     if _dump(prev).encode("utf-8") != raw:
         raise SystemExit("re-dumping v70 does not reproduce its bytes -- the series convention is not what this mint writes")
     taken = {i["item_uid"] for i in prev["items"]}
-    taken |= {(r["item_uid"] or "").strip() for r in frappe.get_all("BoQ Rate Master Item", filters={"discipline": "HVAC"}, fields=["item_uid"])}
+    # a uid this mint itself derives ("DU-1 <key> <n>") is never "taken" by the live catalogue: after a v71 load the live rows ARE these
+    # items, and a rebuild must reproduce them byte for byte (a re-load is then the same asset, not 21 new uids)
+    own = {"rmi-" + hashlib.sha256(("DU-1 %s %d" % (k, n)).encode()).hexdigest()[:12]
+           for k in ["%s %s" % (t, g) if g else "%s %g mm" % (t, mm) for t, _m, g, mm, _cd, _ci, _r in SKUS]
+           + ["misc " + ("%s (%s)" % (it, u) if it == "Air Balancing" else it) for it, u, *_x in MISC_ITEMS] + ["pricing input " + UPLIFT_ID]
+           for n in range(100)}
+    taken |= {(r["item_uid"] or "").strip() for r in frappe.get_all("BoQ Rate Master Item", filters={"discipline": "HVAC"}, fields=["item_uid"])} - own
     final, new_items = transform(prev, taken)
     assert _canon(final["items"][:len(prev["items"])]) == _canon(prev["items"]), "a v70 item moved"
     assert len(new_items) == 21 and len({i["item_uid"] for i in new_items}) == 21
