@@ -923,6 +923,18 @@ def build_items_spec(cfg, configs=None, discipline=None):
         sub = build_items_spec(target) if isinstance(target, dict) else None
         if sub is None:
             continue
+        # DU-1 (QR-1 Q4 (a), 2026-11-15): where the BORROWED category declares `borrowers_ask_offered_only` (Misc, shared by the
+        # Valve Package and Ducting), a section declaring the families it offers asks the model for THOSE only -- the family question
+        # keeps its sentinel answers (e.g. "none of these": a value the target does not price) and the section's own families; another
+        # borrower's items are not offered here. Every other borrowed category (Insulation under Piping / Ducting) asks its whole
+        # question exactly as before, so those requests are byte-identical.
+        offered = s.get("families") if ((target.get("list_spec") or {}).get("borrowers_ask_offered_only") is True) else None
+        fam_id = sub.get("family_attribute_id")
+        tfams = ((target.get("list_spec") or {}).get("pricing") or {}).get("families") or {}
+        if isinstance(offered, list) and offered and fam_id:
+            for d in sub.get("attribute_definitions") or []:
+                if d.get("id") == fam_id and isinstance(d.get("values"), list):
+                    d["values"] = [v for v in d["values"] if v in offered or v not in tfams]
         sections.append({"id": s["id"], "label": s.get("label") or s["id"], "items_spec": sub})
     if sections:
         out["sections"] = sections

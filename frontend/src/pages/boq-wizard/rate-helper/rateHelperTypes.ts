@@ -661,7 +661,18 @@ export interface RateHelperRowContext {
     /** VRF-6 (F4): a rate-editable Preamble (kept only where the run read it); the row's category; its item 1's scope answer */
     preamble?: boolean; category?: string | null; scope1?: string;
     /** VRF-8 (D10): item 1's capacity and the make answers an installation-only row follows (only with `prepare.install_follows`) */
-    cap1?: string; attrs1?: Record<string, string> }>;
+    cap1?: string; attrs1?: Record<string, string>;
+    /** DU-1 (DR7 / G-3): the row's unit and its nearest heading, as the page shows them */
+    unit?: string; heading?: string }>;
+  /**
+   * DU-1 (DR7 / G-3, owner 2026-11-13 21:06 + 2026-11-15 13:15-13:18): the sheet's own duct-insulation rows (with their quantities)
+   * and its insulated duct rows (with their areas), built by the helper for a config declaring `pricing.sheet_insulation`. Read ONLY
+   * by that check. The calculator never has it.
+   */
+  sheetInsulation?: {
+    rows: ReadonlyArray<{ row: number; qty: number | null; unit: string | null; kind: "acoustic" | "thermal"; doubtful: string | null }>;
+    ducts: ReadonlyArray<{ row: number; area: number | null }>;
+  };
   /**
    * VP-1 (N5, QR-1 Q1): the category of every row of this sheet, by excel row, as the PAGE shows it (the grid's own category
    * map, not the run's) -- read ONLY by a config's `sheet_heading_notes` ("this sheet prices valves on their own rows ...").

@@ -28,6 +28,10 @@ export const CODE_RULES: Readonly<Record<string, readonly string[]>> = {
                     "E1", "E2", "E3", "E4", "E6", "E7", "E8", "E9", "E10", "T1"],
   // VP-4 T1 on a Misc block (`NB_NOTE_KINDS`); Misc's other rules are config shapes
   hvac_misc_item: ["T1"],
+  // DU-1 Part B: the Ducting rules written in code -- the sheet-gauge axis (DR2 / DR3 / DR4 / DR12, `readGauge` / `gaugeBandFor`),
+  // the per-sheet insulation check (DR7 / G3, `sheetInsulationOf` / `ductInsulationDecision`), the gauge-word mask of a borrowed
+  // section (G1, `SECTION_GAUGE_WORDS`), removal / refixing (DR14, `existing_work`) and the scope's own uplift on a supply row (O10)
+  hvac_duct_item: ["DR3", "DR12", "DR4", "DR2", "DR7", "G3", "G1", "DR14", "O10"],
 };
 
 /** Keys under `list_spec.pricing` that carry no pricing rule of their own (display / matching plumbing). Every OTHER key is a rule

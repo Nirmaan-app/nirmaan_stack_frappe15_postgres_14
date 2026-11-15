@@ -463,7 +463,10 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   add("The item's own kind decides which products can price it",
       [fams.length ? `${fams.length} kind${fams.length === 1 ? "" : "s"} in the catalogue` : "",
        // ADP-4a (R1 defect): the alias names the kind it prices as, under its shown name
-       aliases.length ? (plain ? list(aliases.map((a) => `${famShown(a)} prices as ${famWord(String(pr.family_alias[a]))}`)) : `${list(aliases, 3)} price as another kind`) : ""]
+       aliases.length ? (plain ? list(aliases.map((a) => `${famShown(a)} prices as ${famWord(String(pr.family_alias[a]))}`)) : `${list(aliases, 3)} price as another kind`) : "",
+       // DU-1: an alias OFFERED in the kind list is a choice of its own there, priced as the kind it names
+       Array.isArray(pr.family_alias_offered) && pr.family_alias_offered.length
+         ? `${list(pr.family_alias_offered.map((a: unknown) => famShown(String(a))), 3)} ${pr.family_alias_offered.length === 1 ? "is" : "are"} offered in the kind list as ${pr.family_alias_offered.length === 1 ? "its" : "their"} own choice` : ""]
         .filter(Boolean).join("; ") || undefined, "kind");
 
   // ── 2b. SLICE 12e-2 (owner Q16 / Q15 / Q18): a kind written as the BoQ writes it ─────────────────
@@ -733,6 +736,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       }
     } else if (rd?.typed_only && rd?.length_from && rd?.face_side) {
       // ADP-3b: a face side is said by its own group, LAST (below), so no earlier line moves
+    } else if (rd?.typed_only && rd?.length_from && Array.isArray(rd.offered) && rd.offered.length) {
+      // DU-1 (DR17 + NOTE 3): a box offering the sheet's own values (the round diameters) with "Other..."
+      const u = rd.unit ? ` ${String(rd.unit)}` : "";
+      add(`A ${name(attr)} is picked from '${String(rd.label ?? name(attr))}' or typed under 'Other...', else read from the ${name(String(rd.length_from))}`,
+          `the list offers ${list(rd.offered.map((n: unknown) => `${String(n)}${u}`), 12)} (the sheet's own rows); any other value is typed under 'Other...' and priced the same way; a picked or typed value always wins`, "offered");
     } else if (rd?.typed_only && rd?.length_from && rd?.unit !== "m") {
       // ADP-2 (owner H7 / Q3, "should be priced at max"; U6): ADDED
       add(`An ${name(attr)} is typed in '${String(rd.label ?? name(attr))}', else read from the ${name(String(rd.length_from))}${rd.range === "max" ? ", at its largest value" : ""}`,
@@ -954,6 +962,30 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       const unless = t.unless && typeof t.unless === "object" && t.unless.attr
         ? `; not on an item read with ${name(String(t.unless.attr))} ${String(t.unless.equals)}${t.unless.own_words ? " unless the row's own words name it" : ""}` : "";
       add(title, `'${plainSentence(String(t.line))}'${!every && typeof t.rule_line === "string" ? ` -- on ${list(fams.map(famWord))}` : ""}${unless}`, "text_notes");
+    }
+  }
+  // DU-1 Part B (the Derivation guard): the Ducting config keys that decide a row, each its own line -- generic, any category
+  // declaring them. `no_sku_refusals`: words that refuse a row with their own sentence (DR13); `existing_work`: removal / refixing
+  // priced as a share of the installation (DR14; ADP's two entries gain their line too); `sheet_insulation`: the per-sheet check of a
+  // borrowed insulation section (DR7 / G-3), with its mode and limits as the config states them.
+  for (const r of (Array.isArray(pr.no_sku_refusals) ? pr.no_sku_refusals : []) as Array<{ words?: unknown; refuse?: unknown }>) {
+    if (!Array.isArray(r?.words) || typeof r.refuse !== "string") continue;
+    add(`A row whose words name ${list(r.words.map((w: unknown) => `'${String(w)}'`), 3)} refuses`, `'${plainSentence(r.refuse)}'`, "no_sku_refusals");
+  }
+  for (const e of (Array.isArray(pr.existing_work) ? pr.existing_work : []) as Array<{ words?: unknown; install_times?: unknown; line?: unknown }>) {
+    if (!Array.isArray(e?.words) || typeof e.install_times !== "number") continue;
+    add(`A row naming ${list(e.words.map((w: unknown) => `'${String(w)}'`), 3)} is priced as ${typeof e.line === "string" ? e.line : "existing work"}`,
+        `no supply; installation = ${String(Math.round(e.install_times * 100) / 100)} x the matched product's installation`, "existing_work");
+  }
+  {
+    const si = pr.sheet_insulation as { section?: unknown; mode?: unknown; high?: unknown; low?: unknown } | undefined;
+    if (si && typeof si === "object" && typeof si.high === "number" && typeof si.low === "number") {
+      const sec = (Array.isArray(ls?.sections) ? ls.sections : []).find((x: { id?: unknown }) => x?.id === si.section) as { label?: unknown } | undefined;
+      const label = String(sec?.label ?? si.section ?? "insulation").toLowerCase();
+      add(`On a sheet that quotes duct insulation on its own rows, a row's ${label} line is checked against them`,
+          `${si.mode === "all" ? "every such sheet compares areas" : "a plain thermal duct-insulation row drops the line; only a doubtful row (another kind, or under an AHU / plant-room heading) compares areas"}: `
+          + `covering ${String(Math.round(si.high * 100))}% or more of the insulated duct area -> not priced; under ${String(Math.round(si.low * 100))}% -> priced, with a note; between, or areas that cannot be compared -> left for a person; never in the calculator`,
+          "sheet_insulation");
     }
   }
   // DU-1 FIX-3 (VP-DRV; owner 2026-11-15 13:41 "a derivation coverage check before deployment to ensure all rules (model + code+

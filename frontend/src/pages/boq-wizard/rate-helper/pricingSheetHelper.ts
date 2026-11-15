@@ -33,6 +33,7 @@ import {
   NONE_SENTINEL,
   noneRefusalOf,
   runPipeline,
+  evalFormula,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
@@ -103,6 +104,7 @@ import {
   twoWayValues,
   typedFieldNote,
   unitClassOf,
+  unitFactorOf,
   cableSpecText,
   extraBandOf,
   pricingInputRates,
@@ -135,6 +137,8 @@ import {
   NET_FAMILY_LINE_ATTR,
   NET_LINES_ATTR,
   netLinesOf,
+  gaugeLabelOf,
+  existingWorkOf,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -1579,7 +1583,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         }
         return withLines;
       })() : withLines;
-      return computeItemList(category, listSpec, items, withOdu, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      // DU-1 (DR7 / G-3): the sheet's separate duct-insulation rows and its insulated duct rows, from the page's lines and categories
+      // (else the run's) and the run's item 1 of each duct row -- only for a config declaring `pricing.sheet_insulation`
+      const si = listSpec.sheet_insulation;
+      const withIns = si && rowCtx.sheetLines && rowCtx.noRow !== true
+        ? { ...withOdu, sheetInsulation: sheetInsulationOf(si, listSpec, rowCtx, rowCats, extractionByRow, category.category_id) }
+        : withOdu;
+      return computeItemList(category, listSpec, items, withIns, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -3405,6 +3415,20 @@ function itemBlockView(
     // VRF-2b (owner U2 A): each size option of a unit-converting reader shows its unit ("16HP", "1.5TR"); the option's
     // VALUE stays the bare number (what prices and what is stored)
     if (capUnit && !optionLabels && (f.options ?? []).length) optionLabels = Object.fromEntries((f.options ?? []).map((o) => [o, `${o}${capUnit}`]));
+    // DU-1 (DR2 / DR3 / DR4 / DR12): on a sheet-gauge axis each option shows its gauge ("24G (0.6 mm)"), the VALUE stays the sheet
+    // mm; the field's note is the gauge line the reader or the ladder wrote ("BoQ says 24G / 0.63 mm -> 24G (the gauge wins ...)",
+    // "23G is not on the sheet -> 22G (next thicker)", the size table's line)
+    const gaugeAxis = spec.numbers[f.skuAttr]?.gauge;
+    if (gaugeAxis && family !== null && gaugeAxis.families.includes(family)) {
+      if (!optionLabels && (f.options ?? []).length) {
+        optionLabels = Object.fromEntries((f.options ?? []).map((o) => {
+          const g = gaugeLabelOf(gaugeAxis, Number(o));
+          return [o, g ? `${g} (${o} mm)` : `${o} mm`];
+        }));
+      }
+      const gl = res.gaugeNotes?.[f.skuAttr];
+      if (gl) note = gl;
+    }
     // SLICE 12e-5b (owner R6, AC1): a size written two ways that do not agree ('1/2" (15.9mm)') refused the row --
     // the box shows no figure it refused on (the inch half alone would read as a stocked size), and the line says why
     const echo = f.skuAttr in spec.numbers ? inchWithMmEcho(stated) : null;
@@ -5355,6 +5379,9 @@ function withScope(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowC
   return { ...forced, itemList: { ...forced.itemList!, scope: { value: fs?.value ?? pick, note: fs?.note ? `${lead} ${fs.note}` : lead, picker: { title: sc.title, options, value: pick } } } };
 }
 
+/** DU-1 (G-1): the sheet-gauge words a borrowed section does not read from a gauge-reading owner's row ("22G", "24 gauge", "18 SWG"). */
+export const SECTION_GAUGE_WORDS = /(?<![\d.])\d{1,2}\s*-?\s*(?:g|swg|gauge|guage|gage|ga)\b/gi;
+
 /** VP-5 E11 (owner 2026-11-14 22:2x-22:40 "option a ... supply + install if there is no supply alone row ... refixing old valves:
  *  1.5x is correct"; QR-1 Q1 (a) the refix words read strictly). Only a config with `scope.supply_row` (the Valve Package) uses them. */
 export const VP5_SCOPE = {
@@ -5556,6 +5583,13 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
   }
   const supplyOnly = value === sc.supply_only;
+  // DU-1 (DR14, owner 2026-11-13 19:58 "removal is priced at 0.5 times, and refixing is at 1 time the installation price for that
+  // SKU"): a row whose OWN text is work on EXISTING items (`existing_work`) is already priced supply 0 / install x its factor by the
+  // item pricer; the installation-only rule below never re-prices it or rewrites its note. A config without the key never reaches this.
+  if (!supplyOnly && !calculator && forced === undefined && (spec.existing_work ?? []).length
+    && existingWorkOf(spec, [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ")) !== null) {
+    return picker ? { ...res, itemList: { ...view, scope: { value: picker.value, picker } } } : res;
+  }
   // VRF-6 (INSTALLATION-ONLY): x (1 + uplift) only when the sheet has no supply row for this kind of item; with one, the normal rate
   const supplyRows = !supplyOnly && !installNormal && !calculator && sc.supply_row ? sameKind((s) => s !== sc.install_only && s !== sc.install_only_normal) : [];
   const normalRate = installNormal || supplyRows.length > 0;
@@ -5573,8 +5607,14 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
     if (m) refixSaid = m[0].trim();
     else return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: VP5_SCOPE.both_note } } };
   }
-  const uplift0 = supplyOnly ? null : pricingInputFactor(items, sc.uplift_input);
-  const uplift = normalRate ? 0 : uplift0;
+  // DU-1 (G-4): an installation-only uplift is a PERCENTAGE -- 0 is a set value (Ducting's 0% today = the normal rate), only an
+  // absent or unreadable input is "not set"; the conversion factors `pricingInputFactor` reads stay positive-only
+  const uplift0 = supplyOnly ? null : scopeUpliftOf(items, sc.uplift_input);
+  // DU-1 (G-4, owner 2026-11-15 13:1x "1 ok" + QR-1 Q2 (a) 15:47): a scope whose `supply_row.uplift` is set (Ducting) charges the
+  // installation-only row whose supply is on its own row at install x (1 + its OWN uplift input) -- 0% today, the normal rate. Every
+  // other scope (Valve Package) keeps the normal rate there, no uplift read.
+  const upliftOnSupplyRow = !!sc.supply_row?.uplift && supplyRows.length > 0 && !installNormal;
+  const uplift = normalRate && !upliftOnSupplyRow ? 0 : uplift0;
   if (!supplyOnly && !calculator && sc.supply_row && !installNormal) {
     extraNote = supplyRows.length ? sc.supply_row.with_row.replace("{rows}", rowsWord(supplyRows))
       : refixSaid !== null ? VP5_SCOPE.refix_note.replace("{said}", refixSaid) : sc.supply_row.no_row;
@@ -7059,6 +7099,8 @@ function computeItemList(
     pipeOd?: boolean,
     /** SLICE 12e-6 (AC3): the MODEL opened this section ("Insulated: Yes") and answered no item for it */
     modelOpened = false,
+    /** DU-1 (DR5): the numbers the item above this section read (its diameter / sides), for the section's `area_basis` */
+    ownerReads?: Record<string, string | number>,
   ): SectionBlockView => {
     const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
     if (!r.cfg || !r.dspec) {
@@ -7144,9 +7186,48 @@ function computeItemList(
      * section still refuses, with no figure and no "priced as" line. A value with no dropdown word ("6mm") shows
      * as before, in its "Other..." box.
      */
-    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}), ...(mir ? { showHeldDefaultsOn: mir.to } : {}), ...(pipeOd !== undefined ? { pipeOdHint: pipeOd } : {}) }, dext, inRun,
+    // DU-1 (DR5): an owner row per metre prices the section per sq.m and scales each line by the item's area per metre
+    const ab = r.s.area_basis?.[ownView.unitClass ?? ""];
+    let areaPerUnit: { area: number; line: string } | null = null;
+    if (ab) {
+      const num = (k: string) => { const v = Number(ownerReads?.[k]); return Number.isFinite(v) && v > 0 ? v : null; };
+      const opt = ab.options.find((o) => o.needs.every((k) => num(k) !== null));
+      if (!opt) {
+        return { sectionId: r.s.id, heading, pipe, index,
+                 view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason: ab.missing, items: [], families: [], editState: { items: [secEdit] }, modelCount: 0 } };
+      }
+      const env = Object.fromEntries(opt.needs.map((k) => [k, num(k) as number]));
+      const area = evalFormula(opt.formula, env);
+      if (Number.isFinite(area) && area > 0) {
+        const a = Number(area.toFixed(6));
+        areaPerUnit = { area: a, line: opt.line.split("{area}").join(String(a)).replace(/\{(\w+)\}/g, (m, k) => (k in env ? String(env[k]) : m)) };
+      }
+    }
+    // DU-1 (G-1, owner 2026-11-15 13:10 "fix"): where the OWNER category reads a sheet gauge (Ducting), the gauge words of the row
+    // ("22G", "24 gauge") are the owner item's -- the borrowed section's word rules (Insulation's cladding check) never read them.
+    // An owner with no gauge axis (Piping) hands the row's text over unchanged, byte for byte.
+    const ownerGauge = Object.values(spec.numbers ?? {}).some((n) => !!n?.gauge);
+    const unGauge = (t: string | undefined) => (typeof t === "string" ? t.replace(SECTION_GAUGE_WORDS, " ") : t);
+    const secCtx = ownerGauge ? { ...ctx, description: unGauge(ctx.description) ?? "", ownNotes: (ctx.ownNotes ?? []).map((n) => unGauge(n) ?? "") } : ctx;
+    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...secCtx, unit: areaPerUnit ? ab!.unit : rowUnit, ...(calculator ? { noRow: true } : {}), ...(mir ? { showHeldDefaultsOn: mir.to } : {}), ...(pipeOd !== undefined ? { pipeOdHint: pipeOd } : {}) }, dext, inRun,
                                    { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
-    const dview = res.itemList!;
+    const dview0 = res.itemList!;
+    // each line's rate x the area per metre, rounded up to the rupee (the Insulation line keeps its own per-sq.m rounding first)
+    const scaleFig = (f: Partial<Record<RateKind, number>>): Partial<Record<RateKind, number>> => {
+      if (!areaPerUnit) return f;
+      const o: Partial<Record<RateKind, number>> = {};
+      for (const [k, v] of Object.entries(f)) if (typeof v === "number") o[k as RateKind] = Math.ceil(v * areaPerUnit.area - 1e-9);
+      if (typeof o.supply_rate === "number" && typeof o.install_rate === "number") o.combined_rate = o.supply_rate + o.install_rate;
+      return o;
+    };
+    const dview: ItemListView = areaPerUnit ? {
+      ...dview0,
+      unit: rowUnit,
+      ...(dview0.totals ? { totals: scaleFig(dview0.totals) } : {}),
+      items: dview0.items.map((b) => (b.state === "priced"
+        ? { ...b, figures: scaleFig(b.figures), working: [...b.working, `${areaPerUnit!.line}: supply ${b.figures.supply_rate ?? "-"} x ${areaPerUnit!.area} = ${scaleFig(b.figures).supply_rate ?? "-"}, install ${b.figures.install_rate ?? "-"} x ${areaPerUnit!.area} = ${scaleFig(b.figures).install_rate ?? "-"} per ${rowUnit}`] }
+        : b)),
+    } : dview0;
     if (refusedByPipe) {
       const { totals: _t, ...rest } = dview;
       const fromPipe = mirroredLead(`${TYPED_LEAD}${pipeRefusal}`, mir!.tag);
@@ -7201,6 +7282,8 @@ function computeItemList(
   };
 
   const editsOut: ItemListEditState = { items: edits.items.map((e) => ({ ...e })), sections: {} };
+  /** DU-1 (DR7 / G-3): the duct-insulation lines this row's sections gave (shown in the amber sheet box) */
+  const sheetInsulationLines = new Set<string>();
   const blocks = ownView.items.map((b, i): ItemBlockView => {
     const edit = edits.items[i];
     const isModelItem = edit.base !== null && edit.family === null;
@@ -7229,6 +7312,21 @@ function computeItemList(
         return { ...rest, value, typedValue: value, defaulted: assumed, ...(assumed ? { rule: plainPricerText(r.s.absent!.line, items) } : {}), blank: false };
       });
       if (value !== inc.equals) continue;
+      // DU-1 (DR7 / G-3): the sheet's own duct-insulation rows decide whether this insulation line is priced, added with a note,
+      // left unpriced, or not priced at all -- never in the calculator (it has no sheet)
+      const siCfg = spec.sheet_insulation;
+      if (siCfg && r.s.id === siCfg.section && !calculator) {
+        let acRow = false;
+        try { acRow = new RegExp(siCfg.acoustic_words, "i").test([ctx.description ?? "", ...(ctx.ownNotes ?? []), ...(ctx.headings ?? [])].join(" | ")); } catch { acRow = false; }
+        const dec = ductInsulationDecision(siCfg, ctx, acRow);
+        if (dec.line) sheetInsulationLines.add(dec.line);
+        if (dec.action === "drop") continue;
+        if (dec.action === "unpriced") {
+          attached.push({ sectionId: r.s.id, heading: `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`, pipe: i, index: 0,
+                          view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason: dec.line ?? "", items: [], families: [], editState: { items: [] }, modelCount: 0 } });
+          continue;
+        }
+      }
       const secEdit: ItemEdit = edit.sections?.[r.s.id] ?? { base: modelSection ? edit.base : null, family: null, attrs: {} };
       editsOut.items[i] = { ...editsOut.items[i], sections: { ...(editsOut.items[i].sections ?? {}), [r.s.id]: secEdit } };
       const own = layers.get(i)?.[0];
@@ -7240,7 +7338,7 @@ function computeItemList(
         : undefined;
       const pipeOd = own?.family ? (/\bcopper\b/i.test(own.family) || sizeIsOutsideDiameter(pipeRaw ?? null)) : undefined;
       const opened = typed === undefined && !modelSection && modelSaid === inc.equals;
-      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(own, r.s.mirror.from) : undefined, b.qty, pipeRefusal, pipeOd, opened));
+      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(own, r.s.mirror.from) : undefined, b.qty, pipeRefusal, pipeOd, opened, own?.readValues));
     }
     return { ...b, fields, ...(attached.length ? { sections: attached } : {}) };
   });
@@ -7305,6 +7403,7 @@ function computeItemList(
       lines,
       bad,
     },
+    ...(sheetInsulationLines.size ? { sheetHeadingNotes: [...sheetInsulationLines].map((l) => plainPricerText(l, items)) } : {}),
   };
   const done: ItemListSuggestion = {
     ...ownRes,
@@ -7325,6 +7424,97 @@ function computeItemList(
  * text) adds ONE plain line to the row's view (`sheetHeadingNotes`): the sheet's rows of `category` named, or the warning. Needs the
  * page's own row categories (`ctx.sheetCategories`); without them (the calculator, a harness) nothing is added. Never a figure.
  */
+/** DU-1 (G-4). PURE. A scope's installation-only uplift by its Pricing Input id: the input's factor when it is a finite number >= 0
+ *  (0 = the normal installation rate), else null ("not set"). */
+export function scopeUpliftOf(items: readonly RateMasterItem[], id: string): number | null {
+  const it = items.find((x) => /_pricing_input$/.test(String(x?.kind ?? "")) && String(x?.attributes?.item ?? "") === id);
+  const raw = (it?.rates as Record<string, unknown> | undefined)?.factor;
+  const f = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+  return Number.isFinite(f) && f >= 0 ? f : null;
+}
+
+/**
+ * DU-1 (DR7 / G-3). PURE. The sheet's separate duct-insulation rows (the insulation category's rows whose own words or nearest heading
+ * say duct; this category's rows whose words are insulation and whose item 1 read no duct) with their quantity, unit, kind (acoustic /
+ * thermal) and why one is doubtful (under an AHU / plant-room heading); and the sheet's insulated duct rows (item 1 read with the
+ * section's toggle on) with their area in sq.m (a per-sq.m row: its quantity; a per-metre row: quantity x 3.14 x dia, or x 2 (W + H),
+ * from the size as written; else unknown).
+ */
+export function sheetInsulationOf(si: NonNullable<ItemListPricingSpec["sheet_insulation"]>, spec: ItemListPricingSpec, ctx: RowContextWithUnit,
+  rowCats: ReadonlyMap<number, string> | undefined, extractionByRow: ReadonlyMap<number, unknown>, ownCategory: string): NonNullable<RowContextWithUnit["sheetInsulation"]> {
+  const re = (p: string) => { try { return new RegExp(p, "i"); } catch { return /$^/; } };
+  const ductRe = re(si.duct_words), insRe = re(si.insulation_words), acRe = re(si.acoustic_words), docRe = re(si.doubtful_heading_words);
+  const catOf = (row: number) => ctx.sheetCategories?.[row] ?? rowCats?.get(row) ?? null;
+  const qtyOf = (row: number) => { const q = ctx.rowQuantities?.[row]; return typeof q === "number" && Number.isFinite(q) ? q : null; };
+  // a quantity in a converted area unit (sq.ft) is compared in sq.m, through the config's own factor
+  const sqmOf = (q: number | null, unit: string | null | undefined) => (q === null ? null : q * (unitFactorOf(spec, unit)?.factor ?? 1));
+  const sec = (spec.sections ?? []).find((s) => s.id === si.section);
+  const inc = sec?.include_when;
+  const fa = familyAttr(spec);
+  // the row itself is one of the sheet's insulated ducts (its area counts), never one of the separate insulation rows
+  const lines = (ctx.sheetLines ?? []).filter((l) => l.sheet === undefined && !l.preamble);
+  const rows: Array<{ row: number; qty: number | null; unit: string | null; kind: "acoustic" | "thermal"; doubtful: string | null }> = [];
+  const ducts: Array<{ row: number; area: number | null }> = [];
+  for (const l of lines) {
+    const cat = catOf(l.row);
+    const it0 = (extractionByRow.get(l.row) as ExtractionRowWithItems | undefined)?.items?.[0];
+    const fam = it0?.attributes?.[fa]?.value;
+    const heading = l.heading ?? "";
+    const separate = l.row !== ctx.excelRow && ((cat === si.category && (ductRe.test(l.text) || ductRe.test(heading)))
+      || (cat === ownCategory && insRe.test(l.text) && (typeof fam !== "string" || fam === "" || fam === "None")));
+    if (separate) {
+      rows.push({ row: l.row, qty: sqmOf(qtyOf(l.row), l.unit), unit: l.unit ?? null, kind: acRe.test(l.text) || acRe.test(heading) ? "acoustic" : "thermal",
+                  doubtful: docRe.test(heading) ? heading : null });
+      continue;
+    }
+    if (cat === ownCategory && inc && it0?.attributes?.[inc.attr]?.value === inc.equals) {
+      const q = qtyOf(l.row);
+      const u = String(l.unit ?? "");
+      const cls = unitClassOf(spec, u);
+      const sizes = String(it0?.attributes?.[si_size_attr(spec)]?.value ?? "").replace(/,/g, "").match(/\d+(?:\.\d+)?/g)?.map(Number).filter((n) => n >= 50) ?? [];
+      const area = q === null ? null
+        : cls === "area" ? sqmOf(q, u)
+        : cls === "length" && sizes.length === 1 ? q * 3.14 * sizes[0] / 1000
+        : cls === "length" && sizes.length >= 2 ? q * 2 * (sizes[0] + sizes[1]) / 1000
+        : null;
+      ducts.push({ row: l.row, area });
+    }
+  }
+  return { rows, ducts };
+}
+/** DU-1: the attribute a gauge axis reads its size table from (the size as written), else "size_as_written". */
+function si_size_attr(spec: ItemListPricingSpec): string {
+  for (const n of Object.values(spec.numbers ?? {})) if (n?.gauge?.by_size?.from) return n.gauge.by_size.from;
+  return "size_as_written";
+}
+
+/** DU-1 (DR7 / G-3). PURE. What this row's insulation section does on its sheet: priced as usual ("price"), not priced at all
+ *  ("drop"), added with a note ("add"), or unpriced ("unpriced"), and the line said. */
+export function ductInsulationDecision(si: NonNullable<ItemListPricingSpec["sheet_insulation"]>, ctx: RowContextWithUnit, rowIsAcoustic: boolean):
+  { action: "price" | "drop" | "add" | "unpriced"; line?: string } {
+  const sh = ctx.sheetInsulation;
+  if (!sh || !sh.rows.length) return { action: "price" };
+  const fill = (t: string, o: Record<string, string>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(v), t);
+  const rs = sh.rows.map((r) => r.row).sort((a, b) => a - b);
+  const named = rs.slice(0, 10).join(", ") + (rs.length > 10 ? ` and ${rs.length - 10} more` : "");
+  const base = { rows: named, s: rs.length > 1 ? "s" : "" };
+  const doubtful = sh.rows.some((r) => r.doubtful !== null || (r.kind === "acoustic") !== rowIsAcoustic);
+  const dropped = fill(si.lines.dropped, base);
+  if (si.mode === "doubtful_only" && !doubtful) return { action: "drop", line: dropped };
+  const areaUnits = new Set(si.area_units.map((u) => u.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  const insQ = sh.rows.every((r) => r.qty !== null && areaUnits.has(String(r.unit ?? "").toLowerCase().replace(/[^a-z0-9]/g, "")))
+    ? sh.rows.reduce((a, r) => a + (r.qty as number), 0) : null;
+  const ductA = sh.ducts.length && sh.ducts.every((d) => d.area !== null) ? sh.ducts.reduce((a, d) => a + (d.area as number), 0) : null;
+  if (insQ === null || ductA === null || ductA <= 0) {
+    return doubtful ? { action: "unpriced", line: fill(si.lines.missing_doubtful, base) } : { action: "drop", line: dropped };
+  }
+  const ratio = insQ / ductA;
+  const r = { ...base, pct: String(Math.round(ratio * 100)), ins: String(Math.round(insQ * 100) / 100), area: String(Math.round(ductA * 100) / 100) };
+  if (ratio >= si.high) return { action: "drop", line: `${dropped} ${fill(si.lines.ratio, r)}` };
+  if (ratio < si.low) return { action: "add", line: fill(si.lines.added, r) };
+  return { action: "unpriced", line: fill(si.lines.unpriced, r) };
+}
+
 export function withSheetHeadingNotes(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, res: HelperResult): HelperResult {
   const notes = spec.sheet_heading_notes;
   const view = (res as ItemListSuggestion).itemList;
@@ -7347,7 +7537,8 @@ export function withSheetHeadingNotes(spec: ItemListPricingSpec, items: RateMast
   }
   if (!lines.length) return res;
   // mockup boards 12a / 12b: one amber box on the panel after the items -- on every state of the row, an item read or not
-  return { ...res, itemList: { ...view, sheetHeadingNotes: lines } } as ItemListSuggestion;
+  // DU-1: lines already on the view (the duct-insulation check) stay, these follow
+  return { ...res, itemList: { ...view, sheetHeadingNotes: [...(view.sheetHeadingNotes ?? []), ...lines] } } as ItemListSuggestion;
 }
 
 /**

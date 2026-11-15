@@ -232,12 +232,16 @@ def _validate_list_spec(cfg):
     spec = cfg.get("list_spec")
     if not isinstance(spec, dict):
         _vthrow("matching_mode 'item_list' needs a list_spec object.")
+    # DU-1 Part B: `borrowers_ask_offered_only` -- a borrowed category (Misc) whose borrowers' sections ask the model only for the
+    # families THAT section offers (build_items_spec); ABSENT => every borrower asks the category's whole family question, as before
     unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing",
-                                  SECTIONS_KEY}
+                                  SECTIONS_KEY, "borrowers_ask_offered_only"}
     if unknown:
         _vthrow(f"list_spec: unknown key(s): {', '.join(sorted(unknown))}.")
     if "second_opinion" in spec and not isinstance(spec["second_opinion"], bool):
         _vthrow("list_spec.second_opinion must be true or false.")   # CHECK 2 switch (owner 2026-09-23)
+    if "borrowers_ask_offered_only" in spec and spec["borrowers_ask_offered_only"] is not True:
+        _vthrow("list_spec.borrowers_ask_offered_only must be exactly true, or be omitted.")
     defs = spec.get("attribute_definitions")
     if not isinstance(defs, list) or not defs:
         _vthrow("list_spec.attribute_definitions must be a non-empty list.")
@@ -325,7 +329,9 @@ def _validate_list_spec(cfg):
 # ---------------------------------------------------------------------------------------------------------
 SECTIONS_KEY = "sections"
 _SECTION_OWN_KEYS = {"id", "label", "add_label"}
-_SECTION_DELEGATED_KEYS = _SECTION_OWN_KEYS | {"category_id", "unit_class", "families", "include_when", "absent", "mirror"}
+_SECTION_DELEGATED_KEYS = _SECTION_OWN_KEYS | {"category_id", "unit_class", "families", "include_when", "absent", "mirror",
+                                                # DU-1 (DR5): on an owner row of these unit classes the section prices per its unit x the item's area
+                                                "area_basis"}
 _SECTION_INCLUDE_KEYS = {"attr", "equals"}
 _SECTION_ABSENT_KEYS = {"value", "line"}
 _SECTION_MIRROR_KEYS = {"from", "to", "tag", "line"}
@@ -353,6 +359,8 @@ def _validate_list_sections(spec, by_id, cfg):
             _vthrow(f"{sloc} must be an object.")
         delegated = "category_id" in s
         unk = set(s.keys()) - (_SECTION_DELEGATED_KEYS if delegated else _SECTION_OWN_KEYS)
+        if delegated and "area_basis" in s:
+            _validate_area_basis(s["area_basis"], f"list_spec.sections[{s.get('id')}].area_basis", pr if isinstance(pr, dict) else {})
         if unk:
             _vthrow(f"{sloc}: unknown key(s): {', '.join(sorted(unk))}.")
         for k in ("id", "label", "add_label"):
@@ -405,6 +413,25 @@ def _validate_list_sections(spec, by_id, cfg):
                 _vthrow(f"{sloc}.mirror.line must be a sentence naming {{chosen}} and {{pipe}}.")
     if own != 1:
         _vthrow(f"{loc} needs exactly one section without category_id (the config's own items); found {own}.")
+
+
+def _validate_area_basis(ab, loc, pr):
+    """DU-1 (DR5) -- a section's `area_basis`: {owner unit class: {unit, missing, options: [{needs (number readers of the owner),
+    formula (an expression over them), line}]}}."""
+    if not isinstance(ab, dict) or not ab:
+        _vthrow(f"{loc} must be a non-empty object.")
+    for cls, b in ab.items():
+        if cls not in (pr.get("unit_classes") or {}):
+            _vthrow(f"{loc}['{cls}']: not a unit class of this config.")
+        if not isinstance(b, dict) or set(b) != {"unit", "missing", "options"} or not _nonempty_str(b.get("unit")) or not _nonempty_str(b.get("missing")):
+            _vthrow(f"{loc}['{cls}'] needs exactly unit, missing and options.")
+        if not isinstance(b["options"], list) or not b["options"]:
+            _vthrow(f"{loc}['{cls}'].options must be a non-empty list.")
+        for i, o in enumerate(b["options"]):
+            oloc = f"{loc}['{cls}'].options[{i}]"
+            if not isinstance(o, dict) or set(o) != {"needs", "formula", "line"} or not isinstance(o["needs"], list) or not o["needs"] \
+                    or not all(n in (pr.get("numbers") or {}) for n in o["needs"]) or not _nonempty_str(o["formula"]) or not _nonempty_str(o["line"]):
+                _vthrow(f"{oloc} needs exactly needs (number readers), formula and line.")
 
 
 def _section_unit_spellings(pricing, unit_class):
@@ -874,6 +901,79 @@ def _validate_rule_lines(lines, loc="list_spec.pricing.rule_lines"):
         seen.add(r["rule"])
 
 
+def _validate_gauge(g, loc, pr, by_id):
+    """DU-1 (DR2 / DR3 / DR4 / DR12) -- a sheet-gauge number reader: `families` (priceable families of this config), `mm` (gauge
+    number -> mm, positive), `standard_mm` ([{from, to, gauge}], from <= to, gauge in mm), optional `by_size` ({from: a text item
+    definition, dimension: {family: words}, bands: {family: [{max: number or null (last), gauge}]}}, the bands ascending), `lines`
+    (the nine sentences, optionally thicker_by_family / existing_any_gauge)."""
+    if not isinstance(g, dict) or not ({"families", "mm", "standard_mm", "lines"} <= set(g) <= _GAUGE_KEYS):
+        _vthrow(f"{loc} needs families, mm, standard_mm, lines (and optionally by_size).")
+    fams = pr.get("families") or {}
+    if not isinstance(g["families"], list) or not g["families"] or not all(f in fams for f in g["families"]):
+        _vthrow(f"{loc}.families must be a non-empty list of priceable families.")
+    mm = g["mm"]
+    if not isinstance(mm, dict) or not mm or not all(isinstance(k, str) and k.isdigit() and _is_finite_number(v) and v > 0 for k, v in mm.items()):
+        _vthrow(f"{loc}.mm must map gauge numbers to positive mm.")
+    for i, r in enumerate(g["standard_mm"] if isinstance(g["standard_mm"], list) else [None]):
+        if not isinstance(r, dict) or set(r) != {"from", "to", "gauge"} or not _is_finite_number(r.get("from")) or not _is_finite_number(r.get("to")) \
+                or r["from"] > r["to"] or r.get("gauge") not in mm:
+            _vthrow(f"{loc}.standard_mm[{i}] must be {{from, to, gauge}} with from <= to and a gauge of mm.")
+    if "by_size" in g:
+        b = g["by_size"]
+        if not isinstance(b, dict) or set(b) != {"from", "dimension", "bands"} or b.get("from") not in by_id or by_id[b["from"]].get("type") != "text":
+            _vthrow(f"{loc}.by_size needs exactly from (a text item definition), dimension and bands.")
+        for fam, bands in (b["bands"] or {}).items():
+            if fam not in g["families"] or not isinstance(bands, list) or not bands:
+                _vthrow(f"{loc}.by_size.bands['{fam}'] must be a non-empty list for a gauge family.")
+            prev = 0
+            for j, band in enumerate(bands):
+                last = j == len(bands) - 1
+                ok = isinstance(band, dict) and set(band) == {"max", "gauge"} and band.get("gauge") in mm \
+                    and ((band["max"] is None and last) or (_is_finite_number(band["max"]) and band["max"] > prev))
+                if not ok:
+                    _vthrow(f"{loc}.by_size.bands['{fam}'][{j}] must be {{max, gauge}}: max ascending, null only on the last band.")
+                prev = band["max"] if band["max"] is not None else prev
+            if not _nonempty_str((b["dimension"] or {}).get(fam)):
+                _vthrow(f"{loc}.by_size.dimension['{fam}'] must name the size the band reads.")
+    lines = g["lines"]
+    if not isinstance(lines, dict) or not (_GAUGE_LINES <= set(lines) <= _GAUGE_LINES | _GAUGE_LINES_OPTIONAL):
+        _vthrow(f"{loc}.lines needs exactly {', '.join(sorted(_GAUGE_LINES))} (and optionally {', '.join(sorted(_GAUGE_LINES_OPTIONAL))}).")
+    for k in _GAUGE_LINES:
+        _strings_ok(lines, f"{loc}.lines", (k,))
+    if "existing_any_gauge" in lines:
+        _strings_ok(lines, f"{loc}.lines", ("existing_any_gauge",))
+    tbf = lines.get("thicker_by_family")
+    if tbf is not None and (not isinstance(tbf, dict) or not all(f in g["families"] and _nonempty_str(t) for f, t in tbf.items())):
+        _vthrow(f"{loc}.lines.thicker_by_family must map gauge families to sentences.")
+
+
+def _validate_sheet_insulation(si, spec):
+    """DU-1 (DR7 / G-3) -- `list_spec.pricing.sheet_insulation`: the insulation category, the section it governs (a delegated section of
+    THIS config with an include_when toggle), four regular expressions, the mode ('doubtful_only' / 'all'), 0 < low < high <= 1, the
+    per-sq.m unit spellings the quantity check accepts, and the five lines."""
+    loc = "list_spec.pricing.sheet_insulation"
+    if not isinstance(si, dict) or set(si) != _SHEET_INSULATION_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_INSULATION_KEYS))}.")
+    secs = [s for s in (spec.get("sections") or []) if isinstance(s, dict) and s.get("id") == si.get("section")]
+    if len(secs) != 1 or secs[0].get("category_id") != si.get("category") or not secs[0].get("include_when"):
+        _vthrow(f"{loc}.section must name this config's delegated section of '{si.get('category')}' that has an include_when toggle.")
+    for k in ("duct_words", "insulation_words", "acoustic_words", "doubtful_heading_words"):
+        try:
+            re.compile(si[k])
+        except (re.error, TypeError):
+            _vthrow(f"{loc}.{k} must be a regular expression.")
+    if si["mode"] not in ("doubtful_only", "all"):
+        _vthrow(f"{loc}.mode must be 'doubtful_only' or 'all'.")
+    if not (_is_finite_number(si["low"]) and _is_finite_number(si["high"]) and 0 < si["low"] < si["high"] <= 1):
+        _vthrow(f"{loc} needs 0 < low < high <= 1.")
+    if not isinstance(si["area_units"], list) or not si["area_units"] or not all(_nonempty_str(u) for u in si["area_units"]):
+        _vthrow(f"{loc}.area_units must be a non-empty list of unit spellings.")
+    if not isinstance(si["lines"], dict) or set(si["lines"]) != _SHEET_INSULATION_LINES:
+        _vthrow(f"{loc}.lines needs exactly {', '.join(sorted(_SHEET_INSULATION_LINES))}.")
+    for k in _SHEET_INSULATION_LINES:
+        _strings_ok(si["lines"], f"{loc}.lines", (k,))
+
+
 def _validate_derivation_reasons(rs, loc="list_spec.pricing.derivation_reasons"):
     """DU-1 -- `list_spec.pricing.derivation_reasons`: a non-empty list of {why, and exactly one of rule / title}; a title is a
     regular expression matched against a line's title."""
@@ -1118,6 +1218,10 @@ _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_token
                        # bare number whose inch readings all lie above the largest refuses (F-3's sentence).
                        # ABSENT => every reader is byte-identical.
                        "typed_only", "length_from", "label", "not_stocked", "bare_above_largest",
+                       # DU-1 (DR17 + NOTE 3, owner 2026-11-13 00:01-00:05 "diameter for round with 'Other...'"): `offered` -- on a
+                       # typed_only box the catalogue stocks no value of, the values its dropdown offers (the sheet's own rows);
+                       # "Other..." still types any value. ABSENT => the box's options are the catalogue's, as before.
+                       "offered",
                        # ADP-2 (owner H7 / Q2, 2026-10-20 "Ok"): `box_side` -- with `length_from`, the typed box is
                        # filled from ONE SIDE of the box the size states (L x W x H, height last, a label winning),
                        # not from the W / H / D axes of a face size, which no existing key can express. ABSENT =>
@@ -1144,7 +1248,7 @@ _PRICING_PRIMARY_PICKS = {"largest"}
 # so the difference between them is knowledge about the product and has to be DECLARED.
 _PRICING_FAMILY_KEYS = {"needs", "units", "convert", "units_not_offered"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
-_PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines",
+_PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines", "direct",
                          # ADP-1 (owner H4 / U4): `show_numbers` -- the option's geometry steps write their arithmetic
                          # with the numbers into the working; `name_missing` -- its refusal names only the facts not
                          # stated. Both true or omitted. ABSENT => the working and the refusal are byte-identical.
@@ -1199,10 +1303,22 @@ _PRICING_KEYS = _PRICING_KEYS | {"scope", "blank_unit_refuses", "sheet_heading_n
 # `derivation_reasons` (owner 14:33 "2 ok": a "why" on every line, ADP's pattern) -- per line, by its declared rule id or a title
 # pattern. Display only: neither is read by pricing or by the model's question. ABSENT => as before.
 _PRICING_KEYS = _PRICING_KEYS | {"rule_lines", "derivation_reasons"}
+# DU-1 PART B (Ducting): `family_alias_offered` (alias families offered in the kind picker, priced as their target), `no_sku_refusals`
+# (a no-SKU item's own sentence by its words, DR13), `sheet_insulation` (the per-sheet duct-insulation check + the G-3 quantity check,
+# DR7). Each arrives WITH its shape check below. ABSENT => as before.
+_PRICING_KEYS = _PRICING_KEYS | {"family_alias_offered", "no_sku_refusals", "sheet_insulation"}
+_SHEET_INSULATION_KEYS = {"category", "section", "duct_words", "insulation_words", "acoustic_words", "doubtful_heading_words",
+                          "mode", "high", "low", "area_units", "lines"}
+_SHEET_INSULATION_LINES = {"dropped", "ratio", "added", "unpriced", "missing_doubtful"}
+_GAUGE_KEYS = {"families", "mm", "standard_mm", "by_size", "lines"}
+_GAUGE_LINES = {"gauge_wins", "standard", "between", "thinner", "thicker", "size_table", "no_size", "several_band", "several_none"}
+_GAUGE_LINES_OPTIONAL = {"thicker_by_family", "existing_any_gauge"}
 _RULE_LINE_KEYS = {"rule", "title", "detail"}
 _DERIVATION_REASON_KEYS = {"rule", "title", "why"}
 # VP-1 (G7): `typed_dn` on a one-size typed reader -- a typed "DN 50" is 50 mm. ABSENT => a typed DN refuses, as before.
 _PRICING_NUMBER_KEYS = _PRICING_NUMBER_KEYS | {"typed_dn"}
+# DU-1 (Ducting DR2 / DR3 / DR4 / DR12): `gauge` -- a sheet-gauge axis (see `_validate_gauge`). ABSENT => the reader as before.
+_PRICING_NUMBER_KEYS = _PRICING_NUMBER_KEYS | {"gauge"}
 _EXTRAS_OPTIONAL_KEYS = {"from_model"}
 _EXTRAS_OPTIONAL_LINES = {"boq_note"}
 _EXTRAS_FROM_MODEL_KEYS = {"includes", "yes", "copper_size", "insulation_thickness", "cable_spec", "comm_words", "length"}
@@ -2039,8 +2155,10 @@ def _validate_scope(sc, loc):
         _sentence(ab, "note", w)
     if "supply_row" in sc:
         sr = sc["supply_row"]
-        if not isinstance(sr, dict) or set(sr) != {"normal_note", "with_row", "no_row"}:
-            _vthrow(f"{loc}.supply_row needs exactly normal_note, with_row and no_row.")
+        # DU-1 (G-4): an optional `uplift: true` -- the supply-on-its-own-row case charges install x (1 + the uplift input)
+        if not isinstance(sr, dict) or not ({"normal_note", "with_row", "no_row"} <= set(sr) <= {"normal_note", "with_row", "no_row", "uplift"}) \
+                or ("uplift" in sr and sr["uplift"] is not True):
+            _vthrow(f"{loc}.supply_row needs exactly normal_note, with_row and no_row (and optionally uplift: true).")
         _sentence(sr, "normal_note", f"{loc}.supply_row")
         _sentence(sr, "with_row", f"{loc}.supply_row", ("{rows}",))
         _sentence(sr, "no_row", f"{loc}.supply_row")
@@ -3084,6 +3202,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].face_side must be width / height, with typed_only, length_from and unit mm, and never beside box_side.")
         if "label" in rd and (not isinstance(rd["label"], str) or not rd["label"].strip()):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].label must be a non-empty string.")
+        if "offered" in rd:
+            off = rd["offered"]
+            if (rd.get("typed_only") is not True or not isinstance(off, list) or not off
+                    or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and x > 0 for x in off) or len(set(off)) != len(off)):
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].offered must be a non-empty list of distinct positive numbers, on a typed_only box.")
+            if (pr.get("panel_controls") or {}).get(nid) != "dropdown_or_other":
+                _vthrow(f"list_spec.pricing.numbers['{nid}'].offered needs panel_controls['{nid}'] = 'dropdown_or_other' (the values plus 'Other...').")
         if "not_stocked" in rd and (not isinstance(rd["not_stocked"], str) or not rd["not_stocked"].strip()):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].not_stocked must be a non-empty sentence.")
         if "bare_above_largest" in rd and (rd["bare_above_largest"] != "refuse" or rd.get("inches") is not True):
@@ -3414,7 +3539,15 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                         _vthrow(f"{oloc} must be an object with to / needs / rule / pipelines (and show_numbers / name_missing) only.")
                     if o.get("to") not in units:
                         _vthrow(f"{oloc}.to must name a unit class the family prices.")
-                    if not isinstance(o.get("needs"), list) or not o["needs"] or not all(isinstance(n, str) and n in sku_attrs for n in o["needs"]):
+                    # DU-1 (owner Q4 2026-11-15 15:46-15:50 + NOTE 3: "any direct conversions like sqm to sqft"): an option declaring
+                    # `direct: true` is a DIRECT unit conversion that reads no fact -- its needs are exactly empty; every other option
+                    # still names the SKU attributes it reads
+                    if "direct" in o:
+                        if o["direct"] is not True:
+                            _vthrow(f"{oloc}.direct must be exactly true, or be omitted.")
+                        if o.get("needs") != []:
+                            _vthrow(f"{oloc}: a direct conversion reads no fact -- its needs must be an empty list.")
+                    elif not isinstance(o.get("needs"), list) or not o["needs"] or not all(isinstance(n, str) and n in sku_attrs for n in o["needs"]):
                         _vthrow(f"{oloc}.needs must be a non-empty list of SKU attributes.")
                     if not isinstance(o.get("rule"), str) or not o["rule"]:
                         _vthrow(f"{oloc}.rule must be a non-empty string.")
@@ -3503,6 +3636,30 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_rule_lines(pr["rule_lines"])
     if "derivation_reasons" in pr:
         _validate_derivation_reasons(pr["derivation_reasons"])
+    # DU-1 PART B: the Ducting keys, PRESENCE-tested like every key above
+    if "family_alias_offered" in pr:
+        fao = pr["family_alias_offered"]
+        alias_map = pr.get("family_alias") or {}
+        if not isinstance(fao, list) or not fao or not all(isinstance(a, str) and a in alias_map for a in fao) or len(set(fao)) != len(fao):
+            _vthrow("list_spec.pricing.family_alias_offered must list family_alias keys (each once).")
+    if "no_sku_refusals" in pr:
+        nsr = pr["no_sku_refusals"]
+        if not pr.get("no_sku_families"):
+            _vthrow("list_spec.pricing.no_sku_refusals needs no_sku_families (a refusal of a no-SKU item).")
+        if not isinstance(nsr, list) or not nsr:
+            _vthrow("list_spec.pricing.no_sku_refusals must be a non-empty list.")
+        for i, r in enumerate(nsr):
+            rloc = f"list_spec.pricing.no_sku_refusals[{i}]"
+            if not isinstance(r, dict) or set(r) != {"words", "refuse"}:
+                _vthrow(f"{rloc} needs exactly words and refuse.")
+            if not isinstance(r["words"], list) or not r["words"] or not all(_nonempty_str(w) for w in r["words"]):
+                _vthrow(f"{rloc}.words must be a non-empty list of words.")
+            _strings_ok(r, rloc, ("refuse",))
+    if "sheet_insulation" in pr:
+        _validate_sheet_insulation(pr["sheet_insulation"], spec)
+    for nk, nd in (pr.get("numbers") or {}).items():
+        if isinstance(nd, dict) and "gauge" in nd:
+            _validate_gauge(nd["gauge"], f"list_spec.pricing.numbers['{nk}'].gauge", pr, by_id)
     if "companion_items" in pr:
         _validate_companion_items(pr["companion_items"], by_id, fams, ucls, spec.get("family_attribute_id") or "family")
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
@@ -3737,6 +3894,9 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
                 params = s.get("params")
                 if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
                     _vthrow(f"{where}: roundup needs params.digits (a finite number).")
+                # DU-1 (owner QR-1 (c)): `mode: "half_up"` = Excel ROUND; absent = ROUNDUP
+                if "mode" in params and params["mode"] != "half_up":
+                    _vthrow(f"{where}: roundup params.mode may only be 'half_up'.")
             elif st == "sum_components":
                 if not isinstance(s.get("result"), str) or not s.get("result"):
                     _vthrow(f"{where}: sum_components needs a string 'result'.")
@@ -4360,6 +4520,9 @@ def _validate_config(cfg):
                 params = s.get("params")
                 if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
                     _vthrow(f"{where}: roundup needs params.digits (a finite number).")
+                # DU-1 (owner QR-1 (c)): `mode: "half_up"` = Excel ROUND; absent = ROUNDUP
+                if "mode" in params and params["mode"] != "half_up":
+                    _vthrow(f"{where}: roundup params.mode may only be 'half_up'.")
             elif st == "component":
                 # EA-4 ext-a: `target` is OPTIONAL -- a conditional component whose formula is
                 # param-only reads no price off the matched row (e.g. the tray's ceiling_accessories,
