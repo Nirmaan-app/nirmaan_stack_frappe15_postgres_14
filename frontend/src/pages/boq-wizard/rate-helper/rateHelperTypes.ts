@@ -663,7 +663,7 @@ export interface RateHelperRowContext {
     /** VRF-8 (D10): item 1's capacity and the make answers an installation-only row follows (only with `prepare.install_follows`) */
     cap1?: string; attrs1?: Record<string, string>;
     /** DU-1 (DR7 / G-3): the row's unit and its nearest heading, as the page shows them */
-    unit?: string; heading?: string }>;
+    unit?: string; heading?: string; headings?: readonly string[] }>;
   /**
    * DU-1 (DR7 / G-3, owner 2026-11-13 21:06 + 2026-11-15 13:15-13:18): the sheet's own duct-insulation rows (with their quantities)
    * and its insulated duct rows (with their areas), built by the helper for a config declaring `pricing.sheet_insulation`. Read ONLY

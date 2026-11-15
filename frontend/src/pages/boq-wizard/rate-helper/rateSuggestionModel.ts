@@ -119,13 +119,13 @@ export function sheetCategoriesOf(m: ReadonlyMap<number, SheetCategoryRow>): Rea
  * VRF-5 (owner R1 SAFEGUARD). PURE, memoised per rows array: every LINE ITEM of the sheet as the own-row rule reads it -- its
  * excel row and its text (the description and its own row notes). A heading never quotes an item; a line item does.
  */
-const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string }>>();
-export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string }> {
+const SHEET_LINES_CACHE = new WeakMap<readonly PricedRow[], ReadonlyArray<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string; headings?: readonly string[] }>>();
+export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string; headings?: readonly string[] }> {
   const hit = SHEET_LINES_CACHE.get(rows);
   if (hit) return hit;
   // DU-1 (DR7 / G-3): each line also carries its unit and its nearest heading (the duct-insulation check reads a row whose duct
   // words sit only in its heading, and the rows' quantities in their units). Every earlier reader ignores both.
-  const out: Array<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string }> = [];
+  const out: Array<{ row: number; text: string; preamble?: boolean; unit?: string; heading?: string; headings?: readonly string[] }> = [];
   for (const r of rows) {
     const nt = (r.node_type ?? "").trim();
     // VRF-6 (F4, 00234 r55): a Preamble may be rate-editable (a quantity-bearing heading) -- flagged, and kept by the VRF-6 rule
@@ -136,7 +136,10 @@ export function sheetLinesOf(rows: readonly PricedRow[]): ReadonlyArray<{ row: n
     const heads = rowHeadings(r, rows);
     const unit = typeof r.unit === "string" && r.unit.trim() !== "" ? r.unit.trim() : undefined;
     out.push({ row: r.source_row_number, text: [r.description ?? "", typeof rn === "string" ? rn : ""].filter((t) => t.trim() !== "").join(" | "), ...(preamble ? { preamble: true } : {}),
-      ...(unit ? { unit } : {}), ...(heads.length ? { heading: heads[heads.length - 1] } : {}) });
+      ...(unit ? { unit } : {}), ...(heads.length ? { heading: heads[heads.length - 1] } : {}),
+      // DU-2 K1b (owner QR-4 Q1 (a), 2026-11-16): the whole heading chain, root first -- the duct-insulation check reads a row whose
+      // duct word sits in ANY heading above it ("Insulation" under "Duct insulation"), not only the nearest
+      ...(heads.length > 1 ? { headings: heads } : {}) });
   }
   SHEET_LINES_CACHE.set(rows, out);
   return out;

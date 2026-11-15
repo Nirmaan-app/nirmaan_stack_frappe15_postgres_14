@@ -4883,6 +4883,17 @@ function priceOneItem(
           got = readNumber(rawValue(item, src), reader);
           if (got !== null) break;
         }
+        // DU-2 K1b (owner 2026-11-15 23:57 R-DOUBT: "20mm thick PIR Panels" -> "PIR ducts" = PIR duct 20 mm): on a sheet-gauge axis, a
+        // family it does NOT read as a gauge (PIR panels: a thickness in mm) with nothing read takes the row's OWN "NN mm thick" words --
+        // the model leaves a panel thickness out of the gauge answer ("never an insulation thickness"). Only a config with a gauge axis
+        // reaches this, so every other category is byte-identical.
+        if (got === null && reader.gauge && family !== null) {
+          const m = /(?<![\d.])(\d+(?:\.\d+)?)\s*mm\s*(?:thick|thk)\b/i.exec(ownText);
+          if (m) {
+            got = { value: Number(m[1]) };
+            (out.gaugeNotes ??= {})[attr] = `${String(family)} thickness not in the gauge answer - the row's own words say "${m[0]}" -> ${m[1]} mm`;
+          }
+        }
       }
       // ADP-2 (owner H7 / Q2 / Q3): nothing typed -- a BOX SIDE read from the size as written (L x W x H, a label
       // winning), or any other unit's number read from the attribute as one number (the area band, its largest value);

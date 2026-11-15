@@ -166,6 +166,50 @@ describe(`DU-2 K1 fixes on ${LATEST}`, () => {
     expect(tot(panel(WITH, [D(RECT, "24 gause")]))).toEqual([1080, 260]);
     expect(tot(panel(WITH, [D(RECT, "18 SWG")]))).toEqual([1800, 260]);
   });
+  // ── K1b ────────────────────────────────────────────────────────────────────────────────────────────
+  it("K1b PIR pos: a PIR row whose gauge answer is blank takes the row's own '20mm thick' words (owner R-DOUBT 'PIR ducts')", () => {
+    const v = panel(WITH, [D("PIR (Pre Insulated Duct)", null)], "Sqm", "SITC of 20mm thick PIR Panels with 80-80 micron embossed aluminium");
+    expect(v.rowPriced).toBe(true);
+    expect(tot(v)).toEqual([1280, 340]);
+    expect(JSON.stringify(v)).toContain("the row's own words say \\\"20mm thick\\\" -> 20 mm");
+  });
+  it("K1b PIR neg: no thickness words -> still refused; a GI row's blank gauge never reads 'mm thick' words", () => {
+    expect(panel(WITH, [D("PIR (Pre Insulated Duct)", null)], "Sqm", "SITC of PIR Panels").rowPriced).toBe(false);
+    const gi = panel(WITH, [D(RECT, null)], "Sqm", "GI duct with 25 mm thick insulation");
+    expect(JSON.stringify(gi)).not.toContain("thickness not in the gauge answer");
+  });
+  it("K1b labour pos: 'Labour Charges for GI Duct Erections' read Installation only -> the duct installation only, with the owner's note", () => {
+    const v = panel(WITH, [D(RECT, "24G", { scope: "Installation only" })], "Sqm", "Labour Charges for GI Duct Erections , Thermal insulation, Accoustic");
+    expect(v.rowPriced).toBe(true);
+    expect(tot(v)).toEqual([0, 260]);
+    expect(JSON.stringify(v)).toContain("labour only - duct installation priced");
+  });
+  it("K1b labour neg: installation wording without labour words keeps O10 (iii) supply + installation", () => {
+    const v = panel(WITH, [D(RECT, "24G", { scope: "Installation only" })], "Sqm", "Installation of GI ducts");
+    expect(tot(v)).toEqual([1080, 260]);
+    expect(JSON.stringify(v)).not.toContain("labour only");
+  });
+  // QR-4 Q1 (a): DR7 reads every heading of a separate insulation row's chain
+  const sheetPanel = (chain: string[]) => {
+    const duct = { excel_row: 9, description: "GI duct", category_id: DUCT, attributes: {}, items: [mi(D(RECT, "24G", { insulated: "Yes" })),
+      mi({ _section: "insulation", item: "Thermal Nitrile Insulation", thickness_mm: "9 mm", cladding: "None" })] };
+    const ins = { excel_row: 40, description: "9 mm thick", category_id: "hvac_insulation", attributes: {}, items: [] };
+    const h = makePricingSheetHelper({ configsByCategory: cfgs(WITH) as never, items: ITEMS as never, extractionByRow: buildExtractionByRow([duct, ins] as never) });
+    return (h.compute({ excelRow: 9, description: "GI duct", nodeType: "Line Item", category: DUCT, discipline: "HVAC", rateKinds: KINDS, unit: "Sqm",
+      headings: [], ownNotes: [], headingNotes: [],
+      sheetLines: [{ row: 9, text: "GI duct", unit: "Sqm" }, { row: 40, text: "9 mm thick", unit: "Sqm", heading: chain[chain.length - 1], headings: chain }],
+      sheetCategories: { 9: DUCT, 40: "hvac_insulation" }, rowQuantities: { 9: 100, 40: 100 } } as never, {}) as unknown as ItemListSuggestion).itemList!;
+  };
+  it("QR-4 Q1 (a) pos: an insulation row under 'Insulation' within 'Duct insulation works' is the sheet's own duct insulation -> not priced again", () => {
+    const v = sheetPanel(["Duct insulation works", "Insulation"]);
+    expect(JSON.stringify(v)).toContain("Duct insulation is quoted on its own row");
+    expect(tot(v)).toEqual([1080, 260]);
+  });
+  it("QR-4 Q1 (a) neg: under 'Pipe insulation' > 'Insulation' (no duct word anywhere) the duct's insulation line is priced", () => {
+    const v = sheetPanel(["Pipe insulation", "Insulation"]);
+    expect(JSON.stringify(v)).not.toContain("Duct insulation is quoted on its own row");
+    expect((v.totals?.supply_rate ?? 0) > 1080).toBe(true);
+  });
   it("R-TYPO neg: a word that is no gauge spelling ('24 gaus') is not read as a gauge", () => {
     const v = panel(WITH, [D(RECT, "24 gaus")]);
     expect(v.rowPriced).toBe(false);

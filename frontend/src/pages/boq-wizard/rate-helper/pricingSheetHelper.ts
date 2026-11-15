@@ -3433,6 +3433,9 @@ function itemBlockView(
       }
       const gl = res.gaugeNotes?.[f.skuAttr];
       if (gl) note = gl;
+    } else if (gaugeAxis && res.gaugeNotes?.[f.skuAttr]) {
+      // DU-2 K1b: a family the axis reads as plain mm (PIR) whose thickness came from the row's own words says so on its field
+      note = res.gaugeNotes[f.skuAttr];
     }
     // SLICE 12e-5b (owner R6, AC1): a size written two ways that do not agree ('1/2" (15.9mm)') refused the row --
     // the box shows no figure it refused on (the inch half alone would read as a stocked size), and the line says why
@@ -5404,6 +5407,10 @@ export const VP5_SCOPE = {
   install_words: /\binstall\w*|\bfixing\b|\bcommission\w*|\bSITC\b|\berection\b|\blaying\b/i,
   // owner-approved wording (02:24, VP5-16): shown ALONE, without the standard supply-only sentence
   pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here (owner QR-2)",
+  /** DU-2 K1b (owner QR-1 Q1 (a), 2026-11-16 01:27): a "labour charges" row is the duct's installation only -- on a scope whose own
+   *  supply-row uplift is set (Ducting, G-4) only, so the Valve Package's rule is unchanged */
+  labour: /\blabou?r\s+(?:charges?|only|cost)\b/i,
+  labour_note: "labour only - duct installation priced; insulation installation is priced by Insulation's own rows (owner QR-1 Q1)",
 } as const;
 
 function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined,
@@ -5609,11 +5616,13 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   //   (iii) otherwise -> SUPPLY + INSTALLATION, with the note (we do end to end).
   // The calculator states its scope itself and never reaches (ii) / (iii).
   let refixSaid: string | null = null;
+  let labourSaid = false;
   // the Valve Package only (its scope is `pricing.scope`; VRF's lives under `extras` and keeps its own installation-only rule, VRF-6)
   if (!supplyOnly && !installNormal && !calculator && forced === undefined && !spec.extras && sc.supply_row && supplyRows.length === 0) {
     const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
     const m = ownText.replace(VP5_SCOPE.handling, " ").match(VP5_SCOPE.refix);
     if (m) refixSaid = m[0].trim();
+    else if (sc.supply_row?.uplift && VP5_SCOPE.labour.test(ownText)) labourSaid = true;
     else return { ...res, itemList: { ...view, scope: { value: sc.options[0], note: VP5_SCOPE.both_note } } };
   }
   // DU-1 (G-4): an installation-only uplift is a PERCENTAGE -- 0 is a set value (Ducting's 0% today = the normal rate), only an
@@ -5626,7 +5635,7 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   const uplift = normalRate && !upliftOnSupplyRow ? 0 : uplift0;
   if (!supplyOnly && !calculator && sc.supply_row && !installNormal) {
     extraNote = supplyRows.length ? sc.supply_row.with_row.replace("{rows}", rowsWord(supplyRows))
-      : refixSaid !== null ? VP5_SCOPE.refix_note.replace("{said}", refixSaid) : sc.supply_row.no_row;
+      : refixSaid !== null ? VP5_SCOPE.refix_note.replace("{said}", refixSaid) : labourSaid ? VP5_SCOPE.labour_note : sc.supply_row.no_row;
   }
   // the row's scope as the calculator states it: a panel row whose sheet quotes the supply elsewhere shows the normal-rate option
   const shownValue = supplyRows.length && sc.install_only_normal ? sc.install_only_normal : value;
@@ -7475,7 +7484,9 @@ export function sheetInsulationOf(si: NonNullable<ItemListPricingSpec["sheet_ins
     const it0 = (extractionByRow.get(l.row) as ExtractionRowWithItems | undefined)?.items?.[0];
     const fam = it0?.attributes?.[fa]?.value;
     const heading = l.heading ?? "";
-    const separate = l.row !== ctx.excelRow && ((cat === si.category && (ductRe.test(l.text) || ductRe.test(heading)))
+    // DU-2 K1b (owner QR-4 Q1 (a)): a duct word in ANY heading of the row's chain marks a separate duct-insulation row
+    const chain = (l.headings ?? []).join(" > ") || heading;
+    const separate = l.row !== ctx.excelRow && ((cat === si.category && (ductRe.test(l.text) || ductRe.test(chain)))
       || (cat === ownCategory && insRe.test(l.text) && (typeof fam !== "string" || fam === "" || fam === "None")));
     if (separate) {
       rows.push({ row: l.row, qty: sqmOf(qtyOf(l.row), l.unit), unit: l.unit ?? null, kind: acRe.test(l.text) || acRe.test(heading) ? "acoustic" : "thermal",
