@@ -23,6 +23,8 @@ We decided:
   always be skipped. In CI: ESLint, the existing `tsc` ratchet (`yarn typecheck`), `type-coverage --strict` (an
   upward-only percentage that also sees `any` from library defaults), and the six residence checks that are not
   ADR-0010 rules (S1, R1, both P1, T1, T2). ADR-0010's five rules stay local until that ADR is accepted.
+  ADR-0010's rule F5 (no raw `updateDoc` call) skips `frontend/src/lib/frappe.ts`, which names
+  `useFrappeUpdateDoc` to re-export it but writes nothing (owner, 2026-11-16).
 - **SDK calls return `unknown` unless typed.** One module re-exports the frappe-react-sdk hooks with `T` defaulting to
   `unknown`, and a lint rule bans importing `frappe-react-sdk` directly. Callers move one folder per change
   (expand–contract), because flipping the default at once raised 1,113 `tsc` errors (682 in live code across about 130
@@ -41,6 +43,8 @@ We decided:
 - **Shared code before pages.** Folders are migrated after the folders they import from (shared components, utils,
   hooks, stores first), as VS Code did for `strictNullChecks`, and folder tickets are sized from what the first
   folder migration (the pilot) measured.
+  The pilot (#1694, `pages/customers/`) ran first, on a page folder, to measure the work per session; "shared code
+  before pages" governs the folder tickets cut after it.
 
 ## Considered options
 
