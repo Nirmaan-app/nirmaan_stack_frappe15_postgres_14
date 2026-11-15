@@ -5537,3 +5537,33 @@ other row explained.
 
 **Open (DU-2):** a removal stated only in the heading prices as new work (existing_work reads the row's own words, ADP's rule as built);
 DR7 / G-3 mode and limits for the owner to pick after DU-2's both-mode table.
+
+
+## Ducting - DU-2 additions (HVAC v72 / v73 / v74, 2026-11-16) - as built
+
+Owner rulings: the DU-1 cert (2026-11-15 23:29-23:31: C8, findings a / b / c), the 23:57 row rulings (R-DUCT, R-PAINT, R-REMOVAL, R-TYPO,
+R-DOUBT, R-NOTE-ORDER) and 2026-11-16 00:06 ("only if the user classified it as duct"), QR-1 (Q1 a, Q2 a), QR-4 Q1 (a, decided while
+asleep, revertible). Commits K1 45c4dbcdb, K2 e354c8475 (v72), K1b 0c9a1e469, K2b 1a2d1bc5d (v73), K1c 97b59a48b, K2c b1eef8479 (v74).
+
+- **The item of the row decides (R-DUCT, v72 guidance):** a row filed Ducting whose ITEM is a duct is priced as a duct; dampers, plenums,
+  grilles, attenuators, flexible duct, butterfly dampers, access doors named as what the duct connects to or what else is supplied are
+  extras (a third DR10 note names plenum boxes / attenuators / silencers / flexible duct). Only the user's category decides which helper
+  prices a row: a duct the user filed elsewhere is not read by Ducting. The `no_sku_refusals` sentences fire only on a model 'none of
+  these' reading (the tab says "A row the model reads as not a duct, whose words name ...").
+- **Re-file note before the unit check (R-NOTE-ORDER):** on a config declaring `no_sku_refusals`, a no-SKU first item refuses with its
+  re-file sentence before the blank-unit / whole-lot / unit checks, with no lot bar; new entries valve -> Valve Package, copper /
+  refrigerant pipe -> Piping, VRF / AC units -> VRF; `no_sku_refuse_default` covers any other non-duct.
+- **Paint / coating-only rows (R-PAINT):** the model returns only the Misc item; a borrower section's `family_note` replaces the
+  borrowed family question's note in that section only (Misc's own note is the Valve Package's thermometer note - found at P0).
+- **Gauges:** SWG and the misspelling "gause" read as gauges. **R-PIR:** a PIR row with no gauge read takes its own "NN mm thick" words
+  (a field note says so). **R-LABOUR:** a "labour charges" row read installation only is the duct's installation only, on a scope whose
+  own supply-row uplift is set (Ducting) only.
+- **Round duct per metre (finding a):** `family_alias_needs` - "Round (GI) - per metre" reads only its gauge and diameter; the flat-oval
+  Width / Height boxes are not shown and never price it.
+- **DR7 heading chain (QR-4 Q1 a):** a separate insulation row counts when its own words or ANY heading above it name duct
+  (`sheetLinesOf` carries the chain). Measured: it moved 2 rows (00108 r145 / r147); 00140 / 00352's "Insulation" rows name no duct
+  anywhere in their chain - an owner question.
+- **The Ducting Payload Library:** BoQ main lane\Ducting_Payload_Library, built / verified / re-priced by scripts/ducting_library.py
+  (scripts/valve_library.py re-used unchanged); the pack harness is scripts/_instruments/ducting_pack_harness.ts (the calculator fed the
+  panel's sheet-level DR7 decision; G-3 "left for a person" classed SHEET RULE - the calculator has no sheet).
+- **C8 used-by:** Pricing Inputs "used by" counts a pricing-level scope's `uplift_input` (`scopeUses`), the server twin's rule.

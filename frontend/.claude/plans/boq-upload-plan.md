@@ -52100,3 +52100,19 @@ a 0% uplift read as "not set"; the section-family filter had changed Piping's re
 preview (DR4 per metre, DR3 0.83 mm, DR12 no-band gauge, DR14 insulation); the mint re-minting uids after a load.
 **B4 preview (stub, no model call):** 1,300 / 1,513 Ducting rows priced; vs DU-D0 D7 1,381 identical, 132 explained (44 D7 re-read,
 49 G-3, 38 half-up, 1 heading-only removal). **Open for DU-2:** heading-only removal; DR7 / G-3 mode and limits; the cert (C1-C9).
+
+## Slice DU-2 (laptop) - the DU-1 cert fixes, the 23:57 row rulings (HVAC v72 / v73 / v74), the paid read of the Ducting rows (partial), the Ducting Payload Library, the pack, the pre-pack - as built 2026-11-16
+
+**Code (K1 45c4dbcdb, K1b 0c9a1e469, K1c 97b59a48b):** C8 used-by counts a pricing-level scope's uplift (Valve, Ducting); `family_alias_needs`
+(a round duct per metre shows / reads only its diameter + gauge); no "BoQ says ... (your rule)" under a hand-picked kind; a typed diameter
+names the box's sizes; R-NOTE-ORDER (a non-duct's re-file sentence before any unit check, `no_sku_refuse_default`); "gause" / SWG read as
+gauges; a borrower section's `family_note` (Ducting's Misc question); R-PIR (a PIR row's thickness from its own "NN mm thick"); R-LABOUR
+(a labour-charges row = the duct's installation only); DR7 reads every heading above a separate insulation row; the Derivation wording
+chat-Claude returned (W1-W6). **Assets:** v72 (the 23:57 guidance: the ITEM decides, extras noted, paint-only rows -> their Misc item,
+re-file entries, the Misc family note), v73 / v74 display only (declared lines, reasons, Misc's unit-refusal sentence). Each load after a
+proven backup; every replay = vp5end3 on the 29,857 earlier rows. **Paid read:** STOPPED at the AI account's usage limit after 74 / 172
+sheets (684 / 1,513 rows, 1.33M tokens; QR-3 waits for the owner's "resume"); controls 0 moves; audit 684 / 684. **Library:**
+BoQ main lane\Ducting_Payload_Library (scripts/ducting_library.py re-using valve_library.py); LIB2 / LIB3 PASS. **Pack (684 rows, final
+code):** 592 priced; panel = calculator on every row a calculator can express. **Pre-pack (v74):** PP1 Python 134 / 5,069, vitest 198 /
+8,046, tsc 0 new; PP2 0 unexplained; PP3 nothing lost; PP4 rollback = v65; PP5 combined + Valve-only facts. **Open:** the rest of the
+read (98 sheets), the full pack, the cert; QR-4 (00140 / 00352 "Insulation" rows), QR-5 (round words with no type), DR7 / G-3 mode.
