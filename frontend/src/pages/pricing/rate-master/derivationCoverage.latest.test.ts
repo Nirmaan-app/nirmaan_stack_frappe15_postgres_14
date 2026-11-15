@@ -27,7 +27,7 @@ const sectionsOf = (cfg: Cfg): Record<string, Cfg> => Object.fromEntries((cfg?.l
   .map((s) => String(s?.category_id ?? "")).filter((id) => id && borrowOnly.includes(id) && C[id]).map((id) => [id, C[id]]));
 
 /** the categories held to 0 / 0 (owner: Valve Package and Ducting before DONE; Misc through the Valve Package's section) */
-const GUARDED = ["hvac_valve_package", "hvac_misc"];
+const GUARDED = ["hvac_valve_package", "hvac_misc", "hvac_ducting"];
 
 describe(`DU-1 THE GUARD on ${latest}: MISSING / ORPHAN = 0`, () => {
   for (const id of GUARDED) {
@@ -36,6 +36,8 @@ describe(`DU-1 THE GUARD on ${latest}: MISSING / ORPHAN = 0`, () => {
       const r = derivationCoverage(C[id], A.items, sectionsOf(C[id]));
       expect(r.missing).toEqual([]);
       expect(r.orphan).toEqual([]);
+      // DU-1 Part B: a category that declares its reasons gives every line one (UNREASONED 0)
+      if (Array.isArray((C[id].list_spec.pricing as { derivation_reasons?: unknown }).derivation_reasons)) expect(r.unreasoned).toEqual([]);
       expect(r.lines.length).toBeGreaterThan(10);
     });
   }

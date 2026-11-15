@@ -149,6 +149,9 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // is BORROW-ONLY -- fetched so the Valve Package panel and calculator price its 4 instruments under Misc's own rules, listed
       // neither in the calculator nor on the Rate Master page.
       { category_id: "hvac_misc", label: "Misc", fetch_only: true },
+      // DU-1 Part B (DU-D0 + the owner's rulings DR1-DR18): Ducting -- its own panel, calculator and Rate Master tab; it borrows
+      // Insulation (live) and Misc (Paint / Fire Retardant / Air Balancing) through its sections. Appended LAST: no entry moves.
+      { category_id: "hvac_ducting", label: "Ducting" },
     ],
   },
 ];

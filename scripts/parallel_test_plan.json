@@ -45,6 +45,15 @@
     "tabBoQ Rate Master Item"
    ]
   },
+  "nirmaan_stack.api.boq.test_hvac_v71_du1": {
+   "seconds": 9.5,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
   "nirmaan_stack.api.boq.test_match_estimate": {
    "seconds": 15.8,
    "series": [],
@@ -2580,6 +2589,12 @@
   },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_du1": {
    "seconds": 8.5,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_du1b": {
+   "seconds": 7.6,
    "series": [],
    "writes": [],
    "reads": []

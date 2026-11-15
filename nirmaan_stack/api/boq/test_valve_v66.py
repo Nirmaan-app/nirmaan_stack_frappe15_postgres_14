@@ -142,8 +142,8 @@ class TestValveAssetV66(FrappeTestCase):
     def test_05_v66_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V66))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 70)  # DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE nums[-1] == 69; VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE nums[-1] == 68; VP-4 (BEFORE nums[-1] == 67); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66
-        self.assertEqual(nums, list(range(1, 71)))  # DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE list(range(1, 70)); VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE list(range(1, 69)); VP-4 (BEFORE list(range(1, 68))); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67))
+        self.assertEqual(nums[-1], 71)  # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70; DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE nums[-1] == 69; VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE nums[-1] == 68; VP-4 (BEFORE nums[-1] == 67); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66
+        self.assertEqual(nums, list(range(1, 72)))  # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71)); DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE list(range(1, 70)); VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE list(range(1, 69)); VP-4 (BEFORE list(range(1, 68))); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67))
         self.assertTrue(os.path.exists(_asset_path(V65)))
 
     def test_06_live_catalogue_is_v66(self):
@@ -153,7 +153,9 @@ class TestValveAssetV66(FrappeTestCase):
         # BEFORE: equal to v67's
         # VP-5 (HVAC v69 LOADED; mechanical authority): v69's now (proved by test_valve_v69). BEFORE: equal to v68's
         # DU-1 (HVAC v70 LOADED; mechanical authority): v70's now (the declared Derivation lines; proved by test_hvac_v70_du1). BEFORE: live == v69's
-        v67 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v70.json")["category_configs"]}
+        # DU-1 Part B (HVAC v71 LOADED; mechanical authority): v71's now (Misc gains the Ducting Misc-tab families + borrowers_ask_offered_only;
+        # the Valve Package is unchanged; proved by test_hvac_v71_du1). BEFORE: live == v70's
+        v67 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v71.json")["category_configs"]}
         for cid in (VALVE, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
@@ -165,4 +167,4 @@ class TestValveAssetV66(FrappeTestCase):
             live = json.loads(row[0][0]) if isinstance(row[0][0], str) else row[0][0]
             self.assertEqual(_norm(live), _norm(self.cfg[cid]), cid)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 722)
+        self.assertEqual(n, 743)   # DU-1 Part B (HVAC v71 LOADED; mechanical authority): + 15 duct, 5 Misc-tab items, 1 input. BEFORE 722

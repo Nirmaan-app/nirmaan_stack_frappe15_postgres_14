@@ -176,8 +176,8 @@ class TestVrf3bAssetV59(FrappeTestCase):
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
         # INVERTED at VRF-4 (HVAC v60; a test failing solely because it names the current HVAC asset) by mechanical authority: BEFORE `nums[-1] == 59` and `range(1, 60)`
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `nums[-1] == 60` and `range(1, 61)`
-        self.assertEqual(nums[-1], 70)  # DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE nums[-1] == 69; VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE nums[-1] == 68; VP-4 (BEFORE nums[-1] == 67); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66 (VP-1), 65
-        self.assertEqual(nums, list(range(1, 71)))  # DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE list(range(1, 70)); VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE list(range(1, 69)); VP-4 (BEFORE list(range(1, 68))); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67)) (VP-1), list(range(1, 66))
+        self.assertEqual(nums[-1], 71)  # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70; DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE nums[-1] == 69; VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE nums[-1] == 68; VP-4 (BEFORE nums[-1] == 67); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE nums[-1] == 66 (VP-1), 65
+        self.assertEqual(nums, list(range(1, 72)))  # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71)); DU-1 (HVAC v70 minted + loaded; mechanical authority): BEFORE list(range(1, 70)); VP-5 (HVAC v69 minted + loaded; mechanical authority): BEFORE list(range(1, 69)); VP-4 (BEFORE list(range(1, 68))); VP-3 (HVAC v67 minted + loaded; mechanical authority): BEFORE list(range(1, 67)) (VP-1), list(range(1, 66))
         self.assertTrue(os.path.exists(_asset_path(V58)))
 
     def test_07_live_catalogue_is_v59(self):
@@ -196,6 +196,6 @@ class TestVrf3bAssetV59(FrappeTestCase):
                          _norm({k: v for k, v in self.ex.items()} | {"lines": None, "cable": None}))
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `self.assertEqual(n, 566)` -- + the 13 VRF-5 inputs
-        self.assertEqual(n, 722)   # VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585 (VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE n == 579)
+        self.assertEqual(n, 743)   # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585 (VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE n == 579)
         ids = {r[0] for r in frappe.db.sql('select attributes::json->>%s from "tabBoQ Rate Master Item" where active=1 and discipline=%s and kind=%s', ("item", "HVAC", INPUT_KIND))}
         self.assertTrue(set(self.inp) <= ids)
