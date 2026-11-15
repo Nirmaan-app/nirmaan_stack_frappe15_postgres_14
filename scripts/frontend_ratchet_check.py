@@ -56,11 +56,12 @@ def at_least(pkg):
 
 def read_at(root, ref, path):
     """The JSON of <path> at git <ref>; None when the file did not exist there."""
-    shown = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{path}"], capture_output=True, text=True)
-    if shown.returncode != 0:
-        if "does not exist" in shown.stderr or "exists on disk, but not in" in shown.stderr:
-            return None
-        sys.exit(f"git show {ref}:{path} failed: {shown.stderr.strip()}")
+    git = ["git", "-C", str(root)]
+    if subprocess.run([*git, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], capture_output=True).returncode:
+        sys.exit(f"git: {ref} is not a commit here (fetch the PR's base branch first)")
+    if subprocess.run([*git, "cat-file", "-e", f"{ref}:{path}"], capture_output=True).returncode:
+        return None
+    shown = subprocess.run([*git, "show", f"{ref}:{path}"], capture_output=True, text=True, check=True)
     return json.loads(shown.stdout)
 
 
@@ -70,9 +71,16 @@ def main(argv=None):
     parser.add_argument("--root", default=str(ROOT), help="the repository root (default: this script's repo)")
     args = parser.parse_args(argv)
     root = Path(args.root)
+    base_supp = read_at(root, args.base_ref, SUPPRESSIONS)
+    if not (root / SUPPRESSIONS).exists():
+        if base_supp is None:
+            print(f"✓ frontend ratchet: no {SUPPRESSIONS} on either side yet")
+            return 0
+        print(f"✘ {SUPPRESSIONS} was deleted: that drops the ratchet. Keep it (ADR-0049).", file=sys.stderr)
+        return 1
 
     problems = loosenings(
-        read_at(root, args.base_ref, SUPPRESSIONS),
+        base_supp,
         json.loads((root / SUPPRESSIONS).read_text()),
         read_at(root, args.base_ref, PACKAGE) or {},
         json.loads((root / PACKAGE).read_text()),

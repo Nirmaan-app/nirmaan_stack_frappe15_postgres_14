@@ -105,6 +105,18 @@ class CommandLine(unittest.TestCase):
     def test_an_unchanged_working_tree_exits_0(self):
         self.assertEqual(self.run_script().returncode, 0)
 
+    def test_a_deleted_suppressions_file_exits_1_and_says_so(self):
+        (self.repo / "frontend/eslint-suppressions.json").unlink()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("eslint-suppressions.json was deleted", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_no_suppressions_file_on_either_side_exits_0(self):
+        self.git("rm", "-q", "frontend/eslint-suppressions.json")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "no ratchet")
+        self.assertEqual(self.run_script().returncode, 0)
+
     def test_the_change_that_first_adds_the_ratchet_exits_0(self):
         self.git("rm", "-q", "frontend/eslint-suppressions.json")
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "no ratchet")
