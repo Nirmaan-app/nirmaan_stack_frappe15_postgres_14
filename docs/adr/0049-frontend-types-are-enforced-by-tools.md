@@ -44,7 +44,7 @@ We decided:
   hooks, stores first), as VS Code did for `strictNullChecks`, and folder tickets are sized from what the first
   folder migration (the pilot) measured.
   The pilot (#1694, `pages/customers/`) ran first, on a page folder, to measure the work per session; "shared code
-  before pages" governs the folder tickets cut after it.
+  before pages" governs the folder tickets cut after it (added 2026-11-16).
 
 ## Considered options
 
