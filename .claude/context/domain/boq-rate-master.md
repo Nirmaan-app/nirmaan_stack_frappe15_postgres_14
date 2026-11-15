@@ -3487,6 +3487,39 @@ K1b 06173f010 tools, K1c e0f27f1c0).**
   text in the Other box) 30 rows refuse in the calculator only and 1 differs: the calculator's typed-size box (slice 12e-2) accepts
   one clean size, so "32 mm NB" / "Φ 40 mm" refuse there; typed as the panel resolves them they price equal. Open item, a UI change.
 
+**VP-5: THE VP-4 ALL-ROWS REVIEW RULINGS (E1-E12), ONE INSTALLATION-ONLY RULE FOR VALVES AND MISC, THE SUPPLY / INSTALLATION PAIR
+RULE, HVAC v69 (owner 2026-11-14 22:08-22:40; QR-1 "a a a" 23:58; QR-2 "option a" 00:32; VP5-16 wording "yes" 02:24; K1 582abdea7,
+K2 0e2a844d7 v69, K1d c14068066, K1e bac21fd71 pack tool, K1f f4c1a603a, adb686237 library tool).**
+- **The reading rules (`valveReviewNets`; each reads its ruling's own words, writes its line whether a rule or the model made the
+  reading, never twice):** E1 a "with and without strainer" heading over size-only rows -> the valve alone + "add Y-strainers by hand".
+  E2 an NRV the row or its heading calls swing check -> refused by name ("No SKU in the catalogue for swing check NRV - price this row
+  by hand"; never priced as Flanged / Dual Plate). E3 a differential pressure gauge -> the ordinary Misc gauge price + note. E4 a
+  thermometer "with (necessary) isolation valves" -> one thermometer + note (no valve item). E6 a pressure-gauge PROVISION (sockets,
+  ball valves, siphon to fix a gauge later) -> the Misc Test Plug 720 / 100 + note. E7 a balancing valve with INTEGRATED P/T test points
+  -> the balancing valve alone + note. E8 an on-off pressure independent valve -> the PIBCV price + check-price note. E9 an air vent
+  named ONLY in the heading over a row whose own words describe ONLY a ball valve -> the ball valve alone, no note; an air purge / air
+  release valve / air eliminator in the row's words IS the air vent, and "... with (a) ball valve" means the heading's item comes with
+  a ball valve (VP-3 C2) -- both keep the air vent (K1d; found at VP-5 B4). E10 "with out valve" -> supply + installation + "this may
+  be installation only; check before quoting". E12 no empty note line (a pack-tool fix; the panel never showed one).
+- **E11 INSTALLATION ONLY, one rule for valves AND Misc (`withScopeCore`; the Valve Package only -- gated `!spec.extras`, VRF keeps its
+  own):** (i) the sheet quotes the item's SUPPLY on its own row -> the normal installation rate, supply 0 (the VR9 note naming that row);
+  (ii) the row's OWN text refixes / reinstalls / shifts / relocates the item, or "existing" / "old" qualifies the item (never a pipe /
+  line; "lifting, shifting, positioning at site" is material handling, not a refix) -> installation x 1.5 + note; (iii) otherwise ->
+  supply + installation + "BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to
+  end)". Misc items now carry the valve's scope question (v69).
+- **THE PAIR RULE (QR-2 (a)), valves AND Misc:** a row whose own words start "Supply of" / "Supplying of" (and name no installation) and
+  whose same-kind installation-only row is on the same sheet -> Supply only, with ONLY the note "Installation is quoted on its own row
+  on this sheet, so priced supply only here" (owner 02:24: the standard "BoQ says supply only" sentence is not shown -- the BoQ does not
+  say it; a real supply-only row keeps the standard note). Installation is charged once, on its own row.
+- **HVAC v69 (`scripts/_instruments/mint_hvac_v69_vp5.py`; v68 + the Valve Package and Misc configs only, items byte-identical):** the
+  E1 / E2 / E7 / E8 / E9 / E10 / E11 guidance in the valve question notes, E3 / E4 / E6 in the Misc item note, the Misc scope question
+  (the valve's scope definition, refix words); second opinion OFF. test_valve_v69 proves the asset = the mint's own transformation of v68.
+- **The pack shows the Scope note** (`valve_pack_harness.ts` `scopeNote`; `row_block` prints it): E11 / QR-2 / VR9 wording lives on
+  `itemList.scope.note`, not on an item's lines. The replay harness (ac7) prices one row at a time and cannot see a sheet's other rows:
+  sheet-level rules (E11 (i), the pair rule) are proven on the PAGE harness, never on the replay.
+- **Calculator vs panel on all 1,493 rows (VP-5):** 1,472 EQUAL + 21 WORDING (the E2 swing rows: the panel names "swing check NRV", the
+  calculator quotes the model's "Swing check"; both refuse), 0 FIGURE.
+
 **AFTER EVERY ASSET MINT, THE PIN SEARCH RUNS BEFORE ANY SUITE (TOOL-1, owner R-SPEED point 6).**
 `python3 scripts/asset_pin_search.py --discipline <HVAC|Electrical> --new-version <N>` (from the app root; stdlib; reads the
 test files and the data dir) lists every test pin of the asset the mint replaced, with file:line and the test that holds

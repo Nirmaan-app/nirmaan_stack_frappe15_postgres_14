@@ -52031,3 +52031,52 @@ Python run was stopped at 22:45 by that ruling (70 modules OK, partial - not a r
 
 **Open:** the calculator's typed-size forms ("32 mm NB", "Φ 40 mm"); Error Log 410 -> 346 = Frappe's log clean-up ran when bench started;
 the desktop's partial VP-4 session (O8) needs a catch-up decision; nothing pushed (the 4 VP-3 commits + VP-4's ride together).
+
+## Slice VP-5 (laptop) - the VP-4 all-rows review rulings (E1-E12), one installation-only rule for valves + Misc, the supply / installation pair rule, HVAC v69, a 63-row re-read, the library extended, one pre-pack for VP-3 + VP-4 + VP-5 - as built 2026-11-15
+
+Laptop (desktop offline), from 821b18017. Deliverables: `BoQ main lane\VP-5\` (Report, Ledger, QR-1 / QR-2, reread_list.tsv, AllRows.xlsx,
+Rows.xlsx, allrows\review_chunks (23), payload_archive\part1, hand_check, scratch (PP2-PP5), cert screenshots) and the
+`Valve_Payload_Library\` (extended in place).
+
+**Commits:** K1 582abdea7 - `valveReviewNets` E1 / E2 / E4 / E6 / E7 / E8 / E9 + the E3 / E10 notes; `withScopeCore` E11 (i) / (ii) / (iii)
+for valves AND Misc (gated `!spec.extras`) and the QR-2 pair rule; Misc sheet-line families read through the section config;
+`valve_library.py` row_block skips empty notes (E12) (+31 tests). K2 0e2a844d7 - HVAC v69 (valve + Misc configs only: E1-E11 guidance, the
+Misc scope question) + 33 tool pins + 26 series lines + 3 live inversions + test_valve_v69; test_valve_v68 / test_config_validation_vp4
+measured into the parallel plan. K1d c14068066 - E9 narrowed (found at B4): an air purge / release valve IS the air vent; "... with ball
+valve" keeps the heading's air vent (VP-3 C2) (+2 tests). K1e bac21fd71 - the pack shows the Scope note; the pack tools read v69. K1f
+f4c1a603a - pair rows show only the owner's pair wording (02:24) (+1 test). adb686237 - library build `--live-label`. K3 docs (this entry,
+boq-rate-master.md VP-5 section).
+
+**Rulings asked during the slice:** QR-1 "a a a" (strict refix wording; Misc pair; E12 tool-only); QR-2 "option a" (one pair rule for valves +
+Misc; my QR-1 Q2 premise had been wrong); VP5-16 "yes" (pair note alone, approved wording).
+
+**Re-read:** 63 rows / 17 sheets, 17 calls, 207,448 tokens (in 169,647 / out 37,801; central 200,976; HARD CAP 321,562), auto-go, 0 failures,
+0 second-opinion calls, no override. Stub PASS; controls hold (887 prior runs byte-identical, 1,323 carried rows equal); audit 63 / 63
+byte-equal + EA-7 PASS; hand check 20 / 20. vs VP-4: 15 figure moves, every one ruled - E2 7 refused by name, QR-2 4 supply only (00104 r47
+Misc + r51 / r53 / r55 valves, code), E6 2 priced 720 / 100, E11 (i) r48 0 / 500, E9 00365 r68 682 / 1,000; 0 regressions. The 63 rows
+Rs 36,27,792 -> 30,11,369 (mostly the E2 refusals). Replay vp5end3 (ac7 4ee1ae2b / ac7v2 b1898b33, 29,857 rows) = the new baseline.
+
+**B4 lesson:** a replay move tied by a family change alone is not tied - 7 of 8 "E9" moves were outside the ruling (fixed by K1d before any
+deliverable). The replay harness prices one row at a time, so sheet-level rules (E11 (i), the pair rule) are proven on the PAGE harness.
+
+**Library:** 1,493 rows (VP-5 63 / VP-4L 315 / VP-3 255 / VP-2 p2 386 / p1 474), history 633, specs 4, MANIFEST 2,149 files; all 2,322
+archived records re-cut equal; LIB2 PASS; LIB3 20 / 20 (5 re-read rows).
+
+**Pack:** all 1,493 rows panel + calculator: 1,472 EQUAL + 21 WORDING (the 7 E2 swing rows name the item differently, both refuse), 0
+FIGURE. Chat-Claude's blind review: CORRECT 1,246 / CORRECT_REFUSAL 180 / WRONG 0 / WRONG_REFUSAL 0 / DOUBTFUL 7 / PARENTING 60.
+
+**Pre-pack (once, VP-3 + VP-4 + VP-5):** PP1 Python 126 / 126 modules (5,016 tests, 3 lanes), vitest pages/boq-wizard + pages/pricing 187 /
+187 files (7,630 tests), tsc 0 new. PP2 production (23c014fd9 + v65 / v72) vs tip + v69: 1,526 rows differ, 0 unexplained (valve 1,255 newly
+priced + 238 refuse both; the 33 D6 rows; 19 categories unchanged). PP3 v65 -> v69 loses / changes nothing (+124 valve, +12 Misc, +1
+input). PP4 on scratch DBs: prod-equivalent = v65 by content; load v69 15.2 s; plain v65 re-load refused (lesson 62); rollback restore
+60 s = v65; scratch DBs dropped. PP5: migrate no, restart yes, yarn build yes; 50 check rows.
+
+**Cert C1-C10 PASS (34 screenshots)** at :8080 after a full de-stale (the owner logged in again at :8080; a :8000 Desk login had left a
+CSRF token that blanked every :8080 page): every E1-E11 row on screen as ruled, the pair rows with only the owner's wording;
+calculator = panel to the rupee on every priced step and on one row per valve / Misc family; E11 (ii) / (iii) have no rows in the data
+(tests only); E2 cannot be typed into the calculator (no "none of these" item). dev_isolate --yes / --verify (re-verified 90 s later)
+with the cert tab closed first. The Scope note shows its owner tag on screen ("(owner QR-2)", like VR9's) - for review.
+
+**Open:** the 7 DOUBTFUL rows (bare "Purge Valve" refused x3; "Thermowell with Valve" refused (00234 r222 + 3 same-wording rows); FCU Set
+"with & without strainer" 00357 r135-137 priced 2 ball valves + 1 strainer) - owner rulings later; the calculator's typed-size forms (from
+VP-4); vp4l_b2check scratch DB left (VP-4L's); nothing pushed (15 commits since origin's 21e30a96d + K3).
