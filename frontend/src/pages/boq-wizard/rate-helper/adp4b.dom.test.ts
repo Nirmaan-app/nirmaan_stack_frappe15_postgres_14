@@ -90,10 +90,11 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
         // VRF-1: BEFORE `cfgOf(assetOf(p.discipline), c.category_id)` for every category
         // VP-1: the Valve Package from v66, config and items (BEFORE: the two-way VRF-1 choice below for every category)
         const valve = c.category_id === "hvac_valve_package";
-        // DU-1 Part B: Ducting from v71, config and items, with Insulation + Misc (its sections) from the same asset
+        // DU-1 Part B: Ducting from v71, config and items, with its BORROW-ONLY section's config (Misc) from the same asset -- as the
+        // page fetches it (FIX-4: only fetch_only categories are nested; Insulation keeps its own tab)
         const duct = c.category_id === "hvac_ducting";
         const config = duct ? cfgOf(H71, c.category_id) : valve ? cfgOf(H66, c.category_id) : c.category_id === "hvac_vrf" ? cfgOf(V55, c.category_id) : cfgOf(assetOf(p.discipline), c.category_id);
-        const sections: Record<string, RateCategoryConfig> | undefined = duct ? { hvac_insulation: cfgOf(H71, "hvac_insulation"), hvac_misc: cfgOf(H71, "hvac_misc") } : valve ? { hvac_misc: cfgOf(H66, "hvac_misc") } : undefined;
+        const sections: Record<string, RateCategoryConfig> | undefined = duct ? { hvac_misc: cfgOf(H71, "hvac_misc") } : valve ? { hvac_misc: cfgOf(H66, "hvac_misc") } : undefined;
         const { host, cleanup } = renderDerivation(config, duct ? H71_ITEMS : valve ? H66_ITEMS : itemsOf(p.discipline), p.discipline, sections);
         try {
           const list = host.querySelectorAll('[data-testid="rate-master-item-list-order"] li').length;
@@ -163,8 +164,9 @@ describe("AC1 -- the Derivation tab is the rules listing on every category (owne
       // INVERTED at DU-1 FIX-1 / FIX-2 / FIX-4 (owner 2026-11-15 13:30-13:41 + QR-1 Q1 (a); mechanical authority): WAS "list 23" -- + the
       // drain-valve and text_notes lines, the pair-rule line, and Misc's own rules nested under its section line (each an <li>)
       "HVAC/hvac_valve_package": "list 43",
-      // DU-1 Part B: Ducting's rules list on v71 (its own lines + Insulation's and Misc's nested under their section lines)
-      "HVAC/hvac_ducting": "list 115",
+      // DU-1 Part B: Ducting's rules list on v71 = the page (cert C6, 2026-11-15): 53 own lines + Misc's 17 nested (Insulation is not
+      // borrow-only, so its lines stay on its own tab). The first pin (115) nested Insulation too - corrected (owner finding f, CH-DU1-9)
+      "HVAC/hvac_ducting": "list 70",
     });
   });
 
