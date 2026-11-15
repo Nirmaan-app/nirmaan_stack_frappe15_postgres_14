@@ -8,7 +8,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 
 import { CustomersSummaryCard } from "./components/CustomersSummaryCard"; // Adjust path
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { CustomersDocType as CustomersType } from "@/types/doctypes/Customers";
+import { CustomersDocType } from "@/types/doctypes/Customers";
 import { formatDate } from "@/utils/FormatDate";
 
 import {
@@ -19,7 +19,7 @@ import {
 } from "./customers.constants"; // Adjust path
 
 export default function CustomersPage() {
-  const columns = useMemo<ColumnDef<CustomersType>[]>(
+  const columns = useMemo<ColumnDef<CustomersDocType>[]>(
     () => [
       {
         accessorKey: "name",
@@ -39,7 +39,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Customer ID",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return row.name;
           },
         },
@@ -60,7 +60,7 @@ export default function CustomersPage() {
         size: 250,
         meta: {
           exportHeaderName: "Company Name",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return row.company_name;
           },
         },
@@ -78,7 +78,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Nickname",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return row.customer_nickname;
           },
         },
@@ -96,7 +96,7 @@ export default function CustomersPage() {
         size: 200,
         meta: {
           exportHeaderName: "Contact Person",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return row.company_contact_person;
           },
         },
@@ -130,7 +130,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Phone",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return row.company_phone;
           },
         },
@@ -148,7 +148,7 @@ export default function CustomersPage() {
         size: 220,
         meta: {
           exportHeaderName: "Email",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return row.company_email;
           },
         },
@@ -166,7 +166,7 @@ export default function CustomersPage() {
         size: 150,
         meta: {
           exportHeaderName: "Customer Creation Date",
-          exportValue: (row: CustomersType) => {
+          exportValue: (row: CustomersDocType) => {
             return formatDate(row.creation);
           },
         },
@@ -186,7 +186,7 @@ export default function CustomersPage() {
     setSelectedSearchField,
     exportAllRows,
     isExporting,
-  } = useServerDataTable<CustomersType>({
+  } = useServerDataTable<CustomersDocType>({
     doctype: CUSTOMER_DOCTYPE,
     columns: columns,
     fetchFields: CUSTOMER_LIST_FIELDS_TO_FETCH as string[],
@@ -219,7 +219,7 @@ export default function CustomersPage() {
       <CustomersSummaryCard />
       {/* </div> */}
 
-      <DataTable<CustomersType>
+      <DataTable<CustomersDocType>
         table={table}
         columns={columns}
         isLoading={isLoading}

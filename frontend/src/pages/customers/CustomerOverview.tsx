@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CustomersDocType } from "@/types/doctypes/Customers";
 import { Address } from "@/types/NirmaanStack/Address";
 import { useFrappeGetDoc } from "@/lib/frappe";
-import { useCounts } from "@/hooks/useCounts";
+import { countOf, useCounts } from "@/hooks/useCounts";
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
@@ -161,11 +161,8 @@ export const CustomerOverview: React.FC<CustomerOverviewProps> = ({
     ],
     `customer_overview_counts_${customerId || "all"}`
   );
-  // Both specs have no group_field, so each result is a number.
-  const total = countsData?.message?.total;
-  const active = countsData?.message?.active;
-  const totalProjectCount = typeof total === "number" ? total : undefined;
-  const activeProjectCount = typeof active === "number" ? active : undefined;
+  const totalProjectCount = countOf(countsData?.message, "total");
+  const activeProjectCount = countOf(countsData?.message, "active");
 
   // Format address for display
   const formattedAddress = useMemo(() => {

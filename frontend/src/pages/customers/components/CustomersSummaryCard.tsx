@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Building2, ChevronDown, FolderKanban, CalendarPlus } from "lucide-react";
 import { useFrappePostCall } from "@/lib/frappe";
-import { useCounts } from "@/hooks/useCounts";
+import { countOf, useCounts } from "@/hooks/useCounts";
 import { TailSpin } from "react-loader-spinner";
 import { CUSTOMER_DOCTYPE } from '../customers.constants';
 import { cn } from "@/lib/utils";
@@ -150,8 +150,7 @@ export const CustomersSummaryCard: React.FC = () => {
         [{ key: "total", doctype: CUSTOMER_DOCTYPE }],
         `${CUSTOMER_DOCTYPE}_total_summary`
     );
-    const total = countsData?.message?.total; // no group_field, so a number
-    const totalCountData = typeof total === "number" ? total : undefined;
+    const totalCountData = countOf(countsData?.message, "total");
 
     // Fetch customer stats
     const { call: getCustomerStats } = useFrappePostCall<{ message: CustomerStats }>(

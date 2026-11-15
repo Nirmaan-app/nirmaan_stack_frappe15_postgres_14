@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/ui/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDoc, useSWRConfig } from "@/lib/frappe";
+import { isFrappeError } from "@/lib/frappeError";
 import { ListChecks, ListRestart } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -195,7 +196,7 @@ export const NewCustomer : React.FC<{company_mutate?: () => void, navigation?: b
             }
         } catch (err) {
             // Error handling for address creation or customer creation failure
-            if (typeof err === "object" && err !== null && "exc_type" in err && err.exc_type === "CustomerGSTExistError") {
+            if (isFrappeError(err) && err.exc_type === "CustomerGSTExistError") {
                 toast({
                     title: "Duplicate Value Error!",
                     description: `Provided GST Already binded with other Customer!`,

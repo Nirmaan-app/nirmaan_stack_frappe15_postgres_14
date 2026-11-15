@@ -198,7 +198,8 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
       data?.company_gst !== values.company_gst;
 
     if (hasCustomerChanged) {
-      await updateDoc("Customers", id ?? null, {
+      if (!id) throw new Error("No customer is open, so its details could not be saved");
+      await updateDoc("Customers", id, {
         company_name: values.company_name,
         customer_nickname: values.customer_nickname,
         company_email: values.company_email,
@@ -219,7 +220,8 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
       addressData?.pincode !== values.pin_code;
 
     if (hasAddressChanged) {
-      await updateDoc("Address", companyAddress ?? null, {
+      if (!companyAddress) throw new Error("This customer has no company address, so the address could not be saved");
+      await updateDoc("Address", companyAddress, {
         address_title: values.company_name,
         address_line1: values.address_line1,
         address_line2: values.address_line2,
