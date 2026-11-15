@@ -89,8 +89,9 @@ Its building blocks are in `src/components/ui/` (`wizard-steps.tsx`, `draft-indi
 - **Read and write through `frappe-react-sdk`, imported from `@/lib/frappe`:** `useFrappeGetDocList`,
   `useFrappeGetDoc`, `useFrappePostCall`. Call a backend mutation as
   `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`. `@/lib/frappe` re-exports the SDK unchanged except
-  that each hook's type defaults to `unknown` instead of `any`: pass the type (`useFrappeGetDoc<Customers>(…)`)
-  or narrow the result. ESLint bans importing `frappe-react-sdk` anywhere else (ADR-0049); files that did before
+  that each hook's type defaults to `unknown` instead of `any`: pass the generated DocType type
+  (`useFrappeGetDoc<CustomersDocType>(…)`, with `CustomersDocType` from `@/types/doctypes/Customers` and the hook from
+  `@/lib/frappe`, as `pages/customers/` does) or narrow the result. ESLint bans importing `frappe-react-sdk` anywhere else (ADR-0049); files that did before
   are frozen in `eslint-suppressions.json` and move over folder by folder. A folder's move starts with
   `node scripts/migrate_folder_to_typed.mjs <folder> [--dry-run]` (the imports, `JSON.parse`, `.json()`,
   `catch (e: any)`); the folder then joins the `no-unsafe-*` block in `eslint.config.js`.
