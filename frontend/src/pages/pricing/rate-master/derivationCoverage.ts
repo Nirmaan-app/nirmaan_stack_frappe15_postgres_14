@@ -31,7 +31,9 @@ export const CODE_RULES: Readonly<Record<string, readonly string[]>> = {
   // DU-1 Part B: the Ducting rules written in code -- the sheet-gauge axis (DR2 / DR3 / DR4 / DR12, `readGauge` / `gaugeBandFor`),
   // the per-sheet insulation check (DR7 / G3, `sheetInsulationOf` / `ductInsulationDecision`), the gauge-word mask of a borrowed
   // section (G1, `SECTION_GAUGE_WORDS`), removal / refixing (DR14, `existing_work`) and the scope's own uplift on a supply row (O10)
-  hvac_duct_item: ["DR3", "DR12", "DR4", "DR2", "DR7", "G3", "G1", "DR14", "O10"],
+  hvac_duct_item: ["DR3", "DR12", "DR4", "DR2", "DR7", "G3", "G1", "DR14", "O10",
+                   // DU-2: the not-a-duct re-file sentence before any unit check (R-NOTE-ORDER, `priceItemListRow` gated on no_sku_refusals)
+                   "R-NOTE-ORDER"],
 };
 
 /** Keys under `list_spec.pricing` that carry no pricing rule of their own (display / matching plumbing). Every OTHER key is a rule

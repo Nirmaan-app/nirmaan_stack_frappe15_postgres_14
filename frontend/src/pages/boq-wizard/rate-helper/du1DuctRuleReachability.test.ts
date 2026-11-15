@@ -1,5 +1,5 @@
 /**
- * DU-1 PART B (feature standard v1.1, R-39 / T1 for Ducting) -- EVERY DERIVATION-TAB RULE OF DUCTING FIRES FROM THE PANEL'S ENTRY POINT
+ * DU-1 PART B (feature standard v1.1, R-39 / T1 for Ducting; DU-2 adds the v72 lines' cases) -- EVERY DERIVATION-TAB RULE OF DUCTING FIRES FROM THE PANEL'S ENTRY POINT
  * (`makePricingSheetHelper(...).compute`), with the calculator where the rule is a typed one; each rule has a positive and a negative
  * case, on the newest HVAC asset.
  *
@@ -41,6 +41,8 @@ const calc = (blocks: unknown[], unit = "sqm", ov: Record<string, string> = {}):
 };
 const txt = (v: ItemListView) => JSON.stringify(v);
 const tot = (v: ItemListView) => [v.totals?.supply_rate, v.totals?.install_rate];
+/** a row the model read as not a duct ('none of these'), with what it is as written */
+const NOT = (asWritten: string): Item => ({ duct_type: "none of these", duct_type_as_written: asWritten, insulated: null });
 const INS = (more: Item = {}): Item => ({ _section: "insulation", item: "Thermal Nitrile Insulation", thickness_mm: "9 mm", cladding: "None", ...more });
 
 type Case = { rule: string; kind: "pos" | "neg"; run: () => ItemListView; re?: Array<string | RegExp>; not?: Array<string | RegExp>; priced?: boolean; figures?: [number, number] };
@@ -103,6 +105,14 @@ const R = {
   lot: title(/^A row priced per Lot/),
   scope: title(/^The BoQ scope/),
   pair: title(/^A 'Supply of' row/),
+  // DU-2 (v72): the owner's 23:57 row rulings + the DU-1 cert finding a
+  aliasNeeds: title(/reads only its/),
+  rValve: title(/^A row whose words name 'valve'/),
+  rCopper: title(/^A row whose words name 'copper'/),
+  rUnit: title(/^A row whose words name 'outdoor unit'/),
+  refileDefault: title(/^A row read as none of the kinds/),
+  plenumNote: title(/^A duct row naming plenum boxes/),
+  noteOrder: title(/^A row read as not a duct refuses with its re-file sentence/),
 };
 
 const C: Case[] = [
@@ -232,6 +242,23 @@ const C: Case[] = [
   { rule: R.twoPart, kind: "neg", run: () => panel([D(RECT, "24G", { size_as_written: "600 mm" })], "Mts", "GI duct per metre"), priced: false },
   { rule: R.lot, kind: "pos", run: () => panel([D(RECT, "24G")], "Lot", "GI ducting complete"), priced: false, re: [/WHOLE LOT/i] },
   { rule: R.lot, kind: "neg", run: () => panel([D(RECT, "24G")], "Sqm", "GI ducting"), priced: true, not: [/WHOLE LOT/i] },
+  // DU-2 (v72) -- finding a: the round alias reads its gauge and diameter only
+  { rule: R.aliasNeeds, kind: "pos", run: () => panel([D(ROUND, "24G", { size_as_written: "600 x 400" })], "Rmt", "round duct per metre"), priced: false, not: ["width 600"] },
+  { rule: R.aliasNeeds, kind: "neg", run: () => panel([D(ROUND, "24G", { size_as_written: "150 mm dia" })], "Rmt", "round duct per metre"), priced: true, figures: [670, 130] },
+  // R-NOTE-ORDER: the re-file entries, the default sentence, and the order before the unit check
+  { rule: R.rValve, kind: "pos", run: () => panel([NOT("Butterfly valves-100 mm NB")], "Nos", "Butterfly valves-100 mm NB"), priced: false, re: ["re-file this row under Valve Package"] },
+  { rule: R.rValve, kind: "neg", run: () => panel([NOT("Volume control damper")], "Sqm", "VCD"), priced: false, not: ["re-file this row under Valve Package"], re: ["Reads as a damper"] },
+  { rule: R.rCopper, kind: "pos", run: () => panel([NOT("34.9 mm dia (hard drawn) copper pipe with 19 mm thick insulation")], "Rmt", "34.9 mm dia (hard drawn)"), priced: false, re: ["re-file this row under Piping"], not: ["re-file this row under Insulation"] },
+  { rule: R.rCopper, kind: "neg", run: () => panel([NOT("Thermal insulation of ducts")], "Sqm", "duct insulation"), priced: false, re: ["re-file this row under Insulation"], not: ["Piping"] },
+  { rule: R.rUnit, kind: "pos", run: () => panel([NOT("4 HP-side discharge outdoor unit")], "Nos", "4 HP-side discharge outdoor unit"), priced: false, re: ["re-file this row under VRF"] },
+  { rule: R.rUnit, kind: "neg", run: () => panel([NOT("Plenum box")], "Sqm", "plenum box"), priced: false, not: ["re-file this row under VRF"], re: ["Reads as a plenum"] },
+  { rule: R.refileDefault, kind: "pos", run: () => panel([NOT("Electronic Thermostat")], "Lot", "Electronic Thermostat BMS compatible"), priced: false, re: ["Reads as 'Electronic Thermostat', not a duct - re-file this row under its own category"] },
+  { rule: R.refileDefault, kind: "neg", run: () => panel([NOT("Volume control damper")], "Sqm", "VCD"), priced: false, not: ["under its own category"] },
+  { rule: R.noteOrder, kind: "pos", run: () => panel([NOT("2.0 TR cassette unit")], "Nos", "2.0 TR cassette unit"), priced: false, re: ["re-file this row under VRF"], not: ["is not a duct unit", /WHOLE LOT/i] },
+  { rule: R.noteOrder, kind: "neg", run: () => panel([D(RECT, "24G")], "Nos", "GI duct"), priced: false, re: ["is not a duct unit", /WHOLE LOT/i] },
+  // R-DUCT (Q6 / QR-1 Q2 (a)): a duct row naming plenum boxes / attenuators prices the duct with the note
+  { rule: R.plenumNote, kind: "pos", run: () => panel([D(RECT, "24G")], "Sqm", "GI duct connected to plenum boxes and cross talk attenuators"), priced: true, figures: [1080, 260], re: ["Also names plenum boxes / attenuators / silencers / flexible duct"] },
+  { rule: R.plenumNote, kind: "neg", run: () => panel([D(RECT, "24G")], "Sqm", "GI duct"), priced: true, figures: [1080, 260], not: ["Also names plenum boxes"] },
 ];
 
 describe(`DU-1 Ducting rule reachability on ${LATEST}: every Derivation line fires, positive and negative`, () => {
