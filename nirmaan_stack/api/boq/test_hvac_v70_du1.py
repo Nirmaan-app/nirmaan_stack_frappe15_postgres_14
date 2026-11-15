@@ -120,14 +120,15 @@ class TestHvacAssetV70(FrappeTestCase):
     def test_05_v70_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V70))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 73)  # DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE nums[-1] == 72; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71
-        self.assertEqual(nums, list(range(1, 74)))  # DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE list(range(1, 73)); DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71))  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72))
+        self.assertEqual(nums[-1], 74)  # DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE nums[-1] == 73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE nums[-1] == 72; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE nums[-1] == 70  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71
+        self.assertEqual(nums, list(range(1, 75)))  # DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE list(range(1, 74)); DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE list(range(1, 73)); DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): BEFORE list(range(1, 71))  # DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72))
         self.assertTrue(os.path.exists(_asset_path(V69)))
 
     def test_06_live_catalogue_is_v70(self):
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): the live Valve Package config is still v70's (v71 leaves it
         # byte-equal); the live Misc config is v71's (+ the Ducting Misc-tab families). BEFORE: live == v70's for both
-        v71 = {c["category_id"]: c for c in json.load(open(_asset_path("rate_master_hvac_all_v71.json"), encoding="utf-8"))["category_configs"]}
+        # DU-2 K2c (HVAC v74 LOADED; mechanical authority): the live Misc config is v74's (its unit-refusal wording); Valve = v71's = v74's. BEFORE: v71's
+        v71 = {c["category_id"]: c for c in json.load(open(_asset_path("rate_master_hvac_all_v74.json"), encoding="utf-8"))["category_configs"]}
         for cid in (VALVE, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
