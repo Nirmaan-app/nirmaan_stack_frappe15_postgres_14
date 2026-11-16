@@ -139,6 +139,7 @@ import {
   netLinesOf,
   gaugeLabelOf,
   existingWorkOf,
+  LABOUR_ROW_WORDS,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -1590,7 +1591,21 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const withIns = si && rowCtx.sheetLines && rowCtx.noRow !== true
         ? { ...withOdu, sheetInsulation: sheetInsulationOf(si, listSpec, rowCtx, rowCats, extractionByRow, category.category_id) }
         : withOdu;
-      return computeItemList(category, listSpec, items, withIns, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      // DU-3 (Case 8): a duct-painting row in the context QR-1 Q5 (a) names -> its stored answer read as the Misc Paint item alone
+      const paint = listSpec.paint_row && rowCtx.noRow !== true ? paintRowOf(listSpec, rowCtx, ext as ExtractionRowWithItems | undefined, category.category_id, rowCats) : null;
+      // DU-3 (QR-2 Q1 (b)): two insulations on one duct row -> the whole-duct one is priced, the second left out with its note
+      // (Case 4 speaks first: a part-length clause names WHY the second insulation is left out)
+      const two = !paint && listSpec.two_insulations && rowCtx.noRow !== true && !partialInsulationOf(listSpec, rowCtx)
+        ? twoInsulationsOf(listSpec, ext as ExtractionRowWithItems | undefined) : null;
+      const out1 = computeItemList(category, listSpec, items, withIns, (paint?.ext ?? two?.ext ?? ext) as ExtractionRowWithItems | undefined, inRun, overrides, configOf, cableRate);
+      const v1 = (out1 as ItemListSuggestion).itemList;
+      const out0 = two && v1 ? { ...out1, itemList: { ...v1, sheetHeadingNotes: [...(v1.sheetHeadingNotes ?? []), plainPricerText(two.line, items)] } } as ItemListSuggestion : out1;
+      // DU-3 (Case 5): a row whose OWN words name a double-skin duct is not on our sheet -- the whole row unpriced, with the line
+      const refusal = rowCtx.noRow !== true ? rowRefusalOf(listSpec, rowCtx) : null;
+      const out = refusal ? withRowRefusal(out0, plainPricerText(refusal, items)) : out0;
+      if (!paint) return out;
+      const v = (out as ItemListSuggestion).itemList;
+      return v ? { ...out, itemList: { ...v, sheetHeadingNotes: [...(v.sheetHeadingNotes ?? []), plainPricerText(paint.line, items)] } } as ItemListSuggestion : out;
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -5405,6 +5420,9 @@ export const VP5_SCOPE = {
   refix_note: "BoQ says \"{said}\": refixing existing items - installation only with the uplift (owner E11)",
   /** QR-2 (a): the pair rule's supply row -- its own words start with supply and name no installation */
   supply_row_words: /^\s*(?:supply|supplying)\b/i,
+  /** DU-3 (R3, owner 2026-11-16 15:16 Case 1 "ok option A"): the same supply row behind a heading echo in capitals ("FIRE RATED DUCTING
+   *  Supply of fire rated ... ducts", BOQ-26-00104 r86 / 88 / 90) -- the echo is the sheet heading repeated in the cell, not the item */
+  supply_row_echo: /^\s*[A-Z][A-Z0-9&/().,'\- ]{1,60}\s+(?:[Ss]upply(?:ing)?|SUPPLY(?:ING)?)\s+(?:of|OF)\b/,
   install_words: /\binstall\w*|\bfixing\b|\bcommission\w*|\bSITC\b|\berection\b|\blaying\b/i,
   // owner-approved wording (02:24, VP5-16): shown ALONE, without the standard supply-only sentence
   pair_note: "Installation is quoted on its own row on this sheet, so priced supply only here (owner QR-2)",
@@ -5585,11 +5603,15 @@ function withScopeCore(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: 
   if (forced === undefined && !calculator && !spec.extras && sc.supply_row && value !== sc.supply_only && value !== sc.install_only
     && !(sc.install_only_normal && value === sc.install_only_normal)) {
     const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
-    if (VP5_SCOPE.supply_row_words.test(ownText) && !VP5_SCOPE.install_words.test(ownText)) {
+    // DU-3 (R3): the reverse pair rule -- a supply row (its own words start "Supply of", or a heading echo then "Supply of") whose
+    // installation the sheet quotes on its own same-kind row(s) -> supply only; the note says why and names EVERY such row (QR-1 Q2 (a))
+    if ((VP5_SCOPE.supply_row_words.test(ownText) || (!!sc.supply_row.pair_note && VP5_SCOPE.supply_row_echo.test(ownText)))
+      && !VP5_SCOPE.install_words.test(ownText)) {
       const inst = sameKind((s) => s === sc.install_only || (!!sc.install_only_normal && s === sc.install_only_normal));
       if (inst.length) {
         value = sc.supply_only;
-        extraNote = VP5_SCOPE.pair_note;
+        const named = inst.slice(0, 10).join(", ") + (inst.length > 10 ? ` and ${inst.length - 10} more` : "");
+        extraNote = sc.supply_row.pair_note ? sc.supply_row.pair_note.replace("{rows}", `${inst.length > 1 ? "rows" : "row"}: ${named}`) : VP5_SCOPE.pair_note;
         pairRule = true;
       }
     }
@@ -7337,6 +7359,12 @@ function computeItemList(
         sheetInsulationLines.add("Removal / refixing of existing ducts: the insulation is not priced (the installation share alone)");
         continue;
       }
+      // DU-3 (R6, owner 2026-11-16 15:00 "fix"; DU-2 R-LABOUR QR-1 Q1 (a)): a labour row is the duct's installation only -- its insulation is
+      // priced by Insulation's own rows, never here (only a config whose scope charges its own supply-row uplift: Ducting)
+      if (r.s.id === spec.sheet_insulation?.section && !!spec.scope?.supply_row?.uplift && LABOUR_ROW_WORDS.test([ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | "))) {
+        sheetInsulationLines.add("Labour row: the duct's installation only - insulation is priced by Insulation's own rows, not here");
+        continue;
+      }
       // DU-3 (R1, the 90% rule): the sheet's own duct-insulation rows decide whether this insulation line is priced (with the
       // double-counting note) or not priced (covered) -- never in the calculator (it has no sheet); no row is held for a person
       const siCfg = spec.sheet_insulation;
@@ -7363,6 +7391,8 @@ function computeItemList(
   });
 
   const independent: SectionBlockView[] = [];
+  // DU-3 (Case 4): extra insulation asked only on PART of the duct length -> that kind's insulation item is not added (named once)
+  const partial = calculator ? null : partialInsulationOf(spec, ctx);
   for (const r of resolved) {
     // the pricer's list once they have touched it; before that, the model's section items that no pipe of the
     // answer claimed (all of them when the answer carries no pipe)
@@ -7375,7 +7405,13 @@ function computeItemList(
       ?? (secModel[r.s.id] ?? []).map((_m, j) => j).filter((j) => !attachable || j >= ownModel.length).map((j) => ({ base: j, family: null, attrs: {} }));
     editsOut.sections![r.s.id] = list;
     const mirrorText = r.s.mirror ? firstReadable(r.s.mirror.from) : undefined;
-    list.forEach((e, k) => independent.push(priceSection(r, e, null, k, mirrorText)));
+    list.forEach((e, k) => {
+      if (partial && r.s.id === spec.sheet_insulation?.section && e.base !== null && e.base !== undefined) {
+        const fam = String((secModel[r.s.id] ?? [])[e.base]?.attributes?.[r.dspec ? familyAttr(r.dspec) : "item"]?.value ?? "");
+        if (fam.toLowerCase().includes(partial.kind)) { sheetInsulationLines.add(partial.line); return; }
+      }
+      independent.push(priceSection(r, e, null, k, mirrorText));
+    });
   }
 
   // ── the row: every item and every section is a LINE; each rounded by its own rules (owner D4); all or nothing ──
@@ -7443,6 +7479,110 @@ function computeItemList(
  * text) adds ONE plain line to the row's view (`sheetHeadingNotes`): the sheet's rows of `category` named, or the warning. Needs the
  * page's own row categories (`ctx.sheetCategories`); without them (the calculator, a harness) nothing is added. Never a figure.
  */
+/** DU-3 (Case 4). PURE. The part-length insulation clause the row's context carries -- its kind and the line -- else null. Read from the
+ *  row, its own notes, its heading notes, its ancestors' notes, its headings and the sheet's preamble rows above it. */
+export function partialInsulationOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit): { kind: string; line: string } | null {
+  const pi = spec.partial_insulation;
+  if (!pi || ctx.noRow === true) return null;
+  const anc = (ctx as { ancestorNotes?: readonly string[] }).ancestorNotes ?? [];
+  const pre = (ctx.sheetLines ?? []).filter((l) => l.preamble && l.sheet === undefined && l.row < ctx.excelRow).map((l) => l.text);
+  const text = [ctx.description ?? "", ...(ctx.ownNotes ?? []), ...(ctx.headingNotes ?? []), ...anc, ...(ctx.headings ?? []), ...pre].join(" | ");
+  let m: RegExpExecArray | null = null;
+  try { m = new RegExp(pi.pattern, "i").exec(text); } catch { m = null; }
+  return m?.groups?.kind && m.groups.span ? { kind: m.groups.kind.toLowerCase(), line: pi.line.split("{kind}").join(m.groups.kind.toLowerCase()).split("{span}").join(m.groups.span.trim()) } : null;
+}
+
+/** DU-3 (QR-2 Q1 (b)). PURE. A duct row's stored answer naming TWO insulations -> the answer with only the whole-duct one (the `keep_words`
+ *  kind; one item naming both kinds keeps its `keep_words` thickness) + the line naming the second and its thickness; else null. */
+export function twoInsulationsOf(spec: ItemListPricingSpec, ext: ExtractionRowWithItems | undefined): { ext: ExtractionRowWithItems; line: string } | null {
+  const ti = spec.two_insulations;
+  if (!ti || !ext?.items?.length) return null;
+  let keepRe: RegExp, secondRe: RegExp;
+  try { keepRe = new RegExp(ti.keep_words, "i"); secondRe = new RegExp(ti.second_words, "i"); } catch { return null; }
+  type It = NonNullable<ExtractionRowWithItems["items"]>[number];
+  const val = (it: It, a: string) => { const v = it.attributes?.[a]?.value; return typeof v === "string" ? v : ""; };
+  const ins = ext.items.filter((it) => it.section === ti.section);
+  const words = (it: It) => [val(it, "item"), val(it, "thickness_mm"), val(it, "material_as_written")].join(" ");
+  const mmNear = (text: string, re: RegExp): string | null => {
+    // the number written next to the kind word ("inner thermal insulation of 9mm", "10mm Open Cell Accoustic")
+    const src = re.source;
+    const m = new RegExp(`(?:${src})[^0-9|/]{0,40}?(\\d+(?:\\.\\d+)?)\\s*mm|(\\d+(?:\\.\\d+)?)\\s*mm[^0-9|/]{0,40}?(?:${src})`, "i").exec(text);
+    return m ? (m[1] ?? m[2]) : null;
+  };
+  if (ins.length >= 2) {
+    const second = ins.find((it) => secondRe.test(words(it)));
+    const keep = ins.find((it) => it !== second && !secondRe.test(words(it)));
+    if (!second || !keep) return null;
+    const t = mmNear(words(second), secondRe) ?? (val(second, "thickness_mm").match(/\d+(?:\.\d+)?/)?.[0] ?? "?");
+    return { ext: { ...ext, items: ext.items.filter((it) => it !== second) }, line: ti.line.split("{t}").join(t) };
+  }
+  if (ins.length === 1) {
+    const it = ins[0];
+    const w = words(it);
+    if (!keepRe.test(w) || !secondRe.test(w)) return null;
+    const keepT = mmNear(w, keepRe), secondT = mmNear(w, secondRe);
+    if (keepT === null && secondT === null) return null;
+    const fixed = { ...it, attributes: { ...it.attributes, thickness_mm: { value: keepT !== null ? `${keepT} mm` : null, confidence: 1 } } };
+    return { ext: { ...ext, items: ext.items.map((x) => (x === it ? fixed : x)) }, line: ti.line.split("{t}").join(secondT ?? "?") };
+  }
+  return null;
+}
+
+/** DU-3 (Case 5). PURE. The first `row_refusals` line whose pattern hits the row's OWN text (description + own notes), else null. */
+export function rowRefusalOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit): string | null {
+  const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  for (const r of spec.row_refusals ?? []) {
+    try { if (new RegExp(r.pattern, "i").test(own)) return r.line; } catch { /* an unreadable pattern refuses nothing */ }
+  }
+  return null;
+}
+/** DU-3 (Case 5). PURE. The result with the row unpriced: no figures, the line as its reason (the items stay on show). */
+function withRowRefusal(res: HelperResult, line: string): HelperResult {
+  const r = res as ItemListSuggestion;
+  if (!r.itemList) return res;
+  const { totals: _t, ...rest } = r.itemList;
+  return { ...r, values: {}, workings: { ...r.workings, derivation: [line], finalValues: {} }, itemList: { ...rest, rowPriced: false, reason: line } } as ItemListSuggestion;
+}
+
+/** DU-3 (Case 8, QR-1 Q5 (a)). PURE. A Ducting row whose own words name painting: with no gauge read, after its sheet's own duct rows
+ *  (the same nearest heading, filed in this category, not painting rows themselves) and its quantity within the tolerance of theirs ->
+ *  the stored answer re-read as the paint item alone + the line naming those rows; any test failing -> the stored answer as it is + the
+ *  miss line saying which. Null when the row's words name no painting (or no `paint_row`). */
+export function paintRowOf(spec: ItemListPricingSpec, ctx: RowContextWithUnit, ext: ExtractionRowWithItems | undefined, ownCategory: string,
+  rowCats: ReadonlyMap<number, string> | undefined): { ext: ExtractionRowWithItems | undefined; line: string } | null {
+  const pr = spec.paint_row;
+  if (!pr) return null;
+  let wordsRe: RegExp;
+  try { wordsRe = new RegExp(pr.words, "i"); } catch { return null; }
+  const own = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  if (!wordsRe.test(own)) return null;
+  const miss = (why: string) => ({ ext, line: pr.miss_line.split("{why}").join(why) });
+  const gaugeAttrs = Object.values(spec.numbers ?? {}).filter((n) => !!n?.gauge).flatMap((n) => n!.from ?? []);
+  const it0 = ext?.items?.[0];
+  const g = gaugeAttrs.map((a) => it0?.attributes?.[a]?.value).find((x) => typeof x === "string" && x.trim() !== "" && x.trim() !== "None");
+  if (g !== undefined) return miss(`it states a gauge (${String(g)})`);
+  // the sheet's own duct rows directly above it: the unbroken run of this category's line items before this row (a row of another
+  // category, or another painting row, ends the run) -- "rows 21-24" for BOQ-26-00380 'HVAC-2F' r25
+  const lines = (ctx.sheetLines ?? []).filter((l) => l.sheet === undefined && !l.preamble).sort((x, y) => x.row - y.row);
+  const catOf = (row: number) => ctx.sheetCategories?.[row] ?? rowCats?.get(row) ?? null;
+  const ducts: typeof lines = [];
+  for (const l of lines.filter((x) => x.row < ctx.excelRow).reverse()) {
+    if (catOf(l.row) !== ownCategory || wordsRe.test(l.text)) break;
+    ducts.unshift(l);
+  }
+  if (!ducts.length) return miss("no duct rows of this sheet sit directly above it");
+  const q = (row: number) => { const v = ctx.rowQuantities?.[row]; return typeof v === "number" && Number.isFinite(v) ? v : null; };
+  const mine = q(ctx.excelRow);
+  const sum = ducts.reduce((a, l) => (a === null || q(l.row) === null ? null : a + (q(l.row) as number)), 0 as number | null);
+  if (mine === null || sum === null || sum <= 0) return miss("the quantities cannot be compared");
+  if (Math.abs(mine - sum) > pr.tolerance * sum) return miss(`its quantity (${String(mine)}) is not close to the duct rows' (${String(Math.round(sum * 100) / 100)})`);
+  const rs = ducts.map((l) => l.row).sort((a, b) => a - b);
+  const named = rs.length > 1 && rs[rs.length - 1] - rs[0] === rs.length - 1 ? `rows ${rs[0]}-${rs[rs.length - 1]}` : `${rs.length > 1 ? "rows" : "row"} ${rs.join(", ")}`;
+  const scope = it0?.attributes?.scope;
+  const paintItem = { section: pr.section, attributes: { item: { value: pr.family, confidence: 1 }, ...(scope ? { scope } : {}) } };
+  return { ext: { ...(ext ?? {}), items: [paintItem] } as unknown as ExtractionRowWithItems, line: pr.line.split("{rows}").join(named) };
+}
+
 /** DU-1 (G-4). PURE. A scope's installation-only uplift by its Pricing Input id: the input's factor when it is a finite number >= 0
  *  (0 = the normal installation rate), else null ("not set"). */
 export function scopeUpliftOf(items: readonly RateMasterItem[], id: string): number | null {

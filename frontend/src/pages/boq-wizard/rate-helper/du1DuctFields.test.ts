@@ -19,7 +19,10 @@ const fieldsOf = (family: string, cls: string) => itemFieldDefs(spec, defs, fami
 describe(`DU-1 Ducting panel fields (${LATEST})`, () => {
   it("the audit: every field the panel renders per family x unit, and MISSING NOTES = 0 (Ducting and its borrowed Misc)", () => {
     const a = auditPanelFields(DUCT, ITEMS as never);
-    expect(a.map((f) => [f.attr, f.control, f.mandatory])).toEqual([["insulated", "dropdown", true], ["thickness_mm", "dropdown + other", true]]);
+    // DU-3 INVERTED (R4 a bare decimal is mm, owner 2026-11-16 14:46): BEFORE ["insulated", "dropdown", true] -- the audit's gauge filler
+    // "0.5" read as NO gauge, so the row refused for that and Insulated only LOOKED mandatory; AFTER "0.5" = 26G, the row prices with
+    // Insulated blank (its default No): Insulated is not mandatory. The gauge stays mandatory (negative half kept).
+    expect(a.map((f) => [f.attr, f.control, f.mandatory])).toEqual([["insulated", "dropdown", false], ["thickness_mm", "dropdown + other", true]]);
     expect(a.find((f) => f.attr === "thickness_mm")?.note).toMatch(/^Type the gauge the BoQ states/);
     expect(missingNotes(DUCT, ITEMS as never)).toEqual([]);
     expect(missingNotes(CFG.get("hvac_misc"), ITEMS as never)).toEqual([]);

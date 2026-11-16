@@ -1013,6 +1013,31 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       add("A historical duct-insulation check (the G-3 shape, retired by DU-3)", "no sheet check runs: the insulation line prices as usual", "sheet_insulation");
     }
   }
+  {
+    // DU-3 (Case 5): own words that leave the row unpriced; (Case 4): part-length insulation not added
+    for (const r of (Array.isArray(pr.row_refusals) ? pr.row_refusals : []) as Array<{ line?: unknown }>) {
+      add(`A row whose own words name it is not priced`, `'${String(r.line ?? "")}'`, "row_refusals");
+    }
+    const ti = pr.two_insulations as { line?: unknown } | undefined;
+    if (ti && typeof ti === "object" && typeof ti.line === "string") {
+      add("A duct row naming two insulations prices the one covering the whole duct",
+          `the thermal insulation at its own thickness (else the default); the second (acoustic) is left out with the note '${ti.line.replace("{t}", "<t>")}'`,
+          "two_insulations");
+    }
+    const pi = pr.partial_insulation as { line?: unknown } | undefined;
+    if (pi && typeof pi === "object" && typeof pi.line === "string") {
+      add("Extra insulation asked only on part of the duct length is not added",
+          `the insulation covering the whole duct is priced; the part-length one is left out with the note '${pi.line.replace("{kind}", "<kind>").replace("{span}", "<the part>")}'`,
+          "partial_insulation");
+    }
+    // DU-3 (Case 8, QR-1 Q5 (a)): a duct-painting row in the 00380 context is the painting of the ducts above it
+    const pw = pr.paint_row as { words?: unknown; family?: unknown; tolerance?: unknown } | undefined;
+    if (pw && typeof pw === "object" && typeof pw.tolerance === "number") {
+      add(`A row whose own words name painting (paint finish, enamel paint) and state no gauge is priced as ${String(pw.family ?? "Paint")}`,
+          `only when it sits after its sheet's own duct rows (the same heading) and its quantity is within ${String(Math.round(pw.tolerance * 100))}% `
+          + `of theirs - the note names those rows; a row failing any test keeps its outcome with a note to price it by hand`, "paint_row");
+    }
+  }
   // DU-1 FIX-3 (VP-DRV; owner 2026-11-15 13:41 "a derivation coverage check before deployment to ensure all rules (model + code+
   // anywhere else) are captured"): the rules written in CODE (reading rules over the model's items, sheet-level checks) are stated by
   // lines the config DECLARES, each naming the code rule it states -- `derivationCoverage` fails a code rule without its line and a

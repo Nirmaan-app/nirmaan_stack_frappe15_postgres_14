@@ -985,6 +985,25 @@ def _validate_sheet_insulation(si, spec):
         _vthrow(f"{loc}.lines.covered and .double_count must name the rows ({{rows}}).")
 
 
+def _validate_paint_row(pw, spec):
+    """DU-3 (Case 8) -- `list_spec.pricing.paint_row`: the painting words (a regular expression), the delegated section and its family the
+    row prices as (Misc's Paint), the quantity tolerance (0 < t < 1), the line ({rows}) and the miss line ({why})."""
+    loc = "list_spec.pricing.paint_row"
+    if not isinstance(pw, dict) or set(pw) != _PAINT_ROW_KEYS:
+        _vthrow(f"{loc} needs exactly {', '.join(sorted(_PAINT_ROW_KEYS))}.")
+    try:
+        re.compile(pw["words"])
+    except (re.error, TypeError):
+        _vthrow(f"{loc}.words must be a regular expression.")
+    secs = [s for s in (spec.get("sections") or []) if isinstance(s, dict) and s.get("id") == pw.get("section")]
+    if len(secs) != 1 or not secs[0].get("category_id") or pw.get("family") not in (secs[0].get("families") or []):
+        _vthrow(f"{loc}.section must name a delegated section of this config and family one of its families.")
+    if not (_is_finite_number(pw["tolerance"]) and 0 < pw["tolerance"] < 1):
+        _vthrow(f"{loc}.tolerance must be a number between 0 and 1.")
+    _sentence(pw, "line", loc, ("{rows}",))
+    _sentence(pw, "miss_line", loc, ("{why}",))
+
+
 def _validate_sheet_insulation_retired(si, spec):
     """The RETIRED DU-1 G-3 shape (HVAC v71-v74, kept loadable for a rollback; no check runs on it since DU-3): the DU-1 rules as
     they were -- four regular expressions, the mode, 0 < low < high <= 1, the per-sq.m units and the five lines."""
@@ -1342,6 +1361,13 @@ _PRICING_KEYS = _PRICING_KEYS | {"rule_lines", "derivation_reasons"}
 # (a no-SKU item's own sentence by its words, DR13), `sheet_insulation` (the per-sheet duct-insulation check + the G-3 quantity check,
 # DR7). Each arrives WITH its shape check below. ABSENT => as before.
 _PRICING_KEYS = _PRICING_KEYS | {"family_alias_offered", "no_sku_refusals", "sheet_insulation"}
+# DU-3 (Case 8, owner 2026-11-16 15:44; QR-1 Q5 (a) 18:06): `paint_row` -- a duct-painting row in the 00380 context priced as Misc Paint
+_PRICING_KEYS = _PRICING_KEYS | {"paint_row"}
+# DU-3 (Case 5 / Case 4): `row_refusals` (own words that leave the row unpriced) and `partial_insulation` (part-length insulation not added)
+_PRICING_KEYS = _PRICING_KEYS | {"row_refusals", "partial_insulation"}
+# DU-3 (QR-2 Q1 (b), owner 21:19): `two_insulations` -- two insulations on one duct row: the whole-duct one priced, the second by hand
+_PRICING_KEYS = _PRICING_KEYS | {"two_insulations"}
+_PAINT_ROW_KEYS = {"words", "section", "family", "tolerance", "line", "miss_line"}
 # DU-2 (owner 2026-11-15 23:29 finding a; 23:57 R-NOTE-ORDER): `family_alias_needs` (the attributes an alias family reads -- its target's
 # conversions needing others are not used for it, their boxes not shown), `no_sku_refuse_default` (the re-file sentence for a no-SKU
 # item no `no_sku_refusals` entry names). Each arrives WITH its shape check below. ABSENT => as before.
@@ -1358,7 +1384,9 @@ _SHEET_INSULATION_KEYS_RETIRED = {"category", "section", "duct_words", "insulati
 _SHEET_INSULATION_LINES_RETIRED = {"dropped", "ratio", "added", "unpriced", "missing_doubtful"}
 _GAUGE_KEYS = {"families", "mm", "standard_mm", "by_size", "lines"}
 _GAUGE_LINES = {"gauge_wins", "standard", "between", "thinner", "thicker", "size_table", "no_size", "several_band", "several_none"}
-_GAUGE_LINES_OPTIONAL = {"thicker_by_family", "existing_any_gauge"}
+# DU-3: bare_number (R4 a bare 16-30 = that gauge), labour_any_gauge (R6 a labour row: the duct type decides), own_row (R7 the row's own
+# single gauge wins over a several-gauge answer) -- each optional; absent = the rule does not run
+_GAUGE_LINES_OPTIONAL = {"thicker_by_family", "existing_any_gauge", "bare_number", "labour_any_gauge", "own_row"}
 _RULE_LINE_KEYS = {"rule", "title", "detail"}
 _DERIVATION_REASON_KEYS = {"rule", "title", "why"}
 # VP-1 (G7): `typed_dn` on a one-size typed reader -- a typed "DN 50" is 50 mm. ABSENT => a typed DN refuses, as before.
@@ -2202,9 +2230,12 @@ def _validate_scope(sc, loc):
     if "supply_row" in sc:
         sr = sc["supply_row"]
         # DU-1 (G-4): an optional `uplift: true` -- the supply-on-its-own-row case charges install x (1 + the uplift input)
-        if not isinstance(sr, dict) or not ({"normal_note", "with_row", "no_row"} <= set(sr) <= {"normal_note", "with_row", "no_row", "uplift"}) \
+        # DU-3 (R3, QR-1 Q7 (a)): an optional `pair_note` -- the reverse pair rule's supply-only sentence naming the installation row(s)
+        if not isinstance(sr, dict) or not ({"normal_note", "with_row", "no_row"} <= set(sr) <= {"normal_note", "with_row", "no_row", "uplift", "pair_note"}) \
                 or ("uplift" in sr and sr["uplift"] is not True):
-            _vthrow(f"{loc}.supply_row needs exactly normal_note, with_row and no_row (and optionally uplift: true).")
+            _vthrow(f"{loc}.supply_row needs exactly normal_note, with_row and no_row (and optionally uplift: true, pair_note).")
+        if "pair_note" in sr:
+            _sentence(sr, "pair_note", f"{loc}.supply_row", ("{rows}",))
         _sentence(sr, "normal_note", f"{loc}.supply_row")
         _sentence(sr, "with_row", f"{loc}.supply_row", ("{rows}",))
         _sentence(sr, "no_row", f"{loc}.supply_row")
@@ -2819,8 +2850,11 @@ def _validate_family_when_none(fwn, ucls, fams):
             _vthrow(f"{loc}.when_words, when present, must be a non-empty list.")
         for i, w in enumerate(ww):
             wloc = f"{loc}.when_words[{i}]"
-            if not isinstance(w, dict) or set(w) != _PRICING_FWN_WORD_KEYS:
-                _vthrow(f"{wloc} must carry exactly unit_class / words / family.")
+            # DU-3 (R7): an optional `rule` -- the entry's own line
+            if not isinstance(w, dict) or not (_PRICING_FWN_WORD_KEYS <= set(w) <= _PRICING_FWN_WORD_KEYS | {"rule"}):
+                _vthrow(f"{wloc} must carry exactly unit_class / words / family (and optionally rule).")
+            if "rule" in w and not (isinstance(w["rule"], str) and w["rule"].strip()):
+                _vthrow(f"{wloc}.rule must be a non-empty sentence.")
             if w["unit_class"] not in ucls:
                 _vthrow(f"{wloc}.unit_class '{w['unit_class']}' is not a declared unit class.")
             if not isinstance(w["words"], list) or not w["words"] or not all(
@@ -2936,21 +2970,33 @@ def _validate_family_text(ft, family_vals, fams, by_id=None, read_by_pricing=Non
         _vthrow(f"{loc}.line must be a sentence carrying {{from}} and {{to}}.")
     if "refuse" in ft:
         rf = ft["refuse"]
+        unless_seen = set()
         if not isinstance(rf, list) or not rf:
             _vthrow(f"{loc}.refuse, when present, must be a non-empty list.")
         for i, r in enumerate(rf):
             rloc = f"{loc}.refuse[{i}]"
-            if not isinstance(r, dict) or set(r) != _PRICING_FAMILY_TEXT_REFUSE_KEYS:
-                _vthrow(f"{rloc} must carry exactly from / refuse / rule.")
+            # DU-3 (Case 12): an optional `unless` regular expression -- the entry is skipped when the words match it
+            if not isinstance(r, dict) or not (_PRICING_FAMILY_TEXT_REFUSE_KEYS <= set(r) <= _PRICING_FAMILY_TEXT_REFUSE_KEYS | {"unless"}):
+                _vthrow(f"{rloc} must carry exactly from / refuse / rule (and optionally unless).")
+            if "unless" in r:
+                try:
+                    re.compile(r["unless"])
+                except (re.error, TypeError):
+                    _vthrow(f"{rloc}.unless must be a regular expression.")
             frm = r["from"]
             if not isinstance(frm, str) or not frm.strip():
                 _vthrow(f"{rloc}.from must be a non-empty spelling.")
             key = frm.strip().casefold()
             if key in {v.strip().casefold() for v in family_vals}:
                 _vthrow(f"{rloc}.from '{frm}' is a family value and cannot refuse.")
-            if key in seen:
+            # a spelling may repeat ONLY after an entry that carries `unless` (Case 12: butterfly valves unless a duct, then the duct)
+            if key in seen and key not in unless_seen:
                 _vthrow(f"{rloc}.from '{frm}' is already mapped; a spelling prices or refuses, never both.")
             seen.add(key)
+            if "unless" in r:
+                unless_seen.add(key)
+            else:
+                unless_seen.discard(key)
             if not isinstance(r["refuse"], str) or not r["refuse"].strip():
                 _vthrow(f"{rloc}.refuse must be a non-empty sentence.")
             if not isinstance(r["rule"], str) or not r["rule"].strip():
@@ -3725,6 +3771,47 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if not pr.get("no_sku_refusals"):
             _vthrow("list_spec.pricing.no_sku_refuse_default needs no_sku_refusals (the default after its entries).")
         _strings_ok(pr, "list_spec.pricing", ("no_sku_refuse_default",))
+    if "paint_row" in pr:
+        _validate_paint_row(pr["paint_row"], spec)
+    if "two_insulations" in pr:
+        ti = pr["two_insulations"]
+        tloc = "list_spec.pricing.two_insulations"
+        if not isinstance(ti, dict) or set(ti) != {"section", "keep_words", "second_words", "line"}:
+            _vthrow(f"{tloc} must carry exactly section / keep_words / second_words / line.")
+        if ti["section"] not in [s.get("id") for s in (spec.get("sections") or []) if isinstance(s, dict)]:
+            _vthrow(f"{tloc}.section must name a section of this config.")
+        for k in ("keep_words", "second_words"):
+            try:
+                re.compile(ti[k])
+            except (re.error, TypeError):
+                _vthrow(f"{tloc}.{k} must be a regular expression.")
+        _sentence(ti, "line", tloc, ("{t}",))
+    if "row_refusals" in pr:
+        rr = pr["row_refusals"]
+        if not isinstance(rr, list) or not rr:
+            _vthrow("list_spec.pricing.row_refusals must be a non-empty list.")
+        for i, r in enumerate(rr):
+            rloc = f"list_spec.pricing.row_refusals[{i}]"
+            if not isinstance(r, dict) or set(r) != {"pattern", "line"}:
+                _vthrow(f"{rloc} must carry exactly pattern / line.")
+            try:
+                re.compile(r["pattern"])
+            except (re.error, TypeError):
+                _vthrow(f"{rloc}.pattern must be a regular expression.")
+            _sentence(r, "line", rloc)
+    if "partial_insulation" in pr:
+        pi = pr["partial_insulation"]
+        ploc = "list_spec.pricing.partial_insulation"
+        if not isinstance(pi, dict) or set(pi) != {"pattern", "line"}:
+            _vthrow(f"{ploc} must carry exactly pattern / line.")
+        try:
+            # the panel reads it as a JavaScript pattern: its named groups (?<name>...) are Python's (?P<name>...)
+            pat = re.compile(re.sub(r"\(\?<(?![=!])", "(?P<", pi["pattern"]))
+        except (re.error, TypeError):
+            _vthrow(f"{ploc}.pattern must be a regular expression.")
+        if not {"kind", "span"} <= set(pat.groupindex):
+            _vthrow(f"{ploc}.pattern must name the groups kind and span.")
+        _sentence(pi, "line", ploc, ("{kind}", "{span}"))
     if "sheet_insulation" in pr:
         _validate_sheet_insulation(pr["sheet_insulation"], spec)
     for nk, nd in (pr.get("numbers") or {}).items():

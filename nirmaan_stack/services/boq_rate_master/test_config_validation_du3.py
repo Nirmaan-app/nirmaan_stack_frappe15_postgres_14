@@ -106,3 +106,86 @@ class TestDu3SheetInsulation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _mint():
+    """the v75 mint's PURE config functions (scripts/_instruments/mint_hvac_v75_du3.py) -- the config the asset will carry"""
+    import importlib.util
+    p = os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "_instruments", "mint_hvac_v75_du3.py")
+    spec = importlib.util.spec_from_file_location("mint_hvac_v75_du3", os.path.abspath(p))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+class TestDu3K1bK1cKeys(unittest.TestCase):
+    """DU-3 K1b + K1c: pair_note (R3), the gauge lines (R4 / R6 / R7), paint_row (Case 8), row_refusals (Case 5), partial_insulation
+    (Case 4), family_text.refuse `unless` (Case 12), when_words `rule` (R7 / Case 6) -- accepted as the mint writes them, refused in
+    every other shape named here."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _mint()
+        cls.duct = cls.m.ducting_config(_cfg(74, DUCT))
+        cls.valve = cls.m.valve_config(_cfg(74, "hvac_valve_package"))
+
+    def refuses(self, cfg, words):
+        with self.assertRaises(frappe.ValidationError) as cm:
+            cv._validate_config(cfg)
+        self.assertIn(words, str(cm.exception))
+
+    def mutated(self, fn, base=None):
+        c = copy.deepcopy(base or self.duct)
+        fn(c["list_spec"]["pricing"])
+        return c
+
+    def test_mint_configs_accepted(self):
+        cv._validate_config(copy.deepcopy(self.duct))
+        cv._validate_config(copy.deepcopy(self.valve))
+        self.assertEqual(self.duct["list_spec"]["pricing"]["sheet_insulation"], SI_V75)
+
+    def test_pair_note(self):
+        loc = "list_spec.pricing.scope.supply_row"
+        self.refuses(self.mutated(lambda p: p["scope"]["supply_row"].__setitem__("pair_note", "Installation not priced here")), "{rows}")
+        self.refuses(self.mutated(lambda p: p["scope"]["supply_row"].__setitem__("extra", "x")), f"{loc} needs exactly")
+
+    def test_gauge_lines_optional(self):
+        g = lambda p: p["numbers"]["thickness_mm"]["gauge"]["lines"]
+        cv._validate_config(self.mutated(lambda p: [g(p).pop(k) for k in ("bare_number", "labour_any_gauge", "own_row")]))
+        self.refuses(self.mutated(lambda p: g(p).__setitem__("no_such_line", "x")), "lines needs exactly")
+
+    def test_paint_row(self):
+        loc = "list_spec.pricing.paint_row"
+        self.refuses(self.mutated(lambda p: p["paint_row"].pop("tolerance")), f"{loc} needs exactly")
+        self.refuses(self.mutated(lambda p: p["paint_row"].__setitem__("tolerance", 1.5)), f"{loc}.tolerance must be")
+        self.refuses(self.mutated(lambda p: p["paint_row"].__setitem__("family", "Not A Misc Item")), f"{loc}.section must name")
+        self.refuses(self.mutated(lambda p: p["paint_row"].__setitem__("words", "(")), f"{loc}.words must be a regular expression")
+        self.refuses(self.mutated(lambda p: p["paint_row"].__setitem__("line", "priced as Paint")), "{rows}")
+
+    def test_row_refusals_and_partial_insulation(self):
+        self.refuses(self.mutated(lambda p: p.__setitem__("row_refusals", [])), "row_refusals must be a non-empty list")
+        self.refuses(self.mutated(lambda p: p["row_refusals"][0].__setitem__("pattern", "(")), "pattern must be a regular expression")
+        ploc = "list_spec.pricing.partial_insulation"
+        self.refuses(self.mutated(lambda p: p["partial_insulation"].__setitem__("pattern", "(?<kind>acoustic) first 5 m")), f"{ploc}.pattern must name the groups kind and span")
+        self.refuses(self.mutated(lambda p: p["partial_insulation"].__setitem__("line", "add by hand")), "{kind}")
+
+    def test_family_text_refuse_unless(self):
+        rf = lambda p: p["family_text"]["refuse"]
+        ss = [r for r in rf(self.duct["list_spec"]["pricing"]) if r["from"] == "stainless steel"]
+        self.assertEqual([("unless" in r) for r in ss], [True, False])
+        # the repeat is allowed only after an entry with `unless`
+        self.refuses(self.mutated(lambda p: [r.pop("unless", None) for r in rf(p)]), "is already mapped")
+        self.refuses(self.mutated(lambda p: next(r for r in rf(p) if "unless" in r).__setitem__("unless", "(")), "unless must be a regular expression")
+
+    def test_when_words_rule(self):
+        ww = lambda p: p["family_when_none"]["when_words"]
+        self.refuses(self.mutated(lambda p: next(w for w in ww(p) if "rule" in w).__setitem__("rule", " ")), "rule must be a non-empty sentence")
+        self.refuses(self.mutated(lambda p: ww(p)[0].__setitem__("extra", 1)), "must carry exactly unit_class / words / family")
+
+    def test_two_insulations(self):
+        tloc = "list_spec.pricing.two_insulations"
+        self.assertEqual(self.duct["list_spec"]["pricing"]["two_insulations"]["section"], "insulation")
+        self.refuses(self.mutated(lambda p: p["two_insulations"].pop("line")), f"{tloc} must carry exactly")
+        self.refuses(self.mutated(lambda p: p["two_insulations"].__setitem__("section", "nope")), f"{tloc}.section must name")
+        self.refuses(self.mutated(lambda p: p["two_insulations"].__setitem__("keep_words", "(")), f"{tloc}.keep_words must be a regular expression")
+        self.refuses(self.mutated(lambda p: p["two_insulations"].__setitem__("line", "add by hand")), "{t}")
