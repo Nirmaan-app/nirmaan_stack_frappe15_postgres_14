@@ -2632,6 +2632,12 @@
    "writes": [],
    "reads": []
   },
+  "nirmaan_stack.services.boq_rate_master.test_config_validation_du3": {
+   "seconds": 14.4,
+   "series": [],
+   "writes": [],
+   "reads": []
+  },
   "nirmaan_stack.services.boq_rate_master.test_config_validation_vp1": {
    "seconds": 13.9,
    "series": [],

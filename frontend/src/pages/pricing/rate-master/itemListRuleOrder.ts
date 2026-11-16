@@ -998,14 +998,19 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
         `no supply; installation = ${String(Math.round(e.install_times * 100) / 100)} x the matched product's installation`, "existing_work");
   }
   {
-    const si = pr.sheet_insulation as { section?: unknown; mode?: unknown; high?: unknown; low?: unknown } | undefined;
-    if (si && typeof si === "object" && typeof si.high === "number" && typeof si.low === "number") {
+    // DU-3 (R1 / R2): the 90% rule, its threshold named by its Pricing Input (read live), and which rows count as duct insulation
+    const si = pr.sheet_insulation as { section?: unknown; threshold_input?: unknown } | undefined;
+    if (si && typeof si === "object" && typeof si.threshold_input === "string") {
       const sec = (Array.isArray(ls?.sections) ? ls.sections : []).find((x: { id?: unknown }) => x?.id === si.section) as { label?: unknown } | undefined;
       const label = String(sec?.label ?? si.section ?? "insulation").toLowerCase();
       add(`On a sheet that quotes duct insulation on its own rows, a row's ${label} line is checked against them`,
-          `${si.mode === "all" ? "every such sheet compares areas" : "a plain thermal duct-insulation row drops the line; only a doubtful row (another kind, or under an AHU / plant-room heading) compares areas"}: `
-          + `covering ${String(Math.round(si.high * 100))}% or more of the insulated duct area -> not priced; under ${String(Math.round(si.low * 100))}% -> priced, with a note; between, or areas that cannot be compared -> left for a person; never in the calculator`,
+          `the separate rows' quantity against the sheet's insulated duct quantity (sq.m; a round duct per metre by 3.14 x dia): at or above `
+          + `the Pricing Input '${si.threshold_input}' -> not priced, the note names the rows; below it, or a quantity missing -> priced, with a `
+          + `possible-double-counting note naming the rows; no separate rows -> priced as usual; never in the calculator`,
           "sheet_insulation");
+    } else if (si && typeof si === "object") {
+      // the RETIRED DU-1 G-3 shape (v71-v74): stated as what it now does, so a historical config's tab still names the key
+      add("A historical duct-insulation check (the G-3 shape, retired by DU-3)", "no sheet check runs: the insulation line prices as usual", "sheet_insulation");
     }
   }
   // DU-1 FIX-3 (VP-DRV; owner 2026-11-15 13:41 "a derivation coverage check before deployment to ensure all rules (model + code+

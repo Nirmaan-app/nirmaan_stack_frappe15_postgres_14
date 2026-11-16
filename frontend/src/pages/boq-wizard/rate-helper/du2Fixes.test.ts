@@ -17,6 +17,7 @@ import { calculatorCtx } from "../../pricing/PricingCalculator";
 import { pricingInputUsedBy, pricingInputUsedByText } from "../../pricing/rate-master/rateMasterSpec";
 import { CFG, ITEMS, LATEST } from "./du1Duct.harness";
 
+import { SI_V75, itemsV75 } from "./du3Insulation.harness";
 const DUCT = "hvac_ducting", VALVE = "hvac_valve_package";
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
 const RECT = "Rectangular (GI)", SPIRAL = "Spiral / Oval (GI)", ROUND = "Round (GI) - per metre";
@@ -189,12 +190,16 @@ describe(`DU-2 K1 fixes on ${LATEST}`, () => {
     expect(tot(v)).toEqual([1080, 260]);
     expect(JSON.stringify(v)).not.toContain("labour only");
   });
-  // QR-4 Q1 (a): DR7 reads every heading of a separate insulation row's chain
+  // QR-4 Q1 (a): DR7 reads every heading of a separate insulation row's chain.
+  // DU-3 INVERTED (R1 the 90% rule + R2, owner 2026-11-16 16:33 / 16:37): the sheet check runs on the v75 `sheet_insulation` shape (the
+  // retired G-3 shape runs none); BEFORE: "Duct insulation is quoted on its own row ..." -- AFTER: R1's covered sentence (100 of 100 sq.m)
   const sheetPanel = (chain: string[]) => {
     const duct = { excel_row: 9, description: "GI duct", category_id: DUCT, attributes: {}, items: [mi(D(RECT, "24G", { insulated: "Yes" })),
       mi({ _section: "insulation", item: "Thermal Nitrile Insulation", thickness_mm: "9 mm", cladding: "None" })] };
     const ins = { excel_row: 40, description: "9 mm thick", category_id: "hvac_insulation", attributes: {}, items: [] };
-    const h = makePricingSheetHelper({ configsByCategory: cfgs(WITH) as never, items: ITEMS as never, extractionByRow: buildExtractionByRow([duct, ins] as never) });
+    const w75 = structuredClone(WITH) as { list_spec: { pricing: Record<string, unknown> } };
+    w75.list_spec.pricing.sheet_insulation = SI_V75;
+    const h = makePricingSheetHelper({ configsByCategory: cfgs(w75 as never) as never, items: itemsV75(0.9) as never, extractionByRow: buildExtractionByRow([duct, ins] as never) });
     return (h.compute({ excelRow: 9, description: "GI duct", nodeType: "Line Item", category: DUCT, discipline: "HVAC", rateKinds: KINDS, unit: "Sqm",
       headings: [], ownNotes: [], headingNotes: [],
       sheetLines: [{ row: 9, text: "GI duct", unit: "Sqm" }, { row: 40, text: "9 mm thick", unit: "Sqm", heading: chain[chain.length - 1], headings: chain }],
@@ -202,12 +207,12 @@ describe(`DU-2 K1 fixes on ${LATEST}`, () => {
   };
   it("QR-4 Q1 (a) pos: an insulation row under 'Insulation' within 'Duct insulation works' is the sheet's own duct insulation -> not priced again", () => {
     const v = sheetPanel(["Duct insulation works", "Insulation"]);
-    expect(JSON.stringify(v)).toContain("Duct insulation is quoted on its own row");
+    expect(JSON.stringify(v)).toContain("Insulation is priced separately in row 40 - not included in this row.");
     expect(tot(v)).toEqual([1080, 260]);
   });
   it("QR-4 Q1 (a) neg: under 'Pipe insulation' > 'Insulation' (no duct word anywhere) the duct's insulation line is priced", () => {
     const v = sheetPanel(["Pipe insulation", "Insulation"]);
-    expect(JSON.stringify(v)).not.toContain("Duct insulation is quoted on its own row");
+    expect(JSON.stringify(v)).not.toContain("priced separately");
     expect((v.totals?.supply_rate ?? 0) > 1080).toBe(true);
   });
   // CH-DU2-5 W1: the re-file words never refuse a row the model reads as a duct (00436 r55 'ducts with acoustic lining')

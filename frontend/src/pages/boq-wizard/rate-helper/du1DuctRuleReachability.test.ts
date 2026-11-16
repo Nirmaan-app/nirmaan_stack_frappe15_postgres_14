@@ -11,7 +11,11 @@ import { chai, describe, expect, it } from "vitest"; chai.config.truncateThresho
 import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, SCOPE_OVERRIDE_KEY, buildExtractionByRow, makePricingSheetHelper, type ItemListSuggestion, type ItemListView } from "./pricingSheetHelper";
 import { calculatorCtx } from "../../pricing/PricingCalculator";
 import { itemListRuleOrder } from "../../pricing/rate-master/itemListRuleOrder";
-import { CFG, ITEMS, LATEST } from "./du1Duct.harness";
+import { CFG as CFG0, ITEMS as ITEMS0, LATEST } from "./du1Duct.harness";
+import { cfgV75, itemsV75 } from "./du3Insulation.harness";
+// DU-3 (R1 / R2): the Ducting config with the v75 `sheet_insulation` shape and the threshold Pricing Input (a no-op once v75 is the asset)
+const CFG = cfgV75() as typeof CFG0;
+const ITEMS = itemsV75(0.9) as typeof ITEMS0;
 
 const DUCT = "hvac_ducting";
 const KINDS = ["supply_rate", "install_rate", "combined_rate"];
@@ -82,8 +86,9 @@ const R = {
   dr12: title(/^Several gauges in one row/),
   dr4: title(/^No gauge in the BoQ/),
   dr2: title(/^A gauge not stocked takes the next THICKER/),
-  dr7: title(/^Duct insulation quoted on its own row/),
-  g3: title(/^The quantity check beside it/),
+  // DU-3: DR7 states R2 (which rows count) and G3 became R1 (the 90% rule) in v75 -- either wording, so K2 needs no second edit
+  dr7: title(/^Duct insulation quoted on its own row|^Which rows count as the sheet's own duct-insulation rows/),
+  g3: title(/^The quantity check beside it|^The 90% rule/),
   g1: title(/^A borrowed section never reads/),
   dr14: title(/^Removal 0.5 x and refixing/),
   o10: title(/^Installation only follows the Valve rule/),
@@ -165,20 +170,22 @@ const C: Case[] = [
   { rule: R.exRemoval, kind: "neg", run: () => panel([D(RECT, "24G")], "Sqm", "GI duct 24G"), priced: true, figures: [1080, 260] },
   { rule: R.dr14, kind: "pos", run: () => panel([D(RECT, "18G")], "Sqm", "Removal of existing GI duct 18G"), priced: true, figures: [0, 130], re: [/removal of existing ducts/i] },
   { rule: R.dr14, kind: "neg", run: () => panel([D(RECT, "18G")], "Sqm", "GI duct 18G"), priced: true, figures: [1800, 260] },
-  // the sheet's insulation (DR7 / G-3)
+  // the sheet's insulation -- DU-3 INVERTED (R1 the 90% rule + R2, owner 2026-11-16 16:33 / 16:37): BEFORE "Duct insulation is quoted on its
+  // own row ..." / G-3 "cover only about 10% ..." (an AHU heading made the row doubtful) -- AFTER: the covered / double-counting sentences;
+  // an AHU heading now EXCLUDES the row (never duct insulation), so the R1 cases carry no heading
   ...([R.sheetIns, R.dr7] as const).flatMap((rule): Case[] => [
     { rule, kind: "pos", run: () => panel([D(SPIRAL, "24G", { insulated: "Yes" }), INS()], "Sqm", "spiral duct 24G with 9 mm insulation",
-        { others: [{ row: 40, text: "Thermal insulation of duct 9 mm", category: "hvac_insulation", items: [] }] }), priced: true, figures: [1240, 280],
-      re: ["Duct insulation is quoted on its own row on this sheet (rows 40) - not priced in this row."] },
+        { others: [{ row: 40, text: "Thermal insulation of duct 9 mm", category: "hvac_insulation", items: [] }], quantities: { 9: 100, 40: 100 } }), priced: true, figures: [1240, 280],
+      re: ["Insulation is priced separately in row 40 - not included in this row."] },
     { rule, kind: "neg", run: () => panel([D(SPIRAL, "24G", { insulated: "Yes" }), INS()], "Sqm", "spiral duct 24G with 9 mm insulation", { others: [] }), priced: true,
-      not: ["Duct insulation is quoted on its own row"] },
+      not: ["priced separately"] },
   ]),
   { rule: R.g3, kind: "pos", run: () => panel([D(SPIRAL, "24G", { insulated: "Yes" }), INS()], "Sqm", "spiral duct 24G with 9 mm insulation",
-      { others: [{ row: 40, text: "Thermal insulation of duct 9 mm", category: "hvac_insulation", items: [], heading: "AHU room" }], quantities: { 9: 100, 40: 10 } }),
-    priced: true, re: ["cover only about 10% of the insulated duct area"] },
-  { rule: R.g3, kind: "neg", run: () => panel([D(SPIRAL, "24G", { insulated: "Yes" }), INS()], "Sqm", "spiral duct 24G with 9 mm insulation",
       { others: [{ row: 40, text: "Thermal insulation of duct 9 mm", category: "hvac_insulation", items: [] }], quantities: { 9: 100, 40: 10 } }),
-    priced: true, not: ["cover only about"], figures: [1240, 280] },
+    priced: true, re: ["Possible double counting - insulation is also priced separately in row 40. Check before quoting.", "about 10% of the insulated duct quantity"] },
+  { rule: R.g3, kind: "neg", run: () => panel([D(SPIRAL, "24G", { insulated: "Yes" }), INS()], "Sqm", "spiral duct 24G with 9 mm insulation",
+      { others: [{ row: 40, text: "Thermal insulation of duct 9 mm", category: "hvac_insulation", items: [] }], quantities: { 9: 100, 40: 100 } }),
+    priced: true, not: ["Possible double counting"], figures: [1240, 280] },
   // the gauge (DR3 / DR12 / DR4 / DR2)
   { rule: R.dr3, kind: "pos", run: () => panel([D(RECT, "24G / 1.0 mm")]), priced: true, figures: [1080, 260], re: ["the gauge wins over the 1 mm also written"] },
   { rule: R.dr3, kind: "neg", run: () => panel([D(RECT, "1.0 mm")]), priced: true, figures: [1520, 260], not: ["the gauge wins"] },

@@ -670,8 +670,12 @@ export interface RateHelperRowContext {
    * by that check. The calculator never has it.
    */
   sheetInsulation?: {
-    rows: ReadonlyArray<{ row: number; qty: number | null; unit: string | null; kind: "acoustic" | "thermal"; doubtful: string | null }>;
+    /** DU-3 (R1 / R2): the counted separate duct-insulation rows; `qty` in sq.m (a quantity of 0 counts as 0 whatever its unit, QR-1
+     *  Q4), null when it cannot be read as an area; `why` = what made it count (its words / a heading / a plain Insulation heading) */
+    rows: ReadonlyArray<{ row: number; qty: number | null; unit: string | null; why: "words" | "heading" | "plain_heading" }>;
     ducts: ReadonlyArray<{ row: number; area: number | null }>;
+    /** DU-3: insulation rows NOT counted and why (running metres / pipe / AHU / building ...) -- the Insulation 90% tab only */
+    excluded?: ReadonlyArray<{ row: number; why: string }>;
   };
   /**
    * VP-1 (N5, QR-1 Q1): the category of every row of this sheet, by excel row, as the PAGE shows it (the grid's own category

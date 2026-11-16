@@ -1585,7 +1585,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       })() : withLines;
       // DU-1 (DR7 / G-3): the sheet's separate duct-insulation rows and its insulated duct rows, from the page's lines and categories
       // (else the run's) and the run's item 1 of each duct row -- only for a config declaring `pricing.sheet_insulation`
-      const si = listSpec.sheet_insulation;
+      // DU-3: only the R1 shape (a threshold Pricing Input); the retired G-3 shape (v74 and earlier) runs no check -- the line prices
+      const si = listSpec.sheet_insulation && typeof listSpec.sheet_insulation.threshold_input === "string" ? listSpec.sheet_insulation : undefined;
       const withIns = si && rowCtx.sheetLines && rowCtx.noRow !== true
         ? { ...withOdu, sheetInsulation: sheetInsulationOf(si, listSpec, rowCtx, rowCats, extractionByRow, category.category_id) }
         : withOdu;
@@ -7336,20 +7337,14 @@ function computeItemList(
         sheetInsulationLines.add("Removal / refixing of existing ducts: the insulation is not priced (the installation share alone)");
         continue;
       }
-      // DU-1 (DR7 / G-3): the sheet's own duct-insulation rows decide whether this insulation line is priced, added with a note,
-      // left unpriced, or not priced at all -- never in the calculator (it has no sheet)
+      // DU-3 (R1, the 90% rule): the sheet's own duct-insulation rows decide whether this insulation line is priced (with the
+      // double-counting note) or not priced (covered) -- never in the calculator (it has no sheet); no row is held for a person
       const siCfg = spec.sheet_insulation;
+      // (the retired G-3 shape never builds `ctx.sheetInsulation` -- see the helper -- so its decision is "price")
       if (siCfg && r.s.id === siCfg.section && !calculator) {
-        let acRow = false;
-        try { acRow = new RegExp(siCfg.acoustic_words, "i").test([ctx.description ?? "", ...(ctx.ownNotes ?? []), ...(ctx.headings ?? [])].join(" | ")); } catch { acRow = false; }
-        const dec = ductInsulationDecision(siCfg, ctx, acRow);
+        const dec = ductInsulationDecision(siCfg, ctx, items);
         if (dec.line) sheetInsulationLines.add(dec.line);
         if (dec.action === "drop") continue;
-        if (dec.action === "unpriced") {
-          attached.push({ sectionId: r.s.id, heading: `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`, pipe: i, index: 0,
-                          view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason: dec.line ?? "", items: [], families: [], editState: { items: [] }, modelCount: 0 } });
-          continue;
-        }
       }
       const secEdit: ItemEdit = edit.sections?.[r.s.id] ?? { base: modelSection ? edit.base : null, family: null, attrs: {} };
       editsOut.items[i] = { ...editsOut.items[i], sections: { ...(editsOut.items[i].sections ?? {}), [r.s.id]: secEdit } };
@@ -7467,30 +7462,56 @@ export function scopeUpliftOf(items: readonly RateMasterItem[], id: string): num
 export function sheetInsulationOf(si: NonNullable<ItemListPricingSpec["sheet_insulation"]>, spec: ItemListPricingSpec, ctx: RowContextWithUnit,
   rowCats: ReadonlyMap<number, string> | undefined, extractionByRow: ReadonlyMap<number, unknown>, ownCategory: string): NonNullable<RowContextWithUnit["sheetInsulation"]> {
   const re = (p: string) => { try { return new RegExp(p, "i"); } catch { return /$^/; } };
-  const ductRe = re(si.duct_words), insRe = re(si.insulation_words), acRe = re(si.acoustic_words), docRe = re(si.doubtful_heading_words);
+  const ductRe = re(si.duct_words), insRe = re(si.insulation_words), plainRe = re(si.plain_heading_words), neverRe = re(si.never_words),
+    surfRe = re(si.surface_words);
   const catOf = (row: number) => ctx.sheetCategories?.[row] ?? rowCats?.get(row) ?? null;
   const qtyOf = (row: number) => { const q = ctx.rowQuantities?.[row]; return typeof q === "number" && Number.isFinite(q) ? q : null; };
   // a quantity in a converted area unit (sq.ft) is compared in sq.m, through the config's own factor
   const sqmOf = (q: number | null, unit: string | null | undefined) => (q === null ? null : q * (unitFactorOf(spec, unit)?.factor ?? 1));
+  const norm = (u: string | null | undefined) => String(u ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const areaUnits = new Set(si.area_units.map(norm)), lengthUnits = new Set(si.length_units.map(norm));
   const sec = (spec.sections ?? []).find((s) => s.id === si.section);
   const inc = sec?.include_when;
   const fa = familyAttr(spec);
   // the row itself is one of the sheet's insulated ducts (its area counts), never one of the separate insulation rows
   const lines = (ctx.sheetLines ?? []).filter((l) => l.sheet === undefined && !l.preamble);
-  const rows: Array<{ row: number; qty: number | null; unit: string | null; kind: "acoustic" | "thermal"; doubtful: string | null }> = [];
+  const rows: Array<{ row: number; qty: number | null; unit: string | null; why: "words" | "heading" | "plain_heading" }> = [];
+  const excluded: Array<{ row: number; why: string }> = [];
   const ducts: Array<{ row: number; area: number | null }> = [];
+  const hit = (r: RegExp, t: string) => { const m = r.exec(t); return m ? m[0] : null; };
+  /** DU-3 (R2 / QR-1 Q1 + Q3): does this insulation-category row insulate a DUCT? Nearness decides: the unit (running metres = pipe),
+   *  then the row's own words, then its headings nearest first (a duct word -> yes; pipe / AHU / equipment in a short heading -> no; a
+   *  building surface in a heading that speaks of insulation -> no; a plain "Insulation" heading -> yes); else no. */
+  const ductInsulation = (l: (typeof lines)[number]): { why: "words" | "heading" | "plain_heading" } | { not: string } => {
+    if (lengthUnits.has(norm(l.unit))) return { not: `unit ${String(l.unit)} (running metres - pipe insulation)` };
+    // the row's own words first: a duct word counts ("insulation of ducts above the false ceiling"); else pipe / AHU / a surface excludes
+    if (ductRe.test(l.text)) return { why: "words" };
+    const own = hit(neverRe, l.text) ?? hit(surfRe, l.text);
+    if (own) return { not: `its words name '${own}'` };
+    const chain = [...(l.headings ?? (l.heading ? [l.heading] : []))].reverse();
+    // a duct word nearer than any pipe / AHU word wins; a plain "Insulation" heading counts only when NO heading of the chain names
+    // pipes / AHU / equipment (R2 "unless its words / headings clearly name pipes ...")
+    let plain = false;
+    for (const h of chain) {
+      if (ductRe.test(h)) return { why: "heading" };
+      if (h.length > si.preamble_chars) continue;
+      const nv = hit(neverRe, h) ?? (insRe.test(h) ? hit(surfRe, h) : null);
+      if (nv) return { not: `heading '${h.trim()}' names '${nv}'` };
+      if (plainRe.test(h)) plain = true;
+    }
+    return plain ? { why: "plain_heading" } : { not: "no duct word and no plain Insulation heading" };
+  };
   for (const l of lines) {
     const cat = catOf(l.row);
     const it0 = (extractionByRow.get(l.row) as ExtractionRowWithItems | undefined)?.items?.[0];
     const fam = it0?.attributes?.[fa]?.value;
-    const heading = l.heading ?? "";
-    // DU-2 K1b (owner QR-4 Q1 (a)): a duct word in ANY heading of the row's chain marks a separate duct-insulation row
-    const chain = (l.headings ?? []).join(" > ") || heading;
-    const separate = l.row !== ctx.excelRow && ((cat === si.category && (ductRe.test(l.text) || ductRe.test(chain)))
-      || (cat === ownCategory && insRe.test(l.text) && (typeof fam !== "string" || fam === "" || fam === "None")));
-    if (separate) {
-      rows.push({ row: l.row, qty: sqmOf(qtyOf(l.row), l.unit), unit: l.unit ?? null, kind: acRe.test(l.text) || acRe.test(heading) ? "acoustic" : "thermal",
-                  doubtful: docRe.test(heading) ? heading : null });
+    if (l.row !== ctx.excelRow && (cat === si.category || (cat === ownCategory && insRe.test(l.text) && (typeof fam !== "string" || fam === "" || fam === "None")))) {
+      const d = ductInsulation(l);
+      if ("not" in d) { excluded.push({ row: l.row, why: d.not }); continue; }
+      const q = qtyOf(l.row);
+      // QR-1 Q4: a quantity of 0 counts as 0 whatever its unit; any other quantity counts only in an area unit (sq.ft through the factor)
+      const qty = q === 0 ? 0 : q !== null && areaUnits.has(norm(l.unit)) ? sqmOf(q, l.unit) : null;
+      rows.push({ row: l.row, qty, unit: l.unit ?? null, why: d.why });
       continue;
     }
     if (cat === ownCategory && inc && it0?.attributes?.[inc.attr]?.value === inc.equals) {
@@ -7506,7 +7527,7 @@ export function sheetInsulationOf(si: NonNullable<ItemListPricingSpec["sheet_ins
       ducts.push({ row: l.row, area });
     }
   }
-  return { rows, ducts };
+  return { rows, ducts, ...(excluded.length ? { excluded } : {}) };
 }
 /** DU-1: the attribute a gauge axis reads its size table from (the size as written), else "size_as_written". */
 function si_size_attr(spec: ItemListPricingSpec): string {
@@ -7514,31 +7535,31 @@ function si_size_attr(spec: ItemListPricingSpec): string {
   return "size_as_written";
 }
 
-/** DU-1 (DR7 / G-3). PURE. What this row's insulation section does on its sheet: priced as usual ("price"), not priced at all
- *  ("drop"), added with a note ("add"), or unpriced ("unpriced"), and the line said. */
-export function ductInsulationDecision(si: NonNullable<ItemListPricingSpec["sheet_insulation"]>, ctx: RowContextWithUnit, rowIsAcoustic: boolean):
-  { action: "price" | "drop" | "add" | "unpriced"; line?: string } {
+/** DU-3 (R1, owner 2026-11-16 16:33 / 16:38). PURE. What this row's insulation section does on its sheet: priced as usual, no line
+ *  ("price"), not priced with the `covered` note ("drop"), or priced WITH the `double_count` note ("add"). The threshold is the
+ *  Pricing Input `si.threshold_input` read LIVE from `items` (a factor 0..1); exactly at the threshold = covered (edge c); a
+ *  quantity missing on either side = priced + the note (edge a). No outcome leaves the row for a person. */
+export function ductInsulationDecision(si: NonNullable<ItemListPricingSpec["sheet_insulation"]>, ctx: RowContextWithUnit,
+  items: readonly RateMasterItem[]): { action: "price" | "drop" | "add"; line?: string } {
   const sh = ctx.sheetInsulation;
   if (!sh || !sh.rows.length) return { action: "price" };
   const fill = (t: string, o: Record<string, string>) => Object.entries(o).reduce((a, [k, v]) => a.split(`{${k}}`).join(v), t);
   const rs = sh.rows.map((r) => r.row).sort((a, b) => a - b);
   const named = rs.slice(0, 10).join(", ") + (rs.length > 10 ? ` and ${rs.length - 10} more` : "");
-  const base = { rows: named, s: rs.length > 1 ? "s" : "" };
-  const doubtful = sh.rows.some((r) => r.doubtful !== null || (r.kind === "acoustic") !== rowIsAcoustic);
-  const dropped = fill(si.lines.dropped, base);
-  if (si.mode === "doubtful_only" && !doubtful) return { action: "drop", line: dropped };
-  const areaUnits = new Set(si.area_units.map((u) => u.toLowerCase().replace(/[^a-z0-9]/g, "")));
-  const insQ = sh.rows.every((r) => r.qty !== null && areaUnits.has(String(r.unit ?? "").toLowerCase().replace(/[^a-z0-9]/g, "")))
-    ? sh.rows.reduce((a, r) => a + (r.qty as number), 0) : null;
+  // R8 wording: a single named row reads "row 48", several "rows 48, 49"
+  const base = { rows: `${rs.length > 1 ? "rows" : "row"} ${named}` };
+  const doubleCount = fill(si.lines.double_count, base);
+  const threshold = scopeUpliftOf(items, si.threshold_input);
+  if (threshold === null) return { action: "add", line: `${doubleCount} ${si.lines.threshold_missing}` };
+  const insQ = sh.rows.every((r) => r.qty !== null) ? sh.rows.reduce((a, r) => a + (r.qty as number), 0) : null;
   const ductA = sh.ducts.length && sh.ducts.every((d) => d.area !== null) ? sh.ducts.reduce((a, d) => a + (d.area as number), 0) : null;
-  if (insQ === null || ductA === null || ductA <= 0) {
-    return doubtful ? { action: "unpriced", line: fill(si.lines.missing_doubtful, base) } : { action: "drop", line: dropped };
-  }
+  if (insQ === null || ductA === null || ductA <= 0) return { action: "add", line: doubleCount };
   const ratio = insQ / ductA;
-  const r = { ...base, pct: String(Math.round(ratio * 100)), ins: String(Math.round(insQ * 100) / 100), area: String(Math.round(ductA * 100) / 100) };
-  if (ratio >= si.high) return { action: "drop", line: `${dropped} ${fill(si.lines.ratio, r)}` };
-  if (ratio < si.low) return { action: "add", line: fill(si.lines.added, r) };
-  return { action: "unpriced", line: fill(si.lines.unpriced, r) };
+  const ratioLine = fill(si.lines.ratio, { pct: String(Math.round(ratio * 100)), ins: String(Math.round(insQ * 100) / 100),
+    area: String(Math.round(ductA * 100) / 100), threshold: String(Math.round(threshold * 100)) });
+  // a tiny tolerance so 0.9 x area computed in floating point still counts as exactly 90% (edge c)
+  if (ratio + 1e-9 >= threshold) return { action: "drop", line: `${fill(si.lines.covered, base)} ${ratioLine}` };
+  return { action: "add", line: `${doubleCount} ${ratioLine}` };
 }
 
 export function withSheetHeadingNotes(spec: ItemListPricingSpec, items: RateMasterItem[], ctx: RowContextWithUnit, res: HelperResult): HelperResult {

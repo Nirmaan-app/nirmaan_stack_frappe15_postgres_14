@@ -393,10 +393,14 @@ export function scopeUses(cfg: unknown, items: readonly RateMasterItem[] | null 
   const pr = pricingOf(cfg);
   if (pr.extras) return [];
   const sc = loose(pr.scope);
-  if (typeof sc.uplift_input !== "string" || !sc.uplift_input) return [];
+  // DU-3 (R1, owner 2026-11-16 16:38 "make this 90% thershold a pricing input"): the per-sheet duct-insulation check reads its
+  // coverage threshold from a Pricing Input too -- "used by" names the category (the server twin: config_validation.extras_input_ids)
+  const si = loose(pr.sheet_insulation);
+  const ids = [sc.uplift_input, si.threshold_input].filter((x): x is string => typeof x === "string" && x !== "");
+  if (!ids.length) return [];
   const kinds = new Set<string>([String(pr.kind ?? ""), ...(Array.isArray(pr.extra_kinds) ? (pr.extra_kinds as string[]) : [])]);
   const skus = (items ?? []).filter((it) => kinds.has(String(it.kind ?? ""))).map((it) => String(it.item_uid ?? "")).filter(Boolean);
-  return [{ input: String(sc.uplift_input), skus: [...new Set(skus)].sort() }];
+  return ids.map((input) => ({ input, skus: [...new Set(skus)].sort() }));
 }
 
 export function extrasUses(cfg: unknown, items: readonly RateMasterItem[] | null | undefined): Array<{ input: string; skus: string[] }> {

@@ -953,12 +953,42 @@ def _validate_gauge(g, loc, pr, by_id):
 
 
 def _validate_sheet_insulation(si, spec):
-    """DU-1 (DR7 / G-3) -- `list_spec.pricing.sheet_insulation`: the insulation category, the section it governs (a delegated section of
-    THIS config with an include_when toggle), four regular expressions, the mode ('doubtful_only' / 'all'), 0 < low < high <= 1, the
-    per-sq.m unit spellings the quantity check accepts, and the five lines."""
+    """DU-3 (R1 / R2) -- `list_spec.pricing.sheet_insulation`: the insulation category, the section it governs (a delegated section of
+    THIS config with an include_when toggle), five regular expressions (duct / insulation / plain Insulation heading / never: pipe,
+    AHU, plant, equipment / building surfaces), the preamble length (a positive whole number), the per-sq.m and running-metre unit
+    spellings, the Pricing Input id that holds the coverage threshold (read live by the panel), and the four lines."""
     loc = "list_spec.pricing.sheet_insulation"
+    if isinstance(si, dict) and set(si) == _SHEET_INSULATION_KEYS_RETIRED:
+        return _validate_sheet_insulation_retired(si, spec)
     if not isinstance(si, dict) or set(si) != _SHEET_INSULATION_KEYS:
         _vthrow(f"{loc} needs exactly {', '.join(sorted(_SHEET_INSULATION_KEYS))}.")
+    secs = [s for s in (spec.get("sections") or []) if isinstance(s, dict) and s.get("id") == si.get("section")]
+    if len(secs) != 1 or secs[0].get("category_id") != si.get("category") or not secs[0].get("include_when"):
+        _vthrow(f"{loc}.section must name this config's delegated section of '{si.get('category')}' that has an include_when toggle.")
+    for k in ("duct_words", "insulation_words", "plain_heading_words", "never_words", "surface_words"):
+        try:
+            re.compile(si[k])
+        except (re.error, TypeError):
+            _vthrow(f"{loc}.{k} must be a regular expression.")
+    if not (isinstance(si["preamble_chars"], int) and not isinstance(si["preamble_chars"], bool) and si["preamble_chars"] > 0):
+        _vthrow(f"{loc}.preamble_chars must be a positive whole number.")
+    for k in ("area_units", "length_units"):
+        if not isinstance(si[k], list) or not si[k] or not all(_nonempty_str(u) for u in si[k]):
+            _vthrow(f"{loc}.{k} must be a non-empty list of unit spellings.")
+    if not _nonempty_str(si["threshold_input"]):
+        _vthrow(f"{loc}.threshold_input must name a Pricing Input.")
+    if not isinstance(si["lines"], dict) or set(si["lines"]) != _SHEET_INSULATION_LINES:
+        _vthrow(f"{loc}.lines needs exactly {', '.join(sorted(_SHEET_INSULATION_LINES))}.")
+    for k in _SHEET_INSULATION_LINES:
+        _strings_ok(si["lines"], f"{loc}.lines", (k,))
+    if "{rows}" not in si["lines"]["covered"] or "{rows}" not in si["lines"]["double_count"]:
+        _vthrow(f"{loc}.lines.covered and .double_count must name the rows ({{rows}}).")
+
+
+def _validate_sheet_insulation_retired(si, spec):
+    """The RETIRED DU-1 G-3 shape (HVAC v71-v74, kept loadable for a rollback; no check runs on it since DU-3): the DU-1 rules as
+    they were -- four regular expressions, the mode, 0 < low < high <= 1, the per-sq.m units and the five lines."""
+    loc = "list_spec.pricing.sheet_insulation"
     secs = [s for s in (spec.get("sections") or []) if isinstance(s, dict) and s.get("id") == si.get("section")]
     if len(secs) != 1 or secs[0].get("category_id") != si.get("category") or not secs[0].get("include_when"):
         _vthrow(f"{loc}.section must name this config's delegated section of '{si.get('category')}' that has an include_when toggle.")
@@ -973,9 +1003,9 @@ def _validate_sheet_insulation(si, spec):
         _vthrow(f"{loc} needs 0 < low < high <= 1.")
     if not isinstance(si["area_units"], list) or not si["area_units"] or not all(_nonempty_str(u) for u in si["area_units"]):
         _vthrow(f"{loc}.area_units must be a non-empty list of unit spellings.")
-    if not isinstance(si["lines"], dict) or set(si["lines"]) != _SHEET_INSULATION_LINES:
-        _vthrow(f"{loc}.lines needs exactly {', '.join(sorted(_SHEET_INSULATION_LINES))}.")
-    for k in _SHEET_INSULATION_LINES:
+    if not isinstance(si["lines"], dict) or set(si["lines"]) != _SHEET_INSULATION_LINES_RETIRED:
+        _vthrow(f"{loc}.lines needs exactly {', '.join(sorted(_SHEET_INSULATION_LINES_RETIRED))}.")
+    for k in _SHEET_INSULATION_LINES_RETIRED:
         _strings_ok(si["lines"], f"{loc}.lines", (k,))
 
 
@@ -1316,9 +1346,16 @@ _PRICING_KEYS = _PRICING_KEYS | {"family_alias_offered", "no_sku_refusals", "she
 # conversions needing others are not used for it, their boxes not shown), `no_sku_refuse_default` (the re-file sentence for a no-SKU
 # item no `no_sku_refusals` entry names). Each arrives WITH its shape check below. ABSENT => as before.
 _PRICING_KEYS = _PRICING_KEYS | {"family_alias_needs", "no_sku_refuse_default"}
-_SHEET_INSULATION_KEYS = {"category", "section", "duct_words", "insulation_words", "acoustic_words", "doubtful_heading_words",
-                          "mode", "high", "low", "area_units", "lines"}
-_SHEET_INSULATION_LINES = {"dropped", "ratio", "added", "unpriced", "missing_doubtful"}
+# DU-3 (R1 the 90% rule + R2 which rows count, owner 2026-11-16 16:33 / 16:37 / 16:38; QR-1 Q1 / Q3 / Q4 18:06): the G-3 keys
+# (acoustic_words, doubtful_heading_words, mode, high, low) and lines (dropped, added, unpriced, missing_doubtful) are RETIRED.
+_SHEET_INSULATION_KEYS = {"category", "section", "duct_words", "insulation_words", "plain_heading_words", "never_words", "surface_words",
+                          "preamble_chars", "area_units", "length_units", "threshold_input", "lines"}
+_SHEET_INSULATION_LINES = {"covered", "double_count", "ratio", "threshold_missing"}
+# the RETIRED DU-1 G-3 shape (HVAC v71-v74): still accepted so a historical asset stays loadable (a rollback); the panel runs NO sheet
+# check on it (pricingSheetHelper reads only the shape with `threshold_input`) -- v75 and later carry the shape above
+_SHEET_INSULATION_KEYS_RETIRED = {"category", "section", "duct_words", "insulation_words", "acoustic_words", "doubtful_heading_words",
+                                  "mode", "high", "low", "area_units", "lines"}
+_SHEET_INSULATION_LINES_RETIRED = {"dropped", "ratio", "added", "unpriced", "missing_doubtful"}
 _GAUGE_KEYS = {"families", "mm", "standard_mm", "by_size", "lines"}
 _GAUGE_LINES = {"gauge_wins", "standard", "between", "thinner", "thicker", "size_table", "no_size", "several_band", "several_none"}
 _GAUGE_LINES_OPTIONAL = {"thicker_by_family", "existing_any_gauge"}
@@ -2201,7 +2238,12 @@ def extras_input_ids(cfg):
     if not isinstance(ex, dict):
         # VP-1 (N1): a pricing-level scope (a category without extras) reads its own installation-only uplift
         sc = (pr or {}).get("scope") if isinstance(pr, dict) else None
-        return [sc["uplift_input"]] if isinstance(sc, dict) and isinstance(sc.get("uplift_input"), str) and sc["uplift_input"] else []
+        out = [sc["uplift_input"]] if isinstance(sc, dict) and isinstance(sc.get("uplift_input"), str) and sc["uplift_input"] else []
+        # DU-3 (R1, owner 2026-11-16 16:38): the duct-insulation coverage threshold is a Pricing Input (the twin of scopeUses)
+        si = (pr or {}).get("sheet_insulation") if isinstance(pr, dict) else None
+        if isinstance(si, dict) and isinstance(si.get("threshold_input"), str) and si["threshold_input"]:
+            out.append(si["threshold_input"])
+        return out
     out = []
     for side in ("indoor", "outdoor"):
         out += [f"{b.get('input')}_{k}" for b in ((ex.get("pipe_bands") or {}).get(side) or []) if isinstance(b, dict) for k in EXTRAS_PIPE_CELLS]
@@ -2247,6 +2289,10 @@ def scope_problems(configs, items):
         sc = pr.get("scope") if isinstance(pr, dict) else None
         if isinstance(sc, dict) and sc.get("uplift_input") not in inputs:
             out.append(f"'{c.get('category_id')}' scope: the uplift input '{sc.get('uplift_input')}' is not a Pricing Input item.")
+        # DU-3 (R1): the sheet_insulation threshold must be a Pricing Input item of the discipline too
+        si = pr.get("sheet_insulation") if isinstance(pr, dict) else None
+        if isinstance(si, dict) and "threshold_input" in si and si.get("threshold_input") not in inputs:
+            out.append(f"'{c.get('category_id')}' sheet_insulation: the threshold input '{si.get('threshold_input')}' is not a Pricing Input item.")
     return out
 
 

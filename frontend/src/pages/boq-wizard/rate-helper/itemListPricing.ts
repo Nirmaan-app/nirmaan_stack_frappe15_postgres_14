@@ -636,10 +636,32 @@ export interface ItemListPricingSpec {
    * rows' sq.m / the insulated duct rows' sq.m >= `high` -> no line; < `low` -> the line is added; between -> the insulation is
    * unpriced; quantities missing -> a CLEAR sheet keeps DR7 (no line), a DOUBTFUL one is unpriced. Every outcome carries its line.
    */
+  /**
+   * DU-3 (R1 the 90% rule, owner 2026-11-16 16:31 / 16:33 / 16:38; R2 Case 11 16:37 "option B"; QR-1 Q1 (a) + the unit test, Q3 (a),
+   * Q4, owner 18:06) REPLACES DR7's "any separate row -> no line", the G-3 quantity check (mode / high / low / "left for a person")
+   * and F1. Per SHEET: its separate DUCT-insulation rows (R2: an insulation row whose own words or a heading of its chain name duct,
+   * or that sits under a plain "Insulation" heading - never one in running metres (pipe), nor one whose own words / nearer heading
+   * name pipes, AHU / plant / equipment or a building surface) against the sheet's INSULATED duct quantity (sq.m):
+   * none -> the Insulation line as usual; >= the threshold (the Pricing Input `threshold_input`, read LIVE) -> no line, `covered`;
+   * below, or a quantity missing on either side -> the line IS priced, `double_count`. No row is held for a person.
+   */
   sheet_insulation?: {
-    category: string; section: string; duct_words: string; insulation_words: string; acoustic_words: string; doubtful_heading_words: string;
-    mode: "doubtful_only" | "all"; high: number; low: number; area_units: string[];
-    lines: { dropped: string; ratio: string; added: string; unpriced: string; missing_doubtful: string };
+    category: string; section: string; duct_words: string; insulation_words: string;
+    /** a heading that is plainly "Insulation" (R2: its rows count unless their own words / a nearer heading say otherwise) */
+    plain_heading_words: string;
+    /** words that make an insulation row NOT duct insulation: pipes, AHU / plant room / equipment (its own words or a nearer heading) */
+    never_words: string;
+    /** building surfaces (under deck, roof, wall, ceiling, floor ...): NOT duct insulation when named by the row's own words or by a
+     *  heading that itself speaks of insulation (QR-1 Q3 (a)) -- a "First floor" sheet heading names no insulation and does not count */
+    surface_words: string;
+    /** a heading longer than this is a scope preamble: only its duct words are read (Q3) */
+    preamble_chars: number;
+    area_units: string[];
+    /** running-metre spellings: an insulation row in these units is pipe insulation and never counts (Q1 unit test) */
+    length_units: string[];
+    /** the Pricing Input (`attributes.item`) whose `rates.factor` is the coverage threshold (0.9 = 90%) */
+    threshold_input: string;
+    lines: { covered: string; double_count: string; ratio: string; threshold_missing: string };
   };
   no_sku_families?: string[];
   /** SLICE 12d-1b (owner T5): the TEXT item attribute that names the material AS WRITTEN; a `no_sku_families`

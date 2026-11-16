@@ -1,3 +1,7 @@
+// DU-3 (R1 the 90% rule + R9): the panel's sheet-level notes (`sheetHeadingNotes`: the insulation note, the valve-rows note) are exported
+// with every row, and each Ducting row carries the sheet's insulation summary (counted rows + sq.m, insulated duct sq.m, excluded rows and
+// why) for the AllRows "Insulation 90%" tab; "dropped" is read off R1's covered sentence; no "left for a person" outcome remains.
+//
 // DU-2 PACK1 THE DUCTING THREE-LAYER PACK HARNESS = valve_pack_harness.ts (VP-4) + ONE feed step for Ducting's SHEET-LEVEL insulation rule
 // (DR7 / G-3, `sheet_insulation`): the calculator has no sheet ("Never in the calculator", boq-rate-master.md Ducting), so where the
 // PANEL dropped a duct's Insulation line because the sheet quotes duct insulation on its own rows, the calculator is fed what the panel
@@ -18,7 +22,8 @@
 //
 // Env: VPK_DIR (sheets.json + <n>.json), VPK_KEYS (one "BOQ|sheet|row" per line), VPK_ASSET (asset paths, comma), VPK_OUT (jsonl path).
 import { readFileSync, writeFileSync } from "node:fs";
-import { makePricingSheetHelper, buildExtractionByRow } from "../../frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { makePricingSheetHelper, buildExtractionByRow, sheetInsulationOf as sheetInsulationSummary } from "../../frontend/src/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { itemListPricingSpec } from "../../frontend/src/pages/boq-wizard/rate-helper/itemListPricing";
 import { buildRowContext, rateKindsOf } from "../../frontend/src/pages/boq-wizard/rate-helper/rateSuggestionModel";
 import { isRateDescriptor } from "../../frontend/src/pages/boq-wizard/PricingGrid";
 import { resolvedToSheetCategoryRow } from "../../frontend/src/pages/boq-wizard/sheetCategoryResolve";
@@ -58,6 +63,8 @@ function side(res: any) {
       ...((il?.sections?.independent ?? []) as any[]).flatMap((sv: any) => (sv.view?.items ?? []).map((b: any) => block(b, sv.sectionId))),
     ],
     notes: res && res.kind === "suggestion" ? itemFieldNotes(res) : [],
+    // DU-3 R9: the sheet-level notes the panel draws in its amber box (the 90% insulation note, the valve-rows note)
+    sheetNotes: il?.sheetHeadingNotes ?? [],
     workingLines: (res?.workings?.lines ?? res?.workings?.notes ?? []),
   };
 }
@@ -84,10 +91,10 @@ function resolvedFeed(panel: any, ov: Record<string, string>): { overrides: Reco
 }
 /** DU-2: which sheet-level insulation decision (DR7 / G-3) the panel's view shows: "dropped" (not priced in this row), "person" (left for a
  *  person), or null. Read off the panel's own sentences (the config's `sheet_insulation.lines`). */
-function sheetInsulationOf(panel: any): "dropped" | "person" | null {
-  const t = JSON.stringify(panel?.itemList ?? {});
-  if (/insulation left for a person|the quantities cannot be compared - check whether they cover this duct/.test(t)) return "person";
-  if (/Duct insulation is quoted on its own rows? on this sheet/.test(t)) return "dropped";
+function sheetInsulationOf(panel: any): "dropped" | null {
+  const t = JSON.stringify(panel?.itemList?.sheetHeadingNotes ?? []);
+  // DU-3 R1: the covered sentence ("Insulation is priced separately in row(s) ... - not included in this row")
+  if (/Insulation is priced separately in rows? [^"]*- not included in this row/.test(t)) return "dropped";
   return null;
 }
 /** DU-2: a value the panel holds in a `dropdown_or_other` box that its list does not offer (a 350 mm diameter beside 80-300) goes to the
@@ -188,13 +195,21 @@ for (const sh of idx) {
     }
     const p = side(panel), c = side(calcRes), t = side(typedRes);
     let dc = err ? { cls: "ERROR", why: err.slice(0, 300) } : diffClass(divs, p, c);
-    // DU-2: a decision only a sheet can take (G-3 left for a person) is not a calculator difference
-    if (!err && dc.cls !== "EQUAL" && sheetInsulationOf(panel) === "person") dc = { cls: "SHEET RULE", why: "G-3: the panel left the insulation for a person (the calculator has no sheet); " + dc.why };
+    // DU-3: the sheet's duct-insulation summary (R1 / R2) for a Ducting row whose config carries the R1 shape
+    let sheetIns: any = null;
+    try {
+      const cfgD = configsByCategory.get(cat ?? "");
+      const spD = cfgD ? itemListPricingSpec(cfgD as never) : null;
+      const siD = spD?.sheet_insulation;
+      if (siD && typeof siD.threshold_input === "string" && ctx.sheetLines) {
+        sheetIns = sheetInsulationSummary(siD, spD!, ctx, undefined, buildExtractionByRow(results), cat);
+      }
+    } catch (e) { sheetIns = { error: String(e) }; }
     const dt = err ? { cls: "ERROR", why: "" } : diffClass(typedDivs, p, t);
     out.push(JSON.stringify({ key, boq: sh.boq, sheet: sh.sheet, excel_row: er, node_id: row.name, node_type: row.node_type,
       description: row.description ?? "", unit: row.unit ?? "", qty: row.qty_total ?? null, category: cat, run_id: adopted ? run.run_id : null,
       ext_items: ext?.items ?? null, panel: p, calculator: c, feed: feed ? { overrides: feed.overrides, hiddenFacts: feed.hiddenFacts, unitFeed: feed.unitFeed ?? null } : null,
-      resolved_fields: resolved?.changed ?? [], divergences: divs, diff: dc.cls, diff_why: dc.why,
+      resolved_fields: resolved?.changed ?? [], divergences: divs, diff: dc.cls, diff_why: dc.why, sheet_insulation: sheetIns,
       calculator_as_typed: { result: t, diff: dt.cls, diff_why: dt.why, divergences: typedDivs }, error: err }));
   }
 }
