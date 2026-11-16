@@ -3792,8 +3792,9 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow("list_spec.pricing.row_refusals must be a non-empty list.")
         for i, r in enumerate(rr):
             rloc = f"list_spec.pricing.row_refusals[{i}]"
-            if not isinstance(r, dict) or set(r) != {"pattern", "line"}:
-                _vthrow(f"{rloc} must carry exactly pattern / line.")
+            # DU-3 (W4): an optional `rule_line` -- the Derivation line's title
+            if not isinstance(r, dict) or not ({"pattern", "line"} <= set(r) <= {"pattern", "line", "rule_line"}):
+                _vthrow(f"{rloc} must carry exactly pattern / line (and optionally rule_line).")
             try:
                 re.compile(r["pattern"])
             except (re.error, TypeError):

@@ -4,7 +4,8 @@ MANIFEST.tsv, README.md). READ-ONLY on every source; makes no model call and nev
 
 What differs from the valve tool, set here and nowhere else:
   CATEGORY      hvac_ducting (a part's row files of any other category are skipped)
-  ASSETS        HVAC v74 + Electrical v72 (the newest HVAC asset; v74 = v72 + display-only lines - the rows were read on v72)
+  ASSETS        HVAC v75 + Electrical v72 (the newest HVAC asset; DU-3 re-prices every row on v75 - the rows were read on v72;
+                v75 asks the model the same question)
   harness       scripts/_instruments/ducting_pack_harness.ts (valve_pack_harness.ts + Ducting's sheet-level feed steps)
   --keys        a run_list.tsv (boq, sheet, excel_row, group ...) - every row of it is a Ducting row
 
@@ -21,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import valve_library as VL  # noqa: E402
 
 VL.CATEGORY = "hvac_ducting"
-VL.ASSETS = [VL.APP + "/nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v74.json",
+VL.ASSETS = [VL.APP + "/nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v75.json",
              VL.APP + "/nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v72.json"]
 _docker = VL._docker
 
@@ -32,6 +33,22 @@ def _docker_ducting(*args, cwd=None):
 
 
 VL._docker = _docker_ducting
+
+_row_block = VL.row_block
+
+
+def _row_block_ducting(lib_row, pk):
+    """DU-3 (R9): the valve tool's block + the panel's sheet-level notes (the 90% insulation note, the painting / two-insulation notes)
+    -- the review chunks show what the panel's amber box shows"""
+    b = _row_block(lib_row, pk)
+    notes = (pk.get("panel") or {}).get("sheetNotes") or []
+    if not notes:
+        return b
+    extra = "".join("SHEET NOTE: %s\n" % n for n in notes)
+    return b + extra if b.endswith("\n") else b + "\n" + extra.rstrip("\n")
+
+
+VL.row_block = _row_block_ducting
 
 
 def _keys_tsv(run_list):

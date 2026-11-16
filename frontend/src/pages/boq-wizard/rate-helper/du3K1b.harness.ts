@@ -16,9 +16,9 @@ export const PAIR_NOTE_VALVE = "Installation not priced in this row - this sheet
 export const R5_UNITS = ["sm", "sq mt", "sqm/ro"];
 const RECT = "Rectangular (GI)", SPIRAL = "Spiral / Oval (GI)";
 export const R7_WHEN_WORDS = [
-  ...(["area", "length"] as const).map((cls) => ({ unit_class: cls, words: ["rectangular/round", "rectangular/ round", "rectangular / round", "rect/round",
+  ...(["area"] as const).map((cls) => ({ unit_class: cls, words: ["rectangular/round", "rectangular/ round", "rectangular / round", "rect/round",
     "round/rectangular", "round / rectangular", "rectangular and round", "rectangular & round"], family: RECT,
-    rule: cls === "area" ? "BoQ says rectangular/round - priced as rectangular (unit sq.m)" : "BoQ says rectangular/round - priced as rectangular" })),
+    rule: "BoQ says rectangular/round - priced as rectangular (unit sq.m)" })),
   ...(["area", "length"] as const).map((cls) => ({ unit_class: cls, words: ["rectangular"], family: RECT })),
   ...(["area", "length"] as const).map((cls) => ({ unit_class: cls, words: ["round", "spiral", "oval", "circular", "elliptical"], family: SPIRAL,
     rule: "BoQ says round / spiral / oval with no duct type - priced as Spiral / Oval (owner 2026-11-16 15:00 / QR-5 (a))" })),
@@ -45,7 +45,8 @@ export const SS_REFUSE = [
   { from: "stainless steel", refuse: "Stainless-steel duct is not on our sheet - price this row by hand",
     rule: "Case 12 a stainless-steel duct row is priced by hand (owner 2026-11-16 16:38)" },
 ];
-export const ROW_REFUSALS = [{ pattern: "double[\\s-]*skin|sandwich\\s+type|sandwich\\s+(?:duct|panel)", line: "double-skin duct - not on our sheet, price by hand" }];
+export const ROW_REFUSALS = [{ pattern: "double[\\s-]*skin|sandwich\\s+type|sandwich\\s+(?:duct|panel)", line: "double-skin duct - not on our sheet, price by hand",
+  rule_line: "A double-skin duct row (inner + outer skin, or a sandwich with PUF) is not priced" }];
 export const PARTIAL_INSULATION = {
   pattern: "(?<kind>acoustic|thermal)\\b[^|]{0,160}?\\b(?<span>(?:first|initial)\\s+\\d+(?:\\.\\d+)?\\s*(?:m|mtr|mtrs|meters?|metres?|rmt)\\b(?:\\s+from\\s+(?:the\\s+)?[A-Za-z]+)?)",
   line: "{kind} insulation asked only for the {span} - add by hand",

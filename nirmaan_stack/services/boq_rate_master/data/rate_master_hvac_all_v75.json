@@ -37135,21 +37135,6 @@
         "rule": "BoQ says rectangular/round - priced as rectangular (unit sq.m)"
        },
        {
-        "unit_class": "length",
-        "words": [
-         "rectangular/round",
-         "rectangular/ round",
-         "rectangular / round",
-         "rect/round",
-         "round/rectangular",
-         "round / rectangular",
-         "rectangular and round",
-         "rectangular & round"
-        ],
-        "family": "Rectangular (GI)",
-        "rule": "BoQ says rectangular/round - priced as rectangular"
-       },
-       {
         "unit_class": "area",
         "words": [
          "rectangular and flat oval",
@@ -37604,7 +37589,7 @@
       {
        "rule": "DR14",
        "title": "Removal 0.5 x and refixing 1.0 x the duct's installation; both named -> 1.5 x",
-       "detail": "no supply and no insulation; the installation read live from the matching duct item; the gauge does not matter (the installation does not vary by gauge)"
+       "detail": "no supply and no insulation; the installation read live from the matching duct item; the gauge does not matter (the installation does not vary by gauge); a removal row naming several duct shapes takes the higher shape's installation basis (oval / spiral 280 -> removal 140), note 'removal of mixed shapes - priced at the higher (oval) rate' (owner Case 6, 2026-11-16 15:21)"
       },
       {
        "rule": "O10",
@@ -37649,6 +37634,14 @@
      ],
      "derivation_reasons": [
       {
+       "title": "^A duct type the catalogue does not stock refuses by name",
+       "why": "aluminium and stainless steel are not on our sheet (owner DR11, 2026-11-13 20:57); stainless steel: a duct / ducting row -> 'price this row by hand', any other -> the butterfly-valve re-file note (owner Case 12 \"option C\", 2026-11-16 16:38)"
+      },
+      {
+       "title": "^A row that names no material takes the kind its row implies",
+       "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); a removal row naming rectangular and oval -> the higher (oval) basis (owner Case 6 \"option B\", 15:21)"
+      },
+      {
        "title": "^A duct row naming two insulations",
        "why": "two insulations on one row: the duct + the whole-duct insulation priced, the second by hand (owner QR-2 Q1 \"1b\", 2026-11-16 21:19)"
       },
@@ -37661,7 +37654,7 @@
        "why": "the row's own material wins over the heading, with an amber note (owner Case 3 \"option A\", 2026-11-16 15:18)"
       },
       {
-       "title": "^A row whose own words name it is not priced",
+       "title": "^A double-skin duct row",
        "why": "a double-skin duct is left unpriced with a note (owner Case 5 \"option A\", 2026-11-16 15:20)"
       },
       {
@@ -37888,7 +37881,8 @@
      "row_refusals": [
       {
        "pattern": "double[\\s-]*skin|sandwich\\s+type|sandwich\\s+(?:duct|panel)",
-       "line": "double-skin duct - not on our sheet, price by hand"
+       "line": "double-skin duct - not on our sheet, price by hand",
+       "rule_line": "A double-skin duct row (inner + outer skin, or a sandwich with PUF) is not priced"
       }
      ],
      "partial_insulation": {

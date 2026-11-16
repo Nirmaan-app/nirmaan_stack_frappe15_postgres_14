@@ -491,7 +491,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     }
     const refuses = ((ft.refuse ?? []) as any[]).filter((r) => r?.from && r?.refuse);
     add(`A ${name(famAttrId)} the catalogue does not stock refuses by name`,
-        [...refuses.map((r) => `${String(r.from)}: ${plainSentence(r.refuse)}`), "any other spelling: no SKU in the catalogue for it -- the pricer decides"].join("; "));
+        [...refuses.map((r, i) => {
+          // DU-3 (W1, Case 12): a spelling refused twice -- the first carries `unless`; say when each applies
+          const twice = refuses.some((o, j) => j !== i && String(o.from) === String(r.from));
+          const when = !twice ? "" : r.unless ? ` (the words do not name a duct)` : ` (the words name a duct / ducting)`;
+          return `${String(r.from)}${when}: ${plainSentence(r.refuse)}`;
+        }), "any other spelling: no SKU in the catalogue for it -- the pricer decides"].join("; "));
     if (ft.from_row && typeof ft.from_row === "object" && ft.from_row.refuse) {
       add(`A row naming one ${name(famAttrId)} prices as it; two different ones with none chosen refuse`,
           `the names in the row's own text, read through the same map; ${plainSentence(String(ft.from_row.refuse).replace("{types}", "the names found"))}`);
@@ -519,7 +524,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   const fwn = pr.family_when_none;
   if (fwn && typeof fwn === "object") {
     const byClass = Object.entries<any>(fwn.by_unit_class ?? {}).map(([cls, f]) => `per ${pr.unit_words?.[cls] ?? cls}: ${famWord(f)}`);
-    const byWords = ((fwn.when_words ?? []) as any[]).map((w) => `${quoteList(w.words ?? [], 4)} in the row or its headings${w.unit_class ? ` (per ${pr.unit_words?.[w.unit_class] ?? w.unit_class})` : ""}: ${famWord(w.family)}`);
+    const byWords = ((fwn.when_words ?? []) as any[]).map((w) => `${quoteList(w.words ?? [], 4)} in the row or its headings${w.unit_class ? ` (per ${pr.unit_words?.[w.unit_class] ?? w.unit_class})` : ""}: ${famWord(w.family)}${typeof w.rule === "string" && w.rule.trim() ? `, with the note '${plainSentence(w.rule)}'` : ""}`);
     add("A row that names no material takes the kind its row implies",
         [...byClass, ...byWords].join("; ") + " -- shown as assumed, never silently");
   }
@@ -1003,10 +1008,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     if (si && typeof si === "object" && typeof si.threshold_input === "string") {
       const sec = (Array.isArray(ls?.sections) ? ls.sections : []).find((x: { id?: unknown }) => x?.id === si.section) as { label?: unknown } | undefined;
       const label = String(sec?.label ?? si.section ?? "insulation").toLowerCase();
+      const thr = items.find((it) => /_pricing_input$/.test(String(it.kind ?? "")) && String((it.attributes as { item?: unknown } | undefined)?.item ?? "") === si.threshold_input);
+      const f = Number((thr?.rates as { factor?: unknown } | undefined)?.factor);
       add(`On a sheet that quotes duct insulation on its own rows, a row's ${label} line is checked against them`,
-          `the separate rows' quantity against the sheet's insulated duct quantity (sq.m; a round duct per metre by 3.14 x dia): at or above `
-          + `the Pricing Input '${si.threshold_input}' -> not priced, the note names the rows; below it, or a quantity missing -> priced, with a `
-          + `possible-double-counting note naming the rows; no separate rows -> priced as usual; never in the calculator`,
+          `by the 90% rule below, against the Pricing Input '${pricingInputLabel(String(si.threshold_input), items)}'${Number.isFinite(f) ? ` (${String(Math.round(f * 100))}% today)` : ""}; `
+          + `which rows count is the next line; never in the calculator (it has no sheet)`,
           "sheet_insulation");
     } else if (si && typeof si === "object") {
       // the RETIRED DU-1 G-3 shape (v71-v74): stated as what it now does, so a historical config's tab still names the key
@@ -1015,8 +1021,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   }
   {
     // DU-3 (Case 5): own words that leave the row unpriced; (Case 4): part-length insulation not added
-    for (const r of (Array.isArray(pr.row_refusals) ? pr.row_refusals : []) as Array<{ line?: unknown }>) {
-      add(`A row whose own words name it is not priced`, `'${String(r.line ?? "")}'`, "row_refusals");
+    for (const r of (Array.isArray(pr.row_refusals) ? pr.row_refusals : []) as Array<{ line?: unknown; rule_line?: unknown }>) {
+      add(typeof r.rule_line === "string" && r.rule_line.trim() ? plainSentence(r.rule_line) : "A row whose own words name a refused kind is not priced",
+          `the note '${String(r.line ?? "")}'`, "row_refusals");
     }
     const ti = pr.two_insulations as { line?: unknown } | undefined;
     if (ti && typeof ti === "object" && typeof ti.line === "string") {
@@ -1034,7 +1041,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     const pw = pr.paint_row as { words?: unknown; family?: unknown; tolerance?: unknown } | undefined;
     if (pw && typeof pw === "object" && typeof pw.tolerance === "number") {
       add(`A row whose own words name painting (paint finish, enamel paint) and state no gauge is priced as ${String(pw.family ?? "Paint")}`,
-          `only when it sits after its sheet's own duct rows (the same heading) and its quantity is within ${String(Math.round(pw.tolerance * 100))}% `
+          `only when it sits right after its sheet's own duct rows (the unbroken run of duct rows directly above it) and its quantity is within ${String(Math.round(pw.tolerance * 100))}% `
           + `of theirs - the note names those rows; a row failing any test keeps its outcome with a note to price it by hand`, "paint_row");
     }
   }
@@ -1557,8 +1564,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            "supply only -> install 0 on every line",
            `installation only: ${iLine}; ${iiLine}; otherwise -> supply + installation, with the note 'BoQ says installation only but no supply row is quoted for it - priced supply + installation (we do end to end)'`,
            `the calculator's 'BoQ scope' choice prices as picked${ionN ? `, and also offers '${ionN}' (the normal installation rate)` : ""}`].join("; "), "scope");
+      const pairNote = typeof ps1.supply_row?.pair_note === "string" && ps1.supply_row.pair_note.trim() ? String(ps1.supply_row.pair_note) : null;
       add("A 'Supply of' row whose installation is quoted on its own row of the sheet is priced supply only",
-          "the row's own words start 'Supply of' / 'Supplying of' and name no installation, and the same sheet has an installation-only row of the same item -> supply only, with only the note 'Installation is quoted on its own row on this sheet, so priced supply only here'; the installation is charged once, on its own row", "scope_pair");
+          pairNote
+            ? `the row's own words start 'Supply of' / 'Supplying of' (or the sheet heading repeated, then 'Supply of') and name no installation, and the same sheet has installation-only rows of the same item -> supply only, with the note '${plainSentence(pairNote.replace("{rows}", "row(s): <the rows>"))}'; the installation is charged once, on its own row(s) (owner Case 1 2026-11-16 15:16; QR-1 Q7 18:06)`
+            : "the row's own words start 'Supply of' / 'Supplying of' and name no installation, and the same sheet has an installation-only row of the same item -> supply only, with only the note 'Installation is quoted on its own row on this sheet, so priced supply only here'; the installation is charged once, on its own row",
+          "scope_pair");
     } else
     add("The BoQ scope: supply + installation unless the row says otherwise",
         `the row is priced supply + installation unless the BoQ says supply only or installation only; the panel's scope pick (${list(panelOpts.map((o: string) => `'${o}'`))}) re-prices the row and the note says the user changed it; supply only -> install 0 on every line; installation only -> supply 0 and each line's final install x (1 + the Pricing Input '${pricingInputLabel(String(ps1.uplift_input ?? ""), items)}'), rounded up to the rupee once -- only when the sheet quotes no supply row of the same item; with one, the normal installation rate, naming those rows; the calculator's 'BoQ scope' choice does the same${ionN ? ` and also offers '${ionN}' (the normal installation rate, no uplift)` : ""}`);

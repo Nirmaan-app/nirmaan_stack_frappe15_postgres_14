@@ -87,6 +87,23 @@ function resolvedFeed(panel: any, ov: Record<string, string>): { overrides: Reco
     }
     if (!e.other.length) delete e.other;
   });
+  // DU-3: the same for each item's ATTACHED sections (a duct's insulation thickness typed "9 mm thick" -> the 9 the panel resolved) --
+  // the pricer reads the resolved size off the panel and types it; before, only the item's own fields were resolved (DU-2 "harness feed")
+  (st.items ?? []).forEach((e: any, i: number) => {
+    const b = view.items?.[i];
+    for (const [sid, se] of Object.entries<any>(e.sections ?? {})) {
+      const sv = (b?.sections ?? []).find((x: any) => x.sectionId === sid);
+      const sb = sv?.view?.items?.[0];
+      if (!sb || !Array.isArray(se?.other)) continue;
+      for (const f of sb.fields ?? []) {
+        if (!f.otherMode || !se.other.includes(f.id) || f.value === "") continue;
+        changed.push(`item ${i + 1} ${sid} ${f.id}: "${f.typedValue}" -> "${f.value}"`);
+        se.attrs = { ...(se.attrs ?? {}), [f.id]: f.value };
+        se.other = se.other.filter((x: string) => x !== f.id);
+      }
+      if (!se.other.length) delete se.other;
+    }
+  });
   return { overrides: { ...ov, ["__items__"]: JSON.stringify(st) }, changed };
 }
 /** DU-2: which sheet-level insulation decision (DR7 / G-3) the panel's view shows: "dropped" (not priced in this row), "person" (left for a

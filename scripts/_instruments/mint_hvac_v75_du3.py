@@ -76,8 +76,7 @@ R5_UNITS = ["sm", "sq mt", "sqm/ro"]
 R7_WHEN_WORDS = [
     {"unit_class": cls, "words": ["rectangular/round", "rectangular/ round", "rectangular / round", "rect/round", "round/rectangular",
                                   "round / rectangular", "rectangular and round", "rectangular & round"],
-     "family": "Rectangular (GI)", "rule": "BoQ says rectangular/round - priced as rectangular (unit sq.m)" if cls == "area"
-     else "BoQ says rectangular/round - priced as rectangular"} for cls in ("area", "length")
+     "family": "Rectangular (GI)", "rule": "BoQ says rectangular/round - priced as rectangular (unit sq.m)"} for cls in ("area",)
 ] + [
     {"unit_class": cls, "words": ["rectangular"], "family": "Rectangular (GI)"} for cls in ("area", "length")
 ] + [
@@ -105,7 +104,14 @@ SS_REFUSE = [
     {"from": "stainless steel", "refuse": "Stainless-steel duct is not on our sheet - price this row by hand",
      "rule": "Case 12 a stainless-steel duct row is priced by hand (owner 2026-11-16 16:38)"},
 ]
-ROW_REFUSALS = [{"pattern": r"double[\s-]*skin|sandwich\s+type|sandwich\s+(?:duct|panel)", "line": "double-skin duct - not on our sheet, price by hand"}]
+ROW_REFUSALS = [{"pattern": r"double[\s-]*skin|sandwich\s+type|sandwich\s+(?:duct|panel)", "line": "double-skin duct - not on our sheet, price by hand",
+                 "rule_line": "A double-skin duct row (inner + outer skin, or a sandwich with PUF) is not priced"}]
+W_REASONS = [
+    {"title": "^A duct type the catalogue does not stock refuses by name",
+     "why": "aluminium and stainless steel are not on our sheet (owner DR11, 2026-11-13 20:57); stainless steel: a duct / ducting row -> 'price this row by hand', any other -> the butterfly-valve re-file note (owner Case 12 \"option C\", 2026-11-16 16:38)"},
+    {"title": "^A row that names no material takes the kind its row implies",
+     "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); a removal row naming rectangular and oval -> the higher (oval) basis (owner Case 6 \"option B\", 15:21)"},
+]
 PARTIAL_INSULATION = {
     "pattern": r"(?<kind>acoustic|thermal)\b[^|]{0,160}?\b(?<span>(?:first|initial)\s+\d+(?:\.\d+)?\s*(?:m|mtr|mtrs|meters?|metres?|rmt)\b(?:\s+from\s+(?:the\s+)?[A-Za-z]+)?)",
     "line": "{kind} insulation asked only for the {span} - add by hand"}
@@ -119,7 +125,7 @@ K1C_REASONS = [
     {"title": "^A duct row naming two insulations", "why": "two insulations on one row: the duct + the whole-duct insulation priced, the second by hand (owner QR-2 Q1 \"1b\", 2026-11-16 21:19)"},
     {"title": "^A GI duct the BoQ calls fire rated", "why": "GI fire-rated duct priced as the Fire Rated duct item, note changed (owner Case 2 \"ok option A\", 2026-11-16 15:17)"},
     {"title": "^A heading naming aluminium", "why": "the row's own material wins over the heading, with an amber note (owner Case 3 \"option A\", 2026-11-16 15:18)"},
-    {"title": "^A row whose own words name it is not priced", "why": "a double-skin duct is left unpriced with a note (owner Case 5 \"option A\", 2026-11-16 15:20)"},
+    {"title": "^A double-skin duct row", "why": "a double-skin duct is left unpriced with a note (owner Case 5 \"option A\", 2026-11-16 15:20)"},
     {"title": "^Extra insulation asked only on part of the duct length", "why": "extra insulation asked only on part of the length is not added (owner Case 4 \"option A\", 2026-11-16 15:19)"},
 ]
 
@@ -205,6 +211,13 @@ def ducting_config(prev):
     at = next(n for n, w in enumerate(ww) if w["words"] == ["rectangular"])
     pr["family_when_none"]["when_words"] = ww[:at] + copy.deepcopy(C6_WHEN_WORDS) + ww[at:]
     pr["derivation_reasons"] = copy.deepcopy(K1C_REASONS) + pr["derivation_reasons"]
+    # CH-DU3-13 W1 / W5: the two titles' reasons say every ruling behind them (first, so they win)
+    pr["derivation_reasons"] = copy.deepcopy(W_REASONS) + [r for r in pr["derivation_reasons"] if r.get("title") not in {w["title"] for w in W_REASONS}]
+    # W6: the DR14 line says the Case 6 rule and its note
+    for r in pr["rule_lines"]:
+        if r["rule"] == "DR14":
+            r["detail"] += ("; a removal row naming several duct shapes takes the higher shape's installation basis (oval / spiral 280 -> removal 140), "
+                            "note 'removal of mixed shapes - priced at the higher (oval) rate' (owner Case 6, 2026-11-16 15:21)")
     assert c["list_spec"].get("second_opinion") is False
     return c
 

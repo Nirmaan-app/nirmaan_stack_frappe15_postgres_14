@@ -95,7 +95,7 @@ class TestHvacAssetV75(FrappeTestCase):
         reasons = {r.get("rule") for r in pr["derivation_reasons"] if r.get("rule")}
         self.assertTrue(set(DUCT_CODE_RULES) <= reasons, set(DUCT_CODE_RULES) - reasons)
         titles = {r.get("title") for r in pr["derivation_reasons"] if r.get("title")}
-        self.assertTrue({"^A row whose own words name painting", "^A row whose own words name it is not priced", "^A GI duct the BoQ calls fire rated",
+        self.assertTrue({"^A row whose own words name painting", "^A double-skin duct row", "^A GI duct the BoQ calls fire rated",
                          "^Extra insulation asked only on part of the duct length", "^A duct row naming two insulations", "^A heading naming aluminium"} <= titles)
         si = pr["sheet_insulation"]
         self.assertEqual(si["threshold_input"], THRESHOLD)

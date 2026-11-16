@@ -116,7 +116,7 @@ const R = {
   ownBand: title(/^Several gauges in the answer but the row's own words name one/),
   labourGauge: title(/^A labour row needs no gauge/),
   paintRow: title(/^A row whose own words name painting/),
-  rowRefusal: title(/^A row whose own words name it is not priced/),
+  rowRefusal: title(/^A double-skin duct row/),  // CH-DU3-13 W4: the title from the refusal's own rule_line
   partialIns: title(/^Extra insulation asked only on part of the duct length/),
   twoIns: title(/^A duct row naming two insulations/),
   giFire: title(/^A GI duct the BoQ calls fire rated/),
