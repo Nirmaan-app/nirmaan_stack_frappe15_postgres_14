@@ -272,6 +272,18 @@ describe("DU-3 K1c: the R8 cases", () => {
   it("Case 6 neg: removal of rectangular ducts only -> the rectangular basis 0 / 130", () => {
     expect(tot(one([D(null, null, { duct_type_as_written: "Removal of existing rectangular ducts" })], "Removal of existing rectangular ducts"))).toEqual([0, 130]);
   });
+  // owner 2026-11-17 00:18 "limit it to removal only" / 00:28: any other row naming rectangular AND oval -> unpriced, select the duct type
+  it("CH-DU3-17 pos: a SUPPLY row naming rectangular and flat oval -> unpriced, 'BoQ names rectangular and oval - select the correct duct type'", () => {
+    const v = one([D(null, "24G")], "Supply and installation of rectangular and flat oval GI ducts, 24G");
+    expect(v.rowPriced).toBe(false);
+    expect(txt(v)).toContain("BoQ names rectangular and oval - select the correct duct type");
+    expect(txt(v)).not.toContain("removal of mixed shapes");
+  });
+  it("CH-DU3-17 neg: a supply row naming rectangular only -> priced as rectangular, no select-the-type note", () => {
+    const v = one([D(null, "24G")], "Supply and installation of rectangular GI ducts, 24G");
+    expect(v.rowPriced).toBe(true);
+    expect(txt(v)).not.toContain("select the correct duct type");
+  });
   it("Case 12 pos: a stainless-steel DUCT row -> unpriced 'Stainless-steel duct is not on our sheet - price this row by hand' (no re-file)", () => {
     const v = one([D("None", "22G", { duct_type_as_written: "Stainless Steel ducting system" })], "Supply, fabrication, installation of Stainless Steel ducting system, SS 304, 22G");
     expect(v.rowPriced).toBe(false);

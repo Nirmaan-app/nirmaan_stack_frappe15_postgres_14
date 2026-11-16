@@ -182,6 +182,17 @@ class TestDu3K1bK1cKeys(unittest.TestCase):
         self.refuses(self.mutated(lambda p: next(w for w in ww(p) if "rule" in w).__setitem__("rule", " ")), "rule must be a non-empty sentence")
         self.refuses(self.mutated(lambda p: ww(p)[0].__setitem__("extra", 1)), "must carry exactly unit_class / words / family")
 
+    def test_when_words_existing_work_only(self):
+        # CH-DU3-17 (owner 2026-11-17 00:18 / 00:28): the mixed-shape entries apply to removal / refixing rows only, else refuse
+        ww = lambda p: p["family_when_none"]["when_words"]
+        mixed = [w for w in ww(self.duct["list_spec"]["pricing"]) if w.get("existing_work_only")]
+        self.assertEqual(len(mixed), 2)
+        self.assertTrue(all(w["otherwise_refuse"] == "BoQ names rectangular and oval - select the correct duct type" for w in mixed))
+        first = lambda p: next(w for w in ww(p) if w.get("existing_work_only"))
+        self.refuses(self.mutated(lambda p: first(p).__setitem__("existing_work_only", False)), "existing_work_only, when present, must be true")
+        self.refuses(self.mutated(lambda p: first(p).__setitem__("otherwise_refuse", " ")), "otherwise_refuse must be a non-empty sentence")
+        self.refuses(self.mutated(lambda p: first(p).pop("existing_work_only")), "only beside existing_work_only")
+
     def test_two_insulations(self):
         tloc = "list_spec.pricing.two_insulations"
         self.assertEqual(self.duct["list_spec"]["pricing"]["two_insulations"]["section"], "insulation")

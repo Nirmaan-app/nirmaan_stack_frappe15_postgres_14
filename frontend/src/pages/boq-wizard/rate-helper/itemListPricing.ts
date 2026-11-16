@@ -399,7 +399,10 @@ export interface FamilyWhenNone {
   /** Word rules, in order; the FIRST whose unit class matches and whose words appear wins. */
   /** DU-3 (R7, owner 2026-11-16 15:00 + Case 7 15:24 + QR-5 (a)): an entry may carry its own `rule` (the line said under the
    *  family) -- "BoQ says rectangular/round - priced as rectangular (unit sq.m)"; ABSENT => the config's `rule`, as before */
-  when_words?: Array<{ unit_class: string; words: string[]; family: string; rule?: string }>;
+  when_words?: Array<{ unit_class: string; words: string[]; family: string; rule?: string;
+    /** DU-3 (owner 2026-11-17 00:18 / 00:28): the entry applies ONLY on a removal / refixing row (`existing_work` in the row's own
+     *  words); on any other row whose words hit, `otherwise_refuse` leaves the row unpriced with that sentence */
+    existing_work_only?: boolean; otherwise_refuse?: string }>;
   rule: string;
 }
 
@@ -3860,7 +3863,8 @@ export function familyWhenNone(
   spec: ItemListPricingSpec,
   rowUnitClass: string,
   rowText: string,
-): { value: string; rule: string } | null {
+  ownText?: string,
+): { value: string; rule: string; refuse?: string } | null {
   const fwn = spec.family_when_none;
   if (!fwn) return null;
   let family = fwn.by_unit_class[rowUnitClass];
@@ -3869,7 +3873,14 @@ export function familyWhenNone(
   for (const w of fwn.when_words ?? []) {
     if (w.unit_class !== rowUnitClass) continue;
     // a WORD START: "acoustic" matches "acoustics" and "acoustical", never "subacoustic" (the shared test)
-    if (wordStartHit(rowText, w.words) !== null) { family = w.family; rule = w.rule ?? fwn.rule; break; }
+    if (wordStartHit(rowText, w.words) !== null) {
+      // DU-3 (owner 2026-11-17 00:28): a removal / refixing-only entry; any other row whose words hit refuses with its sentence
+      if (w.existing_work_only && (ownText === undefined || existingWorkOf(spec, ownText) === null)) {
+        if (w.otherwise_refuse) return { value: family, rule, refuse: w.otherwise_refuse };
+        continue;
+      }
+      family = w.family; rule = w.rule ?? fwn.rule; break;
+    }
   }
   return { value: family, rule };
 }
@@ -4603,7 +4614,9 @@ function priceOneItem(
   // declared in config, marked as a default. ONLY over an absent / "None" answer; a stated family,
   // "none of these" included, is never touched.
   const ruled = out.familyRaw === null || out.familyRaw === "None"
-    ? familyWhenNone(spec, rowUnitClass, rowText) : null;
+    ? familyWhenNone(spec, rowUnitClass, rowText, ownText) : null;
+  // DU-3 (owner 2026-11-17 00:28): a duct row whose type cannot be told (rectangular AND oval, not removal) is left for a person
+  if (ruled?.refuse) return blank(ruled.refuse);
   if (ruled) {
     out.familyDefaulted = ruled;
     out.familyRaw = ruled.value;

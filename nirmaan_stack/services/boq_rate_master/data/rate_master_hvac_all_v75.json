@@ -37143,7 +37143,9 @@
          "rectangular & oval"
         ],
         "family": "Spiral / Oval (GI)",
-        "rule": "removal of mixed shapes - priced at the higher (oval) rate"
+        "rule": "removal of mixed shapes - priced at the higher (oval) rate",
+        "existing_work_only": true,
+        "otherwise_refuse": "BoQ names rectangular and oval - select the correct duct type"
        },
        {
         "unit_class": "length",
@@ -37154,7 +37156,9 @@
          "rectangular & oval"
         ],
         "family": "Spiral / Oval (GI)",
-        "rule": "removal of mixed shapes - priced at the higher (oval) rate"
+        "rule": "removal of mixed shapes - priced at the higher (oval) rate",
+        "existing_work_only": true,
+        "otherwise_refuse": "BoQ names rectangular and oval - select the correct duct type"
        },
        {
         "unit_class": "area",
@@ -37589,7 +37593,7 @@
       {
        "rule": "DR14",
        "title": "Removal 0.5 x and refixing 1.0 x the duct's installation; both named -> 1.5 x",
-       "detail": "no supply and no insulation; the installation read live from the matching duct item; the gauge does not matter (the installation does not vary by gauge); a removal row naming several duct shapes takes the higher shape's installation basis (oval / spiral 280 -> removal 140), note 'removal of mixed shapes - priced at the higher (oval) rate' (owner Case 6, 2026-11-16 15:21)"
+       "detail": "no supply and no insulation; the installation read live from the matching duct item; the gauge does not matter (the installation does not vary by gauge); a removal row naming several duct shapes takes the higher shape's installation basis (oval / spiral 280 -> removal 140), note 'removal of mixed shapes - priced at the higher (oval) rate' (owner Case 6, 2026-11-16 15:21); removal / refixing rows only - any other row naming both shapes is not priced, 'BoQ names rectangular and oval - select the correct duct type' (owner 2026-11-17 00:28)"
       },
       {
        "rule": "O10",
@@ -37639,7 +37643,7 @@
       },
       {
        "title": "^A row that names no material takes the kind its row implies",
-       "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' -> the higher (oval) basis: the owner's Case 6 removal ruling (\"option B\", 15:21) applied to every row - 0 non-removal rows today (DU-3 C1, measured); open for the owner to confirm"
+       "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' on a removal / refixing row -> the higher (oval) basis (owner Case 6 \"option B\", 15:21); on any other row -> not priced, select the correct duct type (owner 2026-11-17 00:18 \"limit it to removal only\", 00:28 \"... left unpriced with note to select the correct duct type\")"
       },
       {
        "title": "^A duct row naming two insulations",

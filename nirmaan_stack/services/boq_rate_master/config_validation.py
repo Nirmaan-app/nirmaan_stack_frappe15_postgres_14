@@ -2851,8 +2851,13 @@ def _validate_family_when_none(fwn, ucls, fams):
         for i, w in enumerate(ww):
             wloc = f"{loc}.when_words[{i}]"
             # DU-3 (R7): an optional `rule` -- the entry's own line
-            if not isinstance(w, dict) or not (_PRICING_FWN_WORD_KEYS <= set(w) <= _PRICING_FWN_WORD_KEYS | {"rule"}):
-                _vthrow(f"{wloc} must carry exactly unit_class / words / family (and optionally rule).")
+            # DU-3 (owner 2026-11-17 00:28): optional `existing_work_only` (true) + `otherwise_refuse` (a sentence)
+            if not isinstance(w, dict) or not (_PRICING_FWN_WORD_KEYS <= set(w) <= _PRICING_FWN_WORD_KEYS | {"rule", "existing_work_only", "otherwise_refuse"}):
+                _vthrow(f"{wloc} must carry exactly unit_class / words / family (and optionally rule / existing_work_only / otherwise_refuse).")
+            if "existing_work_only" in w and w["existing_work_only"] is not True:
+                _vthrow(f"{wloc}.existing_work_only, when present, must be true.")
+            if "otherwise_refuse" in w and not ("existing_work_only" in w and isinstance(w["otherwise_refuse"], str) and w["otherwise_refuse"].strip()):
+                _vthrow(f"{wloc}.otherwise_refuse must be a non-empty sentence, and only beside existing_work_only.")
             if "rule" in w and not (isinstance(w["rule"], str) and w["rule"].strip()):
                 _vthrow(f"{wloc}.rule must be a non-empty sentence.")
             if w["unit_class"] not in ucls:

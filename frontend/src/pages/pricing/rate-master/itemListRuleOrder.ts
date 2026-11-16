@@ -524,7 +524,7 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   const fwn = pr.family_when_none;
   if (fwn && typeof fwn === "object") {
     const byClass = Object.entries<any>(fwn.by_unit_class ?? {}).map(([cls, f]) => `per ${pr.unit_words?.[cls] ?? cls}: ${famWord(f)}`);
-    const byWords = ((fwn.when_words ?? []) as any[]).map((w) => `${quoteList(w.words ?? [], 4)} in the row or its headings${w.unit_class ? ` (per ${pr.unit_words?.[w.unit_class] ?? w.unit_class})` : ""}: ${famWord(w.family)}${typeof w.rule === "string" && w.rule.trim() ? `, with the note '${plainSentence(w.rule)}'` : ""}`);
+    const byWords = ((fwn.when_words ?? []) as any[]).map((w) => `${quoteList(w.words ?? [], 4)} in the row or its headings${w.unit_class ? ` (per ${pr.unit_words?.[w.unit_class] ?? w.unit_class})` : ""}: ${famWord(w.family)}${typeof w.rule === "string" && w.rule.trim() ? `, with the note '${plainSentence(w.rule)}'` : ""}${w.existing_work_only ? ` -- on a removal / refixing row only${typeof w.otherwise_refuse === "string" && w.otherwise_refuse.trim() ? `; any other row naming them is not priced, '${plainSentence(w.otherwise_refuse)}'` : ""}` : ""}`);
     add("A row that names no material takes the kind its row implies",
         [...byClass, ...byWords].join("; ") + " -- shown as assumed, never silently");
   }

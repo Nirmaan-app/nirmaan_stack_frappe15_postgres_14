@@ -110,14 +110,16 @@ W_REASONS = [
     {"title": "^A duct type the catalogue does not stock refuses by name",
      "why": "aluminium and stainless steel are not on our sheet (owner DR11, 2026-11-13 20:57); stainless steel: a duct / ducting row -> 'price this row by hand', any other -> the butterfly-valve re-file note (owner Case 12 \"option C\", 2026-11-16 16:38)"},
     {"title": "^A row that names no material takes the kind its row implies",
-     "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' -> the higher (oval) basis: the owner's Case 6 removal ruling (\"option B\", 15:21) applied to every row - 0 non-removal rows today (DU-3 C1, measured); open for the owner to confirm"},
+     "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' on a removal / refixing row -> the higher (oval) basis (owner Case 6 \"option B\", 15:21); on any other row -> not priced, select the correct duct type (owner 2026-11-17 00:18 \"limit it to removal only\", 00:28 \"... left unpriced with note to select the correct duct type\")"},
 ]
 PARTIAL_INSULATION = {
     "pattern": r"(?<kind>acoustic|thermal)\b[^|]{0,160}?\b(?<span>(?:first|initial)\s+\d+(?:\.\d+)?\s*(?:m|mtr|mtrs|meters?|metres?|rmt)\b(?:\s+from\s+(?:the\s+)?[A-Za-z]+)?)",
     "line": "{kind} insulation asked only for the {span} - add by hand"}
 C6_WHEN_WORDS = [
     {"unit_class": cls, "words": ["rectangular and flat oval", "rectangular & flat oval", "rectangular and oval", "rectangular & oval"],
-     "family": "Spiral / Oval (GI)", "rule": "removal of mixed shapes - priced at the higher (oval) rate"} for cls in ("area", "length")
+     "family": "Spiral / Oval (GI)", "rule": "removal of mixed shapes - priced at the higher (oval) rate",
+     # owner 2026-11-17 00:18 "limit it to removal only" / 00:28 "... left unpriced with note to select the correct duct type"
+     "existing_work_only": True, "otherwise_refuse": "BoQ names rectangular and oval - select the correct duct type"} for cls in ("area", "length")
 ]
 TWO_INSULATIONS = {"section": "insulation", "keep_words": r"thermal", "second_words": r"acc?oustic",
                    "line": "second insulation (acoustic {t} mm) - add by hand"}
@@ -217,7 +219,8 @@ def ducting_config(prev):
     for r in pr["rule_lines"]:
         if r["rule"] == "DR14":
             r["detail"] += ("; a removal row naming several duct shapes takes the higher shape's installation basis (oval / spiral 280 -> removal 140), "
-                            "note 'removal of mixed shapes - priced at the higher (oval) rate' (owner Case 6, 2026-11-16 15:21)")
+                            "note 'removal of mixed shapes - priced at the higher (oval) rate' (owner Case 6, 2026-11-16 15:21); removal / refixing rows only - "
+                            "any other row naming both shapes is not priced, 'BoQ names rectangular and oval - select the correct duct type' (owner 2026-11-17 00:28)")
     assert c["list_spec"].get("second_opinion") is False
     return c
 

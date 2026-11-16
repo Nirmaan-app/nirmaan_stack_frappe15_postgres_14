@@ -54,7 +54,8 @@ export const PARTIAL_INSULATION = {
 export const TWO_INSULATIONS = { section: "insulation", keep_words: "thermal", second_words: "acc?oustic", line: "second insulation (acoustic {t} mm) - add by hand" };
 export const C6_WHEN_WORDS = (["area", "length"] as const).map((cls) => ({ unit_class: cls,
   words: ["rectangular and flat oval", "rectangular & flat oval", "rectangular and oval", "rectangular & oval"], family: SPIRAL,
-  rule: "removal of mixed shapes - priced at the higher (oval) rate" }));
+  rule: "removal of mixed shapes - priced at the higher (oval) rate",
+  existing_work_only: true, otherwise_refuse: "BoQ names rectangular and oval - select the correct duct type" }));
 
 type Pricing = {
   [k: string]: unknown;
