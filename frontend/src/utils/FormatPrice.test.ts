@@ -11,7 +11,12 @@ describe("the rupee formatters reuse one formatter and print exactly what toLoca
   });
 
   it("formatToRoundedIndianRupee: whole rupees in Indian grouping", () => {
-    for (const n of amounts) expect(formatToRoundedIndianRupee(n)).toBe(`₹${formatForReport(n).toLocaleString("en-IN")}`);
+    // A negative figure's sign goes before the rupee symbol (#1675): -₹121, not ₹-121.
+    const rounded = (n: number) => {
+      const rupees = Number(formatForReport(n)); // every amount here is a number, never the "--" of a blank
+      return `${rupees < 0 ? "-" : ""}₹${Math.abs(rupees).toLocaleString("en-IN")}`;
+    };
+    for (const n of amounts) expect(formatToRoundedIndianRupee(n)).toBe(rounded(n));
     expect(formatToRoundedIndianRupee(1234567.891)).toBe("₹12,34,568");
   });
 
