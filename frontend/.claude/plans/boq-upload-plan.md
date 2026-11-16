@@ -52116,3 +52116,18 @@ BoQ main lane\Ducting_Payload_Library (scripts/ducting_library.py re-using valve
 code):** 592 priced; panel = calculator on every row a calculator can express. **Pre-pack (v74):** PP1 Python 134 / 5,069, vitest 198 /
 8,046, tsc 0 new; PP2 0 unexplained; PP3 nothing lost; PP4 rollback = v65; PP5 combined + Valve-only facts. **Open:** the rest of the
 read (98 sheets), the full pack, the cert; QR-4 (00140 / 00352 "Insulation" rows), QR-5 (round words with no type), DR7 / G-3 mode.
+
+**DU-2, completed 2026-11-16 (afternoon):** the paid read resumed on the owner's "resume" (10:07) and ran to the end on the frozen order
+under the 8.0M ACTUAL running stop, paused once by the owner (11:33-12:25): 171 / 172 sheets COMPLETE + ACTIVE (BOQ-26-00047 'Ducting
+Works' left out by ruling), 5.94M tokens, 3,483 rows sent (Ducting 1,508; 1,975 non-Ducting first answers on the D / E whole-sheet runs,
+owner's "b"). Controls: 904 earlier runs / 69,893 stored rows unchanged; replay du2end = the 30,541 earlier rows identical + 2,799 new.
+OVERLAP (owner CH-DU2-9): no row VP-2 / VP-5 read was read again; paid twice inside DU-2: 37 rows (1 re-classified row, 20 VRF rows of a
+32,000-token ceiling retry, 16 rows refused at the usage limit). **Pack (1,508 rows, v74):** 1,330 priced, Rs 47.86 crore all revisions /
+41.18 latest; panel = calculator except the known classes (G-3 sheet rule, DR14 row words, unit / re-file refusals) and 2 harness-feed
+rows; named rows 192 MATCH / 19 DIFFERS / 1 CHECK / 1 NOT READ. **Library** rebuilt on all 1,508 rows (LIB2 / LIB3 PASS). **PP2** 3,034
+differ, 0 unexplained; **PP5** 89 checks. **Cert C1-C10** done (screenshots on the Desktop); dev_isolate PASS.
+**Open for the follow-up slice (owner CH-DU2-15: one follow-up after the review):** CERT-1 - the calculator's typed gauge must go through
+readGauge like the panel ("0.63MM" -> 24G, not 22G); RULED: a bare gauge number reads as that gauge (24 -> 24G) on panel and calculator,
+which also reads 00401's "Guage: NN" answers (6 rows refused today, ~Rs 10.4 lakh); the "mmG" wording slip; the calculator has no size
+box for a rectangular duct's several-gauge text; QR-6 (stainless-steel ducts get DR11's butterfly-valve sentence); QR-4, QR-5, the DR7 /
+G-3 mode pick.

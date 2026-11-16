@@ -5567,3 +5567,8 @@ asleep, revertible). Commits K1 45c4dbcdb, K2 e354c8475 (v72), K1b 0c9a1e469, K2
   (scripts/valve_library.py re-used unchanged); the pack harness is scripts/_instruments/ducting_pack_harness.ts (the calculator fed the
   panel's sheet-level DR7 decision; G-3 "left for a person" classed SHEET RULE - the calculator has no sheet).
 - **C8 used-by:** Pricing Inputs "used by" counts a pricing-level scope's `uplift_input` (`scopeUses`), the server twin's rule.
+- **Found by DU-2's cert, open for the follow-up slice (owner CH-DU2-15, 2026-11-16):** the HVAC Pricing calculator reads a gauge typed in
+  "Other..." with the plain thickness ladder, not `readGauge` (the panel's reader): "0.63MM" prices 22G there and 24G on the panel; a
+  bare "24" refuses as 24 mm there and reads as no gauge (size table) on the panel. RULED for the fix: a bare gauge number - typed, or in
+  the model's gauge answer, including "Guage: NN" - reads as that gauge on both. The ladder line's "0.83 mmG" / "MS 24 mmG" wording glues
+  the unit to the G. The calculator has no size box for a rectangular duct, so a typed several-gauge text cannot pick its band.
