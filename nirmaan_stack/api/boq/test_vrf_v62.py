@@ -281,7 +281,7 @@ class TestVrf6AssetV62(FrappeTestCase):
                 self.assertEqual(_norm(live["list_spec"]["pricing"][k]), _norm(v), k)
         self.assertIs(live["list_spec"]["second_opinion"], False)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 743)   # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585
+        self.assertEqual(n, 744)   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 743; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585
         ids = {r[0] for r in frappe.db.sql("""select attributes::json->>'item' from "tabBoQ Rate Master Item" where active=1 and discipline='HVAC' and kind in ('hvac_pricing_input', 'hvac_misc_item')""")}
         self.assertEqual(({p["item"] for p in self.fx["inputs"]} | {FRAME}) - ids, set())
         self.assertEqual(set(self.fx["retire_inputs"]) & ids, set())

@@ -137,7 +137,7 @@ class TestValveAssetV68(FrappeTestCase):
         # DU-1 Part B (HVAC v71 LOADED; mechanical authority): v71's now (Misc gains the Ducting Misc-tab families + borrowers_ask_offered_only;
         # the Valve Package is unchanged; proved by test_hvac_v71_du1). BEFORE: live == v70's
         # DU-2 K2c (HVAC v74 LOADED; mechanical authority): the live Misc config is v74's (its unit-refusal wording); Valve = v71's = v74's. BEFORE: v71's
-        v69 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v74.json")["category_configs"]}
+        v69 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v75.json")["category_configs"]}  # DU-3 K2 (HVAC v75 LOADED; mechanical authority): Valve gains pair_note (R3), Misc = v74's. BEFORE: v74's
         for cid in (VALVE, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
@@ -145,4 +145,4 @@ class TestValveAssetV68(FrappeTestCase):
             self.assertEqual(_norm(live), _norm(v69[cid]), cid)
             self.assertNotEqual(_norm(live), _norm(self.cfg[cid]), cid)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 743)   # DU-1 Part B (HVAC v71 LOADED; mechanical authority): + 15 duct, 5 Misc-tab items, 1 input. BEFORE 722
+        self.assertEqual(n, 744)   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 743; DU-1 Part B (HVAC v71 LOADED; mechanical authority): + 15 duct, 5 Misc-tab items, 1 input. BEFORE 722

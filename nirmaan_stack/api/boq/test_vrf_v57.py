@@ -242,7 +242,7 @@ class TestVrf2bAssetV57(FrappeTestCase):
         self.assertTrue(extraction.config_is_eligible(cfgs[("HVAC", CATEGORY)], cfgs))   # INVERTED at VRF-4 (owner Q1 A "removed at VRF-4"; HVAC v60) by mechanical authority: BEFORE assertFalse (live = v60, eligible)
         # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `... {"discipline": "HVAC", "active": 1}), 537)` -- + the 29 extras inputs
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `... {"discipline": "HVAC", "active": 1}), 566)` -- + the 13 VRF-5 inputs
-        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 743)   # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585 (VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE 579)
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}), 744)   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 743; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585 (VRF-6 (HVAC v62 minted + loaded; mechanical authority): BEFORE 579)
         used = csv_exporter.pricing_input_used_by(live)
         self.assertEqual(used["vrf_hp_per_tr"], (10, [CATEGORY]))
         self.assertEqual(used["vrf_kw_per_tr"], (10, [CATEGORY]))

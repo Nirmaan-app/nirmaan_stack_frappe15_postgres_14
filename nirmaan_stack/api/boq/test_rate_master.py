@@ -910,6 +910,18 @@ def _without_du1b_items(items):
     return [it for it in items if it.get("kind") != "hvac_duct_item" and it not in misc and it not in inp]
 
 
+SLICE_DU3_INPUT = "ducting_insulation_coverage_threshold"
+
+
+def _without_du3_items(items):
+    """DU-3 K2 (owner R1, 2026-11-16 16:31 / 16:38): HVAC v75's ONE new Pricing Input ("Ducting - insulation coverage threshold"),
+    normalised out of a cross-version pin written before it existed -- the `_without_du1b_items` idiom, applied FIRST. It asserts
+    exactly one, so the pin cannot pass vacuously. Pinned in full by `test_hvac_v75_du3.py`."""
+    inp = [it for it in items if it.get("kind") == "hvac_pricing_input" and (it.get("attributes") or {}).get("item") == SLICE_DU3_INPUT]
+    assert len(inp) == 1, len(inp)
+    return [it for it in items if it not in inp]
+
+
 def _without_du1b_configs(configs):
     """DU-1 Part B: HVAC v71's new `hvac_ducting` config, normalised out of a cross-version pin written before it existed. It asserts
     it is there exactly once."""
@@ -13394,7 +13406,10 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             # INVERTED at DU-2 K1 (owner 2026-11-15 23:29 finding a; 23:57 R-NOTE-ORDER) by mechanical authority:
                             # BEFORE the set ended at "sheet_insulation". The two keys are declared by Ducting alone from v72 on;
                             # v7 predates them, ADP declares none
-                            "family_alias_needs", "no_sku_refuse_default"})
+                            "family_alias_needs", "no_sku_refuse_default",
+                            # INVERTED at DU-3 K1c (owner Cases 4 / 5 / 8, 2026-11-16) by mechanical authority: BEFORE the set ended at
+                            # "no_sku_refuse_default". The four keys are declared by Ducting alone from v75 on; v7 predates them, ADP declares none
+                            "paint_row", "row_refusals", "partial_insulation", "two_insulations"})
         self.assertNotIn("extras", pr)
         self.assertNotIn("split", pr)
         self.assertNotIn("per_set", pr)
@@ -17716,7 +17731,9 @@ class TestCladdingOnlySkus(FrappeTestCase):
         # mechanical authority: BEFORE `assertEqual(len(used), 63, ...)`
         # INVERTED at DU-1 Part B (HVAC v71; owner G-4: "Ducting - installation-only uplift", read by Ducting's scope pick alone) by
         # mechanical authority: BEFORE `assertEqual(len(used), 64, ...)`
-        self.assertEqual(len(used), 65, "expected the seven Insulation + four Piping + three ADP + two VRF + 29 VRF extras + 13 VRF-5 + 14 VRF-6 - 9 retired + 1 VP-1 + 1 DU-1 inputs, got %r" % sorted(used))
+        # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 DU-3 input (the Ducting insulation coverage threshold, read by Ducting's
+        # sheet_insulation). BEFORE 65 / "... + 1 DU-1 inputs"
+        self.assertEqual(len(used), 66, "expected the seven Insulation + four Piping + three ADP + two VRF + 29 VRF extras + 13 VRF-5 + 14 VRF-6 - 9 retired + 1 VP-1 + 1 DU-1 + 1 DU-3 inputs, got %r" % sorted(used))
         self.assertIn(SLICE_VP1_INPUT, used)
         self.assertEqual(used[SLICE_DU1B_INPUT][1], [SLICE_DU1B_CATEGORY])
         for iid in (k for k in used if k.startswith("vrf_extra_")):
@@ -17740,7 +17757,9 @@ class TestCladdingOnlySkus(FrappeTestCase):
             # installation-only uplift is read by the Valve Package alone
             # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE the loop had no Ducting branch -- the Ducting
             # installation-only uplift is read by Ducting alone
-            self.assertEqual(used[iid][1], [SLICE_DU1B_CATEGORY] if iid == SLICE_DU1B_INPUT else ["hvac_valve_package"] if iid == SLICE_VP1_INPUT else ["hvac_vrf"] if (iid in vrf2b or iid.startswith(("vrf_extra_", "vrf_acc_")) or iid == "vrf_install_only_uplift") else ["hvac_adp"] if iid in adp1 else ["hvac_piping"] if iid in piping else ["hvac_insulation"], iid)
+            # INVERTED at DU-3 K2 (HVAC v75 LOADED; mechanical authority): BEFORE the Ducting branch named the installation-only uplift only --
+            # the insulation coverage threshold (DU-3 R1) is read by Ducting alone too
+            self.assertEqual(used[iid][1], [SLICE_DU1B_CATEGORY] if iid in (SLICE_DU1B_INPUT, SLICE_DU3_INPUT) else ["hvac_valve_package"] if iid == SLICE_VP1_INPUT else ["hvac_vrf"] if (iid in vrf2b or iid.startswith(("vrf_extra_", "vrf_acc_")) or iid == "vrf_install_only_uplift") else ["hvac_adp"] if iid in adp1 else ["hvac_piping"] if iid in piping else ["hvac_insulation"], iid)
         self.assertEqual({iid for iid in used if iid in piping}, piping)
 
 
@@ -18004,7 +18023,7 @@ class TestServedRatesAreStored(FrappeTestCase):
         # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE `... hvac_pricing_input")], 58)` -- + 14 - 9
         # INVERTED at VP-1 (HVAC v66 LOADED; mechanical authority): BEFORE `... hvac_pricing_input")], 63)` -- + "Valve - installation-only uplift"
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE `... hvac_pricing_input")], 64)` -- + "Ducting - installation-only uplift"
-        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 65)   # 12e-2: 7 + the four Piping accessories inputs; ADP-1: + 3; VRF-1: + 2; VRF-3b: + 29; VRF-5: + 13
+        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 66)   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 65; 12e-2: 7 + the four Piping accessories inputs; ADP-1: + 3; VRF-1: + 2; VRF-3b: + 29; VRF-5: + 13
         # INVERTED at VRF-2a (HVAC v56 LOADED; R-RETIRE; mechanical authority): BEFORE assertEqual(..., 152) -- the two Blue Star ductables retired
         self.assertEqual(counts[("HVAC", "hvac_vrf_item")], 150)   # VRF-1: the VRF catalogue; VRF-2a: - VFM-216A, VFM-264A
         # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE `... hvac_misc_item")], 4)` -- + "MS frame / stand for ODU" (team rule)
@@ -18023,7 +18042,8 @@ class TestServedRatesAreStored(FrappeTestCase):
         # INVERTED at VRF-5 (HVAC v61 LOADED; mechanical authority): BEFORE `== 566`
         # INVERTED at VP-1 (HVAC v66 LOADED; mechanical authority): BEFORE `== 585` -- 124 valve SKUs, 12 Misc SKUs, 1 input added
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE `... == "HVAC"), 722)` -- + 15 duct, 5 Misc-tab, 1 input
-        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 743)   # VP-1: + 137; 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158; VRF-2a: - 2; VRF-3b: + 29; VRF-5: + 13; VRF-6: - 9 + 14 + 1 (BEFORE: 579)
+        # INVERTED at DU-3 K2 (HVAC v75 LOADED; mechanical authority): BEFORE `... == "HVAC"), 743)` -- + 1 Ducting input (insulation coverage threshold)
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 744)   # VP-1: + 137; 12e-1: 335 + 40; 12e-2: + 4 inputs; ADP-1: - 2 + 3; ADP-5c: + 1; VRF-1: + 158; VRF-2a: - 2; VRF-3b: + 29; VRF-5: + 13; VRF-6: - 9 + 14 + 1 (BEFORE: 579)
         # ELR-3a (owner R-9; mechanical authority): WAS 1402. v69 is live with the nine assembly-step Pricing Inputs, so the
         # served Electrical total is EALL_ITEMS (1411); the per-item byte-for-byte check above is unchanged.
         # #1608: "live" is now the seeded current asset (above), so this holds on a database not yet imported to it.
@@ -20630,7 +20650,9 @@ class TestSlice12d4cAsset(FrappeTestCase):
         #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(self.cur["items"]))))
         # DU-1 Part B: v71's 15 duct SKUs, 5 Misc-tab SKUs and 1 Ducting input first of all, NAMED (BEFORE:
         #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(self.cur["items"])))))
-        adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(self.cur["items"])))))
+        # DU-3 K2: v75's ONE Pricing Input (ducting_insulation_coverage_threshold) first of all, NAMED (BEFORE:
+        #   adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(self.cur["items"]))))))
+        adp1_back = _without_adp1_items(_without_adp5c_items(_without_vrf1_items(_without_vp1_items(_without_du1b_items(_without_du3_items(self.cur["items"]))))))
         cur_items = _without_12e2_piping_inputs(_without_12e1_piping_items(adp1_back))
         self.assertEqual(len(adp1_back) - len(cur_items), 44, "exactly the 40 Piping items and the 4 Piping inputs are normalised out")
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(cur_items, sort_keys=True))

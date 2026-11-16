@@ -109,7 +109,7 @@ class TestDu1bDuctingKeys(unittest.TestCase):
 
     def test_supply_row_uplift(self):
         self.assertIs(self.pr()["scope"]["supply_row"]["uplift"], True)
-        self.refuses(self.mutated(lambda p, c: p["scope"]["supply_row"].__setitem__("uplift", "yes")), "supply_row needs exactly normal_note, with_row and no_row (and optionally uplift: true)")
+        self.refuses(self.mutated(lambda p, c: p["scope"]["supply_row"].__setitem__("uplift", "yes")), "supply_row needs exactly normal_note, with_row and no_row (and optionally uplift: true, pair_note)")  # DU-3 K1b (R3) added pair_note
 
     def test_family_alias_offered_and_no_sku_refusals(self):
         self.refuses(self.mutated(lambda p, c: p.__setitem__("family_alias_offered", ["Not An Alias"])), "family_alias_offered must list family_alias keys (each once)")

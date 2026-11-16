@@ -808,7 +808,7 @@ class TestSlice12e2Live(FrappeTestCase):
         # INVERTED at VRF-3b (HVAC v59 LOADED; mechanical authority): BEFORE `self.assertEqual(len(rows), 537, "load v56 first")`.
         # The live catalogue is v59: v56's + the 29 VRF extras inputs (`shared_by: vrf`, left out below like the rest of VRF).
         # INVERTED at VRF-5 (HVAC v61 minted + LOADED; mechanical authority -- fails solely because it reads the current HVAC asset): BEFORE `self.assertEqual(len(rows), 566, "load v59 first")` -- v61 adds the 13 VRF-5 inputs (`shared_by: vrf`, left out below like the rest of VRF)
-        self.assertEqual(len(rows), 743, "load v62 first")   # DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585 (VRF-6: 579 - 9 retired inputs + 14 + 1 Misc item (BEFORE: 579, VRF-5))
+        self.assertEqual(len(rows), 744, "load v62 first")   # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): + 1 Ducting input (insulation coverage threshold). BEFORE 743; DU-1 Part B (HVAC v71 minted + loaded; mechanical authority): + 15 duct SKUs, 5 Misc-tab SKUs, 1 Ducting input. BEFORE 722 (VP-1 (HVAC v66 minted + loaded; mechanical authority): + 124 valve SKUs, 12 Misc SKUs, 1 valve input. BEFORE 585 (VRF-6: 579 - 9 retired inputs + 14 + 1 Misc item (BEFORE: 579, VRF-5))
         _attrs = lambda r: json.loads(r["attributes"] if isinstance(r["attributes"], str) else json.dumps(r["attributes"]))
         # VP-1 (HVAC v66 LOADED; mechanical authority): the 124 Valve Package SKUs and the `shared_by: valve` input are left out
         # like the rest of VRF (the 12 new Misc SKUs already are, by kind). BEFORE: kinds ("hvac_vrf_item", "hvac_misc_item")
@@ -837,7 +837,8 @@ class TestSlice12e2Live(FrappeTestCase):
         # INVERTED at VRF-6 (HVAC v62 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 58)` -- + 14 VRF-6 inputs - 9 retired
         # INVERTED at VP-1 (HVAC v66 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 63)` -- + the valve input
         # INVERTED at DU-1 Part B (HVAC v71 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 64)` -- + the Ducting input
-        self.assertEqual(served["count"], 65)   # DU-1 Part B: + "Ducting - installation-only uplift"; VP-1: + "Valve - installation-only uplift"; ADP-1: + the three ADP inputs (BEFORE: 11); VRF-1: + the two VRF inputs; VRF-3b: + the 29 extras inputs; VRF-5: + the 13 accessory / uplift inputs
+        # INVERTED at DU-3 K2 (HVAC v75 LOADED; mechanical authority): BEFORE `self.assertEqual(served["count"], 65)` -- + the Ducting threshold input
+        self.assertEqual(served["count"], 66)   # DU-3 K2: + "Ducting - insulation coverage threshold"; DU-1 Part B: + "Ducting - installation-only uplift"; VP-1: + "Valve - installation-only uplift"; ADP-1: + the three ADP inputs (BEFORE: 11); VRF-1: + the two VRF inputs; VRF-3b: + the 29 extras inputs; VRF-5: + the 13 accessory / uplift inputs
         self.assertEqual({it["attributes"]["item"]: it["rates"] for it in served["items"] if it["attributes"]["shared_by"] == "piping"},
                          {INPUT_IDS[f]: {"factor": ACCESSORIES[f]} for f in ACCESSORIES})
         cfg = rate_master.get_rate_category_config(discipline="HVAC", category_id=CATEGORY)["config"]
