@@ -30,6 +30,7 @@ export const GROUP_MS = 1000;
 /** While a change waits for a busy viewer, how often to check whether they are idle. */
 export const IDLE_CHECK_MS = 1000;
 
+/** A viewer at rest: at the top, mouse and keyboard focus away from the rows. */
 export const createViewerState = (): LiveRefreshViewerState => ({
     scrolledDown: false,
     pointerInRows: false,
@@ -53,10 +54,12 @@ const OPEN_OVERLAY_SELECTOR = [
     "[data-radix-popper-content-wrapper]",
 ].join(", ");
 
+/** True while a dialog, menu or floating layer is open, so a refresh must not move rows under it. */
 export function isOverlayOpen(doc: Pick<Document, "querySelector">): boolean {
     return doc.querySelector(OPEN_OVERLAY_SELECTOR) !== null;
 }
 
+/** What the controller needs from its table: how to refresh, and how to tell busy, hidden and the chip. */
 export interface LiveRefreshControllerDeps {
     /** Fetch the table's rows again, quietly. */
     refresh: () => void;
@@ -68,6 +71,7 @@ export interface LiveRefreshControllerDeps {
     idleCheckMs?: number;
 }
 
+/** The live-refresh rules for one table: group changes, wait while the viewer is busy or the tab hidden. */
 export interface LiveRefreshController {
     /** A change arrived (a `list_update`, or a reconnect that may have missed some). */
     notify(): void;
@@ -78,6 +82,7 @@ export interface LiveRefreshController {
     dispose(): void;
 }
 
+/** Creates the rules for one table. Pure timers and callbacks, no React, so it is unit-tested directly. */
 export function createLiveRefreshController(deps: LiveRefreshControllerDeps): LiveRefreshController {
     const groupMs = deps.groupMs ?? GROUP_MS;
     const idleCheckMs = deps.idleCheckMs ?? IDLE_CHECK_MS;

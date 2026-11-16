@@ -29,6 +29,7 @@ export interface ListUpdateMessage {
     user: string;
 }
 
+/** What one screen hands the hub: called for its doctype's changes, and once after a reconnect. */
 export interface ListUpdateSubscriber {
     /** A document of the doctype was inserted, saved or deleted. */
     onUpdate: (message: ListUpdateMessage) => void;

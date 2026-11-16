@@ -11,6 +11,7 @@ import {
     type LiveRefreshViewerState,
 } from "./realtime/liveRefreshController";
 
+/** Options for `useServerTableLiveRefresh`: what to listen to, how to refresh, and whether rows are ticked. */
 export interface UseServerTableLiveRefreshOptions {
     /** The doctype whose inserts, saves and deletes should refresh the table. */
     doctype: string;
@@ -28,6 +29,7 @@ export interface UseServerTableLiveRefreshOptions {
     hasSelection: boolean;
 }
 
+/** What the hook gives the table: whether a change is waiting, how to apply it, and where to report the viewer. */
 export interface ServerTableLiveRefresh {
     /** A change is waiting for the viewer: show the "New changes · Refresh" chip. */
     pending: boolean;
@@ -50,7 +52,8 @@ export function useServerTableLiveRefresh({
     enabled = true,
     hasSelection,
 }: UseServerTableLiveRefreshOptions): ServerTableLiveRefresh {
-    const { socket } = useContext(FrappeContext) as FrappeConfig;
+    // No provider (a page test that mocks the SDK): no socket, so no live refresh, rather than a crash.
+    const socket = (useContext(FrappeContext) as FrappeConfig | undefined)?.socket;
     // One string, so a caller's new array each render does not leave and rejoin the rooms.
     const doctypesKey = watchedDoctypes(doctype, alsoDoctypes).join(DOCTYPE_KEY_SEPARATOR);
     const viewerRef = useRef<LiveRefreshViewerState>(createViewerState());

@@ -678,6 +678,13 @@ export function useServerDataTable<TData extends { name: string }>({
     const quietWaitingRef = useRef(false);    // a change arrived during that fetch: refresh after it
     const lastReplyRef = useRef<unknown>(null); // what the rows on screen came from, for "nothing changed"
     const fetchDataRef = useRef<(options?: { quiet?: boolean }) => Promise<void>>(async () => {});
+    // Read by the quiet fetch through refs, never as its dependencies: a page may pass a new `getRowId` or
+    // `onRowSelectionChange` on every render (an inline arrow), and a fetch that depended on them would be a new
+    // function after every render, so the fetch effect would run again and again without end.
+    const getRowIdRef = useRef(getRowId);
+    getRowIdRef.current = getRowId;
+    const pageOwnsSelectionRef = useRef(Boolean(onRowSelectionChange));
+    pageOwnsSelectionRef.current = Boolean(onRowSelectionChange);
 
     const fetchData = useCallback(async (options?: { quiet?: boolean }) => {
         const quiet = options?.quiet === true;
@@ -793,8 +800,8 @@ export function useServerDataTable<TData extends { name: string }>({
                 setGroupByResult(reply.group_by_result || null);
                 // A ticked record that left the list (another user approved or deleted it) can no longer ride
                 // along in a bulk action; a new record is never ticked by itself.
-                if (!onRowSelectionChange) {
-                    setRowSelection(prev => keepTicksForRows(prev, reply.data, getRowId));
+                if (!pageOwnsSelectionRef.current) {
+                    setRowSelection(prev => keepTicksForRows(prev, reply.data, getRowIdRef.current));
                 }
                 // The last page emptied (its rows moved away): show the new last page, not an empty table.
                 if (reply.data.length === 0 && reply.total_count > 0 && pagination.pageIndex > 0) {
@@ -855,7 +862,7 @@ export function useServerDataTable<TData extends { name: string }>({
             }
         }
     }, [
-        onRowSelectionChange, getRowId, setPagination,
+        setPagination,
         isClientSideMode,
         triggerFetch, resetApiState, doctype, JSON.stringify(fetchFields),
         pagination.pageIndex, pagination.pageSize, JSON.stringify(sorting),

@@ -26,6 +26,7 @@ export const SIDEBAR_COUNT_DOCTYPES = [
 /** Changes arriving within this window give one counts fetch. */
 export const COUNTS_GROUP_MS = 2000;
 
+/** Handle for the badges' live refresh: re-check on demand, and stop. */
 export interface CountsLiveRefresh {
     /** Re-check now, for example when the tab becomes visible. */
     evaluate(): void;
