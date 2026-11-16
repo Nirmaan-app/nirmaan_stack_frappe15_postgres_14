@@ -81,6 +81,15 @@
     "tabBoQ Rate Master Item"
    ]
   },
+  "nirmaan_stack.api.boq.test_hvac_v75_du3": {
+   "seconds": 11.8,
+   "series": [],
+   "writes": [],
+   "reads": [
+    "tabBoQ Rate Category Config",
+    "tabBoQ Rate Master Item"
+   ]
+  },
   "nirmaan_stack.api.boq.test_match_estimate": {
    "seconds": 15.8,
    "series": [],

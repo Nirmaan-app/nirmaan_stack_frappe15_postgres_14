@@ -204,7 +204,9 @@ describe("DU-3 R1: the threshold Pricing Input is 'used by' Ducting (Rate Master
     const used = pricingInputUsedBy([CFG75.get(DUCT) as never]);
     expect(used["ducting_insulation_coverage_threshold"]?.categories).toEqual([DUCT]);
     expect(used["ducting_install_only_uplift"]?.categories).toEqual([DUCT]);
-    const { CFG } = await import("./du1Duct.harness");
-    expect(pricingInputUsedBy([CFG.get(DUCT) as never])["ducting_insulation_coverage_threshold"]).toBeUndefined();
+    // the retired shape (no threshold_input), built here so the negative holds whatever the newest asset is
+    const old = structuredClone(CFG75.get(DUCT)) as { list_spec: { pricing: { sheet_insulation: Record<string, unknown> } } };
+    delete old.list_spec.pricing.sheet_insulation.threshold_input;
+    expect(pricingInputUsedBy([old as never])["ducting_insulation_coverage_threshold"]).toBeUndefined();
   });
 });

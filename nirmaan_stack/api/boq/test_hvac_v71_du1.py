@@ -124,16 +124,17 @@ class TestHvacAssetV71(FrappeTestCase):
     def test_05_v71_is_the_newest_and_the_series_has_no_gap(self):
         data = os.path.dirname(_asset_path(V71))
         nums = sorted(int(m.group(1)) for f in os.listdir(data) for m in [re.match(r"^rate_master_hvac_all_v(\d+)\.json$", f)] if m)
-        self.assertEqual(nums[-1], 74)  # DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE nums[-1] == 73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE nums[-1] == 72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71
-        self.assertEqual(nums, list(range(1, 75)))  # DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE list(range(1, 74)); DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE list(range(1, 73)); DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72))
+        self.assertEqual(nums[-1], 75)  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE nums[-1] == 74; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE nums[-1] == 73; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE nums[-1] == 72; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE nums[-1] == 71
+        self.assertEqual(nums, list(range(1, 76)))  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE list(range(1, 75)); DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE list(range(1, 74)); DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE list(range(1, 73)); DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE list(range(1, 72))
         self.assertTrue(os.path.exists(_asset_path(V70)))
-        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v75.json")))  # DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v74 absent; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v73 absent; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v72 absent
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v76.json")))  # DU-3 K2 (HVAC v75 minted + loaded; mechanical authority): BEFORE v75 absent; DU-2 K2c (HVAC v74 minted + loaded; mechanical authority): BEFORE v74 absent; DU-2 K2b (HVAC v73 minted + loaded; mechanical authority): BEFORE v73 absent; DU-2 K2 (HVAC v72 minted + loaded; mechanical authority): BEFORE v72 absent
 
+    # DU-3 K2 (HVAC v75 LOADED; mechanical authority): the live Ducting / Valve Package configs are v75's (R1-R9; proved by test_hvac_v75_du3). BEFORE: v74's
     def test_06_live_catalogue_is_v71(self):
         # INVERTED at DU-2 K2 (HVAC v72 LOADED; mechanical authority): the live Ducting config is v72's (the 23:57 row-ruling guidance;
         # proved by test_hvac_v72_du2) and no longer v71's; Misc is unchanged (v72's Misc = v71's). BEFORE: live Ducting == v71's
         # DU-2 K2b (HVAC v73 LOADED; mechanical authority): the live Ducting config is v73's now (v72 + display-only lines). BEFORE: v72's
-        v72 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v74.json")["category_configs"]}  # DU-2 K2c (v74 LOADED): BEFORE v73's
+        v72 = {c["category_id"]: c for c in _read("rate_master_hvac_all_v75.json")["category_configs"]}  # DU-2 K2c (v74 LOADED): BEFORE v73's
         for cid in (DUCT, MISC):
             row = frappe.db.sql('select config from "tabBoQ Rate Category Config" where active=1 and discipline=%s and category_id=%s', ("HVAC", cid))
             self.assertTrue(row, cid)
@@ -142,6 +143,6 @@ class TestHvacAssetV71(FrappeTestCase):
             # DU-2 K2c (v74 LOADED; mechanical authority): Misc's wording moved too -- both differ from this file now. BEFORE: Misc equal
             self.assertNotEqual(_norm(live), _norm(self.cfg[cid]), cid)
         n = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s', ("HVAC",))[0][0]
-        self.assertEqual(n, 743)
+        self.assertEqual(n, 744)  # DU-3 K2 (HVAC v75 LOADED; mechanical authority): BEFORE 743 (+ the threshold Pricing Input)
         d = frappe.db.sql('select count(*) from "tabBoQ Rate Master Item" where active=1 and discipline=%s and kind=%s', ("HVAC", "hvac_duct_item"))[0][0]
         self.assertEqual(d, 15)
