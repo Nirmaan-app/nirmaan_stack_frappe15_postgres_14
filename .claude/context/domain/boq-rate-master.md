@@ -5572,3 +5572,42 @@ asleep, revertible). Commits K1 45c4dbcdb, K2 e354c8475 (v72), K1b 0c9a1e469, K2
   bare "24" refuses as 24 mm there and reads as no gauge (size table) on the panel. RULED for the fix: a bare gauge number - typed, or in
   the model's gauge answer, including "Guage: NN" - reads as that gauge on both. The ladder line's "0.83 mmG" / "MS 24 mmG" wording glues
   the unit to the G. The calculator has no size box for a rectangular duct, so a typed several-gauge text cannot pick its band.
+
+## Ducting - DU-3 additions (HVAC v75, 2026-11-16 / 17) - as built
+
+Owner rulings: the DU-2 review (2026-11-16 14:15-16:38: R1-R9, Cases 1-12), QR-1 (18:06), QR-2 / QR-3 (21:19 / 21:29), CH-DU3-13 / 14
+(the Derivation read), CH-DU3-16 / 17 / 18 (2026-11-17 00:18-00:30: mixed shapes removal-only), "option a" (00:15, the stray ")" to the
+follow-up list). Commits ce65207fc, 1ad512a53, b3115fd9b, 9f7e03ac9, a5199b40c, 98d7bd746, 6a1cd7a32.
+
+- **The 90% rule (R1) is a Pricing Input:** `sheet_insulation` (R1 shape: `threshold_input`, `plain_heading_words`, `never_words`,
+  `surface_words`, `preamble_chars`, `length_units`, lines covered / double_count / ratio / threshold_missing). A row read insulated on a
+  sheet that also quotes duct insulation on its own rows: separate rows' quantity >= threshold x the sheet's insulated duct quantity
+  -> the insulation line is not priced, note names the rows ("row 48" singular); below it, or a quantity missing -> priced, with a
+  possible-double-counting note; no separate rows -> priced as usual. The threshold is read LIVE (`ducting_insulation_coverage_threshold`,
+  0.9); missing -> the threshold_missing note. Never in the calculator (it has no sheet). The retired G-3 shape still validates and runs
+  no check.
+- **Which rows count (R2):** a separate row counts by its own words or the nearest heading; a plain "Insulation" heading counts only when
+  no heading above names a `never_words` kind (pipe / equipment ...); quantity 0 still counts; excluded rows are listed.
+- **Reverse pair (R3):** a 'Supply of' row (or the sheet heading repeated, then 'Supply of') whose installation the same sheet quotes on
+  installation-only rows of the same item -> supply only, note `scope.supply_row.pair_note` ("Installation not priced in this row - this
+  sheet quotes the installation of this duct / valve on its own row(s): <rows>"). Valve Package shares it (pair_note only).
+- **Gauges (R4 / CERT-1):** a bare number in the gauge field is the gauge (24 -> 24G) on panel AND calculator; "Guage: NN" / "G24" /
+  "24 g" / "24 gauge" read as NNG; a stated mm reads through the standard thickness (0.63 -> 24G); the gauge wins over an mm also written;
+  a labour row needs no gauge (`labour_any_gauge`); a several-gauge answer takes the band the row's OWN description names (R7c, not its
+  notes); the calculator shows no size box for typed several-gauge text (R9). The "mmG" wording slip is gone.
+- **Units (R5):** SM, Sq mt, Sqm/Ro, Sqmt read as sq.m. **Labour row (R6):** "Labour charges for GI duct erection" = the duct's
+  installation only, insulation skipped with a note. **Round per sq.m (R7):** a lone round / spiral / oval word -> Spiral / Oval with its
+  note; 'rectangular/round' per sq.m -> Rectangular + note (Case 7; per metre NOT claimed).
+- **Notes and refusals (Cases):** GI fire-rated -> our Fire Rated item + note (Case 2); a heading naming aluminium -> amber "check the
+  material" (Case 3); extra insulation only on part of the length -> "add by hand" (Case 4, `partial_insulation`); two insulations -> the
+  second "add by hand" (`two_insulations`); double skin / sandwich -> unpriced (Case 5, `row_refusals`, with its own `rule_line` title);
+  painting row right after its sheet's unbroken run of duct rows with quantity within 20% -> Misc Paint (Case 8, `paint_row`); stainless
+  steel: a duct row -> "price this row by hand", any other -> the butterfly-valve re-file note (Case 12, `family_text.refuse[].unless`).
+- **Mixed shapes (Case 6 + CH-DU3-17):** 'rectangular and (flat) oval' -> the higher (oval) installation basis ONLY on a removal /
+  refixing row (`when_words[].existing_work_only`); any other row naming both -> unpriced, "BoQ names rectangular and oval - select the
+  correct duct type" (`otherwise_refuse`). 0 non-removal rows among the 1,508 today (measured).
+- **Derivation:** guard 0 / 0 / 0 (Valve 52 lines, Ducting 72); CODE_RULES hvac_duct_item + R-GAUGE-FORMS, R-OWN-BAND, R-LABOUR-GAUGE,
+  R-REVERSE-PAIR (G3 became R1); a `when_words` entry's own note and its removal-only clause are said on the line.
+- **Tools:** the pack harness resolves section fields; the review chunks carry the panel's sheet notes ("SHEET NOTE:"); the per-row
+  replay (ac7) has no sheet-level feed, so the R1 coverage and the Case 8 run of rows show only on the page / pack harness (7 rows:
+  replay 1,390 priced vs pack 1,397).

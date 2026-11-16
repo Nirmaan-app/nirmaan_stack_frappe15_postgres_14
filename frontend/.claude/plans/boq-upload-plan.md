@@ -52131,3 +52131,24 @@ readGauge like the panel ("0.63MM" -> 24G, not 22G); RULED: a bare gauge number 
 which also reads 00401's "Guage: NN" answers (6 rows refused today, ~Rs 10.4 lakh); the "mmG" wording slip; the calculator has no size
 box for a rectangular duct's several-gauge text; QR-6 (stainless-steel ducts get DR11's butterfly-valve sentence); QR-4, QR-5, the DR7 /
 G-3 mode pick.
+
+## Slice DU-3 (laptop) - the one fix slice from the DU-2 review: the 90% insulation rule, the reverse pair rule, gauge reading / CERT-1, units, the labour row, round / band reading, Cases 2-8 / 12, HVAC v75 - as built 2026-11-16 / 17
+
+Run end to end on the laptop (owner CH-DU3-6: the desktop dropped; laptop is master). No model call (capture 157 all slice).
+**Commits (not pushed, on dcf907581):** K1 ce65207fc (R1 / R2 code, validator, harness, tests), K1b 1ad512a53 (K1b + K1c: R3-R8,
+Cases 2-8 / 12), K2 b3115fd9b (HVAC v75 + pin moves), K2b 9f7e03ac9 (CH-DU3-13 Derivation wording W1-W7; harness section resolution;
+library v75 + sheet notes), a5199b40c (CH-DU3-14 C1 reason), 98d7bd746 (CH-DU3-16/17: mixed shapes -> oval on removal / refixing only,
+any other row unpriced), 6a1cd7a32 (live-catalogue pins -> v75 + the du1b literal).
+**Asset v75** = v74 + ONE Pricing Input (`ducting_insulation_coverage_threshold` 0.9, rmi-465f95aa3644) + the Ducting config + the
+Valve Package `pair_note`; Misc byte-equal; the question byte-identical to v74's (no re-read). Loaded four times, each after a PROVED
+backup (C:\Users\nites\du3_db_backups): final live HVAC items f64e76f9 / configs 0116017e, Electrical v72 unchanged.
+**Re-price (library, no model call):** 1,508 rows, 1,397 priced, EXPECT 1,508 / 1,508 MATCH (stays so after every later fix);
+Rs 52.88 crore all revisions / 46.20 latest (DU-2: 47.86 / 41.18); R1 by sheet 35 covered / 19 below / 7 missing / 5 none; panel vs
+calculator EQUAL 1457 / WORDING 31 / ONE-SIDED 11 / FIGURE 9, 0 unexplained.
+**Pre-pack:** PP1 Python 136 / 136 (17 pins / literals moved in 6a1cd7a32, none price-asserting), vitest 199 / 8,138, tsc 0 new;
+PP2 3,034 moves / 0 unexplained; PP3 v65 -> v75 nothing lost; PP4 rollback proved on a v65 STAND-IN (DU-2's production backup is no
+longer on the laptop: dev dump + v65 loaded = v65 by content, deploy 13.5 s, restore 57 s); PP5 deploy facts + 115 check rows.
+Replay du3end = du3k2 byte-equal. **Cert C1-C12** PASS (41 screenshots), dev_isolate --yes / --verify PASS.
+**Open (follow-up list):** the stray ")" in the stored note "BoQ says round / spiral / oval with no duct type - priced as Spiral /
+Oval)" (owner "option a", 2026-11-17 00:15; 2 rows, wording only); the mixed-shape ruling applied generally was RE-RULED removal-only
+(CH-DU3-17) - nothing open there; the "stainless-steel VALVE row" cert step has no corpus row (unit tests hold it).
