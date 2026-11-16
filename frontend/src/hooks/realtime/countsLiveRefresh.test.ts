@@ -2,7 +2,13 @@
 // is visible, and once after a reconnect.
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import { COUNTS_GROUP_MS, SIDEBAR_COUNT_DOCTYPES, subscribeCountsLiveRefresh, type CountsLiveRefresh } from "./countsLiveRefresh";
+import {
+    COUNTS_GROUP_MS,
+    COUNTS_SPREAD_MS,
+    SIDEBAR_COUNT_DOCTYPES,
+    subscribeCountsLiveRefresh,
+    type CountsLiveRefresh,
+} from "./countsLiveRefresh";
 import { heldDoctypes } from "./listUpdateHub";
 import { FakeSocket } from "./testing/fakeSocket";
 
@@ -16,6 +22,9 @@ describe("subscribeCountsLiveRefresh", () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
+        // The random spread's share pinned to 0, so these cases time the grouping window alone; the spread has its
+        // own cases at the end.
+        vi.spyOn(Math, "random").mockReturnValue(0);
         socket = new FakeSocket();
         refresh = vi.fn<() => void>();
         hidden = false;
@@ -23,6 +32,7 @@ describe("subscribeCountsLiveRefresh", () => {
     });
     afterEach(() => {
         live.dispose();
+        vi.restoreAllMocks();
         vi.useRealTimers();
     });
 
@@ -94,5 +104,26 @@ describe("subscribeCountsLiveRefresh", () => {
         expect(refresh).not.toHaveBeenCalled();
         expect(heldDoctypes(socket)).toEqual([]);
         for (const doctype of SIDEBAR_COUNT_DOCTYPES) expect(socket.count("doctype_unsubscribe", doctype)).toBe(1);
+    });
+
+    it("by default waits a random share of COUNTS_SPREAD_MS on top of the grouping window", () => {
+        live.dispose();
+        vi.spyOn(Math, "random").mockReturnValue(0.5);
+        live = subscribeCountsLiveRefresh(socket, refresh, () => hidden);
+        socket.receive("list_update", change("Procurement Orders"));
+        vi.advanceTimersByTime(COUNTS_GROUP_MS + COUNTS_SPREAD_MS / 2 - 1);
+        expect(refresh).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it("refreshes within 2 to 6 s of a change, whatever share it picks", () => {
+        expect([COUNTS_GROUP_MS, COUNTS_GROUP_MS + COUNTS_SPREAD_MS]).toEqual([2000, 6000]);
+        live.dispose();
+        vi.spyOn(Math, "random").mockReturnValue(0.999999);
+        live = subscribeCountsLiveRefresh(socket, refresh, () => hidden);
+        socket.receive("list_update", change("Cheques"));
+        vi.advanceTimersByTime(5999);
+        expect(refresh).toHaveBeenCalledTimes(1);
     });
 });

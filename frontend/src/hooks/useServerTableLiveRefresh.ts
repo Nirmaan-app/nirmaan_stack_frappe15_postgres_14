@@ -7,6 +7,7 @@ import {
     createViewerState,
     isOverlayOpen,
     isViewerBusy,
+    TABLE_SPREAD_MS,
     type LiveRefreshController,
     type LiveRefreshViewerState,
 } from "./realtime/liveRefreshController";
@@ -75,6 +76,7 @@ export function useServerTableLiveRefresh({
                 hasSelectionRef.current || isViewerBusy(viewerRef.current, Date.now()) || isOverlayOpen(document),
             isHidden: () => document.visibilityState === "hidden",
             onPendingChange: setPending,
+            spreadMs: TABLE_SPREAD_MS,
         });
         controllerRef.current = controller;
         const unsubscribes = doctypesKey.split(DOCTYPE_KEY_SEPARATOR).map(watched =>

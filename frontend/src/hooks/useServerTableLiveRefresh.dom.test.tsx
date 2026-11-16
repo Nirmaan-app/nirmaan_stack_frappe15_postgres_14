@@ -13,7 +13,7 @@ import { act } from "react-dom/test-utils";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { heldDoctypes } from "./realtime/listUpdateHub";
-import { GROUP_MS } from "./realtime/liveRefreshController";
+import { GROUP_MS, TABLE_SPREAD_MS } from "./realtime/liveRefreshController";
 import { FakeSocket } from "./realtime/testing/fakeSocket";
 import { useServerTableLiveRefresh, watchedDoctypes } from "./useServerTableLiveRefresh";
 
@@ -49,6 +49,9 @@ describe("useServerTableLiveRefresh with alsoDoctypes", () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
+        // The random spread's share pinned to 0, so these cases time the grouping window alone; the spread has its
+        // own case at the end.
+        vi.spyOn(Math, "random").mockReturnValue(0);
         socket = new FakeSocket();
         refresh = vi.fn<() => void>();
         container = document.createElement("div");
@@ -58,6 +61,7 @@ describe("useServerTableLiveRefresh with alsoDoctypes", () => {
     afterEach(() => {
         act(() => root.unmount());
         container.remove();
+        vi.restoreAllMocks();
         vi.useRealTimers();
     });
 
@@ -136,6 +140,16 @@ describe("useServerTableLiveRefresh with alsoDoctypes", () => {
         expect(heldDoctypes(socket)).toEqual(["Project Payments"]);
         receive("Project Payments");
         wait(GROUP_MS);
+        expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it("a table waits its own random share of TABLE_SPREAD_MS, so open screens do not all ask at once", () => {
+        vi.spyOn(Math, "random").mockReturnValue(0.75);
+        render({ doctype: "Project Payments" });
+        receive("Project Payments");
+        wait(GROUP_MS + TABLE_SPREAD_MS * 0.75 - 1);
+        expect(refresh).not.toHaveBeenCalled();
+        wait(1);
         expect(refresh).toHaveBeenCalledTimes(1);
     });
 });

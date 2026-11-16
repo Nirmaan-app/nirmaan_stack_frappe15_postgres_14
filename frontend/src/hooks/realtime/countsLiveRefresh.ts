@@ -25,6 +25,12 @@ export const SIDEBAR_COUNT_DOCTYPES = [
 
 /** Changes arriving within this window give one counts fetch. */
 export const COUNTS_GROUP_MS = 2000;
+/**
+ * The most a counts fetch waits on top of `COUNTS_GROUP_MS`, at random, so the open screens do not all ask at once
+ * (badges then refresh 2 to 6 s after a change). Nobody watches a badge to the second, so it can wait longer than a
+ * table.
+ */
+export const COUNTS_SPREAD_MS = 4000;
 
 /** Handle for the badges' live refresh: re-check on demand, and stop. */
 export interface CountsLiveRefresh {
@@ -43,6 +49,7 @@ export function subscribeCountsLiveRefresh(
     refresh: () => void,
     isHidden: () => boolean,
     groupMs: number = COUNTS_GROUP_MS,
+    spreadMs: number = COUNTS_SPREAD_MS,
 ): CountsLiveRefresh {
     const controller = createLiveRefreshController({
         refresh,
@@ -50,6 +57,7 @@ export function subscribeCountsLiveRefresh(
         isHidden,
         onPendingChange: () => {},
         groupMs,
+        spreadMs,
     });
     const unsubscribes = SIDEBAR_COUNT_DOCTYPES.map(doctype =>
         subscribeListUpdate(socket, doctype, {

@@ -2,13 +2,18 @@
  * When an open table should apply another user's change: the rules behind `useServerTableLiveRefresh`, kept free
  * of React so they can be tested on their own.
  *
- * A change is never applied under the viewer's hand. Changes are grouped for `groupMs`, then:
+ * A change is never applied under the viewer's hand. Changes are grouped for `groupMs` plus a random share of
+ * `spreadMs` (picked again for each group), then:
  *  - tab hidden: wait, and refresh once when the tab is shown again (`evaluate` on visibilitychange);
  *  - viewer busy (scrolled down, mouse or focus in the rows, rows ticked, a dialog or menu open): show the
  *    "New changes" chip (`pending`) and check again every `idleCheckMs`; refresh once the viewer is idle, or at
  *    once when they click the chip (`apply`);
  *  - otherwise: refresh now.
  * However many changes arrive while waiting, they give one refresh.
+ *
+ * Why the spread: one save reaches every open screen at the same moment. With a fixed wait they would all ask the
+ * server in the same second and queue behind its few workers (16 Nov replay, 50 users: up to 5 s). Each screen
+ * waiting its own random extra time makes the requests arrive spread out, like ordinary clicks.
  */
 
 /** What the table knows about the viewer, written by the DataTable without causing a redraw. */
@@ -27,6 +32,8 @@ export interface LiveRefreshViewerState {
 export const POINTER_QUIET_MS = 3000;
 /** Changes arriving within this window give one refresh. */
 export const GROUP_MS = 1000;
+/** Tables: the most a refresh waits on top of `GROUP_MS`, at random, so the open screens do not all ask at once. */
+export const TABLE_SPREAD_MS = 1000;
 /** While a change waits for a busy viewer, how often to check whether they are idle. */
 export const IDLE_CHECK_MS = 1000;
 
@@ -68,6 +75,10 @@ export interface LiveRefreshControllerDeps {
     /** Called only when the chip should appear (true) or go (false). */
     onPendingChange: (pending: boolean) => void;
     groupMs?: number;
+    /** The most a group waits on top of `groupMs`, picked at random for each group (default 0: no spread). */
+    spreadMs?: number;
+    /** Where the random share of `spreadMs` comes from: a number in [0, 1). Tests pass a fixed one. */
+    random?: () => number;
     idleCheckMs?: number;
 }
 
@@ -85,6 +96,8 @@ export interface LiveRefreshController {
 /** Creates the rules for one table. Pure timers and callbacks, no React, so it is unit-tested directly. */
 export function createLiveRefreshController(deps: LiveRefreshControllerDeps): LiveRefreshController {
     const groupMs = deps.groupMs ?? GROUP_MS;
+    const spreadMs = deps.spreadMs ?? 0;
+    const random = deps.random ?? Math.random;
     const idleCheckMs = deps.idleCheckMs ?? IDLE_CHECK_MS;
     let waiting = false; // a change has arrived that the rows do not show yet
     let pending = false; // the chip is showing
@@ -135,10 +148,11 @@ export function createLiveRefreshController(deps: LiveRefreshControllerDeps): Li
             if (disposed) return;
             waiting = true;
             if (groupTimer !== null) return;
+            const spread = spreadMs > 0 ? Math.floor(random() * spreadMs) : 0;
             groupTimer = setTimeout(() => {
                 groupTimer = null;
                 evaluate();
-            }, groupMs);
+            }, groupMs + spread);
         },
         evaluate,
         apply() {
