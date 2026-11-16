@@ -180,6 +180,13 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+    # Sidebar badge counts kept in Redis: a change to a counted record type moves its version on after the commit,
+    # so the next badge request counts that part again (services/sidebar_counts_cache). on_change fires on every save
+    # and every db_set; the handler returns at once for any other record type.
+    "*": {
+        "on_change": "nirmaan_stack.services.sidebar_counts_cache.bump_on_change",
+        "after_delete": "nirmaan_stack.services.sidebar_counts_cache.bump_on_change",
+    },
 	"User": {
         # Only User admins create users or give role profiles (services/role_profiles.USER_ADMIN_PROFILES).
         "validate": "nirmaan_stack.integrations.controllers.user.validate",
