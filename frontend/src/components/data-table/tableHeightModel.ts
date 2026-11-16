@@ -1,6 +1,7 @@
 // src/components/data-table/tableHeightModel.ts
 //
-// PURE MODULE -- no React, no DOM. How tall a DataTable's scroll box may grow.
+// PURE MODULE -- no React, no DOM. How tall a DataTable's scroll box may grow, and the height recorded for each
+// drawn row (`virtualRowSize`, at the end).
 //
 // The box takes the screen space below where it starts, leaving room for the pagination bar, so the
 // column header stays put while the rows scroll and the page numbers stay on screen. When the table
@@ -34,4 +35,23 @@ export function tableMaxHeight({ viewportHeight, boxTop, reserveBelow, topGap }:
     const spaceLeft = viewportHeight - boxTop - reserveBelow;
     const height = spaceLeft >= fullScreen * FILL_THRESHOLD ? spaceLeft : fullScreen;
     return Math.max(MIN_TABLE_HEIGHT, Math.floor(height));
+}
+
+/**
+ * The height the virtualizer records for a drawn row. It is taken from the browser's resize report, which
+ * arrives after the browser has laid the page out anyway. When a row is first drawn there is no report yet:
+ * the row keeps the height already known for it (or the estimate) and the report corrects it a moment later.
+ * Reading the row's height at that moment instead would make the browser lay the page out on the spot for every
+ * new row: measured on 16 Nov, 712 ms of a 40-step scroll at 4x CPU and 70 ms of opening Payments.
+ * `readHeight` is used only for a report without box sizes (a browser too old to give them).
+ */
+export function virtualRowSize(
+    report: Pick<ResizeObserverEntry, "borderBoxSize"> | undefined,
+    knownHeight: number | undefined,
+    estimate: number,
+    readHeight: () => number,
+): number {
+    if (!report) return knownHeight ?? estimate;
+    const box = report.borderBoxSize?.[0];
+    return box ? Math.round(box.blockSize) : readHeight();
 }

@@ -60,9 +60,10 @@ interface HarnessProps {
   searchTerm?: string;
   columnVisibility?: VisibilityState;
   rowSelection?: RowSelectionState;
+  virtualized?: boolean;
 }
 
-function Harness({ data, columns, searchTerm = "", columnVisibility = {}, rowSelection = {} }: HarnessProps) {
+function Harness({ data, columns, searchTerm = "", columnVisibility = {}, rowSelection = {}, virtualized = false }: HarnessProps) {
   const table = useReactTable({
     data,
     columns,
@@ -83,7 +84,7 @@ function Harness({ data, columns, searchTerm = "", columnVisibility = {}, rowSel
       searchTerm={searchTerm}
       onSearchTermChange={() => {}}
       showRowSelection
-      enableVirtualization={false}
+      enableVirtualization={virtualized}
     />
   );
 }
@@ -150,5 +151,44 @@ describe("DataTable rows are memoised", () => {
     expect(states).toEqual([null, "selected", null]);
     const boxes = bodyRows().map(r => r.querySelector("[role='checkbox']")?.getAttribute("aria-checked"));
     expect(boxes).toEqual(["false", "true", "false"]);
+  });
+});
+
+describe("DataTable virtual rows", () => {
+  // jsdom does no layout, so the scroll box is given a height here (a test shim, never product code): the
+  // virtualizer reads it with getBoundingClientRect and draws the rows that fit, as in the browser.
+  const MANY: Item[] = Array.from({ length: 200 }, (_, i) => ({ id: `r${i}`, name: `Item ${i}`, qty: i }));
+  let restore: (() => void) | undefined;
+  afterEach(() => { restore?.(); restore = undefined; });
+
+  /** Counts every read of a table row's offsetHeight while `run` draws the table. */
+  function countRowHeightReads(run: () => void): number {
+    const rect = Object.getOwnPropertyDescriptor(Element.prototype, "getBoundingClientRect")!;
+    const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+    let reads = 0;
+    Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ x: 0, y: 0, top: 0, left: 0, right: 1200, bottom: 600, width: 1200, height: 600, toJSON: () => ({}) }),
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(this: HTMLElement) { if (this.tagName === "TR") reads++; return 45; },
+    });
+    restore = () => {
+      Object.defineProperty(Element.prototype, "getBoundingClientRect", rect);
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", height);
+    };
+    run();
+    return reads;
+  }
+
+  it("draws only the rows that fit, and never reads a row's height while drawing it", () => {
+    // Reading it made the browser lay the page out once per new row (16 Nov: 712 ms of a slow scroll); the row's
+    // height comes from the browser's resize report instead (virtualRowSize).
+    const reads = countRowHeightReads(() => render({ data: MANY, columns: COLUMNS_A, virtualized: true }));
+    const drawn = bodyRows().filter(r => r.textContent?.includes("Item "));
+    expect(drawn.length).toBeGreaterThan(5);
+    expect(drawn.length).toBeLessThan(MANY.length);
+    expect(reads).toBe(0);
   });
 });

@@ -20,7 +20,7 @@ import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { SelfFetchingFacetFilter } from "./SelfFetchingFacetFilter";
 import { getColumnFacet, FacetOverrides } from "./facetConfig";
-import { tableMaxHeight } from "./tableHeightModel";
+import { tableMaxHeight, virtualRowSize } from "./tableHeightModel";
 import { DataTableDateFilter } from "./data-table-date-filter";
 import { TableBodySkeleton } from "@/components/ui/skeleton";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -264,6 +264,14 @@ export function DataTable<T>({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimatedRowHeight,
+    // Each row's real height comes from the browser's resize report, never from reading it as the row is drawn
+    // (that read made the browser lay the page out once per new row): `virtualRowSize`.
+    measureElement: (element, report, instance) => virtualRowSize(
+      report,
+      instance.measurementsCache[Number(element.getAttribute("data-index"))]?.size,
+      estimatedRowHeight,
+      () => (element as HTMLElement).offsetHeight,
+    ),
     overscan: 5,
   });
 

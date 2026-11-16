@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MIN_TABLE_HEIGHT, tableMaxHeight } from "./tableHeightModel";
+import { MIN_TABLE_HEIGHT, tableMaxHeight, virtualRowSize } from "./tableHeightModel";
 
 // A 1366x768 laptop: <main> is 768 - 56 (top bar) = 712px tall with 16px padding top and bottom;
 // the pagination bar and its gap take 52px.
@@ -30,5 +30,26 @@ describe("tableMaxHeight", () => {
 
     it("rounds down to whole pixels", () => {
         expect(tableMaxHeight({ ...LAPTOP, boxTop: 176.6 })).toBe(467);
+    });
+});
+
+describe("virtualRowSize", () => {
+    const report = (blockSize: number) => ({ borderBoxSize: [{ blockSize, inlineSize: 900 }] });
+    const neverRead = () => { throw new Error("read the row's height"); };
+
+    it("takes a row's height from the browser's resize report, in whole pixels", () => {
+        expect(virtualRowSize(report(57.4), 45, 45, neverRead)).toBe(57);
+    });
+
+    it("keeps the height already known for a row just drawn, without reading it", () => {
+        expect(virtualRowSize(undefined, 63, 45, neverRead)).toBe(63);
+    });
+
+    it("uses the estimate for a row never measured, without reading it", () => {
+        expect(virtualRowSize(undefined, undefined, 45, neverRead)).toBe(45);
+    });
+
+    it("reads the height only when the report carries no box sizes", () => {
+        expect(virtualRowSize({ borderBoxSize: [] }, 45, 45, () => 41)).toBe(41);
     });
 });
