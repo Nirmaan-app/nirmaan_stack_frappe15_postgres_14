@@ -37639,7 +37639,7 @@
       },
       {
        "title": "^A row that names no material takes the kind its row implies",
-       "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); a removal row naming rectangular and oval -> the higher (oval) basis (owner Case 6 \"option B\", 15:21)"
+       "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' -> the higher (oval) basis: the owner's Case 6 removal ruling (\"option B\", 15:21) applied to every row - 0 non-removal rows today (DU-3 C1, measured); open for the owner to confirm"
       },
       {
        "title": "^A duct row naming two insulations",

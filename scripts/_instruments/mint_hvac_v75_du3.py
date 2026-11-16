@@ -110,7 +110,7 @@ W_REASONS = [
     {"title": "^A duct type the catalogue does not stock refuses by name",
      "why": "aluminium and stainless steel are not on our sheet (owner DR11, 2026-11-13 20:57); stainless steel: a duct / ducting row -> 'price this row by hand', any other -> the butterfly-valve re-file note (owner Case 12 \"option C\", 2026-11-16 16:38)"},
     {"title": "^A row that names no material takes the kind its row implies",
-     "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); a removal row naming rectangular and oval -> the higher (oval) basis (owner Case 6 \"option B\", 15:21)"},
+     "why": "shape not stated -> rectangular (owner DR8, 2026-11-13 21:03); a lone round / spiral / oval word -> Spiral / Oval (owner 15:00 \"fix\", QR-5 (a)); 'rectangular/round' per sq.m -> rectangular (owner Case 7, 15:24 \"price as rectangular as the unit is sqm\"); 'rectangular and (flat) oval' -> the higher (oval) basis: the owner's Case 6 removal ruling (\"option B\", 15:21) applied to every row - 0 non-removal rows today (DU-3 C1, measured); open for the owner to confirm"},
 ]
 PARTIAL_INSULATION = {
     "pattern": r"(?<kind>acoustic|thermal)\b[^|]{0,160}?\b(?<span>(?:first|initial)\s+\d+(?:\.\d+)?\s*(?:m|mtr|mtrs|meters?|metres?|rmt)\b(?:\s+from\s+(?:the\s+)?[A-Za-z]+)?)",
