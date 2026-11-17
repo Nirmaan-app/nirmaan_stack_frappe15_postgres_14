@@ -367,7 +367,7 @@ def payment_sum_copies() -> list[str]:
 
 
 # --- Rules S1, R1: what the code review kept finding by hand (retro of spec #1442) --------------
-# (A1, the `any` count, moved to ESLint's no-explicit-any: ADR-0049.)
+# (A1, the `any` count, moved to the lint's no-explicit-any: ADR-0049; oxlint since #1699.)
 # Hand-written source only: tests, patches (append-only) and shadcn's generated components are left out.
 
 def _hand_written(p: Path) -> bool:

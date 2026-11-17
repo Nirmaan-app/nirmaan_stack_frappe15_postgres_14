@@ -134,8 +134,8 @@ class BackendPaymentSums(unittest.TestCase):
         self.assertEqual(payment_sum_lines_py(src), [])
 
 
-class TheAnyCountIsEslints(unittest.TestCase):
-    """ADR-0049: ESLint's no-explicit-any (frontend/eslint-suppressions.json) counts `any`, so this check does not."""
+class TheAnyCountIsTheLints(unittest.TestCase):
+    """ADR-0049: oxlint's no-explicit-any (frontend/oxlint-suppressions.json) counts `any`, so this check does not."""
 
     def test_no_check_counts_any(self):
         self.assertNotIn("A1", [c.rule for c in CHECKS])
