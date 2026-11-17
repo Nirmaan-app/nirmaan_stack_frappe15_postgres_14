@@ -4,6 +4,7 @@
 const JSON_MESSAGE =
   "Use parseJson() from '@/lib/parseJson' (it returns `unknown`); for a fetch response, parseJson(await response.text()) (ADR-0049).";
 
+/** The `nirmaan` plugin: its one rule, `no-json-call`, reports every `<expression>.json(...)` call. */
 export default {
   meta: { name: "nirmaan" },
   rules: {

@@ -49,7 +49,7 @@ def tree_rss_kb(root):
             with open(f"/proc/{pid}/stat") as f:
                 ppid = int(f.read().rsplit(")", 1)[1].split()[1])
             with open(f"/proc/{pid}/status") as f:
-                rss[int(pid)] = next((int(l.split()[1]) for l in f if l.startswith("VmRSS:")), 0)
+                rss[int(pid)] = next((int(line.split()[1]) for line in f if line.startswith("VmRSS:")), 0)
         except (OSError, ValueError, IndexError):
             continue
         children.setdefault(ppid, []).append(int(pid))
@@ -62,6 +62,7 @@ def tree_rss_kb(root):
 
 
 def timed(cmd, stdout):
+    """Run cmd once; its exit code (-9 when killed), wall time, peak tree RSS and the tail of its stderr."""
     start = time.monotonic()
     proc = subprocess.Popen(cmd, stdout=stdout, stderr=subprocess.PIPE, text=True)
     peak = 0
@@ -79,10 +80,15 @@ def timed(cmd, stdout):
 
 
 def count(cmd, fmt, out_path):
+    """Run cmd with JSON output into out_path; its run result and its findings per rule (None when it gave no JSON,
+    as when it is killed for memory)."""
     with open(out_path, "w") as f:
         result = timed(cmd, f)
-    with open(out_path) as f:
-        report = json.load(f)
+    try:
+        with open(out_path) as f:
+            report = json.load(f)
+    except ValueError:
+        return result, None
     rules = Counter()
     if fmt == "eslint":
         for file in report:
@@ -95,6 +101,7 @@ def count(cmd, fmt, out_path):
 
 
 def main():
+    """Time, then count, each setup named by --only; results land in --out after each setup."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--runs", type=int, default=3)
@@ -120,11 +127,11 @@ def main():
             print(name, "warm-up" if i == 0 else f"run {i}", {k: v for k, v in r.items() if k != "stderr_tail"},
                   flush=True)
         timings[name] = runs
+        with open(os.path.join(args.out, "timings.json"), "w") as f:
+            json.dump(timings, f, indent=1)
         result, rules = count(count_cmd, fmt, os.path.join(args.out, f"{name}.json"))
         counts[name] = {"run": result, "rules": rules}
         print(name, "count run", result["exit"], result["wall_s"], json.dumps(rules), flush=True)
-        with open(os.path.join(args.out, "timings.json"), "w") as f:
-            json.dump(timings, f, indent=1)
         with open(os.path.join(args.out, "counts.json"), "w") as f:
             json.dump(counts, f, indent=1)
 
