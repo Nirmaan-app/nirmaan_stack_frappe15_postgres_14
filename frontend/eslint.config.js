@@ -50,9 +50,6 @@ export default defineConfig([
   {
     // Folders moved to the typed path (ADR-0049): the `no-unsafe-*` rules are on, with no suppressions. A folder
     // joins this list in the change that moves it; the list goes when the rules are on for all of src/.
-    // Not yet no-unsafe-type-assertion: utils/tableFilters.ts's dateFilterFn takes a whole TanStack Row though it
-    // reads only row.getValue, so a caller filtering plain rows (customers/data/useReceivableLedgerRows.ts) must
-    // cast a stand-in row. It joins once that shared util takes `Pick<Row, "getValue">`.
     files: ["src/pages/customers/**/*.{ts,tsx}", "src/utils/customers/**/*.{ts,tsx}"],
     rules: Object.fromEntries(
       [
@@ -65,6 +62,7 @@ export default defineConfig([
         "no-unsafe-function-type",
         "no-unsafe-member-access",
         "no-unsafe-return",
+        "no-unsafe-type-assertion",
         "no-unsafe-unary-minus",
       ].map((rule) => [`@typescript-eslint/${rule}`, "error"]),
     ),

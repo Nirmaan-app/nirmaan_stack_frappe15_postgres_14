@@ -5618,7 +5618,7 @@
   },
   "src/utils/tableFilters.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 7
+      "count": 3
     }
   },
   "src/zustand/eventListeners.ts": {
