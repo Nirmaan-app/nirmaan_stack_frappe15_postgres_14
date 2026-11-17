@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * The rejection reason on screen (2026-11-12): the Reason column (All Payments, Payment Raised By Me), the
- * Rejected view's "Open PO" / "Open WO" link, the "Rejected on" column, and the small reason text under a
- * Rejected payment on the PO / WO page. Rendered and read the way a user sees them.
+ * Rejected view's "Open PO" / "Open WO" link, the "Rejected on" column, and the reason icon beside a Rejected
+ * payment on the PO / WO page (2026-11-17). Rendered and read the way a user sees them.
  */
 import type { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -139,18 +139,46 @@ describe("Rejected on", () => {
     });
 });
 
-describe("the PO / WO page's small reason text", () => {
-    it("shows under a Rejected payment on one line, with the whole reason in the hover tooltip", () => {
+describe("the PO / WO page's rejection reason icon", () => {
+    // Radix's popper measures its anchor; jsdom has no ResizeObserver (stubbed here, never in product code).
+    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+
+    const mount = () => {
         const container = document.createElement("div");
+        document.body.appendChild(container);
         const root = createRoot(container);
         act(() => root.render(<RejectionReasonNote payment={{ status: "Rejected", rejection_reason: REASON }} />));
-        const note = container.querySelector("span");
-        expect(note?.textContent).toBe(`Reason: ${REASON}`);
-        expect((note?.className ?? "").split(/\s+/)).toContain("truncate");
-        // The row never grows on hover: no in-place opening.
-        expect(note?.className).not.toMatch(/hover:whitespace-normal/);
-        expect(note?.getAttribute("title")).toBe(REASON);
-        act(() => root.unmount());
+        const button = container.querySelector("button");
+        const done = () => { act(() => root.unmount()); container.remove(); };
+        return { container, button, done };
+    };
+
+    it("is an icon beside the status, not text under it: the Status cell stays one badge wide (owner, 2026-11-17)", () => {
+        const { container, button, done } = mount();
+        expect(button?.getAttribute("aria-label")).toBe("Show rejection reason");
+        expect(container.textContent).toBe("");
+        expect(document.body.textContent).not.toContain(REASON);
+        done();
+    });
+
+    it("opens the whole reason on hover and closes it when the pointer leaves", () => {
+        const { button, done } = mount();
+        act(() => { button?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); });
+        expect(document.body.textContent).toContain(REASON);
+        act(() => { button?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })); });
+        expect(document.body.textContent).not.toContain(REASON);
+        done();
+    });
+
+    it("stays open after a click, even once the pointer leaves, and a second click closes it", () => {
+        const { button, done } = mount();
+        act(() => { button?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); });
+        act(() => { button?.click(); });
+        act(() => { button?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })); });
+        expect(document.body.textContent).toContain(REASON);
+        act(() => { button?.click(); });
+        expect(document.body.textContent).not.toContain(REASON);
+        done();
     });
 
     it("shows nothing for a Rejected payment with no reason, or any other status", () => {

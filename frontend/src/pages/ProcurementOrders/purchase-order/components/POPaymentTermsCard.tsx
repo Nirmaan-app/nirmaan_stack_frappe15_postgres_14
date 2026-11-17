@@ -964,7 +964,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 }) => {
   if (!PO)
     return (
-      <Card className="rounded-sm shadow-md col-span-3">
+      <Card className="rounded-sm shadow-md col-span-3 max-[1279px]:col-span-full">
         <CardContent className="p-4 text-center text-gray-500">
           Loading Payment Details...
         </CardContent>
@@ -1195,7 +1195,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   console.log("processedPaymentTerms", processedPaymentTerms)
   return (
     <>
-      <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
+      <Card className="rounded-sm shadow-md col-span-3 max-[1279px]:col-span-full overflow-x-auto">
         <CardContent className="p-4 sm:p-6">
           <div className="pb-6">
             <div className="flex justify-between items-center mb-2">

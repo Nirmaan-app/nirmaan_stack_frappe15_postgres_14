@@ -226,7 +226,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   };
 
   return (
-    <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+    <Card className="rounded-sm shadow-m col-span-3 max-[1279px]:col-span-full overflow-x-auto">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <p className="text-xl max-sm:text-lg text-red-600">
@@ -415,12 +415,12 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : payment?.status === "Paid" ? (
                         <Badge variant="green">Paid</Badge>
                       ) : payment?.status === "Rejected" ? (
-                        <>
+                        <span className="inline-flex items-center">
                           <Badge variant="outline" className="border-red-500 text-red-600">
                             Rejected
                           </Badge>
                           <RejectionReasonNote payment={payment} />
-                        </>
+                        </span>
                       ) : (
                         <Badge variant="outline">{payment?.status}</Badge>
                       )}
