@@ -42,8 +42,8 @@ export interface PanelProps {
   onSheet: (sheetName: string | null) => void;
   onFocusRow: (excelRow: number | null) => void;
   onEdit: (target: EditTarget) => void;
-  /** Jump to a line in Line Item View, expanded. */
-  onOpenLine: (sheetName: string, excelRow: number | null) => void;
+  /** Jump to a line in Line Item View, expanded; `boq` opens that BOQ first (Estimate Items "All BOQs"). */
+  onOpenLine: (sheetName: string, excelRow: number | null, boq?: string) => void;
   /** Refresh the sheet counts after a save or a re-attach. */
   onCountsChanged: () => void;
 }

@@ -88,6 +88,15 @@ describe("materialTotals", () => {
     const clips = materialTotals(entries, "Custom");
     expect(clips.map((t) => [t.quantity, t.lines])).toEqual([[10, 2]]);
   });
+
+  it("adds across BOQs too, and counts the BOQs (All BOQs)", () => {
+    const fromB = { ...entry("L9", [{ item_type: "Normal", item_id: "I1", item_name: "Made-up frame", make: "Make A",
+      unit: "rmt", quantity: 6 }]), boq: "BOQ-B" };
+    const totals = materialTotals([...entries.map((e) => ({ ...e, boq: "BOQ-A" })), fromB]);
+    const frameA = totals.find((t) => t.make === "Make A");
+    expect([frameA?.quantity, frameA?.lines, frameA?.boqs]).toEqual([290, 3, 2]);
+    expect(totals.find((t) => t.make === "Make B")?.boqs).toBe(1);
+  });
 });
 
 describe("form checks", () => {

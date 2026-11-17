@@ -104,23 +104,40 @@ def _items_by_estimate(names: list) -> dict:
 
 
 @frappe.whitelist()
-def get_estimates(boq: str = None, sheet_name: str = None) -> dict:
+def get_estimates(boq: str = None, sheet_name: str = None, project: str = None) -> dict:
     """Every estimate of a Selected BOQ (or of one sheet of it, named verbatim), with its items and its line item.
+    With `project` and no `boq`: the same for every Selected BOQ of the project, in the overview's BOQ order (Estimate
+    Items "All BOQs", owner 17 Nov); a `sheet_name` then applies to each of them.
 
     Returns {"current": [...], "older": [...]}: `current` are on the sheets' current line items; `older` are the ones
     on an older version that still need a person -- not copied yet, their line changed (shown in the older-version
     notice; copied by the after-commit job or `reattach_estimates`) -- history left out, or on
     a line item that was deleted (state `line_missing`; with no sheet name when its sheet is gone too, and then
-    listed on every sheet). Each entry: {name, modified, boq_node, item_count, line: {sheet_name, excel_row, sl_no,
-    description, unit, qty, is_current}, items: [...]}; an older entry also has {version, state, target_node, copy}
-    (`rules.older_states`).
+    listed on every sheet). Each entry: {name, modified, boq_node, boq, boq_name, item_count, line: {sheet_name,
+    excel_row, sl_no, description, unit, qty, is_current}, items: [...]}; an older entry also has {version, state,
+    target_node, copy} (`rules.older_states`).
     """
     _assert_can_read()
+    if not boq and project:
+        assert_project_access(project)
+        out = {"current": [], "older": []}
+        for b in frappe.get_all("BOQs", filters={"project": project, "status": SELECTED},
+                                fields=["name", "boq_name"], order_by="creation asc"):
+            part = _boq_estimates(b.name, b.boq_name or b.name, sheet_name)
+            out["current"] += part["current"]
+            out["older"] += part["older"]
+        return out
     if not boq:
-        frappe.throw(_("boq is required."))
+        frappe.throw(_("boq or project is required."))
     assert_project_access(project_of_boq(boq))
-    if frappe.db.get_value("BOQs", boq, "status") != SELECTED:
+    status, boq_name = frappe.db.get_value("BOQs", boq, ["status", "boq_name"]) or (None, None)
+    if status != SELECTED:
         return {"current": [], "older": []}
+    return _boq_estimates(boq, boq_name or boq, sheet_name)
+
+
+def _boq_estimates(boq: str, boq_name: str, sheet_name) -> dict:
+    """`get_estimates` for one Selected BOQ the caller has already checked access to."""
     conditions = "e.boq = %(boq)s"
     params = {"boq": boq}
     if sheet_name is not None:
@@ -144,6 +161,8 @@ def get_estimates(boq: str = None, sheet_name: str = None) -> dict:
             "name": r.name,
             "modified": str(r.modified),
             "boq_node": r.boq_node,
+            "boq": boq,
+            "boq_name": boq_name,
             "item_count": r.item_count,
             "line": {
                 "sheet_name": r.sheet_name, "excel_row": r.excel_row, "sl_no": r.sl_no,
