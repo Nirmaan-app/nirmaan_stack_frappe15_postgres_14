@@ -52,7 +52,11 @@ import { MaterialEstimateDialog } from "./MaterialEstimateDialog";
 let container: HTMLDivElement;
 let root: Root;
 let onClose: Mock<() => void>;
+// jsdom has no element scrolling: stubbed here (never in product code) so adding a row can scroll the table box.
+const scrolled = vi.fn();
+Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, writable: true, value: scrolled });
 beforeEach(() => {
+  scrolled.mockReset();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -74,7 +78,9 @@ const target = (over: Partial<EditTarget> = {}): EditTarget => ({
 const render = (t: EditTarget) => act(() => root.render(<MaterialEstimateDialog target={t} onClose={onClose} />));
 const body = () => document.body;
 const button = (text: string, nth = 0) => {
-  const b = [...body().querySelectorAll("button")].filter((x) => x.textContent?.trim() === text)[nth];
+  // A text button by its text; an icon button (Match, Remove) by the start of its aria-label ("Remove <item>").
+  const b = [...body().querySelectorAll("button")].filter((x) => x.textContent?.trim() === text
+    || (!x.textContent?.trim() && (x.getAttribute("aria-label") ?? "").startsWith(`${text} `)))[nth];
   if (!b) throw new Error(`no button "${text}"`);
   return b;
 };
@@ -128,6 +134,22 @@ describe("MaterialEstimateDialog", () => {
     expect(sent().expected_modified).toBe("");
     expect(sent().items).toEqual([{ item_type: "Normal", item_id: "ITEM-CLIP", item_name: "Made-up clip", unit: "NOS",
       category: "Made-up Fixings", make: null, quantity: 4 }]);
+  });
+
+  it("a long list scrolls in its own box under fixed column headings; an added row is scrolled to", async () => {
+    // jsdom does no layout, so this pins the structure only; the real scrolling is checked in a browser.
+    render(target());
+    const box = body().querySelector("table")!.parentElement!;
+    expect(box.className).toContain("max-h-[50vh]");
+    expect(box.className).toContain("overflow-auto");
+    expect(body().querySelector("thead")!.className).toContain("sticky");
+    await click("+ Add item");
+    choose(body().querySelector<HTMLSelectElement>('select[aria-label="Search item… *"]')!, "ITEM-CLIP");
+    typeInto(body().querySelector<HTMLInputElement>('input[aria-label="Quantity"]')!, "4");
+    await click("Add");
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))); });
+    expect(scrolled).toHaveBeenCalledWith({ top: box.scrollHeight });
+    expect(scrolled.mock.contexts[0]).toBe(box);
   });
 
   it("refuses to send a row that breaks a rule, and a change clears the message", async () => {
@@ -205,6 +227,15 @@ describe("MaterialEstimateDialog", () => {
       await click("Save");
       expect(onKept).not.toHaveBeenCalled();
     });
+  });
+
+  it("Match and Remove are icons named for their row; only a custom row has Match, and its hint shows on focus", async () => {
+    render(target({ entry: estimate("L1", [normalItem({ name: "ROW-1" }), customItem({ name: "ROW-2", item_name: "made-up clip" })]) }));
+    const icons = [...body().querySelectorAll("table tbody button[aria-label]")];
+    expect(icons.map((b) => [b.getAttribute("aria-label"), b.textContent?.trim(), !!b.querySelector("svg")])).toEqual([
+      ["Remove Made-up panel", "", true], ["Match made-up clip", "", true], ["Remove made-up clip", "", true]]);
+    await act(async () => { (icons[1] as HTMLButtonElement).focus(); });
+    expect(body().textContent).toContain("Find and match the corresponding standard item using the item name");
   });
 
   it("Match turns a custom row into the Items record picked, keeping its qty and row name", async () => {

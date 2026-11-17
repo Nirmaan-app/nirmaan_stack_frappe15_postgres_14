@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import { RefreshCw, Trash2 } from "lucide-react";
+import React, { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeErrorText } from "@/utils/frappeErrors";
 import { duplicateProblem, itemRowProblem } from "@/utils/estimations/estimateRules";
@@ -14,6 +16,33 @@ import { formatQty, ItemTypeBadge } from "./MaterialsParts";
 import type { EditTarget } from "./panelTypes";
 
 type Panel = { kind: "normal"; presetItem?: string; presetQty?: string } | { kind: "custom" } | { kind: "match"; index: number } | null;
+
+/** Hover text of a custom row's Match icon (owner, 17 Nov). */
+const MATCH_HINT ="Find and match the corresponding standard item using the item name";
+
+interface RowIconButtonProps {
+  /** Screen-reader name of the button (the icon has no text). */
+  label: string;
+  /** Shown on hover and on keyboard focus. */
+  hint: string;
+  className?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+/** An icon-only row action with a tooltip, for Match and Remove in the materials table. */
+const RowIconButton: React.FC<RowIconButtonProps> = ({ label, hint, className, onClick, children }) => (
+  <TooltipProvider delayDuration={200}>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" size="icon" variant="ghost" className={`h-7 w-7 ${className ?? ""}`} aria-label={label} onClick={onClick}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs">{hint}</TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+);
 
 interface MaterialEstimateDialogProps {
   target: EditTarget;
@@ -36,16 +65,19 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
   ]);
   const [panel, setPanel] = useState<Panel>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The items table's own scroll box (a long list scrolls there; the title and buttons stay in view). */
+  const tableBox = useRef<HTMLDivElement>(null);
   /** Every change to the list clears the last Save error: it described rows the user has since changed. */
   const setRows: typeof setRowsState = (next) => { setRowsState(next); setError(null); };
 
-  /** Adds a row unless it breaks a rule; returns the problem for the picker to show. */
+  /** Adds a row unless it breaks a rule; returns the problem for the picker to show. The new row is scrolled into view. */
   const addRow = (row: EstimateItemRow): string | null => {
     const next = [...rows, row];
     const problem = itemRowProblem(row) ?? duplicateProblem(next);
     if (problem) return problem;
     setRows(next);
     setPanel(null);
+    requestAnimationFrame(() => tableBox.current?.scrollTo({ top: tableBox.current.scrollHeight }));
     return null;
   };
   const update = (index: number, patch: Partial<EstimateItemRow>) =>
@@ -79,11 +111,13 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-        <DialogHeader>
+      {/* Title and buttons stay in view; the middle scrolls, and a long list scrolls inside its own table box. */}
+      <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Material estimate · {target.sheetName} · row {target.excelRow ?? "—"}{target.slNo ? ` (${target.slNo})` : ""}</DialogTitle>
           <DialogDescription>{target.description} · BOQ qty <b>{formatQty(target.qty)} {target.unit ?? ""}</b></DialogDescription>
         </DialogHeader>
+        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
         {target.carried && (
           <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
             {target.carried.rows.length} material{target.carried.rows.length === 1 ? "" : "s"} copied from the older version of
@@ -92,9 +126,9 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
         )}
 
         {rows.length ? (
-          <div className="overflow-x-auto rounded border">
+          <div ref={tableBox} className="max-h-[50vh] shrink-0 overflow-auto rounded border">
             <table className="w-full text-xs">
-              <thead className="bg-muted/60 text-left text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-muted text-left text-muted-foreground">
                 <tr><th className="px-2 py-1.5">Type</th><th className="px-2 py-1.5">Item</th><th className="px-2 py-1.5">Make</th>
                   <th className="px-2 py-1.5">Unit</th><th className="px-2 py-1.5 text-right">Qty</th><th /></tr>
               </thead>
@@ -121,8 +155,16 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
                           value={Number.isFinite(r.quantity) ? r.quantity : ""} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
                       </td>
                       <td className="whitespace-nowrap px-2 py-1.5 text-right">
-                        {r.item_type === "Custom" && <Button size="sm" variant="outline" className="mr-1 h-6 text-[11px]" onClick={() => setPanel({ kind: "match", index: i })}>Match</Button>}
-                        <Button size="sm" variant="ghost" className="h-6 text-[11px] text-red-600" onClick={() => setRows((l) => l.filter((_, k) => k !== i))}>Remove</Button>
+                        {r.item_type === "Custom" && (
+                          <RowIconButton label={`Match ${r.item_name}`} hint={MATCH_HINT} className="mr-1 text-sky-700"
+                            onClick={() => setPanel({ kind: "match", index: i })}>
+                            <RefreshCw className="h-4 w-4" />
+                          </RowIconButton>
+                        )}
+                        <RowIconButton label={`Remove ${r.item_name}`} hint="Remove this item" className="text-red-600 hover:text-red-700"
+                          onClick={() => setRows((l) => l.filter((_, k) => k !== i))}>
+                          <Trash2 className="h-4 w-4" />
+                        </RowIconButton>
                       </td>
                     </tr>
                   );
@@ -145,9 +187,10 @@ export const MaterialEstimateDialog: React.FC<MaterialEstimateDialogProps> = ({ 
         {panel?.kind === "match" && rows[panel.index] && (
           <MatchPicker catalog={catalog} row={rows[panel.index]} onPick={(id) => match(panel.index, id)} onCancel={() => setPanel(null)} />
         )}
+        </div>
 
-        {error && <p className="text-sm font-semibold text-red-600" role="alert">{error}</p>}
-        <DialogFooter className="flex flex-wrap justify-between gap-2 sm:justify-between">
+        {error && <p className="shrink-0 text-sm font-semibold text-red-600" role="alert">{error}</p>}
+        <DialogFooter className="flex shrink-0 flex-wrap justify-between gap-2 sm:justify-between">
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setPanel({ kind: "normal" })}>+ Add item</Button>
             <Button variant="outline" size="sm" onClick={() => setPanel({ kind: "custom" })}>+ Add custom item</Button>
