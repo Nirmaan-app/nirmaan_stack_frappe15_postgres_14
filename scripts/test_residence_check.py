@@ -26,6 +26,8 @@ from residence_check import (  # noqa: E402
     payment_sum_lines_ts,
     rupee_formatter_lines,
     tds_added_to_amount_paid_lines,
+    json_call_count,
+    json_call_drift,
 )
 
 
@@ -246,11 +248,12 @@ class RunModes(unittest.TestCase):
         for n in CI_SUBSET:
             self.assertIn(f"✓ {n} ", out)
 
-    def test_ci_subset_names_the_six_checks_outside_adr_0010(self):
+    def test_ci_subset_names_the_seven_checks_outside_adr_0010(self):
         ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
         self.assertEqual(sorted(ids), sorted([
             "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
             "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
+            "j1_json_calls_unfrozen",
         ]))
 
     def test_ci_runs_the_ci_subset_check_only(self):
@@ -286,6 +289,60 @@ class TaxAddedOntoAmountPaid(unittest.TestCase):
             "const t = parseNumber(row.total_amount) + parseNumber(row.total_tds);\n"
         )
         self.assertEqual(tds_added_to_amount_paid_lines(src), [])
+
+
+class JsonCalls(unittest.TestCase):
+    """J1, the `.json()` ban of ADR-0049: `response.json()` returns `any`; parseJson(await response.text()) does not."""
+
+    def test_counts_each_json_call_in_code(self):
+        src = (
+            "const a = await response.json();\n"
+            "const b = await r?.json();\n"
+            "const c = await res.json<Row[]>();\n"
+            "const d = await fetch(url).then((r) => r\n  .json());\n"
+        )
+        self.assertEqual(json_call_count(src), 4)
+
+    def test_a_json_call_in_a_comment_or_a_string_is_not_counted(self):
+        src = (
+            "// do not call response.json() here\n"
+            "/* nor res.json() */\n"
+            "const hint = \"use r.json() never\";\n"
+            "const t = `call ${\"x\"} r.json() in text`;\n"
+        )
+        self.assertEqual(json_call_count(src), 0)
+
+    def test_a_json_call_inside_a_template_placeholder_is_counted(self):
+        self.assertEqual(json_call_count("const t = `got ${await r.json()} rows`;\n"), 1)
+
+    def test_a_field_or_function_called_json_is_not_a_call_of_it(self):
+        src = "const x = row.json;\nconst y = toJson(row);\nconst z = row.jsonText();\nfunction json() {}\n"
+        self.assertEqual(json_call_count(src), 0)
+
+    def frozen(self, **counts):
+        return {path.replace("__", "/") + ".ts": {"no-json-call": {"count": n}} for path, n in counts.items()}
+
+    def test_the_frozen_counts_hold(self):
+        found = {"src/a.ts": 2, "src/b.ts": 1}
+        self.assertEqual(json_call_drift(found, self.frozen(src__a=2, src__b=1)), [])
+
+    def test_a_new_call_fails_even_where_another_file_lost_one(self):
+        found = {"src/a.ts": 3, "src/b.ts": 0}
+        self.assertEqual(json_call_drift(found, self.frozen(src__a=2, src__b=1)), [
+            "frontend/src/a.ts: 3 .json() calls, 2 frozen (a new call: use parseJson)",
+            "frontend/src/b.ts: 0 .json() calls, 1 frozen (fewer: lower its count in frontend/json-call-suppressions.json)",
+        ])
+
+    def test_a_call_in_a_file_with_none_frozen_fails(self):
+        self.assertEqual(json_call_drift({"src/new.ts": 1}, {}), [
+            "frontend/src/new.ts: 1 .json() calls, 0 frozen (a new call: use parseJson)",
+        ])
+
+    def test_the_real_tree_holds_its_frozen_counts(self):
+        rc, out = 0, io.StringIO()
+        with redirect_stdout(out):
+            rc = main(["--check", "--only", "J1"])
+        self.assertEqual(rc, 0, out.getvalue())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,92 @@
+{
+  "src/components/CameraCapture.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/main.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/CommissionReport/components/ApprovedReportsDialog.tsx": {
+    "no-json-call": {
+      "count": 2
+    }
+  },
+  "src/pages/HandoverDocuments/hodDownloads.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/ProjectDesignTracker/download/useDownloadReport.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/SnagList/download/useSnagDownload.ts": {
+    "no-json-call": {
+      "count": 2
+    }
+  },
+  "src/pages/SnagList/import/UploadStep.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/SnagList/import/templateDownload.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/boq-wizard/BoqDropZone.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/boq-wizard/TemplateEditorPage.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/outflow-import/components/ImportStatementDialog.tsx": {
+    "no-json-call": {
+      "count": 2
+    }
+  },
+  "src/pages/outflow-import/useOutflowRows.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/pricing/PricingWorkbookPage.tsx": {
+    "no-json-call": {
+      "count": 2
+    }
+  },
+  "src/pages/projects/CriticalPOTasks/hooks/useBulkCreateTasks.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/pages/projects/project-form/index.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/utils/auth/UserProvider.tsx": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/utils/downloadPrintFormatPdf.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  },
+  "src/utils/frappeErrors.ts": {
+    "no-json-call": {
+      "count": 1
+    }
+  }
+}

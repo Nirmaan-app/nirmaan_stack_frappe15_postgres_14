@@ -453,6 +453,101 @@ def tds_added_to_amount_paid() -> list[str]:
     return sorted(found)
 
 
+# --- Rule J1: the `.json()` ban of ADR-0049 ----------------------------------------
+# `response.json()` returns `any`; parseJson(await response.text()) returns `unknown`. ESLint banned it with
+# no-restricted-syntax, which oxlint does not have (#1699), so it lives here. Its old calls are frozen per file in
+# JSON_CALL_SUPPRESSIONS, in oxlint's suppressions shape, so a new call fails even where another file loses one.
+
+JSON_CALL_SUPPRESSIONS = "frontend/json-call-suppressions.json"
+JSON_CALL_RULE = "no-json-call"
+# The ban's own home, and the generated shadcn/ui primitives the lint does not read either.
+JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui/")
+# `<expr>.json(`, `?.json(`, `.json<T>(`, `.json?.(`: what ESLint's selector
+# CallExpression[callee.type='MemberExpression'][callee.property.name='json'] matched.
+_JSON_CALL = re.compile(r"\.\s*json\s*(?:<[^()]*?>)?\s*(?:\?\.)?\s*\(")
+
+
+def ts_code_only(src: str) -> str:
+    """A TS/TSX source with its comments and string text blanked (template placeholders kept), lines intact."""
+    out = []
+    i, n = 0, len(src)
+    braces = []  # one entry per open `${`: the `{` depth inside it
+    while i < n:
+        ch, nxt = src[i], src[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            end = src.find("\n", i)
+            i = n if end < 0 else end
+        elif ch == "/" and nxt == "*":
+            end = src.find("*/", i + 2)
+            stop = n if end < 0 else end + 2
+            out.append("\n" * src.count("\n", i, stop))
+            i = stop
+        elif ch in "'\"":
+            j = i + 1
+            while j < n and src[j] not in (ch, "\n"):
+                j += 2 if src[j] == "\\" else 1
+            out.append(" ")
+            i = j + 1
+        elif ch == "`" or (ch == "}" and braces and braces[-1] == 0):
+            if ch == "}":
+                braces.pop()
+            j = i + 1
+            while j < n and src[j] != "`" and not (src[j] == "$" and src.startswith("${", j)):
+                if src[j] == "\n":
+                    out.append("\n")
+                j += 2 if src[j] == "\\" else 1
+            if src.startswith("${", j):
+                braces.append(0)
+                i = j + 2
+            else:
+                i = j + 1
+            out.append(" ")
+        else:
+            if braces and ch == "{":
+                braces[-1] += 1
+            elif braces and ch == "}":
+                braces[-1] -= 1
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def json_call_count(src: str) -> int:
+    """The `.json()` calls in a TS/TSX source's code (not its comments or strings)."""
+    return len(_JSON_CALL.findall(ts_code_only(src)))
+
+
+def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
+    """Each file whose `.json()` calls differ from its frozen count, one line each; empty when all hold.
+
+    ``found`` and ``frozen`` are keyed by paths relative to frontend/; ``frozen`` is in oxlint's suppressions shape
+    ({path: {rule: {"count": n}}}). A lower count fails too, as a stale lint suppression does, so the file can only
+    shrink (scripts/frontend_ratchet_check.py refuses a count that rises in a pull request).
+    """
+    allowed = {path: rules.get(JSON_CALL_RULE, {}).get("count", 0) for path, rules in frozen.items()}
+    out = []
+    for path in sorted(set(found) | set(allowed)):
+        now, was = found.get(path, 0), allowed.get(path, 0)
+        if now > was:
+            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen (a new call: use parseJson)")
+        elif now < was:
+            out.append(f"frontend/{path}: {now} .json() calls, {was} frozen "
+                       f"(fewer: lower its count in {JSON_CALL_SUPPRESSIONS})")
+    return out
+
+
+def json_calls_unfrozen() -> list[str]:
+    """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS."""
+    found = {}
+    for p in iter_files("frontend/src", (".ts", ".tsx")):
+        rel = p.relative_to(REPO_ROOT).as_posix()
+        if not rel.startswith(JSON_CALL_EXEMPT) and (n := json_call_count(read(p))):
+            found[rel.removeprefix("frontend/")] = n
+    frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
+    frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
+    return json_call_drift(found, frozen)
+
+
 # --- check registry ----------------------------------------------------------
 
 @dataclass
@@ -627,6 +722,17 @@ CHECKS: list[Check] = [
         measure=lambda: len(tds_added_to_amount_paid()),
         locate=tds_added_to_amount_paid,
     ),
+    # ADR-0049's `.json()` ban (#1699), here because oxlint has no no-restricted-syntax. Baseline 0 for good: the
+    # old calls are frozen per file in JSON_CALL_SUPPRESSIONS, and any file off its frozen count fails.
+    Check(
+        id="j1_json_calls_unfrozen",
+        rule="J1",
+        description=f"Frontend files whose .json() calls differ from their frozen count in {JSON_CALL_SUPPRESSIONS}.",
+        route_hint="a new call: use parseJson(await response.text()) from '@/lib/parseJson' (ADR-0049); "
+                   f"fewer calls: lower that file's count in {JSON_CALL_SUPPRESSIONS} (remove it at 0).",
+        measure=lambda: len(json_calls_unfrozen()),
+        locate=json_calls_unfrozen,
+    ),
 ]
 
 
@@ -711,7 +817,7 @@ def do_init() -> int:
 
 # The checks CI runs on every pull request: the ones that are not ADR-0010 rules (ADR-0049). ADR-0010's five
 # (B1, B2, B3, F2, F5) stay local until that ADR is accepted.
-CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2"]
+CI_SUBSET = ["S1", "R1", "p1_payment_sum_copies", "p1_tds_added_to_amount_paid", "T1", "T2", "J1"]
 
 
 def select_checks(checks: list[Check], names: list[str]) -> list[Check]:
