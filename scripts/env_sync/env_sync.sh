@@ -833,6 +833,10 @@ cmd_resume_on_laptop() {
   # code: rebuild every checkpoint in order on the checkout (or, for a dry run, on a throw-away clone)
   if [ "$mode" = dry-run ]; then
     target="$TMPD/clone"; git clone -q --shared --branch "$(lgit rev-parse --abbrev-ref HEAD)" "$REPO" "$target" || die "cannot make the dry-run clone"
+    # the rehearsal starts from the laptop as it was when the B3 checkpoint was taken (the owner leaving), not from any
+    # commit made on the laptop since (a real takeover refuses a checkout that is ahead of the checkpoint)
+    local lh; lh=$(sed -n 's/^laptop_head=//p' "$b3/ckpt.txt")
+    if [ -n "$lh" ] && git -C "$target" cat-file -e "$lh^{commit}" 2>/dev/null; then git -C "$target" reset -q --hard "$lh"; echo "dry run: the clone starts at the laptop's head when B3 was taken (${lh:0:9})"; fi
   else target="$REPO"; fi
   prev=""
   while read -r s; do
