@@ -42,3 +42,12 @@ export function useCounts(
     options
   );
 }
+
+/**
+ * One spec's count from a `useCounts` result: the number for a spec without `group_field`, `undefined` while the
+ * call loads, for a key not asked for, or for a grouped spec (a map, not a number).
+ */
+export function countOf(result: CountsResult | undefined, key: string): number | undefined {
+  const count = result?.[key];
+  return typeof count === "number" ? count : undefined;
+}

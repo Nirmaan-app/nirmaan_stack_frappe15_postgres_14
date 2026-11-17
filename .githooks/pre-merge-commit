@@ -1,0 +1,9 @@
+#!/bin/sh
+# pre-merge-commit hook: the same checks as pre-commit (.githooks/checks.sh) on a merge that git commits by
+# itself, which skips pre-commit. A merge that stops on conflicts is committed with `git commit`, so pre-commit
+# covers it.
+#
+# Switched on by `yarn install` in frontend/ (core.hooksPath, see pre-commit).
+# Bypass for a one-off:        git merge --no-verify ...
+
+exec sh "$(dirname "$0")/checks.sh" pre-merge-commit

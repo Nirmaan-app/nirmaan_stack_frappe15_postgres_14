@@ -1,9 +1,4 @@
 {
-  "a1_explicit_any": {
-    "count": 1776,
-    "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
-    "rule": "A1"
-  },
   "b1_pure_module_purity": {
     "count": 0,
     "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
@@ -20,12 +15,12 @@
     "rule": "B3"
   },
   "f2_inline_json_parse_pages": {
-    "count": 210,
+    "count": 168,
     "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
     "rule": "F2"
   },
   "f5_raw_updatedoc_files": {
-    "count": 105,
+    "count": 89,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
   },
@@ -45,7 +40,7 @@
     "rule": "R1"
   },
   "s1_oversized_files": {
-    "count": 340,
+    "count": 319,
     "description": "Hand-written source files (not tests, patches or components/ui) over 500 lines.",
     "rule": "S1"
   },

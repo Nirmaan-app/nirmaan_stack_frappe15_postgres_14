@@ -364,6 +364,7 @@ Never hand-edit these paths; change the source or use the tool named:
 | `patches/` | Append-only migration history — never modify existing files |
 | `www/frontend.html` | Auto-generated SPA shell |
 | `frontend/src/components/ui/` | shadcn/ui generated components — update via shadcn CLI |
+| `frontend/src/types/doctypes/` | Generated from the DocType JSON (ADR-0049) — run `python3 scripts/generate_doctype_types.py` after a DocType change; CI fails when it is stale |
 | `nirmaan_stack/public/` | Compiled frontend assets — edit source in `frontend/src/` instead |
 | `services/file_extractor.py` | Intentionally deleted — do not recreate (nor the `DocumentSearch` page) |
 
@@ -463,10 +464,14 @@ breaks it); its name is how a refusal is recognised (`services/outflow_import/im
 
 ## Before committing
 
-`.githooks/pre-commit` runs `python3 scripts/residence_check.py` (from the app root) on every commit — it
-ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on increase; auto-tighten on
-decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1), `any` in frontend code (A1) and rupee
-formatters outside their two homes (R1), so a review need not hunt for those by hand. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
+`.githooks/pre-commit` and `.githooks/pre-merge-commit` (a merge skips pre-commit) run `.githooks/checks.sh`;
+`yarn install` in `frontend/` switches them on (`core.hooksPath`). It runs `python3 scripts/residence_check.py`
+(from the app root), which ratchets per-rule violation counts against `scripts/residence_baseline.json` (fail on
+increase; auto-tighten on decrease). Besides the ADR-0010 rules it counts files over 500 lines (S1) and rupee
+formatters outside their two homes (R1), so a review need not hunt for those by hand. It then runs ESLint on the
+staged `.ts`/`.tsx` files under `frontend/src`: `any` in frontend code is ESLint's to count (ADR-0049). CI runs
+the same on every pull request, except ADR-0010's five rules: `residence_check.py --check --only <the six>`
+(`CI_SUBSET`), which never rewrites the baseline, `yarn lint`, and `yarn type-coverage`. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
 `.claude/hooks/README.md`).
 
 ---

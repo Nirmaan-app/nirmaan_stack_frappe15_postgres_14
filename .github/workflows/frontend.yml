@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   checks:
-    name: vitest + typecheck
+    name: vitest + typecheck + lint + type-coverage + residence
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,16 +27,53 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
+      # The six residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
+      # passes, a count that rose fails.
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data)
+        working-directory: .
+        run: python3 scripts/residence_check.py --check --only ci
+
+      # A PR may shrink frontend/eslint-suppressions.json and raise type-coverage's --at-least; it may not grow a
+      # count, add a file or rule (`eslint --suppress-all`), or lower the threshold. `yarn lint` alone cannot see
+      # this: it reads whatever suppressions file the PR brings. The checkout holds only the merge commit made when
+      # the run was triggered, so the base commit of that same merge (pull_request.base.sha, not the base branch's
+      # tip, which may have moved by a re-run) is fetched first (the default token reads this repo; no secret).
+      - name: Frontend ratchet not loosened (suppressions and --at-least against the PR's base commit)
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 -m unittest scripts.test_frontend_ratchet_check
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          python3 scripts/frontend_ratchet_check.py --base-ref "$BASE_SHA"
+
       - name: Install
         run: yarn install --frozen-lockfile
         env:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
 
+      - name: DocType types are current (frontend/src/types/doctypes/ against the DocType JSON)
+        working-directory: .
+        run: |
+          python3 -m unittest scripts.test_generate_doctype_types
+          python3 scripts/generate_doctype_types.py --check
+
       - name: Unit tests
         run: yarn vitest run
 
       - name: Typecheck (new errors only, against tsc-baseline.json)
         run: yarn typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Lint (typed ESLint; new violations only, against eslint-suppressions.json)
+        run: yarn lint
+
+      # Upward only: raise --at-least in package.json in the same PR whenever this percentage rises.
+      - name: Type coverage (type-coverage --strict; fails below the threshold in package.json)
+        run: yarn type-coverage
         env:
           NODE_OPTIONS: --max-old-space-size=4096

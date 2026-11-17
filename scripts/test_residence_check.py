@@ -1,17 +1,26 @@
-"""Tests for the P1, A1 and R1 rules of residence_check.py, and for what a failure prints.
+"""Tests for the P1 and R1 rules (and A1's retirement) of residence_check.py, and for what a failure prints.
 
 Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
 """
 
+import io
+import json
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from residence_check import (  # noqa: E402
-    explicit_any_lines_ts,
+    BASELINE_PATH,
+    CHECKS,
+    CI_SUBSET,
+    Check,
     locations_to_show,
+    main,
+    select_checks,
     payment_sum_lines_jinja,
     payment_sum_lines_py,
     payment_sum_lines_ts,
@@ -123,25 +132,15 @@ class BackendPaymentSums(unittest.TestCase):
         self.assertEqual(payment_sum_lines_py(src), [])
 
 
-class ExplicitAny(unittest.TestCase):
-    def test_each_way_of_typing_as_any_is_counted(self):
-        src = (
-            "} catch (err: any) {\n"
-            "const rows = data as any;\n"
-            "const list: any[] = [];\n"
-            "type R = Record<string, any>;\n"
-            "function f(a: any, b: number) {}\n"
-        )
-        self.assertEqual(explicit_any_lines_ts(src), [1, 2, 3, 4, 5])
+class TheAnyCountIsEslints(unittest.TestCase):
+    """ADR-0049: ESLint's no-explicit-any (frontend/eslint-suppressions.json) counts `any`, so this check does not."""
 
-    def test_unknown_prose_and_comments_are_not_counted(self):
-        src = (
-            "} catch (err: unknown) {\n"
-            'const note = "Note: any value works";\n'
-            "// const rows = data as any;\n"
-            "const company = anyCompany;\n"
-        )
-        self.assertEqual(explicit_any_lines_ts(src), [])
+    def test_no_check_counts_any(self):
+        self.assertNotIn("A1", [c.rule for c in CHECKS])
+
+    def test_every_baseline_entry_belongs_to_a_check(self):
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(baseline), sorted(c.id for c in CHECKS))
 
 
 class RupeeFormatters(unittest.TestCase):
@@ -169,6 +168,95 @@ class WhatAFailurePrints(unittest.TestCase):
         shown = locations_to_show(where, set())
         self.assertEqual(len(shown), 21)
         self.assertEqual(shown[-1], "... 5 more (--list prints them all)")
+
+def _fake_check(cid: str, rule: str, count: int) -> Check:
+    return Check(id=cid, rule=rule, description=cid, route_hint="move it", measure=lambda: count)
+
+
+class RunModes(unittest.TestCase):
+    """The local run (all checks, tightening the baseline) and the CI run (a named subset, check-only)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.baseline_path = Path(tmp.name) / "baseline.json"
+        self.baseline = {
+            "s1_big": {"count": 5, "rule": "S1", "description": ""},
+            "b3_state": {"count": 5, "rule": "B3", "description": ""},
+        }
+        self.baseline_path.write_text(json.dumps(self.baseline), encoding="utf-8")
+
+    def run_check(self, checks, *argv):
+        rc, out, _ = self.run_check_err(checks, *argv)
+        return rc, out
+
+    def run_check_err(self, checks, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(list(argv), checks=checks, baseline_path=self.baseline_path)
+        return rc, out.getvalue(), err.getvalue()
+
+    def stored(self):
+        return json.loads(self.baseline_path.read_text(encoding="utf-8"))
+
+    def test_the_local_run_tightens_the_baseline_when_a_count_falls(self):
+        rc, _ = self.run_check([_fake_check("s1_big", "S1", 3), _fake_check("b3_state", "B3", 5)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.stored()["s1_big"]["count"], 3)
+
+    def test_check_only_passes_a_fallen_count_and_leaves_the_baseline_file_alone(self):
+        before = self.baseline_path.read_bytes()
+        rc, _ = self.run_check([_fake_check("s1_big", "S1", 3), _fake_check("b3_state", "B3", 5)], "--check")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.baseline_path.read_bytes(), before)
+
+    def test_check_only_fails_a_risen_count(self):
+        rc, out = self.run_check([_fake_check("s1_big", "S1", 6)], "--check")
+        self.assertEqual(rc, 1)
+        self.assertIn("✗ s1_big", out)
+
+    def test_only_runs_the_named_checks_by_rule_or_id(self):
+        checks = [_fake_check("s1_big", "S1", 5), _fake_check("b3_state", "B3", 99)]
+        rc, out = self.run_check(checks, "--check", "--only", "S1")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("b3_state", out)
+        rc, out = self.run_check(checks, "--check", "--only", "b3_state")
+        self.assertEqual(rc, 1)
+        self.assertNotIn("s1_big", out)
+
+    def test_an_unknown_name_is_refused(self):
+        rc, out, err = self.run_check_err([_fake_check("s1_big", "S1", 5)], "--check", "--only", "S1,Z9")
+        self.assertEqual(rc, 2)
+        self.assertIn("Z9", err)
+        self.assertEqual(out, "")
+
+    def test_only_with_init_is_refused_and_writes_no_baseline(self):
+        before = self.baseline_path.read_bytes()
+        rc, out, err = self.run_check_err([_fake_check("s1_big", "S1", 5)], "--init", "--only", "S1")
+        self.assertEqual(rc, 2)
+        self.assertIn("--init", err)
+        self.assertEqual(out, "")
+        self.assertEqual(self.baseline_path.read_bytes(), before)
+
+    def test_only_ci_runs_the_ci_subset(self):
+        checks = [_fake_check(n, n, 0) for n in CI_SUBSET] + [_fake_check("b3_state", "B3", 99)]
+        rc, out = self.run_check(checks, "--check", "--only", "ci")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("b3_state", out)
+        for n in CI_SUBSET:
+            self.assertIn(f"✓ {n} ", out)
+
+    def test_ci_subset_names_the_six_checks_outside_adr_0010(self):
+        ids = [c.id for c in select_checks(CHECKS, CI_SUBSET)]
+        self.assertEqual(sorted(ids), sorted([
+            "s1_oversized_files", "r1_rupee_formatters", "p1_payment_sum_copies",
+            "p1_tds_added_to_amount_paid", "t1_tests_pick_any_row", "t2_tests_freeze_time",
+        ]))
+
+    def test_ci_runs_the_ci_subset_check_only(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
+        self.assertIn("python3 scripts/residence_check.py --check --only ci\n", workflow)
+
 
 class TaxAddedOntoAmountPaid(unittest.TestCase):
     """A Work Order's `amount_paid` already holds the TDS withheld from the vendor (ADR-0034 Amendment A),
