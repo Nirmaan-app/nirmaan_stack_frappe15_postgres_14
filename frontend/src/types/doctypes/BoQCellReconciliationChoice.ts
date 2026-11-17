@@ -21,15 +21,15 @@ export interface BoQCellReconciliationChoiceDocType {
 	/** Choice : Select */
 	choice: "keep_document" | "take_formula"
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Choice Version : Int */
 	choice_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Chosen At : Datetime */
-	chosen_at?: string
+	chosen_at?: string | null
 	/** Chosen By : Data */
-	chosen_by?: string
+	chosen_by?: string | null
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
 }

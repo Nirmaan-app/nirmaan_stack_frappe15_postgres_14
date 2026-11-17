@@ -11,31 +11,31 @@ export interface VendorRefundsDocType {
 	/** Vendor : Link - Vendors */
 	vendor: string
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Refund Against : Select */
 	document_type: "" | "Procurement Orders" | "Service Requests" | "Misc. Expense"
 	/** Document : Dynamic Link */
-	document_name?: string
+	document_name?: string | null
 	/** Status : Select */
 	status: "Reconciliation Pending" | "Received" | "Cancelled"
 	/** UTR : Text */
-	utr?: string
+	utr?: string | null
 	/** Refund Attachment : Attach */
-	refund_attachment?: string
+	refund_attachment?: string | null
 	/** Amount : Currency */
 	amount: number
 	/** Payment Date : Date */
-	payment_date?: string
+	payment_date?: string | null
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Recorded as Waiting By : Link - User */
-	waiting_created_by?: string
+	waiting_created_by?: string | null
 	/** Received With No Bank Line : Check */
 	no_bank_line?: 0 | 1
 	/** No Bank Line Marked By : Link - User */
-	no_bank_line_by?: string
+	no_bank_line_by?: string | null
 	/** No Bank Line Marked At : Datetime */
-	no_bank_line_at?: string
+	no_bank_line_at?: string | null
 	/** No Bank Line Reason : Small Text */
-	no_bank_line_reason?: string
+	no_bank_line_reason?: string | null
 }

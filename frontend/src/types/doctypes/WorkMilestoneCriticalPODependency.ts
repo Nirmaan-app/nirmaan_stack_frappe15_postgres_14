@@ -14,13 +14,13 @@ export interface WorkMilestoneCriticalPODependencyDocType {
 	/** Critical PO Item : Link - Critical PO Items */
 	critical_po_item: string
 	/** Item Name : Data */
-	item_name?: string
+	item_name?: string | null
 	/** Sub Category : Data */
-	sub_category?: string
+	sub_category?: string | null
 	/** Critical PO Category : Link - Critical PO Category */
-	critical_po_category?: string
+	critical_po_category?: string | null
 	/** Delivery % : Percent */
 	delivery_percentage?: number
 	/** Remarks : Small Text */
-	remarks?: string
+	remarks?: string | null
 }

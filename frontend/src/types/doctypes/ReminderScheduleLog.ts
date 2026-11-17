@@ -11,21 +11,21 @@ export interface ReminderScheduleLogDocType {
 	/** Reminder : Link - Reminder Schedule */
 	reminder_schedule: string
 	/** Reminder Title : Read Only */
-	reminder_title?: string
+	reminder_title?: string | null
 	/** Due Date (cycle) : Date */
 	due_date: string
 	/** From Month : Data */
-	from_month?: string
+	from_month?: string | null
 	/** To Month : Data */
-	to_month?: string
+	to_month?: string | null
 	/** Status : Select */
-	status?: "Pending" | "Done"
+	status?: "Pending" | "Done" | null
 	/** Notified At : Datetime */
-	notified_at?: string
+	notified_at?: string | null
 	/** Completed By : Link - User */
-	completed_by?: string
+	completed_by?: string | null
 	/** Completed At : Datetime */
-	completed_at?: string
+	completed_at?: string | null
 	/** Remarks : Small Text */
-	remarks?: string
+	remarks?: string | null
 }

@@ -14,11 +14,11 @@ export interface MaterialTestCertificateItemDocType {
 	/** Item : Data */
 	item_id: string
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Make : Data */
-	make?: string
+	make?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Package : Data */
-	procurement_package?: string
+	procurement_package?: string | null
 }

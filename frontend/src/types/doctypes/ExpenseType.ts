@@ -11,7 +11,7 @@ export interface ExpenseTypeDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Expense Name : Data */
-	expense_name?: string
+	expense_name?: string | null
 	/** Project : Check */
 	project?: 0 | 1
 	/** Non Project : Check */
@@ -21,9 +21,9 @@ export interface ExpenseTypeDocType {
 	/** Enable Source : Check */
 	source_format_enabled?: 0 | 1
 	/** Source Format : Long Text */
-	source_format?: string
+	source_format?: string | null
 	/** Who Gets Paid : Select */
-	payee_rule?: "Required" | "Optional" | "Not asked"
+	payee_rule?: "Required" | "Optional" | "Not asked" | null
 	/** Confirmed as Expense Request : Check */
 	confirmed_as_request?: 0 | 1
 }

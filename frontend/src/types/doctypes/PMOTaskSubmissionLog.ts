@@ -13,19 +13,19 @@ export interface PMOTaskSubmissionLogDocType {
 	/** Project : Link - Projects */
 	project: string
 	/** Task Master : Link - PMO Task Master */
-	task_master?: string
+	task_master?: string | null
 	/** Cycle # : Int */
 	cycle_number?: number
 	/** Cycle Start Date : Date */
-	cycle_start_date?: string
+	cycle_start_date?: string | null
 	/** Cycle End Date : Date */
-	cycle_end_date?: string
+	cycle_end_date?: string | null
 	/** Result : Select */
-	result?: "Done" | "Not Done"
+	result?: "Done" | "Not Done" | null
 	/** Auto Force-Marked : Check */
 	was_force_marked?: 0 | 1
 	/** Closed On : Date */
-	closed_on?: string
+	closed_on?: string | null
 	/** Attachment : Attach */
-	attachment?: string
+	attachment?: string | null
 }

@@ -11,27 +11,27 @@ export interface ProjectSnagDocType {
 	/** Project : Link - Projects */
 	project: string
 	/** Batch : Link - Project Snag Batch */
-	batch?: string
+	batch?: string | null
 	/** Area : Data */
-	area?: string
+	area?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Status : Select */
 	status: "Not Applicable" | "Pending" | "WIP" | "Completed"
 	/** Status Changed By : Link - User */
-	status_changed_by?: string
+	status_changed_by?: string | null
 	/** Status Changed On : Datetime */
-	status_changed_on?: string
+	status_changed_on?: string | null
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** S.No : Data */
-	source_serial?: string
+	source_serial?: string | null
 	/** Source Row : Int */
 	source_row?: number
 	/** Remarks : Small Text */
-	remark?: string
+	remark?: string | null
 	/** Photo : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Photo Location : Small Text */
-	location?: string
+	location?: string | null
 }

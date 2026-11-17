@@ -12,29 +12,29 @@ export interface DesignTrackerTaskChildTableDocType {
 	parentfield: string
 	parenttype: string
 	/** Design Category : Data */
-	design_category?: string
+	design_category?: string | null
 	/** Task Name : Data */
-	task_name?: string
+	task_name?: string | null
 	/** Task Type : Data */
-	task_type?: string
+	task_type?: string | null
 	/** Deadline : Date */
-	deadline?: string
+	deadline?: string | null
 	/** Task Status : Data */
-	task_status?: string
+	task_status?: string | null
 	/** Task Sub Status : Data */
-	task_sub_status?: string
+	task_sub_status?: string | null
 	/** File Link : Small Text */
-	file_link?: string
+	file_link?: string | null
 	/** Approval Proof : Attach */
-	approval_proof?: string
+	approval_proof?: string | null
 	/** Comments : Long Text */
-	comments?: string
+	comments?: string | null
 	/** Assigned Designers : JSON */
-	assigned_designers?: unknown
+	assigned_designers?: unknown | null
 	/** Task Zone : Data */
-	task_zone?: string
+	task_zone?: string | null
 	/** Task Phase : Data */
-	task_phase?: string
+	task_phase?: string | null
 	/** Last Submitted : Date */
-	last_submitted?: string
+	last_submitted?: string | null
 }

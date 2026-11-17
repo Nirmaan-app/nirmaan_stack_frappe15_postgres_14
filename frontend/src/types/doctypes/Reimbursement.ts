@@ -13,29 +13,29 @@ export interface ReimbursementDocType {
 	/** Amount : Currency */
 	amount: number
 	/** Status : Select */
-	status?: "Pending Approval" | "Approved" | "Rejected" | "Paid"
+	status?: "Pending Approval" | "Approved" | "Rejected" | "Paid" | null
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Account Holder : Data */
-	pay_to_account_name?: string
+	pay_to_account_name?: string | null
 	/** Account Number : Data */
-	pay_to_account_number?: string
+	pay_to_account_number?: string | null
 	/** IFSC : Data */
-	pay_to_ifsc?: string
+	pay_to_ifsc?: string | null
 	/** Bank : Data */
-	pay_to_bank_name?: string
+	pay_to_bank_name?: string | null
 	/** Branch : Data */
-	pay_to_bank_branch?: string
+	pay_to_bank_branch?: string | null
 	/** Receipts (PDF) : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Approved By : Link - User */
-	approved_by?: string
+	approved_by?: string | null
 	/** Rejection Reason : Small Text */
-	rejection_reason?: string
+	rejection_reason?: string | null
 	/** Claimant Name : Data */
-	claimant_name?: string
+	claimant_name?: string | null
 	/** Claimant Role : Data */
-	claimant_role?: string
+	claimant_role?: string | null
 	/** Reimbursement Type : Select */
 	reimbursement_type: "Travel" | "Food" | "Others"
 }

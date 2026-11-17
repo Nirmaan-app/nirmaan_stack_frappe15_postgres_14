@@ -11,7 +11,7 @@ export interface HelpRepositoryDocType {
 	/** Title : Data */
 	title: string
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Video Link : Data */
 	video_link: string
 }

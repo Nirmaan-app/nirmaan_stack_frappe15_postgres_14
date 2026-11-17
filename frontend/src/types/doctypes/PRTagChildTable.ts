@@ -12,7 +12,7 @@ export interface PRTagChildTableDocType {
 	parentfield: string
 	parenttype: string
 	/** Tag Header : Link - PR Tag Headers */
-	tag_header?: string
+	tag_header?: string | null
 	/** Tag Package : Link - Procurement Packages */
-	tag_package?: string
+	tag_package?: string | null
 }

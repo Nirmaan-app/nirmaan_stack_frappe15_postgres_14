@@ -13,15 +13,15 @@ export interface ProjectSnagBatchDocType {
 	/** Batch Name : Data */
 	batch_name: string
 	/** Source Sheet : Data */
-	source_sheet?: string
+	source_sheet?: string | null
 	/** Source File : Attach */
-	source_file?: string
+	source_file?: string | null
 	/** Uploaded By : Link - User */
-	uploaded_by?: string
+	uploaded_by?: string | null
 	/** Uploaded On : Datetime */
-	uploaded_on?: string
+	uploaded_on?: string | null
 	/** Snag Count : Int */
 	snag_count?: number
 	/** Column Mapping : JSON */
-	column_mapping?: unknown
+	column_mapping?: unknown | null
 }

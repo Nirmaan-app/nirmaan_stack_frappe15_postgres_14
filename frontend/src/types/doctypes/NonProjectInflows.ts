@@ -11,13 +11,13 @@ export interface NonProjectInflowsDocType {
 	/** Inflow Type : Select */
 	inflow_type: "" | "Interest Payouts" | "FD Closures" | "Loan Received" | "Others"
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** UTR : Text */
-	utr?: string
+	utr?: string | null
 	/** Inflow Attachment : Attach */
-	inflow_attachment?: string
+	inflow_attachment?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Payment Date : Date */
-	payment_date?: string
+	payment_date?: string | null
 }

@@ -11,19 +11,19 @@ export interface BOQNodesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** BoQ : Link - BOQs */
-	boq?: string
+	boq?: string | null
 	/** BoQ Sheet : Link - BoQ Sheet */
-	sheet?: string
+	sheet?: string | null
 	/** Parent Node : Link - BOQ Nodes */
-	parent_node?: string
+	parent_node?: string | null
 	/** Node Type : Select */
-	node_type?: "Preamble" | "Line Item" | "Other"
+	node_type?: "Preamble" | "Line Item" | "Other" | null
 	/** Row Class : Data */
-	row_class?: string
+	row_class?: string | null
 	/** Level : Int */
 	level?: number
 	/** Human Classification : Data */
-	human_classification?: string
+	human_classification?: string | null
 	/** Human Parent : Int */
 	human_parent?: number
 	/** Human Root Override : Check */
@@ -31,21 +31,21 @@ export interface BOQNodesDocType {
 	/** Sort Order : Int */
 	sort_order?: number
 	/** Code : Data */
-	code?: string
+	code?: string | null
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** Source Row Number : Int */
 	source_row_number?: number
 	/** Path : Data */
-	path?: string
+	path?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Qty : Float */
 	qty?: number
 	/** Qty by Area : Table - BOQ Node Qty By Area */
 	qty_by_area?: BOQNodeQtyByAreaDocType[]
 	/** Make / Model : Text */
-	make_model?: string
+	make_model?: string | null
 	/** Supply Rate : Currency */
 	supply_rate?: number
 	/** Install Rate : Currency */
@@ -65,31 +65,31 @@ export interface BOQNodesDocType {
 	/** Amount Override : Check */
 	amount_override?: 0 | 1
 	/** Notes : Text */
-	notes?: string
+	notes?: string | null
 	/** Append Notes Raw : JSON */
-	append_notes_raw?: unknown
+	append_notes_raw?: unknown | null
 	/** Description Parts Raw : JSON */
-	description_parts_raw?: unknown
+	description_parts_raw?: unknown | null
 	/** Edit Reason : Data */
-	edit_reason?: string
+	edit_reason?: string | null
 	/** Review Row Name : Data */
-	review_row_name?: string
+	review_row_name?: string | null
 	/** Commit Provenance Id : Data */
-	commit_provenance_id?: string
+	commit_provenance_id?: string | null
 	/** Edit Log : JSON */
-	edit_log?: unknown
+	edit_log?: unknown | null
 	/** Edited By : Data */
-	edited_by?: string
+	edited_by?: string | null
 	/** Edited At : Datetime */
-	edited_at?: string
+	edited_at?: string | null
 	/** Remarks : Small Text */
-	remarks?: string
+	remarks?: string | null
 	/** Attached Notes : JSON */
-	attached_notes?: unknown
+	attached_notes?: unknown | null
 	/** Commit Version : Int */
 	commit_version?: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Committed At : Datetime */
-	committed_at?: string
+	committed_at?: string | null
 }

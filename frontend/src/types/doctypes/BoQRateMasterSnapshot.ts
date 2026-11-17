@@ -13,13 +13,13 @@ export interface BoQRateMasterSnapshotDocType {
 	/** Version : Int */
 	version?: number
 	/** Payload : Long Text */
-	payload?: string
+	payload?: string | null
 	/** Taken At : Datetime */
-	taken_at?: string
+	taken_at?: string | null
 	/** Taken By : Data */
-	taken_by?: string
+	taken_by?: string | null
 	/** Import Batch : Data */
-	import_batch?: string
+	import_batch?: string | null
 	/** Item Count : Int */
 	item_count?: number
 	/** Config Count : Int */

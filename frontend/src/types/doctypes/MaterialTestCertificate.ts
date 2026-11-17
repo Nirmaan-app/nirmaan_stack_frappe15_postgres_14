@@ -15,7 +15,7 @@ export interface MaterialTestCertificateDocType {
 	/** Project : Link - Projects */
 	project: string
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Certificate File : Attach */
 	attachment: string
 	/** Items : Table - Material Test Certificate Item */

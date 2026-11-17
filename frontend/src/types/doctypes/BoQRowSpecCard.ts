@@ -25,7 +25,7 @@ export interface BoQRowSpecCardDocType {
 	/** Status : Select */
 	status: "ok" | "malformed" | "failed"
 	/** Card : JSON */
-	card_json?: unknown
+	card_json?: unknown | null
 	/** Tokens in : Int */
 	tokens_in?: number
 	/** Tokens out : Int */

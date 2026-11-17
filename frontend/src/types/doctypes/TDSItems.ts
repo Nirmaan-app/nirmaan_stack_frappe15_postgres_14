@@ -15,7 +15,7 @@ export interface TDSItemsDocType {
 	/** Work Package : Link - Procurement Packages */
 	work_package: string
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** Members : Table - TDS Items Child Table */
 	members?: TDSItemsChildTableDocType[]
 }

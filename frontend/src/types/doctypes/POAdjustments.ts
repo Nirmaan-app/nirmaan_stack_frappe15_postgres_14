@@ -17,7 +17,7 @@ export interface POAdjustmentsDocType {
 	/** Vendor : Link - Vendors */
 	vendor: string
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Remaining Impact : Currency */
 	remaining_impact?: number
 	/** Adjustment Items : Table - PO Adjustment Items */

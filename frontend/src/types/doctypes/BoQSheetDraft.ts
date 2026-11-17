@@ -22,31 +22,31 @@ export interface BoQSheetDraftDocType {
 	/** Work Packages : Table - BoQ Sheet Work Package */
 	work_packages?: BoQSheetWorkPackageDocType[]
 	/** Sheet Label : Data */
-	sheet_label?: string
+	sheet_label?: string | null
 	/** Sheet Config : JSON */
-	sheet_config?: unknown
+	sheet_config?: unknown | null
 	/** Has Prior Parse : Check */
 	has_prior_parse?: 0 | 1
 	/** Last Parsed At : Datetime */
-	last_parsed_at?: string
+	last_parsed_at?: string | null
 	/** Parse In Progress : Check */
 	parse_in_progress?: 0 | 1
 	/** Parse Failure Category : Select */
-	parse_failure_category?: "" | "Config stale" | "Parser error" | "Insert error"
+	parse_failure_category?: "" | "Config stale" | "Parser error" | "Insert error" | null
 	/** Parse Failure Reason : Small Text */
-	parse_failure_reason?: string
+	parse_failure_reason?: string | null
 	/** Parse Failure At : Datetime */
-	parse_failure_at?: string
+	parse_failure_at?: string | null
 	/** Commit Failure Reason : Small Text */
-	commit_failure_reason?: string
+	commit_failure_reason?: string | null
 	/** Commit Failure At : Datetime */
-	commit_failure_at?: string
+	commit_failure_at?: string | null
 	/** AI Pass In Progress : Check */
 	ai_in_progress?: 0 | 1
 	/** Gemini AI Pass In Progress : Check */
 	gemini_in_progress?: 0 | 1
 	/** Source Sheet Name : Data */
-	source_sheet_name?: string
+	source_sheet_name?: string | null
 	/** Revision Change Summary : JSON */
-	revision_change_summary?: unknown
+	revision_change_summary?: unknown | null
 }

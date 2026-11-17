@@ -9,11 +9,11 @@ export interface PricingAccessLogDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Workbook : Data */
-	workbook?: string
+	workbook?: string | null
 	/** User : Link - User */
-	user?: string
+	user?: string | null
 	/** Action : Select */
-	action?: "" | "open" | "save" | "checkout" | "release" | "create"
+	action?: "" | "open" | "save" | "checkout" | "release" | "create" | null
 	/** At : Datetime */
-	at?: string
+	at?: string | null
 }

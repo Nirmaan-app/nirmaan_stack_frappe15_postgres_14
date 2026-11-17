@@ -12,9 +12,9 @@ export interface WorkMilestonesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Work Milestone Name : Data */
-	work_milestone_name?: string
+	work_milestone_name?: string | null
 	/** Work Header : Link - Work Headers */
-	work_header?: string
+	work_header?: string | null
 	/** Work Milestone Order : Int */
 	work_milestone_order?: number
 	/** Weightage : Float */

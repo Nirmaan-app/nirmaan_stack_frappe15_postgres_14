@@ -21,27 +21,27 @@ export interface OutflowRowMatchDocType {
 	/** Target Amount : Currency */
 	target_amount?: number
 	/** Target Project : Link - Projects */
-	target_project?: string
+	target_project?: string | null
 	/** Target Vendor : Link - Vendors */
-	target_vendor?: string
+	target_vendor?: string | null
 	/** Match Kind : Select */
 	match_kind: "Settled" | "Reversed"
 	/** Match Basis : Select */
 	match_basis: "reference" | "account+IFSC" | "project in remark" | "Manual" | "cashbook remark" | "porter statement" | "cheque number" | "card statement"
 	/** Settlement Origin : Select */
-	settlement_origin?: "" | "Suggestion accepted" | "Suggestion overridden" | "No suggestion"
+	settlement_origin?: "" | "Suggestion accepted" | "Suggestion overridden" | "No suggestion" | null
 	/** Created By Import : Check */
 	created_by_import?: 0 | 1
 	/** Matched At : Datetime */
-	matched_at?: string
+	matched_at?: string | null
 	/** Matched By : Data */
-	matched_by?: string
+	matched_by?: string | null
 	/** Reversed At : Datetime */
-	reversed_at?: string
+	reversed_at?: string | null
 	/** Reversed By : Data */
-	reversed_by?: string
+	reversed_by?: string | null
 	/** Reversal Reason : Small Text */
-	reversal_reason?: string
+	reversal_reason?: string | null
 	/** Source : Data */
-	source?: string
+	source?: string | null
 }

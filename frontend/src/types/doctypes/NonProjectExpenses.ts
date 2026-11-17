@@ -9,59 +9,59 @@ export interface NonProjectExpensesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Type : Link - Expense Type */
-	type?: string
+	type?: string | null
 	/** Request ID : Link - Expense Request */
-	request_id?: string
+	request_id?: string | null
 	/** Porter Order : Link - Porter Order */
-	porter_order?: string
+	porter_order?: string | null
 	/** Status : Select */
-	status?: "Requested" | "CEO Pending" | "Approved" | "Reconciliation Pending" | "Paid" | "Rejected"
+	status?: "Requested" | "CEO Pending" | "Approved" | "Reconciliation Pending" | "Paid" | "Rejected" | null
 	/** Amount : Currency */
 	amount?: number
 	/** Payment Date : Date */
-	payment_date?: string
+	payment_date?: string | null
 	/** Payment Ref : Text */
-	payment_ref?: string
+	payment_ref?: string | null
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** Payment Attachment : Attach */
-	payment_attachment?: string
+	payment_attachment?: string | null
 	/** Invoice Attachment : Attach */
-	invoice_attachment?: string
+	invoice_attachment?: string | null
 	/** Invoice Ref : Data */
-	invoice_ref?: string
+	invoice_ref?: string | null
 	/** Invoice Date : Date */
-	invoice_date?: string
+	invoice_date?: string | null
 	/** Comment : Data */
-	comment?: string
+	comment?: string | null
 	/** Acc Approval Date : Date */
-	approval_date?: string
+	approval_date?: string | null
 	/** CEO Approval Date : Date */
-	ceo_approval_date?: string
+	ceo_approval_date?: string | null
 	/** Auto Approved : Check */
 	auto_approved?: 0 | 1
 	/** Pay-to Holder Name : Data */
-	pay_to_account_name?: string
+	pay_to_account_name?: string | null
 	/** Pay-to Account Number : Data */
-	pay_to_account_number?: string
+	pay_to_account_number?: string | null
 	/** Pay-to IFSC : Data */
-	pay_to_ifsc?: string
+	pay_to_ifsc?: string | null
 	/** Pay-to Bank : Data */
-	pay_to_bank_name?: string
+	pay_to_bank_name?: string | null
 	/** Pay-to Branch : Data */
-	pay_to_bank_branch?: string
+	pay_to_bank_branch?: string | null
 	/** Credit Card Statement : Link - Credit Card Statement */
-	credit_card_statement?: string
+	credit_card_statement?: string | null
 	/** No Invoice Reason : Small Text */
-	no_invoice_reason?: string
+	no_invoice_reason?: string | null
 	/** No Invoice By : Link - User */
-	no_invoice_by?: string
+	no_invoice_by?: string | null
 	/** No Invoice At : Datetime */
-	no_invoice_at?: string
+	no_invoice_at?: string | null
 	/** Reimbursement : Link - Reimbursement */
-	reimbursement?: string
+	reimbursement?: string | null
 	/** Cashbook Import Batch : Link - Outflow Import Batch */
-	cashbook_batch?: string
+	cashbook_batch?: string | null
 	/** GST : Currency */
 	gst_amount?: number
 }

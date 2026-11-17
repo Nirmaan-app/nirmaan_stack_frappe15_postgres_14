@@ -11,29 +11,29 @@ export interface PODeliveryDocumentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Parent Doctype : Select */
-	parent_doctype?: "Procurement Orders" | "Internal Transfer Memo"
+	parent_doctype?: "Procurement Orders" | "Internal Transfer Memo" | null
 	/** Parent Docname : Dynamic Link */
-	parent_docname?: string
+	parent_docname?: string | null
 	/** Procurement Order (Deprecated) : Link - Procurement Orders */
-	procurement_order?: string
+	procurement_order?: string | null
 	/** Project : Link - Projects */
 	project: string
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Type : Select */
 	type: "Delivery Challan" | "Material Inspection Report"
 	/** Nirmaan Attachment : Link - Nirmaan Attachments */
-	nirmaan_attachment?: string
+	nirmaan_attachment?: string | null
 	/** Reference Number : Data */
-	reference_number?: string
+	reference_number?: string | null
 	/** Associated DC Number : Data */
-	dc_reference?: string
+	dc_reference?: string | null
 	/** Date : Date */
-	dc_date?: string
+	dc_date?: string | null
 	/** Is Signed by Client? : Check */
 	is_signed_by_client?: 0 | 1
 	/** Client Representative Name : Data */
-	client_representative_name?: string
+	client_representative_name?: string | null
 	/** Items : Table - DC Item */
 	items?: DCItemDocType[]
 	/** Is Stub (Legacy) : Check */

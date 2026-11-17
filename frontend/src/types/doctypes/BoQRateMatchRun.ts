@@ -15,11 +15,11 @@ export interface BoQRateMatchRunDocType {
 	/** Committed Version : Int */
 	commit_version?: number
 	/** Suggest Run : Link - BoQ Rate Suggestion Run */
-	suggest_run?: string
+	suggest_run?: string | null
 	/** Job Id : Data */
-	job_id?: string
+	job_id?: string | null
 	/** Status : Select */
-	status?: "queued" | "running" | "complete" | "failed" | "halted"
+	status?: "queued" | "running" | "complete" | "failed" | "halted" | null
 	/** Active : Check */
 	active?: 0 | 1
 	/** Rows Total : Int */
@@ -27,11 +27,11 @@ export interface BoQRateMatchRunDocType {
 	/** Rows Done : Int */
 	rows_done?: number
 	/** Halt Reason : Small Text */
-	halt_reason?: string
+	halt_reason?: string | null
 	/** Run At : Datetime */
-	run_at?: string
+	run_at?: string | null
 	/** Results : JSON */
-	results?: unknown
+	results?: unknown | null
 	/** Usage : JSON */
-	usage?: unknown
+	usage?: unknown | null
 }

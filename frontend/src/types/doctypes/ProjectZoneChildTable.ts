@@ -12,5 +12,5 @@ export interface ProjectZoneChildTableDocType {
 	parentfield: string
 	parenttype: string
 	/** Zone Name : Data */
-	zone_name?: string
+	zone_name?: string | null
 }

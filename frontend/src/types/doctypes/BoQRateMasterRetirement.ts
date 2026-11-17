@@ -15,9 +15,9 @@ export interface BoQRateMasterRetirementDocType {
 	/** Scope Value : Data */
 	scope_value: string
 	/** Retired At : Datetime */
-	retired_at?: string
+	retired_at?: string | null
 	/** Retired By : Data */
-	retired_by?: string
+	retired_by?: string | null
 	/** Reason : Small Text */
-	reason?: string
+	reason?: string | null
 }

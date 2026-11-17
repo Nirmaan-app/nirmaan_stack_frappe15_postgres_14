@@ -11,23 +11,23 @@ export interface PorterInvoiceDocType {
 	/** Invoice Number : Data */
 	invoice_number: string
 	/** Import Batch : Link - Outflow Import Batch */
-	import_batch?: string
+	import_batch?: string | null
 	/** Invoice Link : Small Text */
-	invoice_link?: string
+	invoice_link?: string | null
 	/** Invoice PDF : Attach */
-	invoice_file?: string
+	invoice_file?: string | null
 	/** Validation Status : Select */
-	validation_status?: "Queued" | "Downloading" | "Reading" | "Comparing" | "Passed" | "Failed" | "Error"
+	validation_status?: "Queued" | "Downloading" | "Reading" | "Comparing" | "Passed" | "Failed" | "Error" | null
 	/** Validation Message : Small Text */
-	validation_message?: string
+	validation_message?: string | null
 	/** Porter GSTIN : Data */
-	porter_gstin?: string
+	porter_gstin?: string | null
 	/** Customer GSTIN : Data */
-	customer_gstin?: string
+	customer_gstin?: string | null
 	/** Billing Entity : Data */
-	billing_entity?: string
+	billing_entity?: string | null
 	/** City : Data */
-	city?: string
+	city?: string | null
 	/** Completed Orders : Int */
 	completed_orders?: number
 	/** Fare Total : Currency */
@@ -35,17 +35,17 @@ export interface PorterInvoiceDocType {
 	/** Tax Total : Currency */
 	tax_total?: number
 	/** Invoice Number (read) : Data */
-	read_invoice_number?: string
+	read_invoice_number?: string | null
 	/** Invoice Date (read) : Date */
-	read_invoice_date?: string
+	read_invoice_date?: string | null
 	/** Supplier GSTIN (read) : Data */
-	read_supplier_gstin?: string
+	read_supplier_gstin?: string | null
 	/** Receiver GSTIN (read) : Data */
-	read_receiver_gstin?: string
+	read_receiver_gstin?: string | null
 	/** Fare (read) : Currency */
 	read_fare?: number
 	/** Tax (read) : Currency */
 	read_tax?: number
 	/** Validation Warnings : JSON */
-	validation_warnings?: unknown
+	validation_warnings?: unknown | null
 }

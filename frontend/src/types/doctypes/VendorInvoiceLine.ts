@@ -12,9 +12,9 @@ export interface VendorInvoiceLineDocType {
 	parentfield: string
 	parenttype: string
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** UOM : Data */
-	uom?: string
+	uom?: string | null
 	/** Quantity : Float */
 	quantity?: number
 	/** Rate : Currency */
@@ -24,15 +24,15 @@ export interface VendorInvoiceLineDocType {
 	/** Tax Rate (%) : Float */
 	tax_rate?: number
 	/** Match Status : Select */
-	match_status?: "Matched" | "Unmatched" | "Non-Item"
+	match_status?: "Matched" | "Unmatched" | "Non-Item" | null
 	/** PO Item ID : Data */
-	po_item_id?: string
+	po_item_id?: string | null
 	/** PO Item Row : Data */
-	po_item_row?: string
+	po_item_row?: string | null
 	/** PO Item Name : Text */
-	po_item_name?: string
+	po_item_name?: string | null
 	/** Match Source : Select */
-	match_source?: "" | "Fuzzy" | "AI" | "Manual"
+	match_source?: "" | "Fuzzy" | "AI" | "Manual" | null
 	/** Match Score : Float */
 	match_score?: number
 	/** Over Billed : Check */

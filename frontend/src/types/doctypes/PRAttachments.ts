@@ -9,9 +9,9 @@ export interface PRAttachmentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** RFQ pdf : Attach Image */
-	rfq_pdf?: string
+	rfq_pdf?: string | null
 	/** Procurement Request : Link - Procurement Requests */
-	procurement_request?: string
+	procurement_request?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 }

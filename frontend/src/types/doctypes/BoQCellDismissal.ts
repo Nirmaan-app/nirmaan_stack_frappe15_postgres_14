@@ -19,21 +19,21 @@ export interface BoQCellDismissalDocType {
 	/** Committed Version : Int */
 	committed_version: number
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Dismissal Version : Int */
 	dismissal_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Dismissed At : Datetime */
-	dismissed_at?: string
+	dismissed_at?: string | null
 	/** Dismissed By : Data */
-	dismissed_by?: string
+	dismissed_by?: string | null
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
 	/** Carried From BoQ : Link - BOQs */
-	carried_from_boq?: string
+	carried_from_boq?: string | null
 	/** Carried From Version : Int */
 	carried_from_version?: number
 	/** Carried At : Datetime */
-	carried_at?: string
+	carried_at?: string | null
 }

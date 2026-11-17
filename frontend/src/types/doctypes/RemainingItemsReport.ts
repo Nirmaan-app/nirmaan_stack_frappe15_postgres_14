@@ -15,9 +15,9 @@ export interface RemainingItemsReportDocType {
 	/** Report Date : Date */
 	report_date: string
 	/** Submitted By : Data */
-	submitted_by?: string
+	submitted_by?: string | null
 	/** Status : Select */
-	status?: "Draft" | "Submitted"
+	status?: "Draft" | "Submitted" | null
 	/** Items : Table - Remaining Item Entry */
 	items?: RemainingItemEntryDocType[]
 }

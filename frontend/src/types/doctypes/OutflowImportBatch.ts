@@ -11,17 +11,17 @@ export interface OutflowImportBatchDocType {
 	/** Source : Select */
 	source: "Cashfree" | "Cashbook" | "ICICI Bank Statement" | "Porter Statement" | "ICICI Credit Card Statement"
 	/** Source File : Attach */
-	source_file?: string
+	source_file?: string | null
 	/** Original Filename : Data */
-	original_filename?: string
+	original_filename?: string | null
 	/** Period From : Date */
-	period_from?: string
+	period_from?: string | null
 	/** Period To : Date */
-	period_to?: string
+	period_to?: string | null
 	/** Overlaps Batch : Link - Outflow Import Batch */
-	overlaps_batch?: string
+	overlaps_batch?: string | null
 	/** Status : Select */
-	status?: "Draft" | "In Review" | "Partially Settled" | "Completed"
+	status?: "Draft" | "In Review" | "Partially Settled" | "Completed" | null
 	/** Total Rows : Int */
 	total_rows?: number
 	/** Reviewed Rows : Int */
@@ -39,17 +39,17 @@ export interface OutflowImportBatchDocType {
 	/** Charges Amount : Currency */
 	charges_amount?: number
 	/** Charges Expense : Link - Non Project Expenses */
-	charges_expense?: string
+	charges_expense?: string | null
 	/** Uploaded By : Data */
-	uploaded_by?: string
+	uploaded_by?: string | null
 	/** Uploaded At : Datetime */
-	uploaded_at?: string
+	uploaded_at?: string | null
 	/** Closed At : Datetime */
-	closed_at?: string
+	closed_at?: string | null
 	/** Closed By : Data */
-	closed_by?: string
+	closed_by?: string | null
 	/** Close Reason : Small Text */
-	close_reason?: string
+	close_reason?: string | null
 	/** Cashbook Bill Work : JSON */
-	cashbook_bill_work?: unknown
+	cashbook_bill_work?: unknown | null
 }

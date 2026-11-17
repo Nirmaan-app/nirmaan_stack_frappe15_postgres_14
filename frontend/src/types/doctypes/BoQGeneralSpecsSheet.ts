@@ -14,5 +14,5 @@ export interface BoQGeneralSpecsSheetDocType {
 	/** Source Sheet Name : Data */
 	source_sheet_name: string
 	/** Preamble Text : Long Text */
-	preamble_text?: string
+	preamble_text?: string | null
 }

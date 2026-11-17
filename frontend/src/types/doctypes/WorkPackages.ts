@@ -9,7 +9,7 @@ export interface WorkPackagesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Work Package Name : Data */
-	work_package_name?: string
+	work_package_name?: string | null
 	/** Work Package Image : Attach Image */
-	work_package_image?: string
+	work_package_image?: string | null
 }

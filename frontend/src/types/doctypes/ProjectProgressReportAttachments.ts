@@ -12,11 +12,11 @@ export interface ProjectProgressReportAttachmentsDocType {
 	parentfield: string
 	parenttype: string
 	/** Image Link : Attach */
-	image_link?: string
+	image_link?: string | null
 	/** Location : Text */
-	location?: string
+	location?: string | null
 	/** Remarks : Text */
-	remarks?: string
+	remarks?: string | null
 	/** Attach Type : Data */
-	attach_type?: string
+	attach_type?: string | null
 }

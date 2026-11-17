@@ -9,7 +9,7 @@ export interface AssetCategoryDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Asset Category : Data */
-	asset_category?: string
+	asset_category?: string | null
 	/** Category Type : Select */
 	category_type: "Project" | "IT"
 	/** Monthly Audit Required : Check */

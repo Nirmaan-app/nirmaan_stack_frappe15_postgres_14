@@ -37,6 +37,8 @@ STRING_TYPES = {
 NUMBER_TYPES = {"Int", "Float", "Currency", "Percent", "Rating", "Duration"}
 LAYOUT_TYPES = {"Section Break", "Column Break", "Tab Break", "HTML", "Button", "Image", "Heading", "Fold"}
 TABLE_TYPES = {"Table", "Table MultiSelect"}
+# Never null from the server: Frappe's schema makes these columns `not null default 0`, and a child table is a list.
+NEVER_NULL_TYPES = {"Check", "Int", "Float", "Currency", "Percent"} | TABLE_TYPES
 
 
 def ts_type(f: dict) -> str:
@@ -92,8 +94,13 @@ def render_interface(dt: dict) -> str:
     for f in dt.get("fields", []):
         if f["fieldtype"] in LAYOUT_TYPES:
             continue
-        optional = "" if f.get("reqd") else "?"
-        lines += [f"\t{doc_comment(f)}", f"\t{f['fieldname']}{optional}: {ts_type(f)}"]
+        if f.get("reqd"):
+            decl = f"{f['fieldname']}: {ts_type(f)}"
+        elif f["fieldtype"] in NEVER_NULL_TYPES:
+            decl = f"{f['fieldname']}?: {ts_type(f)}"
+        else:  # Frappe sends null for an empty field (#1703).
+            decl = f"{f['fieldname']}?: {ts_type(f)} | null"
+        lines += [f"\t{doc_comment(f)}", f"\t{decl}"]
     lines.append("}")
     return "\n".join(lines) + "\n"
 

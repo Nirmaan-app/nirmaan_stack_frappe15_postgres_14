@@ -14,15 +14,15 @@ export interface ChequeLineDocType {
 	/** Line Type : Select */
 	line_type: "PO/WO Payment" | "Project Expense" | "Non-project Expense" | "Secured PO/WO"
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** PO / WO Type : Link - DocType */
-	record_doctype?: string
+	record_doctype?: string | null
 	/** PO / WO : Dynamic Link */
-	record_name?: string
+	record_name?: string | null
 	/** Payment Type : Link - DocType */
-	payment_doctype?: string
+	payment_doctype?: string | null
 	/** Payment : Dynamic Link */
-	payment_name?: string
+	payment_name?: string | null
 	/** Amount : Currency */
 	amount?: number
 }

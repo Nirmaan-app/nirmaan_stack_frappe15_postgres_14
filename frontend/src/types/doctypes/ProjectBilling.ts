@@ -11,9 +11,9 @@ export interface ProjectBillingDocType {
 	/** Billing Tracker : Link - Project Billing Tracker */
 	billing_tracker: string
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Package : Link - Project Billing Packages */
-	package?: string
+	package?: string | null
 	/** Bill Type : Select */
 	bill_type: "Supply 1" | "Supply 2" | "Supply 3" | "RA 1" | "RA 2" | "RA 3" | "Final" | "NA"
 	/** Status : Select */
@@ -25,13 +25,13 @@ export interface ProjectBillingDocType {
 	/** Invoice Requested : Check */
 	invoice_requested?: 0 | 1
 	/** ETA Date : Date */
-	eta_date?: string
+	eta_date?: string | null
 	/** First Submission Date : Date */
-	first_submission_date?: string
+	first_submission_date?: string | null
 	/** Approval Date : Date */
-	approval_date?: string
+	approval_date?: string | null
 	/** Bill Document Link : Small Text */
-	bill_document_link?: string
+	bill_document_link?: string | null
 	/** Bill Attachment : Attach */
-	bill_attachment?: string
+	bill_attachment?: string | null
 }

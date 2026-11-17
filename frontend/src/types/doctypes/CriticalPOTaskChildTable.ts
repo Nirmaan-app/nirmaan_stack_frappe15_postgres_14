@@ -14,9 +14,9 @@ export interface CriticalPOTaskChildTableDocType {
 	/** Critical PO Task : Link - Critical PO Tasks */
 	critical_po_task: string
 	/** Critical PO Category : Link - Critical PO Category */
-	critical_po_category?: string
+	critical_po_category?: string | null
 	/** Task Name : Data */
-	task_name?: string
+	task_name?: string | null
 	/** Sub Category : Data */
-	sub_category?: string
+	sub_category?: string | null
 }

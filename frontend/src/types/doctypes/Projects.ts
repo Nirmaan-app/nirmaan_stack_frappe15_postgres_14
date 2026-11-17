@@ -17,57 +17,57 @@ export interface ProjectsDocType {
 	/** Project Name : Data */
 	project_name: string
 	/** Customer : Link - Customers */
-	customer?: string
+	customer?: string | null
 	/** Project Type : Link - Project Types */
-	project_type?: string
+	project_type?: string | null
 	/** Project Start Date : Date */
-	project_start_date?: string
+	project_start_date?: string | null
 	/** Project End Date : Date */
-	project_end_date?: string
+	project_end_date?: string | null
 	/** Project Address : Link - Address */
-	project_address?: string
+	project_address?: string | null
 	/** Project City : Data */
-	project_city?: string
+	project_city?: string | null
 	/** Project State : Data */
-	project_state?: string
+	project_state?: string | null
 	/** Project Scopes : JSON */
-	project_scopes?: unknown
+	project_scopes?: unknown | null
 	/** Project Lead : Data */
-	project_lead?: string
+	project_lead?: string | null
 	/** Procurement Lead : Data */
-	procurement_lead?: string
+	procurement_lead?: string | null
 	/** Design Lead : Data */
-	design_lead?: string
+	design_lead?: string | null
 	/** Project Manager : Data */
-	project_manager?: string
+	project_manager?: string | null
 	/** Subdivisions : Data */
-	subdivisions?: string
+	subdivisions?: string | null
 	/** Subdivision List : JSON */
-	subdivision_list?: unknown
+	subdivision_list?: unknown | null
 	/** Tendering Status : Select */
-	tendering_status?: "" | "Tendering" | "Won" | "Lost" | "Merged"
+	tendering_status?: "" | "Tendering" | "Won" | "Lost" | "Merged" | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** CEO Hold Set By : Data */
-	ceo_hold_by?: string
+	ceo_hold_by?: string | null
 	/** CEO Hold Recheck Scheduled : Check */
 	ceo_hold_recheck_scheduled?: 0 | 1
 	/** CEO Hold Recheck Date : Date */
-	ceo_hold_recheck_date?: string
+	ceo_hold_recheck_date?: string | null
 	/** Project Work Packages : JSON */
-	project_work_packages?: unknown
+	project_work_packages?: unknown | null
 	/** Estimates Executive : Data */
-	estimates_exec?: string
+	estimates_exec?: string | null
 	/** Accountant : Data */
-	accountant?: string
+	accountant?: string | null
 	/** Project GST : Link - Project GST */
-	project_gst?: string
+	project_gst?: string | null
 	/** Project Value : Data */
-	project_value?: string
+	project_value?: string | null
 	/** Project WP Category Makes : Table - Project Work Package Category Make */
 	project_wp_category_makes?: ProjectWorkPackageCategoryMakeDocType[]
 	/** Project Value with GST : Data */
-	project_value_gst?: string
+	project_value_gst?: string | null
 	/** Manual Project Value : Check */
 	manual_project_value?: 0 | 1
 	/** Enable Project Milestone Tracking : Check */
@@ -85,11 +85,11 @@ export interface ProjectsDocType {
 	/** Disabled DPR  : Check */
 	disabled_dpr?: 0 | 1
 	/** Disabled DPR Date : Date */
-	disabled_dpr_date?: string
+	disabled_dpr_date?: string | null
 	/** Disabled Inventory : Check */
 	disabled_inventory?: 0 | 1
 	/** Disabled Inventory Date : Date */
-	disabled_inventory_date?: string
+	disabled_inventory_date?: string | null
 	/** Disabled PMO Dashboard : Check */
 	disabled_pmo?: 0 | 1
 	/** Disabled Snag List : Check */
@@ -97,5 +97,5 @@ export interface ProjectsDocType {
 	/** Cashflow Gap Limit : Float */
 	cashflow_gap_limit?: number
 	/** Merged Into : Link - Projects */
-	merged_into?: string
+	merged_into?: string | null
 }

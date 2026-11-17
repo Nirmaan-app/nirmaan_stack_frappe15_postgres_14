@@ -15,9 +15,9 @@ export interface VendorInvoicesDocType {
 	/** Document Name : Dynamic Link */
 	document_name: string
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Invoice No : Data */
 	invoice_no: string
 	/** Invoice Date : Date */
@@ -29,41 +29,41 @@ export interface VendorInvoicesDocType {
 	/** Invoice GST Amount : Currency */
 	invoice_gst_amount?: number
 	/** Invoice Attachment : Link - Nirmaan Attachments */
-	invoice_attachment?: string
+	invoice_attachment?: string | null
 	/** Credit Note : Check */
 	is_credit_note?: 0 | 1
 	/** Status : Select */
-	status?: "Pending" | "Approved" | "Rejected"
+	status?: "Pending" | "Approved" | "Rejected" | null
 	/** Uploaded By : Data */
-	uploaded_by?: string
+	uploaded_by?: string | null
 	/** Approved By : Data */
-	approved_by?: string
+	approved_by?: string | null
 	/** Approved On : Datetime */
-	approved_on?: string
+	approved_on?: string | null
 	/** Rejection Reason : Small Text */
-	rejection_reason?: string
+	rejection_reason?: string | null
 	/** Auto Approved : Check */
 	auto_approved?: 0 | 1
 	/** Auto Approve Skip Reasons : Long Text */
-	auto_approve_skip_reasons?: string
+	auto_approve_skip_reasons?: string | null
 	/** Reconciliation Status : Select */
-	reconciliation_status?: "" | "partial" | "full" | "na"
+	reconciliation_status?: "" | "partial" | "full" | "na" | null
 	/** Reconciled Date : Date */
-	reconciled_date?: string
+	reconciled_date?: string | null
 	/** Reconciled By : Data */
-	reconciled_by?: string
+	reconciled_by?: string | null
 	/** Reconciled Amount : Currency */
 	reconciled_amount?: number
 	/** Reconciliation Proof : Link - Nirmaan Attachments */
-	reconciliation_proof?: string
+	reconciliation_proof?: string | null
 	/** Autofill Used : Check */
 	autofill_used?: 0 | 1
 	/** Autofill Processor ID : Data */
-	autofill_processor_id?: string
+	autofill_processor_id?: string | null
 	/** AI Extracted Invoice No : Data */
-	autofill_extracted_invoice_no?: string
+	autofill_extracted_invoice_no?: string | null
 	/** AI Extracted Invoice Date : Date */
-	autofill_extracted_invoice_date?: string
+	autofill_extracted_invoice_date?: string | null
 	/** AI Extracted Amount : Currency */
 	autofill_extracted_amount?: number
 	/** AI Extracted Base Amount : Currency */
@@ -71,17 +71,17 @@ export interface VendorInvoicesDocType {
 	/** AI Extracted GST Amount : Currency */
 	autofill_extracted_gst_amount?: number
 	/** AI Extracted Supplier GSTIN : Data */
-	autofill_extracted_supplier_gstin?: string
+	autofill_extracted_supplier_gstin?: string | null
 	/** AI Extracted Receiver GSTIN : Data */
-	autofill_extracted_receiver_gstin?: string
+	autofill_extracted_receiver_gstin?: string | null
 	/** Autofill Confidence JSON : Long Text */
-	autofill_confidence_json?: string
+	autofill_confidence_json?: string | null
 	/** Autofill All Entities JSON : Long Text */
-	autofill_all_entities_json?: string
+	autofill_all_entities_json?: string | null
 	/** Autofill Line Items JSON : Long Text */
-	autofill_line_items_json?: string
+	autofill_line_items_json?: string | null
 	/** Autofill Line Match JSON : Long Text */
-	autofill_line_match_json?: string
+	autofill_line_match_json?: string | null
 	/** Line Mappings : Table - Vendor Invoice Line */
 	line_mappings?: VendorInvoiceLineDocType[]
 }

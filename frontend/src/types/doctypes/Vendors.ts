@@ -13,25 +13,25 @@ export interface VendorsDocType {
 	/** Vendor Name : Data */
 	vendor_name: string
 	/** Vendor Nickname : Data */
-	vendor_nickname?: string
+	vendor_nickname?: string | null
 	/** Vendor Type : Select */
-	vendor_type?: "Material" | "Service" | "Material & Service"
+	vendor_type?: "Material" | "Service" | "Material & Service" | null
 	/** Vendor Address : Link - Address */
-	vendor_address?: string
+	vendor_address?: string | null
 	/** Vendor City : Data */
-	vendor_city?: string
+	vendor_city?: string | null
 	/** Vendor State : Data */
-	vendor_state?: string
+	vendor_state?: string | null
 	/** Vendor Contact Person Name : Data */
-	vendor_contact_person_name?: string
+	vendor_contact_person_name?: string | null
 	/** Vendor Mobile : Data */
-	vendor_mobile?: string
+	vendor_mobile?: string | null
 	/** Vendor Alternate Mobile : Data */
-	vendor_alt_mobile?: string
+	vendor_alt_mobile?: string | null
 	/** Vendor Email : Data */
-	vendor_email?: string
+	vendor_email?: string | null
 	/** Vendor Status : Select */
-	vendor_status?: "Active" | "On-Hold"
+	vendor_status?: "Active" | "On-Hold" | null
 	/** GST Hold : Check */
 	gst_hold?: 0 | 1
 	/** Credit Limit : Currency */
@@ -43,13 +43,13 @@ export interface VendorsDocType {
 	/** Credit Ledger : Table - Vendor Credit Ledger */
 	credit_ledger?: VendorCreditLedgerDocType[]
 	/** Vendor GST : Data */
-	vendor_gst?: string
+	vendor_gst?: string | null
 	/** Vendor PAN : Data */
-	vendor_pan?: string
+	vendor_pan?: string | null
 	/** TDS Deduction Percentage : Percent */
 	tds_deduction_percentage?: number
 	/** Vendor Category : JSON */
-	vendor_category?: unknown
+	vendor_category?: unknown | null
 	/** Po Amount Balance : Currency */
 	po_amount_balance?: number
 	/** Payment Balance : Currency */
@@ -59,5 +59,5 @@ export interface VendorsDocType {
 	/** Sr Amount Balance : Currency */
 	sr_amount_balance?: number
 	/** Payee : Link - Payee */
-	payee?: string
+	payee?: string | null
 }

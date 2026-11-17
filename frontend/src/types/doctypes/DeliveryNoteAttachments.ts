@@ -9,9 +9,9 @@ export interface DeliveryNoteAttachmentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Delivery Note : Link - Procurement Orders */
-	delivery_note?: string
+	delivery_note?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Image : Attach Image */
-	image?: string
+	image?: string | null
 }

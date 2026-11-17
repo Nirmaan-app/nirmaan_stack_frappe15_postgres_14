@@ -11,15 +11,15 @@ export interface InternalTransferMemoDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Source Type : Select */
-	source_type?: "Project" | "Warehouse"
+	source_type?: "Project" | "Warehouse" | null
 	/** Source Project : Data */
-	source_project?: string
+	source_project?: string | null
 	/** Target Type : Select */
-	target_type?: "Project" | "Warehouse"
+	target_type?: "Project" | "Warehouse" | null
 	/** Target Project : Link - Projects */
-	target_project?: string
+	target_project?: string | null
 	/** Source RIR : Link - Remaining Items Report */
-	source_rir?: string
+	source_rir?: string | null
 	/** Status : Select */
 	status: "Approved" | "Dispatched" | "Partially Delivered" | "Delivered"
 	/** Estimated Value : Currency */
@@ -29,17 +29,17 @@ export interface InternalTransferMemoDocType {
 	/** Total Quantity : Float */
 	total_quantity?: number
 	/** Requested By : Link - User */
-	requested_by?: string
+	requested_by?: string | null
 	/** Approved By : Link - User */
-	approved_by?: string
+	approved_by?: string | null
 	/** Approved On : Datetime */
-	approved_on?: string
+	approved_on?: string | null
 	/** Dispatched By : Link - User */
-	dispatched_by?: string
+	dispatched_by?: string | null
 	/** Dispatched On : Datetime */
-	dispatched_on?: string
+	dispatched_on?: string | null
 	/** Latest Delivery Date : Date */
-	latest_delivery_date?: string
+	latest_delivery_date?: string | null
 	/** Items : Table - Internal Transfer Memo Item */
 	items: InternalTransferMemoItemDocType[]
 }

@@ -11,23 +11,23 @@ export interface NirmaanUsersDocType {
 	/** First Name : Data */
 	first_name: string
 	/** Last name : Data */
-	last_name?: string
+	last_name?: string | null
 	/** Full name : Data */
-	full_name?: string
+	full_name?: string | null
 	/** Email : Data */
 	email: string
 	/** Nirmaan Role Name : Data */
-	role_profile?: string
+	role_profile?: string | null
 	/** Mobile : Data */
-	mobile_no?: string
+	mobile_no?: string | null
 	/** Has Project : Data */
-	has_project?: string
+	has_project?: string | null
 	/** FCM Token : Long Text */
-	fcm_token?: string
+	fcm_token?: string | null
 	/** Push Notification : Data */
-	push_notification?: string
+	push_notification?: string | null
 	/** Department : Link - Nirmaan Department */
-	department?: string
+	department?: string | null
 	/** Bank Account : Link - Payee */
-	payee?: string
+	payee?: string | null
 }

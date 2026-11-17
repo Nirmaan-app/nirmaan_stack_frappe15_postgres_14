@@ -17,43 +17,43 @@ export interface ExpenseBillDocType {
 	/** Bill File : Small Text */
 	bill_file: string
 	/** Uploaded By : Data */
-	uploaded_by?: string
+	uploaded_by?: string | null
 	/** Invoice No : Data */
-	invoice_no?: string
+	invoice_no?: string | null
 	/** Invoice Date : Date */
-	invoice_date?: string
+	invoice_date?: string | null
 	/** Invoice Amount : Currency */
 	invoice_amount?: number
 	/** Bill Check : Select */
-	bill_check?: "Checking" | "Matched" | "Mismatched" | "Not read" | "Not checked"
+	bill_check?: "Checking" | "Matched" | "Mismatched" | "Not read" | "Not checked" | null
 	/** Bill Check Reason : Small Text */
-	bill_check_reason?: string
+	bill_check_reason?: string | null
 	/** Reading Claimed At : Datetime */
-	read_claimed_at?: string
+	read_claimed_at?: string | null
 	/** Statement Line : Link - Outflow Import Row */
-	statement_line?: string
+	statement_line?: string | null
 	/** Line Amount : Currency */
 	line_amount?: number
 	/** Read Total : Currency */
 	read_total?: number
 	/** Read Invoice No : Data */
-	read_invoice_no?: string
+	read_invoice_no?: string | null
 	/** Read Invoice Date : Date */
-	read_invoice_date?: string
+	read_invoice_date?: string | null
 	/** Reader Output : JSON */
-	reader_output?: unknown
+	reader_output?: unknown | null
 	/** Status : Select */
-	status?: "Pending" | "Approved" | "Rejected"
+	status?: "Pending" | "Approved" | "Rejected" | null
 	/** Auto Approved : Check */
 	auto_approved?: 0 | 1
 	/** Approved By : Data */
-	approved_by?: string
+	approved_by?: string | null
 	/** Approved On : Datetime */
-	approved_on?: string
+	approved_on?: string | null
 	/** Rejection Reason : Small Text */
-	rejection_reason?: string
+	rejection_reason?: string | null
 	/** Rejected By : Data */
-	rejected_by?: string
+	rejected_by?: string | null
 	/** Rejected On : Datetime */
-	rejected_on?: string
+	rejected_on?: string | null
 }

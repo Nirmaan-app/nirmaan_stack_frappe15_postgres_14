@@ -13,13 +13,13 @@ export interface ProjectProgressReportsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Report Date : Date */
-	report_date?: string
+	report_date?: string | null
 	/** Manpower Remarks : Text */
-	manpower_remarks?: string
+	manpower_remarks?: string | null
 	/** Attachment Remarks : Data */
-	attachment_remarks?: string
+	attachment_remarks?: string | null
 	/** Milestones : Table - Project Progress Report Work Milestones */
 	milestones?: ProjectProgressReportWorkMilestonesDocType[]
 	/** Manpower : Table - Project Progress Report Manpower Details */
@@ -27,17 +27,17 @@ export interface ProjectProgressReportsDocType {
 	/** Attachments : Table - Project Progress Report Attachments */
 	attachments?: ProjectProgressReportAttachmentsDocType[]
 	/** Report Status : Data */
-	report_status?: string
+	report_status?: string | null
 	/** Draft Owner : Data */
-	draft_owner?: string
+	draft_owner?: string | null
 	/** Draft Last Updated : Datetime */
-	draft_last_updated?: string
+	draft_last_updated?: string | null
 	/** Report Zone : Data */
-	report_zone?: string
+	report_zone?: string | null
 	/** Drawing Remarks : Text */
-	drawing_remarks?: string
+	drawing_remarks?: string | null
 	/** Site Remarks : Text */
-	site_remarks?: string
+	site_remarks?: string | null
 	/** Declaration User Not At Site : Check */
 	declaration_user_not_at_site?: 0 | 1
 }

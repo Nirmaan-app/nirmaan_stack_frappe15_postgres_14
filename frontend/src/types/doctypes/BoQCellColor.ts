@@ -19,7 +19,7 @@ export interface BoQCellColorDocType {
 	/** Committed Version : Int */
 	committed_version: number
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Color : Select */
 	color: "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "grey"
 	/** Color Version : Int */
@@ -27,11 +27,11 @@ export interface BoQCellColorDocType {
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Colored At : Datetime */
-	colored_at?: string
+	colored_at?: string | null
 	/** Carried From BoQ : Link - BOQs */
-	carried_from_boq?: string
+	carried_from_boq?: string | null
 	/** Carried From Version : Int */
 	carried_from_version?: number
 	/** Carried At : Datetime */
-	carried_at?: string
+	carried_at?: string | null
 }

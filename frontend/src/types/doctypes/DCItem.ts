@@ -18,9 +18,9 @@ export interface DCItemDocType {
 	/** Unit : Data */
 	unit: string
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Quantity : Float */
 	quantity: number
 	/** Make : Data */
-	make?: string
+	make?: string | null
 }

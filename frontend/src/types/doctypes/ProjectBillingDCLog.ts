@@ -16,5 +16,5 @@ export interface ProjectBillingDCLogDocType {
 	/** Amount : Currency */
 	amount?: number
 	/** Entered By : Link - User */
-	entered_by?: string
+	entered_by?: string | null
 }

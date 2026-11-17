@@ -12,7 +12,7 @@ export interface ProjectWorkHeadersDocType {
 	parentfield: string
 	parenttype: string
 	/** Project Work Header Name : Link - Work Headers */
-	project_work_header_name?: string
+	project_work_header_name?: string | null
 	/** Enabled : Data */
-	enabled?: string
+	enabled?: string | null
 }

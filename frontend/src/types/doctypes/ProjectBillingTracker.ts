@@ -22,9 +22,9 @@ export interface ProjectBillingTrackerDocType {
 	/** Supply DC Till Date : Currency */
 	supply_dc?: number
 	/** Supply DC Updated On : Date */
-	dc_updated_on?: string
+	dc_updated_on?: string | null
 	/** DC Log : Table - Project Billing DC Log */
 	dc_log?: ProjectBillingDCLogDocType[]
 	/** Remarks : Small Text */
-	remarks?: string
+	remarks?: string | null
 }

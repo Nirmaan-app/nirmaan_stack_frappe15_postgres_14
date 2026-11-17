@@ -12,29 +12,29 @@ export interface SelectedQuotationsDocType {
 	parentfield: string
 	parenttype: string
 	/** Item ID : Data */
-	item_id?: string
+	item_id?: string | null
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Vendor Name : Data */
-	vendor_name?: string
+	vendor_name?: string | null
 	/** Procurement Order : Data */
-	procurement_order?: string
+	procurement_order?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Quantity : Data */
-	quantity?: string
+	quantity?: string | null
 	/** Quote : Data */
-	quote?: string
+	quote?: string | null
 	/** City : Data */
-	city?: string
+	city?: string | null
 	/** State : Data */
-	state?: string
+	state?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Procurement Package : Data */
-	procurement_package?: string
+	procurement_package?: string | null
 	/** Make : Data */
-	make?: string
+	make?: string | null
 	/** Dispatch Date : Date */
-	dispatch_date?: string
+	dispatch_date?: string | null
 }

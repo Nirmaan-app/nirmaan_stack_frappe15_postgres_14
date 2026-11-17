@@ -9,35 +9,35 @@ export interface ProjectInvoicesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Customer : Link - Customers */
-	customer?: string
+	customer?: string | null
 	/** Invoice no : Data */
-	invoice_no?: string
+	invoice_no?: string | null
 	/** Invoice Date : Date */
-	invoice_date?: string
+	invoice_date?: string | null
 	/** Amount (Excl. GST) : Currency */
 	amount_excl_gst?: number
 	/** Amount (Incl. GST) : Currency */
 	amount?: number
 	/** Attachment : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Project GST : Link - Project GST */
-	project_gst?: string
+	project_gst?: string | null
 	/** Autofill Used : Check */
 	autofill_used?: 0 | 1
 	/** Autofill Processor ID : Data */
-	autofill_processor_id?: string
+	autofill_processor_id?: string | null
 	/** AI Extracted Invoice No : Data */
-	autofill_extracted_invoice_no?: string
+	autofill_extracted_invoice_no?: string | null
 	/** AI Extracted Invoice Date : Date */
-	autofill_extracted_invoice_date?: string
+	autofill_extracted_invoice_date?: string | null
 	/** AI Extracted Amount (Incl. GST) : Currency */
 	autofill_extracted_amount?: number
 	/** AI Extracted Amount (Excl. GST) : Currency */
 	autofill_extracted_net_amount?: number
 	/** Autofill Confidence JSON : Long Text */
-	autofill_confidence_json?: string
+	autofill_confidence_json?: string | null
 	/** Autofill All Entities JSON : Long Text */
-	autofill_all_entities_json?: string
+	autofill_all_entities_json?: string | null
 }

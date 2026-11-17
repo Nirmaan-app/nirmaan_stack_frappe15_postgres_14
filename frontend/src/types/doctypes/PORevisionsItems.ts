@@ -12,15 +12,15 @@ export interface PORevisionsItemsDocType {
 	parentfield: string
 	parenttype: string
 	/** Revision Item ID : Data */
-	revision_item_id?: string
+	revision_item_id?: string | null
 	/** Revision Item Name : Long Text */
-	revision_item_name?: string
+	revision_item_name?: string | null
 	/** Revision Make : Data */
-	revision_make?: string
+	revision_make?: string | null
 	/** Revision Qty : Float */
 	revision_qty?: number
 	/** Revision Unit : Data */
-	revision_unit?: string
+	revision_unit?: string | null
 	/** Revision Rate : Currency */
 	revision_rate?: number
 	/** Revision Tax : Currency */
@@ -28,15 +28,15 @@ export interface PORevisionsItemsDocType {
 	/** Revision Amount : Currency */
 	revision_amount?: number
 	/** Original Item ID : Data */
-	original_item_id?: string
+	original_item_id?: string | null
 	/** Original Item Name : Long Text */
-	original_item_name?: string
+	original_item_name?: string | null
 	/** Original Make : Data */
-	original_make?: string
+	original_make?: string | null
 	/** Original Qty : Float */
 	original_qty?: number
 	/** Original Unit : Data */
-	original_unit?: string
+	original_unit?: string | null
 	/** Original Rate : Currency */
 	original_rate?: number
 	/** Original Tax : Currency */
@@ -44,21 +44,21 @@ export interface PORevisionsItemsDocType {
 	/** Original Amount : Currency */
 	original_amount?: number
 	/** Original Row ID : Data */
-	original_row_id?: string
+	original_row_id?: string | null
 	/** Item Type : Data */
-	item_type?: string
+	item_type?: string | null
 	/** Item Status : Data */
-	item_status?: string
+	item_status?: string | null
 	/** Revision Category : Data */
-	revision_category?: string
+	revision_category?: string | null
 	/** Revision Procurement Package : Data */
-	revision_procurement_package?: string
+	revision_procurement_package?: string | null
 	/** Original Category : Data */
-	original_category?: string
+	original_category?: string | null
 	/** Original Procurement Package : Data */
-	original_procurement_package?: string
+	original_procurement_package?: string | null
 	/** Revision Comment : Small Text */
-	revision_comment?: string
+	revision_comment?: string | null
 	/** Original Comment : Small Text */
-	original_comment?: string
+	original_comment?: string | null
 }

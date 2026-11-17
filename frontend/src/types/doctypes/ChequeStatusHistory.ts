@@ -12,7 +12,7 @@ export interface ChequeStatusHistoryDocType {
 	parentfield: string
 	parenttype: string
 	/** From Status : Data */
-	from_status?: string
+	from_status?: string | null
 	/** To Status : Data */
 	to_status: string
 	/** Changed By : Link - User */
@@ -20,5 +20,5 @@ export interface ChequeStatusHistoryDocType {
 	/** Changed At : Datetime */
 	changed_at: string
 	/** Note : Small Text */
-	note?: string
+	note?: string | null
 }

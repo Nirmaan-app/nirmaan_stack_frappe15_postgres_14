@@ -9,17 +9,17 @@ export interface ProjectInflowsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Customer : Link - Customers */
-	customer?: string
+	customer?: string | null
 	/** Invoice : Link - Project Invoices */
-	invoice?: string
+	invoice?: string | null
 	/** UTR : Text */
-	utr?: string
+	utr?: string | null
 	/** Inflow Attachment : Attach */
-	inflow_attachment?: string
+	inflow_attachment?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Payment Date : Date */
-	payment_date?: string
+	payment_date?: string | null
 }

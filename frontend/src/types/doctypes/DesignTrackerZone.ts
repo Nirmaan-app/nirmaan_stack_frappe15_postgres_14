@@ -12,5 +12,5 @@ export interface DesignTrackerZoneDocType {
 	parentfield: string
 	parenttype: string
 	/** Tracker Zone : Data */
-	tracker_zone?: string
+	tracker_zone?: string | null
 }

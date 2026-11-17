@@ -14,9 +14,9 @@ export interface ChequesDocType {
 	/** Bank : Select */
 	bank: "ICICI Bank" | "Others"
 	/** Bank Name : Data */
-	bank_name?: string
+	bank_name?: string | null
 	/** Bank Key : Data */
-	bank_key?: string
+	bank_key?: string | null
 	/** Cheque No : Data */
 	cheque_no: string
 	/** Cheque/Payment Date : Date */
@@ -24,17 +24,17 @@ export interface ChequesDocType {
 	/** Cheque Amount : Currency */
 	amount: number
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Payee Name : Data */
-	payee_name?: string
+	payee_name?: string | null
 	/** Status : Select */
 	status: "Approval Pending" | "Issued" | "Cleared" | "Cancelled"
 	/** Made From : Select */
 	made_from: "Report" | "PO/WO Page"
 	/** Cheque Photo : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Lines : Table - Cheque Line */
 	lines?: ChequeLineDocType[]
 	/** Status History : Table - Cheque Status History */
@@ -42,15 +42,15 @@ export interface ChequesDocType {
 	/** Cheque Type : Select */
 	cheque_type: "Payment" | "Security Deposit"
 	/** Issue Date : Date */
-	issue_date?: string
+	issue_date?: string | null
 	/** Cleared By : Select */
-	cleared_by?: "" | "By hand" | "Bank import"
+	cleared_by?: "" | "By hand" | "Bank import" | null
 	/** Bank Line : Link - Outflow Import Row */
-	bank_line?: string
+	bank_line?: string | null
 	/** Old Type : Check */
 	old_type?: 0 | 1
 	/** Credit Payment Cheque : Check */
 	credit_payment_cheque?: 0 | 1
 	/** Clearance Date (old) : Date */
-	clearance_date?: string
+	clearance_date?: string | null
 }

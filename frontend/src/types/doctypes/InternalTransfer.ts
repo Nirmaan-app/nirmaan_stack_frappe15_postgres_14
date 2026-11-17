@@ -9,29 +9,29 @@ export interface InternalTransferDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Date : Date */
-	transfer_date?: string
+	transfer_date?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Direction : Select */
-	direction?: "Out" | "In"
+	direction?: "Out" | "In" | null
 	/** From : Select */
-	from_place?: "ICICI Current Account" | "ICICI Bank Ledger" | "Cashfree Wallet" | "Cashbook Virtual Account" | "Cashbook Employee Wallet" | "Porter Wallet" | "ICICI Credit Card"
+	from_place?: "ICICI Current Account" | "ICICI Bank Ledger" | "Cashfree Wallet" | "Cashbook Virtual Account" | "Cashbook Employee Wallet" | "Porter Wallet" | "ICICI Credit Card" | null
 	/** To : Select */
-	to_place?: "ICICI Current Account" | "ICICI Bank Ledger" | "Cashfree Wallet" | "Cashbook Virtual Account" | "Cashbook Employee Wallet" | "Porter Wallet" | "ICICI Credit Card"
+	to_place?: "ICICI Current Account" | "ICICI Bank Ledger" | "Cashfree Wallet" | "Cashbook Virtual Account" | "Cashbook Employee Wallet" | "Porter Wallet" | "ICICI Credit Card" | null
 	/** Detail : Data */
-	detail?: string
+	detail?: string | null
 	/** Source : Data */
-	source?: string
+	source?: string | null
 	/** Import Line : Link - Outflow Import Row */
 	import_row: string
 	/** Reference : Text */
-	reference?: string
+	reference?: string | null
 	/** Made By : Data */
-	made_by?: string
+	made_by?: string | null
 	/** Marked By : Data */
-	marked_by?: string
+	marked_by?: string | null
 	/** Marked At : Datetime */
-	marked_at?: string
+	marked_at?: string | null
 	/** Reason : Small Text */
-	mark_reason?: string
+	mark_reason?: string | null
 }

@@ -17,9 +17,9 @@ export interface BoQRowBCSRateDocType {
 	/** Committed Version : Int */
 	committed_version: number
 	/** Node : Link - BOQ Nodes */
-	node?: string
+	node?: string | null
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Supply Rate : Currency */
 	supply_rate?: number
 	/** Installation Rate : Currency */
@@ -29,17 +29,17 @@ export interface BoQRowBCSRateDocType {
 	/** Is Filled : Check */
 	is_filled?: 0 | 1
 	/** Rate Source : Select */
-	rate_source?: "Manual" | "Rate Master"
+	rate_source?: "Manual" | "Rate Master" | null
 	/** BCS Version : Int */
 	bcs_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** BCS Rated At : Datetime */
-	bcs_rated_at?: string
+	bcs_rated_at?: string | null
 	/** Carried From BoQ : Link - BOQs */
-	carried_from_boq?: string
+	carried_from_boq?: string | null
 	/** Carried From Version : Int */
 	carried_from_version?: number
 	/** Carried At : Datetime */
-	carried_at?: string
+	carried_at?: string | null
 }

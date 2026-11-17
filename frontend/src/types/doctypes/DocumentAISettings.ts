@@ -11,25 +11,25 @@ export interface DocumentAISettingsDocType {
 	/** Enable Document Extraction : Check */
 	enabled?: 0 | 1
 	/** Provider : Select */
-	provider?: "Gemini"
+	provider?: "Gemini" | null
 	/** Gemini Model : Data */
-	gemini_model?: string
+	gemini_model?: string | null
 	/** Thinking Level : Select */
-	gemini_thinking_level?: "low" | "high"
+	gemini_thinking_level?: "low" | "high" | null
 	/** Media Resolution : Select */
-	gemini_media_resolution?: "low" | "medium" | "high"
+	gemini_media_resolution?: "low" | "medium" | "high" | null
 	/** Request Timeout (Seconds) : Int */
 	request_timeout_seconds?: number
 	/** Auth Mode : Select */
-	gemini_auth_mode?: "Vertex AI" | "API Key"
+	gemini_auth_mode?: "Vertex AI" | "API Key" | null
 	/** GCP Project ID : Data */
-	gcp_project_id?: string
+	gcp_project_id?: string | null
 	/** GCP Location : Data */
-	gcp_location?: string
+	gcp_location?: string | null
 	/** Gemini API Key : Password */
-	gemini_api_key?: string
+	gemini_api_key?: string | null
 	/** Enable BoQ Review AI Classifier : Check */
 	boq_ai_enabled?: 0 | 1
 	/** BoQ Gemini Model (optional override) : Data */
-	boq_gemini_model?: string
+	boq_gemini_model?: string | null
 }

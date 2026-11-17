@@ -9,31 +9,31 @@ export interface ProjectPaymentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Document Type : Link - DocType */
-	document_type?: string
+	document_type?: string | null
 	/** Document Name : Dynamic Link */
-	document_name?: string
+	document_name?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** UTR : Text */
-	utr?: string
+	utr?: string | null
 	/** Payment Attachment : Attach */
-	payment_attachment?: string
+	payment_attachment?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Mode of Payment : Select */
-	mode_of_payment?: "Online" | "Cheque"
+	mode_of_payment?: "Online" | "Cheque" | null
 	/** Cheque No : Data */
-	cheque_no?: string
+	cheque_no?: string | null
 	/** Cheque Date : Date */
-	cheque_date?: string
+	cheque_date?: string | null
 	/** TDS : Data */
-	tds?: string
+	tds?: string | null
 	/** Payment Date : Date */
-	payment_date?: string
+	payment_date?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** GST Payment : Check */
 	is_gst_payment?: 0 | 1
 	/** On Hold : Check */
@@ -41,25 +41,25 @@ export interface ProjectPaymentsDocType {
 	/** Auto Approved : Check */
 	auto_approved?: 0 | 1
 	/** Voucher Attachment : Attach */
-	voucher_attachment?: string
+	voucher_attachment?: string | null
 	/** Acc Approval Date : Date */
-	approval_date?: string
+	approval_date?: string | null
 	/** CEO Approval Date : Date */
-	ceo_approval_date?: string
+	ceo_approval_date?: string | null
 	/** Split From : Link - Project Payments */
-	split_from?: string
+	split_from?: string | null
 	/** Payment TDS : Link - Payment TDS Deduction */
-	payment_tds?: string
+	payment_tds?: string | null
 	/** Cheque : Link - Cheques */
-	cheque?: string
+	cheque?: string | null
 	/** Pay-to Holder Name : Data */
-	pay_to_account_name?: string
+	pay_to_account_name?: string | null
 	/** Pay-to Account Number : Data */
-	pay_to_account_number?: string
+	pay_to_account_number?: string | null
 	/** Pay-to IFSC : Data */
-	pay_to_ifsc?: string
+	pay_to_ifsc?: string | null
 	/** Pay-to Bank : Data */
-	pay_to_bank_name?: string
+	pay_to_bank_name?: string | null
 	/** Pay-to Branch : Data */
-	pay_to_bank_branch?: string
+	pay_to_bank_branch?: string | null
 }

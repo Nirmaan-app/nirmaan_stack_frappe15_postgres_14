@@ -13,55 +13,55 @@ export interface ProcurementOrdersDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Attachment : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Procurement Request : Link - Procurement Requests */
-	procurement_request?: string
+	procurement_request?: string | null
 	/** Category : Link - Category */
-	category?: string
+	category?: string | null
 	/** Project Name : Data */
-	project_name?: string
+	project_name?: string | null
 	/** Project Address : Data */
-	project_address?: string
+	project_address?: string | null
 	/** Vendor Name : Data */
-	vendor_name?: string
+	vendor_name?: string | null
 	/** Vendor Address : Data */
-	vendor_address?: string
+	vendor_address?: string | null
 	/** Vendor GST : Data */
-	vendor_gst?: string
+	vendor_gst?: string | null
 	/** Order List : JSON */
-	order_list?: unknown
+	order_list?: unknown | null
 	/** Advance : Data */
-	advance?: string
+	advance?: string | null
 	/** Loading Charges : Data */
-	loading_charges?: string
+	loading_charges?: string | null
 	/** Freight Charges : Data */
-	freight_charges?: string
+	freight_charges?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Billing Status : Select */
-	billing_status?: "" | "Billable" | "Non-Billable"
+	billing_status?: "" | "Billable" | "Non-Billable" | null
 	/** Category List : JSON */
-	category_list?: unknown
+	category_list?: unknown | null
 	/** Notes : Text */
-	notes?: string
+	notes?: string | null
 	/** Delivery Contact : Data */
-	delivery_contact?: string
+	delivery_contact?: string | null
 	/** Merged : Data */
-	merged?: string
+	merged?: string | null
 	/** Project GST : Data */
-	project_gst?: string
+	project_gst?: string | null
 	/** Custom : Data */
-	custom?: string
+	custom?: string | null
 	/** Delivery Data : JSON */
-	delivery_data?: unknown
+	delivery_data?: unknown | null
 	/** Dispatch Date : Datetime */
-	dispatch_date?: string
+	dispatch_date?: string | null
 	/** Expected Delivery Date : Date */
-	expected_delivery_date?: string
+	expected_delivery_date?: string | null
 	/** Items : Table - Purchase Order Item */
 	items?: PurchaseOrderItemDocType[]
 	/** Amount : Currency */
@@ -73,17 +73,17 @@ export interface ProcurementOrdersDocType {
 	/** Payment Terms : Table - PO Payment Terms */
 	payment_terms?: POPaymentTermsDocType[]
 	/** Note Points : JSON */
-	note_points?: unknown
+	note_points?: unknown | null
 	/** Latest Delivery Date : Datetime */
-	latest_delivery_date?: string
+	latest_delivery_date?: string | null
 	/** Latest Payment Date : Datetime */
-	latest_payment_date?: string
+	latest_payment_date?: string | null
 	/** PO Amount Delivered : Currency */
 	po_amount_delivered?: number
 	/** Amount Paid : Currency */
 	amount_paid?: number
 	/** Payment Type : Data */
-	payment_type?: string
+	payment_type?: string | null
 	/** Amount Invoiced (Approved) : Currency */
 	amount_invoiced?: number
 	/** Amount Due : Currency */

@@ -12,31 +12,31 @@ export interface CommissionReportTaskChildTableDocType {
 	parentfield: string
 	parenttype: string
 	/** Commission Category : Data */
-	commission_category?: string
+	commission_category?: string | null
 	/** Task Name : Data */
-	task_name?: string
+	task_name?: string | null
 	/** Deadline : Date */
-	deadline?: string
+	deadline?: string | null
 	/** Report Type : Select */
-	report_type?: "Field" | "Vendor"
+	report_type?: "Field" | "Vendor" | null
 	/** Task Status : Data */
-	task_status?: string
+	task_status?: string | null
 	/** File Link : Small Text */
-	file_link?: string
+	file_link?: string | null
 	/** Approval Proof : Attach */
-	approval_proof?: string
+	approval_proof?: string | null
 	/** Comments : Long Text */
-	comments?: string
+	comments?: string | null
 	/** Response Data (JSON) : Long Text */
-	response_data?: string
+	response_data?: string | null
 	/** Response Snapshot : Link - Commission Report Template Snapshot */
-	response_snapshot_id?: string
+	response_snapshot_id?: string | null
 	/** Response Filled At : Datetime */
-	response_filled_at?: string
+	response_filled_at?: string | null
 	/** Response Filled By : Link - User */
-	response_filled_by?: string
+	response_filled_by?: string | null
 	/** Task Phase : Data */
-	task_phase?: string
+	task_phase?: string | null
 	/** Last Submitted : Date */
-	last_submitted?: string
+	last_submitted?: string | null
 }

@@ -13,9 +13,9 @@ export interface PricingWorkbookVersionDocType {
 	/** Version : Int */
 	version?: number
 	/** Workbook JSON : JSON */
-	workbook_json?: unknown
+	workbook_json?: unknown | null
 	/** Saved By : Link - User */
-	saved_by?: string
+	saved_by?: string | null
 	/** Saved At : Datetime */
-	saved_at?: string
+	saved_at?: string | null
 }

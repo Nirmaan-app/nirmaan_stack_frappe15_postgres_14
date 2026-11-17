@@ -15,11 +15,11 @@ export interface PayeeDocType {
 	/** IFSC : Data */
 	ifsc: string
 	/** Bank : Data */
-	bank_name?: string
+	bank_name?: string | null
 	/** Branch : Data */
-	bank_branch?: string
+	bank_branch?: string | null
 	/** Normalized Account : Data */
-	normalized_account?: string
+	normalized_account?: string | null
 	/** Payee Type : Select */
-	payee_type?: "Users" | "Vendors" | "Others"
+	payee_type?: "Users" | "Vendors" | "Others" | null
 }

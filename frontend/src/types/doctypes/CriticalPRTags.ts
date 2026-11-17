@@ -9,13 +9,13 @@ export interface CriticalPRTagsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** ProjectName : Data */
-	projectname?: string
+	projectname?: string | null
 	/** Header : Data */
-	header?: string
+	header?: string | null
 	/** Package : Data */
-	package?: string
+	package?: string | null
 	/** Associated PRs : JSON */
-	associated_prs?: unknown
+	associated_prs?: unknown | null
 }

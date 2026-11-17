@@ -9,15 +9,15 @@ export interface PaymentTDSDeductionDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project Payment : Link - Project Payments */
-	project_payment?: string
+	project_payment?: string | null
 	/** Document Type : Link - DocType */
-	document_type?: string
+	document_type?: string | null
 	/** Document Name : Dynamic Link */
-	document_name?: string
+	document_name?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Gross Amount : Currency */
 	gross_amount: number
 	/** TDS Percentage : Percent */
@@ -25,23 +25,23 @@ export interface PaymentTDSDeductionDocType {
 	/** TDS Amount : Currency */
 	tds_amount: number
 	/** Status : Select */
-	status?: "Pending" | "Paid"
+	status?: "Pending" | "Paid" | null
 	/** TDS Challan : Link - TDS Challan Attachment */
-	tds_challan?: string
+	tds_challan?: string | null
 	/** Payment Approved On : Date */
-	payment_approved_on?: string
+	payment_approved_on?: string | null
 	/** Payment Paid On : Date */
-	payment_date?: string
+	payment_date?: string | null
 	/** Deducted On (retired) : Date */
-	deducted_on?: string
+	deducted_on?: string | null
 	/** TDS Borne By : Select */
-	borne_by?: "Vendor" | "Company"
+	borne_by?: "Vendor" | "Company" | null
 	/** Non-Project Expense : Link - Non Project Expenses */
-	non_project_expense?: string
+	non_project_expense?: string | null
 	/** Deductee Name : Data */
-	deductee_name?: string
+	deductee_name?: string | null
 	/** Deductee PAN : Data */
-	deductee_pan?: string
+	deductee_pan?: string | null
 	/** TDS Section : Select */
-	tds_section?: "194C" | "194-I"
+	tds_section?: "194C" | "194-I" | null
 }

@@ -12,21 +12,21 @@ export interface AssetHistoryDocType {
 	parentfield: string
 	parenttype: string
 	/** Event : Select */
-	event?: "Asset Added" | "Assigned" | "Declaration Signed" | "Declaration Uploaded" | "Unassigned" | "Department Set" | "Audit Requested" | "Audit Fulfilled" | "Audit Missed" | "Asset Lost/Damaged" | "Asset Found/Repaired"
+	event?: "Asset Added" | "Assigned" | "Declaration Signed" | "Declaration Uploaded" | "Unassigned" | "Department Set" | "Audit Requested" | "Audit Fulfilled" | "Audit Missed" | "Asset Lost/Damaged" | "Asset Found/Repaired" | null
 	/** Person : Data */
-	assigned_to?: string
+	assigned_to?: string | null
 	/** Done By : Data */
-	done_by?: string
+	done_by?: string | null
 	/** Done On : Datetime */
-	done_on?: string
+	done_on?: string | null
 	/** File : Attach */
-	declaration?: string
+	declaration?: string | null
 	/** From Department : Data */
-	from_department?: string
+	from_department?: string | null
 	/** To Department : Data */
-	to_department?: string
+	to_department?: string | null
 	/** Reason : Small Text */
-	reason?: string
+	reason?: string | null
 	/** Audit Answers : JSON */
-	audit_answers?: unknown
+	audit_answers?: unknown | null
 }

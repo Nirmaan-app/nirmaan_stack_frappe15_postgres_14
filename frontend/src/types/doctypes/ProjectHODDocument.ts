@@ -15,11 +15,11 @@ export interface ProjectHODDocumentDocType {
 	/** Document : Select */
 	document: "escalation_chart" | "demo_training" | "commissioning_report" | "material_tds" | "om_manual" | "dos_donts" | "maintenance_checklist" | "inventory_list" | "recommended_tools" | "attic_stock_list" | "key_list" | "equipment_warranty" | "completion_certificate" | "factory_test_reports" | "snag_list" | "as_built_drawings"
 	/** Status : Select */
-	status?: "Not Started" | "WIP" | "Done"
+	status?: "Not Started" | "WIP" | "Done" | null
 	/** Switched Off : Check */
 	disabled?: 0 | 1
 	/** Remarks : Small Text */
-	remarks?: string
+	remarks?: string | null
 	/** Form Data : JSON */
-	form_data?: unknown
+	form_data?: unknown | null
 }

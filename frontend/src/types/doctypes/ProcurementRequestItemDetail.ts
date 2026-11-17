@@ -12,9 +12,9 @@ export interface ProcurementRequestItemDetailDocType {
 	parentfield: string
 	parenttype: string
 	/** Item ID : Data */
-	item_id?: string
+	item_id?: string | null
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Unit : Data */
 	unit: string
 	/** Quantity : Float */
@@ -22,21 +22,21 @@ export interface ProcurementRequestItemDetailDocType {
 	/** Category : Data */
 	category: string
 	/** Procurement Package : Data */
-	procurement_package?: string
+	procurement_package?: string | null
 	/** Make : Data */
-	make?: string
+	make?: string | null
 	/** Status : Select */
 	status: "Pending" | "Approved" | "Rejected" | "Delayed" | "Deleted" | "Request" | "Sent Back"
 	/** Tax : Float */
 	tax?: number
 	/** Comment : Text */
-	comment?: string
+	comment?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Quote : Currency */
 	quote?: number
 	/** Billing Status : Select */
-	billing_status?: "Billable" | "Non-Billable"
+	billing_status?: "Billable" | "Non-Billable" | null
 	/** Loss Justification : Small Text */
-	loss_justification?: string
+	loss_justification?: string | null
 }

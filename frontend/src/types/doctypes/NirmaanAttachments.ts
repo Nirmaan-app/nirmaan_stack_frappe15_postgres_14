@@ -9,19 +9,19 @@ export interface NirmaanAttachmentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Associated Doctype : Link - DocType */
-	associated_doctype?: string
+	associated_doctype?: string | null
 	/** Associated Docname : Dynamic Link */
-	associated_docname?: string
+	associated_docname?: string | null
 	/** Attachment Link Doctype : Link - DocType */
-	attachment_link_doctype?: string
+	attachment_link_doctype?: string | null
 	/** Attachment Link Docname : Dynamic Link */
-	attachment_link_docname?: string
+	attachment_link_docname?: string | null
 	/** Attachment : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Attachment Type : Data */
-	attachment_type?: string
+	attachment_type?: string | null
 	/** Attachment Ref : Data */
-	attachment_ref?: string
+	attachment_ref?: string | null
 }

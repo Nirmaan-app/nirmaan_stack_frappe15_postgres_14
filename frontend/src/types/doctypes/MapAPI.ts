@@ -9,5 +9,5 @@ export interface MapAPIDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** API Key : Data */
-	api_key?: string
+	api_key?: string | null
 }

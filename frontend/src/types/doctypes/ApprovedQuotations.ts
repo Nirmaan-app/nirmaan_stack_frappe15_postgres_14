@@ -9,29 +9,29 @@ export interface ApprovedQuotationsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Item ID : Link - Items */
-	item_id?: string
+	item_id?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Procurement Order : Data */
-	procurement_order?: string
+	procurement_order?: string | null
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Quantity : Data */
-	quantity?: string
+	quantity?: string | null
 	/** Quote : Data */
-	quote?: string
+	quote?: string | null
 	/** Tax : Data */
-	tax?: string
+	tax?: string | null
 	/** City : Data */
-	city?: string
+	city?: string | null
 	/** State : Data */
-	state?: string
+	state?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Procurement Package : Link - Procurement Packages */
-	procurement_package?: string
+	procurement_package?: string | null
 	/** Make : Data */
-	make?: string
+	make?: string | null
 }

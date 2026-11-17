@@ -9,7 +9,7 @@ export interface PRTagHeadersDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** PR Header : Data */
-	pr_header?: string
+	pr_header?: string | null
 	/** Tag Package : Link - Procurement Packages */
-	tag_package?: string
+	tag_package?: string | null
 }

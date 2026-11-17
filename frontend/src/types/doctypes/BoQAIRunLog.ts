@@ -13,25 +13,25 @@ export interface BoQAIRunLogDocType {
 	/** Sheet : Data */
 	sheet_name: string
 	/** Trigger : Select */
-	trigger?: "auto-after-parse" | "re-parse" | "manual"
+	trigger?: "auto-after-parse" | "re-parse" | "manual" | null
 	/** Status : Select */
-	status?: "Queued" | "Running" | "Done" | "Failed" | "Superseded"
+	status?: "Queued" | "Running" | "Done" | "Failed" | "Superseded" | null
 	/** Cached : Check */
 	cached?: 0 | 1
 	/** Prompt Version : Data */
-	prompt_version?: string
+	prompt_version?: string | null
 	/** Job ID : Data */
-	job_id?: string
+	job_id?: string | null
 	/** Sheet Last Parsed At : Datetime */
-	sheet_last_parsed_at?: string
+	sheet_last_parsed_at?: string | null
 	/** Queued At : Datetime */
-	queued_at?: string
+	queued_at?: string | null
 	/** Started At : Datetime */
-	started_at?: string
+	started_at?: string | null
 	/** Finished At : Datetime */
-	finished_at?: string
+	finished_at?: string | null
 	/** Last Heartbeat : Datetime */
-	last_heartbeat?: string
+	last_heartbeat?: string | null
 	/** Library Seconds : Float */
 	library_seconds?: number
 	/** Look-up Seconds : Float */
@@ -49,13 +49,13 @@ export interface BoQAIRunLogDocType {
 	/** Suggestions : Int */
 	suggestion_count?: number
 	/** Library Status : Select */
-	library_status?: "" | "ok" | "rebuilt" | "no-examples fallback"
+	library_status?: "" | "ok" | "rebuilt" | "no-examples fallback" | null
 	/** Library Memory Peak (MiB) : Float */
 	library_memory_peak_mib?: number
 	/** Failure Category : Select */
-	failure_category?: "" | "job timeout" | "request timeout" | "API error" | "rate limit" | "service overloaded" | "no key / disabled" | "unreadable answer" | "worker stopped or timed out" | "internal error"
+	failure_category?: "" | "job timeout" | "request timeout" | "API error" | "rate limit" | "service overloaded" | "no key / disabled" | "unreadable answer" | "worker stopped or timed out" | "internal error" | null
 	/** Error Log : Link - Error Log */
-	error_log?: string
+	error_log?: string | null
 	/** Failure Message : Small Text */
-	failure_message?: string
+	failure_message?: string | null
 }

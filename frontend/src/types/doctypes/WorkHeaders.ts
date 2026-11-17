@@ -9,9 +9,9 @@ export interface WorkHeadersDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Work Header Name : Data */
-	work_header_name?: string
+	work_header_name?: string | null
 	/** Work Package Link : Link - Work Packages */
-	work_package_link?: string
+	work_package_link?: string | null
 	/** Order : Int */
 	order?: number
 	/** Header Weightage : Float */

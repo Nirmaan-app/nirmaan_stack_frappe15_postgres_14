@@ -9,9 +9,9 @@ export interface ManpowerReportsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Project Name : Data */
-	project_name?: string
+	project_name?: string | null
 	/** Report : JSON */
-	report?: unknown
+	report?: unknown | null
 }

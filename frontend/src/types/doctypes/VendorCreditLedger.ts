@@ -14,9 +14,9 @@ export interface VendorCreditLedgerDocType {
 	/** Entry Type : Data */
 	entry_type: string
 	/** Purchase Order : Data */
-	po_id?: string
+	po_id?: string | null
 	/** Project : Data */
-	project?: string
+	project?: string | null
 	/** Delta Amount : Currency */
 	delta_amount?: number
 	/** Credit Used After : Currency */
@@ -24,9 +24,9 @@ export interface VendorCreditLedgerDocType {
 	/** Available Credit After : Currency */
 	available_credit_after?: number
 	/** Timestamp : Datetime */
-	timestamp?: string
+	timestamp?: string | null
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Triggered By : Data */
-	triggered_by?: string
+	triggered_by?: string | null
 }

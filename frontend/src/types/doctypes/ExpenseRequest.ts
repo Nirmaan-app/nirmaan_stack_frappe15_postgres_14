@@ -13,33 +13,33 @@ export interface ExpenseRequestDocType {
 	/** Type Allows Project : Check */
 	type_allows_project?: 0 | 1
 	/** Project : Link - Projects */
-	projects?: string
+	projects?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Amount : Currency */
 	amount: number
 	/** Comment : Small Text */
-	comment?: string
+	comment?: string | null
 	/** Source Data : Long Text */
-	source_data?: string
+	source_data?: string | null
 	/** Status : Select */
-	status?: "Pending Approval" | "Approved" | "Rejected" | "Paid"
+	status?: "Pending Approval" | "Approved" | "Rejected" | "Paid" | null
 	/** Reviewed By : Link - User */
-	reviewed_by?: string
+	reviewed_by?: string | null
 	/** Reviewed On : Datetime */
-	reviewed_on?: string
+	reviewed_on?: string | null
 	/** Review Comment : Small Text */
-	review_comment?: string
+	review_comment?: string | null
 	/** Pay-to Holder Name : Data */
-	pay_to_account_name?: string
+	pay_to_account_name?: string | null
 	/** Pay-to Account Number : Data */
-	pay_to_account_number?: string
+	pay_to_account_number?: string | null
 	/** Pay-to IFSC : Data */
-	pay_to_ifsc?: string
+	pay_to_ifsc?: string | null
 	/** Pay-to Bank : Data */
-	pay_to_bank_name?: string
+	pay_to_bank_name?: string | null
 	/** Pay-to Branch : Data */
-	pay_to_bank_branch?: string
+	pay_to_bank_branch?: string | null
 	/** Approved on submit (no review) : Check */
 	approved_on_submit?: 0 | 1
 }

@@ -17,17 +17,17 @@ export interface BoQReviewRowDocType {
 	/** Row Index : Int */
 	row_index?: number
 	/** Classification : Data */
-	classification?: string
+	classification?: string | null
 	/** Level : Int */
 	level?: number
 	/** Parent Index : Int */
 	parent_index?: number
 	/** Path : Data */
-	path?: string
+	path?: string | null
 	/** Attached To Index : Int */
 	attached_to_index?: number
 	/** Attached Notes : JSON */
-	attached_notes?: unknown
+	attached_notes?: unknown | null
 	/** Promoted From Line Item : Check */
 	promoted_from_line_item?: 0 | 1
 	/** Preamble Level Override : Int */
@@ -35,25 +35,25 @@ export interface BoQReviewRowDocType {
 	/** Preamble Candidate Score : Int */
 	preamble_candidate_score?: number
 	/** Preamble Candidate Signals : JSON */
-	preamble_candidate_signals?: unknown
+	preamble_candidate_signals?: unknown | null
 	/** Needs Classification Review : Check */
 	needs_classification_review?: 0 | 1
 	/** Review Reason : Data */
-	review_reason?: string
+	review_reason?: string | null
 	/** Sl No Value : Data */
-	sl_no_value?: string
+	sl_no_value?: string | null
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Make / Model : Text */
-	make_model?: string
+	make_model?: string | null
 	/** Rate Only : Check */
 	is_rate_only?: 0 | 1
 	/** Total Qty : Float */
 	qty_total?: number
 	/** Qty by Area : JSON */
-	qty_by_area?: unknown
+	qty_by_area?: unknown | null
 	/** Rate Supply : Float */
 	rate_supply?: number
 	/** Rate Install : Float */
@@ -61,7 +61,7 @@ export interface BoQReviewRowDocType {
 	/** Rate Combined : Float */
 	rate_combined?: number
 	/** Rate by Area : JSON */
-	rate_by_area?: unknown
+	rate_by_area?: unknown | null
 	/** Total Amount : Float */
 	amount_total?: number
 	/** Amount Supply : Float */
@@ -69,85 +69,85 @@ export interface BoQReviewRowDocType {
 	/** Amount Install : Float */
 	amount_install?: number
 	/** Amount by Area : JSON */
-	amount_by_area?: unknown
+	amount_by_area?: unknown | null
 	/** Row Notes : Text */
-	row_notes?: string
+	row_notes?: string | null
 	/** Append Notes Raw : JSON */
-	append_notes_raw?: unknown
+	append_notes_raw?: unknown | null
 	/** Description Parts Raw : JSON */
-	description_parts_raw?: unknown
+	description_parts_raw?: unknown | null
 	/** Classifier Warnings : JSON */
-	classifier_warnings?: unknown
+	classifier_warnings?: unknown | null
 	/** Is Synthetic : Check */
 	is_synthetic?: 0 | 1
 	/** Is Excluded : Check */
 	is_excluded?: 0 | 1
 	/** Human Classification : Data */
-	human_classification?: string
+	human_classification?: string | null
 	/** Human Parent : Int */
 	human_parent?: number
 	/** Human Root Override : Check */
 	human_is_root?: 0 | 1
 	/** Edit Log : JSON */
-	edit_log?: unknown
+	edit_log?: unknown | null
 	/** Edited By : Data */
-	edited_by?: string
+	edited_by?: string | null
 	/** Edited At : Datetime */
-	edited_at?: string
+	edited_at?: string | null
 	/** Remarks : Small Text */
-	remarks?: string
+	remarks?: string | null
 	/** Flags Dismissed : Check */
 	flags_dismissed?: 0 | 1
 	/** Flags Dismissed By : Data */
-	flags_dismissed_by?: string
+	flags_dismissed_by?: string | null
 	/** Flags Dismissed At : Datetime */
-	flags_dismissed_at?: string
+	flags_dismissed_at?: string | null
 	/** AI Suggested Classification : Data */
-	ai_suggested_classification?: string
+	ai_suggested_classification?: string | null
 	/** AI Classification Confidence : Select */
-	ai_classification_confidence?: "" | "High" | "Medium" | "Low"
+	ai_classification_confidence?: "" | "High" | "Medium" | "Low" | null
 	/** AI Suggested Parent Index : Int */
 	ai_suggested_parent?: number
 	/** AI Suggested Root : Check */
 	ai_suggested_is_root?: 0 | 1
 	/** AI Parent Confidence : Select */
-	ai_parent_confidence?: "" | "High" | "Medium" | "Low"
+	ai_parent_confidence?: "" | "High" | "Medium" | "Low" | null
 	/** AI Suggested Level : Int */
 	ai_suggested_level?: number
 	/** AI Explanation : Small Text */
-	ai_explanation?: string
+	ai_explanation?: string | null
 	/** AI Suggestion Status : Select */
-	ai_suggestion_status?: "" | "Pending" | "Accepted" | "Rejected"
+	ai_suggestion_status?: "" | "Pending" | "Accepted" | "Rejected" | null
 	/** AI Accept Snapshot : JSON */
-	ai_accept_snapshot?: unknown
+	ai_accept_snapshot?: unknown | null
 	/** AI Snapshot Owner Row : Int */
 	ai_snapshot_owner?: number
 	/** Gemini Suggested Classification : Data */
-	gemini_suggested_classification?: string
+	gemini_suggested_classification?: string | null
 	/** Gemini Classification Confidence : Select */
-	gemini_classification_confidence?: "" | "High" | "Medium" | "Low"
+	gemini_classification_confidence?: "" | "High" | "Medium" | "Low" | null
 	/** Gemini Suggested Parent Index : Int */
 	gemini_suggested_parent?: number
 	/** Gemini Suggested Root : Check */
 	gemini_suggested_is_root?: 0 | 1
 	/** Gemini Parent Confidence : Select */
-	gemini_parent_confidence?: "" | "High" | "Medium" | "Low"
+	gemini_parent_confidence?: "" | "High" | "Medium" | "Low" | null
 	/** Gemini Suggested Level : Int */
 	gemini_suggested_level?: number
 	/** Gemini Explanation : Small Text */
-	gemini_explanation?: string
+	gemini_explanation?: string | null
 	/** Gemini Suggestion Status : Select */
-	gemini_suggestion_status?: "" | "Pending" | "Accepted" | "Rejected"
+	gemini_suggestion_status?: "" | "Pending" | "Accepted" | "Rejected" | null
 	/** Gemini Accept Snapshot : JSON */
-	gemini_accept_snapshot?: unknown
+	gemini_accept_snapshot?: unknown | null
 	/** Gemini Snapshot Owner Row : Int */
 	gemini_snapshot_owner?: number
 	/** Chosen Source : Select */
-	chosen_source?: "parser" | "claude" | "gemini" | "manual"
+	chosen_source?: "parser" | "claude" | "gemini" | "manual" | null
 	/** Revision Carry Status : Select */
-	revision_carry_status?: "" | "Copied" | "Needs Review" | "Matched" | "New" | "Ambiguous" | "Drifted"
+	revision_carry_status?: "" | "Copied" | "Needs Review" | "Matched" | "New" | "Ambiguous" | "Drifted" | null
 	/** Revision Review Reason : Data */
-	revision_review_reason?: string
+	revision_review_reason?: string | null
 	/** Revision Shift Delta : Int */
 	revision_shift_delta?: number
 	/** Revision Shift Anchor : Int */
@@ -155,15 +155,15 @@ export interface BoQReviewRowDocType {
 	/** Revision Reviewed : Check */
 	revision_reviewed?: 0 | 1
 	/** Revision Reviewed By : Link - User */
-	revision_reviewed_by?: string
+	revision_reviewed_by?: string | null
 	/** Revision Reviewed At : Datetime */
-	revision_reviewed_at?: string
+	revision_reviewed_at?: string | null
 	/** Parser Classification (before a sure AI change) : Data */
-	parser_classification?: string
+	parser_classification?: string | null
 	/** Review Flags Looks OK : Check */
 	ai_flags_ok?: 0 | 1
 	/** Review Flags Looks OK By : Link - User */
-	ai_flags_ok_by?: string
+	ai_flags_ok_by?: string | null
 	/** Review Flags Looks OK At : Datetime */
-	ai_flags_ok_at?: string
+	ai_flags_ok_at?: string | null
 }

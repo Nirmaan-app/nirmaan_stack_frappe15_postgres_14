@@ -11,19 +11,19 @@ export interface PMOProjectTaskDocType {
 	/** Project : Link - Projects */
 	project: string
 	/** Task Master : Link - PMO Task Master */
-	task_master?: string
+	task_master?: string | null
 	/** Task Name : Data */
 	task_name: string
 	/** Category : Data */
 	category: string
 	/** Status : Select */
-	status?: "Not Defined" | "WIP" | "Sent/Submision" | "Approve by client" | "Done" | "Not Done"
+	status?: "Not Defined" | "WIP" | "Sent/Submision" | "Approve by client" | "Done" | "Not Done" | null
 	/** Expected Completion Date : Date */
-	expected_completion_date?: string
+	expected_completion_date?: string | null
 	/** Completion Date : Date */
-	completion_date?: string
+	completion_date?: string | null
 	/** Attachment : Attach */
-	attachment?: string
+	attachment?: string | null
 	/** Assigned To : JSON */
-	assigned_to?: unknown
+	assigned_to?: unknown | null
 }

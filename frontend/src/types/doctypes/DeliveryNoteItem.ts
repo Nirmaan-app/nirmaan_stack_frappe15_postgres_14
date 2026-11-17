@@ -16,13 +16,13 @@ export interface DeliveryNoteItemDocType {
 	/** Item Name : Text */
 	item_name: string
 	/** Make : Data */
-	make?: string
+	make?: string | null
 	/** Unit : Data */
 	unit: string
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Procurement Package : Data */
-	procurement_package?: string
+	procurement_package?: string | null
 	/** Delivered Quantity : Float */
 	delivered_quantity: number
 }

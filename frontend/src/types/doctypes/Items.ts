@@ -11,21 +11,21 @@ export interface ItemsDocType {
 	/** Item Name : Data */
 	item_name: string
 	/** Description : Data */
-	description?: string
+	description?: string | null
 	/** Unit Name : Data */
 	unit_name: string
 	/** Make Name : Data */
-	make_name?: string
+	make_name?: string | null
 	/** Category : Link - Category */
 	category: string
 	/** Linked TDS Item : Link - TDS Items */
-	linked_tds_item?: string
+	linked_tds_item?: string | null
 	/** Image Url : Attach */
-	image_url?: string
+	image_url?: string | null
 	/** Billing Category : Data */
-	billing_category?: string
+	billing_category?: string | null
 	/** Order Category : Data */
-	order_category?: string
+	order_category?: string | null
 	/** Item Status : Data */
-	item_status?: string
+	item_status?: string | null
 }

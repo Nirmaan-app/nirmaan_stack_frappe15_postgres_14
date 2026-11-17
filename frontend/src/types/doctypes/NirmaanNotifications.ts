@@ -9,29 +9,29 @@ export interface NirmaanNotificationsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Title : Data */
-	title?: string
+	title?: string | null
 	/** Description : Data */
-	description?: string
+	description?: string | null
 	/** Document : Link - DocType */
-	document?: string
+	document?: string | null
 	/** DocName : Dynamic Link */
-	docname?: string
+	docname?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Work Package : Data */
-	work_package?: string
+	work_package?: string | null
 	/** Seen : Data */
-	seen?: string
+	seen?: string | null
 	/** Action URL : Data */
-	action_url?: string
+	action_url?: string | null
 	/** type : Select */
-	type?: "info" | "warning" | "alert"
+	type?: "info" | "warning" | "alert" | null
 	/** Event Id : Data */
-	event_id?: string
+	event_id?: string | null
 	/** Sender : Link - Nirmaan Users */
-	sender?: string
+	sender?: string | null
 	/** Recipient : Link - Nirmaan Users */
-	recipient?: string
+	recipient?: string | null
 	/** Recipient Role : Link - Role Profile */
-	recipient_role?: string
+	recipient_role?: string | null
 }
