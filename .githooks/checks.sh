@@ -43,8 +43,16 @@ staged() {
 
 if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
     if [ -f frontend/node_modules/eslint/bin/eslint.js ]; then
-        index_copy=$(mktemp -d "${TMPDIR:-/tmp}/nirmaan-staged-lint.XXXXXX")
+        # No temp folder, no lint: an empty $index_copy would copy the index under /.
+        if ! index_copy=$(mktemp -d "${TMPDIR:-/tmp}/nirmaan-staged-lint.XXXXXX") || [ ! -d "$index_copy" ]; then
+            echo "✘ $hook rejected: no temporary folder could be made under ${TMPDIR:-/tmp} for ESLint's staged copy." >&2
+            exit 1
+        fi
+        # EXIT alone misses a signal under dash (Linux /bin/sh): Ctrl-C mid-lint would leave the folder.
         trap 'rm -rf "$index_copy"' EXIT
+        trap 'rm -rf "$index_copy"; exit 130' INT
+        trap 'rm -rf "$index_copy"; exit 143' TERM
+        trap 'rm -rf "$index_copy"; exit 129' HUP
         git ls-files -z -- frontend/src frontend/eslint.config.js frontend/eslint-suppressions.json \
             'frontend/tsconfig*.json' frontend/package.json | git checkout-index -z --stdin --prefix="$index_copy/"
         ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
