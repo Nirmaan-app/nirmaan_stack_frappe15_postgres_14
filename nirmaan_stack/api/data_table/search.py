@@ -8,7 +8,7 @@ import re
 import traceback
 
 from .constants import (
-    DEFAULT_PAGE_LENGTH, MAX_PAGE_LENGTH, EXPORT_MAX_PAGE_LENGTH, CACHE_EXPIRY,
+    DEFAULT_PAGE_LENGTH, MAX_PAGE_LENGTH, EXPORT_MAX_PAGE_LENGTH,
     JSON_ITEM_SEARCH_DOCTYPE_MAP, CHILD_TABLE_ITEM_SEARCH_MAP,
     LINK_FIELD_MAP, TOKEN_SCORE_OPTED_IN_DOCTYPES
 )
@@ -21,6 +21,7 @@ from .utils import (
 from .aggregations import get_aggregates, get_group_by_results
 from .token_search import rank_parents_by_token_score, tokenize
 from .virtual_fields import fill_virtual_fields, split_virtual_fields
+from nirmaan_stack.services import table_cache
 
 # Size of the relevance-ranked "head" of the result list. The first N parents
 # (taken in modified-desc order, the order the SQL filter returned) get
@@ -98,7 +99,7 @@ def get_list_with_count_enhanced_impl(
     current_search_fields=None,
     is_item_search=False,
     require_pending_items=False,
-    to_cache=False,
+    to_cache=False,  # accepted from older callers, no longer used: pages are kept by services/table_cache
     aggregates_config=None,
     group_by_config=None,
     for_export=False,
@@ -142,6 +143,14 @@ def get_list_with_count_enhanced_impl(
         if "name" not in parsed_select_fields_str_list: parsed_select_fields_str_list.insert(0, "name")
         # A virtual field (`virtual_fields.py`) is no column: read without it, filled in on the page below.
         parsed_select_fields_str_list, asked_virtual_fields = split_virtual_fields(doctype, parsed_select_fields_str_list)
+
+        # Pages are kept in Redis (services/table_cache), shared by users with the same permission condition. Read
+        # the versions of what this page shows, then start a fresh read, so the filters below (a facet filter reads
+        # the database) and the page itself are at least as new as those versions. Exports and large pages are
+        # never kept.
+        cacheable = not for_export_bool and page_length <= table_cache.MAX_ROWS
+        reads = table_cache.read_set(doctype, parsed_select_fields_str_list, asked_virtual_fields)
+        stamp = table_cache.start_fresh(reads) if cacheable else None
         
         raw_base_filters_list = _parse_filters_input(filters, doctype)
         processed_base_filters = _process_filters_for_query(raw_base_filters_list, doctype)
@@ -170,13 +179,11 @@ def get_list_with_count_enhanced_impl(
             else:
                 _formatted_order_by = f"`tab{doctype}`.`modified` desc"
 
-        # --- Caching Key ---
-        cache_key_params = {
+        # --- The question this page answers: everything in the request that changes the reply ---
+        # (the user is not in it: table_cache.permission_group stands for the user's access)
+        question = {
             "v_api": "5.2", # Bumped: ranking + OR-union semantics changed in this PR; invalidates pre-deploy cache entries.
             "doctype": doctype,
-            # Rows are permission-scoped (User Permissions), so two users sending the same request may get
-            # different rows: without the user, one is handed the other's cached page.
-            "user": frappe.session.user,
             "fields": json.dumps(sorted(parsed_select_fields_str_list)),
             "virtual_fields": asked_virtual_fields,
             "filters": json.dumps(processed_base_filters),
@@ -200,121 +207,179 @@ def get_list_with_count_enhanced_impl(
             "group_by_config": group_by_config,
             "custom_params": json.dumps(custom_params, sort_keys=True)
         }
-        cache_key_string = json.dumps(cache_key_params, sort_keys=True, default=str)
-        cache_key = f"dt_target_search_{doctype}_{hashlib.sha1(cache_key_string.encode()).hexdigest()}"
-        
-        if to_cache:
-            cached_result = frappe.cache().get_value(cache_key)
-            if cached_result: return cached_result
 
-        data = []
-        total_records = 0
-        final_matching_parent_names = []
-        final_and_filters = list(processed_base_filters)
-        # When True, the page is fetched with a direct `WHERE <filters> LIMIT/OFFSET` (Frappe-native) and
-        # NO name materialization / no `name IN (...)`. Set only by the standard-search branch below.
-        use_direct_pagination = False
+        def build_page():
+            nonlocal base_name_constraint  # narrowed further by the search branches below
+            data = []
+            total_records = 0
+            final_matching_parent_names = []
+            final_and_filters = list(processed_base_filters)
+            # When True, the page is fetched with a direct `WHERE <filters> LIMIT/OFFSET` (Frappe-native) and
+            # NO name materialization / no `name IN (...)`. Set only by the standard-search branch below.
+            use_direct_pagination = False
 
-        # Strategy selection
-        use_child_table_item_search = (
-            is_item_search_bool and search_term and target_search_field_name and
-            doctype in CHILD_TABLE_ITEM_SEARCH_MAP and target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
-        )
-        use_child_table_pending_filter = (
-            not use_child_table_item_search and require_pending_items_bool and
-            doctype in CHILD_TABLE_ITEM_SEARCH_MAP and
-            (target_search_field_name if target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype] else "order_list")
-            in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
-        )
-        use_json_item_search = (
-            not use_child_table_item_search and not use_child_table_pending_filter and
-            is_item_search_bool and search_term and target_search_field_name and
-            doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP and
-            JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]["json_field"] == target_search_field_name
-        )
-        use_json_pending_filter = (
-            not use_child_table_item_search and not use_child_table_pending_filter and
-            not use_json_item_search and require_pending_items_bool and
-            doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP
-        )
+            # Strategy selection
+            use_child_table_item_search = (
+                is_item_search_bool and search_term and target_search_field_name and
+                doctype in CHILD_TABLE_ITEM_SEARCH_MAP and target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
+            )
+            use_child_table_pending_filter = (
+                not use_child_table_item_search and require_pending_items_bool and
+                doctype in CHILD_TABLE_ITEM_SEARCH_MAP and
+                (target_search_field_name if target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype] else "order_list")
+                in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]
+            )
+            use_json_item_search = (
+                not use_child_table_item_search and not use_child_table_pending_filter and
+                is_item_search_bool and search_term and target_search_field_name and
+                doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP and
+                JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]["json_field"] == target_search_field_name
+            )
+            use_json_pending_filter = (
+                not use_child_table_item_search and not use_child_table_pending_filter and
+                not use_json_item_search and require_pending_items_bool and
+                doctype in JSON_ITEM_SEARCH_DOCTYPE_MAP
+            )
 
-        if use_child_table_item_search:
-            search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][target_search_field_name]
-            parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
-            potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
-            if potential_parent_names:
-                child_doctype_name = search_config["child_doctype"]
-                child_link_field = search_config["link_field_to_parent"]
-                searchable_child_fields = search_config["searchable_child_fields"]
+            if use_child_table_item_search:
+                search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][target_search_field_name]
+                parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+                potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
+                if potential_parent_names:
+                    child_doctype_name = search_config["child_doctype"]
+                    child_link_field = search_config["link_field_to_parent"]
+                    searchable_child_fields = search_config["searchable_child_fields"]
+                    child_status_field = search_config.get("status_field")
+                    search_tokens = tokenize(search_term)
+
+                    # Token search at PARENT level with partial matches allowed.
+                    # A parent qualifies if at least ONE of its child rows matches
+                    # at least ONE token (UNION across tokens). Ranking later sorts
+                    # tighter matches (all tokens covered, ideally in one row) above
+                    # looser ones (only some tokens covered).
+                    candidate_set = set(potential_parent_names)
+                    final_set = candidate_set
+                    if search_tokens and searchable_child_fields:
+                        # SQL-filter token set: drop short tokens (length 1) that
+                        # explode the candidate set without adding specificity.
+                        # Single chars like "6" match "600", "6mm", "6th" etc.
+                        # everywhere and trip the TOKEN_SCORE_MAX_CANDIDATES cap,
+                        # silently disabling ranking.
+                        # If ALL tokens are short, fall back to using them anyway
+                        # (single-char prefix search still works for queries like "L").
+                        # The ranker downstream still sees the full token set for
+                        # scoring — short tokens contribute to position weight.
+                        filter_tokens = [t for t in search_tokens if len(t) >= 1] or search_tokens
+                        # Word-boundary regex match: token must appear at start of
+                        # string OR right after one of our separators. Avoids
+                        # "gi" matching inside "galvanised".
+                        # Expand the OR clause across every (field × token) pair so
+                        # the union of token matches resolves in a single query
+                        # instead of one round-trip per token.
+                        field_token_clauses = []
+                        regex_params = []
+                        for sfield in searchable_child_fields:
+                            for token in filter_tokens:
+                                field_token_clauses.append(f"`tab{child_doctype_name}`.`{sfield}` ~* %s")
+                                regex_params.append(r"(^|[\s\-_/()])" + re.escape(token))
+                        or_clause = " OR ".join(field_token_clauses)
+                        extra_where = [f"`tab{child_doctype_name}`.`{child_link_field}` IN %s",
+                                       f"`tab{child_doctype_name}`.`parenttype` = %s",
+                                       f"({or_clause})"]
+                        if require_pending_items_bool and child_status_field:
+                            extra_where.append(f"`tab{child_doctype_name}`.`{child_status_field}` = 'Pending'")
+                        sql = (
+                            f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
+                            f"FROM `tab{child_doctype_name}` WHERE {' AND '.join(extra_where)}"
+                        )
+                        params = (tuple(potential_parent_names), doctype, *regex_params)
+                        final_set = {r[0] for r in frappe.db.sql(sql, params, as_list=True) if r and r[0]}
+                    elif require_pending_items_bool and child_status_field:
+                        # No search term but pending-only required — restrict to parents
+                        # with at least one Pending child row.
+                        sql = (
+                            f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
+                            f"FROM `tab{child_doctype_name}` "
+                            f"WHERE `{child_link_field}` IN %s AND `parenttype` = %s "
+                            f"AND `{child_status_field}` = 'Pending'"
+                        )
+                        matched = {r[0] for r in frappe.db.sql(sql, (tuple(potential_parent_names), doctype), as_list=True) if r and r[0]}
+                        final_set = matched
+
+                    # Preserve the original candidate-list order on ties.
+                    final_matching_parent_names = [n for n in potential_parent_names if n in final_set]
+                    total_records = len(final_matching_parent_names)
+
+            elif use_child_table_pending_filter:
+                child_table_field_key = target_search_field_name if target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype] else "order_list"
+                search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][child_table_field_key]
                 child_status_field = search_config.get("status_field")
-                search_tokens = tokenize(search_term)
+                if child_status_field:
+                    if search_term and target_search_field_name and target_search_field_name not in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]:
+                        # A non-text field returns names instead of a filter; fold them into the
+                        # name constraint, which is re-applied to this branch's result below.
+                        base_name_constraint = merge_name_constraint(
+                            base_name_constraint,
+                            append_search_filter(doctype, target_search_field_name, search_term, final_and_filters),
+                        )
+                    parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+                    potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
+                    if potential_parent_names:
+                        child_doctype_name = search_config["child_doctype"]
+                        child_link_field = search_config["link_field_to_parent"]
+                        sql = f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` FROM `tab{child_doctype_name}` WHERE `{child_link_field}` IN %(names_tuple)s AND `parenttype` = %(parent_doctype)s AND `{child_status_field}` = 'Pending'"
+                        sql_params = {"names_tuple": tuple(potential_parent_names), "parent_doctype": doctype}
+                        final_matching_parent_names = [r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]]
+                        total_records = len(final_matching_parent_names)
 
-                # Token search at PARENT level with partial matches allowed.
-                # A parent qualifies if at least ONE of its child rows matches
-                # at least ONE token (UNION across tokens). Ranking later sorts
-                # tighter matches (all tokens covered, ideally in one row) above
-                # looser ones (only some tokens covered).
-                candidate_set = set(potential_parent_names)
-                final_set = candidate_set
-                if search_tokens and searchable_child_fields:
-                    # SQL-filter token set: drop short tokens (length 1) that
-                    # explode the candidate set without adding specificity.
-                    # Single chars like "6" match "600", "6mm", "6th" etc.
-                    # everywhere and trip the TOKEN_SCORE_MAX_CANDIDATES cap,
-                    # silently disabling ranking.
-                    # If ALL tokens are short, fall back to using them anyway
-                    # (single-char prefix search still works for queries like "L").
-                    # The ranker downstream still sees the full token set for
-                    # scoring — short tokens contribute to position weight.
+            elif use_json_item_search:
+                search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
+                json_field_name = search_config["json_field"]
+                item_path_parts = search_config["item_path_parts"]
+                item_name_key_in_json = search_config.get("item_name_key_in_json", "item")
+                parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
+                potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
+                if potential_parent_names:
+                    json_array_key = item_path_parts[0]
+                    search_tokens = tokenize(search_term)
+                    # SQL-filter token set: drop short tokens (length 1) that would
+                    # explode the candidate set without specificity. Ranker still
+                    # uses the full search_tokens. Fallback if all tokens are short.
                     filter_tokens = [t for t in search_tokens if len(t) >= 1] or search_tokens
-                    # Word-boundary regex match: token must appear at start of
-                    # string OR right after one of our separators. Avoids
-                    # "gi" matching inside "galvanised".
-                    # Expand the OR clause across every (field × token) pair so
-                    # the union of token matches resolves in a single query
-                    # instead of one round-trip per token.
-                    field_token_clauses = []
-                    regex_params = []
-                    for sfield in searchable_child_fields:
-                        for token in filter_tokens:
-                            field_token_clauses.append(f"`tab{child_doctype_name}`.`{sfield}` ~* %s")
-                            regex_params.append(r"(^|[\s\-_/()])" + re.escape(token))
-                    or_clause = " OR ".join(field_token_clauses)
-                    extra_where = [f"`tab{child_doctype_name}`.`{child_link_field}` IN %s",
-                                   f"`tab{child_doctype_name}`.`parenttype` = %s",
-                                   f"({or_clause})"]
-                    if require_pending_items_bool and child_status_field:
-                        extra_where.append(f"`tab{child_doctype_name}`.`{child_status_field}` = 'Pending'")
-                    sql = (
-                        f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
-                        f"FROM `tab{child_doctype_name}` WHERE {' AND '.join(extra_where)}"
-                    )
-                    params = (tuple(potential_parent_names), doctype, *regex_params)
-                    final_set = {r[0] for r in frappe.db.sql(sql, params, as_list=True) if r and r[0]}
-                elif require_pending_items_bool and child_status_field:
-                    # No search term but pending-only required — restrict to parents
-                    # with at least one Pending child row.
-                    sql = (
-                        f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` "
-                        f"FROM `tab{child_doctype_name}` "
-                        f"WHERE `{child_link_field}` IN %s AND `parenttype` = %s "
-                        f"AND `{child_status_field}` = 'Pending'"
-                    )
-                    matched = {r[0] for r in frappe.db.sql(sql, (tuple(potential_parent_names), doctype), as_list=True) if r and r[0]}
-                    final_set = matched
+                    # Token-OR (union) at PARENT level: a parent qualifies if at
+                    # least one JSON item matches at least one token. Matches the
+                    # child-table branch's behavior so PR/PO/WO are consistent.
+                    # Ranking later sorts tighter matches (all tokens in one item,
+                    # ideally) above looser ones.
+                    # OR all token regex tests inside a single EXISTS so the union
+                    # resolves in one round-trip; EXISTS short-circuits on the
+                    # first matching JSON element per parent.
+                    if filter_tokens:
+                        token_conditions = []
+                        sql_params: dict = {"names_tuple": tuple(potential_parent_names)}
+                        for i, token in enumerate(filter_tokens):
+                            key = f"token_{i}"
+                            token_conditions.append(f"item_obj->>'{item_name_key_in_json}' ~* %({key})s")
+                            sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
+                        or_clause = " OR ".join(token_conditions)
+                        sql = (
+                            f"SELECT DISTINCT name FROM `tab{doctype}` "
+                            f"WHERE name IN %(names_tuple)s AND EXISTS("
+                            f"SELECT 1 FROM jsonb_array_elements("
+                            f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                            f") AS item_obj WHERE ({or_clause}))"
+                        )
+                        union_set = {r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]}
+                        # Preserve original order on ties.
+                        final_matching_parent_names = [n for n in potential_parent_names if n in union_set]
+                    else:
+                        # search_term tokenizes to nothing (e.g. only separators).
+                        # No usable narrowing — keep all parents from the base filter.
+                        final_matching_parent_names = potential_parent_names
+                    total_records = len(final_matching_parent_names)
 
-                # Preserve the original candidate-list order on ties.
-                final_matching_parent_names = [n for n in potential_parent_names if n in final_set]
-                total_records = len(final_matching_parent_names)
-
-        elif use_child_table_pending_filter:
-            child_table_field_key = target_search_field_name if target_search_field_name in CHILD_TABLE_ITEM_SEARCH_MAP[doctype] else "order_list"
-            search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][child_table_field_key]
-            child_status_field = search_config.get("status_field")
-            if child_status_field:
-                if search_term and target_search_field_name and target_search_field_name not in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]:
-                    # A non-text field returns names instead of a filter; fold them into the
-                    # name constraint, which is re-applied to this branch's result below.
+            elif use_json_pending_filter:
+                if search_term and target_search_field_name:
                     base_name_constraint = merge_name_constraint(
                         base_name_constraint,
                         append_search_filter(doctype, target_search_field_name, search_term, final_and_filters),
@@ -322,263 +387,201 @@ def get_list_with_count_enhanced_impl(
                 parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
                 potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
                 if potential_parent_names:
-                    child_doctype_name = search_config["child_doctype"]
-                    child_link_field = search_config["link_field_to_parent"]
-                    sql = f"SELECT DISTINCT `tab{child_doctype_name}`.`{child_link_field}` FROM `tab{child_doctype_name}` WHERE `{child_link_field}` IN %(names_tuple)s AND `parenttype` = %(parent_doctype)s AND `{child_status_field}` = 'Pending'"
-                    sql_params = {"names_tuple": tuple(potential_parent_names), "parent_doctype": doctype}
-                    final_matching_parent_names = [r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]]
+                    search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
+                    json_field_name, item_path_parts = search_config["json_field"], search_config["item_path_parts"]
+                    json_array_key = item_path_parts[0]
+                    json_pending_sql_where_part = f"EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)) AS item_obj WHERE item_obj->>'status' = 'Pending')"
+                    data_names_sql = f"SELECT DISTINCT name FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_pending_sql_where_part})"
+                    final_matching_parent_names = [r[0] for r in frappe.db.sql(data_names_sql, {"names_tuple": tuple(potential_parent_names)}, as_list=True) if r and r[0]]
                     total_records = len(final_matching_parent_names)
 
-        elif use_json_item_search:
-            search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
-            json_field_name = search_config["json_field"]
-            item_path_parts = search_config["item_path_parts"]
-            item_name_key_in_json = search_config.get("item_name_key_in_json", "item")
-            parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
-            potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
-            if potential_parent_names:
-                json_array_key = item_path_parts[0]
-                search_tokens = tokenize(search_term)
-                # SQL-filter token set: drop short tokens (length 1) that would
-                # explode the candidate set without specificity. Ranker still
-                # uses the full search_tokens. Fallback if all tokens are short.
-                filter_tokens = [t for t in search_tokens if len(t) >= 1] or search_tokens
-                # Token-OR (union) at PARENT level: a parent qualifies if at
-                # least one JSON item matches at least one token. Matches the
-                # child-table branch's behavior so PR/PO/WO are consistent.
-                # Ranking later sorts tighter matches (all tokens in one item,
-                # ideally) above looser ones.
-                # OR all token regex tests inside a single EXISTS so the union
-                # resolves in one round-trip; EXISTS short-circuits on the
-                # first matching JSON element per parent.
-                if filter_tokens:
-                    token_conditions = []
-                    sql_params: dict = {"names_tuple": tuple(potential_parent_names)}
-                    for i, token in enumerate(filter_tokens):
-                        key = f"token_{i}"
-                        token_conditions.append(f"item_obj->>'{item_name_key_in_json}' ~* %({key})s")
-                        sql_params[key] = r"(^|[\s\-_/()])" + re.escape(token)
-                    or_clause = " OR ".join(token_conditions)
-                    sql = (
-                        f"SELECT DISTINCT name FROM `tab{doctype}` "
-                        f"WHERE name IN %(names_tuple)s AND EXISTS("
-                        f"SELECT 1 FROM jsonb_array_elements("
-                        f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
-                        f") AS item_obj WHERE ({or_clause}))"
+            else: # Standard Search -- Frappe-native: count via COUNT(*), page via direct LIMIT/OFFSET.
+                if search_term and target_search_field_name:
+                    for token in tokenize(search_term):
+                        # Successive intersection gives AND-across-tokens, matching the
+                        # stacked `like` filters the text path still produces.
+                        base_name_constraint = merge_name_constraint(
+                            base_name_constraint,
+                            append_search_filter(doctype, target_search_field_name, token, final_and_filters),
+                        )
+                if base_name_constraint is None:
+                    # Total via a single COUNT(*) through reportview, like the page fetch below, so it applies
+                    # the user's permissions (User Permissions on Projects). frappe.db.count does not: a
+                    # project-scoped user's pager counted rows they cannot see ("1-5 of 5" over 4 rows). The
+                    # query is still small and sqlparse-safe: no name enumeration, no `name IN (...)`.
+                    count_rows = reportview_execute(
+                        doctype=doctype,
+                        filters=final_and_filters,
+                        fields=[f"count(`tab{doctype}`.`name`) as total_count"],
                     )
-                    union_set = {r[0] for r in frappe.db.sql(sql, sql_params, as_list=True) if r and r[0]}
-                    # Preserve original order on ties.
-                    final_matching_parent_names = [n for n in potential_parent_names if n in union_set]
+                    total_records = cint(count_rows[0].get("total_count")) if count_rows else 0
+                    use_direct_pagination = True
+                    # Aggregates / group-by run over the WHOLE matching set, so they still need the name list.
+                    # Enumerate it ONLY when configured: `SELECT name ... WHERE <filters>` is a small SQL string
+                    # (sqlparse-safe regardless of row count), and the raw `name IN (...)` aggregate query runs via
+                    # frappe.db.sql (also sqlparse-exempt). The page itself is fetched directly below -- never by IN.
+                    if (aggregates_config or group_by_config) and not for_export_bool:
+                        final_matching_parent_names = [
+                            d.get("name") for d in reportview_execute(
+                                doctype=doctype, filters=final_and_filters, fields=["name"], limit_page_length=0
+                            ) if d.get("name")
+                        ]
                 else:
-                    # search_term tokenizes to nothing (e.g. only separators).
-                    # No usable narrowing — keep all parents from the base filter.
-                    final_matching_parent_names = potential_parent_names
+                    # A JSON-facet (or explicit) name narrowing is active: resolve the matched set (base filters
+                    # intersected with the constraint) and page it via the narrowed non-ranked path below --
+                    # never a giant `name IN (...)`.
+                    final_matching_parent_names = enumerate_matching_names(doctype, final_and_filters, base_name_constraint)
+                    total_records = len(final_matching_parent_names)
+
+            # Re-apply any name constraint pulled from the filters (JSON-facet narrowing) to the narrowed
+            # branches (child item-search / pending-filter). The standard branch already handled it inline.
+            if base_name_constraint is not None and not use_direct_pagination and final_matching_parent_names:
+                final_matching_parent_names = [n for n in final_matching_parent_names if n in base_name_constraint]
                 total_records = len(final_matching_parent_names)
 
-        elif use_json_pending_filter:
-            if search_term and target_search_field_name:
-                base_name_constraint = merge_name_constraint(
-                    base_name_constraint,
-                    append_search_filter(doctype, target_search_field_name, search_term, final_and_filters),
-                )
-            parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
-            potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
-            if potential_parent_names:
-                search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
-                json_field_name, item_path_parts = search_config["json_field"], search_config["item_path_parts"]
-                json_array_key = item_path_parts[0]
-                json_pending_sql_where_part = f"EXISTS(SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)) AS item_obj WHERE item_obj->>'status' = 'Pending')"
-                data_names_sql = f"SELECT DISTINCT name FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_pending_sql_where_part})"
-                final_matching_parent_names = [r[0] for r in frappe.db.sql(data_names_sql, {"names_tuple": tuple(potential_parent_names)}, as_list=True) if r and r[0]]
-                total_records = len(final_matching_parent_names)
+            # Token-score ranking for item-search on opted-in doctypes.
+            # Same matches and total_count as today — only order changes.
+            # The first TOKEN_SCORE_MAX_CANDIDATES parents form the ranked "head";
+            # anything past that stays in original modified-desc order. This keeps
+            # Python ranking bounded regardless of how broad the search is, while
+            # always surfacing relevance-sorted matches at the top of page 1.
+            ranked_names = final_matching_parent_names
+            # Pre-tokenize once for the should_rank gate: a search_term that is
+            # truthy but only made of separators (e.g. " ", "-", "/") tokenizes
+            # to []; running the ranker against that produces an empty OR clause
+            # and crashes the SQL with `AND ()`.
+            _rank_tokens_check = tokenize(search_term) if search_term else []
+            should_rank = (
+                doctype in TOKEN_SCORE_OPTED_IN_DOCTYPES
+                and _rank_tokens_check
+                and final_matching_parent_names
+                and not for_export_bool
+                and (use_child_table_item_search or use_json_item_search)
+            )
+            if should_rank:
+                try:
+                    # Split candidates into ranked head + unranked tail.
+                    # Row fetch + scoring only touches the head, so cost is O(N)
+                    # not O(total candidates).
+                    parents_to_rank = final_matching_parent_names[:TOKEN_SCORE_MAX_CANDIDATES]
+                    rank_remainder = final_matching_parent_names[TOKEN_SCORE_MAX_CANDIDATES:]
 
-        else: # Standard Search -- Frappe-native: count via COUNT(*), page via direct LIMIT/OFFSET.
-            if search_term and target_search_field_name:
-                for token in tokenize(search_term):
-                    # Successive intersection gives AND-across-tokens, matching the
-                    # stacked `like` filters the text path still produces.
-                    base_name_constraint = merge_name_constraint(
-                        base_name_constraint,
-                        append_search_filter(doctype, target_search_field_name, token, final_and_filters),
+                    if use_child_table_item_search:
+                        search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][target_search_field_name]
+                        child_doctype_name = str(search_config["child_doctype"])
+                        child_link_field = str(search_config["link_field_to_parent"])
+                        rank_fields = [str(f) for f in search_config["searchable_child_fields"]]
+                        rank_weights = {f: (2.0 if i == 0 else 1.0) for i, f in enumerate(rank_fields)}
+                        select_cols = ", ".join([f"`{f}`" for f in [child_link_field, *rank_fields]])
+                        # Only pull rows that match at least one token — rows with
+                        # zero token matches contribute zero to scoring (the ranker
+                        # skips them anyway). Cuts the row pull and Python work to
+                        # the fraction that actually scores.
+                        rank_search_tokens = tokenize(search_term)
+                        rank_filter_tokens = [t for t in rank_search_tokens if len(t) >= 1] or rank_search_tokens
+                        rank_field_token_clauses = []
+                        rank_regex_params = []
+                        for rf in rank_fields:
+                            for tok in rank_filter_tokens:
+                                rank_field_token_clauses.append(f"`{rf}` ~* %s")
+                                rank_regex_params.append(r"(^|[\s\-_/()])" + re.escape(tok))
+                        rank_or_clause = " OR ".join(rank_field_token_clauses)
+                        rank_rows = frappe.db.sql(
+                            f"SELECT {select_cols} FROM `tab{child_doctype_name}` "
+                            f"WHERE `{child_link_field}` IN %s AND parenttype = %s "
+                            f"AND ({rank_or_clause})",
+                            (tuple(parents_to_rank), doctype, *rank_regex_params),
+                            as_dict=True,
+                        )
+                        ranked_head = rank_parents_by_token_score(
+                            parent_names=parents_to_rank,
+                            rows=rank_rows,
+                            parent_key=child_link_field,
+                            query=search_term,
+                            fields=rank_fields,
+                            field_weights=rank_weights,
+                        )
+                    else:  # use_json_item_search
+                        search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
+                        json_field_name = search_config["json_field"]
+                        item_path_parts = search_config["item_path_parts"]
+                        item_name_key = search_config.get("item_name_key_in_json", "item")
+                        json_array_key = item_path_parts[0]
+                        # Only pull JSON array elements that match at least one
+                        # token. Non-matching elements contribute zero to scoring
+                        # (ranker skips them); filtering them at SQL avoids
+                        # transferring and deserializing them.
+                        rank_search_tokens = tokenize(search_term)
+                        rank_filter_tokens = [t for t in rank_search_tokens if len(t) >= 1] or rank_search_tokens
+                        rank_token_conditions = []
+                        rank_sql_params: dict = {"names_tuple": tuple(parents_to_rank)}
+                        for i, tok in enumerate(rank_filter_tokens):
+                            key = f"rtoken_{i}"
+                            rank_token_conditions.append(f"item_obj->>'{item_name_key}' ~* %({key})s")
+                            rank_sql_params[key] = r"(^|[\s\-_/()])" + re.escape(tok)
+                        rank_or_clause = " OR ".join(rank_token_conditions)
+                        rank_rows = frappe.db.sql(
+                            f"SELECT `tab{doctype}`.`name` AS parent, "
+                            f"item_obj->>'{item_name_key}' AS rank_text "
+                            f"FROM `tab{doctype}`, jsonb_array_elements("
+                            f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
+                            f") AS item_obj "
+                            f"WHERE `tab{doctype}`.`name` IN %(names_tuple)s "
+                            f"AND ({rank_or_clause})",
+                            rank_sql_params,
+                            as_dict=True,
+                        )
+                        ranked_head = rank_parents_by_token_score(
+                            parent_names=parents_to_rank,
+                            rows=rank_rows,
+                            parent_key="parent",
+                            query=search_term,
+                            fields=["rank_text"],
+                            field_weights={"rank_text": 2.0},
+                        )
+                    ranked_names = ranked_head + rank_remainder
+                except Exception:
+                    traceback.print_exc()
+                    ranked_names = final_matching_parent_names
+
+            # Final data fetch and results
+            if use_direct_pagination:
+                # Standard path: fetch the page directly with the base filters + LIMIT/OFFSET (Frappe-native).
+                # No name enumeration and no `name IN (...)`, so the generated query can never blow the token cap.
+                data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": final_and_filters, "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length})
+                data = reportview_execute(**data_args)
+            elif final_matching_parent_names:
+                if should_rank and ranked_names:
+                    # Ranking defines the order: take the page slice of ranked names and hydrate it (chunked so a
+                    # large page can't build a giant IN). Order re-imposition happens inside the helper.
+                    page_names = ranked_names[start:start + page_length]
+                    data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
+                else:
+                    # Narrowed set (child-table item-search or pending-filter), no ranking. Let the DB order the
+                    # full matched set and slice out the page NAMES via raw SQL (a bound tuple -> sqlparse-exempt),
+                    # then hydrate those <= page_length names via reportview (chunked). Ordering is preserved
+                    # exactly because the DB applies `_formatted_order_by` before the LIMIT/OFFSET.
+                    page_names = frappe.db.sql(
+                        f"SELECT name FROM `tab{doctype}` WHERE name IN %(names)s "
+                        f"ORDER BY {_formatted_order_by} LIMIT %(pl)s OFFSET %(start)s",
+                        {"names": tuple(final_matching_parent_names), "pl": page_length, "start": start},
+                        pluck=True,
                     )
-            if base_name_constraint is None:
-                # Total via a single COUNT(*) through reportview, like the page fetch below, so it applies
-                # the user's permissions (User Permissions on Projects). frappe.db.count does not: a
-                # project-scoped user's pager counted rows they cannot see ("1-5 of 5" over 4 rows). The
-                # query is still small and sqlparse-safe: no name enumeration, no `name IN (...)`.
-                count_rows = reportview_execute(
-                    doctype=doctype,
-                    filters=final_and_filters,
-                    fields=[f"count(`tab{doctype}`.`name`) as total_count"],
-                )
-                total_records = cint(count_rows[0].get("total_count")) if count_rows else 0
-                use_direct_pagination = True
-                # Aggregates / group-by run over the WHOLE matching set, so they still need the name list.
-                # Enumerate it ONLY when configured: `SELECT name ... WHERE <filters>` is a small SQL string
-                # (sqlparse-safe regardless of row count), and the raw `name IN (...)` aggregate query runs via
-                # frappe.db.sql (also sqlparse-exempt). The page itself is fetched directly below -- never by IN.
-                if (aggregates_config or group_by_config) and not for_export_bool:
-                    final_matching_parent_names = [
-                        d.get("name") for d in reportview_execute(
-                            doctype=doctype, filters=final_and_filters, fields=["name"], limit_page_length=0
-                        ) if d.get("name")
-                    ]
-            else:
-                # A JSON-facet (or explicit) name narrowing is active: resolve the matched set (base filters
-                # intersected with the constraint) and page it via the narrowed non-ranked path below --
-                # never a giant `name IN (...)`.
-                final_matching_parent_names = enumerate_matching_names(doctype, final_and_filters, base_name_constraint)
-                total_records = len(final_matching_parent_names)
+                    data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
 
-        # Re-apply any name constraint pulled from the filters (JSON-facet narrowing) to the narrowed
-        # branches (child item-search / pending-filter). The standard branch already handled it inline.
-        if base_name_constraint is not None and not use_direct_pagination and final_matching_parent_names:
-            final_matching_parent_names = [n for n in final_matching_parent_names if n in base_name_constraint]
-            total_records = len(final_matching_parent_names)
+            fill_virtual_fields(doctype, data, asked_virtual_fields)
 
-        # Token-score ranking for item-search on opted-in doctypes.
-        # Same matches and total_count as today — only order changes.
-        # The first TOKEN_SCORE_MAX_CANDIDATES parents form the ranked "head";
-        # anything past that stays in original modified-desc order. This keeps
-        # Python ranking bounded regardless of how broad the search is, while
-        # always surfacing relevance-sorted matches at the top of page 1.
-        ranked_names = final_matching_parent_names
-        # Pre-tokenize once for the should_rank gate: a search_term that is
-        # truthy but only made of separators (e.g. " ", "-", "/") tokenizes
-        # to []; running the ranker against that produces an empty OR clause
-        # and crashes the SQL with `AND ()`.
-        _rank_tokens_check = tokenize(search_term) if search_term else []
-        should_rank = (
-            doctype in TOKEN_SCORE_OPTED_IN_DOCTYPES
-            and _rank_tokens_check
-            and final_matching_parent_names
-            and not for_export_bool
-            and (use_child_table_item_search or use_json_item_search)
-        )
-        if should_rank:
-            try:
-                # Split candidates into ranked head + unranked tail.
-                # Row fetch + scoring only touches the head, so cost is O(N)
-                # not O(total candidates).
-                parents_to_rank = final_matching_parent_names[:TOKEN_SCORE_MAX_CANDIDATES]
-                rank_remainder = final_matching_parent_names[TOKEN_SCORE_MAX_CANDIDATES:]
+            _add_owner_names(data, parsed_select_fields_str_list)
 
-                if use_child_table_item_search:
-                    search_config = CHILD_TABLE_ITEM_SEARCH_MAP[doctype][target_search_field_name]
-                    child_doctype_name = str(search_config["child_doctype"])
-                    child_link_field = str(search_config["link_field_to_parent"])
-                    rank_fields = [str(f) for f in search_config["searchable_child_fields"]]
-                    rank_weights = {f: (2.0 if i == 0 else 1.0) for i, f in enumerate(rank_fields)}
-                    select_cols = ", ".join([f"`{f}`" for f in [child_link_field, *rank_fields]])
-                    # Only pull rows that match at least one token — rows with
-                    # zero token matches contribute zero to scoring (the ranker
-                    # skips them anyway). Cuts the row pull and Python work to
-                    # the fraction that actually scores.
-                    rank_search_tokens = tokenize(search_term)
-                    rank_filter_tokens = [t for t in rank_search_tokens if len(t) >= 1] or rank_search_tokens
-                    rank_field_token_clauses = []
-                    rank_regex_params = []
-                    for rf in rank_fields:
-                        for tok in rank_filter_tokens:
-                            rank_field_token_clauses.append(f"`{rf}` ~* %s")
-                            rank_regex_params.append(r"(^|[\s\-_/()])" + re.escape(tok))
-                    rank_or_clause = " OR ".join(rank_field_token_clauses)
-                    rank_rows = frappe.db.sql(
-                        f"SELECT {select_cols} FROM `tab{child_doctype_name}` "
-                        f"WHERE `{child_link_field}` IN %s AND parenttype = %s "
-                        f"AND ({rank_or_clause})",
-                        (tuple(parents_to_rank), doctype, *rank_regex_params),
-                        as_dict=True,
-                    )
-                    ranked_head = rank_parents_by_token_score(
-                        parent_names=parents_to_rank,
-                        rows=rank_rows,
-                        parent_key=child_link_field,
-                        query=search_term,
-                        fields=rank_fields,
-                        field_weights=rank_weights,
-                    )
-                else:  # use_json_item_search
-                    search_config = JSON_ITEM_SEARCH_DOCTYPE_MAP[doctype]
-                    json_field_name = search_config["json_field"]
-                    item_path_parts = search_config["item_path_parts"]
-                    item_name_key = search_config.get("item_name_key_in_json", "item")
-                    json_array_key = item_path_parts[0]
-                    # Only pull JSON array elements that match at least one
-                    # token. Non-matching elements contribute zero to scoring
-                    # (ranker skips them); filtering them at SQL avoids
-                    # transferring and deserializing them.
-                    rank_search_tokens = tokenize(search_term)
-                    rank_filter_tokens = [t for t in rank_search_tokens if len(t) >= 1] or rank_search_tokens
-                    rank_token_conditions = []
-                    rank_sql_params: dict = {"names_tuple": tuple(parents_to_rank)}
-                    for i, tok in enumerate(rank_filter_tokens):
-                        key = f"rtoken_{i}"
-                        rank_token_conditions.append(f"item_obj->>'{item_name_key}' ~* %({key})s")
-                        rank_sql_params[key] = r"(^|[\s\-_/()])" + re.escape(tok)
-                    rank_or_clause = " OR ".join(rank_token_conditions)
-                    rank_rows = frappe.db.sql(
-                        f"SELECT `tab{doctype}`.`name` AS parent, "
-                        f"item_obj->>'{item_name_key}' AS rank_text "
-                        f"FROM `tab{doctype}`, jsonb_array_elements("
-                        f"COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)"
-                        f") AS item_obj "
-                        f"WHERE `tab{doctype}`.`name` IN %(names_tuple)s "
-                        f"AND ({rank_or_clause})",
-                        rank_sql_params,
-                        as_dict=True,
-                    )
-                    ranked_head = rank_parents_by_token_score(
-                        parent_names=parents_to_rank,
-                        rows=rank_rows,
-                        parent_key="parent",
-                        query=search_term,
-                        fields=["rank_text"],
-                        field_weights={"rank_text": 2.0},
-                    )
-                ranked_names = ranked_head + rank_remainder
-            except Exception:
-                traceback.print_exc()
-                ranked_names = final_matching_parent_names
+            final_result = {
+                "data": data,
+                "total_count": total_records,
+                "aggregates": {} if for_export_bool else get_aggregates(doctype, final_matching_parent_names, aggregates_config),
+                "group_by_result": [] if for_export_bool else get_group_by_results(doctype, final_matching_parent_names, group_by_config)
+            }
+            return final_result
 
-        # Final data fetch and results
-        if use_direct_pagination:
-            # Standard path: fetch the page directly with the base filters + LIMIT/OFFSET (Frappe-native).
-            # No name enumeration and no `name IN (...)`, so the generated query can never blow the token cap.
-            data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": final_and_filters, "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length})
-            data = reportview_execute(**data_args)
-        elif final_matching_parent_names:
-            if should_rank and ranked_names:
-                # Ranking defines the order: take the page slice of ranked names and hydrate it (chunked so a
-                # large page can't build a giant IN). Order re-imposition happens inside the helper.
-                page_names = ranked_names[start:start + page_length]
-                data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
-            else:
-                # Narrowed set (child-table item-search or pending-filter), no ranking. Let the DB order the
-                # full matched set and slice out the page NAMES via raw SQL (a bound tuple -> sqlparse-exempt),
-                # then hydrate those <= page_length names via reportview (chunked). Ordering is preserved
-                # exactly because the DB applies `_formatted_order_by` before the LIMIT/OFFSET.
-                page_names = frappe.db.sql(
-                    f"SELECT name FROM `tab{doctype}` WHERE name IN %(names)s "
-                    f"ORDER BY {_formatted_order_by} LIMIT %(pl)s OFFSET %(start)s",
-                    {"names": tuple(final_matching_parent_names), "pl": page_length, "start": start},
-                    pluck=True,
-                )
-                data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
-
-        fill_virtual_fields(doctype, data, asked_virtual_fields)
-
-        _add_owner_names(data, parsed_select_fields_str_list)
-
-        final_result = {
-            "data": data,
-            "total_count": total_records,
-            "aggregates": {} if for_export_bool else get_aggregates(doctype, final_matching_parent_names, aggregates_config),
-            "group_by_result": [] if for_export_bool else get_group_by_results(doctype, final_matching_parent_names, group_by_config)
-        }
-
-        if to_cache: frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)
-        return final_result
+        return table_cache.cached_page(doctype, question, reads, build_page, cacheable=cacheable, stamp=stamp)
 
     except Exception as e:
         traceback.print_exc()
