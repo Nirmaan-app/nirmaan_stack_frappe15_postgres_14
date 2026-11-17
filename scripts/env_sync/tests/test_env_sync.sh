@@ -240,6 +240,9 @@ check "F2: a B3 failure before CHECKPOINT TAKEN releases the waiting session at 
 out=$( ( PATH="$BIN:$PATH"; . "$NEW"; SLICE=T-1; NAME=s; laptop_down() { :; }; tell_session() { echo "TOLD: $1"; }; ENV_SYNC_TEST_FAIL=b3-silent; test_fail b3-silent ) 2>&1 ); rc=$?
 check "F2: the b3-silent test point stands for a dead laptop: exit 5 and the session is NOT told (its own 20-minute ceiling must bring it back)" '[ $rc = 5 ] && ! grep -q TOLD <<< "$out"'
 check "F2: the session protocol caps the checkpoint wait at 20 minutes and resumes on its own" 'grep -q "wait at most 20 minutes" "$SRC/desktop/brief_footer.md" && grep -q "ceiling: no answer in 20 min - resumed" "$SRC/desktop/brief_footer.md"'
+out=$( ( PATH="$BIN:$PATH"; . "$NEW"; SSH="$BIN/ssh"; SLICE=T-1; cmd_catch_up ) 2>&1 ); rc=$?
+check "B4: with the desktop silent, catch-up says NOT CAUGHT UP (exit 3) - it checks the desktop before staging anything" '[ $rc = 3 ] && grep -q "NOT CAUGHT UP" <<< "$out"'
+check "B4: catch-up is not in the eager staging list (staging needs the desktop)" '! grep -q "checkpoint-code|checkpoint|catch-up) ensure_stage" "$SRC/env_sync.sh"'
 check "the help names catch-up (B4 back home)" 'grep -q "catch-up --slice" <<< "$H"'
 check "backups leave private/backups: backup_local.sh writes to envsync/backups and db-push / db-pull use it" '
   grep -q -- "--backup-path \"\$PWD/\$D\"" "$SRC/remote/backup_local.sh" && [ "$(grep -c "bash backup_local.sh" "$SRC/env_sync.sh")" = 3 ] && ! grep -q "bash backup.sh" "$SRC/env_sync.sh"'

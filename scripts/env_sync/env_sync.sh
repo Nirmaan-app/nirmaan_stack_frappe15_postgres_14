@@ -978,8 +978,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint|catch-up) ensure_stage;; esac   # once, outside any $(...)
-[ "$CMD" = resume-on-laptop ] && STAGE_LAPTOP_ONLY=1   # once, outside any $(...)
+case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint) ensure_stage;; esac   # once, outside any $(...)
+[ "$CMD" = resume-on-laptop ] && STAGE_LAPTOP_ONLY=1   # catch-up stages lazily too: it must first say whether the desktop answers   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
   db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
