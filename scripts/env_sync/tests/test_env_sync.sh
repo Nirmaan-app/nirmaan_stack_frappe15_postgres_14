@@ -244,6 +244,7 @@ out=$( ( PATH="$BIN:$PATH"; . "$NEW"; SSH="$BIN/ssh"; SLICE=T-1; cmd_catch_up ) 
 check "B4: with the desktop silent, catch-up says NOT CAUGHT UP (exit 3) - it checks the desktop before staging anything" '[ $rc = 3 ] && grep -q "NOT CAUGHT UP" <<< "$out"'
 check "B4: catch-up is not in the eager staging list (staging needs the desktop)" '! grep -q "checkpoint-code|checkpoint|catch-up) ensure_stage" "$SRC/env_sync.sh"'
 check "B5 dry run starts its clone at the laptop's head recorded when B3 was taken; the real takeover keeps the strict ancestor check" 'grep -q "the rehearsal starts from the laptop as it was when the B3 checkpoint was taken" "$SRC/env_sync.sh" && grep -q "is not an ancestor of the checkpoint" "$SRC/remote/ckpt_apply.sh"'
+check "R2: the laptop poller runs catch-up by itself when the desktop answers again, and skips B1 while offline" 'grep -q "env_sync.sh\" catch-up --slice" "$SRC/slice_poll.sh" && grep -q "OFFLINE" "$SRC/slice_poll.sh" && grep -q "checkpoint-code --slice \"\$SLICE\" --name \"\$NAME\" --if-older 15" "$SRC/slice_poll.sh" && bash -n "$SRC/slice_poll.sh"'
 check "the help names catch-up (B4 back home)" 'grep -q "catch-up --slice" <<< "$H"'
 check "backups leave private/backups: backup_local.sh writes to envsync/backups and db-push / db-pull use it" '
   grep -q -- "--backup-path \"\$PWD/\$D\"" "$SRC/remote/backup_local.sh" && [ "$(grep -c "bash backup_local.sh" "$SRC/env_sync.sh")" = 3 ] && ! grep -q "bash backup.sh" "$SRC/env_sync.sh"'

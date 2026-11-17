@@ -41,8 +41,11 @@ the proved restore; kept on a failure so a later run can see them).
 
 ## Who runs what, and when
 
-- **The laptop session's slice poller** (the loop that relays the desktop's status file) runs
-  `checkpoint-code --slice S --name N --if-older 15` on each poll and once more at every `COMMIT <hash>` line.
+- **The laptop session's slice poller** is `bash scripts/env_sync/slice_poll.sh --slice S --name N`: it polls the desktop
+  session's status file once a minute (plain reads over SSH), runs `checkpoint-code --if-older 15` on each poll (B1), and
+  exits on an event (a new status line, OFFLINE, or CAUGHT-UP) so the laptop session relays it and restarts it. When the
+  desktop answers again after the laptop could not reach it (back home), it runs `catch-up` BY ITSELF and reports
+  CAUGHT-UP (owner 2026-11-17, R2: nobody has to say "home"). While offline it skips B1 (no failure entry every 15 min).
 - **After a costly step** the desktop session writes `DBCOPY-POINT <time> <step>` in its status file (a paid run, a
   catalogue load, a migrate, or on request); the laptop runs `db-pull --yes --covers "<step>"` in the background, on any
   network (normal copy first, chunked if it fails). The laptop's containers run only for the copy (the turn file is claimed
@@ -53,7 +56,8 @@ the proved restore; kept on a failure so a later run can see them).
   `checkpoint --slice S --name N --yes`; the session reads `CHECKPOINT TAKEN ... carry on` and goes on; the laptop posts
   `CHECKPOINT READY` with the time it took. Then the owner unplugs.
 - **During the commute** the laptop is simply offline; the desktop carries on.
-- **Back home**: the laptop runs `catch-up --slice S --name N [--yes]` and posts `CAUGHT-UP`. If the desktop does not answer:
+- **Back home**: nothing to say - when the laptop reconnects, `slice_poll.sh` runs `catch-up` by itself and the laptop posts
+  `CAUGHT-UP` (`catch-up --slice S --name N [--yes]` by hand does the same). If the desktop does not answer:
   `resume-on-laptop --slice S --name N`, and on the owner's word `--takeover --yes`, then post `RESUMED-ON-LAPTOP` with the
   step to continue from.
 
