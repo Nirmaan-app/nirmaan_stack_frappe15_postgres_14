@@ -161,6 +161,8 @@ check "ckpt_code: new files are packed, the declared noise and ignored files are
   l=$(tar -tf "$R6/ck1/untracked.tar"); grep -qx "new dir/n.txt" <<< "$l" && ! grep -q "tendering-won.patch\|_classification_review\|debug.log" <<< "$l"'
 check "ckpt_code: tracked.diff holds the edit, the deletion and the staged new file" 'grep -q "^+++ b/f1" "$R6/ck1/tracked.diff" && grep -q "^deleted file" "$R6/ck1/tracked.diff" && grep -q "^+++ b/f5" "$R6/ck1/tracked.diff"'
 check "ckpt_code: commits after the base travel in a bundle" 'grep -qx "bundle=commits.bundle" "$R6/ck1/head.txt" && git bundle list-heads "$R6/ck1/commits.bundle" | grep -q "$B"'
+mkdir -p "$W/h"; ( export HOME="$W/h" USERPROFILE="$W/h"; bash "$CODE" "$src" "$R6/ck_home" "$A" > /dev/null; bash "$BRANCH" "$src" H-1 20261117-0000 > /dev/null; bash "$APPLY" tree "$src" > /dev/null )
+check "on a host the checkpoint scripts leave the user's global git config alone (no ~/.gitconfig written)" '[ ! -e "$W/h/.gitconfig" ]'
 check "ckpt_code: an existing out dir is refused" '! bash "$CODE" "$src" "$R6/ck1" "$A" > /dev/null'
 
 out=$(bash "$APPLY" apply "$R6/clone_a" "$R6/ck1" 2>&1); rc=$?

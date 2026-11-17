@@ -79,6 +79,7 @@ CKPT_KEEP="${ENV_SYNC_CKPT_KEEP:-8}"                  # checkpoint folders kept 
 BACKUP_KEEP="${ENV_SYNC_BACKUP_KEEP:-3}"              # envsync/backups folders kept per machine
 MASTER_REC="$BENCH_HOST/$STAGE/master.txt"            # present only while the laptop is the master (resume-on-laptop)
 TURN_FILE="${ENV_SYNC_TURN_FILE:-$(cygpath -u "$USERPROFILE")/envsync_laptop_turn.txt}"
+GITBASH="${ENV_SYNC_DESKTOP_GITBASH:-C:/Program Files/Git/bin/bash.exe}"   # the desktop host's Git Bash (hrun)
 LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1}"
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
 SCP=/c/Windows/System32/OpenSSH/scp.exe
@@ -539,29 +540,40 @@ resume_note() {
   } > "$f"
 }
 
-# make_code_ckpt <kind> [<commit>]: build a code checkpoint on the desktop, copy it to the laptop's slice folder, check
-# every file's sha256 on both sides, add the resume note and ckpt.txt. Sets CK_DIR, CK_TREE, CK_SIZE.
+# hrun <script> [plain-token args...]: run a staged script with the DESKTOP HOST's Git Bash, not in its container. git on
+# the container's Windows bind mount takes ~51 s per status (measured CKP-1) against ~2 s on the host, and a checkpoint
+# scans the tree several times. The checkpoint scripts leave the host's git config alone (they touch it only in a container).
+hrun() {
+  local s="$1"; shift
+  ensure_stage
+  dps "& '$GITBASH' '$D_BENCH/$STAGE/$s' $*"
+}
+
+# make_code_ckpt <kind> [<commit>]: build a code checkpoint on the desktop host, copy it to the laptop's slice folder, check
+# every file's sha256 on both sides, add the resume note and ckpt.txt. Sets CK_DIR, CK_TREE, CK_SIZE, CK_OUT, D_HEAD, D_BRANCH.
 make_code_ckpt() {
-  local kind="$1" commit="${2:-}" stamp out rdir ldir lsum dsum
+  local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum
   stamp=$(date +%Y%m%d_%H%M%S)
-  rdir="$C_BENCH/$STAGE/ckpt_out/$SLICE/$stamp"; ldir="$(ckpt_dir)/$stamp"
-  out=$(rrun desktop bash ckpt_code.sh "$C_BENCH/apps/nirmaan_stack" "$rdir" "$L_HEAD" "$commit")
-  [ -n "$(kv ckpt "$out")" ] || ckfail "the desktop could not make the code checkpoint:\n$out"
-  CK_TREE=$(kv tree "$out")
+  hdir="$D_BENCH/$STAGE/ckpt_out/$SLICE/$stamp"; ldir="$(ckpt_dir)/$stamp"
+  L_HEAD=$(lgit rev-parse HEAD)
+  CK_OUT=$(hrun ckpt_code.sh "$D_BENCH/apps/nirmaan_stack" "$hdir" "$L_HEAD" "$commit")
+  [ -n "$(kv ckpt "$CK_OUT")" ] || ckfail "the desktop could not make the code checkpoint:\n$CK_OUT"
+  CK_TREE=$(kv tree "$CK_OUT"); D_HEAD=$(kv head "$CK_OUT"); D_BRANCH=$(kv branch "$CK_OUT")
+  [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] || ckfail "the desktop is on $D_BRANCH, the laptop on $(lgit rev-parse --abbrev-ref HEAD)"
   # B4 (a desktop session writing checkpoints to OneDrive while the laptop is away) bundles from the laptop's last head.
   dps "Set-Content -LiteralPath '$D_BENCH/$STAGE/last_laptop_head.txt' -Value '$L_HEAD'" > /dev/null
   mkdir -p "$(ckpt_dir)" || ckfail "cannot create $(ckpt_dir)"
-  "$SCP" -q -r "${SSHO[@]}" "$DESKTOP:$D_BENCH/$STAGE/ckpt_out/$SLICE/$stamp" "$(ckpt_dir)/" || ckfail "copying the checkpoint to the laptop failed"
-  dsum=$(dps "docker exec -w $rdir $FRAPPE_C sh -c 'sha256sum *'" | tr -s ' ' | sort)
-  lsum=$( (cd "$ldir" && sha256sum -- *) | tr -d '*' | tr -s ' ' | sort)
-  [ "$dsum" = "$lsum" ] || ckfail "the laptop copy differs from the desktop's:\ndesktop:\n$dsum\nlaptop:\n$lsum"
+  "$SCP" -q -r "${SSHO[@]}" "$DESKTOP:$hdir" "$(ckpt_dir)/" || ckfail "copying the checkpoint to the laptop failed"
+  dsum=$(dps "Get-ChildItem -LiteralPath '$hdir' -File | ForEach-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath \$_.FullName).Hash.ToLower() + ' ' + \$_.Name }" | sort)
+  lsum=$( (cd "$ldir" && sha256sum -- *) | sed 's/ \*/ /; s/  */ /' | sort)
+  [ -n "$dsum" ] && [ "$dsum" = "$lsum" ] || ckfail "the laptop copy differs from the desktop's:\ndesktop:\n$dsum\nlaptop:\n$lsum"
   resume_note "$ldir/resume.md" "$kind"
   CK_SIZE=$(du -sb "$ldir" | cut -f1); CK_DIR="$ldir"
   { echo "kind=$kind"; echo "slice=$SLICE"; echo "session=${NAME:-}"; echo "made=$(date '+%F %T')"
     echo "desktop_head=$D_HEAD"; echo "laptop_head=$L_HEAD"; echo "tree=$CK_TREE"; echo "size=$CK_SIZE"; } > "$ldir/ckpt.txt"
   # keep the newest CKPT_KEEP on both machines
   prune_local "$(ckpt_dir)" "$CKPT_KEEP"
-  dps "docker exec -w $C_BENCH/$STAGE/ckpt_out/$SLICE $FRAPPE_C sh -c 'ls -1d [0-9]*_[0-9]* | sort | head -n -$CKPT_KEEP | xargs -r rm -rf --'" > /dev/null
+  dps "Get-ChildItem -LiteralPath '$D_BENCH/$STAGE/ckpt_out/$SLICE' -Directory | Sort-Object Name | Select-Object -SkipLast $CKPT_KEEP | Remove-Item -Recurse -Force" > /dev/null
 }
 
 cmd_checkpoint_code() {
@@ -575,15 +587,18 @@ cmd_checkpoint_code() {
     fi
   fi
   t0=$(date +%s)
-  collect
-  if [ "$VERDICT" = DESKTOP_AHEAD ] && [ -z "$L_DIRTY" ]; then
-    # the desktop's commits come across as after every commit (fast-forward only; no restart: nothing is served from here)
-    ( ALLOW_DIRTY=1 NO_RESTART=1 cmd_from_desktop ) | sed 's/^/  /' || echo "  (the fast-forward failed; the checkpoint carries the commits in its bundle)"
-    collect
-  fi
   make_code_ckpt B1
   echo "CHECKPOINT CODE $SLICE: $CK_DIR"
-  echo "  tree $CK_TREE, $(( CK_SIZE / 1024 )) KiB, $(sed -n 's/^tracked_files=//p' "$CK_DIR/head.txt") tracked + $(sed -n 's/^untracked_files=//p' "$CK_DIR/head.txt") new file(s), took $(( $(date +%s) - t0 )) s; nothing applied on the laptop"
+  echo "  desktop ${D_HEAD:0:9}, tree $CK_TREE, $(( CK_SIZE / 1024 )) KiB, $(sed -n 's/^tracked_files=//p' "$CK_DIR/head.txt") tracked + $(sed -n 's/^untracked_files=//p' "$CK_DIR/head.txt") new file(s), took $(( $(date +%s) - t0 )) s; nothing applied on the laptop"
+  # the desktop's commits come across as after every commit (fast-forward only, no restart: nothing is served from
+  # here). Only when the desktop is ahead - its git_state check in the container is the slow part.
+  if [ "$D_HEAD" != "$L_HEAD" ] && [ "$(kv base_is_ancestor "$CK_OUT")" = 1 ]; then
+    if [ -z "$(lgit status --porcelain --untracked-files=no)" ]; then
+      ( ALLOW_DIRTY=1 NO_RESTART=1 cmd_from_desktop ) 2>&1 | sed 's/^/  /' || true
+    else
+      echo "  the desktop is ahead but the laptop has uncommitted changes: commits not fast-forwarded (they are in the checkpoint's bundle)"
+    fi
+  fi
 }
 
 # tell_session <text>: append an ANSWER-style entry to the desktop session's message file (never overwrites).
@@ -599,10 +614,8 @@ cmd_checkpoint() {
   [ "${YES:-0}" = 1 ] || die "checkpoint REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
   local t0 t_code stamp out br commit parent tree lfp gottree
   t0=$(date +%s); stamp=$(date +%Y%m%d-%H%M)
-  collect
-  case "$VERDICT" in BRANCH_MISMATCH|DIVERGED) ckfail "the code verdict is $VERDICT";; esac
   echo "desktop: checkpoint commit on a local branch (temporary index; the session's tree is not touched) ..."
-  out=$(rrun desktop bash ckpt_branch.sh "$C_BENCH/apps/nirmaan_stack" "$SLICE" "$stamp")
+  out=$(hrun ckpt_branch.sh "$D_BENCH/apps/nirmaan_stack" "$SLICE" "$stamp")
   br=$(kv branch "$out"); commit=$(kv commit "$out"); parent=$(kv parent "$out"); tree=$(kv tree "$out")
   [ -n "$commit" ] || ckfail "the checkpoint commit failed:\n$out"
   echo "  $br = ${commit:0:9} (parent ${parent:0:9}, tree ${tree:0:12})"

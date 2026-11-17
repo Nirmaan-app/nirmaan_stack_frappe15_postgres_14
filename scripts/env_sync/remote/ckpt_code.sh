@@ -21,7 +21,8 @@ set -uo pipefail
 REPO=$1 OUT=$2 BASE=${3:-} COMMIT=${4:-}
 NOISE=${ENV_SYNC_NOISE:-$'BOQ-26-00145_SOW_faithful.csv\nHandover doc.pdf\n_classification_review/\ntendering-won.patch'}
 cd "$REPO" 2>/dev/null || { echo "error=no checkout at $REPO"; exit 1; }
-git config --global --get-all safe.directory 2>/dev/null | grep -qx '\*' || git config --global --add safe.directory '*'
+# in a container the checkout belongs to another uid; on a host (Git Bash) the user's global config is left alone
+[ -f /.dockerenv ] && { git config --global --get-all safe.directory 2>/dev/null | grep -qx '\*' || git config --global --add safe.directory '*'; }
 [ -e "$OUT" ] && { echo "error=$OUT already exists"; exit 1; }
 mkdir -p "$OUT" || { echo "error=cannot create $OUT"; exit 1; }
 
@@ -89,6 +90,11 @@ fi
 { echo "branch=$branch"; echo "head=$head"; echo "base=${BASE:-none}"; echo "bundle=$bundle"; echo "tree=$tree"
   echo "tracked_files=$n_tracked"; echo "untracked_files=$n_untracked"; echo "made=$(date '+%F %T')"; } > "$OUT/head.txt"
 echo "ckpt=$OUT"
+echo "branch=$branch"
+echo "head=$(git rev-parse HEAD)"
+if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+  echo "base_known=1"; git merge-base --is-ancestor "$BASE" HEAD && echo "base_is_ancestor=1" || echo "base_is_ancestor=0"
+else echo "base_known=0"; fi
 echo "tree=$tree"
 echo "size=$(du -sb "$OUT" | cut -f1)"
 echo "files=$(( n_tracked + n_untracked ))"

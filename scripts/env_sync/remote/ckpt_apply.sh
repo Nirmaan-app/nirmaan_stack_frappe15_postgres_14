@@ -16,7 +16,8 @@ set -uo pipefail
 MODE=$1 REPO=$2 CK=${3:-}
 NOISE=${ENV_SYNC_NOISE:-$'BOQ-26-00145_SOW_faithful.csv\nHandover doc.pdf\n_classification_review/\ntendering-won.patch'}
 cd "$REPO" 2>/dev/null || { echo "error=no checkout at $REPO"; exit 1; }
-git config --global --get-all safe.directory 2>/dev/null | grep -qx '\*' || git config --global --add safe.directory '*'
+# in a container the checkout belongs to another uid; on a host (Git Bash) the user's global config is left alone
+[ -f /.dockerenv ] && { git config --global --get-all safe.directory 2>/dev/null | grep -qx '\*' || git config --global --add safe.directory '*'; }
 kv() { sed -n "s/^$1=//p" "$CK/head.txt" | head -1; }
 
 is_noise() {

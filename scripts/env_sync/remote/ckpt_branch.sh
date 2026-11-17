@@ -12,7 +12,8 @@ REPO=$1 SLICE=$2 STAMP=${3:-$(date +%Y%m%d-%H%M)}
 NOISE=${ENV_SYNC_NOISE:-$'BOQ-26-00145_SOW_faithful.csv\nHandover doc.pdf\n_classification_review/\ntendering-won.patch'}
 [[ "$SLICE" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,40}$ ]] || { echo "error=the slice name takes letters, digits and dashes"; exit 1; }
 cd "$REPO" 2>/dev/null || { echo "error=no checkout at $REPO"; exit 1; }
-git config --global --get-all safe.directory 2>/dev/null | grep -qx '\*' || git config --global --add safe.directory '*'
+# in a container the checkout belongs to another uid; on a host (Git Bash) the user's global config is left alone
+[ -f /.dockerenv ] && { git config --global --get-all safe.directory 2>/dev/null | grep -qx '\*' || git config --global --add safe.directory '*'; }
 BR="ckpt/$SLICE-$STAMP"
 git show-ref --verify -q "refs/heads/$BR" && { echo "error=$BR already exists"; exit 1; }
 
