@@ -212,9 +212,21 @@ check "scratch_counts.sh strips pg_dump's restrict lines exactly as restore_db.s
 lp() { ( PATH="$BIN:$PATH"; . "$NEW"; is_lan_path "$1" ) > /dev/null 2>&1; }
 check "office-LAN test: a direct path over a private address is the LAN" 'lp "pong from nitesh-desktop (100.84.255.77) via 192.168.0.210:41641 in 6ms" && lp "pong from d (100.1.1.1) via 10.0.0.5:41641 in 3ms" && lp "pong from d (100.1.1.1) via 172.20.1.9:41641 in 3ms"'
 check "office-LAN test: the DERP relay or a public address is not the LAN" '! lp "pong from d (100.84.255.77) via DERP(blr) in 90ms" && ! lp "pong from d (100.84.255.77) via 49.37.10.20:41641 in 40ms" && ! lp ""'
-printf '#!/usr/bin/env bash\necho "pong from nitesh-desktop (100.84.255.77) via DERP(blr) in 95ms"\n' > "$BIN/ts_derp"; chmod +x "$BIN/ts_derp"
-out=$( ( PATH="$BIN:$PATH"; . "$NEW"; TAILSCALE="$BIN/ts_derp"; PENDING_REC="$W/pending.txt"; SLICE=T-1; lan_or_pending "db-pull: a test step" ) 2>&1 ); rc=$?
-check "away from the LAN a database copy is recorded as PENDING and stops (exit 4) - rule 16" '[ $rc = 4 ] && grep -q "DATA COPY PENDING" <<< "$out" && grep -q "T-1 db-pull: a test step" "$W/pending.txt"'
+head -c 3500000 /dev/urandom > "$W/blob.bin"
+out=$(bash "$SRC/remote/chunk_split.sh" "$W/blob.bin" "$W/chunks" 1); rc=$?
+check "chunk_split: a file splits into 1 MB parts with a sha256 per part" '[ $rc = 0 ] && [ "$(sed -n "s/^parts=//p" <<< "$out")" = 4 ] && [ "$(grep -c "^part=part_00[0-3] size=[0-9]* sha256=[0-9a-f]\{64\}$" <<< "$out")" = 4 ]'
+cat "$W/chunks"/part_* > "$W/blob.re"
+check "chunk_split: the parts reassemble byte-for-byte (whole-file sha256 equal)" '[ "$(sha256sum < "$W/blob.bin")" = "$(sha256sum < "$W/blob.re")" ]'
+check "chunk_split: an existing out dir is refused" '! bash "$SRC/remote/chunk_split.sh" "$W/blob.bin" "$W/chunks" 1 > /dev/null'
+route() {   # route <normal rc> <force>: which copy route pull_copy_prove_restore takes (copies stubbed, stops before the restore)
+  ( RC_NORMAL=$1; PATH="$BIN:$PATH"; . "$NEW"; on_lan() { LAN_PATH="pong via 192.168.0.210:41641"; return 0; }
+    copy_normal() { COPY_WHY="stub cut"; return "$RC_NORMAL"; }; copy_chunked() { echo "CHUNKED"; }
+    FORCE_CHUNKED=$2; PB_PREFIX=x/y; BENCH_HOST="$W/bh"; kv() { :; }; rrun() { :; }
+    die() { echo "DIE"; exit 9; }; pull_copy_prove_restore "t" 2>&1 ) | grep -E "^copy:|CHUNKED" | head -3
+}
+check "B2: the normal copy is tried first; when it works, no chunked copy" '! grep -q CHUNKED <<< "$(route 0 0)"'
+check "B2: a failed normal copy switches ONCE to the chunked route (no second normal try)" 'r=$(route 1 0); grep -q "switching to the chunked route" <<< "$r" && grep -q CHUNKED <<< "$r"'
+check "B2: --chunked forces the chunked route (AC2's second measurement)" 'r=$(route 0 1); grep -q "forced with --chunked" <<< "$r" && grep -q CHUNKED <<< "$r"'
 check "checkpoints live on the laptop's local disk (envsync/checkpoints), not in a cloud-synced folder" '[ "$( ( . "$NEW"; SLICE=T-1; ckpt_dir ) )" = "$( ( . "$NEW"; echo "$BENCH_HOST" ) )/envsync/checkpoints/T-1" ]'
 check "no cloud-drive route is left: the OneDrive checkpoint script is gone and no checkpoint path names OneDrive" '
   [ ! -e "$SRC/desktop/ckpt_onedrive.sh" ] && ! grep -n "CKPT_ROOT=.*OneDrive\|ckpt_dir.*OneDrive" "$SRC/env_sync.sh" && ! grep -qi "ckpt_onedrive" "$SRC/desktop/brief_footer.md" "$SRC/README.md"'

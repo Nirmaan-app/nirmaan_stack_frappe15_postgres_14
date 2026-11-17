@@ -6,9 +6,11 @@
 #   env_sync.sh status [--no-data]     code and data on both machines, and a verdict
 #   env_sync.sh to-desktop             fast-forward the desktop to the laptop's commits, then destale it
 #   env_sync.sh from-desktop           fast-forward the laptop to the desktop's commits, then destale it
-#   env_sync.sh db-pull --yes [--covers STEP]
+#   env_sync.sh db-pull --yes [--covers STEP] [--chunked]
 #                                      replace the laptop's database with a fresh, PROVED backup of the desktop's (the
-#                                      master); STEP is written into the pull record (which step the copy covers)
+#                                      master); STEP is written into the pull record (which step the copy covers). The normal
+#                                      copy is tried once on any network; if it fails, the resumable chunked copy takes
+#                                      over (--chunked forces it)
 #   env_sync.sh db-push --yes [--discard-desktop-writes]
 #                                      after a desktop drop (the laptop was the master): replace the DESKTOP's database
 #                                      with a fresh backup of the laptop's, after a proved desktop backup
@@ -82,15 +84,20 @@ PULL_RECORD="${ENV_SYNC_PULL_RECORD:-$BENCH_HOST/$STAGE/last_pull_fingerprint.tx
 # The relay folder (where the laptop session's to_chat.md lives) is only READ, for the resume note's last relay id.
 CKPT_ROOT="${ENV_SYNC_CKPT_ROOT:-$BENCH_HOST/$STAGE/checkpoints}"
 RELAY_ROOT="${ENV_SYNC_RELAY_ROOT:-$L_REPORTS/BoQ main lane/_relay}"
-# Rule 16: database copies only on the office LAN (big copies fail over the Tailscale relay). Tailscale says how it reaches the
-# desktop: "via <private LAN address>" = direct on a LAN; "via DERP(...)" = the relay. (The desktop's LAN address changes - it
-# was 192.168.1.3, on 2026-11-17 it is 192.168.0.210 - so no fixed address is trusted.) Without Tailscale, a TCP probe of
-# ENV_SYNC_DESKTOP_LAN is the fallback. Away from the LAN a copy is recorded as pending and done at the next LAN chance.
+# The network a database copy runs on is RECORDED, not gated (owner 2026-11-17 18:52: "even at home first we should try normal
+# copy and resort to chunked copy only when it fails"). Tailscale says how it reaches the desktop: "via <private LAN address>"
+# = direct on a LAN; "via DERP(...)" = the relay; a public address = direct over the internet. (The desktop's LAN address
+# changes - it was 192.168.1.3, on 2026-11-17 it is 192.168.0.210 - so no fixed address is trusted.) Without Tailscale, a TCP
+# probe of ENV_SYNC_DESKTOP_LAN is the fallback.
 TAILSCALE="${ENV_SYNC_TAILSCALE:-/c/Program Files/Tailscale/tailscale.exe}"
 DESKTOP_TS="${ENV_SYNC_DESKTOP_TS:-nitesh-desktop}"
 DESKTOP_LAN="${ENV_SYNC_DESKTOP_LAN:-}"
 DESKTOP_LAN_PORT="${ENV_SYNC_DESKTOP_LAN_PORT:-22}"
-PENDING_REC="$BENCH_HOST/$STAGE/data_copy_pending.txt"
+# The chunked route (rule 16, the VRF-6 lesson): parts of CHUNK_MB in envsync/chunks on each machine, each part sha-checked and
+# re-sent alone up to CHUNK_TRIES times; the normal copy gets one try of at most COPY_TIMEOUT seconds per file.
+CHUNK_MB="${ENV_SYNC_CHUNK_MB:-50}"
+CHUNK_TRIES="${ENV_SYNC_CHUNK_TRIES:-4}"
+COPY_TIMEOUT="${ENV_SYNC_COPY_TIMEOUT:-3600}"
 CKPT_KEEP="${ENV_SYNC_CKPT_KEEP:-8}"                  # checkpoint folders kept per slice
 BACKUP_KEEP="${ENV_SYNC_BACKUP_KEEP:-3}"              # envsync/backups folders kept per machine
 MASTER_REC="$BENCH_HOST/$STAGE/master.txt"            # present only while the laptop is the master (resume-on-laptop)
@@ -320,17 +327,72 @@ pull_backup() {
 # pull_copy_prove_restore <covers>: copy PB_PREFIX's files to the laptop (sha256 + size equal), load the dump into a
 # SCRATCH database on the laptop and check its counts against the desktop's, and only then replace the laptop's database
 # (the replaced one stays as <db>_envsync_prev). Writes the pull record with what the copy covers.
-pull_copy_prove_restore() {
-  local covers="$1" suf f want got db out
-  mkdir -p "$BENCH_HOST/sites/$(dirname "$PB_PREFIX")"
+# want_of <file name>: "<sha256> <size>" of a proved desktop backup file (PB_SHA).
+want_of() { grep -F "file=$1 " <<< "$PB_SHA" | sed 's/.* size=\([0-9]*\) sha256=\([0-9a-f]*\)/\2 \1/'; }
+got_of() { echo "$(sha256sum < "$1" | cut -c1-64) $(stat -c %s "$1")"; }
+
+# copy_normal: each backup file in one scp (one try, COPY_TIMEOUT each), sha256 + size checked. 0 = all three whole.
+copy_normal() {
+  local suf f
   for suf in -database.sql.gz -files.tar -private-files.tar; do
     f="$BENCH_HOST/sites/$PB_PREFIX$suf"
-    "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/sites/$PB_PREFIX$suf" "$f" || die "copying $(basename "$f") failed; the laptop database is unchanged"
-    want=$(grep -F "file=$(basename "$f") " <<< "$PB_SHA" | sed 's/.* size=\([0-9]*\) sha256=\([0-9a-f]*\)/\2 \1/')
-    got="$(sha256sum < "$f" | cut -c1-64) $(stat -c %s "$f")"
-    [ "$want" = "$got" ] || die "the laptop copy of $(basename "$f") differs (desktop $want, laptop $got); the laptop database is unchanged"
-    echo "  copied   $(basename "$f")  ${got:0:16} $(stat -c %s "$f")"
+    timeout "$COPY_TIMEOUT" "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/sites/$PB_PREFIX$suf" "$f" || { COPY_WHY="scp of $(basename "$f") failed or timed out"; return 1; }
+    [ "$(want_of "$(basename "$f")")" = "$(got_of "$f")" ] || { COPY_WHY="$(basename "$f") differs (desktop $(want_of "$(basename "$f")"), laptop $(got_of "$f"))"; return 1; }
+    echo "  copied   $(basename "$f")  $(got_of "$f" | cut -c1-16) $(stat -c %s "$f")"
   done
+}
+
+# copy_chunked: the resumable route. The desktop splits each file into CHUNK_MB parts (envsync/chunks, local disk); each part
+# is copied and sha-checked, a failed part is re-sent alone (CHUNK_TRIES); the laptop reassembles and checks the whole file
+# (sha256 + size, and gzip -t for the dump). The parts are removed on both machines after the proved restore (chunks_cleanup).
+copy_chunked() {
+  local suf name f out parts p psize psha try ok cdir ldir
+  CHUNK_STAMP=$(date +%Y%m%d_%H%M%S); CHUNK_PARTS=0; CHUNK_RESENT=0
+  for suf in -database.sql.gz -files.tar -private-files.tar; do
+    name="$(basename "$PB_PREFIX")$suf"; f="$BENCH_HOST/sites/$PB_PREFIX$suf"
+    cdir="$C_BENCH/$STAGE/chunks/$CHUNK_STAMP/$suf"; ldir="$BENCH_HOST/$STAGE/chunks/$CHUNK_STAMP/$suf"
+    out=$(rrun desktop bash chunk_split.sh "$C_BENCH/sites/$PB_PREFIX$suf" "$cdir" "$CHUNK_MB")
+    parts=$(kv parts "$out"); [ -n "$parts" ] || die "the desktop could not split $name; the laptop database is unchanged:
+$out"
+    mkdir -p "$ldir"
+    while read -r line; do
+      p=$(sed -n 's/^part=\([^ ]*\) .*/\1/p' <<< "$line"); [ -n "$p" ] || continue
+      psize=$(sed -n 's/.* size=\([0-9]*\) .*/\1/p' <<< "$line"); psha=$(sed -n 's/.* sha256=\([0-9a-f]*\)$/\1/p' <<< "$line")
+      ok=0
+      for try in $(seq 1 "$CHUNK_TRIES"); do
+        timeout 900 "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/$STAGE/chunks/$CHUNK_STAMP/$suf/$p" "$ldir/$p" 2>/dev/null &&
+          [ "$(got_of "$ldir/$p")" = "$psha $psize" ] && { ok=1; break; }
+        CHUNK_RESENT=$((CHUNK_RESENT + 1)); echo "  part $suf/$p try $try failed; re-sending that part only"; sleep 5
+      done
+      [ "$ok" = 1 ] || die "the chunked copy failed at $name $p after $CHUNK_TRIES tries; the laptop database is unchanged (parts kept in $ldir for a later resume)"
+      CHUNK_PARTS=$((CHUNK_PARTS + 1))
+    done <<< "$(grep '^part=' <<< "$out")"
+    cat "$ldir"/part_* > "$f" || die "reassembling $name failed; the laptop database is unchanged"
+    [ "$(want_of "$name")" = "$(got_of "$f")" ] || die "the reassembled $name differs (desktop $(want_of "$name"), laptop $(got_of "$f")); the laptop database is unchanged"
+    case "$suf" in *.gz) gzip -t "$f" 2>/dev/null || die "the reassembled $name fails gzip -t; the laptop database is unchanged";; esac
+    echo "  chunked  $name  $parts part(s)  $(got_of "$f" | cut -c1-16) $(stat -c %s "$f")"
+  done
+}
+chunks_cleanup() {
+  [ -n "${CHUNK_STAMP:-}" ] || return 0
+  rm -rf -- "$BENCH_HOST/$STAGE/chunks/$CHUNK_STAMP"
+  dps "Remove-Item -LiteralPath '$D_BENCH/$STAGE/chunks/$CHUNK_STAMP' -Recurse -Force" > /dev/null
+  echo "chunks: removed $CHUNK_STAMP on both machines (after the proved restore)"
+}
+
+pull_copy_prove_restore() {
+  local covers="$1" db out
+  mkdir -p "$BENCH_HOST/sites/$(dirname "$PB_PREFIX")"
+  on_lan > /dev/null 2>&1; COPY_NET="${LAN_PATH:-unknown}"; is_lan_path "$COPY_NET" && COPY_NET="office LAN ($COPY_NET)" || COPY_NET="not the office LAN ($COPY_NET)"
+  echo "network: $COPY_NET"
+  local tc; tc=$(date +%s); COPY_ROUTE=normal
+  if [ "${FORCE_CHUNKED:-0}" = 1 ]; then
+    echo "copy: the chunked route (forced with --chunked)"; COPY_ROUTE="chunked (forced)"; copy_chunked
+  elif ! copy_normal; then
+    echo "copy: the normal copy failed ($COPY_WHY) - switching to the chunked route (no second normal try)"; COPY_ROUTE="chunked (after a failed normal copy: $COPY_WHY)"; copy_chunked
+  fi
+  COPY_SECS=$(( $(date +%s) - tc ))
+  echo "copy: $COPY_ROUTE, $COPY_SECS s$( [ -n "${CHUNK_PARTS:-}" ] && echo ", ${CHUNK_PARTS} part(s), ${CHUNK_RESENT:-0} re-sent")"
   prune_local "$BENCH_HOST/$STAGE/backups" "$BACKUP_KEEP"
   db=$(kv db_name "$(rrun laptop bash get_db_name.sh)"); [ -n "$db" ] || die "cannot read the laptop's database name"
   MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$BENCH_HOST/sites/$PB_PREFIX-database.sql.gz")" "$PG_C:/tmp/envsync_restore.sql.gz" || die "docker cp of the dump failed"
@@ -352,17 +414,17 @@ pull_copy_prove_restore() {
   { echo "# desktop fingerprint at the laptop's last db-pull ($(date '+%F %T'), backup $(basename "$PB_PREFIX"))"
     echo "# covers: ${covers:-a db-pull on request}"
     echo "# backup: $PB_PREFIX"
+    echo "# copy: $COPY_ROUTE, $COPY_SECS s; network: $COPY_NET"
     fp_of laptop; } > "$PULL_RECORD"
   echo "laptop: recorded the pulled fingerprint in $PULL_RECORD (covers: ${covers:-a db-pull on request})"
+  chunks_cleanup
 }
 
 cmd_db_pull() {
   [ "${YES:-0}" = 1 ] || die "db-pull REPLACES the laptop's database with a fresh backup of the desktop's (the master).\nRe-run with --yes."
   local t0; t0=$(date +%s)
-  lan_or_pending "db-pull: ${COVERS:-on request}"
   pull_backup
   pull_copy_prove_restore "${COVERS:-}"
-  [ -f "$PENDING_REC" ] && mv "$PENDING_REC" "$PENDING_REC.done_$(date +%Y%m%d_%H%M%S)" && echo "laptop: the pending data copies are covered by this pull"
   echo "db-pull took $(( $(date +%s) - t0 )) s (desktop backup $PB_TOOK s)"
   NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
 }
@@ -529,13 +591,6 @@ on_lan() {
 }
 # is_lan_path <tailscale ping line>: a direct path over an RFC 1918 address (10/8, 172.16/12, 192.168/16); DERP = relay.
 is_lan_path() { grep -qE ' via (10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+:[0-9]+' <<< "$1"; }
-# lan_or_pending <what>: go on when on the LAN; otherwise record "data copy pending" once and stop (exit 4).
-lan_or_pending() {
-  if on_lan; then echo "office LAN: $LAN_PATH"; return 0; fi
-  echo "$(date '+%F %T') ${SLICE:-?} $1" >> "$PENDING_REC"
-  echo "DATA COPY PENDING: not on the office LAN ($LAN_PATH); recorded in $PENDING_REC - do it at the next LAN chance (rule 16)"
-  exit 4
-}
 ckfail() {
   local msg; msg="CHECKPOINT FAILED ($SLICE, $(date '+%F %T')): $*"
   echo "$msg" >&2; echo "not retried now: the next try is at the next 15-minute mark (--if-older counts this attempt)" >&2
@@ -659,7 +714,6 @@ cmd_checkpoint() {
   [ "${YES:-0}" = 1 ] || die "checkpoint REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
   local t0 t_code stamp out br commit parent tree lfp gottree
   t0=$(date +%s); stamp=$(date +%Y%m%d-%H%M)
-  lan_or_pending "CHECKPOINT $SLICE $stamp (leaving): needs the office LAN - do it before unplugging"
   echo "desktop: checkpoint commit on a local branch (temporary index; the session's tree is not touched) ..."
   out=$(hrun ckpt_branch.sh "$D_BENCH/apps/nirmaan_stack" "$SLICE" "$stamp")
   br=$(kv branch "$out"); commit=$(kv commit "$out"); parent=$(kv parent "$out"); tree=$(kv tree "$out")
@@ -694,7 +748,18 @@ cmd_catch_up() {
   last=$(sed -n 's/^# desktop fingerprint at the laptop.s last db-pull (\([^,]*\),.*/\1/p' "$PULL_RECORD" 2>/dev/null | head -1)
   echo "CAUGHT-UP $SLICE $(date '+%F %H:%M'): code = the checkpoint above; data = the last db-pull ${last:-never} ($(sed -n 's/^# covers: //p' "$PULL_RECORD" 2>/dev/null | head -1))"
   if [ -n "$last" ]; then echo "  the laptop's data is $(( ($(date +%s) - $(date -d "$last" +%s)) / 60 )) min behind that copy's moment (the desktop may have written since)"; fi
-  if [ -f "$PENDING_REC" ]; then echo "  DATA COPY PENDING (do it on the office LAN):"; sed 's/^/    /' "$PENDING_REC"; fi
+  # B4 data: a DBCOPY-POINT (paid run, catalogue load, migrate) newer than the last copy -> bring the data up to date too
+  local lastpt pt_epoch rec_epoch
+  lastpt=$([ -n "${NAME:-}" ] && dps "if (Test-Path -LiteralPath '$SDIR/$NAME.status.md') { Get-Content -LiteralPath '$SDIR/$NAME.status.md' | Select-String -Pattern '^DBCOPY-POINT' | Select-Object -First 1 | ForEach-Object { \$_.Line } }")
+  if [ -n "$lastpt" ]; then
+    pt_epoch=$(date -d "$(awk '{print $2" "$3}' <<< "$lastpt")" +%s 2>/dev/null || echo 0)
+    rec_epoch=$( [ -n "$last" ] && date -d "$last" +%s || echo 0)
+    if [ "$pt_epoch" -gt "$rec_epoch" ]; then
+      echo "  the last costly step is newer than the last data copy: $lastpt"
+      if [ "${YES:-0}" = 1 ]; then echo "  bringing the data up to date (normal copy first, then chunked) ..."; COVERS="catch-up after: $lastpt"; laptop_up; pull_backup; pull_copy_prove_restore "$COVERS"; laptop_down
+      else echo "  re-run with --yes to bring the data up to date (it replaces the laptop's database after the proofs)"; fi
+    else echo "  data: no costly step after the last copy"; fi
+  fi
 }
 
 # ---- resume on the laptop (CKP-1, B5) ----------------------------------------------------------------------------
@@ -882,7 +947,7 @@ while [ $# -gt 0 ]; do
     --yes) YES=1;; --allow-dirty) ALLOW_DIRTY=1;; --no-restart) NO_RESTART=1;; --no-data) NO_DATA=1;;
     --discard-desktop-writes) DISCARD=1;;
     --slice) SLICE="${2:-}"; shift;; --if-older) IF_OLDER="${2:-}"; shift;; --covers) COVERS="${2:-}"; shift;;
-    --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;;
+    --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
     --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
     --interval) INTERVAL="${2:-60}"; shift;; --idle-limit) IDLE_LIMIT="${2:-5}"; shift;; --pull-back) PULL_BACK=1;;
