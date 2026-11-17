@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CustomerFormSchema, customerFormValues } from "./customerForm";
+import { CustomerFormSchema, customerFormChanged, customerFormValues } from "./customerForm";
 
 const CUSTOMER = {
   company_name: "Acme Builders",
@@ -24,6 +24,18 @@ describe("customerFormValues", () => {
       address_line2: "",
       pin_code: "560001",
     });
+  });
+});
+
+describe("customerFormChanged", () => {
+  it("is false for a form typed into and cleared where the server holds null", () => {
+    expect(customerFormChanged(customerFormValues(CUSTOMER, ADDRESS), CUSTOMER, ADDRESS)).toBe(false);
+  });
+
+  it("is true once one field differs, whatever order the values come in", () => {
+    const { company_name, ...rest } = customerFormValues(CUSTOMER, ADDRESS);
+    expect(customerFormChanged({ ...rest, company_name }, CUSTOMER, ADDRESS)).toBe(false);
+    expect(customerFormChanged({ ...rest, company_name, company_phone: "9000000001" }, CUSTOMER, ADDRESS)).toBe(true);
   });
 });
 

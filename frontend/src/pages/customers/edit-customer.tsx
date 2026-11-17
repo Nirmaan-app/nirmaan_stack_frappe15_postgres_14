@@ -25,7 +25,7 @@ import { CustomersDocType } from "@/types/doctypes/Customers";
 import { PincodesDocType } from "@/types/doctypes/Pincodes";
 import { Address } from "@/types/NirmaanStack/Address";
 import { sendCustomerSave } from "@/utils/customers/customerSaveUpdates";
-import { CustomerFormSchema, customerFormValues, type CustomerFormValues } from "@/utils/customers/customerForm";
+import { CustomerFormSchema, customerFormChanged, customerFormValues, type CustomerFormValues } from "@/utils/customers/customerForm";
 
 const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
 
@@ -101,8 +101,7 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
     setPincode(addressData?.pincode ?? "");
   }, [data, addressData, form]);
 
-  const hasChanges = () =>
-    JSON.stringify(form.getValues()) !== JSON.stringify(customerFormValues(data, addressData));
+  const hasChanges = () => customerFormChanged(form.getValues(), data, addressData);
 
   const { fetchDocList } = useCustomFetchHook();
 

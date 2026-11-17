@@ -63,3 +63,13 @@ export function customerFormValues(
     pin_code: address?.pincode ?? "",
   };
 }
+
+/** Whether the form holds anything other than the saved Customer and Address, field by field. */
+export function customerFormChanged(
+  values: CustomerFormValues,
+  customer: Partial<CustomerFields> | undefined,
+  address: Partial<AddressFields> | undefined,
+): boolean {
+  const saved = customerFormValues(customer, address);
+  return CustomerFormSchema.keyof().options.some((key) => values[key] !== saved[key]);
+}
