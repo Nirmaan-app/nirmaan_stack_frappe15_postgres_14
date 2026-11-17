@@ -1,6 +1,8 @@
 {
   // Trial only (ticket #1699): eslint.config.js's rules, one for one, for oxlint. Not wired into yarn lint,
   // the hooks or CI. The `.json()` ban is the JS plugin nirmaan_plugin.mjs (oxlint has no no-restricted-syntax).
+  // Run it through lint.mjs: oxlint resolves `files` and `ignorePatterns` inside this folder only, so the globs
+  // below start with `**/`, and the ignore of src/components/ui/ is passed on the command line there.
   "$schema": "../../node_modules/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript", "react"],
   "jsPlugins": ["./nirmaan_plugin.mjs"],
@@ -13,7 +15,6 @@
     "restriction": "off",
     "nursery": "off"
   },
-  "ignorePatterns": ["src/components/ui/"],
   "rules": {
     "typescript/no-explicit-any": "error",
     "typescript/use-unknown-in-catch-callback-variable": "error",
@@ -47,7 +48,7 @@
   },
   "overrides": [
     {
-      "files": ["src/pages/customers/**/*.{ts,tsx}", "src/utils/customers/**/*.{ts,tsx}"],
+      "files": ["**/src/pages/customers/**/*.{ts,tsx}", "**/src/utils/customers/**/*.{ts,tsx}"],
       "rules": {
         "typescript/no-unsafe-argument": "error",
         "typescript/no-unsafe-assignment": "error",
@@ -62,11 +63,11 @@
       }
     },
     {
-      "files": ["src/lib/frappe.ts", "src/lib/frappe.test.ts"],
+      "files": ["**/src/lib/frappe.ts", "**/src/lib/frappe.test.ts"],
       "rules": { "no-restricted-imports": "off" }
     },
     {
-      "files": ["src/lib/parseJson.ts"],
+      "files": ["**/src/lib/parseJson.ts"],
       "rules": { "no-restricted-properties": "off", "nirmaan/no-json-call": "off" }
     }
   ]
