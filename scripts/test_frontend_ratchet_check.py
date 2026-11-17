@@ -52,6 +52,22 @@ class Suppressions(unittest.TestCase):
         self.assertIn("src/vendors.tsx @typescript-eslint/no-explicit-any", problems[1])
 
 
+class RenamedFile(unittest.TestCase):
+    def test_a_renamed_file_is_still_refused_and_named_as_a_likely_rename(self):
+        moved = {"src/orders/index.tsx": BASE["src/orders.tsx"]}
+        problems = loosenings(BASE, moved, package(97.47), package(97.47))
+        self.assertTrue(problems)
+        self.assertTrue(all("new" in p for p in problems))
+        self.assertTrue(any("looks like a rename of src/orders.tsx" in p for p in problems))
+
+    def test_a_new_file_with_other_counts_gets_no_rename_hint(self):
+        head = {"src/orders.tsx": BASE["src/orders.tsx"],
+                "src/vendors.tsx": {"@typescript-eslint/no-explicit-any": {"count": 3}}}
+        problems = loosenings(BASE, head, package(97.47), package(97.47))
+        self.assertEqual(len(problems), 1)
+        self.assertNotIn("rename", problems[0])
+
+
 class TypeCoverageThreshold(unittest.TestCase):
     def test_a_lowered_threshold_is_refused(self):
         problems = loosenings(BASE, BASE, package(97.47), package(97.2))
@@ -101,6 +117,13 @@ class CommandLine(unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 1)
         self.assertIn("3 -> 9", result.stderr)
+
+    def test_a_malformed_threshold_exits_1_and_names_the_value(self):
+        self.write(BASE, {"scripts": {"type-coverage": "type-coverage --strict --at-least 97.4."}})
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("97.4.", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_an_unchanged_working_tree_exits_0(self):
         self.assertEqual(self.run_script().returncode, 0)

@@ -31,12 +31,15 @@ def loosenings(base_supp, head_supp, base_pkg, head_pkg):
     A base without a suppressions file (None) has no ratchet yet, so the change that adds it loosens nothing.
     """
     problems = []
+    gone = {path: counts(rules) for path, rules in (base_supp or {}).items() if path not in head_supp}
     for path, rules in sorted(head_supp.items() if base_supp is not None else []):
+        renamed_from = next((old for old, before in sorted(gone.items()) if before == counts(rules)), None)
+        hint = f" (it looks like a rename of {renamed_from}: same rules and counts)" if renamed_from else ""
         for rule, entry in sorted(rules.items()):
             count = entry.get("count", 0)
             base_entry = base_supp.get(path, {}).get(rule)
             if base_entry is None:
-                problems.append(f"{SUPPRESSIONS}: {path} {rule} is new ({count})")
+                problems.append(f"{SUPPRESSIONS}: {path} {rule} is new ({count}){hint}")
                 continue
             before = base_entry.get("count", 0)
             if count > before:
@@ -48,10 +51,23 @@ def loosenings(base_supp, head_supp, base_pkg, head_pkg):
     return problems
 
 
+def counts(rules):
+    """{rule: count} of one file's suppressions entry."""
+    return {rule: entry.get("count", 0) for rule, entry in rules.items()}
+
+
 def at_least(pkg):
-    """The type-coverage threshold in a package.json's scripts, or None when it has none."""
+    """The type-coverage threshold in a package.json's scripts, or None when it has none.
+
+    Exits 1 with a sentence when the value is not a number (e.g. `97.4.`).
+    """
     found = re.search(r"--at-least[ =]([0-9.]+)", pkg.get("scripts", {}).get("type-coverage", ""))
-    return float(found.group(1)) if found else None
+    if not found:
+        return None
+    try:
+        return float(found.group(1))
+    except ValueError:
+        sys.exit(f"✘ {PACKAGE}: type-coverage --at-least {found.group(1)!r} is not a number.")
 
 
 def read_at(root, ref, path):
