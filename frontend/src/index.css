@@ -2,38 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Thin scrollbars everywhere (page, tables, sidebar, dialogs). Chrome, Edge, Safari: */
+::-webkit-scrollbar { width: 4px; height: 4px; cursor: pointer; }
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--primary) / 0.55);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;   /* a 2px line inside the 4px lane */
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--primary));
+  border-width: 0;               /* the full 4px while grabbing */
+}
+
+/* Firefox only (Chrome ignores the rules above if it sees these) */
+@supports (-moz-appearance: none) {
+  * { scrollbar-width: thin; scrollbar-color: hsl(var(--primary) / 0.55) transparent; }
+}
+
 /* Hide scrollbar utility */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
-}
-
-::-webkit-scrollbar {
-  cursor: pointer;
-  width: 8px;
-  height: 8px;
 }
 
 html, body {
   font-family:"Inter";
   overflow: hidden;
-}
-
-::-webkit-scrollbar-track {
-  cursor: pointer;
-  background-color: #d0d0d2;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: #d36c73;
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: #df8d92;
 }
 
 @layer base {
@@ -211,15 +212,7 @@ sup {
 }
 
 .scrollbar-container:hover::-webkit-scrollbar {
-  width: 6px;
-}
-
-.scrollbar-container::-webkit-scrollbar-thumb {
-  background-color: #888; 
-}
-
-.scrollbar-container::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  width: 4px;
 }
 
 .card-enter {

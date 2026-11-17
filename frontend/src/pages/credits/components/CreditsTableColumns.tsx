@@ -79,7 +79,9 @@ export const getCreditsColumns = (
   onRequestPayment: (term: PoPaymentTermRow) => void,
   currentStatus: string,
   /** Admin, PMO and Procurement see Pay by Cheque on All Credits (`creditCheque.canPayCreditByCheque`). */
-  canPayByCheque: boolean
+  canPayByCheque: boolean,
+  /** May the viewer open a Cheque (`CHEQUE_ACCESS_PROFILES`); worked out once, so rows read no user data. */
+  canOpenCheque: boolean
 ): ColumnDef<PoPaymentTermRow>[] => {
 
   const columns: ColumnDef<PoPaymentTermRow>[] = [
@@ -264,7 +266,7 @@ export const getCreditsColumns = (
         cell: ({ row }) => {
           const chequeNo = row.original.cheque_no;
           return chequeNo ? (
-            <ChequeNumberLink cheque={row.original.cheque} chequeNo={chequeNo} />
+            <ChequeNumberLink cheque={row.original.cheque} chequeNo={chequeNo} canOpen={canOpenCheque} />
           ) : (
             <span className="text-gray-400">--</span>
           );

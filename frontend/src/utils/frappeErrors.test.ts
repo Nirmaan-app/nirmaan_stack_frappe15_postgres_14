@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getFrappeErrorText, readFrappeError } from "./frappeErrors";
+import { getFrappeErrorText, isUniqueValueError, readFrappeError } from "./frappeErrors";
 
 const reply = (body: unknown) => ({ json: async () => body });
 const FALLBACK = "Failed to start the download (status 417).";
@@ -64,4 +64,37 @@ describe("getFrappeErrorText", () => {
       .toBe('Can\'t delete "A & B"');
     expect(getFrappeErrorText(new Error("User email is missing"))).toBe("User email is missing");
   });
+});
+
+// What the server sent when an edited user was given another user's mobile number (localhost, developer mode;
+// values changed). Production sends only the exc_type.
+const DUPLICATE_MOBILE_DEV = {
+    exc_type: "UniqueValidationError",
+    exception: "frappe.exceptions.UniqueValidationError: ('User', 'a@x.com', UniqueViolation('duplicate key value violates unique constraint \"tabUser_mobile_no_key\"\\nDETAIL:  Key (mobile_no)=(9000000000) already exists.\\n'))",
+    _debug_messages: JSON.stringify(["Error in query:\nduplicate key value violates unique constraint \"tabUser_mobile_no_key\"\nDETAIL:  Key (mobile_no)=(9000000000) already exists.\n"]),
+};
+
+describe("isUniqueValueError — the database refused a value another record already holds", () => {
+    it("recognises the developer-mode reply, and matches the field it names", () => {
+        expect(isUniqueValueError(DUPLICATE_MOBILE_DEV)).toBe(true);
+        expect(isUniqueValueError(DUPLICATE_MOBILE_DEV, "mobile_no")).toBe(true);
+    });
+
+    it("does not match a field the database text does not name", () => {
+        expect(isUniqueValueError(DUPLICATE_MOBILE_DEV, "username")).toBe(false);
+    });
+
+    it("recognises the production reply, which carries only the type", () => {
+        expect(isUniqueValueError({ exc_type: "UniqueValidationError" }, "mobile_no")).toBe(true);
+        expect(isUniqueValueError({ exc_type: "UniqueValidationError", message: "There was an error." })).toBe(true);
+    });
+
+    it("leaves every other refusal alone", () => {
+        expect(isUniqueValueError({ exc_type: "ValidationError", exception: "frappe.exceptions.ValidationError: Mobile No is invalid" }, "mobile_no")).toBe(false);
+        expect(isUniqueValueError({ exc_type: "PermissionError" })).toBe(false);
+        expect(isUniqueValueError(LINKED)).toBe(false);
+        expect(isUniqueValueError(new Error("Network Error"))).toBe(false);
+        expect(isUniqueValueError(undefined)).toBe(false);
+        expect(isUniqueValueError("UniqueValidationError")).toBe(false);
+    });
 });

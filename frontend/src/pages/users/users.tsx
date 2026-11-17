@@ -15,6 +15,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { NO_DEPARTMENT_LABEL } from "@/constants/departments";
@@ -357,6 +358,7 @@ const UsersSummaryCard: React.FC = () => {
 
 // --- Main Page Component ---
 export default function UsersPage() {
+  const { role, user_id } = useUserData();
   const columns = useMemo<ColumnDef<NirmaanUsers>[]>(
     () => [
       {
@@ -499,13 +501,13 @@ export default function UsersPage() {
       {
         id: "actions",
         header: () => <span className="text-muted-foreground">Action</span>,
-        cell: ({ row }) => <UserRowActions user={row.original} />,
+        cell: ({ row }) => <UserRowActions user={row.original} currentUserRole={role} currentUserId={user_id} />,
         size: 60,
         enableSorting: false,
         enableHiding: false,
       },
     ],
-    []
+    [role, user_id]
   );
 
   const {

@@ -33,7 +33,6 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "../../components/helpers/ItemsHoverCard";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_SB_FIELDS_TO_FETCH, getSentBackStaticFilters, SB_DATE_COLUMNS, SB_SEARCHABLE_FIELDS } from "./config/sentBackCategoryTables.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -144,7 +143,6 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
     const { notifications, mark_seen_notification } = useNotificationStore();
 
 
@@ -271,14 +269,12 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         {
             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
             cell: ({ row }) => {
-                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+                return (<div className="font-medium truncate">{row.original?.owner_name || row.original?.owner || "--"}</div>);
             }, size: 180,
             meta: {
                 exportHeaderName: "Created By",
                 exportValue: (row: SentBackCategory) => {
-                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
-                    return ownerUser?.full_name || row.owner || "--";
+                    return row.owner_name || row.owner || "--";
                 }
             }
         },
@@ -318,7 +314,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 excludeFromExport: true,
             }
         } as ColumnDef<SentBackCategory>] : []),
-    ], [tab, notifications, projectOptions, userList, handleNewSBSeen, getTotal, role]);
+    ], [tab, notifications, projectOptions, handleNewSBSeen, getTotal, role]);
 
 
     const typeOptions = useMemo(() => [
@@ -368,8 +364,8 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     };
 
     // --- Combined Loading & Error States ---
-    const isLoading = projectsLoading || userListLoading;
-    const combinedError = projectsError || userError;
+    const isLoading = projectsLoading;
+    const combinedError = projectsError;
 
     if (combinedError) {
         <AlertDestructive error={combinedError} />

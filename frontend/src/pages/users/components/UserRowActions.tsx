@@ -20,21 +20,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 import { MoreHorizontal, Eye, KeyRound, Trash2 } from "lucide-react";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { useUserData } from "@/hooks/useUserData";
 import { mutate } from "swr";
+import { useRefreshUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getFrappeErrorText } from "@/utils/frappeErrors";
 
 interface UserRowActionsProps {
   user: NirmaanUsers;
+  /** The viewer's Role Profile and user id, read once by the page, so a row reads no user data. */
+  currentUserRole: string;
+  currentUserId: string;
 }
 
-export function UserRowActions({ user }: UserRowActionsProps) {
+export function UserRowActions({ user, currentUserRole, currentUserId }: UserRowActionsProps) {
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const { role: currentUserRole, user_id: currentUserId } = useUserData();
   const isAdmin = currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile" || currentUserRole === "Nirmaan HR Executive Profile";
   const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile" || user.role_profile === "Nirmaan PMO Executive Profile";
   const isOwnProfile = currentUserId === user.name;
@@ -45,6 +46,7 @@ export function UserRowActions({ user }: UserRowActionsProps) {
   const [isResetting, setIsResetting] = useState(false);
 
   const { deleteDoc } = useFrappeDeleteDoc();
+  const refreshUsersList = useRefreshUsersList();
   const { call } = useContext(FrappeContext) as FrappeConfig;
 
   const handleViewProfile = () => {
@@ -106,6 +108,7 @@ export function UserRowActions({ user }: UserRowActionsProps) {
       setDeleteDialogOpen(false);
       // Refresh the users list
       mutate((key) => typeof key === "string" && key.includes("Nirmaan Users"));
+      refreshUsersList();
     } catch (error: any) {
       // The server's exact reason (e.g. which record still links to this person); `error.message`
       // is only the SDK's "There was an error while deleting the document."

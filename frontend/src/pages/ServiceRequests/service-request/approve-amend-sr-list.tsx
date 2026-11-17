@@ -40,7 +40,6 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import {
   DEFAULT_SR_FIELDS_TO_FETCH,
@@ -100,11 +99,6 @@ export const ApproveSelectAmendSR: React.FC = () => {
     isLoading: vendorsLoading,
     error: vendorsError,
   } = useVendorsList({ vendorTypes: ["Service", "Material & Service"] });
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userError,
-  } = useUsersList();
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- Memoized Options & Calculations ---
@@ -345,12 +339,9 @@ export const ApproveSelectAmendSR: React.FC = () => {
           <DataTableColumnHeader column={column} title="Created By" />
         ),
         cell: ({ row }) => {
-          const ownerUser = userList?.find(
-            (entry) => row.original?.owner === entry.name
-          );
           return (
             <div className="font-medium truncate">
-              {ownerUser?.full_name || row.original?.owner || "--"}
+              {row.original?.owner_name || row.original?.owner || "--"}
             </div>
           );
         },
@@ -358,10 +349,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
         meta: {
           exportHeaderName: "Created By",
           exportValue: (row: ServiceRequests) => {
-            const ownerUser = userList?.find(
-              (entry) => row.owner === entry.name
-            );
-            return ownerUser?.full_name || row.owner || "--";
+            return row.owner_name || row.owner || "--";
           },
         },
       },
@@ -384,7 +372,6 @@ export const ApproveSelectAmendSR: React.FC = () => {
       notifications,
       projectOptions,
       vendorOptions,
-      userList,
       handleNewSRSeen,
       getVendorName,
     ]
@@ -438,8 +425,8 @@ export const ApproveSelectAmendSR: React.FC = () => {
   }, [exportAllRows, call]);
 
   // --- Combined Loading & Error States ---
-  const isLoading = projectsLoading || vendorsLoading || userListLoading;
-  const combinedError = projectsError || vendorsError || userError || listError;
+  const isLoading = projectsLoading || vendorsLoading;
+  const combinedError = projectsError || vendorsError || listError;
 
   // --- CEO Hold Row Highlighting ---
   const getRowClassName = useCallback(

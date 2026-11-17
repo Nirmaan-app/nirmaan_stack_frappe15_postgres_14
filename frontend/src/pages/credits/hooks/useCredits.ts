@@ -40,6 +40,7 @@ import {
 } from "../credits.constant";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { useUserData } from "@/hooks/useUserData";
+import { CHEQUE_ACCESS_PROFILES } from "@/constants/roles";
 import { canPayCreditByCheque } from "@/pages/ProjectPayments/creditCheque";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
@@ -176,6 +177,7 @@ export const useCredits = () => {
   const creditsCounts = useDocCountStore((state) => state.counts.credits);
   const { role } = useUserData();
   const canPayByCheque = canPayCreditByCheque(role);
+  const canOpenCheque = CHEQUE_ACCESS_PROFILES.includes(role);
   const navigate = useNavigate();
   const urlSyncKey = "credits_terms_list";
 
@@ -342,8 +344,8 @@ export const useCredits = () => {
 
   // --- Columns Definition ---
   const columns = useMemo(
-    () => getCreditsColumns(navigate, handleOpenRequestDialog, currentStatus, canPayByCheque),
-    [navigate, handleOpenRequestDialog, currentStatus, canPayByCheque]
+    () => getCreditsColumns(navigate, handleOpenRequestDialog, currentStatus, canPayByCheque, canOpenCheque),
+    [navigate, handleOpenRequestDialog, currentStatus, canPayByCheque, canOpenCheque]
   );
 
   // --- Data Fetching ---

@@ -31,7 +31,6 @@ import {
 
 import type { CommissionReportTask } from '../types';
 import { todayDate } from '../utils';
-import { useUserData } from '@/hooks/useUserData';
 import { useUpdateCommissionTaskChild } from '../data/useCommissionMutations';
 import { type MasterTaskInfo, masterMapKey } from './FillReportButton';
 import { ReportPreviewDialog } from './ReportPreviewDialog';
@@ -61,14 +60,14 @@ interface Props {
     onConfigure?: (task: CommissionReportTask) => void;
     /** Tracker start_date — base for recomputing a deadline on re-activation. */
     startDate?: string;
+    /** Admin Profile or the Administrator user; the table works it out once, so a row reads no user data. */
+    isAdmin: boolean;
 }
 
-export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap, canEdit, refresh, onConfigure, startDate }) => {
+export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap, canEdit, refresh, onConfigure, startDate, isAdmin }) => {
     const navigate = useNavigate();
     const { upload } = useFrappeFileUpload();
     const { updateTaskChild } = useUpdateCommissionTaskChild();
-    const { role, user_id } = useUserData();
-    const isAdmin = role === 'Nirmaan Admin Profile' || user_id === 'Administrator';
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [busy, setBusy] = useState(false);

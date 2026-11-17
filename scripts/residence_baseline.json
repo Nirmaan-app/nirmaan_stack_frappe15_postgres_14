@@ -1,6 +1,6 @@
 {
   "a1_explicit_any": {
-    "count": 1776,
+    "count": 1774,
     "description": "Frontend lines (not tests or components/ui) that type something as `any`.",
     "rule": "A1"
   },

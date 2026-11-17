@@ -686,6 +686,11 @@ def get_approval_queue(
             # Bank lines card and the Paid / Reconciliation Pending decision read.
             r["remaining_amount"] = flt(remaining_balance(r["amount"], r["linked_amount"]))
 
+    # Who raised each row, by name, so the payments pages need no Users list. One query per page.
+    names = _user_names(r.get("raised_by") for r in rows)
+    for r in rows:
+        r["raised_by_name"] = names.get(r.get("raised_by")) or r.get("raised_by")
+
     return {
         "data": rows,
         "total_count": cint(total),
@@ -787,7 +792,32 @@ def get_approval_queue_facets(field, filters=None, search_term=None, current_sea
         for r in rows if (r["value"] or "").strip()
     ]
     blank = sum(cint(r["cnt"]) for r in rows if not (r["value"] or "").strip())
+    if field == "raised_by":
+        # The filter shows names, as the column does.
+        names = _user_names(v["value"] for v in values)
+        for v in values:
+            v["label"] = names.get(v["value"]) or v["value"]
     return {"field": field, "values": values, "blank_count": blank}
+
+
+def _user_names(users):
+    """Each user id's Nirmaan Users full name, or the id itself when there is no such record or name (an
+    offboarded person, Administrator) -- the rule `owner_name` follows in `api/data_table/search.py`. One query.
+    Names are display only, so a failed lookup returns no names (the page shows ids) instead of failing the
+    request; on Postgres a failed query aborts the transaction, so it rolls back to a savepoint first."""
+    users = list({u for u in users if u})
+    if not users:
+        return {}
+    frappe.db.savepoint("user_names")
+    try:
+        full_names = dict(
+            frappe.get_all("Nirmaan Users", filters={"name": ["in", users]}, fields=["name", "full_name"], as_list=True)
+        )
+    except Exception:
+        frappe.db.rollback(save_point="user_names")
+        frappe.log_error(title="Approval queue: user names lookup failed", message=frappe.get_traceback())
+        return {}
+    return {u: full_names.get(u) or u for u in users}
 
 
 def _type_facet(union, where, params):

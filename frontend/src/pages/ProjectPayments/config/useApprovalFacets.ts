@@ -22,7 +22,7 @@
  * opened (`onFacetOpen`, wired to DataTable), then it stays live for the tab's lifetime.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ColumnFiltersState } from "@tanstack/react-table";
 import { useFrappeGetCall } from "frappe-react-sdk";
 
@@ -32,15 +32,22 @@ import { orderTypeOptions, typeFilterLabel } from "./typeFilter";
 const FACET_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue_facets";
 
-const NO_VALUES: { value: string; count: number }[] = [];
+const NO_VALUES: FacetValue[] = [];
 
 /** Matches the table's own search debounce, so the counts do not refetch per keystroke. */
 const SEARCH_DEBOUNCE_MS = 400;
 
+/** One facet value. `label` is sent for "Raised by" only: the person's name, as the column shows it. */
+interface FacetValue {
+  value: string;
+  count: number;
+  label?: string;
+}
+
 interface FacetResponse {
   message: {
     field: string;
-    values: { value: string; count: number }[];
+    values: FacetValue[];
     blank_count: number;
   };
 }
@@ -63,7 +70,7 @@ export interface UseApprovalFacetsArgs {
   /** Id -> display name; the endpoint returns ids, the filter shows names. */
   projectLabels: Map<string, string>;
   vendorLabels: Map<string, string>;
-  /** Owner email -> full name, for "Raised by". */
+  /** Owner email -> full name, for "Raised by". A fallback only: the server names each value. */
   userLabels?: Map<string, string>;
   /** Whether the Status facet is meaningful (only on a mixed-status tab). */
   includeStatus?: boolean;
@@ -143,10 +150,15 @@ export function useApprovalFacets({
   const raisedBy = useQueueFacet("raised_by", opened.has("raised_by"), ...common);
   const paymentSource = useQueueFacet("payment_source", opened.has("payment_source"), ...common);
 
+  // Every "Raised by" name the server has sent this session. A ticked value that the other filters now empty
+  // is not in the latest answer, but it was when it was ticked, so it keeps its name.
+  const raisedByNames = useRef(new Map<string, string>());
+  for (const v of raisedBy.values) if (v.label) raisedByNames.current.set(v.value, v.label);
+
   const facetOptions = useMemo(() => {
     const withCounts = (
       field: string,
-      values: { value: string; count: number }[],
+      values: FacetValue[],
       labelFor: (value: string) => string,
     ) => {
       // A blank is a TRUE value here (a non-project expense has no project and no vendor),
@@ -189,7 +201,7 @@ export function useApprovalFacets({
         title: "Raised by",
         isLoading: raisedBy.isLoading,
         // Falls back to the email when the user has no Nirmaan Users row, as the cell does.
-        options: withCounts("raised_by", raisedBy.values, (v) => userLabels?.get(v) || v),
+        options: withCounts("raised_by", raisedBy.values, (v) => raisedByNames.current.get(v) || userLabels?.get(v) || v),
       },
       // The five statements and "Unknown" (owner, 2026-11-06); shown only where the column is.
       payment_source: {

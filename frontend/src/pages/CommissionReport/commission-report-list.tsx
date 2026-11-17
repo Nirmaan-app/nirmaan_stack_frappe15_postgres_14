@@ -327,6 +327,7 @@ export default function CommissionReportList() {
                         refetchList={refetchList}
                         user_id={user_id}
                         isDesignExecutive={isDesignExecutive}
+                        isAdmin={isAdmin}
                         statusFilter={activeStatusTab}
                     />
                     </div>

@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { KeyedMutator } from "swr";
 import { NirmaanUserPermissions } from "../types/NirmaanStack/NirmaanUserPermissions";
 import { getFrappeErrorText } from "@/utils/frappeErrors";
+import { useRefreshUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 // Constants for reusable strings
 const DOCUMENT_TYPES = {
@@ -41,6 +42,7 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
   const { createDoc: createDoc, loading: create_loading } = useFrappeCreateDoc();
   const { deleteDoc: deleteDoc, loading: delete_loading } = useFrappeDeleteDoc();
   const { mutate } = useSWRConfig();
+  const refreshUsersList = useRefreshUsersList();
   const { call } = useContext(FrappeContext) as FrappeConfig;
   const [rename_loading, setRenameLoading] = useState(false);
 
@@ -81,6 +83,7 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
 
       await deleteDoc(DOCUMENT_TYPES.NIRMAAN_USERS, data.email);
       await mutate(DOCUMENT_TYPES.NIRMAAN_USERS);
+      refreshUsersList();
 
       showToast(
         toast,
@@ -190,6 +193,7 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
       );
 
       await mutate(DOCUMENT_TYPES.NIRMAAN_USERS);
+      refreshUsersList();
 
       showToast(
         toast,

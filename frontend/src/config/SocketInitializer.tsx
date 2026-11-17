@@ -2,12 +2,16 @@ import React, { useContext, useEffect, useRef } from 'react';
 import { FrappeConfig, FrappeContext } from 'frappe-react-sdk';
 import { useNotificationStore } from '@/zustand/useNotificationStore';
 import { NotificationServiceActions, initializeSocketListeners } from '@/services/socketListeners';
+import { useUsersListLiveRefresh } from '@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 
 export const SocketInitializer: React.FC = () => {
     const { socket, db } = useContext(FrappeContext) as FrappeConfig;
 
     // Get the entire store instances
     const notificationStore = useNotificationStore();
+
+    // Every session's users list follows any change to Nirmaan Users (names in tables, filters, pickers).
+    useUsersListLiveRefresh();
 
     const initialized = useRef(false);
 

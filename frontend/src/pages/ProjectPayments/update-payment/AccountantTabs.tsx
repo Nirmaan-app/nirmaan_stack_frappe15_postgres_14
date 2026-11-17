@@ -19,7 +19,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // --- Hooks & Utils ---
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
-import { getFrappeError } from "@/utils/frappeErrors";
+import { getFrappeError, getFrappeErrorText } from "@/utils/frappeErrors";
 import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { splitByLedger } from "@/utils/expenses/expenseDecision";
 import { GstPaymentTag } from "../components/GstPaymentTag";
@@ -63,7 +63,7 @@ import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 import PaymentSummaryCards from "../PaymentSummaryCards"
 import { useUserData } from "@/hooks/useUserData"
-import { canViewPaymentSummary } from "@/constants/roles"
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles"
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
 import { countLabel, selectionTotal, summarizeSelection } from "../bulkSelectionSummary"
@@ -303,6 +303,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onToggleHold: canWork ? setHoldRow : undefined,
         canHold: (row) => canHoldQueueRow(row, role),
+        canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
         ),
@@ -479,8 +480,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 await updateDoc(paymentRows[i].doctype, paymentRows[i].name, {
                     status: APPROVAL_STATUS.RECONCILIATION_PENDING,
                 });
-            } catch (e: any) {
-                failed.push({ row: paymentRows[i], reason: e?.message || "Please try again." });
+            } catch (e: unknown) {
+                // The server's own reason (e.g. "… is on hold. Release the hold …"), not the SDK's generic
+                // "There was an error while updating the document."
+                failed.push({ row: paymentRows[i], reason: getFrappeErrorText(e) || "Please try again." });
             }
             setMarkingProgress(expenseRows.length + i + 1);
         }

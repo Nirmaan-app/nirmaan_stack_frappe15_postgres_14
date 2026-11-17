@@ -8,6 +8,8 @@ export interface SentBackCategory{
 	modified: string
 	doctype: string
 	owner: string
+	/** Display only: the owner's full name, sent by the list API when it is asked for `owner` (data_table/search.py). */
+	owner_name?: string
 	modified_by: string
 	docstatus?: 0 | 1 | 2
 	parent?: string

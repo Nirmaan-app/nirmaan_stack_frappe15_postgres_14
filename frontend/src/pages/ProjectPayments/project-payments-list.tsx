@@ -112,8 +112,11 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         [scopeByProject, projects]
     );
 
+    // Only the fields this page reads: the columns and their export, the payments dialog (`project_name`,
+    // `vendor_name` on a PO) and the over-amount warning (`gst` on a WO). `["*"]` brought every column of
+    // every order, ~13.6 MB per open.
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-        fields: ["*"],
+        fields: ["name", "creation", "project", "project_name", "vendor", "vendor_name", "amount_invoiced", "amount_paid", "po_amount_delivered"],
         filters: [["status", "not in", ["Cancelled", "Merged","Inactive"]], ...projectInFilter],
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
@@ -122,7 +125,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     );
 
     const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
-        fields: ["*"],
+        fields: ["name", "creation", "project", "vendor", "gst", "amount_invoiced", "amount_paid"],
         filters: [["status", "=", "Approved"], ...projectInFilter],
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
@@ -136,8 +139,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     }, 'Vendors');
 
     // Total Invoice Amt comes straight off the PO / SR row (`amount_invoiced`, kept
-    // current by the Vendor Invoices doc events). Both parent fetches above already use
-    // `fields: ["*"]`, so it arrives with no query change — and the whole-invoice-table
+    // current by the Vendor Invoices doc events), fetched with the orders above — and the whole-invoice-table
     // fetch that used to live here (5,164 rows on every page open) is gone.
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
@@ -193,7 +195,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     const { getTotalAmount } = useOrderTotals()
 
     // An order's paid figure is its stored Amount Paid (ADR-0034): Paid payments less Received
-    // refunds. Both order fetches above use `fields: ["*"]`, so it arrives on the row.
+    // refunds. Both order fetches above ask for `amount_paid`.
     const findOrder = useCallback((doctype: string, docname: string) =>
         doctype === "Procurement Orders"
             ? purchaseOrders?.find((i) => i?.name === docname)

@@ -96,7 +96,7 @@ export const buildApprovalExportColumns = (
   col("to_be_paid", "To be paid", (r) => r.amount),
   col("tier", "Tier", (r) => TIER_LABEL[r.tier] ?? r.tier ?? ""),
   col("raised_by", "Raised By", (r) =>
-    ctx.userLabels?.get(r.raised_by) || r.raised_by || "",
+    r.raised_by_name || ctx.userLabels?.get(r.raised_by) || r.raised_by || "",
   ),
   col("auto_approved", "Auto Approved", (r) => (r.auto_approved ? "Yes" : "No")),
 

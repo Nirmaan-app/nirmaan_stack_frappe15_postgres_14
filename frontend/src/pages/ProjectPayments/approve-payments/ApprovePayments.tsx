@@ -38,7 +38,7 @@ import {
 } from "./constants";
 import PaymentSummaryCards from "../PaymentSummaryCards";
 import { useUserData } from "@/hooks/useUserData";
-import { canViewPaymentSummary } from "@/constants/roles";
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles";
 
 // --- Hooks & Utils ---
 import { Row } from "@tanstack/react-table";
@@ -73,7 +73,6 @@ import {
 } from "@/zustand/useNotificationStore";
 import { formatDate } from "@/utils/FormatDate";
 import { memoize } from "lodash";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import {
@@ -179,12 +178,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   } = useVendorsList({
     vendorTypes: ["Service", "Material", "Material & Service"],
   });
-
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userError,
-  } = useUsersList();
 
   const {
     data: purchaseOrders,
@@ -380,18 +373,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   // entry in TAB_COLUMNS rather than another 300-line block.
   const activeTab = isCEOMode ? PP_TABS.CEO_PENDING : PP_TABS.APPROVE_PAYMENTS;
 
-  const userLabelMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const u of userList ?? []) m.set(u.name, u.full_name || u.name);
-    return m;
-  }, [userList]);
-
   const columnCtx = useMemo<ApprovalColumnCtx>(
     () => ({
       tab: activeTab,
       projectLabels: projectLabelMap,
       vendorLabels: vendorLabelMap,
-      userLabels: userLabelMap,
       getDocumentTotal,
       getAmountPaid,
       getPoAmountDelivered,
@@ -415,12 +401,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.REJECT),
       onEdit: canWork ? setEditRow : undefined,
       canEdit: (row) => canEditQueueRow(row, editableStatuses),
+      canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
     }),
     [
       activeTab,
       projectLabelMap,
       vendorLabelMap,
-      userLabelMap,
       getDocumentTotal,
       getAmountPaid,
       getPoAmountDelivered,
@@ -513,7 +499,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     selectedSearchField,
     projectLabels: projectLabelMap,
     vendorLabels: vendorLabelMap,
-    userLabels: userLabelMap,
   });
 
   // ── Bulk selection cap ────────────────────────────────────────────────────────
@@ -758,7 +743,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const isPageLoading =
     projectsLoading ||
     vendorsLoading ||
-    userListLoading ||
     poLoading ||
     srLoading;
   const hasLoadedOnce = useHasLoadedOnce(isPageLoading);
@@ -766,7 +750,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const combinedError =
     projectsError ||
     vendorsError ||
-    userError ||
     poError ||
     srError ||
     listError;

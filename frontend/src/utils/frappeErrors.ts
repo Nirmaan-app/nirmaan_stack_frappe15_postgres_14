@@ -75,3 +75,22 @@ const toPlainText = (html: string): string =>
 
 /** The server's exact reason as plain text, for a toast (see `toPlainText`). */
 export const getFrappeErrorText = (error: any): string => toPlainText(getFrappeError(error));
+
+/**
+ * True when Frappe refused a save because a unique field already holds that value (the database's
+ * "duplicate key" refusal, for example two users with one mobile number).
+ *
+ * On PostgreSQL Frappe gives this refusal no readable message (`show_unique_validation_message` writes one
+ * only on MariaDB), and production sends just `exc_type: "UniqueValidationError"`, with no text that names
+ * the field. So the type is what identifies it. When the reply does carry the database text (developer mode,
+ * or error tracebacks allowed), it names the unique key (`"tabUser_mobile_no_key"`); then `fieldname`, when
+ * given, must appear in it, so a refusal on another unique field is not mistaken for this one.
+ */
+export const isUniqueValueError = (error: unknown, fieldname?: string): boolean => {
+    if (!error || typeof error !== "object") return false;
+    const { exc_type, exception, _debug_messages } = error as Record<string, unknown>;
+    const text = [exception, _debug_messages].filter((part): part is string => typeof part === "string").join(" ");
+    const isUnique = exc_type === "UniqueValidationError" || text.includes("UniqueValidationError");
+    if (!isUnique) return false;
+    return !fieldname || !text.includes("duplicate key") || text.includes(fieldname);
+};

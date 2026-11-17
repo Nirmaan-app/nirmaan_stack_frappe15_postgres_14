@@ -41,15 +41,16 @@ import {
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
 import { PRICING_WORKBOOKS } from "@/pages/pricing/pricingWorkbooks";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
+import { NOTIFICATION_STORE_LIMIT, NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
+import { useListUpdate } from "@/hooks/useListUpdate";
 import { getToken } from "firebase/messaging";
 import {
-  useFrappeDocTypeEventListener,
+  FrappeConfig,
+  FrappeContext,
   useFrappeGetDoc,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
-import Cookies from "js-cookie";
 import {
   BellRing,
   Calendar,
@@ -63,7 +64,7 @@ import {
   Store,
   UsersRound, Waypoints
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { UserNav } from "../nav/user-nav";
 import {
@@ -75,6 +76,7 @@ import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import { useAppAccess } from "@/hooks/useAppAccess";
 import { useExpenseAccess } from "@/hooks/useExpenseAccess";
+import { useUserData } from "@/hooks/useUserData";
 import { showsExpenses } from "@/utils/expenseAccess";
 import {
   ACCOUNTANT_LEAD_PROFILE,
@@ -97,13 +99,19 @@ import {
 } from "@/constants/roles";
 import { payeesSidebarPlace } from "@/utils/payees/payeeRoutes";
 
+/** What the "new" dots on list rows read from a notification (`docname`, `event_id`, `seen`), and its id. */
+const NOTIFICATION_DOT_FIELDS: (keyof NotificationType)[] = ["name", "docname", "event_id", "seen"];
+
 export function NewSidebar() {
-  const [role, setRole] = useState<string | null>(null);
   const location = useLocation();
 
   const navigate = useNavigate();
 
-  const user_id = Cookies.get("user_id") ?? "";
+  // The shared user (`UserDataProvider`), in this menu's own meaning of `role`: null for Administrator and until
+  // the role is known, which is why every entry below also checks `user_id == "Administrator"`.
+  const { user_id, role: userRole } = useUserData();
+  const role: string | null =
+    user_id === "Administrator" || userRole === "Loading" || userRole === "Error" ? null : userRole;
 
   // While the app is locked (utils/appAccess.ts) -- or still being checked, so no item shows and then vanishes --
   // the menu is the Dashboard alone; the dashboard shows what to sort out first.
@@ -123,68 +131,51 @@ export function NewSidebar() {
 
   const { toggleSidebar, isMobile, state } = useSidebar();
 
+  // The person's whole record, for the push-notification sync below (fcm_token, push_notification). The same SWR
+  // key `UserDataProvider` reads, so it shares that one request.
   const { data } = useFrappeGetDoc<NirmaanUsers>(
     "Nirmaan Users",
     user_id,
     user_id === "Administrator" ? null : undefined
   );
 
-  useEffect(() => {
-    if (data) {
-      setRole(data.role_profile);
-    }
-  }, [data]);
+  const { add_all_notific_directly, upsert_notification, delete_notification } = useNotificationStore();
+  const { db } = useContext(FrappeContext) as FrappeConfig;
 
-  const { clear_notifications, add_all_notific_directly } =
-    useNotificationStore();
-  // const { db } = useContext(FrappeContext) as FrappeConfig;
-
-  // Fetch all notifications that are unseen for the current user
-  const { data: notificationsData, mutate: notificationsDataMutate } = useFrappeGetDocList(
+  // The person's newest 500 notifications, read and unread, with only what the "new" dots on list rows read. The
+  // badge is the unread among them (the store). The bell dropdown and the Notifications page load their own full
+  // lists (`nav/notifications.tsx`).
+  const { data: notificationsData } = useFrappeGetDocList<NotificationType>(
     "Nirmaan Notifications",
     {
-      fields: ["name", "creation", "description", "docname", "document", "event_id", "project", "recipient", "recipient_role", "seen", "sender", "title", "type", "work_package", "action_url"],
+      fields: NOTIFICATION_DOT_FIELDS,
       filters: [["recipient", "=", user_id]],
-      limit: 500,
+      limit: NOTIFICATION_STORE_LIMIT,
       orderBy: { field: "creation", order: "desc" },
     }
   );
 
-  // On initial render, segregate notifications and store in Zustand
   useEffect(() => {
-    if (notificationsData) {
-      clear_notifications();
-      // notificationsData.forEach((notification: any) => {
-      //   add_new_notification({
-      //     name: notification.name,
-      //     creation: notification.creation,
-      //     description: notification.description,
-      //     docname: notification.docname,
-      //     document: notification.document,
-      //     event_id: notification.event_id,
-      //     project: notification.project,
-      //     recipient: notification.recipient,
-      //     recipient_role: notification.recipient_role,
-      //     seen: notification.seen,
-      //     sender: notification?.sender,
-      //     title: notification.title,
-      //     type: notification.type,
-      //     work_package: notification.work_package,
-      //     action_url: notification?.action_url,
-      //   });
-      // });
-
-      add_all_notific_directly(notificationsData)
-    }
-  }, [notificationsData, user_id, clear_notifications, add_all_notific_directly]);
+    if (notificationsData) add_all_notific_directly(notificationsData);
+  }, [notificationsData, add_all_notific_directly]);
 
   const { updateDoc } = useFrappeUpdateDoc();
 
-
-
-  useFrappeDocTypeEventListener("Nirmaan Notifications", () => {
-    console.log("Refetching Notification data due to socket event...");
-    notificationsDataMutate?.(); // Always refetch notifications for the current user
+  // A notification was added, marked seen or deleted (by anyone): read just that one, and only if it is this
+  // person's. Covers the events no custom socket listener handles (socketListeners.ts) and changes made in another
+  // tab. `useListUpdate`, not the SDK listener, so another screen's clean-up can never remove it (bug B1).
+  useListUpdate("Nirmaan Notifications", async ({ name }) => {
+    if (!name) return;
+    const [notification] = await db.getDocList<NotificationType>("Nirmaan Notifications", {
+      fields: NOTIFICATION_DOT_FIELDS,
+      filters: [["name", "=", name], ["recipient", "=", user_id]],
+      limit: 1,
+    });
+    if (notification) {
+      upsert_notification(notification);
+    } else if (useNotificationStore.getState().notifications.some((n) => n.name === name)) {
+      delete_notification(name); // deleted
+    } // else someone else's
   });
 
   const requestNotificationPermission = async () => {
@@ -578,9 +569,9 @@ export function NewSidebar() {
     //   : []),
     // Bulk Import Transactions (S3; renamed from Bulk Import Outflow at B8a -- the module now
     // carries money IN as well as OUT). Owner ruling: Accountant / Accountant Lead / Admin.
-    // The `user_id == "Administrator"` disjunct is NOT redundant -- this component skips the
-    // Nirmaan Users fetch for Administrator, so `role` is null there (unlike useUserData(),
-    // which fakes it to "Nirmaan Admin Profile"). Every entry in this file carries it.
+    // The `user_id == "Administrator"` disjunct is NOT redundant -- this menu's `role` is null for
+    // Administrator (top of NewSidebar maps it so, unlike useUserData(), which reports
+    // "Nirmaan Admin Profile"). Every entry in this file carries it.
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
       ? [
         {

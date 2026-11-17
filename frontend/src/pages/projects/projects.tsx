@@ -51,7 +51,6 @@ import {
   getProjectStaticFilters,
 } from "./config/projectTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import {
   useAllProjectsCount,
   useTenderingProjectsCount,
@@ -362,11 +361,6 @@ export const Projects: React.FC<ProjectsProps> = ({
   }, [statusCountData]);
 
   // --- Supporting Data & Hooks ---
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userError,
-  } = useUsersList();
 
   // const { data: prData, isLoading: prDataLoading, error: prDataError } = useFrappeGetDocList<ProcurementRequest>(
   //     "Procurement Requests", { fields: ["name", "project", "workflow_state", "procurement_list"], limit: 100000 }, "PRs_For_ProjectsList" // Fetch all for counts
@@ -807,13 +801,11 @@ export const Projects: React.FC<ProjectsProps> = ({
   // --- Combined Loading & Error States ---
   const isLoadingOverall =
     financialRollupLoading ||
-    listIsLoading ||
-    userListLoading;
+    listIsLoading;
   const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
 
   const combinedErrorOverall =
     financialRollupError ||
-    userError ||
     listError;
 
   if (combinedErrorOverall && !projectsDataForTable?.length) {

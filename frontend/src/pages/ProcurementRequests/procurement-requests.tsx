@@ -49,7 +49,6 @@ import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -207,7 +206,6 @@ export const ProcurementRequests: React.FC = () => {
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
     );
-    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList(); // For owner display
     const { notifications, mark_seen_notification } = useNotificationStore();
 
     const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
@@ -356,16 +354,14 @@ export const ProcurementRequests: React.FC = () => {
         {
             accessorKey: "owner", header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
             cell: ({ row }) => {
-                const ownerUser = userList?.find((entry) => row.original?.owner === entry.name);
-                return (<div className="font-medium truncate">{ownerUser?.full_name || row.original?.owner || "--"}</div>);
+                return (<div className="font-medium truncate">{row.original?.owner_name || row.original?.owner || "--"}</div>);
             }, size: 180,
             enableColumnFilter: true,
             meta: {
                 facet: { field: 'owner', title: 'Created By' } satisfies FacetDeclaration,
                 exportHeaderName: "Created By",
                 exportValue: (row: ProcurementRequest) => {
-                    const ownerUser = userList?.find((entry) => row.owner === entry.name);
-                    return ownerUser?.full_name || row.owner || "--";
+                    return row.owner_name || row.owner || "--";
                 }
             }
         },
@@ -400,7 +396,7 @@ export const ProcurementRequests: React.FC = () => {
                 excludeFromExport: true,
             }
         } as ColumnDef<ProcurementRequest>] : []),
-    ], [tab, role, notifications, projectOptions, userList, workPackageOptions, handleNewPRSeen]); // Dependencies for columns
+    ], [tab, role, notifications, projectOptions, workPackageOptions, handleNewPRSeen]); // Dependencies for columns
 
 
     // --- useServerDataTable Hook Instantiation for Data Table Tabs ---
@@ -409,8 +405,8 @@ export const ProcurementRequests: React.FC = () => {
         [tab]);
 
     // --- Combined Loading & Error States ---
-    const isSupportingDataLoading = projectsLoading || userListLoading || wpLoading;
-    const supportingDataError = projectsError || userError || wpError;
+    const isSupportingDataLoading = projectsLoading || wpLoading;
+    const supportingDataError = projectsError || wpError;
 
     const handleConfirmDelete = async () => {
         if (deleteFlagged) {

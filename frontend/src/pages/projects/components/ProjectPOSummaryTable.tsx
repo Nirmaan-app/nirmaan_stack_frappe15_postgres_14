@@ -53,7 +53,6 @@ import { CriticalPOCell, criticalPOLabel } from "@/components/helpers/CriticalPO
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { cn } from "@/lib/utils";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import {
   useProjectPOAggregates,
   useProjectPOSupportingData,
@@ -237,18 +236,12 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   const { data: criticalPOTasks, isLoading: criticalPOTasksLoading } = criticalPOTasksResponse;
   const { data: projects, isLoading: projectsLoading } = projectsResponse;
 
-  // --- Supporting Data for Columns (Vendor Names, Users) ---
+  // --- Supporting Data for Columns (Vendor Names) ---
   const {
     data: vendors,
     isLoading: vendorsLoading,
     error: vendorsError,
   } = useVendorsList({ vendorTypes: ["Material", "Material & Service"] });
-
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userListError,
-  } = useUsersList();
 
   const { totals: creditTotals } = useProjectAllCredits(projectId);
 
@@ -518,12 +511,9 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           <DataTableColumnHeader column={column} title="Approved By" />
         ),
         cell: ({ row }) => {
-          const ownerUser = userList?.find(
-            (entry) => row.original?.owner === entry.name
-          );
           return (
             <div className="font-medium truncate">
-              {ownerUser?.full_name || row.original?.owner || "--"}
+              {row.original?.owner_name || row.original?.owner || "--"}
             </div>
           );
         },
@@ -533,10 +523,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           facet: { field: "owner", title: "Approved By" } satisfies FacetDeclaration,
           exportHeaderName: "Approved By",
           exportValue: (row: ProcurementOrder) => {
-            const ownerUser = userList?.find(
-              (entry) => row.owner === entry.name
-            );
-            return ownerUser?.full_name || row.owner || "--";
+            return row.owner_name || row.owner || "--";
           },
         },
       },
@@ -682,7 +669,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     [
       getVendorName,
       criticalTasksByPO,
-      userList,
       poAmountsDict,
       calculateTotalLiabilities,
       hideFinancialColumns,
@@ -728,13 +714,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
   const isLoadingOverall =
     vendorsLoading ||
-    userListLoading ||
     aggregatesLoading ||
     criticalPOTasksLoading;
   const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
   const combinedErrorOverall =
     vendorsError ||
-    userListError ||
     listError ||
     aggregatesError;
 

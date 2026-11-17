@@ -34,7 +34,6 @@ import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
-import { useUsersList } from "./hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import {
   DEFAULT_PR_FIELDS_TO_FETCH,
@@ -85,11 +84,6 @@ export const ApprovePR: React.FC = () => {
     projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>,
     projectQueryKey
   );
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userError,
-  } = useUsersList(); // For owner display
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- (2) NEW: Fetch Work Packages for the filter dropdown ---
@@ -302,12 +296,9 @@ export const ApprovePR: React.FC = () => {
           <DataTableColumnHeader column={column} title="Created By" />
         ),
         cell: ({ row }) => {
-          const ownerUser = userList?.find(
-            (entry) => row.original?.owner === entry.name
-          );
           return (
             <div className="font-medium truncate">
-              {ownerUser?.full_name || row.original?.owner || "--"}
+              {row.original?.owner_name || row.original?.owner || "--"}
             </div>
           );
         },
@@ -317,10 +308,7 @@ export const ApprovePR: React.FC = () => {
           facet: { field: "owner", title: "Created By" } satisfies FacetDeclaration,
           exportHeaderName: "Created By",
           exportValue: (row: ProcurementRequest) => {
-            const ownerUser = userList?.find(
-              (entry) => row.owner === entry.name
-            );
-            return ownerUser?.full_name || row.owner || "--";
+            return row.owner_name || row.owner || "--";
           },
         },
       },
@@ -365,7 +353,6 @@ export const ApprovePR: React.FC = () => {
       notifications,
       projectOptions,
       workPackageOptions,
-      userList,
       handleNewPRSeen,
     ]
   ); // Removed getTotal dependency
@@ -414,8 +401,8 @@ export const ApprovePR: React.FC = () => {
     }); */
 
   // --- Combined Loading State & Error Handling ---
-  const isLoading = projectsLoading || userListLoading || wpLoading;
-  const error = projectsError || userError || listError || wpError;
+  const isLoading = projectsLoading || wpLoading;
+  const error = projectsError || listError || wpError;
 
   if (error) {
     return <AlertDestructive error={error as Error} />;
