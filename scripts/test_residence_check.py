@@ -1,6 +1,6 @@
 """Tests for the P1 and R1 rules (and A1's retirement) of residence_check.py, and for what a failure prints.
 
-Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
+Stdlib only, like the check itself (J1's tests also need node and frontend/node_modules):  python3 scripts/test_residence_check.py
 """
 
 import io
@@ -356,6 +356,17 @@ class JsonCalls(unittest.TestCase):
     def test_division_is_not_a_regex(self):
         src = "const half = total / 2; const r = await res.json(); const q = a / b / c;\n"
         self.assertEqual(json_call_count(src), 1)
+
+    def test_a_private_or_escaped_json_method_call_is_counted(self):
+        # ESLint's selector matched both: a private name's node is named `json`, and an escape is read decoded.
+        src = "class A { #json() {} f() { this.#json(); } }\nr.j\\u0073on();\n"
+        self.assertEqual(json_call_count(src), 2)
+
+    def test_the_real_tree_sends_every_file_to_the_parser(self):
+        with mock.patch("residence_check.json_call_counts", return_value={}) as counts, \
+                redirect_stdout(io.StringIO()):
+            main(["--check", "--only", "J1"])
+        self.assertTrue("src/lib/frappe.ts" in counts.call_args.args[0], "a file without `json` was not sent")
 
     def test_a_field_or_function_called_json_is_not_a_call_of_it(self):
         src = "const x = row.json;\nconst y = toJson(row);\nconst z = row.jsonText();\nfunction json() {}\n"

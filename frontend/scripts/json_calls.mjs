@@ -2,7 +2,7 @@
 // TypeScript's own parser, so comments, strings, regex literals, JSX and division are read as the compiler reads
 // them. A call counts where ESLint's old selector matched:
 // CallExpression[callee.type='MemberExpression'][callee.property.name='json'] -- `r.json()`, `r?.json()`,
-// `r.json<T>()`, `r.json?.()`, `(r.json)()`; not `r["json"]()` and not `r.json!()`.
+// `r.json<T>()`, `r.json?.()`, `(r.json)()`, `this.#json()`, `r.j\u0073on()`; not `r["json"]()` and not `r.json!()`.
 //
 //   stdin:  {"<path>": "<source>", ...}      a path ending in .tsx is parsed as TSX
 //   stdout: {"<path>": <count>, ...}
@@ -18,7 +18,8 @@ export function jsonCallCount(path, source) {
     if (ts.isCallExpression(node)) {
       let callee = node.expression;
       while (ts.isParenthesizedExpression(callee)) callee = callee.expression;
-      if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.name) && callee.name.text === "json") count++;
+      // `#json` too: ESTree names a private name without its `#`, so the selector matched it.
+      if (ts.isPropertyAccessExpression(callee) && ["json", "#json"].includes(callee.name.text)) count++;
     }
     ts.forEachChild(node, visit);
   };

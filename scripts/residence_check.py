@@ -21,7 +21,7 @@ Usage:
     python3 scripts/residence_check.py --check --only ci     # CI: the CI_SUBSET checks, baseline never rewritten
     python3 scripts/residence_check.py --check --only S1,R1  # named checks (check or rule ids), check-only
 
-Stdlib only; run from anywhere (repo root is resolved from __file__).
+Stdlib only, plus node for J1 (frontend/scripts/json_calls.mjs, with frontend/node_modules); run from anywhere (repo root is resolved from __file__).
 """
 
 from __future__ import annotations
@@ -483,7 +483,10 @@ def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
     if run.returncode != 0:
         raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
                                   f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
-    return json.loads(run.stdout)
+    try:
+        return json.loads(run.stdout)
+    except ValueError as e:
+        raise JsonCallParserError(f"{JSON_CALL_PARSER} printed no counts: {run.stdout.strip()[:2000]}") from e
 
 
 def json_call_count(src: str) -> int:
@@ -518,9 +521,8 @@ def json_calls_unfrozen() -> list[str]:
     sources = {}
     for p in iter_files("frontend/src", (".ts", ".tsx")):
         rel = p.relative_to(REPO_ROOT).as_posix()
-        # A call names `json` in its text; only those files go to the parser.
-        if not rel.startswith(JSON_CALL_EXEMPT) and "json" in (text := read(p)):
-            sources[rel.removeprefix("frontend/")] = text
+        if not rel.startswith(JSON_CALL_EXEMPT):
+            sources[rel.removeprefix("frontend/")] = read(p)
     try:
         found = {path: n for path, n in json_call_counts(sources).items() if n}
     except JsonCallParserError as e:
