@@ -408,6 +408,8 @@ interface SuggestStatusResponse {
   /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
    *  it to report what RAN rather than the population. Already published by the worker. */
   scoped_row_count?: number | null;
+  /** SR-1 C10: true on a fresh selected run that carried nothing (a first selected run). */
+  first_selected_run?: boolean;
   /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
   match?: { queued: boolean; run?: string; reason?: string } | null;
 }
@@ -3171,6 +3173,9 @@ const SheetPricingPage = () => {
           attempted_count: msg.attempted_count,
           population_count: msg.population_count,
           scoped_row_count: msg.scoped_row_count,
+          // SR-1 C10 (found in the AC5 cert, C2): the page copies the done payload field by field, so a new key must
+          // be named here or the completion line never sees it
+          first_selected_run: msg.first_selected_run,
         });
         // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
         // complete run was already there (it never superseded it server-side either), so the

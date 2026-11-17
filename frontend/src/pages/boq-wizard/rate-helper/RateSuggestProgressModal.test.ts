@@ -251,3 +251,13 @@ describe("SR-1 C9 serverRefusalText", () => {
     expect(serverRefusalText({})).toBeNull();
   });
 });
+
+// SR-1 C10 (found in the AC5 cert, step C2): SheetPricingPage copies the done payload FIELD BY FIELD into the modal's
+// summary, so the live modal said "3 rows re-extracted." although the server sent first_selected_run=true. Source pin.
+describe("SR-1 C10 the page passes first_selected_run to the modal", () => {
+  it("SheetPricingPage copies first_selected_run from the done payload", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../SheetPricingPage.tsx", import.meta.url), "utf-8");
+    expect(src).toContain("first_selected_run: msg.first_selected_run");
+  });
+});
