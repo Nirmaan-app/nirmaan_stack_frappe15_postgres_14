@@ -13,7 +13,9 @@ creates a customer (with its Address, City and State filled from the PIN) and ed
 - `customer-edit-form` the pen icon beside the heading opens the edit form, holding the customer's row and address.
 - `customer-create` Add New Customer: the form makes an Address, then the Customer; a 6-digit PIN found in Pincodes
   fills City and State.
-- `customer-edit-save` Update saves the changed fields (Customer and Address).
+- `customer-edit-save` Update saves the changed fields (Customer and Address). An empty field is `null` on the
+  server and `""` in the form; the two count as the same, so a customer saved with no phone or GST, whose empty
+  field was typed into and cleared, leaves Update off and sends nothing (#1703).
 
 ## How to get to it (user POV)
 
@@ -34,11 +36,13 @@ Preconditions:
 - **Whole walk.** `python3 BIN/walk_customers.py --task <task> --user <accountant> --password <pw> --admin-user
   <admin> --admin-password <pw>`. Steps 01-03 as the Accountant (list, a customer's page, its edit form, read
   only), 04-09 as the Admin (list, create a made-up `Zephyr Walk Builders <stamp>` customer, its page, edit and
-  save its contact person). Every screen is checked against `customers_db.py` (saved as `db-*.json`); exits 1 on
+  save its contact person). Steps 03b (Accountant) and 10 (Admin) open the newest real customer saved with no phone
+  or GST (`customers_db.py empty`), type into each empty one and clear it, and check that Update stays off, no
+  `PUT`/`POST` to Customers or Address is sent and the DB row (with its `modified`) is unchanged. Every screen is checked against `customers_db.py` (saved as `db-*.json`); exits 1 on
   any miss. `--part view` runs 01-03 alone and writes nothing.
   With no customer to open (none, all inside the list's 5-minute cache, or all made-up) it exits 1 saying
   which; `python3 -m unittest test_walk_customers` (from `BIN`) tests that choice.
-- **Read the DB.** `DEVENV script <task> BIN/customers_db.py list|customer <id>|by-company <name>|pincode`.
+- **Read the DB.** `DEVENV script <task> BIN/customers_db.py list|customer <id>|by-company <name>|pincode|empty <prefix>`.
 - **The page.** Wait for `Customer ID` and `Total Projects`; labels render uppercase in `inner_text`.
 - **The edit form.** The pen is `button:has(svg.lucide-file-pen-line)`; the form is the `dialog`, its 11 inputs in
   order Company Name, Nickname, Email, Phone, Contact Person, GST, Address Line 1 and 2, City, State, Pin Code.

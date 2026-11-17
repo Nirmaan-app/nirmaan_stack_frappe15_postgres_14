@@ -4,13 +4,16 @@
     devenv.sh script <task> .claude/skills/verify/bin/customers_db.py customer <customer id>
     devenv.sh script <task> .claude/skills/verify/bin/customers_db.py by-company <company name>
     devenv.sh script <task> .claude/skills/verify/bin/customers_db.py pincode
+    devenv.sh script <task> .claude/skills/verify/bin/customers_db.py empty <made-up prefix>
 
 Prints one JSON line:
   list        the customer count and the ten newest customers, as the list page sorts them (creation desc), each
               with its age in seconds (the list's server cache holds a page for 5 minutes);
   customer    one customer's row, its Address and its project counts (all, and WIP), as the customer page shows them;
   by-company  the same for the customers with that company name (a walk's made-up one), as a list;
-  pincode     one Pincodes row with a city and state, for the create form.
+  pincode     one Pincodes row with a city and state, for the create form;
+  empty       the newest customer, not a made-up one, saved with no phone or no GST (null or ""), with an
+              Address, as `customer` gives it plus the row's `modified` (#1703); {"customer": null} when none.
 """
 
 from __future__ import annotations
@@ -63,6 +66,17 @@ elif mode == "pincode":
     if not rows:
         sys.exit("customers_db: no Pincodes row with a 6-digit PIN, a city and a state")
     out = rows[0]
+elif mode == "empty":
+    rows = frappe.db.sql(
+        """select name from "tabCustomers"
+           where (coalesce(company_phone, '') = '' or coalesce(company_gst, '') = '')
+             and coalesce(company_address, '') != '' and company_name not like %s
+           order by creation desc limit 1""",
+        (args[0] + "%",),
+    )
+    out = customer(rows[0][0]) if rows else {"customer": None}
+    if rows:
+        out["modified"] = frappe.db.get_value("Customers", rows[0][0], "modified")
 else:
     sys.exit(f"customers_db: unknown mode {mode!r}")
 print(json.dumps(out, default=str))

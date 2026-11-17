@@ -12,12 +12,15 @@ or write, so it only views):
   02-customer     a customer's name link: heading, Customer ID, contact, phone, email, GST, City/State, address,
                   Total and Active Projects.
   03-edit-form    the pen icon: every field of the edit form holds the customer's row and address.
+  03b-empty       a customer saved with no phone or GST (#1703): type into each empty one and clear it again; Update
+                  stays off, nothing is sent, and the DB row is unchanged.
 A Nirmaan Admin Profile (Admin Options > Customers, Admin-only; it creates and edits):
   04-admin-list   Admin Options > Customers: the same count.
   05-create-form  Add New Customer, filled with a made-up customer (a 6-digit PIN from the Pincodes table fills City
                   and State); 06-created is the list after Submit.
   07-new-customer the made-up customer's page, from its link on the list.
   08-new-edit     its edit form; the contact person is changed and saved (09-edited).
+  10-empty        the 03b case again, as the Admin (who may write, so a wrong save would reach the DB).
 
 Every screen is compared with `customers_db.py` read on the env DB, saved as `db-*.json` beside the screenshots.
 Prints each check as seen or FAILED, and exits 1 on any miss.
@@ -120,6 +123,44 @@ def check_edit_form(page, sheet, rec: dict) -> None:
 
 
 
+def check_empty_unchanged(page, task: str, out: Path, step: str, who: str) -> None:
+    """#1703: a customer whose phone or GST is empty (null on the server, "" in the form). Each empty field is typed
+    into and cleared, so the form holds "" where the server holds null; Save must count that as no change."""
+    rec = db(task, out, f"{step}-before", "empty", MADE_UP_PREFIX)
+    c = rec["customer"]
+    if c is None:
+        print(f"not walked: {step} (no customer saved without a phone or GST)")
+        return
+    sent: list[str] = []
+    page.on("request", lambda r: sent.append(f"{r.method} {r.url}")
+            if r.method in ("PUT", "POST") and re.search(r"/api/resource/(Customers|Address)/", r.url) else None)
+    page.get_by_placeholder(re.compile(r"^Search by company name")).fill(c["company_name"])
+    page.get_by_role("link", name=c["company_name"], exact=True).first.click()
+    wait_customer_page(page)
+    sheet = open_edit(page)
+    check_edit_form(page, sheet, rec)
+    inputs = sheet.locator("input")
+    emptied = []
+    for i, field in ((3, "company_phone"), (5, "company_gst")):
+        if not c[field]:
+            inputs.nth(i).click()
+            inputs.nth(i).press("1")
+            inputs.nth(i).press("Backspace")
+            inputs.nth(i).blur()
+            emptied.append(field)
+    page.wait_for_timeout(500)
+    save(page, out, step)
+    update = sheet.get_by_role("button", name="Update")
+    check(not update.is_enabled(), f"{who}: Update is off after typing into and clearing {', '.join(emptied)}")
+    if update.is_enabled():
+        update.click()
+        page.wait_for_timeout(3000)
+    check(sent == [], f"{who}: Save sent no update ({sent})")
+    after = db(task, out, f"{step}-after", "customer", c["name"])
+    check(after["customer"] == c, f"{who}: the DB row of {c['name']} is unchanged")
+    check(str(after["customer"]["modified"]) == str(rec["modified"]), f"{who}: its modified time is unchanged")
+    page.keyboard.press("Escape")
+
 def pick_customers(listing: dict) -> tuple[list[dict], dict]:
     """The list rows step 01 checks (those older than the list's 5-minute cache), and the customer steps 02-03
     open: the newest one this walk did not make. Exits 1, saying why, when the env has no such customer."""
@@ -196,6 +237,10 @@ def main() -> None:
         check_edit_form(page, sheet, rec)
         save(page, out, "03-edit-form")
         page.keyboard.press("Escape")
+
+        # 03b: an empty phone or GST, typed into and cleared, saves nothing (#1703)
+        sidebar(page, "Customers")
+        check_empty_unchanged(page, a.task, out, "03b-empty", "Accountant")
         print(f"evidence (accountant): {out}")
         if misses:
             raise SystemExit(1)
@@ -268,6 +313,11 @@ def main() -> None:
         after = db(a.task, out, "edited", "customer", c["name"])
         check(after["customer"]["company_contact_person"] == edited,
               f"DB contact person is {edited!r} after Update ({after['customer']['company_contact_person']!r})")
+
+        # 10: the 03b case as the Admin, who may write
+        page.locator('[data-sidebar="menu-button"]').get_by_text("Admin Options", exact=True).click()
+        page.locator('[data-sidebar="menu-sub-button"]').get_by_text("Customers", exact=True).click()
+        check_empty_unchanged(page, a.task, out, "10-empty", "Admin")
 
         print(f"customer: {real['name']}; made-up customer: {c['name']}")
         print(f"evidence (admin): {out}")
