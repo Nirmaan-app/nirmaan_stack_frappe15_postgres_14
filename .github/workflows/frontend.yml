@@ -36,17 +36,18 @@ jobs:
 
       # A PR may shrink frontend/eslint-suppressions.json and raise type-coverage's --at-least; it may not grow a
       # count, add a file or rule (`eslint --suppress-all`), or lower the threshold. `yarn lint` alone cannot see
-      # this: it reads whatever suppressions file the PR brings. The checkout holds only the PR's merge commit, so
-      # the base branch is fetched first (the default token reads this repo; no secret).
-      - name: Frontend ratchet not loosened (suppressions and --at-least against the PR's base branch)
+      # this: it reads whatever suppressions file the PR brings. The checkout holds only the merge commit made when
+      # the run was triggered, so the base commit of that same merge (pull_request.base.sha, not the base branch's
+      # tip, which may have moved by a re-run) is fetched first (the default token reads this repo; no secret).
+      - name: Frontend ratchet not loosened (suppressions and --at-least against the PR's base commit)
         if: github.event_name == 'pull_request'
         working-directory: .
         env:
-          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           python3 -m unittest scripts.test_frontend_ratchet_check
-          git fetch --no-tags --depth=1 origin "refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
-          python3 scripts/frontend_ratchet_check.py --base-ref "origin/$BASE_REF"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          python3 scripts/frontend_ratchet_check.py --base-ref "$BASE_SHA"
 
       - name: Install
         run: yarn install --frozen-lockfile

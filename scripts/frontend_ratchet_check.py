@@ -5,9 +5,9 @@ The ratchet is two numbers a PR can only tighten:
     go; a count that rises, or a file or rule that appears, is a loosening (`eslint --suppress-all` does both).
   - the `--at-least` threshold of `type-coverage` in frontend/package.json. It may rise; it may not fall.
 
-CI runs it on every pull request against the PR's base branch:
+CI runs it on every pull request against the PR's base commit (github.event.pull_request.base.sha):
 
-    python3 scripts/frontend_ratchet_check.py --base-ref origin/<base branch>
+    python3 scripts/frontend_ratchet_check.py --base-ref <base sha>
 
 It compares the working tree's two files with the same files at <base-ref> and exits 1 on any loosening.
 Stdlib only.
@@ -74,7 +74,7 @@ def read_at(root, ref, path):
     """The JSON of <path> at git <ref>; None when the file did not exist there."""
     git = ["git", "-C", str(root)]
     if subprocess.run([*git, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], capture_output=True).returncode:
-        sys.exit(f"git: {ref} is not a commit here (fetch the PR's base branch first)")
+        sys.exit(f"git: {ref} is not a commit here (fetch the PR's base commit first)")
     if subprocess.run([*git, "cat-file", "-e", f"{ref}:{path}"], capture_output=True).returncode:
         return None
     shown = subprocess.run([*git, "show", f"{ref}:{path}"], capture_output=True, text=True, check=True)
@@ -83,7 +83,7 @@ def read_at(root, ref, path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--base-ref", required=True, help="the PR's base, e.g. origin/develop")
+    parser.add_argument("--base-ref", required=True, help="the PR's base commit: a SHA or a ref, e.g. origin/develop")
     parser.add_argument("--root", default=str(ROOT), help="the repository root (default: this script's repo)")
     args = parser.parse_args(argv)
     root = Path(args.root)

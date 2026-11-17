@@ -125,6 +125,13 @@ class CommandLine(unittest.TestCase):
         self.assertIn("97.4.", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_a_commit_sha_is_accepted_as_the_base_ref(self):
+        sha = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        result = subprocess.run([sys.executable, str(SCRIPT), "--base-ref", sha, "--root", str(self.repo)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_an_unchanged_working_tree_exits_0(self):
         self.assertEqual(self.run_script().returncode, 0)
 
