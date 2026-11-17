@@ -25,6 +25,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CustomersDocType } from "@/types/doctypes/Customers";
 import { PincodesDocType } from "@/types/doctypes/Pincodes";
 import { Address } from "@/types/NirmaanStack/Address";
+import { customerSaveUpdates } from "./data/customerSaveUpdates";
 const CustomerFormSchema = z.object({
   company_name: z
     .string({
@@ -188,53 +189,6 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
     return JSON.stringify(values) !== JSON.stringify(originalValues);
   };
 
-  const updateCustomerDetails = async (values: CustomerFormValues) => {
-    const hasCustomerChanged =
-      data?.company_name !== values.company_name ||
-      data?.customer_nickname !== values.customer_nickname ||
-      data?.company_email !== values.company_email ||
-      data?.company_phone !== values.company_phone ||
-      data?.company_contact_person !== values.company_contact_person ||
-      data?.company_gst !== values.company_gst;
-
-    if (hasCustomerChanged) {
-      if (!id) throw new Error("No customer is open, so its details could not be saved");
-      await updateDoc("Customers", id, {
-        company_name: values.company_name,
-        customer_nickname: values.customer_nickname,
-        company_email: values.company_email,
-        company_phone: values.company_phone,
-        company_contact_person: values.company_contact_person,
-        company_gst: values.company_gst,
-      });
-      customerMutate();
-    }
-  };
-
-  const updateAddressDetails = async (values: CustomerFormValues) => {
-    const hasAddressChanged =
-      addressData?.address_line1 !== values.address_line1 ||
-      addressData?.address_line2 !== values.address_line2 ||
-      addressData?.city !== city ||
-      addressData?.state !== state ||
-      addressData?.pincode !== values.pin_code;
-
-    if (hasAddressChanged) {
-      if (!companyAddress) throw new Error("This customer has no company address, so the address could not be saved");
-      await updateDoc("Address", companyAddress, {
-        address_title: values.company_name,
-        address_line1: values.address_line1,
-        address_line2: values.address_line2,
-        city: city,
-        state: state,
-        pincode: values.pin_code,
-        email_id: values.company_email,
-        phone: values.company_phone,
-      });
-      addressMutate();
-    }
-  };
-
   const { fetchDocList } = useCustomFetchHook();
 
   const onSubmit = async (values: CustomerFormValues) => {
@@ -244,8 +198,21 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
           'City and State are "Note Found", Please Enter a Valid Pincode'
         );
       }
-      await updateCustomerDetails(values);
-      await updateAddressDetails(values);
+      // Every ID is checked here, before the first update, so a missing one saves nothing.
+      const updates = customerSaveUpdates({
+        customerId: id,
+        addressId: companyAddress,
+        customer: data,
+        address: addressData,
+        values,
+        city,
+        state,
+      });
+      for (const update of updates) {
+        await updateDoc(update.doctype, update.name, update.fields);
+      }
+      if (updates.some((u) => u.doctype === "Customers")) customerMutate();
+      if (updates.some((u) => u.doctype === "Address")) addressMutate();
 
       await mutate<unknown[]>(
         "Customers",
