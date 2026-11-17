@@ -61,7 +61,7 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
         ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
         # --no-warn-ignored: a staged file under an ignored folder (src/components/ui/) is not a warning.
         # The heap is yarn lint's (package.json): typed linting outgrows node's default.
-        if ! staged | (cd "$index_copy/frontend" && xargs -0 node --max-old-space-size=3072 node_modules/eslint/bin/eslint.js --no-warn-ignored); then
+        if ! staged | (cd "$index_copy/frontend" && xargs -0 node --max-old-space-size=4096 node_modules/eslint/bin/eslint.js --no-warn-ignored); then
             echo "✘ $hook rejected: ESLint (frontend/eslint.config.js) found a violation in a staged file." >&2
             echo "    A rule broken anew: fix it. 'unused suppression': you fixed old ones -- run" >&2
             echo "    'yarn lint --prune-suppressions' in frontend/ and stage eslint-suppressions.json." >&2

@@ -229,6 +229,8 @@ ceiling turned a ₹0.30 Due into "₹1 due". **Show an order's stored figures**
 - Define an interface for component props. Shared types go in `src/types/`, component-specific ones in the
   component's file.
 - Type unknown data as `unknown`, then narrow it — `any` switches the checker off.
+- Typing an `any` is an enhancement, whoever wrote it: type it in place, in the change that finds it, without
+  asking its author first (owner, 2026-11-17).
 - Add JSDoc comments to exported functions and interfaces.
 - Style with Tailwind utilities and the theme variables in `tailwind.config.js`.
 

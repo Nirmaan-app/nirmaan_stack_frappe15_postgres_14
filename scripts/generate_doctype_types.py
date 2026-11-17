@@ -40,6 +40,7 @@ TABLE_TYPES = {"Table", "Table MultiSelect"}
 
 
 def ts_type(f: dict) -> str:
+    """The TypeScript type of one DocType field; raises on a fieldtype with no mapping."""
     ft = f["fieldtype"]
     if ft in STRING_TYPES:
         return "string"
@@ -60,6 +61,7 @@ def ts_type(f: dict) -> str:
 
 
 def doc_comment(f: dict) -> str:
+    """The `/** label : fieldtype */` line above a field, naming the linked DocType for a Link or Table."""
     text = f"{f.get('label') or f['fieldname']} : {f['fieldtype']}"
     if f["fieldtype"] in {"Link", "Table", "Table MultiSelect"} and f.get("options"):
         text += f" - {f['options']}"
@@ -78,6 +80,7 @@ def interface_name(doctype_name: str) -> str:
 
 
 def render_interface(dt: dict) -> str:
+    """One DocType's generated file body: child-table imports, then its interface."""
     children = sorted({f["options"] for f in dt.get("fields", []) if f["fieldtype"] in TABLE_TYPES})
     lines = [f'import type {{ {interface_name(c)} }} from "./{module_name(c)}";' for c in children]
     if children:
@@ -114,6 +117,7 @@ def render_folder(root: Path) -> dict[str, str]:
 
 
 def main(argv=None) -> int:
+    """Write the generated folder, or with ``--check`` exit 1 when it is stale."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true", help="write nothing; exit 1 when the folder is stale")
     ap.add_argument("--doctypes", type=Path, default=DOCTYPE_ROOT, help=argparse.SUPPRESS)

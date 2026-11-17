@@ -7,6 +7,7 @@ type CustomerFields = Pick<
 >;
 type AddressFields = Pick<Address, "address_line1" | "address_line2" | "city" | "state" | "pincode">;
 
+/** The Edit Customer form's values that the save compares with the saved Customer and Address. */
 export interface CustomerSaveValues {
   company_name: string;
   customer_nickname: string;
@@ -19,6 +20,7 @@ export interface CustomerSaveValues {
   pin_code: string;
 }
 
+/** One `updateDoc` call: the document and the fields to write to it. */
 export interface DocUpdate {
   doctype: "Customers" | "Address";
   name: string;

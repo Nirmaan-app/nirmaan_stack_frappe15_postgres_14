@@ -25,7 +25,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CustomersDocType } from "@/types/doctypes/Customers";
 import { PincodesDocType } from "@/types/doctypes/Pincodes";
 import { Address } from "@/types/NirmaanStack/Address";
-import { sendCustomerSave } from "./data/customerSaveUpdates";
+import { sendCustomerSave } from "@/utils/customers/customerSaveUpdates";
 const CustomerFormSchema = z.object({
   company_name: z
     .string({

@@ -16,8 +16,8 @@ describe("yarn lint", () => {
     expect(lint).not.toMatch(/^\s*\w+=/);
   });
 
-  it("starts ESLint through node with a 3 GB heap, at a file that exists", () => {
-    const m = lint.match(/^node --max-old-space-size=3072 (\S+) src$/);
+  it("starts ESLint through node with a 4 GB heap, at a file that exists", () => {
+    const m = lint.match(/^node --max-old-space-size=4096 (\S+) src$/);
     expect(m, lint).not.toBeNull();
     expect(existsSync(join(FRONTEND, m[1])), m[1]).toBe(true);
   });

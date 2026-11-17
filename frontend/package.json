@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "node scripts/typecheck.mjs",
-    "lint": "node --max-old-space-size=3072 node_modules/eslint/bin/eslint.js src",
+    "lint": "node --max-old-space-size=4096 node_modules/eslint/bin/eslint.js src",
     "type-coverage": "type-coverage --strict --at-least 97.47",
     "test-local": "cypress open --e2e --browser chrome",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",

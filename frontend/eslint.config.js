@@ -53,7 +53,7 @@ export default defineConfig([
     // Not yet no-unsafe-type-assertion: utils/tableFilters.ts's dateFilterFn takes a whole TanStack Row though it
     // reads only row.getValue, so a caller filtering plain rows (customers/data/useReceivableLedgerRows.ts) must
     // cast a stand-in row. It joins once that shared util takes `Pick<Row, "getValue">`.
-    files: ["src/pages/customers/**/*.{ts,tsx}"],
+    files: ["src/pages/customers/**/*.{ts,tsx}", "src/utils/customers/**/*.{ts,tsx}"],
     rules: Object.fromEntries(
       [
         "no-unsafe-argument",
