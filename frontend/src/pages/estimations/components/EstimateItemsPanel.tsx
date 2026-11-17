@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { materialTotals } from "@/utils/estimations/estimateRules";
 
-import { useEstimates } from "../hooks/useEstimatesData";
+import { useEstimates, useProjectEstimates } from "../hooks/useEstimatesData";
 import { BoqSheetBar } from "./BoqSheetBar";
 import { formatQty, ItemTypeBadge } from "./MaterialsParts";
 import type { PanelProps } from "./panelTypes";
@@ -20,36 +20,51 @@ const Seg = <T extends string>({ value, options, onChange }: { value: T; options
   </div>
 );
 
-/** Estimate Items: every material of a Selected BOQ, by line item or added up as material totals (read-only). */
-export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sheetName, onBoq, onSheet, onOpenLine }) => {
-  const boq = chosen ?? boqs[0];
-  const { estimates, isLoading } = useEstimates(boq?.name ?? null);
-  const [mode, setMode] = useState<Mode>("line");
+/** Props of Estimate Items: the shared panel props plus the project, for the "All BOQs" read. */
+interface EstimateItemsPanelProps extends PanelProps {
+  projectId: string;
+}
+
+/**
+ * Estimate Items (read-only): every material, added up as Material totals (the default, owner 17 Nov) or by line
+ * item. With more than one Selected BOQ and none chosen, it covers "All BOQs" and all their sheets together.
+ */
+export const EstimateItemsPanel: React.FC<EstimateItemsPanelProps> = ({
+  projectId, boqs, boq: chosen, sheetName, onBoq, onSheet, onOpenLine,
+}) => {
+  const allBoqs = !chosen && boqs.length > 1;
+  const boq = allBoqs ? null : chosen ?? boqs[0] ?? null;
+  const sheet = allBoqs ? null : sheetName;
+  const oneBoq = useEstimates(boq?.name ?? null);
+  const everyBoq = useProjectEstimates(allBoqs ? projectId : null);
+  const { estimates, isLoading } = allBoqs ? everyBoq : oneBoq;
+  const [mode, setMode] = useState<Mode>("totals");
   const [type, setType] = useState<TypeFilter>("all");
 
   const entries = useMemo(
-    () => estimates.current.filter((e) => sheetName == null || e.line.sheet_name === sheetName),
-    [estimates, sheetName],
+    () => estimates.current.filter((e) => sheet == null || e.line.sheet_name === sheet),
+    [estimates, sheet],
   );
   const totals = useMemo(() => materialTotals(entries, type), [entries, type]);
   // Estimates on an older version that are not on the new one yet (history -- already copied forward -- is left
   // out by the server); say so, so they never look lost.
   const olderCount = useMemo(
-    () => estimates.older.filter((e) => sheetName == null || e.line.sheet_name == null || e.line.sheet_name === sheetName).length,
-    [estimates, sheetName],
+    () => estimates.older.filter((e) => sheet == null || e.line.sheet_name == null || e.line.sheet_name === sheet).length,
+    [estimates, sheet],
   );
-  if (!boq) return null;
+  if (!allBoqs && !boq) return null;
+  const where = allBoqs ? "these BOQs' sheets" : sheet == null ? "this BOQ's sheets" : "this sheet";
 
   return (
     <div className="flex flex-col gap-3">
-      <BoqSheetBar boqs={boqs} boq={boq} sheetName={sheetName} onBoq={onBoq} onSheet={onSheet} allowAll showCounts={false} />
+      <BoqSheetBar boqs={boqs} boq={boq} sheetName={sheet} onBoq={onBoq} onSheet={onSheet} allowAll allowAllBoqs showCounts={false} />
       <div className="flex flex-wrap gap-2">
-        <Seg value={mode} onChange={setMode} options={[["line", "By line item"], ["totals", "Material totals"]] as const} />
+        <Seg value={mode} onChange={setMode} options={[["totals", "Material totals"], ["line", "By line item"]] as const} />
         <Seg value={type} onChange={setType} options={[["all", "All"], ["Normal", "Normal"], ["Custom", "Custom"]] as const} />
       </div>
       {olderCount > 0 && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
-          <b>{olderCount} material estimate{olderCount === 1 ? " is" : "s are"} on an older version</b> of {sheetName == null ? "this BOQ's sheets" : "this sheet"} and
+          <b>{olderCount} material estimate{olderCount === 1 ? " is" : "s are"} on an older version</b> of {where} and
           {olderCount === 1 ? " is" : " are"} not counted here yet. Copy, add to a line or remove {olderCount === 1 ? "it" : "them"} in BOQ View or Line Item View.
         </p>
       )}
@@ -67,9 +82,11 @@ export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sh
                 return (
                   <React.Fragment key={e.name}>
                     <tr className="bg-muted/50"><td colSpan={6} className="px-2 py-1.5 font-semibold">
-                      <span className="mr-2 font-mono text-amber-700">{sheetName == null ? `${e.line.sheet_name} · ` : ""}row {e.line.excel_row ?? "—"}{e.line.sl_no ? ` (${e.line.sl_no})` : ""}</span>
+                      <span className="mr-2 font-mono text-amber-700">
+                        {allBoqs ? `${e.boq_name ?? e.boq ?? ""} · ` : ""}{sheet == null ? `${e.line.sheet_name} · ` : ""}row {e.line.excel_row ?? "—"}{e.line.sl_no ? ` (${e.line.sl_no})` : ""}
+                      </span>
                       {e.line.description} <span className="font-normal text-muted-foreground">· BOQ {formatQty(e.line.qty)} {e.line.unit ?? ""}</span>
-                      <Button variant="outline" size="sm" className="ml-2 h-6 text-[11px]" onClick={() => onOpenLine(e.line.sheet_name ?? "", e.line.excel_row)}>Open line</Button>
+                      <Button variant="outline" size="sm" className="ml-2 h-6 text-[11px]" onClick={() => onOpenLine(e.line.sheet_name ?? "", e.line.excel_row, e.boq)}>Open line</Button>
                     </td></tr>
                     {items.map((i, k) => (
                       <tr key={i.name ?? k} className="border-t">
@@ -90,7 +107,8 @@ export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sh
           <table className="w-full min-w-[640px] text-xs">
             <thead className="bg-muted/60 text-left text-muted-foreground">
               <tr><th className="px-2 py-2">Type</th><th className="px-2 py-2">Item</th><th className="px-2 py-2">Make</th><th className="px-2 py-2">Category</th>
-                <th className="px-2 py-2">Unit</th><th className="px-2 py-2 text-right">Total qty</th><th className="px-2 py-2 text-right">Used in lines</th></tr>
+                <th className="px-2 py-2">Unit</th><th className="px-2 py-2 text-right">Total qty</th><th className="px-2 py-2 text-right">Used in lines</th>
+                {allBoqs && <th className="px-2 py-2 text-right">BOQs</th>}</tr>
             </thead>
             <tbody>
               {totals.map((t) => (
@@ -99,12 +117,15 @@ export const EstimateItemsPanel: React.FC<PanelProps> = ({ boqs, boq: chosen, sh
                   <td className="px-2 py-1.5">{t.make || "—"}</td><td className="px-2 py-1.5">{t.category || "—"}</td><td className="px-2 py-1.5">{t.unit || "—"}</td>
                   <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{formatQty(t.quantity)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{t.lines}</td>
+                  {allBoqs && <td className="px-2 py-1.5 text-right tabular-nums">{t.boqs}</td>}
                 </tr>
               ))}
-              {!totals.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">No materials yet.</td></tr>}
+              {!totals.length && <tr><td colSpan={allBoqs ? 8 : 7} className="px-3 py-6 text-center text-muted-foreground">No materials yet.</td></tr>}
             </tbody>
           </table>
-          <p className="px-3 py-2 text-[11px] text-muted-foreground">Same item + make + unit is added up across lines. Custom items group by name + unit. Different units are never added together.</p>
+          <p className="px-3 py-2 text-[11px] text-muted-foreground">
+            Same item + make + unit is added up across lines{allBoqs ? " and across BOQs" : ""}. Custom items group by name + unit. Different units are never added together.
+          </p>
         </div>
       )}
     </div>

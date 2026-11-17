@@ -417,7 +417,7 @@ class TestEstimateGuards(FrappeTestCase):
             (lambda: estimate_writes.settle_older(boq=None, sheet_name=self.sheet_name, estimates="[]"),
              "boq and sheet_name are required"),
             (lambda: boq_view.get_estimates_overview(project=None), "project is required"),
-            (lambda: boq_view.get_estimates(boq=None), "boq is required"),
+            (lambda: boq_view.get_estimates(boq=None), "boq or project is required"),
             # The browser loaded an estimate that someone deleted meanwhile.
             (lambda: self._save("cur17", [self._row()], "2026-01-01 00:00:00.000000"), "was deleted while you had it open"),
         )

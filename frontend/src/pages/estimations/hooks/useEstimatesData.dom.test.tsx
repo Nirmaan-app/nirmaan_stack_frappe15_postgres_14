@@ -21,7 +21,9 @@ vi.mock("frappe-react-sdk", () => ({
   useSWRConfig: () => ({ mutate: sdk.mutate }),
 }));
 
-import { useEstimates, useEstimatesOverview, useItemsCatalog, useRefreshEstimates, useSheetRows } from "./useEstimatesData";
+import {
+  useEstimates, useEstimatesOverview, useItemsCatalog, useProjectEstimates, useRefreshEstimates, useSheetRows,
+} from "./useEstimatesData";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -75,6 +77,14 @@ describe("the reads", () => {
     expect(lastCall().slice(1)).toEqual([{}, null]);
   });
 
+  it("All BOQs: one read per project, under its own key; nothing without a project", () => {
+    run(() => useProjectEstimates("PROJ-1"));
+    expect(lastCall()).toEqual(["nirmaan_stack.api.estimations.boq_view.get_estimates", { project: "PROJ-1" },
+      "estimates-project:PROJ-1"]);
+    const got = run(() => useProjectEstimates(null));
+    expect([lastCall().slice(1), got.estimates]).toEqual([[{}, null], { current: [], older: [] }]);
+  });
+
   it("estimates: an empty reply until the server answers", () => {
     const got = run(() => useEstimates("BOQ-1", "S"));
     expect(got.estimates).toEqual({ current: [], older: [] });
@@ -82,14 +92,16 @@ describe("the reads", () => {
 });
 
 describe("the refresh after a write", () => {
-  it("refetches every cached read of that BOQ and nothing else", () => {
+  it("refetches every cached read of that BOQ and the All BOQs read, and nothing else", () => {
     const refresh = run(() => useRefreshEstimates());
     refresh("BOQ-1");
     expect(sdk.mutate).toHaveBeenCalledTimes(1);
     const matches = sdk.mutate.mock.calls[0][0] as (key: unknown) => boolean;
     const keys = ["estimates:BOQ-1:*", "estimates:BOQ-1:Made-up sheet", "estimates:BOQ-1: spaced ",
-      "estimates:BOQ-10:*", "estimates:BOQ-2:Made-up sheet", "BOQ-1", ["estimates:BOQ-1:*"], null];
-    expect(keys.filter(matches)).toEqual(["estimates:BOQ-1:*", "estimates:BOQ-1:Made-up sheet", "estimates:BOQ-1: spaced "]);
+      "estimates-project:PROJ-1", "estimates:BOQ-10:*", "estimates:BOQ-2:Made-up sheet", "BOQ-1",
+      ["estimates:BOQ-1:*"], null];
+    expect(keys.filter(matches)).toEqual(["estimates:BOQ-1:*", "estimates:BOQ-1:Made-up sheet", "estimates:BOQ-1: spaced ",
+      "estimates-project:PROJ-1"]);
   });
 });
 

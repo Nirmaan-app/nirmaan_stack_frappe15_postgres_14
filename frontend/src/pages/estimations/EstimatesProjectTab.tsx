@@ -50,8 +50,9 @@ const EstimatesProjectTab: React.FC<EstimatesProjectTabProps> = ({ projectId, pr
   const onBoq = useCallback((name: string | null) => { setBoqParam(name); setSheetParam(null); setRowParam(null); }, [setBoqParam, setSheetParam, setRowParam]);
   const onSheet = useCallback((name: string | null) => { setSheetParam(name); setRowParam(null); }, [setSheetParam, setRowParam]);
   const onFocusRow = useCallback((row: number | null) => setRowParam(row == null ? null : String(row)), [setRowParam]);
-  const onOpenLine = useCallback((sheetName: string, excelRow: number | null) => {
-    if (!boq && boqs[0]) setBoqParam(boqs[0].name);
+  const onOpenLine = useCallback((sheetName: string, excelRow: number | null, boqName?: string) => {
+    if (boqName) setBoqParam(boqName);
+    else if (!boq && boqs[0]) setBoqParam(boqs[0].name);
     setSheetParam(sheetName);
     setRowParam(excelRow == null ? null : String(excelRow));
     setTabParam("line-item-view");
@@ -109,7 +110,7 @@ const EstimatesProjectTab: React.FC<EstimatesProjectTabProps> = ({ projectId, pr
         ) : tab === "line-item-view" ? (
           <LineItemViewPanel {...panelProps} />
         ) : (
-          <EstimateItemsPanel {...panelProps} />
+          <EstimateItemsPanel {...panelProps} projectId={projectId} />
         )}
       </div>
 
