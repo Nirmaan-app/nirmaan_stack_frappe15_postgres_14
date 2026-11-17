@@ -541,6 +541,8 @@ class Check:
     measure: Callable[[], int]
     # Optional: each counted violation as `path:line`. Printed on failure, and for every check by --list.
     locate: Callable[[], list[str]] | None = None
+    # Set: the count must be at most this, whatever the baseline file says (a PR edits that file too).
+    pass_mark: int | None = None
 
 
 # b2: files containing the state literal, minus the predicate home and test files.
@@ -705,7 +707,8 @@ CHECKS: list[Check] = [
         locate=tds_added_to_amount_paid,
     ),
     # ADR-0049's `.json()` ban (#1699), here because oxlint has no no-restricted-syntax. Baseline 0 for good: the
-    # old calls are frozen per file in JSON_CALL_SUPPRESSIONS, and any file off its frozen count fails.
+    # old calls are frozen per file in JSON_CALL_SUPPRESSIONS (the ratchet check guards it), and any file off its
+    # frozen count fails. Its pass mark is 0, not the baseline file's entry, which a PR could raise.
     Check(
         id="j1_json_calls_unfrozen",
         rule="J1",
@@ -714,6 +717,7 @@ CHECKS: list[Check] = [
                    f"fewer calls: lower that file's count in {JSON_CALL_SUPPRESSIONS} (remove it at 0).",
         measure=lambda: len(json_calls_unfrozen()),
         locate=json_calls_unfrozen,
+        pass_mark=0,
     ),
 ]
 
@@ -822,7 +826,7 @@ def do_check(checks: list[Check], baseline_path: Path, list_all: bool = False, t
     for c in checks:
         where = c.locate() if c.locate else None
         current = len(where) if where is not None else c.measure()
-        base_count = baseline.get(c.id, {}).get("count", 0)
+        base_count = c.pass_mark if c.pass_mark is not None else baseline.get(c.id, {}).get("count", 0)
         verdict = compare(c.id, current, base_count)
         mark = "✓" if verdict.ok else "✗"
         message = verdict.message

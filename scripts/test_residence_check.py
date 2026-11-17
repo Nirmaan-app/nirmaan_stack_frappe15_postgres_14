@@ -387,6 +387,19 @@ class JsonCalls(unittest.TestCase):
         self.assertEqual(rc, 1, out.getvalue())
         self.assertIn("J1 could not count .json() calls: node could not run", out.getvalue())
 
+    def test_a_raised_baseline_entry_does_not_let_a_new_call_pass(self):
+        with tempfile.TemporaryDirectory() as d:
+            baseline = Path(d) / "baseline.json"
+            baseline.write_text(json.dumps({"j1_json_calls_unfrozen": {"count": 5, "rule": "J1"}}))
+            out = io.StringIO()
+            frozen = json.loads((Path(__file__).resolve().parent.parent / "frontend/json-call-suppressions.json")
+                                .read_text())
+            counts = {path: rules["no-json-call"]["count"] for path, rules in frozen.items()} | {"src/new.ts": 1}
+            with mock.patch("residence_check.json_call_counts", return_value=counts), redirect_stdout(out):
+                rc = main(["--check", "--only", "J1"], baseline_path=baseline)
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("frontend/src/new.ts: 1 .json() calls, 0 frozen", out.getvalue())
+
     def test_the_real_tree_holds_its_frozen_counts(self):
         rc, out = 0, io.StringIO()
         with redirect_stdout(out):
