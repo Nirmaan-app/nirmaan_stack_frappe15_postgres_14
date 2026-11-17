@@ -16,13 +16,18 @@
 #   env_sync.sh watch [--logs NAME]    one monitoring snapshot: desktop commits, changes, servers, Claude sessions
 #   env_sync.sh print                  the settings this checkout resolves to (env.local included); runs nothing
 #
-# Checkpoints - keep the laptop close behind the desktop (CKP-1; scripts/env_sync/README.md):
+# Checkpoints - keep the laptop close behind the desktop, over this SSH route only, never a cloud drive
+# (CKP-1 / CKP-2; scripts/env_sync/README.md):
 #   env_sync.sh checkpoint-code --slice S [--name N] [--if-older MIN]
 #                                      B1: the desktop's commits (fast-forward, as after a commit) + its UNCOMMITTED work
-#                                      + a resume note into <slice>\checkpoints\<stamp>\ on the laptop; never applied
+#                                      + a resume note into frappe-bench\envsync\checkpoints\<slice>\<stamp>\ on the
+#                                      laptop (local disk); never applied
 #   env_sync.sh checkpoint --slice S [--name N] --yes
 #                                      B3 "leaving": a local ckpt/<slice>-<stamp> commit on the desktop, its code and a
 #                                      proved database copy on the laptop, both verified; prints CHECKPOINT READY
+#   env_sync.sh catch-up --slice S [--name N]
+#                                      B4 back home: a fresh B1 checkpoint of everything the desktop made since, then
+#                                      CAUGHT-UP with the age of the last database copy (and any copy still pending)
 #   env_sync.sh resume-on-laptop --slice S [--name N] [--dry-run | --takeover --yes]
 #                                      B5: desktop up -> report only; down -> on the owner's word, rebuild the newest
 #                                      checkpoint on the laptop and make the laptop the master
@@ -72,9 +77,20 @@ PING_H=(); D_PING=""                                   # a Host header only for 
 [ "$SITE" != localhost ] && PING_H=(-H "Host: $SITE") && D_PING=" -H 'Host: $SITE'"
 # The desktop's fingerprint as of the laptop's last db-pull (db-pull writes it, db-push checks it, db-push refreshes it).
 PULL_RECORD="${ENV_SYNC_PULL_RECORD:-$BENCH_HOST/$STAGE/last_pull_fingerprint.txt}"
-# CKP-1 checkpoints. Slice folders on the laptop (code and notes only - a database copy never goes to OneDrive); env_sync's
-# database backups on each machine's local disk (envsync/backups, never sites/<site>/private/backups); the master record.
-L_SLICES="${ENV_SYNC_LAPTOP_SLICES:-$L_REPORTS/BoQ main lane}"
+# Checkpoints (CKP-2): NO cloud drive anywhere - code checkpoints on the laptop's LOCAL disk (envsync/checkpoints), env_sync's
+# database backups on each machine's local disk (envsync/backups, never sites/<site>/private/backups), the master record.
+# The relay folder (where the laptop session's to_chat.md lives) is only READ, for the resume note's last relay id.
+CKPT_ROOT="${ENV_SYNC_CKPT_ROOT:-$BENCH_HOST/$STAGE/checkpoints}"
+RELAY_ROOT="${ENV_SYNC_RELAY_ROOT:-$L_REPORTS/BoQ main lane/_relay}"
+# Rule 16: database copies only on the office LAN (big copies fail over the Tailscale relay). Tailscale says how it reaches the
+# desktop: "via <private LAN address>" = direct on a LAN; "via DERP(...)" = the relay. (The desktop's LAN address changes - it
+# was 192.168.1.3, on 2026-11-17 it is 192.168.0.210 - so no fixed address is trusted.) Without Tailscale, a TCP probe of
+# ENV_SYNC_DESKTOP_LAN is the fallback. Away from the LAN a copy is recorded as pending and done at the next LAN chance.
+TAILSCALE="${ENV_SYNC_TAILSCALE:-/c/Program Files/Tailscale/tailscale.exe}"
+DESKTOP_TS="${ENV_SYNC_DESKTOP_TS:-nitesh-desktop}"
+DESKTOP_LAN="${ENV_SYNC_DESKTOP_LAN:-}"
+DESKTOP_LAN_PORT="${ENV_SYNC_DESKTOP_LAN_PORT:-22}"
+PENDING_REC="$BENCH_HOST/$STAGE/data_copy_pending.txt"
 CKPT_KEEP="${ENV_SYNC_CKPT_KEEP:-8}"                  # checkpoint folders kept per slice
 BACKUP_KEEP="${ENV_SYNC_BACKUP_KEEP:-3}"              # envsync/backups folders kept per machine
 MASTER_REC="$BENCH_HOST/$STAGE/master.txt"            # present only while the laptop is the master (resume-on-laptop)
@@ -343,8 +359,10 @@ pull_copy_prove_restore() {
 cmd_db_pull() {
   [ "${YES:-0}" = 1 ] || die "db-pull REPLACES the laptop's database with a fresh backup of the desktop's (the master).\nRe-run with --yes."
   local t0; t0=$(date +%s)
+  lan_or_pending "db-pull: ${COVERS:-on request}"
   pull_backup
   pull_copy_prove_restore "${COVERS:-}"
+  [ -f "$PENDING_REC" ] && mv "$PENDING_REC" "$PENDING_REC.done_$(date +%Y%m%d_%H%M%S)" && echo "laptop: the pending data copies are covered by this pull"
   echo "db-pull took $(( $(date +%s) - t0 )) s (desktop backup $PB_TOOK s)"
   NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
 }
@@ -494,8 +512,36 @@ if not rows: print("  none")'
 
 # ---- checkpoints (CKP-1): keep the laptop close behind the desktop -----------------------------------------------
 need_slice() { [[ "${SLICE:-}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,40}$ ]] || die "--slice takes letters, digits and dashes (got '${SLICE:-}')"; }
-ckpt_dir() { echo "$L_SLICES/$SLICE/checkpoints"; }
-ckfail() { echo "CHECKPOINT FAILED ($SLICE, $(date '+%F %T')): $*" >&2; echo "nothing is retried; report it on the relay" >&2; laptop_down >&2; exit 3; }
+ckpt_dir() { echo "$CKPT_ROOT/$SLICE"; }
+# on_lan: 0 when the laptop reaches the desktop DIRECTLY over a private LAN address; prints the path it saw (LAN_PATH).
+on_lan() {
+  local out
+  if [ -x "$TAILSCALE" ]; then
+    out=$(timeout 20 "$TAILSCALE" ping -c 1 "$DESKTOP_TS" 2>&1 | tr -d '\r' | tail -1)
+    LAN_PATH="${out:-no answer from tailscale ping}"
+    is_lan_path "$out"
+  elif [ -n "$DESKTOP_LAN" ]; then
+    LAN_PATH="tcp $DESKTOP_LAN:$DESKTOP_LAN_PORT"
+    timeout 5 bash -c "exec 3<>/dev/tcp/$DESKTOP_LAN/$DESKTOP_LAN_PORT" 2>/dev/null
+  else
+    LAN_PATH="no tailscale and no ENV_SYNC_DESKTOP_LAN"; return 1
+  fi
+}
+# is_lan_path <tailscale ping line>: a direct path over an RFC 1918 address (10/8, 172.16/12, 192.168/16); DERP = relay.
+is_lan_path() { grep -qE ' via (10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+:[0-9]+' <<< "$1"; }
+# lan_or_pending <what>: go on when on the LAN; otherwise record "data copy pending" once and stop (exit 4).
+lan_or_pending() {
+  if on_lan; then echo "office LAN: $LAN_PATH"; return 0; fi
+  echo "$(date '+%F %T') ${SLICE:-?} $1" >> "$PENDING_REC"
+  echo "DATA COPY PENDING: not on the office LAN ($LAN_PATH); recorded in $PENDING_REC - do it at the next LAN chance (rule 16)"
+  exit 4
+}
+ckfail() {
+  local msg; msg="CHECKPOINT FAILED ($SLICE, $(date '+%F %T')): $*"
+  echo "$msg" >&2; echo "not retried now: the next try is at the next 15-minute mark (--if-older counts this attempt)" >&2
+  mkdir -p "$(ckpt_dir)" 2>/dev/null && printf '%s\n' "$msg" | head -3 >> "$(ckpt_dir)/failures.log"
+  laptop_down >&2; exit 3
+}
 
 # laptop_up / laptop_down: the laptop's containers only for a database copy (owner 2026-10-26 / CKP-1 Q3), through the
 # laptop's turn file (shared with the dev2 lane): claim it first, free it after. Refuses while another lane holds it.
@@ -525,7 +571,7 @@ resume_note() {
     st=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.status.md') { Get-Content -LiteralPath '$SDIR/$NAME.status.md' -TotalCount 40 }")
     rs=$(dps "if (Test-Path -LiteralPath '$SDIR/$NAME.resume.md') { Get-Content -LiteralPath '$SDIR/$NAME.resume.md' }")
   fi
-  relay="$L_SLICES/_relay/$SLICE/to_chat.md"
+  relay="$RELAY_ROOT/$SLICE/to_chat.md"
   last=$([ -f "$relay" ] && grep -o "id $SLICE-[0-9]*" "$relay" | tail -1)
   { echo "# RESUME NOTE - $SLICE - $kind checkpoint $(date '+%F %T')"; echo
     echo "- desktop: ${D_BRANCH:-?} @ ${D_HEAD:0:9}; session: ${NAME:-none named}"
@@ -560,8 +606,6 @@ make_code_ckpt() {
   [ -n "$(kv ckpt "$CK_OUT")" ] || ckfail "the desktop could not make the code checkpoint:\n$CK_OUT"
   CK_TREE=$(kv tree "$CK_OUT"); D_HEAD=$(kv head "$CK_OUT"); D_BRANCH=$(kv branch "$CK_OUT")
   [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] || ckfail "the desktop is on $D_BRANCH, the laptop on $(lgit rev-parse --abbrev-ref HEAD)"
-  # B4 (a desktop session writing checkpoints to OneDrive while the laptop is away) bundles from the laptop's last head.
-  dps "Set-Content -LiteralPath '$D_BENCH/$STAGE/last_laptop_head.txt' -Value '$L_HEAD'" > /dev/null
   mkdir -p "$(ckpt_dir)" || ckfail "cannot create $(ckpt_dir)"
   "$SCP" -q -r "${SSHO[@]}" "$DESKTOP:$hdir" "$(ckpt_dir)/" || ckfail "copying the checkpoint to the laptop failed"
   dsum=$(dps "Get-ChildItem -LiteralPath '$hdir' -File | ForEach-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath \$_.FullName).Hash.ToLower() + ' ' + \$_.Name }" | sort)
@@ -580,13 +624,14 @@ cmd_checkpoint_code() {
   need_slice
   local t0 newest age
   if [ -n "${IF_OLDER:-}" ]; then
-    newest=$(ls -1d "$(ckpt_dir)"/[0-9]*_[0-9]* 2>/dev/null | sort | tail -1)
+    newest=$(ls -1td "$(ckpt_dir)"/[0-9]*_[0-9]* "$(ckpt_dir)/.last_attempt" 2>/dev/null | head -1)
     if [ -n "$newest" ]; then
       age=$(( ($(date +%s) - $(stat -c %Y "$newest")) / 60 ))
       [ "$age" -lt "$IF_OLDER" ] && { echo "checkpoint not due: the newest ($(basename "$newest")) is $age min old (< $IF_OLDER)"; return 0; }
     fi
   fi
   t0=$(date +%s)
+  mkdir -p "$(ckpt_dir)" && touch "$(ckpt_dir)/.last_attempt"
   make_code_ckpt B1
   echo "CHECKPOINT CODE $SLICE: $CK_DIR"
   echo "  desktop ${D_HEAD:0:9}, tree $CK_TREE, $(( CK_SIZE / 1024 )) KiB, $(sed -n 's/^tracked_files=//p' "$CK_DIR/head.txt") tracked + $(sed -n 's/^untracked_files=//p' "$CK_DIR/head.txt") new file(s), took $(( $(date +%s) - t0 )) s; nothing applied on the laptop"
@@ -614,6 +659,7 @@ cmd_checkpoint() {
   [ "${YES:-0}" = 1 ] || die "checkpoint REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
   local t0 t_code stamp out br commit parent tree lfp gottree
   t0=$(date +%s); stamp=$(date +%Y%m%d-%H%M)
+  lan_or_pending "CHECKPOINT $SLICE $stamp (leaving): needs the office LAN - do it before unplugging"
   echo "desktop: checkpoint commit on a local branch (temporary index; the session's tree is not touched) ..."
   out=$(hrun ckpt_branch.sh "$D_BENCH/apps/nirmaan_stack" "$SLICE" "$stamp")
   br=$(kv branch "$out"); commit=$(kv commit "$out"); parent=$(kv parent "$out"); tree=$(kv tree "$out")
@@ -636,6 +682,19 @@ cmd_checkpoint() {
   grep -q "^# RESUME NOTE - $SLICE" "$CK_DIR/resume.md" || ckfail "the resume note is not readable"
   laptop_down
   echo "CHECKPOINT READY $SLICE $(date '+%F %H:%M'): code $br ${commit:0:9} (tree ${tree:0:12} = bundle = checkpoint), data $(basename "$PB_PREFIX") restored on the laptop (fingerprint recorded), resume note $CK_DIR/resume.md; took $(( $(date +%s) - t0 )) s (desktop captured in $t_code s)"
+}
+
+# ---- back home (CKP-2, B4) -----------------------------------------------------------------------------------
+cmd_catch_up() {
+  need_slice
+  local st last
+  st=$(desktop_alive) || { echo "NOT CAUGHT UP: the desktop does not answer over SSH (laptop offline, or the desktop is down - then see resume-on-laptop)"; return 3; }
+  echo "desktop answers: $(printf '%s' "$st" | tr '\n' ' ')"
+  IF_OLDER="" cmd_checkpoint_code
+  last=$(sed -n 's/^# desktop fingerprint at the laptop.s last db-pull (\([^,]*\),.*/\1/p' "$PULL_RECORD" 2>/dev/null | head -1)
+  echo "CAUGHT-UP $SLICE $(date '+%F %H:%M'): code = the checkpoint above; data = the last db-pull ${last:-never} ($(sed -n 's/^# covers: //p' "$PULL_RECORD" 2>/dev/null | head -1))"
+  if [ -n "$last" ]; then echo "  the laptop's data is $(( ($(date +%s) - $(date -d "$last" +%s)) / 60 )) min behind that copy's moment (the desktop may have written since)"; fi
+  if [ -f "$PENDING_REC" ]; then echo "  DATA COPY PENDING (do it on the office LAN):"; sed 's/^/    /' "$PENDING_REC"; fi
 }
 
 # ---- resume on the laptop (CKP-1, B5) ----------------------------------------------------------------------------
@@ -665,7 +724,7 @@ cmd_resume_on_laptop() {
   b3=$(dirname "$b3")
   snaps="$b3"
   for s in $(ls -1d "$(ckpt_dir)"/[0-9]*_[0-9]* 2>/dev/null | sort); do
-    [[ "$(basename "$s")" > "$(basename "$b3")" ]] && grep -q '^kind=B[14]' "$s/ckpt.txt" 2>/dev/null && snaps+=$'\n'"$s"
+    [[ "$(basename "$s")" > "$(basename "$b3")" ]] && grep -q '^kind=B1' "$s/ckpt.txt" 2>/dev/null && snaps+=$'\n'"$s"
   done
   echo "checkpoints to rebuild, in order:"
   while read -r s; do echo "  $(basename "$s") $(sed -n 's/^kind=//p' "$s/ckpt.txt") tree $(sed -n 's/^tree=//p' "$s/head.txt" | cut -c1-12)"; done <<< "$snaps"
@@ -831,12 +890,12 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint) ensure_stage;; esac   # once, outside any $(...)
+case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint|catch-up) ensure_stage;; esac   # once, outside any $(...)
 [ "$CMD" = resume-on-laptop ] && STAGE_LAPTOP_ONLY=1   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
   db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
-  checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; resume-on-laptop) cmd_resume_on_laptop;;
+  checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;; resume-on-laptop) cmd_resume_on_laptop;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
   *) sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 1;;

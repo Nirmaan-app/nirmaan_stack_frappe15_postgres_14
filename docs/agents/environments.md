@@ -161,7 +161,7 @@ safety backup instead, in the handover block-50 order. The full hand procedure i
 | `session-send --name N --message FILE` | relay the owner's answer and resume the session |
 | `session-stop --name N` | stop the session (its conversation is kept) |
 | `print` | the settings this checkout resolves to, `env.local` included; runs nothing |
-| `checkpoint-code`, `checkpoint`, `resume-on-laptop` | keep the laptop close behind the desktop (CKP-1): code checkpoints, the "leaving" checkpoint and the takeover; usage, the safe-point list and the session's part in [`scripts/env_sync/README.md`](../../scripts/env_sync/README.md) |
+| `checkpoint-code`, `checkpoint`, `catch-up`, `resume-on-laptop` | keep the laptop close behind the desktop over this SSH route, never a cloud drive (CKP-2): code checkpoints, the "leaving" checkpoint, the catch-up back home and the takeover; usage, the safe-point list and the session's part in [`scripts/env_sync/README.md`](../../scripts/env_sync/README.md) |
 
 Overrides for hosts, paths and container names go in the git-ignored `.claude/state/env.local` (the `ENV_SYNC_*`
 variables at the top of the script). `scripts/env_sync/tests/test_env_sync.sh` (bash and git only; docker, ssh and scp

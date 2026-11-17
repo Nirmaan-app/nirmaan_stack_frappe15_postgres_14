@@ -34,8 +34,8 @@ for anyone; stop only through the status file.
 6. **Checkpoints** (so the laptop can carry on if this machine stops answering; `scripts/env_sync/README.md`):
    - Keep `envsync/sessions/<your name>.resume.md` (next to the status file): the milestone reached, the next step
      exactly, open questions with their files, anything half-done. Rewrite it at every milestone.
-   - At every milestone also run `bash scripts/env_sync/desktop/ckpt_onedrive.sh <slice> <your name>` in Git Bash
-     (code and notes to OneDrive; never a database). If it fails, write one status line saying so and carry on.
+   - The laptop copies your code and that note over SSH; you copy nothing yourself. Never start, open or configure
+     OneDrive (or any cloud drive) on this machine, and never write into a OneDrive folder.
    - After a paid run, a catalogue load or a migrate, write `DBCOPY-POINT <time> <step>` in the status file.
    - If your message file gets `=== CHECKPOINT ... ===`, stop at the next SAFE POINT (the README's list: never inside a
      load, a paid run, a migrate, a database write, a cert or a running suite), rewrite the resume note, write

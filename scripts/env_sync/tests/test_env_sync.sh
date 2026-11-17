@@ -209,6 +209,16 @@ check "the help names checkpoint-code, checkpoint and resume-on-laptop" 'grep -q
 check "a checkpoint command without --slice is refused" '! ( cd "$W" && PATH="$BIN:$PATH" STUB_LOG="$W/x" bash "$SRC/env_sync.sh" resume-on-laptop > /dev/null 2>&1 )'
 check "scratch_counts.sh strips pg_dump's restrict lines exactly as restore_db.sh does (a missing backslash made AC2's first proof refuse the dump)" '
   [ "$(grep -o "sed -e .*unrestrict /d.\?" "$SRC/remote/scratch_counts.sh" | head -1)" = "$(grep -o "sed -e .*unrestrict /d.\?" "$SRC/remote/restore_db.sh" | head -1)" ]'
+lp() { ( PATH="$BIN:$PATH"; . "$NEW"; is_lan_path "$1" ) > /dev/null 2>&1; }
+check "office-LAN test: a direct path over a private address is the LAN" 'lp "pong from nitesh-desktop (100.84.255.77) via 192.168.0.210:41641 in 6ms" && lp "pong from d (100.1.1.1) via 10.0.0.5:41641 in 3ms" && lp "pong from d (100.1.1.1) via 172.20.1.9:41641 in 3ms"'
+check "office-LAN test: the DERP relay or a public address is not the LAN" '! lp "pong from d (100.84.255.77) via DERP(blr) in 90ms" && ! lp "pong from d (100.84.255.77) via 49.37.10.20:41641 in 40ms" && ! lp ""'
+printf '#!/usr/bin/env bash\necho "pong from nitesh-desktop (100.84.255.77) via DERP(blr) in 95ms"\n' > "$BIN/ts_derp"; chmod +x "$BIN/ts_derp"
+out=$( ( PATH="$BIN:$PATH"; . "$NEW"; TAILSCALE="$BIN/ts_derp"; PENDING_REC="$W/pending.txt"; SLICE=T-1; lan_or_pending "db-pull: a test step" ) 2>&1 ); rc=$?
+check "away from the LAN a database copy is recorded as PENDING and stops (exit 4) - rule 16" '[ $rc = 4 ] && grep -q "DATA COPY PENDING" <<< "$out" && grep -q "T-1 db-pull: a test step" "$W/pending.txt"'
+check "checkpoints live on the laptop's local disk (envsync/checkpoints), not in a cloud-synced folder" '[ "$( ( . "$NEW"; SLICE=T-1; ckpt_dir ) )" = "$( ( . "$NEW"; echo "$BENCH_HOST" ) )/envsync/checkpoints/T-1" ]'
+check "no cloud-drive route is left: the OneDrive checkpoint script is gone and no checkpoint path names OneDrive" '
+  [ ! -e "$SRC/desktop/ckpt_onedrive.sh" ] && ! grep -n "CKPT_ROOT=.*OneDrive\|ckpt_dir.*OneDrive" "$SRC/env_sync.sh" && ! grep -qi "ckpt_onedrive" "$SRC/desktop/brief_footer.md" "$SRC/README.md"'
+check "the help names catch-up (B4 back home)" 'grep -q "catch-up --slice" <<< "$H"'
 check "backups leave private/backups: backup_local.sh writes to envsync/backups and db-push / db-pull use it" '
   grep -q -- "--backup-path \"\$PWD/\$D\"" "$SRC/remote/backup_local.sh" && [ "$(grep -c "bash backup_local.sh" "$SRC/env_sync.sh")" = 3 ] && ! grep -q "bash backup.sh" "$SRC/env_sync.sh"'
 
