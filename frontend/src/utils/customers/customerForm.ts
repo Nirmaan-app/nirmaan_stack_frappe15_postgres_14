@@ -7,7 +7,8 @@ export type CustomerFields = Pick<
   CustomersDocType,
   "company_name" | "customer_nickname" | "company_email" | "company_phone" | "company_contact_person" | "company_gst"
 >;
-/** The Address fields Edit Customer shows and saves, typed as the server sends them. */
+/** The Address fields Edit Customer saves (the form shows only the address lines, city, state and pincode), typed as
+ * the server sends them. */
 export type AddressFields = Pick<
   Address,
   "address_title" | "address_line1" | "address_line2" | "city" | "state" | "pincode" | "email_id" | "phone"

@@ -152,14 +152,12 @@ def check_empty_unchanged(page, task: str, out: Path, step: str, who: str) -> No
     save(page, out, step)
     update = sheet.get_by_role("button", name="Update")
     check(not update.is_enabled(), f"{who}: Update is off after typing into and clearing {', '.join(emptied)}")
-    if update.is_enabled():
-        update.click()
-        page.wait_for_timeout(3000)
     check(sent == [], f"{who}: Save sent no update ({sent})")
     after = db(task, out, f"{step}-after", "customer", c["name"])
     check(after["customer"] == c, f"{who}: the DB row of {c['name']} is unchanged")
     check(str(after["customer"]["modified"]) == str(rec["modified"]), f"{who}: its modified time is unchanged")
     page.keyboard.press("Escape")
+
 
 def pick_customers(listing: dict) -> tuple[list[dict], dict]:
     """The list rows step 01 checks (those older than the list's 5-minute cache), and the customer steps 02-03
