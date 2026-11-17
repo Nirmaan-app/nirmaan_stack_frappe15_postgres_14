@@ -34,9 +34,11 @@ export function changedFiles(runA, runB) {
   return [...names].filter((f) => (a.get(f) ?? []).join("\n") !== (b.get(f) ?? []).join("\n")).sort();
 }
 
-/** The `no-unsafe-*` rules of .oxlintrc.json's typed-folder block (the config is JSON with `//` line comments). */
+/** The `no-unsafe-*` rules of .oxlintrc.json's typed-folder block (the config is JSON with `//` comments). */
 function unsafeRules() {
-  const config = JSON.parse(readFileSync(CONFIG, "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  // Drop each `//` comment, leaving strings (which may hold `//`) as they are.
+  const text = readFileSync(CONFIG, "utf8").replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*/g, (m, str) => str ?? "");
+  const config = JSON.parse(text);
   const rules = config.overrides.flatMap((o) => Object.keys(o.rules ?? {}));
   return [...new Set(rules.filter((r) => r.startsWith("typescript/no-unsafe-")))];
 }

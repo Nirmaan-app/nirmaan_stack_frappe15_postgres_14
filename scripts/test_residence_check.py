@@ -28,6 +28,7 @@ from residence_check import (  # noqa: E402
     tds_added_to_amount_paid_lines,
     json_call_count,
     json_call_drift,
+    ts_code_only,
 )
 
 
@@ -314,6 +315,24 @@ class JsonCalls(unittest.TestCase):
 
     def test_a_json_call_inside_a_template_placeholder_is_counted(self):
         self.assertEqual(json_call_count("const t = `got ${await r.json()} rows`;\n"), 1)
+
+    def test_a_regex_literal_with_a_quote_or_slashes_hides_no_call_after_it(self):
+        src = (
+            "const q = /'/; const a = await res.json();\n"
+            "const t = /`/; const b = await res.json();\n"
+            "const u = /https?:\\/\\//.test(url) && (await res.json());\n"
+            "const v = s.replace(/[/'\"]/g, ''); const c = await res.json();\n"
+            "if (ok) return /x'/.test(await r.json());\n"
+        )
+        self.assertEqual(json_call_count(src), 5)
+
+    def test_division_is_not_a_regex(self):
+        src = "const half = total / 2; const r = await res.json(); const q = a / b / c;\n"
+        self.assertEqual(json_call_count(src), 1)
+
+    def test_blanking_keeps_every_line(self):
+        src = "const a = 'x\nconst b = \"y\";\n/* c\nd */ const e = `f\ng`;\nconst h = /i/;\n"
+        self.assertEqual(ts_code_only(src).count("\n"), src.count("\n"))
 
     def test_a_field_or_function_called_json_is_not_a_call_of_it(self):
         src = "const x = row.json;\nconst y = toJson(row);\nconst z = row.jsonText();\nfunction json() {}\n"

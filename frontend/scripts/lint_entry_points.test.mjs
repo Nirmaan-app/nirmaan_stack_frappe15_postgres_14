@@ -161,7 +161,7 @@ describe(".githooks/checks.sh", () => {
     expect(pass.logged).not.toMatch(/docker/);
     const fail = run({ FAKE_RC: "1" });
     expect(fail.status).toBe(1);
-    expect(fail.stderr).toMatch(/oxlint .* found a violation in a staged file/);
+    expect(fail.stderr).toMatch(/oxlint .* failed on the staged files/);
   });
 
   it("lints the staged copy inside the dev container where the local binary does not load", () => {
@@ -173,7 +173,7 @@ describe(".githooks/checks.sh", () => {
     expect(pass.logged).toMatch(/staged: export const staged = 1;/);
     const fail = run({ NIRMAAN_LINT_CONTAINER: "test-container", FAKE_RC: "1" });
     expect(fail.status).toBe(1);
-    expect(fail.stderr).toMatch(/found a violation in a staged file/);
+    expect(fail.stderr).toMatch(/failed on the staged files/);
   });
 
   it("skips oxlint with a warning where neither the local binary nor the container runs", () => {

@@ -467,11 +467,38 @@ JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui
 _JSON_CALL = re.compile(r"\.\s*json\s*(?:<[^()]*?>)?\s*(?:\?\.)?\s*\(")
 
 
+# A `/` after one of these (or after nothing) starts a regex literal; after anything else it divides.
+_REGEX_AFTER_CHARS = set("(,=:[!&|?{};+-*%<>~^")
+_REGEX_AFTER_WORDS = {"return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "await", "yield"}
+
+
+def _starts_regex(code: list[str]) -> bool:
+    """Whether a `/` that follows the code kept so far starts a regex literal."""
+    text = "".join(code[-40:]).rstrip()
+    if not text or text[-1] in _REGEX_AFTER_CHARS:
+        return True
+    word = re.search(r"[A-Za-z_$][\w$]*$", text)
+    return bool(word) and word.group() in _REGEX_AFTER_WORDS
+
+
 def ts_code_only(src: str) -> str:
-    """A TS/TSX source with its comments and string text blanked (template placeholders kept), lines intact."""
-    out = []
+    """A TS/TSX source with its comments, string text and regex literals blanked (template placeholders kept).
+
+    Every newline is kept, so line numbers hold. Not handled: a quote or backtick in JSX text (`<p>Don't</p>`)
+    opens a string that blanks the rest of that line (a backtick: up to the next backtick).
+    """
+    out: list[str] = []
     i, n = 0, len(src)
-    braces = []  # one entry per open `${`: the `{` depth inside it
+    braces: list[int] = []  # one entry per open `${`: the `{` depth inside it
+
+    def skip(j: int, stop: str) -> int:
+        """From j, past text up to (not past) a char in ``stop``, keeping newlines; handles backslash escapes."""
+        while j < n and src[j] not in stop:
+            if src[j] == "\n":
+                out.append("\n")
+            j += 2 if src[j] == "\\" else 1
+        return j
+
     while i < n:
         ch, nxt = src[i], src[i + 1] if i + 1 < n else ""
         if ch == "/" and nxt == "/":
@@ -482,26 +509,36 @@ def ts_code_only(src: str) -> str:
             stop = n if end < 0 else end + 2
             out.append("\n" * src.count("\n", i, stop))
             i = stop
-        elif ch in "'\"":
+        elif ch == "/" and _starts_regex(out):
             j = i + 1
-            while j < n and src[j] not in (ch, "\n"):
+            in_class = False
+            while j < n and src[j] != "\n" and (in_class or src[j] != "/"):
+                if src[j] == "[":
+                    in_class = True
+                elif src[j] == "]":
+                    in_class = False
                 j += 2 if src[j] == "\\" else 1
             out.append(" ")
-            i = j + 1
+            i = j + 1 if j < n and src[j] == "/" else j
+        elif ch in "'\"":
+            j = skip(i + 1, ch + "\n")
+            out.append(" ")
+            i = j + 1 if j < n and src[j] == ch else j
         elif ch == "`" or (ch == "}" and braces and braces[-1] == 0):
             if ch == "}":
                 braces.pop()
             j = i + 1
-            while j < n and src[j] != "`" and not (src[j] == "$" and src.startswith("${", j)):
-                if src[j] == "\n":
-                    out.append("\n")
-                j += 2 if src[j] == "\\" else 1
+            while True:
+                j = skip(j, "`$")
+                if j >= n or src[j] == "`" or src.startswith("${", j):
+                    break
+                j += 1  # a `$` not followed by `{`
+            out.append(" ")
             if src.startswith("${", j):
                 braces.append(0)
                 i = j + 2
             else:
                 i = j + 1
-            out.append(" ")
         else:
             if braces and ch == "{":
                 braces[-1] += 1

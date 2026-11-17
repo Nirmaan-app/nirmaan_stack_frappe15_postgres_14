@@ -74,10 +74,10 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
         # Set before mktemp, so no signal falls between the two. EXIT alone misses a signal under dash (Linux
         # /bin/sh): Ctrl-C mid-lint would leave the folder. `rm -rf ""` removes nothing.
         index_copy=""
-        inside=""
+        container_copy=""
         cleanup() {
             rm -rf "$index_copy"
-            [ -z "$inside" ] || docker exec "$container" rm -rf "$inside" >/dev/null 2>&1
+            [ -z "$container_copy" ] || docker exec "$container" rm -rf "$container_copy" >/dev/null 2>&1
         }
         trap 'cleanup' EXIT
         trap 'cleanup; exit 130' INT
@@ -95,19 +95,24 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
         if [ "$runner" = here ]; then
             ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
             staged | (cd "$index_copy/frontend" && xargs -0 node_modules/.bin/oxlint --type-aware) || lint_ok=0
-        elif ! inside=$(docker exec "$container" mktemp -d /tmp/nirmaan-staged-lint.XXXXXX) || [ -z "$inside" ]; then
-            inside=""
+        elif ! container_copy=$(docker exec "$container" mktemp -d /tmp/nirmaan-staged-lint.XXXXXX) \
+            || [ -z "$container_copy" ]; then
+            container_copy=""
             echo "✘ $hook rejected: no temporary folder could be made in container $container for oxlint's staged copy." >&2
             exit 1
+        # Copied in through tar: the host's temporary folder is not mounted in the container.
+        elif ! { tar -C "$index_copy" -cf - frontend | docker exec -i "$container" tar -C "$container_copy" -xf - \
+            && docker exec "$container" ln -s "$(container_path "$(pwd -P)/frontend/node_modules")" \
+                "$container_copy/frontend/node_modules"; }; then
+            echo "✘ $hook rejected: the staged files could not be copied into container $container, so oxlint did not run." >&2
+            exit 1
         else
-            # Copied in through tar: the host's temporary folder is not mounted in the container.
-            tar -C "$index_copy" -cf - frontend | docker exec -i "$container" tar -C "$inside" -xf - \
-                && docker exec "$container" ln -s "$(container_path "$(pwd -P)/frontend/node_modules")" "$inside/frontend/node_modules" \
-                && staged | docker exec -i -w "$inside/frontend" "$container" xargs -0 node_modules/.bin/oxlint --type-aware \
+            staged | docker exec -i -w "$container_copy/frontend" "$container" xargs -0 node_modules/.bin/oxlint --type-aware \
                 || lint_ok=0
         fi
         if [ $lint_ok -eq 0 ]; then
-            echo "✘ $hook rejected: oxlint (frontend/.oxlintrc.json) found a violation in a staged file." >&2
+            echo "✘ $hook rejected: oxlint (frontend/.oxlintrc.json) failed on the staged files: a violation, or oxlint itself" >&2
+            echo "    (its output is above)." >&2
             echo "    A rule broken anew: fix it. 'suppressions that do not occur anymore': you fixed old ones -- run" >&2
             echo "    'yarn lint --prune-suppressions' in frontend/ and stage oxlint-suppressions.json." >&2
             failed=1

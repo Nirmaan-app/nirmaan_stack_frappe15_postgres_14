@@ -472,8 +472,8 @@ formatters outside their two homes (R1), so a review need not hunt for those by 
 calls against their frozen counts (J1). It then runs type-aware oxlint on the staged `.ts`/`.tsx` files under
 `frontend/src` (here, or inside the dev container where oxlint's native binary does not load): `any` in frontend
 code is oxlint's to count (ADR-0049). CI runs the same on every pull request, except ADR-0010's five rules:
-`residence_check.py --check --only ci` (`CI_SUBSET`), which never rewrites the baseline, `yarn lint` (twice, to
-prove one result), and `yarn type-coverage`. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
+`residence_check.py --check --only ci` (`CI_SUBSET`), which never rewrites the baseline, `yarn lint`,
+`scripts/lint_same_twice.mjs` (the type-aware lint twice: one result), and `yarn type-coverage`. Commit messages follow `type(scope): summary` (enforced by `.githooks/commit-msg`; see
 `.claude/hooks/README.md`).
 
 ---

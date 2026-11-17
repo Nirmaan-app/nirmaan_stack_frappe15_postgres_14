@@ -25,13 +25,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from residence_check import JSON_CALL_RULE, JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
+
 OXLINT = "frontend/oxlint-suppressions.json"
-JSON_CALLS = "frontend/json-call-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
 PACKAGE = "frontend/package.json"
-# ESLint's rule names, as oxlint names them. ESLint's `.json()` ban (no-restricted-syntax) is JSON_CALLS's rule.
-JSON_CALL_RULE = "no-json-call"
-ESLINT_PREFIXES = {"@typescript-eslint/": "typescript/"}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -78,18 +77,11 @@ def from_eslint(eslint_supp, name):
             if rule == "no-restricted-syntax":
                 new = JSON_CALL_RULE if name == JSON_CALLS else None
             else:
-                new = None if name == JSON_CALLS else oxlint_name(rule)
+                # oxlint keeps ESLint's rule names, except typescript-eslint's prefix.
+                new = None if name == JSON_CALLS else rule.replace("@typescript-eslint/", "typescript/", 1)
             if new:
                 out.setdefault(path, {})[new] = {"count": entry.get("count", 0)}
     return out
-
-
-def oxlint_name(rule):
-    """An ESLint rule name as oxlint writes it in its suppressions file."""
-    for old, new in ESLINT_PREFIXES.items():
-        if rule.startswith(old):
-            return new + rule[len(old):]
-    return rule
 
 
 def counts(rules):
