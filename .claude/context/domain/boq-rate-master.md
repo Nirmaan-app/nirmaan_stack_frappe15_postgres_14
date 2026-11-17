@@ -1423,15 +1423,25 @@ polyethylene / PE, whole words) prices as `to_by_unit_class` -- Nitrile Rubber I
 Nitrile Insulation per sq.m (a duct or sheet) -- with the amber family line "BoQ says closed cell polyethylene ->
 priced as <family>". Plain polyethylene, PE foam and XLPE keep refusing by name (`unstocked_materials`).
 
-**A SELECTED-ROW SUGGEST ALSO READS THE ROWS NO RUN HAS READ, AND SAYS SO FIRST (owner R8, "option a, with an
-appropriate declaration"; slice 12e-5b AC7).** A selected-row pass carries the active run's rows forward and completes
-only when the population minus everything attempted is empty, so a row that became eligible after that run left the
-pass "partial" on rows nobody ticked (BOQ-26-00231 in 12e-5). `rate_master._never_read_rows` = today's population minus
-what the carry-source run attempted; `start_suggest` adds them to a selected-row run (never a whole-sheet run) and
-echoes `never_read_added`; `get_active_suggestion_run` returns `never_read_rows` only where the active run is complete
-on the current version. The confirmation (`PricingGrid.suggestConfirmCopy`) adds "This sheet's last run is older than
-some of its rows. This run will also read N rows that no run has read yet (by category: ...)." and its action counts
-them; with none the copy is byte-identical. Proven live on 00231: 36 ticked + 42 never-read = 78, complete, superseded.
+**A SUGGEST RUN READS EXACTLY THE SELECTED ROWS, FIRST RUN INCLUDED (owner 2026-11-16 10:34, 2026-11-17 13:09, QR-1
+"option a" 14:33, QR-2 "2a 3a" 14:50, SR-1 QR-1 Q1 / Q2 (a) 20:17; slice SR-1).** Rows ticked -> only those rows are read;
+nothing ticked -> the whole sheet. It REPLACES the 12e-5b rule (a selected run also read never-read rows; retired).
+- What a selected run carries (`rate_master._selected_carry_source`): the complete active run at the current committed
+  version ("live"), else the newest PARTIAL run at that version ("partial", QR-2 Q3 (a): nothing already paid for is
+  lost), else nothing (a FIRST run: starts empty, scope = the selection). Version-pinned; carried rows byte-identical.
+- No "Nothing to carry forward" refusal any more; `_guard_only_rows` keeps resume/selection exclusive, AI on, rows inside
+  the population.
+- Completion (`rate_master.run_is_complete`, recon D4 C4 way 1): a selected run (or its resume) is complete when THIS
+  PASS attempted every row of its scope -- a carried row never completes it; a whole-sheet run keeps the population test;
+  a halted pass stays partial and resumable. So a live run may now cover only PART of a sheet.
+- A partial is superseded (`_partial_is_superseded`) iff a newer complete run at the same version attempted every row
+  the partial still had pending, OR holds every row the partial read (it carried them; QR-1 Q1 (a)). An explicit resume
+  by run id is still allowed.
+- `get_active_suggestion_run.never_read_rows` is INFORMATION ONLY: eligible rows the run a selected pass would carry has
+  not read (every eligible row when there is none); additive `carry_source` = "live" / "partial" / null drives the
+  confirm copy. `start_suggest` echoes `never_read_added: []` (kept one release). The done payload adds
+  `first_selected_run` (fresh selected run, nothing carried).
+- A row nobody has read shows no badge and the faint opener; ticking it and pressing Suggest reads it.
 
 **A THICKNESS WRITTEN AS SEVERAL VALUES TAKES THE HIGHEST (owner R4, 2026-10-15, within "several values -> the
 higher"; Q4: "a thickness written as any list of values joined by 'or', '/' or brackets takes the highest"; slice
