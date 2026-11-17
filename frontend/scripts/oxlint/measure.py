@@ -17,7 +17,9 @@ from collections import Counter
 
 ESLINT = ["node", "--max-old-space-size=4096", "node_modules/eslint/bin/eslint.js"]
 OXLINT = ["node", "scripts/oxlint/lint.mjs", "--type-aware"]
-NO_SUPPRESSIONS = ["--suppressions-location", "/nonexistent/eslint-suppressions.json"]
+# ESLint refuses a suppressions file that does not exist, so the count runs point it at an empty one.
+EMPTY_SUPPRESSIONS = "/tmp/oxlint-trial-empty-suppressions.json"
+NO_SUPPRESSIONS = ["--suppressions-location", EMPTY_SUPPRESSIONS]
 
 # name: (timed command, count command, output format of the count command)
 SETUPS = {
@@ -99,7 +101,15 @@ def main():
     ap.add_argument("--only", nargs="*", default=list(SETUPS))
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    with open(EMPTY_SUPPRESSIONS, "w") as f:
+        f.write("{}")
+    # Results of earlier invocations into the same --out are kept, so one setup can be rerun alone.
     timings, counts = {}, {}
+    for name, store in (("timings.json", timings), ("counts.json", counts)):
+        path = os.path.join(args.out, name)
+        if os.path.exists(path):
+            with open(path) as f:
+                store.update(json.load(f))
     for name in args.only:
         run_cmd, count_cmd, fmt = SETUPS[name]
         runs = []

@@ -19,7 +19,6 @@ const UNSAFE = [
 export default defineConfig([
   ...base,
   {
-    basePath: "../..",
     files: ["src/**/*.{ts,tsx}"],
     rules: Object.fromEntries(UNSAFE.map((rule) => [`@typescript-eslint/${rule}`, "error"])),
   },
