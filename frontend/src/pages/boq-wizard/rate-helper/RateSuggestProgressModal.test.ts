@@ -254,10 +254,21 @@ describe("SR-1 C9 serverRefusalText", () => {
 
 // SR-1 C10 (found in the AC5 cert, step C2): SheetPricingPage copies the done payload FIELD BY FIELD into the modal's
 // summary, so the live modal said "3 rows re-extracted." although the server sent first_selected_run=true. Source pin.
-describe("SR-1 C10 the page passes first_selected_run to the modal", () => {
-  it("SheetPricingPage copies first_selected_run from the done payload", async () => {
+// SR-1 K4 (review R1): the same field-by-field copy also dropped pass_attempted_count (QR-1 call 6). The page now passes
+// the WHOLE done payload through, so a future additive worker key cannot be dropped the same way.
+describe("SR-1 K3/K4 the page passes the whole done payload to the modal", () => {
+  it("SheetPricingPage hands the done payload through whole, not field by field", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../SheetPricingPage.tsx", import.meta.url), "utf-8");
-    expect(src).toContain("first_selected_run: msg.first_selected_run");
+    expect(src).toContain("setSuggestSummary({ ...msg });");
+    // the old field-by-field copy is gone (it began with `status: msg.status,`)
+    expect(src).not.toContain("status: msg.status,");
+  });
+  it("the status response type declares first_selected_run and pass_attempted_count", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../SheetPricingPage.tsx", import.meta.url), "utf-8");
+    const block = src.slice(src.indexOf("interface SuggestStatusResponse {"), src.indexOf("interface PartialSuggestRun"));
+    expect(block).toContain("first_selected_run?: boolean;");
+    expect(block).toContain("pass_attempted_count?: number;");
   });
 });

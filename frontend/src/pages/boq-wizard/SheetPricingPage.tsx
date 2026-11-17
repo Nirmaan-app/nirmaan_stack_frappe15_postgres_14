@@ -410,6 +410,8 @@ interface SuggestStatusResponse {
   scoped_row_count?: number | null;
   /** SR-1 C10: true on a fresh selected run that carried nothing (a first selected run). */
   first_selected_run?: boolean;
+  /** Rows THIS pass attempted (the worker publishes it; the modal's halted-scoped split needs it). */
+  pass_attempted_count?: number;
   /** DEV2-B4: present only when historical matching is ON -- whether a match run was queued after this run. */
   match?: { queued: boolean; run?: string; reason?: string } | null;
 }
@@ -3163,20 +3165,10 @@ const SheetPricingPage = () => {
       }
       if (msg.state === "done") {
         setSuggestRunning(false);
-        setSuggestSummary({
-          status: msg.status,
-          ai_status: msg.ai_status,
-          results: msg.results,
-          run_id: msg.run_id,
-          run_status: msg.run_status,
-          halt_reason: msg.halt_reason,
-          attempted_count: msg.attempted_count,
-          population_count: msg.population_count,
-          scoped_row_count: msg.scoped_row_count,
-          // SR-1 C10 (found in the AC5 cert, C2): the page copies the done payload field by field, so a new key must
-          // be named here or the completion line never sees it
-          first_selected_run: msg.first_selected_run,
-        });
+        // SR-1 K3/K4: pass the WHOLE done payload through. A field-by-field copy dropped first_selected_run (AC5 C2) and
+        // pass_attempted_count (SR-1 QR-1 call 6), so every additive worker key silently never reached the modal. The
+        // modal reads named keys only; the extra keys (state, committed_version, match) are harmless there.
+        setSuggestSummary({ ...msg });
         // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
         // complete run was already there (it never superseded it server-side either), so the
         // badges + "Use this value" keep reflecting a trustworthy, whole run.
