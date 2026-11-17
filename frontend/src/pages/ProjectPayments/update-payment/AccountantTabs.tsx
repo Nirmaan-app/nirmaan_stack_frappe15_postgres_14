@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList, useFrappeDocTypeEventListener } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
@@ -19,7 +19,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // --- Hooks & Utils ---
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
-import { getFrappeError } from "@/utils/frappeErrors";
+import { getFrappeError, getFrappeErrorText } from "@/utils/frappeErrors";
 import { useExpenseDecision, useExpenseEditAccess } from "@/hooks/useExpenseDecision";
 import { splitByLedger } from "@/utils/expenses/expenseDecision";
 import { GstPaymentTag } from "../components/GstPaymentTag";
@@ -28,6 +28,7 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
+    APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     APPROVAL_FETCH_FIELDS,
     APPROVAL_DATE_COLUMNS,
     APPROVAL_STATUS,
@@ -63,7 +64,7 @@ import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 import PaymentSummaryCards from "../PaymentSummaryCards"
 import { useUserData } from "@/hooks/useUserData"
-import { canViewPaymentSummary } from "@/constants/roles"
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles"
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
 import { countLabel, selectionTotal, summarizeSelection } from "../bulkSelectionSummary"
@@ -303,6 +304,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         canEdit: (row) => canEditQueueRow(row, editableStatuses),
         onToggleHold: canWork ? setHoldRow : undefined,
         canHold: (row) => canHoldQueueRow(row, role),
+        canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
         ),
@@ -334,20 +336,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     );
 
     // --- CEO Hold Row Highlighting ---
-
-
-    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
-    //
-    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
-    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
-    // changed EXPENSE never reaches it, even though expense rows are in this table.
-    // These two listeners close that gap for both expense ledgers.
-    //
-    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
-    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
-    // and every mutate() in the hook is commented out.)
-    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
-    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
 
     const getRowClassName = useCallback(
         (row: Row<ApprovalQueueRow>) => {
@@ -385,6 +373,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
+        // Expense rows are in this table too: their changes refresh it as quietly as a payment's.
+        liveRefreshDoctypes: APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     });
     usePublishRefetch(refetchRef, refetch);
 
@@ -479,8 +469,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 await updateDoc(paymentRows[i].doctype, paymentRows[i].name, {
                     status: APPROVAL_STATUS.RECONCILIATION_PENDING,
                 });
-            } catch (e: any) {
-                failed.push({ row: paymentRows[i], reason: e?.message || "Please try again." });
+            } catch (e: unknown) {
+                // The server's own reason (e.g. "… is on hold. Release the hold …"), not the SDK's generic
+                // "There was an error while updating the document."
+                failed.push({ row: paymentRows[i], reason: getFrappeErrorText(e) || "Please try again." });
             }
             setMarkingProgress(expenseRows.length + i + 1);
         }

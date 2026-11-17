@@ -17,6 +17,11 @@ interface ChequeChipProps {
     /** A Credit Payment Cheque: a separate "Credit" badge goes before the chip, on the same line. */
     credit?: boolean;
     className?: string;
+    /**
+     * May the viewer open the Cheque (`CHEQUE_ACCESS_PROFILES`)? A table passes it, worked out once, so its rows read no
+     * user data. Left out (a detail card, a dialog), the chip reads the role itself.
+     */
+    canOpen?: boolean;
 }
 
 /**
@@ -29,8 +34,15 @@ interface ChequeChipProps {
  *
  * ⚠️ RENDERS A <button>. Never put it inside another button or popover trigger.
  */
-export const ChequeChip = ({ cheque, chequeNo, status, credit = false, className }: ChequeChipProps) => {
+export const ChequeChip = (props: ChequeChipProps) =>
+    props.canOpen === undefined ? <ChequeChipReadingRole {...props} /> : <ChequeChipView {...props} canOpen={props.canOpen} />;
+
+const ChequeChipReadingRole = (props: ChequeChipProps) => {
     const { role } = useUserData();
+    return <ChequeChipView {...props} canOpen={CHEQUE_ACCESS_PROFILES.includes(role)} />;
+};
+
+const ChequeChipView = ({ cheque, chequeNo, status, credit = false, className, canOpen }: ChequeChipProps & { canOpen: boolean }) => {
     const [open, setOpen] = useState(false);
     const text = chequeChipText(chequeNo, status);
     const chipClass = cn(
@@ -49,7 +61,7 @@ export const ChequeChip = ({ cheque, chequeNo, status, credit = false, className
     ) : text;
     const holderClass = credit ? cn("inline-flex max-w-full min-w-0 items-center gap-1", className) : chipClass;
 
-    if (!cheque || !CHEQUE_ACCESS_PROFILES.includes(role)) {
+    if (!cheque || !canOpen) {
         return <span className={holderClass} title={text}>{body}</span>;
     }
     return (
@@ -72,15 +84,14 @@ export const ChequeChip = ({ cheque, chequeNo, status, credit = false, className
 
 /**
  * A cheque number that opens the Cheque's detail view, as the chip does, where a table shows the number and the
- * status in columns of their own (Credit Payments' Cheque Issued tab). Same audience as the chip
- * (`CHEQUE_ACCESS_PROFILES`); anyone else sees the number as plain text.
+ * status in columns of their own (Credit Payments' Cheque Issued tab). Same audience as the chip; the table passes
+ * `canOpen`, worked out once. Anyone else sees the number as plain text.
  *
  * ⚠️ RENDERS A <button>. Never put it inside another button or popover trigger.
  */
-export const ChequeNumberLink = ({ cheque, chequeNo }: { cheque?: string | null; chequeNo: string }) => {
-    const { role } = useUserData();
+export const ChequeNumberLink = ({ cheque, chequeNo, canOpen }: { cheque?: string | null; chequeNo: string; canOpen: boolean }) => {
     const [open, setOpen] = useState(false);
-    if (!cheque || !CHEQUE_ACCESS_PROFILES.includes(role)) {
+    if (!cheque || !canOpen) {
         return <span className="font-mono">{chequeNo}</span>;
     }
     return (

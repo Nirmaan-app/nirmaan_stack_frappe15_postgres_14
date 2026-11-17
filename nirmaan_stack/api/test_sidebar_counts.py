@@ -16,6 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.sidebar_counts import sidebar_counts
 from nirmaan_stack.api.vendor.test_gst_hold import U, _Fixture
+from nirmaan_stack.services.sidebar_counts_cache import bump_version
 
 
 class TestWorkOrderCounts(FrappeTestCase):
@@ -32,6 +33,9 @@ class TestWorkOrderCounts(FrappeTestCase):
     def test_all_wo_counts_a_work_order_under_amendment_as_the_list_shows_it(self):
         before = self._sr_counts()
         self.fx.work_order(self.project, self.vendor, 1000, status="Amendment")
+        # The fixture plants the Work Order with raw SQL, which fires no document event, so it moves the kept
+        # Work Order counts on itself (services/sidebar_counts_cache), as any raw writer must.
+        bump_version("Service Requests")
         frappe.db.commit()
         after = self._sr_counts()
         self.assertEqual((after["all"] - before["all"], after["amended"] - before["amended"]), (1, 1))

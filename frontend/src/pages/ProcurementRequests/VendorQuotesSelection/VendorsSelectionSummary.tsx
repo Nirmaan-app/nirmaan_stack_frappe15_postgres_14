@@ -41,7 +41,6 @@ import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/use-toast";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useVendorsList } from "./hooks/useVendorsList";
-import { useUsersList } from "../ApproveNewPR/hooks/useUsersList";
 import { useProcurementRequest } from "@/hooks/useProcurementRequest";
 
 // --- UI Imports ---
@@ -164,7 +163,6 @@ export const VendorsSelectionSummary: React.FC = () => {
     true
   );
 
-  const { data: usersList, isLoading: usersListLoading } = useUsersList();
   const { allVendors: vendor_list, isLoading: vendor_list_loading } =
     useVendorsList({ vendorTypes: ["Material", "Material & Service"] });
 
@@ -430,7 +428,7 @@ export const VendorsSelectionSummary: React.FC = () => {
     );
   }, [vendorWiseApprovalItems, justifications]);
 
-  if (procurement_request_loading || vendor_list_loading || usersListLoading)
+  if (procurement_request_loading || vendor_list_loading)
     return <LoadingFallback />;
 
   if (orderData?.workflow_state !== "In Progress") {

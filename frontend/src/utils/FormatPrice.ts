@@ -1,5 +1,8 @@
 import { parseNumber } from "./parseNumber";
 
+// Built once: `toLocaleString('en-IN', …)` builds a new formatter on every call, once per amount in every cell.
+const RUPEE_2DP = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function formatToIndianRupee(price: number | string | undefined) {
   // Ensure the price is a number before formatting
   const amount = parseNumber(price);
@@ -9,10 +12,7 @@ function formatToIndianRupee(price: number | string | undefined) {
   }
 
   // Convert the number to Indian currency format
-  return `₹${amount.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return `₹${RUPEE_2DP.format(amount)}`;
 }
 
 
@@ -73,10 +73,7 @@ export const formatToApproxLakhs = (amount: number | string | undefined): string
   const roundedLakhs = Math.round(lakhs * 100) / 100; // Round to 2 decimal places
 
   // Format with Indian locale
-  return `₹${roundedLakhs.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} L`;
+  return `₹${RUPEE_2DP.format(roundedLakhs)} L`;
 }
 
 /**

@@ -20,6 +20,11 @@ export const APPROVAL_COUNTS_API =
   "nirmaan_stack.api.approvals.get_approval_queue.get_approval_queue_counts";
 /** SWR key of the tab-badge fetch — shared so a child tab can refresh the badges. */
 export const APPROVAL_COUNTS_SWR_KEY = "approval-queue-counts";
+/**
+ * The approval queue's rows also come from these two ledgers, besides its nominal "Project Payments". Passed to
+ * `useServerDataTable` as `liveRefreshDoctypes`, so another user's expense change refreshes the table quietly.
+ */
+export const APPROVAL_QUEUE_EXPENSE_DOCTYPES = ["Project Expenses", "Non Project Expenses"] as const;
 
 /** The five statuses in sequence, plus the end state. `Paid` means RECONCILED. */
 export const APPROVAL_STATUS = {
@@ -102,6 +107,8 @@ export interface ApprovalQueueRow {
   vendor: string;
   project: string;
   raised_by: string;
+  /** Display only: who raised it, by name (Nirmaan Users full name, else the email), sent by the queue API. */
+  raised_by_name?: string;
   /** The Expense Request an expense came from; blank on a Direct Expense and on a payment (#1472). */
   request_id: string;
   creation: string;

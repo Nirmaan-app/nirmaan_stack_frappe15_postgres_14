@@ -4,7 +4,6 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // import { getPOTotal } from "@/utils/getAmounts";
@@ -13,7 +12,6 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
-import { FrappeDoc, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
 
 // --- Tab Configuration ---
 import {
@@ -35,11 +33,7 @@ import { PORemarksPopover } from "./components/PORemarksPopover";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
-import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
-import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
 import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
-import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
 const ApproveSelectSentBack = React.lazy(() => import("../../Sent Back Requests/approve-select-sent-back"));
@@ -182,19 +176,8 @@ export const ReleasePOSelect: React.FC = () => {
     //     await mutate()
     // })
 
-    const projectsFetchOptions = getProjectListOptions();
-
-    // --- Generate Query Keys ---
-    const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
-
-    // --- Supporting Data & Hooks ---
-    const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
-        "Projects", projectsFetchOptions as GetDocListArgs<FrappeDoc<Projects>>, projectQueryKey
-    );
-
-    const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useVendorsList()
-
-    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList()
+    // No Projects or Vendors list here: each PO row carries its own `project_name` and `vendor_name`, the
+    // Project and Vendor filters are server facets, and the payments dialog reads the names off the PO.
 
     // const getAmountPaid = useMemo(() => memoize((id: string) => {
     //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
@@ -352,22 +335,17 @@ export const ReleasePOSelect: React.FC = () => {
             accessorKey: "owner",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Approved By" />,
             cell: ({ row }) => {
-                const data = row.original
-                const ownerUser = userList?.find((entry) => data?.owner === entry.name)
                 return (
                     <div className="font-medium">
-                        {ownerUser?.full_name || data?.owner || "--"}
+                        {/* The name comes with the row (`owner_name`, list API); the email if it is missing. */}
+                        {row.original?.owner_name || row.original?.owner || "--"}
                     </div>
                 );
             },
             size: 180,
             meta: {
                 exportHeaderName: "Approved By",
-                exportValue: (row) => {
-                    const data = row
-                    const ownerUser = userList?.find((entry) => data?.owner === entry.name)
-                    return ownerUser?.full_name || data?.owner || "--";
-                }
+                exportValue: (row) => row?.owner_name || row?.owner || "--"
             }
         },
         {
@@ -544,7 +522,7 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ],[tab, userList, vendorsList, projects]);
+    ],[tab]);
     // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     // Legacy static facet path — Status is a curated list (PO_STATUS_OPTIONS), not a useFacetValues
@@ -613,13 +591,6 @@ export const ReleasePOSelect: React.FC = () => {
         if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;
 
         if (shouldShowTable) {
-            if (projectsLoading || vendorsListLoading || userListLoading) {
-                return <TableSkeleton />;
-            }
-            if (!projects || !vendorsList || !userList) {
-                return <div className="text-red-600 text-center p-4">Error loading supporting data for table view.</div>;
-            }
-
             // Use wrapper component with key to force complete remount
             return (
                 <PODataTableWrapper
@@ -640,12 +611,6 @@ export const ReleasePOSelect: React.FC = () => {
 
     };
     // --- End Render View Logic ---
-
-    const combinedErrorOverall = projectsError || vendorsError || userError;
-
-    if (combinedErrorOverall) { // Show prominent error if main list fails
-        return <AlertDestructive error={combinedErrorOverall} />
-    }
 
     return (
         <div className="flex-1 space-y-4">
@@ -690,8 +655,6 @@ export const ReleasePOSelect: React.FC = () => {
                 open={!!selectedPaymentPO}
                 onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
                 data={selectedPaymentPO}
-                projects={projects}
-                vendors={vendorsList}
                 isPO
             />
         </div>

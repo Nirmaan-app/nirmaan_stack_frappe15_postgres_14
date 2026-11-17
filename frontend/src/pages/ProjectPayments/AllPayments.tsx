@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Row } from "@tanstack/react-table";
-import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDocTypeEventListener, useFrappeDeleteDoc, useFrappePostCall } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc, useFrappeDeleteDoc, useFrappePostCall } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
@@ -16,6 +16,7 @@ import { useHasLoadedOnce } from '@/hooks/useHasLoadedOnce';
 import { usePublishRefetch, type RefetchRef } from '@/hooks/usePublishRefetch';
 import {
     APPROVAL_QUEUE_API,
+    APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     APPROVAL_FETCH_FIELDS,
     TYPE_LABEL,
     APPROVAL_DATE_COLUMNS,
@@ -42,7 +43,6 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { DOC_TYPES } from "./approve-payments/constants";
-import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 // --- Helper Components ---
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
@@ -59,7 +59,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 
 import PaymentSummaryCards from "./PaymentSummaryCards"
 import { useRefreshApprovalCounts } from "./hooks/useRefreshApprovalCounts"
-import { canViewPaymentSummary } from "@/constants/roles"
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles"
 import { useToast } from "@/components/ui/use-toast"
 import { getFrappeError } from "@/utils/frappeErrors"
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
@@ -211,7 +211,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         { fields: ["name", "total_amount", "gst"], limit: 0 },
         'SRs_AllPay'
     );
-    const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
 
 
     // --- Memoized Lookups & Calculations ---
@@ -286,12 +285,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     // Was a 179-line inline block threaded with `tab === "Payments Done"` ternaries.
     // Now a registry + a per-tab id array, so a column has ONE definition and the
     // array is the order. See config/approvalsTable.config.ts (TAB_COLUMNS).
-    const userLabelMap = useMemo(() => {
-        const m = new Map<string, string>();
-        for (const u of userList ?? []) m.set(u.name, (u as any).full_name || u.name);
-        return m;
-    }, [userList]);
-
     const vendorLabelMap = useMemo(() => {
         const m = new Map<string, string>();
         for (const o of vendorOptions) m.set(o.value, o.label);
@@ -360,7 +353,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         tab: tab as ApprovalTab,
         projectLabels: projectMap,
         vendorLabels: vendorLabelMap,
-        userLabels: userLabelMap,
         getDocumentTotal,
         getPoAmountDelivered,
         onEdit: canWork ? setEditRow : undefined,
@@ -373,6 +365,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         onUploadInvoice: canUploadInvoices && (tab === PP_TABS.PAYMENTS_DONE || tab === PP_TABS.PAYMENT_BY_ME)
             ? setInvoiceRow : undefined,
         canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
+        canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -381,7 +374,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             notifications.find((n) => n.docname === row.name && n.seen === "false")
         ),
     }), [
-        tab, projectMap, vendorLabelMap, userLabelMap, getDocumentTotal,
+        tab, projectMap, vendorLabelMap, getDocumentTotal,
         getPoAmountDelivered, canWork, canUploadInvoices, role, notifications, editableStatuses,
         handleSeenNotification, openPayDialog,
     ]);
@@ -439,6 +432,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         defaultSort: TAB_DEFAULT_SORT[tab as ApprovalTab],
         enableRowSelection: false,
         additionalFilters: staticFilters,
+        // Expense rows are in this table too: their changes refresh it as quietly as a payment's.
+        liveRefreshDoctypes: APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     });
 
     // Status varies only on the mixed-status tabs, so the facet is offered there. Called AFTER
@@ -450,7 +445,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         selectedSearchField,
         projectLabels: projectMap,
         vendorLabels: vendorLabelMap,
-        userLabels: userLabelMap,
         includeStatus: ([PP_TABS.PAYMENTS_PENDING, PP_TABS.ALL_PAYMENTS, PP_TABS.PAYMENT_BY_ME] as string[]).includes(tab),
     });
 
@@ -466,18 +460,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- CEO Hold Row Highlighting ---
 
-    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
-    //
-    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
-    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
-    // changed EXPENSE never reaches it, even though expense rows are in this table.
-    // These two listeners close that gap for both expense ledgers.
-    //
-    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
-    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
-    // and every mutate() in the hook is commented out.)
-    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
-    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
     usePublishRefetch(refetchRef, refetch);
 
     const handleConfirmDelete = useCallback(async () => {
@@ -532,12 +514,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     );
 
     // --- Combined Loading & Error States ---
-    const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || listIsLoading;
+    const isLoadingOverall = projectsLoading || vendorsLoading || poLoading || srLoading || listIsLoading;
     // Skeleton on the first load only: `listIsLoading` is true on every refetch, and swapping
     // the DataTable out then unmounts the search box mid-typing. The table shows its own row
     // skeleton while it refetches.
     const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
-    const combinedErrorOverall = projectsError || vendorsError || poError || srError || userError || listError;
+    const combinedErrorOverall = projectsError || vendorsError || poError || srError || listError;
 
     if (combinedErrorOverall) {
         <AlertDestructive error={combinedErrorOverall} />
@@ -665,7 +647,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                                         </div>
                                         {deleteRow.raised_by !== user_id && (
                                             <div className="text-muted-foreground">
-                                                Created by {userLabelMap.get(deleteRow.raised_by) || deleteRow.raised_by}
+                                                Created by {deleteRow.raised_by_name || deleteRow.raised_by}
                                             </div>
                                         )}
                                     </div>

@@ -5,8 +5,10 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { useNotificationStore } from "@/zustand/useNotificationStore";
-import { useContext, useState } from "react";
+import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useUserData } from "@/hooks/useUserData";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import {
   FrappeConfig,
   FrappeContext,
@@ -98,16 +100,9 @@ const formatNotificationDate = (creationDate) => {
  *  from the request (the ledger from whether it names a project, exactly as the backend
  *  decides it), so nothing has to be stored on the notification itself. */
 const useNotificationDetailData = (notifications: any[]) => {
-  const { data: usersList } = useFrappeGetDocList("Nirmaan Users", {
-    fields: ["full_name", "name"],
-    limit: 1000,
-  });
-
-  const getName = (name) => {
-    if (usersList) {
-      return usersList?.find((user) => user.name === name)?.full_name;
-    }
-  };
+  // Names from the session's shared users cache: no list download of its own.
+  const { nameOf } = useUsersList();
+  const getName = (name?: string) => (name ? nameOf(name) : undefined);
 
   const expenseRequestNames = expenseRequestNamesIn(notifications || []);
   const { data: expenseRequests } = useFrappeGetDocList<ExpenseNotificationRequest>(
@@ -126,15 +121,67 @@ const useNotificationDetailData = (notifications: any[]) => {
   return { getName, expenseRequestByName };
 };
 
+const NOTIFICATION_FIELDS: (keyof NotificationType)[] = [
+  "name", "creation", "description", "docname", "document", "event_id", "project", "recipient",
+  "recipient_role", "seen", "sender", "title", "type", "work_package", "action_url",
+];
+
+/** How many notifications the bell dropdown shows. */
+const DROPDOWN_SIZE = 10;
+
+/**
+ * The newest `limit` notifications (read and unread), loaded only while `enabled`. The store holds only the 4 fields
+ * the "new" dots read (`NewSidebar`), so the dropdown and the page load their own. Each row's `seen` is the store's when it holds
+ * that row: marking it seen here, or in another tab (`list_update`), shows at once. A new notification reaching
+ * the store reloads the list.
+ */
+const useNotificationList = (limit: number, enabled: boolean) => {
+  const { user_id } = useUserData();
+  const { data, isLoading, mutate } = useFrappeGetDocList<NotificationType>(
+    "Nirmaan Notifications",
+    {
+      fields: NOTIFICATION_FIELDS,
+      filters: [["recipient", "=", user_id]],
+      limit,
+      orderBy: { field: "creation", order: "desc" },
+    },
+    enabled && user_id ? undefined : null
+  );
+
+  const held = useNotificationStore((state) => state.notifications);
+  const notifications = useMemo(() => {
+    const seenNow = new Map(held.map((n) => [n.name, n.seen]));
+    return (data ?? []).map((n) => {
+      const seen = seenNow.get(n.name);
+      return seen === undefined || seen === n.seen ? n : { ...n, seen };
+    });
+  }, [data, held]);
+
+  const newestHeld = held[0]?.name;
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    if (enabled) mutate();
+  }, [newestHeld]);
+
+  return { notifications, isLoading };
+};
+
 export function Notifications({ isMobileMain = false }) {
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const navigate = useNavigate();
 
   const location = useLocation();
 
-  const { notifications, notificationsCount, mark_seen_notification } =
-    useNotificationStore();
+  const notificationsCount = useNotificationStore((state) => state.notificationsCount);
+  const mark_seen_notification = useNotificationStore((state) => state.mark_seen_notification);
   const [isDropdownOpen, setDropdownOpen] = useState(false);
+  // One more than it shows, to know whether "Show More" has anything more to show.
+  const { notifications: latest, isLoading } = useNotificationList(DROPDOWN_SIZE + 1, isDropdownOpen);
+  const notifications = latest.slice(0, DROPDOWN_SIZE);
 
   const { isMobile, state, toggleSidebar } = useSidebar();
 
@@ -194,10 +241,12 @@ export function Notifications({ isMobileMain = false }) {
         sideOffset={4}
       >
         <DropdownMenuLabel className="font-normal">
-          {notifications.length !== 0 ? (
+          {isLoading && notifications.length === 0 ? (
+            <p className="text-center text-gray-500">Loading...</p>
+          ) : notifications.length !== 0 ? (
             <div className="space-y-4">
               <ul className="space-y-3">
-                {notifications.slice(0, 10).map((notification) => (
+                {notifications.map((notification) => (
                   <li
                     key={notification.name}
                     className={`border-t first:border-t-0 rounded-sm transition-all ${notification.seen === "false"
@@ -249,7 +298,7 @@ export function Notifications({ isMobileMain = false }) {
                   </li>
                 ))}
               </ul>
-              {notifications.length > 10 && (
+              {latest.length > DROPDOWN_SIZE && (
                 <div className="text-center mt-2">
                   <button
                     className="text-primary font-semibold underline hover:text-blue-500"
@@ -277,7 +326,9 @@ export function Notifications({ isMobileMain = false }) {
 
 export const NotificationsPage = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
-  const { notifications, mark_seen_notification } = useNotificationStore();
+  const mark_seen_notification = useNotificationStore((state) => state.mark_seen_notification);
+  // The newest 500, as the page showed before it had a list of its own.
+  const { notifications } = useNotificationList(500, true);
   const navigate = useNavigate();
   const { getName, expenseRequestByName } = useNotificationDetailData(notifications);
 

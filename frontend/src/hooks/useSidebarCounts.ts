@@ -1,10 +1,11 @@
 /* ------------------------------------------------------------------
    useSidebarCounts  –  single GET for all counters
    ------------------------------------------------------------------ */
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetCall } from "frappe-react-sdk";
 import { SidebarCountsData, useDocCountStore } from "@/zustand/useDocCountStore";
 import React from "react";
 import { create } from "zustand";
+import { subscribeCountsLiveRefresh } from "@/hooks/realtime/countsLiveRefresh";
 
 export const API_PATH =
   "nirmaan_stack.api.sidebar_counts.sidebar_counts";
@@ -34,7 +35,8 @@ export const useSidebarCounts = (user: string | null | undefined) => {
       // ADR-0010: sidebar counts run on every page. The aggregate rewrite makes each
       // call cheap, so we stop the focus-triggered refetch storm and lengthen the poll.
       // Badges still refresh on navigation, on mutation (invalidateSidebarCounts bridge),
-      // and on socket reconnect. Deferred (ADR-0010 backlog): the inline mutate-on-navigate.
+      // and live when any user changes a counted record (useCountsBridge, countsLiveRefresh.ts).
+      // Deferred (ADR-0010 backlog): the inline mutate-on-navigate.
       revalidateOnFocus: false,
       refreshInterval: 1000 * 60 * 5, // 5-minute background refresh (was 2)
       dedupingInterval: 1000 * 10,    // collapse overlapping mount/reconnect triggers
@@ -67,6 +69,28 @@ export const useCountsBridge = (user: string | null | undefined) => {
   React.useEffect(() => {
     if (data) setAll(data);
   }, [data, setAll]);
+
+  // Live: another user's change to a counted record refreshes the badges within about 2 s, grouped, and only while
+  // the tab is visible. SWR's own `mutate` is used because it is not held back by the 10 s `dedupingInterval`.
+  const { socket } = React.useContext(FrappeContext) as FrappeConfig;
+  const mutateRef = React.useRef(mutate);
+  React.useEffect(() => {
+    mutateRef.current = mutate;
+  });
+  React.useEffect(() => {
+    if (!socket || !user) return;
+    const live = subscribeCountsLiveRefresh(
+      socket,
+      () => { void mutateRef.current(); },
+      () => document.visibilityState === "hidden",
+    );
+    const onVisibilityChange = () => live.evaluate();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      live.dispose();
+    };
+  }, [socket, user]);
 
   return { data, isLoading, error };
 };

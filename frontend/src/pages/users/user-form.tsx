@@ -15,6 +15,7 @@ import { DepartmentSelect } from "@/components/common/DepartmentSelect"
 import { canEditDepartments } from "@/constants/departments"
 import { useDepartmentOptions } from "@/hooks/useDepartmentOptions"
 import { useUserData } from "@/hooks/useUserData"
+import { useRefreshUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList"
 
 const UserFormSchema = z.object({
     first_name: z
@@ -86,6 +87,7 @@ export const UserForm = () => {
     })
 
     const { call: createUser, loading } = useFrappePostCall("nirmaan_stack.api.users.create_user")
+    const refreshUsersList = useRefreshUsersList()
 
     const { toast } = useToast()
 
@@ -95,6 +97,7 @@ export const UserForm = () => {
             const result = response.message;
 
             if (result?.success) {
+                refreshUsersList();
                 if (result.email_sent) {
                     toast({
                         title: "Success",

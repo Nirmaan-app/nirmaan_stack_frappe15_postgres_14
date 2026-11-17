@@ -22,7 +22,8 @@
  * that would have to touch the payments screen — tracked as debt, not hidden.
  */
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { useFrappeDocTypeEventListener, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { useListUpdate } from "@/hooks/useListUpdate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TailSpin } from "react-loader-spinner";
@@ -159,7 +160,7 @@ export const InvoiceSummaryCards: React.FC = () => {
         }, 400);
     }, [refetch]);
 
-    useFrappeDocTypeEventListener("Vendor Invoices", scheduleRefetch);
+    useListUpdate("Vendor Invoices", scheduleRefetch);
 
     useEffect(
         () => () => {

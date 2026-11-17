@@ -8,7 +8,6 @@ import {
   useFrappePostCall,
   FrappeDoc,
   GetDocListArgs,
-  useFrappeDocTypeEventListener,
 } from "frappe-react-sdk";
 
 // --- UI Components ---
@@ -38,7 +37,7 @@ import {
 } from "./constants";
 import PaymentSummaryCards from "../PaymentSummaryCards";
 import { useUserData } from "@/hooks/useUserData";
-import { canViewPaymentSummary } from "@/constants/roles";
+import { CHEQUE_ACCESS_PROFILES, canViewPaymentSummary } from "@/constants/roles";
 
 // --- Hooks & Utils ---
 import { Row } from "@tanstack/react-table";
@@ -47,6 +46,7 @@ import { usePublishRefetch, type RefetchRef } from "@/hooks/usePublishRefetch";
 import { PP_TABS } from "../config/ppTabs.constants";
 import {
   APPROVAL_QUEUE_API,
+  APPROVAL_QUEUE_EXPENSE_DOCTYPES,
   APPROVAL_FETCH_FIELDS,
   APPROVAL_DATE_COLUMNS,
   APPROVAL_SEARCHABLE_FIELDS,
@@ -73,7 +73,6 @@ import {
 } from "@/zustand/useNotificationStore";
 import { formatDate } from "@/utils/FormatDate";
 import { memoize } from "lodash";
-import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import {
@@ -179,12 +178,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   } = useVendorsList({
     vendorTypes: ["Service", "Material", "Material & Service"],
   });
-
-  const {
-    data: userList,
-    isLoading: userListLoading,
-    error: userError,
-  } = useUsersList();
 
   const {
     data: purchaseOrders,
@@ -380,18 +373,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   // entry in TAB_COLUMNS rather than another 300-line block.
   const activeTab = isCEOMode ? PP_TABS.CEO_PENDING : PP_TABS.APPROVE_PAYMENTS;
 
-  const userLabelMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const u of userList ?? []) m.set(u.name, u.full_name || u.name);
-    return m;
-  }, [userList]);
-
   const columnCtx = useMemo<ApprovalColumnCtx>(
     () => ({
       tab: activeTab,
       projectLabels: projectLabelMap,
       vendorLabels: vendorLabelMap,
-      userLabels: userLabelMap,
       getDocumentTotal,
       getAmountPaid,
       getPoAmountDelivered,
@@ -415,12 +401,12 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         : (row) => openDialog(row as unknown as ProjectPayments, DIALOG_ACTION_TYPES.REJECT),
       onEdit: canWork ? setEditRow : undefined,
       canEdit: (row) => canEditQueueRow(row, editableStatuses),
+      canOpenCheque: CHEQUE_ACCESS_PROFILES.includes(role),
     }),
     [
       activeTab,
       projectLabelMap,
       vendorLabelMap,
-      userLabelMap,
       getDocumentTotal,
       getAmountPaid,
       getPoAmountDelivered,
@@ -472,6 +458,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // still sent because the hook derives its cache key from it.
     doctype: DOCTYPE,
     apiEndpoint: APPROVAL_QUEUE_API,
+    // Expense rows are in this table too: their changes refresh it as quietly as a payment's.
+    liveRefreshDoctypes: APPROVAL_QUEUE_EXPENSE_DOCTYPES,
     columns: columns,
     fetchFields: APPROVAL_FETCH_FIELDS,
     searchableFields: APPROVAL_SEARCHABLE_FIELDS,
@@ -513,7 +501,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     selectedSearchField,
     projectLabels: projectLabelMap,
     vendorLabels: vendorLabelMap,
-    userLabels: userLabelMap,
   });
 
   // ── Bulk selection cap ────────────────────────────────────────────────────────
@@ -564,18 +551,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   });
 
 
-    // ⚠️ THE TABLE ONLY SELF-REFRESHES FOR ITS NOMINAL DOCTYPE.
-    //
-    // `useServerDataTable` ends with `useFrappeDocTypeEventListener(doctype, ...)`
-    // (hooks/useServerDataTable.ts:795) and we pass "Project Payments" — so a new or
-    // changed EXPENSE never reaches it, even though expense rows are in this table.
-    // These two listeners close that gap for both expense ledgers.
-    //
-    // (An earlier attempt invalidated by SWR key instead. That was dead code: this
-    // table fetches through `useFrappePostCall`, which registers no SWR entry at all,
-    // and every mutate() in the hook is commented out.)
-    useFrappeDocTypeEventListener("Project Expenses", () => refetch());
-    useFrappeDocTypeEventListener("Non Project Expenses", () => refetch());
     usePublishRefetch(refetchRef, refetch);
 
   // --- Update Logic ---
@@ -758,7 +733,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const isPageLoading =
     projectsLoading ||
     vendorsLoading ||
-    userListLoading ||
     poLoading ||
     srLoading;
   const hasLoadedOnce = useHasLoadedOnce(isPageLoading);
@@ -766,7 +740,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const combinedError =
     projectsError ||
     vendorsError ||
-    userError ||
     poError ||
     srError ||
     listError;

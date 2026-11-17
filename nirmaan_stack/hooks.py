@@ -96,6 +96,8 @@ after_migrate = [
     # Records without review drops a profile that raises no type, judged on the types the migrate
     # ends with (a patch may merge or remove types).
     "nirmaan_stack.integrations.controllers.expense_type.after_migrate",
+    # Patches that write with set_value or raw SQL move no table-page version themselves.
+    "nirmaan_stack.services.table_cache.bump_all_versions",
 ]
 
 # Uninstallation
@@ -175,11 +177,32 @@ override_doctype_class = {
     "File": "nirmaan_stack.integrations.controllers.file.NirmaanFile",
 }
 
+# Data-table pages kept in Redis (services/table_cache): in every request and background job, each commit moves on
+# the version of every record type it wrote (asked of Postgres just before the commit), so no kept page older than
+# the change is served.
+before_request = ["nirmaan_stack.services.table_cache.watch_writes"]
+before_job = ["nirmaan_stack.services.table_cache.watch_writes"]
+
 # Document Events
 # ---------------
 # Hook on document methods and events
 
 doc_events = {
+    # Sidebar badge counts kept in Redis: a change to a counted record type moves its version on after the commit,
+    # so the next badge request counts that part again (services/sidebar_counts_cache). on_change fires on every save
+    # and every db_set; the handler returns at once for any other record type.
+    "*": {
+        # table_cache.bump_on_save: only outside a request or job (console, patches); inside one the write
+        # watcher (before_request / before_job) already moves the table-page versions.
+        "on_change": [
+            "nirmaan_stack.services.sidebar_counts_cache.bump_on_change",
+            "nirmaan_stack.services.table_cache.bump_on_save",
+        ],
+        "after_delete": [
+            "nirmaan_stack.services.sidebar_counts_cache.bump_on_change",
+            "nirmaan_stack.services.table_cache.bump_on_save",
+        ],
+    },
 	"User": {
         # Only User admins create users or give role profiles (services/role_profiles.USER_ADMIN_PROFILES).
         "validate": "nirmaan_stack.integrations.controllers.user.validate",

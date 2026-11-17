@@ -5,7 +5,8 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFrappeDocTypeEventListener, useFrappeGetCall, useFrappeGetDocCount } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocCount } from "frappe-react-sdk";
+import { useListUpdate } from "@/hooks/useListUpdate";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
@@ -63,9 +64,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
         countsDebounceRef.current = setTimeout(() => { mutateQueueCounts(); }, 500);
     }, [mutateQueueCounts]);
-    useFrappeDocTypeEventListener("Project Payments", scheduleCountsRefresh);
-    useFrappeDocTypeEventListener("Project Expenses", scheduleCountsRefresh);
-    useFrappeDocTypeEventListener("Non Project Expenses", scheduleCountsRefresh);
+    useListUpdate("Project Payments", scheduleCountsRefresh);
+    useListUpdate("Project Expenses", scheduleCountsRefresh);
+    useListUpdate("Non Project Expenses", scheduleCountsRefresh);
     useEffect(() => () => {
         if (countsDebounceRef.current) clearTimeout(countsDebounceRef.current);
     }, []);
@@ -109,7 +110,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         "GST Payment Request", [["status", "=", "Pending"]], false,
         canDecideGst ? "gst-requests-pending-count" : null,
     );
-    useFrappeDocTypeEventListener("GST Payment Request", () => { if (canDecideGst) mutateGstWaiting(); });
+    useListUpdate("GST Payment Request", () => { if (canDecideGst) mutateGstWaiting(); });
 
     const initialTab = useMemo(() => getUrlStringParam("tab", tabSet.defaultTab), [tabSet.defaultTab]);
 

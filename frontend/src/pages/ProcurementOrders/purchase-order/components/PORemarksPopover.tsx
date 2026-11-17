@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { MessageCircle, Loader2, X, Send, ExternalLink } from "lucide-react";
 
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "@/components/ui/use-toast";
 
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
@@ -23,30 +23,96 @@ interface PORemarksPopoverProps {
     poId: string;
 }
 
-export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
-    const { toast } = useToast();
+const PO_REMARK_ROLES = [
+    "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
+    ...MATERIAL_PROCUREMENT_PROFILES,
+    "Nirmaan Project Lead Profile",
+    "Nirmaan Project Manager Profile",
+];
+
+/**
+ * Shows the add-remark form only to a role that may add one. It sits inside the popover's content, which mounts
+ * only while the popover is open, so the role is read for the open popover alone, never once per table row.
+ */
+const CanAddPORemark: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { role } = useUserData();
+    return PO_REMARK_ROLES.includes(role) ? <>{children}</> : null;
+};
+
+export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
 
     const [isOpen, setIsOpen] = useState(false);
+    // Kept here, not in the content, so a half-typed remark survives closing and reopening, as before.
     const [newRemark, setNewRemark] = useState("");
+    // Reported by the open popover's content; the badge shows it only while open, as before.
+    const [openTotal, setOpenTotal] = useState(0);
+    const total = isOpen ? openTotal : 0;
 
-    // Fetch remarks when popover is open
-    const { remarks, counts, isLoading, mutate } = usePORemarks(isOpen ? poId : undefined);
+    return (
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+                <button
+                    aria-label="View remarks"
+                    className="inline-flex items-center justify-center"
+                    type="button"
+                >
+                    {total > 0 ? (
+                        <Badge
+                            variant="secondary"
+                            className="cursor-pointer hover:bg-gray-200 transition-colors"
+                        >
+                            <MessageCircle className="w-3 h-3 mr-1" />
+                            {total}
+                        </Badge>
+                    ) : (
+                        <Badge
+                            variant="outline"
+                            className="cursor-pointer text-gray-400 hover:bg-gray-100 transition-colors"
+                        >
+                            <MessageCircle className="w-3 h-3" />
+                        </Badge>
+                    )}
+                </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[380px] max-h-[450px] overflow-hidden p-0" align="end">
+                <PORemarksContent
+                    poId={poId}
+                    newRemark={newRemark}
+                    setNewRemark={setNewRemark}
+                    onClose={() => setIsOpen(false)}
+                    onTotal={setOpenTotal}
+                />
+            </PopoverContent>
+        </Popover>
+    );
+};
+
+/**
+ * The open popover: the remarks, the add-remark form and the "View all" link. Rendered inside the popover's
+ * content, so it mounts (and fetches) only while the popover is open, never once per table row.
+ */
+interface PORemarksContentProps {
+    poId: string;
+    newRemark: string;
+    setNewRemark: (text: string) => void;
+    onClose: () => void;
+    onTotal: (total: number) => void;
+}
+
+const PORemarksContent: React.FC<PORemarksContentProps> = ({ poId, newRemark, setNewRemark, onClose, onTotal }) => {
+
+    // Mounted only while the popover is open, so this fetches only then (as before).
+    const { remarks, counts, isLoading, mutate } = usePORemarks(poId);
+
+    // The row's badge shows the count while the popover is open, as it always has.
+    useEffect(() => {
+        onTotal(counts.total);
+    }, [counts.total, onTotal]);
+
     const { addRemark, isLoading: isAdding } = useAddPORemark();
-
-    // Check if user can add remarks
-    const canAddRemarks = useMemo(() => {
-        const allowedRoles = [
-            "Nirmaan Admin Profile",
-            "Nirmaan PMO Executive Profile",
-            "Nirmaan Accountant Profile",
-            "Nirmaan Accountant Lead Profile",
-            ...MATERIAL_PROCUREMENT_PROFILES,
-            "Nirmaan Project Lead Profile",
-            "Nirmaan Project Manager Profile",
-        ];
-        return allowedRoles.includes(role || "");
-    }, [role]);
 
     const handleAddRemark = async () => {
         if (!newRemark.trim()) return;
@@ -106,144 +172,118 @@ export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
     const encodedPoId = poId.replace(/\//g, "&=");
 
     return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger asChild>
-                <button
-                    aria-label="View remarks"
-                    className="inline-flex items-center justify-center"
-                    type="button"
+        <>
+            {/* Header */}
+            <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
+                <h4 className="font-semibold text-sm">
+                    Remarks {counts.total > 0 && `(${counts.total})`}
+                </h4>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 rounded-full hover:bg-gray-100"
+                    onClick={() => onClose()}
+                    aria-label="Close"
                 >
-                    {counts.total > 0 ? (
-                        <Badge
-                            variant="secondary"
-                            className="cursor-pointer hover:bg-gray-200 transition-colors"
+                    <X className="h-4 w-4" />
+                </Button>
+            </div>
+
+            <div className="p-3 space-y-3 max-h-[350px] overflow-y-auto">
+                {/* Add Remark Form */}
+                <CanAddPORemark>
+                    <div className="flex gap-2">
+                        <Textarea
+                            placeholder="Add remark... (Ctrl+Enter)"
+                            value={newRemark}
+                            onChange={(e) => setNewRemark(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            disabled={isAdding}
+                            className="min-h-[60px] resize-none text-sm"
+                        />
+                        <Button
+                            size="sm"
+                            onClick={handleAddRemark}
+                            disabled={isAdding || !newRemark.trim()}
+                            className="self-end"
                         >
-                            <MessageCircle className="w-3 h-3 mr-1" />
-                            {counts.total}
-                        </Badge>
-                    ) : (
-                        <Badge
-                            variant="outline"
-                            className="cursor-pointer text-gray-400 hover:bg-gray-100 transition-colors"
-                        >
-                            <MessageCircle className="w-3 h-3" />
-                        </Badge>
-                    )}
-                </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[380px] max-h-[450px] overflow-hidden p-0" align="end">
-                {/* Header */}
-                <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
-                    <h4 className="font-semibold text-sm">
-                        Remarks {counts.total > 0 && `(${counts.total})`}
-                    </h4>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 rounded-full hover:bg-gray-100"
-                        onClick={() => setIsOpen(false)}
-                        aria-label="Close"
-                    >
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
+                            {isAdding ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <Send className="w-4 h-4" />
+                            )}
+                        </Button>
+                    </div>
+                </CanAddPORemark>
 
-                <div className="p-3 space-y-3 max-h-[350px] overflow-y-auto">
-                    {/* Add Remark Form */}
-                    {canAddRemarks && (
-                        <div className="flex gap-2">
-                            <Textarea
-                                placeholder="Add remark... (Ctrl+Enter)"
-                                value={newRemark}
-                                onChange={(e) => setNewRemark(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                disabled={isAdding}
-                                className="min-h-[60px] resize-none text-sm"
-                            />
-                            <Button
-                                size="sm"
-                                onClick={handleAddRemark}
-                                disabled={isAdding || !newRemark.trim()}
-                                className="self-end"
-                            >
-                                {isAdding ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <Send className="w-4 h-4" />
-                                )}
-                            </Button>
-                        </div>
-                    )}
-
-                    {/* Loading State */}
-                    {isLoading && (
-                        <div className="flex items-center justify-center p-4">
-                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                            <span className="ml-2 text-sm text-gray-500">Loading...</span>
-                        </div>
-                    )}
-
-                    {/* Empty State */}
-                    {!isLoading && remarks.length === 0 && (
-                        <div className="text-center text-gray-500 py-4">
-                            <MessageCircle className="w-6 h-6 mx-auto mb-2 opacity-50" />
-                            <p className="text-sm">No remarks yet</p>
-                        </div>
-                    )}
-
-                    {/* Remarks List */}
-                    {!isLoading && recentRemarks.length > 0 && (
-                        <div className="space-y-2">
-                            {recentRemarks.map((remark: PORemarkData) => (
-                                <div
-                                    key={remark.name}
-                                    className="flex items-start gap-2 p-2 bg-gray-50 rounded-md"
-                                >
-                                    <Avatar className="h-7 w-7 flex-shrink-0">
-                                        <AvatarFallback className="text-xs bg-gray-200">
-                                            {getInitials(remark.comment_by_name)}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-medium text-xs">
-                                                {remark.comment_by_name}
-                                            </span>
-                                            <Badge
-                                                variant="secondary"
-                                                className={`text-[10px] px-1.5 py-0 ${getSubjectBadgeClass(remark.subject)}`}
-                                            >
-                                                {remark.subject_label}
-                                            </Badge>
-                                        </div>
-                                        <p className="text-xs text-gray-700 mt-0.5 line-clamp-2">
-                                            {remark.content}
-                                        </p>
-                                        <span className="text-[10px] text-gray-400">
-                                            {formatRelativeTime(remark.creation)}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer with View All link */}
-                {counts.total > 5 && (
-                    <div className="border-t px-3 py-2 bg-gray-50">
-                        <Link
-                            to={`/purchase-orders/${encodedPoId}`}
-                            className="text-xs text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1"
-                            onClick={() => setIsOpen(false)}
-                        >
-                            View all {counts.total} remarks
-                            <ExternalLink className="w-3 h-3" />
-                        </Link>
+                {/* Loading State */}
+                {isLoading && (
+                    <div className="flex items-center justify-center p-4">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        <span className="ml-2 text-sm text-gray-500">Loading...</span>
                     </div>
                 )}
-            </PopoverContent>
-        </Popover>
+
+                {/* Empty State */}
+                {!isLoading && remarks.length === 0 && (
+                    <div className="text-center text-gray-500 py-4">
+                        <MessageCircle className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No remarks yet</p>
+                    </div>
+                )}
+
+                {/* Remarks List */}
+                {!isLoading && recentRemarks.length > 0 && (
+                    <div className="space-y-2">
+                        {recentRemarks.map((remark: PORemarkData) => (
+                            <div
+                                key={remark.name}
+                                className="flex items-start gap-2 p-2 bg-gray-50 rounded-md"
+                            >
+                                <Avatar className="h-7 w-7 flex-shrink-0">
+                                    <AvatarFallback className="text-xs bg-gray-200">
+                                        {getInitials(remark.comment_by_name)}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-medium text-xs">
+                                            {remark.comment_by_name}
+                                        </span>
+                                        <Badge
+                                            variant="secondary"
+                                            className={`text-[10px] px-1.5 py-0 ${getSubjectBadgeClass(remark.subject)}`}
+                                        >
+                                            {remark.subject_label}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-xs text-gray-700 mt-0.5 line-clamp-2">
+                                        {remark.content}
+                                    </p>
+                                    <span className="text-[10px] text-gray-400">
+                                        {formatRelativeTime(remark.creation)}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Footer with View All link */}
+            {counts.total > 5 && (
+                <div className="border-t px-3 py-2 bg-gray-50">
+                    <Link
+                        to={`/purchase-orders/${encodedPoId}`}
+                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1"
+                        onClick={() => onClose()}
+                    >
+                        View all {counts.total} remarks
+                        <ExternalLink className="w-3 h-3" />
+                    </Link>
+                </div>
+            )}
+        </>
     );
 };
 

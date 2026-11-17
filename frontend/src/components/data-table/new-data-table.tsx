@@ -10,7 +10,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileUp, Loader2 } from "lucide-react";
+import { FileUp, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
@@ -20,6 +20,7 @@ import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
 import { SelfFetchingFacetFilter } from "./SelfFetchingFacetFilter";
 import { getColumnFacet, FacetOverrides } from "./facetConfig";
+import { tableMaxHeight, virtualRowSize } from "./tableHeightModel";
 import { DataTableDateFilter } from "./data-table-date-filter";
 import { TableBodySkeleton } from "@/components/ui/skeleton";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -96,6 +97,92 @@ export interface DataTableProps<T> {
   renderExpandedRow?: (row: TanRow<T>) => React.ReactNode;
 }
 
+/* ---------- one drawn row (memoised) ------------------------------------ */
+// Module-level so the default keeps one identity and does not redraw every memoised row.
+const DEFAULT_NEW_ROW_INDICATOR = <div className="h-2 w-2 rounded-full bg-red-500" />;
+
+interface DataTableRowProps<T> {
+  row: TanRow<T>;
+  index: number;
+  isSelected: boolean;
+  isExpanded: boolean;
+  rowClassName?: string;
+  isNew: boolean;
+  showIndicator: boolean;
+  showSelection: boolean;
+  newRowIndicator: React.ReactNode;
+  stickyColumnClassName: string;
+  measureRef?: (el: Element | null) => void;
+  renderExpandedRow?: (row: TanRow<T>) => React.ReactNode;
+  colSpan: number;
+  // Not read in the row. They are props only so a row redraws when the page's columns, the table meta
+  // or the visible columns change: cells read all three through `cell.getContext()`.
+  columnsKey: unknown;
+  metaKey: unknown;
+  visibleKey: string;
+}
+
+/**
+ * One drawn table row. It is memoised, so it redraws only when its own props change: a scroll frame or a key
+ * typed in search redraws the table but not the rows already on screen. TanStack keeps the same `row` object
+ * while the data is unchanged, and new data brings new row objects, so changed rows still redraw.
+ */
+function DataTableRowInner<T>({
+  row, index, isSelected, isExpanded, rowClassName, isNew, showIndicator, showSelection,
+  newRowIndicator, stickyColumnClassName, measureRef, renderExpandedRow, colSpan,
+}: DataTableRowProps<T>) {
+  const expanded = isExpanded && renderExpandedRow ? renderExpandedRow(row) : null;
+  return (
+    <React.Fragment>
+      <TableRow
+        data-state={isSelected ? "selected" : undefined}
+        className={rowClassName}
+        // The virtualizer measures each drawn row's real height (rows are 41, 57 or 63 px, not the
+        // 45 px guess), so rows taller or shorter than the guess no longer shift the content.
+        data-index={measureRef ? index : undefined}
+        ref={measureRef}>
+        {showIndicator && (
+          <TableCell
+            className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}
+            style={{ zIndex: 20 }}>
+            {isNew ? newRowIndicator : null}
+          </TableCell>
+        )}
+
+        {showSelection && (
+          <TableCell
+            className={cn("sticky w-[40px] px-2", stickyColumnClassName)}
+            style={{ zIndex: 20, left: showIndicator ? '20px' : 0 }}>
+            <Checkbox
+              aria-label="Select row"
+              disabled={!row.getCanSelect()}
+              checked={isSelected}
+              onCheckedChange={v => row.toggleSelected(!!v)}
+            />
+          </TableCell>
+        )}
+
+        {row.getVisibleCells().map(cell => {
+          if (showSelection && cell.column.id === "select") return null;
+          return (
+            <TableCell key={cell.id}>
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          );
+        })}
+      </TableRow>
+      {expanded && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell colSpan={colSpan} className="bg-muted/30 p-0">
+            {expanded}
+          </TableCell>
+        </TableRow>
+      )}
+    </React.Fragment>
+  );
+}
+const DataTableRow = React.memo(DataTableRowInner) as typeof DataTableRowInner;
+
 /* ---------- component --------------------------------------------------- */
 export function DataTable<T>({
   table, columns,
@@ -110,7 +197,7 @@ export function DataTable<T>({
   showRowSelection = false,
   showSearchBar = true, // --- ADD THIS LINE (with a default value) --
   isNewRow,
-  newRowIndicatorComponent = <div className="h-2 w-2 rounded-full bg-red-500" />,
+  newRowIndicatorComponent = DEFAULT_NEW_ROW_INDICATOR,
   estimatedRowHeight = 45,
   enableVirtualization = true,
   // Default theme-appropriate classNames with good defaults
@@ -135,12 +222,78 @@ export function DataTable<T>({
 
   /* ───────── virtualizer ───────── */
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const paginationRef = React.useRef<HTMLDivElement>(null);
+
+  /* ───────── box height: fit the screen below the table (tableHeightModel.ts) ───────── */
+  // Measured against the app shell's <main>, the page's scroll area. Outside it the box keeps
+  // whatever height its parent gives it.
+  const [boxMaxHeight, setBoxMaxHeight] = React.useState<number>();
+  React.useEffect(() => {
+    const box = parentRef.current;
+    const scroller = box?.closest("main");
+    if (!box || !scroller) return;
+    const measure = () => {
+      const pagination = paginationRef.current;
+      if (!box.offsetParent || !pagination) return; // hidden, e.g. an inactive tab
+      const boxRect = box.getBoundingClientRect();
+      const scrollerStyle = getComputedStyle(scroller);
+      const next = tableMaxHeight({
+        viewportHeight: scroller.clientHeight,
+        boxTop: boxRect.top - scroller.getBoundingClientRect().top + scroller.scrollTop,
+        reserveBelow: pagination.getBoundingClientRect().bottom - boxRect.bottom + parseFloat(scrollerStyle.paddingBottom),
+        topGap: parseFloat(scrollerStyle.paddingTop),
+      });
+      setBoxMaxHeight(prev => (prev === next ? prev : next));
+    };
+    measure();
+    // Re-measure when the window resizes or anything on the page changes height (a summary card
+    // loading above the table moves it down). The result never depends on the box's own height,
+    // so its own resizes settle on the same value.
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    observer.observe(box);
+    Array.from(scroller.children).forEach(child => observer.observe(child));
+    return () => observer.disconnect();
+  }, []);
+
+  /* ───────── live refresh: another user's change (useServerDataTable, Speed Plan task 14) ───────── */
+  // The hook decides when a change may move the rows; this table tells it what the viewer is doing. Each
+  // signal is written to a ref, so scrolling and mouse movement cause no redraw. Tables built without
+  // `useServerDataTable` have no `liveRefresh` and skip all of this.
+  const liveRefresh = table.options.meta?.liveRefresh;
+  const viewer = liveRefresh?.viewer;
+  const onBoxScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    // Away from the first row: a new row arriving on top would push what the viewer is reading down.
+    if (viewer) viewer.current.scrolledDown = event.currentTarget.scrollTop > estimatedRowHeight;
+  }, [viewer, estimatedRowHeight]);
+  const rowsViewerHandlers = React.useMemo<React.HTMLAttributes<HTMLTableSectionElement>>(() => viewer ? {
+    onPointerEnter: () => { viewer.current.pointerInRows = true; },
+    onPointerLeave: () => {
+      viewer.current.pointerInRows = false;
+      viewer.current.pointerLeftAt = Date.now();
+    },
+    onFocus: () => { viewer.current.focusInRows = true; },
+    onBlur: event => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) viewer.current.focusInRows = false;
+    },
+  } : {}, [viewer]);
 
   const rows = table.getRowModel().rows;
+  // Worked out once per render and handed to every memoised row.
+  const visibleKey = table.getVisibleLeafColumns().map(c => c.id).join("|");
+  const rowColSpan = leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0);
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimatedRowHeight,
+    // Each row's real height comes from the browser's resize report, never from reading it as the row is drawn
+    // (that read made the browser lay the page out once per new row): `virtualRowSize`.
+    measureElement: (element, report, instance) => virtualRowSize(
+      report,
+      instance.measurementsCache[Number(element.getAttribute("data-index"))]?.size,
+      estimatedRowHeight,
+      () => (element as HTMLElement).offsetHeight,
+    ),
     overscan: 5,
   });
 
@@ -249,9 +402,14 @@ export function DataTable<T>({
         </div>
       )}
 
-      {/* ───── Table container ───── */}
+      {/* ───── Table container ─────
+          The outer box holds the height and the "New changes" chip, which floats over the bottom of the table
+          so it appears without moving any row. */}
+      <div className="relative flex min-h-0 flex-1 flex-col"
+        style={boxMaxHeight ? { maxHeight: boxMaxHeight } : undefined}>
       <div ref={parentRef}
-        className={`rounded-md border overflow-x-auto flex-1 overflow-y-auto relative`}>
+        onScroll={viewer ? onBoxScroll : undefined}
+        className={`rounded-md border overflow-x-auto flex-1 min-h-0 overflow-y-auto relative`}>
         {/* Setting position relative for proper stacking context */}
 
         <Table className="w-full table-fixed">
@@ -364,7 +522,7 @@ export function DataTable<T>({
           </TableHeader>
 
           {/* ---- Body with padding rows ---- */}
-          <TableBody>
+          <TableBody {...rowsViewerHandlers}>
             {isLoading ? (
               <TableBodySkeleton rows={10} colSpan={table.getVisibleLeafColumns().length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)} />
             ) : (
@@ -379,69 +537,27 @@ export function DataTable<T>({
 
                 {renderRows.map(vRow => {
                   const row = rows[vRow.index] as TanRow<T>;
-                  const customRowClassName = getRowClassName?.(row);
-                  const expanded = renderExpandedRow && row.getIsExpanded() ? renderExpandedRow(row) : null;
+                  const isExpanded = !!renderExpandedRow && row.getIsExpanded();
                   return (
-                    <React.Fragment key={row.id}>
-                    <TableRow data-state={row.getIsSelected() ? "selected" : undefined} className={customRowClassName}>
-                      {shouldRenderIndicatorColumn && (
-                        <TableCell
-                          className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}
-                          style={{ zIndex: 20 }}>
-                          {isNewRow && isNewRow(row) ? newRowIndicatorComponent : null}
-                        </TableCell>
-                      )}
-
-                      {shouldRenderSelectionColumn && (
-                        <TableCell
-                          className={cn(
-                            "sticky w-[40px] px-2",
-                            stickyColumnClassName
-                          )}
-                          style={{
-                            zIndex: 20,
-                            left: shouldRenderIndicatorColumn ? '20px' : 0
-                          }}>
-                          <Checkbox
-                            aria-label="Select row"
-                            disabled={!row.getCanSelect()}
-                            checked={row.getIsSelected()}
-                            onCheckedChange={v => row.toggleSelected(!!v)}
-                          />
-                        </TableCell>
-                      )}
-
-                      {row.getVisibleCells().map((cell, idx) => {
-                        if (shouldRenderSelectionColumn && cell.column.id === "select") return null;
-                        const first = idx === 0;
-                        const left = first ? stickyOffset(0) : undefined;
-                        const isSelected = row.getIsSelected();
-                        return (
-                          <TableCell key={cell.id}
-                            className={cn(
-                              // first ? "sticky" : "",
-                              // (first && !isSelected) ? stickyColumnClassName : "",
-                            )}
-                            style={{
-                              // left,
-                              // zIndex: first ? 20 : 10
-                            }}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-
-                        );
-                      })}
-                    </TableRow>
-                    {expanded && (
-                      <TableRow className="hover:bg-transparent">
-                        <TableCell
-                          colSpan={leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)}
-                          className="bg-muted/30 p-0">
-                          {expanded}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    </React.Fragment>
+                    <DataTableRow<T>
+                      key={row.id}
+                      row={row}
+                      index={vRow.index}
+                      isSelected={row.getIsSelected()}
+                      isExpanded={isExpanded}
+                      rowClassName={getRowClassName?.(row)}
+                      isNew={!!isNewRow && isNewRow(row)}
+                      showIndicator={shouldRenderIndicatorColumn}
+                      showSelection={!!shouldRenderSelectionColumn}
+                      newRowIndicator={newRowIndicatorComponent}
+                      stickyColumnClassName={stickyColumnClassName}
+                      measureRef={enableVirtualization ? rowVirtualizer.measureElement : undefined}
+                      renderExpandedRow={isExpanded ? renderExpandedRow : undefined}
+                      colSpan={rowColSpan}
+                      columnsKey={table.options.columns}
+                      metaKey={table.options.meta}
+                      visibleKey={visibleKey}
+                    />
                   );
                 })}
 
@@ -453,9 +569,19 @@ export function DataTable<T>({
           </TableBody>
         </Table>
       </div>
+      {liveRefresh?.pending && (
+        <div role="status" className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center" style={{ zIndex: 50 }}>
+          <Button type="button" size="sm" onClick={liveRefresh.apply}
+            className="pointer-events-auto gap-1.5 rounded-full shadow-md">
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            New changes · Refresh
+          </Button>
+        </div>
+      )}
+      </div>
 
       {/* pagination */}
-      <div className="flex-shrink-0 border-t pt-2 mt-2">
+      <div ref={paginationRef} className="flex-shrink-0 border-t pt-2 mt-2">
         <DataTablePagination table={table} totalCount={totalCount} isLoading={isLoading} />
       </div>
     </div>
@@ -503,7 +629,8 @@ function Toolbar(props: {
             id={searchInputId}
             className="h-9 w-full sm:w-[250px] lg:w-[300px]"
             placeholder={ph} value={props.searchTerm}
-            onChange={e => props.onSearchTermChange(e.target.value)} />
+            onChange={e => props.onSearchTermChange(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") props.table.options.meta?.flushSearch?.(); }} />
         </div>
       ) : (
         <div /> // Render an empty div to maintain flexbox justify-between layout
