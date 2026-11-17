@@ -122,10 +122,11 @@ def check_edit_form(page, sheet, rec: dict) -> None:
         check(g == w, f"edit form {name} holds {w!r} (screen: {g!r})")
 
 
-
-def check_empty_unchanged(page, task: str, out: Path, step: str, who: str) -> None:
+def check_empty_unchanged(page, task: str, out: Path, step: str, who: str, may_write: bool) -> None:
     """#1703: a customer whose phone or GST is empty (null on the server, "" in the form). Each empty field is typed
-    into and cleared, so the form holds "" where the server holds null; Save must count that as no change."""
+    into and cleared, so the form holds "" where the server holds null; Save must count that as no change.
+    With ``may_write`` (the Admin's part) a wrongly enabled Update is clicked, so the request and DB checks show what
+    it would save; without it (``--part view``) nothing is clicked and the walk writes nothing."""
     rec = db(task, out, f"{step}-before", "empty", MADE_UP_PREFIX)
     c = rec["customer"]
     if c is None:
@@ -152,7 +153,10 @@ def check_empty_unchanged(page, task: str, out: Path, step: str, who: str) -> No
     save(page, out, step)
     update = sheet.get_by_role("button", name="Update")
     check(not update.is_enabled(), f"{who}: Update is off after typing into and clearing {', '.join(emptied)}")
-    check(sent == [], f"{who}: Save sent no update ({sent})")
+    if may_write and update.is_enabled():
+        update.click()
+        page.wait_for_timeout(3000)
+    check(sent == [], f"{who}: no update was sent to Customers or Address ({sent})")
     after = db(task, out, f"{step}-after", "customer", c["name"])
     check(after["customer"] == c, f"{who}: the DB row of {c['name']} is unchanged")
     check(str(after["customer"]["modified"]) == str(rec["modified"]), f"{who}: its modified time is unchanged")
@@ -187,7 +191,7 @@ def main() -> None:
     ap.add_argument("--admin-user")
     ap.add_argument("--admin-password")
     ap.add_argument("--part", choices=["all", "view"], default="all",
-                    help="view: the Accountant's read-only steps 01-03 alone (writes nothing)")
+                    help="view: the Accountant's read-only steps 01-03b alone (writes nothing)")
     a = ap.parse_args()
     if a.part == "all" and not (a.admin_user and a.admin_password):
         ap.error("--part all needs --admin-user and --admin-password")
@@ -238,7 +242,7 @@ def main() -> None:
 
         # 03b: an empty phone or GST, typed into and cleared, saves nothing (#1703)
         sidebar(page, "Customers")
-        check_empty_unchanged(page, a.task, out, "03b-empty", "Accountant")
+        check_empty_unchanged(page, a.task, out, "03b-empty", "Accountant", may_write=False)
         print(f"evidence (accountant): {out}")
         if misses:
             raise SystemExit(1)
@@ -315,7 +319,7 @@ def main() -> None:
         # 10: the 03b case as the Admin, who may write
         page.locator('[data-sidebar="menu-button"]').get_by_text("Admin Options", exact=True).click()
         page.locator('[data-sidebar="menu-sub-button"]').get_by_text("Customers", exact=True).click()
-        check_empty_unchanged(page, a.task, out, "10-empty", "Admin")
+        check_empty_unchanged(page, a.task, out, "10-empty", "Admin", may_write=True)
 
         print(f"customer: {real['name']}; made-up customer: {c['name']}")
         print(f"evidence (admin): {out}")

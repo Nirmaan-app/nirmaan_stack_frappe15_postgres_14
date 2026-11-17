@@ -37,9 +37,11 @@ Preconditions:
   <admin> --admin-password <pw>`. Steps 01-03 as the Accountant (list, a customer's page, its edit form, read
   only), 04-09 as the Admin (list, create a made-up `Zephyr Walk Builders <stamp>` customer, its page, edit and
   save its contact person). Steps 03b (Accountant) and 10 (Admin) open the newest real customer saved with no phone
-  or GST (`customers_db.py empty`), type into each empty one and clear it, and check that Update stays off, no
-  `PUT`/`POST` to Customers or Address is sent and the DB row (with its `modified`) is unchanged. Every screen is checked against `customers_db.py` (saved as `db-*.json`); exits 1 on
-  any miss. `--part view` runs 01-03 alone and writes nothing.
+  or GST (`customers_db.py empty`), type into each empty one and clear it, and check that Update stays off. In
+  step 10 (the Admin, who may write) a wrongly enabled Update is clicked, and the walk checks that no `PUT`/`POST`
+  to Customers or Address was sent and the DB row (with its `modified`) is unchanged; step 03b clicks nothing.
+  Every screen is checked against `customers_db.py` (saved as `db-*.json`); exits 1 on any miss. `--part view`
+  runs 01-03b alone and writes nothing.
   With no customer to open (none, all inside the list's 5-minute cache, or all made-up) it exits 1 saying
   which; `python3 -m unittest test_walk_customers` (from `BIN`) tests that choice.
 - **Read the DB.** `DEVENV script <task> BIN/customers_db.py list|customer <id>|by-company <name>|pincode|empty <prefix>`.
