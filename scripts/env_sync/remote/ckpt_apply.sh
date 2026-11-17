@@ -58,7 +58,7 @@ if [ "$MODE" = undo ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue; case "$f" in */) continue;; esac
     if [ -e "$f" ] && ! git ls-files --error-unmatch -- "$f" > /dev/null 2>&1; then rm -f -- "$f" && n=$((n + 1)); fi
-  done < <(tar -tf "$CK/untracked.tar")
+  done < <(tar --force-local -tf "$CK/untracked.tar")
   echo "undone: tracked files back to HEAD, $n new file(s) removed"; exit 0
 fi
 
@@ -69,7 +69,7 @@ clash=""
 while IFS= read -r f; do
   [ -n "$f" ] || continue; case "$f" in */) continue;; esac
   [ -e "$f" ] && clash+="$f"$'\n'
-done < <(tar -tf "$CK/untracked.tar")
+done < <(tar --force-local -tf "$CK/untracked.tar")
 [ -z "$clash" ] || { echo "error=CONFLICT: these new files of the checkpoint already exist here; nothing changed"; printf '%s' "$clash" | head; exit 1; }
 
 before=$(git rev-parse HEAD)
@@ -86,7 +86,7 @@ if [ -s "$CK/tracked.diff" ]; then
   git apply --check --binary "$CK/tracked.diff" 2> /tmp/ckpt_apply.err || { echo "error=CONFLICT: tracked.diff does not apply on ${want_head:0:9} (HEAD is now ${want_head:0:9}; no file changed)"; head -5 /tmp/ckpt_apply.err; exit 1; }
   git apply --binary "$CK/tracked.diff" || { echo "error=CONFLICT: tracked.diff failed part-way"; exit 1; }
 fi
-tar -xf "$CK/untracked.tar" || { echo "error=CONFLICT: unpacking untracked.tar failed part-way"; exit 1; }
+tar --force-local -xf "$CK/untracked.tar" || { echo "error=CONFLICT: unpacking untracked.tar failed part-way"; exit 1; }
 got=$(worktree_tree)
 echo "tree=$got"
 [ "$got" = "$want_tree" ] || { echo "error=the rebuilt tree $got differs from the checkpoint's $want_tree"; exit 1; }

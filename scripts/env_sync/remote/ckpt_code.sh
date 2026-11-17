@@ -32,7 +32,7 @@ if [ -n "$COMMIT" ]; then
   head=$(git rev-parse "$COMMIT^"); tree=$(git rev-parse "$COMMIT^{tree}")
   git diff --binary "$head" "$COMMIT" > "$OUT/tracked.diff" || { echo "error=git diff failed"; exit 1; }
   git diff --name-status "$head" "$COMMIT" > "$OUT/files.txt"
-  tar -cf "$OUT/untracked.tar" -T /dev/null; n_untracked=0
+  tar --force-local -cf "$OUT/untracked.tar" -T /dev/null; n_untracked=0
   n_tracked=$(grep -c . "$OUT/files.txt")
 else
   head=$(git rev-parse HEAD)
@@ -52,9 +52,9 @@ else
   : > "$OUT/untracked.list"
   while IFS= read -r -d '' f; do is_noise "$f" || printf '%s\0' "$f" >> "$OUT/untracked.list"; done < <(git ls-files -z --others --exclude-standard)
   if [ -s "$OUT/untracked.list" ]; then
-    tar -cf "$OUT/untracked.tar" --null -T "$OUT/untracked.list" || { echo "error=tar of the untracked files failed"; exit 1; }
+    tar --force-local -cf "$OUT/untracked.tar" --null -T "$OUT/untracked.list" || { echo "error=tar of the untracked files failed"; exit 1; }
   else
-    tar -cf "$OUT/untracked.tar" -T /dev/null
+    tar --force-local -cf "$OUT/untracked.tar" -T /dev/null
   fi
   n_untracked=$(tr -cd '\0' < "$OUT/untracked.list" | wc -c)
 
