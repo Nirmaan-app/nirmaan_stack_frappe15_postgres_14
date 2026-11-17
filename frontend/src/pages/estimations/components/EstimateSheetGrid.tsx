@@ -20,7 +20,6 @@ interface EstimateSheetGridProps {
   rows: GridRow[];
   estimates: Map<string, EstimateEntry>;
   expanded: Set<string>;
-  highlight: string | null;
   canEdit: boolean;
   onToggle: (node: string) => void;
   onEdit: (row: GridRow) => void;
@@ -35,7 +34,7 @@ interface EstimateSheetGridProps {
  * The shared Pricing grid is not used or changed.
  */
 export const EstimateSheetGrid: React.FC<EstimateSheetGridProps> = ({
-  rows, estimates, expanded, highlight, canEdit, onToggle, onEdit, onOpenInLineView, hiddenUnder,
+  rows, estimates, expanded, canEdit, onToggle, onEdit, onOpenInLineView, hiddenUnder,
 }) => (
   <div className="overflow-x-auto rounded-md border">
     <table className="w-full min-w-[1040px] text-xs">
@@ -57,7 +56,7 @@ export const EstimateSheetGrid: React.FC<EstimateSheetGridProps> = ({
           const open = item && expanded.has(row.name) && !!entry?.items.length;
           return (
             <Fragment key={row.name}>
-              <tr id={`est-row-${row.name}`} className={`border-t align-top ${highlight === row.name ? "bg-yellow-50" : ""}`}>
+              <tr id={`est-row-${row.name}`} className="border-t align-top">
                 <td className="px-2 py-1.5 tabular-nums">{row.source_row_number ?? ""}</td>
                 <td className="px-2 py-1.5">{row.sl_no_value ?? ""}</td>
                 <td className="px-2 py-1.5 text-sky-700">{row.parentExcelRow != null ? `↑ ${row.parentExcelRow}` : ""}</td>
