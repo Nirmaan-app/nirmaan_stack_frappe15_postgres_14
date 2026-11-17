@@ -93,7 +93,9 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
 - The `.json()` ban is residence check J1 (`scripts/residence_check.py`), not a lint rule: oxlint has no
   `no-restricted-syntax`, and its JS plugins are alpha, outside semver. Its 22 old calls are frozen per file in
   `frontend/json-call-suppressions.json`, and any file off its frozen count fails, so a new call fails even where
-  another file loses one. CI runs J1 with the other residence checks.
+  another file loses one. J1 counts with TypeScript's own parser (`frontend/scripts/json_calls.mjs`, run by node
+  from `frontend/node_modules`), so it needs node and an installed frontend; without them it fails, never passes.
+  CI runs J1 with the other residence checks, after `yarn install`.
 - oxlint honours the existing `eslint-disable` comments, under ESLint's rule names.
 - ESLint's frozen "rule not found" entry for `jsx-a11y/no-autofocus` (a disable comment for a plugin never loaded)
   has no oxlint counterpart and is gone.

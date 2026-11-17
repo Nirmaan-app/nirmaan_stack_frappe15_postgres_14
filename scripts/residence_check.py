@@ -462,96 +462,33 @@ JSON_CALL_SUPPRESSIONS = "frontend/json-call-suppressions.json"
 JSON_CALL_RULE = "no-json-call"
 # The ban's own home, and the generated shadcn/ui primitives the lint does not read either.
 JSON_CALL_EXEMPT = ("frontend/src/lib/parseJson.ts", "frontend/src/components/ui/")
-# `<expr>.json(`, `?.json(`, `.json<T>(`, `.json?.(`: what ESLint's selector
-# CallExpression[callee.type='MemberExpression'][callee.property.name='json'] matched.
-_JSON_CALL = re.compile(r"\.\s*json\s*(?:<[^()]*?>)?\s*(?:\?\.)?\s*\(")
+# J1's parser: TypeScript's own (frontend/scripts/json_calls.mjs), run by node with frontend/node_modules.
+JSON_CALL_PARSER = "frontend/scripts/json_calls.mjs"
 
 
-# A `/` after one of these (or after nothing) starts a regex literal; after anything else it divides.
-_REGEX_AFTER_CHARS = set("(,=:[!&|?{};+-*%<>~^")
-_REGEX_AFTER_WORDS = {"return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "await", "yield"}
+class JsonCallParserError(RuntimeError):
+    """J1's parser could not run (no node, or no frontend/node_modules/typescript)."""
 
 
-def _starts_regex(code: list[str]) -> bool:
-    """Whether a `/` that follows the code kept so far starts a regex literal."""
-    text = "".join(code[-40:]).rstrip()
-    if not text or text[-1] in _REGEX_AFTER_CHARS:
-        return True
-    word = re.search(r"[A-Za-z_$][\w$]*$", text)
-    return bool(word) and word.group() in _REGEX_AFTER_WORDS
+def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
+    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
 
-
-def ts_code_only(src: str) -> str:
-    """A TS/TSX source with its comments, string text and regex literals blanked (template placeholders kept).
-
-    Every newline is kept, so line numbers hold. Not handled: a quote or backtick in JSX text (`<p>Don't</p>`)
-    opens a string that blanks the rest of that line (a backtick: up to the next backtick).
+    Raises JsonCallParserError when node or TypeScript is missing: J1 never passes by not running.
     """
-    out: list[str] = []
-    i, n = 0, len(src)
-    braces: list[int] = []  # one entry per open `${`: the `{` depth inside it
-
-    def skip(j: int, stop: str) -> int:
-        """From j, past text up to (not past) a char in ``stop``, keeping newlines; handles backslash escapes."""
-        while j < n and src[j] not in stop:
-            if src[j] == "\n":
-                out.append("\n")
-            j += 2 if src[j] == "\\" else 1
-        return j
-
-    while i < n:
-        ch, nxt = src[i], src[i + 1] if i + 1 < n else ""
-        if ch == "/" and nxt == "/":
-            end = src.find("\n", i)
-            i = n if end < 0 else end
-        elif ch == "/" and nxt == "*":
-            end = src.find("*/", i + 2)
-            stop = n if end < 0 else end + 2
-            out.append("\n" * src.count("\n", i, stop))
-            i = stop
-        elif ch == "/" and _starts_regex(out):
-            j = i + 1
-            in_class = False
-            while j < n and src[j] != "\n" and (in_class or src[j] != "/"):
-                if src[j] == "[":
-                    in_class = True
-                elif src[j] == "]":
-                    in_class = False
-                j += 2 if src[j] == "\\" else 1
-            out.append(" ")
-            i = j + 1 if j < n and src[j] == "/" else j
-        elif ch in "'\"":
-            j = skip(i + 1, ch + "\n")
-            out.append(" ")
-            i = j + 1 if j < n and src[j] == ch else j
-        elif ch == "`" or (ch == "}" and braces and braces[-1] == 0):
-            if ch == "}":
-                braces.pop()
-            j = i + 1
-            while True:
-                j = skip(j, "`$")
-                if j >= n or src[j] == "`" or src.startswith("${", j):
-                    break
-                j += 1  # a `$` not followed by `{`
-            out.append(" ")
-            if src.startswith("${", j):
-                braces.append(0)
-                i = j + 2
-            else:
-                i = j + 1
-        else:
-            if braces and ch == "{":
-                braces[-1] += 1
-            elif braces and ch == "}":
-                braces[-1] -= 1
-            out.append(ch)
-            i += 1
-    return "".join(out)
+    try:
+        run = subprocess.run(["node", str(REPO_ROOT / JSON_CALL_PARSER)], input=json.dumps(sources),
+                             capture_output=True, text=True, encoding="utf-8")
+    except OSError as e:
+        raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
+    if run.returncode != 0:
+        raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
+                                  f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
+    return json.loads(run.stdout)
 
 
 def json_call_count(src: str) -> int:
-    """The `.json()` calls in a TS/TSX source's code (not its comments or strings)."""
-    return len(_JSON_CALL.findall(ts_code_only(src)))
+    """The `.json()` calls in one TS source's code (not its comments or strings)."""
+    return json_call_counts({"source.ts": src})["source.ts"]
 
 
 def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]:
@@ -574,12 +511,20 @@ def json_call_drift(found: dict[str, int], frozen: dict[str, dict]) -> list[str]
 
 
 def json_calls_unfrozen() -> list[str]:
-    """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS."""
-    found = {}
+    """J1 over the tree: the files whose `.json()` calls differ from JSON_CALL_SUPPRESSIONS.
+
+    When the parser cannot run, that is J1's one finding, so the check fails and says why.
+    """
+    sources = {}
     for p in iter_files("frontend/src", (".ts", ".tsx")):
         rel = p.relative_to(REPO_ROOT).as_posix()
-        if not rel.startswith(JSON_CALL_EXEMPT) and (n := json_call_count(read(p))):
-            found[rel.removeprefix("frontend/")] = n
+        # A call names `json` in its text; only those files go to the parser.
+        if not rel.startswith(JSON_CALL_EXEMPT) and "json" in (text := read(p)):
+            sources[rel.removeprefix("frontend/")] = text
+    try:
+        found = {path: n for path, n in json_call_counts(sources).items() if n}
+    except JsonCallParserError as e:
+        return [f"J1 could not count .json() calls: {e}"]
     frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
     frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
     return json_call_drift(found, frozen)

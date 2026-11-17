@@ -27,13 +27,6 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
-      # The seven residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
-      # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
-      # passes, a count that rose fails.
-      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls)
-        working-directory: .
-        run: python3 scripts/residence_check.py --check --only ci
-
       # A PR may shrink frontend/oxlint-suppressions.json and frontend/json-call-suppressions.json and raise
       # type-coverage's --at-least; it may not grow a count, add a file or rule (`oxlint --suppress-all`), or lower
       # the threshold. `yarn lint` alone cannot see
@@ -55,6 +48,13 @@ jobs:
         env:
           # Cypress is a dependency, but neither check runs it.
           CYPRESS_INSTALL_BINARY: 0
+
+      # The seven residence checks that are not ADR-0010 rules (ADR-0049; `ci` = CI_SUBSET in residence_check.py);
+      # ADR-0010's five stay local. --check never rewrites scripts/residence_baseline.json: a count that fell
+      # passes, a count that rose fails. After Install: J1 parses with frontend/node_modules/typescript.
+      - name: Residence checks (S1 file size, R1 rupee formatters, P1 payment sums, T1 and T2 test data, J1 .json() calls)
+        working-directory: .
+        run: python3 scripts/residence_check.py --check --only ci
 
       - name: DocType types are current (frontend/src/types/doctypes/ against the DocType JSON)
         working-directory: .

@@ -5,11 +5,13 @@ Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
 
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -27,8 +29,8 @@ from residence_check import (  # noqa: E402
     rupee_formatter_lines,
     tds_added_to_amount_paid_lines,
     json_call_count,
+    json_call_counts,
     json_call_drift,
-    ts_code_only,
 )
 
 
@@ -261,6 +263,10 @@ class RunModes(unittest.TestCase):
         workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
         self.assertIn("python3 scripts/residence_check.py --check --only ci\n", workflow)
 
+    def test_ci_runs_the_residence_checks_after_install_for_j1s_parser(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/frontend.yml").read_text()
+        self.assertLess(workflow.index("run: yarn install"), workflow.index("scripts/residence_check.py --check"))
+
 
 class TaxAddedOntoAmountPaid(unittest.TestCase):
     """A Work Order's `amount_paid` already holds the TDS withheld from the vendor (ADR-0034 Amendment A),
@@ -326,13 +332,30 @@ class JsonCalls(unittest.TestCase):
         )
         self.assertEqual(json_call_count(src), 5)
 
+    # Each probe below once blanked the call: the old hand-written scanner read the `/` as a regex's start.
+    def test_a_call_after_a_template_divided_is_counted(self):
+        self.assertEqual(json_call_count("const a = `x` / 2; const b = await r.json(); const c = n / 3;\n"), 1)
+
+    def test_a_call_after_jsx_is_counted(self):
+        src = "function P() {\n  return <p>hi</p>; const b = await r.json(); const c = n / 3;\n}\n"
+        self.assertEqual(json_call_counts({"src/P.tsx": src}), {"src/P.tsx": 1})
+
+    def test_a_call_after_a_regex_that_follows_a_paren_or_keyword_is_counted(self):
+        for before in ("if (ok) /`/.test(s);", "if (ok) {} else /`/.test(s);", "do /`/.test(s); while (0);",
+                       "export default /`/;"):
+            with self.subTest(before=before):
+                self.assertEqual(json_call_count(f"{before}\nconst b = await r.json();\n"), 1)
+
+    def test_a_call_after_an_increment_divided_is_counted(self):
+        self.assertEqual(json_call_count("let i = 0;\ni++ / 2; const b = await r.json(); const c = n / 3;\n"), 1)
+
+    def test_a_json_call_count_reads_tsx_files_as_tsx(self):
+        counts = json_call_counts({"src/A.tsx": "const a = <p>{x}</p>;\nr.json();\n", "src/b.ts": "r.json(); r.json();\n"})
+        self.assertEqual(counts, {"src/A.tsx": 1, "src/b.ts": 2})
+
     def test_division_is_not_a_regex(self):
         src = "const half = total / 2; const r = await res.json(); const q = a / b / c;\n"
         self.assertEqual(json_call_count(src), 1)
-
-    def test_blanking_keeps_every_line(self):
-        src = "const a = 'x\nconst b = \"y\";\n/* c\nd */ const e = `f\ng`;\nconst h = /i/;\n"
-        self.assertEqual(ts_code_only(src).count("\n"), src.count("\n"))
 
     def test_a_field_or_function_called_json_is_not_a_call_of_it(self):
         src = "const x = row.json;\nconst y = toJson(row);\nconst z = row.jsonText();\nfunction json() {}\n"
@@ -356,6 +379,13 @@ class JsonCalls(unittest.TestCase):
         self.assertEqual(json_call_drift({"src/new.ts": 1}, {}), [
             "frontend/src/new.ts: 1 .json() calls, 0 frozen (a new call: use parseJson)",
         ])
+
+    def test_j1_fails_and_says_why_when_node_is_missing(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+            rc = main(["--check", "--only", "J1"])
+        self.assertEqual(rc, 1, out.getvalue())
+        self.assertIn("J1 could not count .json() calls: node could not run", out.getvalue())
 
     def test_the_real_tree_holds_its_frozen_counts(self):
         rc, out = 0, io.StringIO()
