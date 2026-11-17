@@ -1,4 +1,6 @@
 // lint_same_twice.mjs: does the type-aware lint give one answer every run (ADR-0049, #1699)?
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { changedFiles } from "./lint_same_twice.mjs";
 
@@ -31,5 +33,16 @@ describe("changedFiles", () => {
     const a = [finding("src/a.ts", "typescript(no-unsafe-call)", 10)];
     const b = [finding("src/a.ts", "typescript(no-unsafe-member-access)", 10)];
     expect(changedFiles(a, b)).toEqual(["src/a.ts"]);
+  });
+});
+
+describe("CI", () => {
+  const workflow = readFileSync(join(import.meta.dirname, "..", "..", ".github", "workflows", "frontend.yml"), "utf8");
+
+  it("runs yarn lint, then the type-aware lint twice and compares the two", () => {
+    const lint = workflow.indexOf("run: yarn lint\n");
+    const twice = workflow.indexOf("run: node scripts/lint_same_twice.mjs\n");
+    expect(lint).toBeGreaterThan(0);
+    expect(twice).toBeGreaterThan(lint);
   });
 });
