@@ -110,8 +110,11 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
             container_copy=""
             echo "✘ $hook rejected: no temporary folder could be made in container $container for oxlint's staged copy." >&2
             exit 1
-        # Copied in through tar: the host's temporary folder is not mounted in the container.
-        elif ! tar -C "$index_copy" -cf "$index_copy/staged.tar" frontend; then
+        # Copied in through tar: the host's temporary folder is not mounted in the container. Without macOS's
+        # metadata: each file checkout-index writes there carries the com.apple.provenance xattr, and bsdtar would
+        # add a ._<name> AppleDouble file beside it (COPYFILE_DISABLE stops those, inside tsconfig's include) and
+        # an xattr header the container's tar warns about (--no-xattrs; GNU tar takes it too).
+        elif ! COPYFILE_DISABLE=1 tar --no-xattrs -C "$index_copy" -cf "$index_copy/staged.tar" frontend; then
             echo "✘ $hook rejected: the staged files could not be packed (tar) for container $container, so oxlint did not run." >&2
             exit 1
         elif ! { docker exec -i "$container" tar -C "$container_copy" -xf - <"$index_copy/staged.tar" \
