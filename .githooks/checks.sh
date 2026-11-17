@@ -89,8 +89,18 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
             echo "✘ $hook rejected: no temporary folder could be made under ${TMPDIR:-/tmp} for oxlint's staged copy." >&2
             exit 1
         fi
-        git ls-files -z -- frontend/src frontend/.oxlintrc.json frontend/oxlint-suppressions.json \
-            'frontend/tsconfig*.json' frontend/package.json | git checkout-index -z --stdin --prefix="$index_copy/"
+        # No pipes below: /bin/sh (dash) has no pipefail, and a pipe's status is its last command's only, so a stage
+        # that failed would leave a partial copy to lint. Each stage writes a file and is checked on its own.
+        # $index_copy holds the list and the tarball beside frontend/, so neither is linted or copied.
+        if ! git ls-files -z -- frontend/src frontend/.oxlintrc.json frontend/oxlint-suppressions.json \
+            'frontend/tsconfig*.json' frontend/package.json >"$index_copy/files"; then
+            echo "✘ $hook rejected: git ls-files could not list the files for oxlint's staged copy." >&2
+            exit 1
+        fi
+        if ! git checkout-index -z --stdin --prefix="$index_copy/" <"$index_copy/files"; then
+            echo "✘ $hook rejected: git checkout-index could not copy the staged files for oxlint." >&2
+            exit 1
+        fi
         lint_ok=1
         if [ "$runner" = here ]; then
             ln -s "$PWD/frontend/node_modules" "$index_copy/frontend/node_modules"
@@ -101,7 +111,10 @@ if [ "$(staged | tr -cd '\000' | wc -c)" -gt 0 ]; then
             echo "✘ $hook rejected: no temporary folder could be made in container $container for oxlint's staged copy." >&2
             exit 1
         # Copied in through tar: the host's temporary folder is not mounted in the container.
-        elif ! { tar -C "$index_copy" -cf - frontend | docker exec -i "$container" tar -C "$container_copy" -xf - \
+        elif ! tar -C "$index_copy" -cf "$index_copy/staged.tar" frontend; then
+            echo "✘ $hook rejected: the staged files could not be packed (tar) for container $container, so oxlint did not run." >&2
+            exit 1
+        elif ! { docker exec -i "$container" tar -C "$container_copy" -xf - <"$index_copy/staged.tar" \
             && docker exec "$container" ln -s "$(container_path "$(pwd -P)/frontend/node_modules")" \
                 "$container_copy/frontend/node_modules"; }; then
             echo "✘ $hook rejected: the staged files could not be copied into container $container, so oxlint did not run." >&2

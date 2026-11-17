@@ -102,7 +102,10 @@ describe(".githooks/checks.sh", () => {
 
   // A made-up repo with one staged frontend file, an oxlint that logs what it was given (and exits FAKE_RC), and,
   // when asked, a docker whose `exec` runs the command here: the container sees the repo at the same path.
-  function stagedRepo({ nativeRuns, docker }) {
+  //
+  // `fail` makes one stage of the staged copy fail: "ls-files" (lists nothing), "checkout-index" (copies, then fails)
+  // or "tar" (the host's tar packs only the frontend folder's own entry, then fails).
+  function stagedRepo({ nativeRuns, docker, fail }) {
     const root = mkdtempSync(join(tmpdir(), "checks-"));
     dirs.push(root);
     const log = join(root, "oxlint.log");
@@ -129,6 +132,15 @@ describe(".githooks/checks.sh", () => {
           `        shift; cd "$dir" && exec "$@" ;;\n` +
           `esac\n`,
       );
+    }
+    const real = (tool) => spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).stdout.trim();
+    if (fail === "ls-files" || fail === "checkout-index") {
+      script(join(bin, "git"), `[ "$1" = ${fail} ] || exec "${real("git")}" "$@"\n` +
+        (fail === "checkout-index" ? `"${real("git")}" "$@"\n` : "") + "exit 1\n");
+    }
+    if (fail === "tar") {
+      script(join(bin, "tar"), `case " $* " in *" -x"*) exec "${real("tar")}" "$@" ;; esac\n` +
+        `"${real("tar")}" --no-recursion "$@"\nexit 1\n`);
     }
     writeFileSync(join(root, "frontend", "src", "a.ts"), "export const staged = 1;\n");
     const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
@@ -174,6 +186,30 @@ describe(".githooks/checks.sh", () => {
     const fail = run({ NIRMAAN_LINT_CONTAINER: "test-container", FAKE_RC: "1" });
     expect(fail.status).toBe(1);
     expect(fail.stderr).toMatch(/failed on the staged files/);
+  });
+
+  it("refuses, saying so, when git cannot list the staged files", () => {
+    const { run } = stagedRepo({ nativeRuns: true, fail: "ls-files" });
+    const result = run();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/git ls-files could not list/);
+    expect(result.logged).not.toMatch(/args:/);
+  });
+
+  it("refuses, saying so, when git cannot copy the staged files", () => {
+    const { run } = stagedRepo({ nativeRuns: true, fail: "checkout-index" });
+    const result = run();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/git checkout-index could not copy/);
+    expect(result.logged).not.toMatch(/args:/);
+  });
+
+  it("refuses, saying so, when the host's tar fails part-way into the container copy", () => {
+    const { run } = stagedRepo({ nativeRuns: false, docker: true, fail: "tar" });
+    const result = run({ NIRMAAN_LINT_CONTAINER: "test-container" });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/could not be packed/);
+    expect(result.logged).not.toMatch(/args:/);
   });
 
   it("skips oxlint with a warning where neither the local binary nor the container runs", () => {
