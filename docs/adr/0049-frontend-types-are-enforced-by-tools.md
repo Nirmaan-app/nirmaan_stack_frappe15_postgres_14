@@ -87,8 +87,8 @@ unchanged; the per-folder rollout of `no-unsafe-*` is unchanged.
 **What moved where.**
 - The config is `frontend/.oxlintrc.json` (oxlint resolves its globs from the config's own folder). The frozen
   violations are in `frontend/oxlint-suppressions.json`, made with `oxlint --suppress-all`; its counts per file and
-  rule equal `eslint-suppressions.json`'s, less the two entries below. oxlint reads the file from the folder it runs
-  in, so `yarn lint` runs from `frontend/`. It fails on a new violation and on a suppression no longer needed, as
+  rule equal `eslint-suppressions.json`'s, less its `no-restricted-syntax` entries (the `.json()` ban, now in J1's
+  file) and its one `jsx-a11y/no-autofocus` entry, both below. oxlint reads the file from the folder it runs in, so `yarn lint` runs from `frontend/`. It fails on a new violation and on a suppression no longer needed, as
   ESLint did; `yarn lint --prune-suppressions` locks in fixed ones.
 - The `.json()` ban is residence check J1 (`scripts/residence_check.py`), not a lint rule: oxlint has no
   `no-restricted-syntax`, and its JS plugins are alpha, outside semver. Its 22 old calls are frozen per file in
