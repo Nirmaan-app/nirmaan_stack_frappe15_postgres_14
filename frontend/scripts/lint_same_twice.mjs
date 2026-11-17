@@ -8,9 +8,10 @@
 // From frontend/. Each run lints src/ from the repo root, where no oxlint-suppressions.json is, so every finding is
 // compared, the frozen ones too. Exit 0: one result; 1: the runs differ (the files are named); 2: oxlint failed.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import ts from "typescript";
 
 const FRONTEND = join(import.meta.dirname, "..");
 const CONFIG = join(FRONTEND, ".oxlintrc.json");
@@ -34,12 +35,12 @@ export function changedFiles(runA, runB) {
   return [...names].filter((f) => (a.get(f) ?? []).join("\n") !== (b.get(f) ?? []).join("\n")).sort();
 }
 
-/** The `no-unsafe-*` rules of .oxlintrc.json's typed-folder block (the config is JSON with `//` comments). */
-function unsafeRules() {
-  // Drop each `//` comment, leaving strings (which may hold `//`) as they are.
-  const text = readFileSync(CONFIG, "utf8").replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*/g, (m, str) => str ?? "");
-  const config = JSON.parse(text);
-  const rules = config.overrides.flatMap((o) => Object.keys(o.rules ?? {}));
+/** The `no-unsafe-*` rules of .oxlintrc.json's typed-folder blocks, from the config's JSONC text. */
+export function unsafeRules(configText) {
+  // TypeScript's own JSONC reader (tsconfig's): comments of both kinds and trailing commas.
+  const { config, error } = ts.parseConfigFileTextToJson(CONFIG, configText);
+  if (error) throw new Error(`${CONFIG}: ${ts.flattenDiagnosticMessageText(error.messageText, "\n")}`);
+  const rules = (config.overrides ?? []).flatMap((o) => Object.keys(o.rules ?? {}));
   return [...new Set(rules.filter((r) => r.startsWith("typescript/no-unsafe-")))];
 }
 
@@ -64,7 +65,7 @@ function main() {
     console.error("--runs takes a whole number, 2 or more");
     process.exit(2);
   }
-  const extra = values["whole-tree"] ? unsafeRules().flatMap((r) => ["-D", r]) : [];
+  const extra = values["whole-tree"] ? unsafeRules(readFileSync(CONFIG, "utf8")).flatMap((r) => ["-D", r]) : [];
   const first = lintOnce(extra);
   console.log(`run 1: ${first.length} findings`);
   let differs = false;
@@ -85,4 +86,6 @@ function main() {
   console.log(`✓ ${runs} runs, one result`);
 }
 
-if (process.argv[1] === import.meta.filename) main();
+// Real paths: started through a symlink (a symlinked checkout, macOS's /tmp), argv[1] is the link's spelling and
+// import.meta.filename the target's.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(import.meta.filename)) main();

@@ -1,8 +1,10 @@
 // lint_same_twice.mjs: does the type-aware lint give one answer every run (ADR-0049, #1699)?
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { changedFiles } from "./lint_same_twice.mjs";
+import { changedFiles, unsafeRules } from "./lint_same_twice.mjs";
 
 /** One oxlint `-f json` diagnostic, as much of it as the comparison reads. */
 const finding = (filename, code, offset) => ({ filename, code, labels: [{ span: { offset, length: 3 } }] });
@@ -34,6 +36,34 @@ describe("changedFiles", () => {
     const b = [finding("src/a.ts", "typescript(no-unsafe-member-access)", 10)];
     expect(changedFiles(a, b)).toEqual(["src/a.ts"]);
   });
+});
+
+describe("unsafeRules", () => {
+  it("reads the typed-folder rules from a config with block comments and trailing commas", () => {
+    const config = `{
+      /* a block comment, holding "quotes" and // slashes */
+      "rules": { "typescript/no-explicit-any": "error", },
+      "overrides": [
+        { "files": ["src/a/**"], "rules": { "typescript/no-unsafe-call": "error", /* x */ "typescript/no-unsafe-return": "error", }, },
+        { "files": ["src/b/**"], "rules": { "typescript/no-unsafe-call": "off" } }, // trailing
+      ],
+    }`;
+    expect(unsafeRules(config)).toEqual(["typescript/no-unsafe-call", "typescript/no-unsafe-return"]);
+  });
+});
+
+describe("started through a symlinked path", () => {
+  it("lints, rather than exiting 0 with no output", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lint-same-twice-"));
+    try {
+      symlinkSync(join(import.meta.dirname, ".."), join(dir, "frontend"));
+      const run = spawnSync(process.execPath, [join(dir, "frontend", "scripts", "lint_same_twice.mjs")], { encoding: "utf8" });
+      expect(run.stdout).toMatch(/run 1: \d+ findings/);
+      expect(run.status, run.stderr).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 describe("CI", () => {
