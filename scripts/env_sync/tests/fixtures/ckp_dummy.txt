@@ -1,0 +1,2 @@
+CKP-1 rehearsal fixture. A checkpoint rehearsal (AC1 / AC3 / AC4) edits this tracked file on the desktop and reverts it;
+it is not read by any product code or test.
