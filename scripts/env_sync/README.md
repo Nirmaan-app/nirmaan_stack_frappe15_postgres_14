@@ -57,6 +57,21 @@ the proved restore; kept on a failure so a later run can see them).
   `resume-on-laptop --slice S --name N`, and on the owner's word `--takeover --yes`, then post `RESUMED-ON-LAPTOP` with the
   step to continue from.
 
+## If the checkpoint process fails (owner 2026-11-17 19:11) - hard rules
+
+- **F1** A checkpoint failure never stops or blocks the slice. A failed B1 / B2 / B4 copy is logged once (in
+  `checkpoints\<slice>ailures.log` and as one relay entry `<slice>-CKPFAIL` naming the last good checkpoint and its age),
+  the slice goes on, and the copy is simply tried again at the next mark. The slice's own work never waits on a copy.
+- **F2** The "leaving" pause has a ceiling: the desktop waits at its safe point at most **20 minutes**. If the copy fails
+  before the code and database are captured, the laptop releases it at once (`CHECKPOINT FAILED ... carry on`); if the
+  laptop goes silent, the session resumes by itself at 20 minutes and writes `CHECKPOINT FAILED ... ceiling ... resumed`.
+  Either way the owner sees the failure and the last good checkpoint, and decides whether to wait or leave.
+- **F3** A takeover (`resume-on-laptop --takeover --yes`) runs only on the owner's word; nothing starts it by itself.
+- **F4** The checkpoint tooling never edits product code or the slice's data. It changes the laptop's database only in a
+  proved pull (B2 / B3 / B4 `--yes`), the master record only in B5, and the laptop turn file only to start and stop the
+  laptop's containers for a copy (the standing turn-file rule) or to take over in B5.
+- Rehearsal switch (tests only): `ENV_SYNC_TEST_FAIL=b1|b3-capture|b3-copy|b3-silent` forces a failure at that point.
+
 ## Safe points (B6) - quote this list in every build prompt
 
 A session may stop for a checkpoint **only at a safe point**:

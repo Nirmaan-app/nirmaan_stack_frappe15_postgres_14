@@ -591,11 +591,29 @@ on_lan() {
 }
 # is_lan_path <tailscale ping line>: a direct path over an RFC 1918 address (10/8, 172.16/12, 192.168/16); DERP = relay.
 is_lan_path() { grep -qE ' via (10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+:[0-9]+' <<< "$1"; }
+# ckfail: a checkpoint failure NEVER stops or blocks the slice (owner 2026-11-17 19:11, F1 / F2). It is logged ONCE - in
+# checkpoints/<slice>/failures.log and as ONE entry in the slice's relay to_chat.md - with the last good checkpoint and its
+# age; during B3 a session waiting at its safe point is released at once ("CHECKPOINT FAILED ... carry on"); B1 / B2 / B4 are
+# simply tried again at the next mark. Nothing is retried in a loop.
 ckfail() {
-  local msg; msg="CHECKPOINT FAILED ($SLICE, $(date '+%F %T')): $*"
-  echo "$msg" >&2; echo "not retried now: the next try is at the next 15-minute mark (--if-older counts this attempt)" >&2
-  mkdir -p "$(ckpt_dir)" 2>/dev/null && printf '%s\n' "$msg" | head -3 >> "$(ckpt_dir)/failures.log"
+  local msg good relay
+  msg="CHECKPOINT FAILED ($SLICE, $(date '+%F %T')): $(printf '%b' "$*" | head -3 | tr '\n' ' ')"
+  good=$(ls -1d "$(ckpt_dir)"/[0-9]*_[0-9]* 2>/dev/null | sort | tail -1)
+  [ -n "$good" ] && good="last good checkpoint $(basename "$good") ($(sed -n 's/^kind=//p' "$good/ckpt.txt" 2>/dev/null)), $(( ($(date +%s) - $(stat -c %Y "$good")) / 60 )) min old" || good="no earlier checkpoint"
+  echo "$msg" >&2; echo "  $good; the slice is not affected; next try at the next mark" >&2
+  mkdir -p "$(ckpt_dir)" 2>/dev/null && echo "$msg | $good" >> "$(ckpt_dir)/failures.log"
+  relay="$RELAY_ROOT/$SLICE/to_chat.md"
+  [ -f "$relay" ] && printf '\n=== %s | %s | UPDATE | id %s-CKPFAIL ===\n- %s\n- %s; the slice carries on (a checkpoint failure never blocks it); next try at the next mark.\n' "$(date '+%F %H:%M')" "$SLICE" "$SLICE" "$msg" "$good" >> "$relay"
+  [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ] && tell_session "CHECKPOINT FAILED $(date '+%F %H:%M') | $good | carry on" && echo "  the waiting session was released (CHECKPOINT FAILED ... carry on)" >&2
   laptop_down >&2; exit 3
+}
+# test_fail <point>: forces a failure at a named point for the rehearsals (ENV_SYNC_TEST_FAIL=b1|b3-capture|b3-copy|b3-silent).
+# b3-silent stands for the laptop dying mid-checkpoint: it exits WITHOUT releasing the session, so the session's own ceiling
+# must bring it back (F2).
+test_fail() {
+  [ "${ENV_SYNC_TEST_FAIL:-}" = "$1" ] || return 0
+  if [ "$1" = b3-silent ]; then echo "TEST: laptop silent at $1 (exit without telling the session)" >&2; laptop_down >&2; exit 5; fi
+  ckfail "TEST failure forced at $1 (ENV_SYNC_TEST_FAIL)"
 }
 
 # laptop_up / laptop_down: the laptop's containers only for a database copy (owner 2026-10-26 / CKP-1 Q3), through the
@@ -655,6 +673,7 @@ hrun() {
 make_code_ckpt() {
   local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum
   stamp=$(date +%Y%m%d_%H%M%S)
+  [ "$kind" = B1 ] && test_fail b1
   hdir="$D_BENCH/$STAGE/ckpt_out/$SLICE/$stamp"; ldir="$(ckpt_dir)/$stamp"
   L_HEAD=$(lgit rev-parse HEAD)
   CK_OUT=$(hrun ckpt_code.sh "$D_BENCH/apps/nirmaan_stack" "$hdir" "$L_HEAD" "$commit")
@@ -714,6 +733,8 @@ cmd_checkpoint() {
   [ "${YES:-0}" = 1 ] || die "checkpoint REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
   local t0 t_code stamp out br commit parent tree lfp gottree
   t0=$(date +%s); stamp=$(date +%Y%m%d-%H%M)
+  CK_RELEASE_ON_FAIL=1          # until CHECKPOINT TAKEN, a failure releases the waiting session at once (F2)
+  test_fail b3-silent; test_fail b3-capture
   echo "desktop: checkpoint commit on a local branch (temporary index; the session's tree is not touched) ..."
   out=$(hrun ckpt_branch.sh "$D_BENCH/apps/nirmaan_stack" "$SLICE" "$stamp")
   br=$(kv branch "$out"); commit=$(kv commit "$out"); parent=$(kv parent "$out"); tree=$(kv tree "$out")
@@ -724,6 +745,8 @@ cmd_checkpoint() {
   t_code=$(( $(date +%s) - t0 ))
   tell_session "CHECKPOINT TAKEN $(date '+%F %H:%M') | $br ${commit:0:9} + database backup $(basename "$PB_PREFIX") | carry on"
   echo "desktop: the code and the database are captured ($t_code s); the session may carry on"
+  CK_RELEASE_ON_FAIL=0
+  test_fail b3-copy
   make_code_ckpt B3 "$commit"
   { echo "ckpt_branch=$br"; echo "ckpt_commit=$commit"; echo "backup=$PB_PREFIX"; } >> "$CK_DIR/ckpt.txt"
   pull_copy_prove_restore "CHECKPOINT $SLICE $stamp ($br ${commit:0:9})"

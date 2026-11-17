@@ -40,4 +40,6 @@ for anyone; stop only through the status file.
    - If your message file gets `=== CHECKPOINT ... ===`, stop at the next SAFE POINT (the README's list: never inside a
      load, a paid run, a migrate, a database write, a cert or a running suite), rewrite the resume note, write
      `CHECKPOINT SAFE <time> <step>` in the status file, then poll the message file every 60 seconds (in this turn) for
-     `=== CHECKPOINT TAKEN ... carry on ===` (at most 30 minutes; past that, write BLOCKED) and carry on.
+     `=== CHECKPOINT TAKEN ... carry on ===` or `=== CHECKPOINT FAILED ... carry on ===`, and carry on either way.
+   - A checkpoint never stops the slice: wait at most 20 minutes. Past that, write
+     `CHECKPOINT FAILED <time> ceiling: no answer in 20 min - resumed` in the status file and carry on with the slice.

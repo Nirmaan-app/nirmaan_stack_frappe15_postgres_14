@@ -230,6 +230,16 @@ check "B2: --chunked forces the chunked route (AC2's second measurement)" 'r=$(r
 check "checkpoints live on the laptop's local disk (envsync/checkpoints), not in a cloud-synced folder" '[ "$( ( . "$NEW"; SLICE=T-1; ckpt_dir ) )" = "$( ( . "$NEW"; echo "$BENCH_HOST" ) )/envsync/checkpoints/T-1" ]'
 check "no cloud-drive route is left: the OneDrive checkpoint script is gone and no checkpoint path names OneDrive" '
   [ ! -e "$SRC/desktop/ckpt_onedrive.sh" ] && ! grep -n "CKPT_ROOT=.*OneDrive\|ckpt_dir.*OneDrive" "$SRC/env_sync.sh" && ! grep -qi "ckpt_onedrive" "$SRC/desktop/brief_footer.md" "$SRC/README.md"'
+mkdir -p "$W/relay/T-1"; : > "$W/relay/T-1/to_chat.md"
+out=$( ( PATH="$BIN:$PATH"; . "$NEW"; CKPT_ROOT="$W/ckroot"; RELAY_ROOT="$W/relay"; SLICE=T-1; ENV_SYNC_TEST_FAIL=b1; laptop_down() { :; }; test_fail b1; echo "NOT REACHED" ) 2>&1 ); rc=$?
+check "F1: a forced B1 failure exits 3 at once, logged ONCE in failures.log and ONCE in the relay, nothing after it runs" '
+  [ $rc = 3 ] && ! grep -q "NOT REACHED" <<< "$out" && [ "$(grep -c "CHECKPOINT FAILED" "$W/ckroot/T-1/failures.log")" = 1 ] && [ "$(grep -c "T-1-CKPFAIL" "$W/relay/T-1/to_chat.md")" = 1 ] && grep -q "the slice carries on" "$W/relay/T-1/to_chat.md"'
+out=$( ( PATH="$BIN:$PATH"; . "$NEW"; CKPT_ROOT="$W/ckroot"; RELAY_ROOT="$W/relay"; SLICE=T-1; NAME=s; CK_RELEASE_ON_FAIL=1; laptop_down() { :; }
+         tell_session() { echo "TOLD: $1"; }; ENV_SYNC_TEST_FAIL=b3-capture; test_fail b3-capture ) 2>&1 )
+check "F2: a B3 failure before CHECKPOINT TAKEN releases the waiting session at once (CHECKPOINT FAILED ... carry on)" 'grep -q "TOLD: CHECKPOINT FAILED .* carry on" <<< "$out"'
+out=$( ( PATH="$BIN:$PATH"; . "$NEW"; SLICE=T-1; NAME=s; laptop_down() { :; }; tell_session() { echo "TOLD: $1"; }; ENV_SYNC_TEST_FAIL=b3-silent; test_fail b3-silent ) 2>&1 ); rc=$?
+check "F2: the b3-silent test point stands for a dead laptop: exit 5 and the session is NOT told (its own 20-minute ceiling must bring it back)" '[ $rc = 5 ] && ! grep -q TOLD <<< "$out"'
+check "F2: the session protocol caps the checkpoint wait at 20 minutes and resumes on its own" 'grep -q "wait at most 20 minutes" "$SRC/desktop/brief_footer.md" && grep -q "ceiling: no answer in 20 min - resumed" "$SRC/desktop/brief_footer.md"'
 check "the help names catch-up (B4 back home)" 'grep -q "catch-up --slice" <<< "$H"'
 check "backups leave private/backups: backup_local.sh writes to envsync/backups and db-push / db-pull use it" '
   grep -q -- "--backup-path \"\$PWD/\$D\"" "$SRC/remote/backup_local.sh" && [ "$(grep -c "bash backup_local.sh" "$SRC/env_sync.sh")" = 3 ] && ! grep -q "bash backup.sh" "$SRC/env_sync.sh"'
