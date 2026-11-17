@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerSaveUpdates } from "./customerSaveUpdates";
+import { customerSaveUpdates, sendCustomerSave, type DocUpdate } from "./customerSaveUpdates";
 
 const CUSTOMER = {
   company_name: "Acme Builders",
@@ -18,17 +18,16 @@ const ADDRESS = {
 };
 const VALUES = { ...CUSTOMER, address_line1: "2 New Road", address_line2: "Block B", pin_code: "560001" };
 
-const save = (over: Partial<Parameters<typeof customerSaveUpdates>[0]>) =>
-  customerSaveUpdates({
-    customerId: "CUST-0001",
-    addressId: "ADDR-0001",
-    customer: CUSTOMER,
-    address: ADDRESS,
-    values: { ...VALUES, company_name: "Acme Builders Pvt" },
-    city: "Testville",
-    state: "Teststate",
-    ...over,
-  });
+const INPUT: Parameters<typeof customerSaveUpdates>[0] = {
+  customerId: "CUST-0001",
+  addressId: "ADDR-0001",
+  customer: CUSTOMER,
+  address: ADDRESS,
+  values: { ...VALUES, company_name: "Acme Builders Pvt" },
+  city: "Testville",
+  state: "Teststate",
+};
+const save = (over: Partial<typeof INPUT>) => customerSaveUpdates({ ...INPUT, ...over });
 
 describe("customerSaveUpdates", () => {
   it("plans the Customer update, then the Address update", () => {
@@ -52,5 +51,24 @@ describe("customerSaveUpdates", () => {
   it("plans nothing for a form that changed nothing", () => {
     expect(save({ values: { ...CUSTOMER, address_line1: "1 Test Road", address_line2: "Block B", pin_code: "560001" } }))
       .toEqual([]);
+  });
+});
+
+describe("sendCustomerSave", () => {
+  const sender = () => {
+    const sent: DocUpdate[] = [];
+    return { sent, send: async (u: DocUpdate) => { sent.push(u); } };
+  };
+
+  it("sends no update at all when the address ID is missing", async () => {
+    const { sent, send } = sender();
+    await expect(sendCustomerSave({ ...INPUT, addressId: undefined }, send)).rejects.toThrow(/no company address/);
+    expect(sent).toEqual([]);
+  });
+
+  it("sends the Customer, then the Address, one after the other", async () => {
+    const { sent, send } = sender();
+    await sendCustomerSave(INPUT, send);
+    expect(sent.map((u) => u.doctype)).toEqual(["Customers", "Address"]);
   });
 });

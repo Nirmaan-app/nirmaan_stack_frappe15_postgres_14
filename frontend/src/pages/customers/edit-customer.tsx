@@ -25,7 +25,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CustomersDocType } from "@/types/doctypes/Customers";
 import { PincodesDocType } from "@/types/doctypes/Pincodes";
 import { Address } from "@/types/NirmaanStack/Address";
-import { customerSaveUpdates } from "./data/customerSaveUpdates";
+import { sendCustomerSave } from "./data/customerSaveUpdates";
 const CustomerFormSchema = z.object({
   company_name: z
     .string({
@@ -198,21 +198,14 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
           'City and State are "Note Found", Please Enter a Valid Pincode'
         );
       }
-      // Every ID is checked here, before the first update, so a missing one saves nothing.
-      const updates = customerSaveUpdates({
-        customerId: id,
-        addressId: companyAddress,
-        customer: data,
-        address: addressData,
-        values,
-        city,
-        state,
-      });
-      for (const update of updates) {
-        await updateDoc(update.doctype, update.name, update.fields);
-      }
-      if (updates.some((u) => u.doctype === "Customers")) customerMutate();
-      if (updates.some((u) => u.doctype === "Address")) addressMutate();
+      await sendCustomerSave(
+        { customerId: id, addressId: companyAddress, customer: data, address: addressData, values, city, state },
+        async (update) => {
+          await updateDoc(update.doctype, update.name, update.fields);
+          if (update.doctype === "Customers") customerMutate();
+          else addressMutate();
+        }
+      );
 
       await mutate<unknown[]>(
         "Customers",

@@ -25,6 +25,18 @@ export interface DocUpdate {
   fields: Record<string, string | undefined>;
 }
 
+type SaveInput = Parameters<typeof customerSaveUpdates>[0];
+
+/**
+ * Plans the save (every ID checked, nothing sent when one is missing), then sends each update in order through
+ * `send`, waiting for each before the next.
+ */
+export async function sendCustomerSave(input: SaveInput, send: (update: DocUpdate) => Promise<void>): Promise<void> {
+  for (const update of customerSaveUpdates(input)) {
+    await send(update);
+  }
+}
+
 /**
  * The updates Edit Customer sends, Customer first, for the fields the form changed.
  *
