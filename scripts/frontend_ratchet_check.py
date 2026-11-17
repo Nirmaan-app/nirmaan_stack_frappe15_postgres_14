@@ -33,7 +33,9 @@ def loosenings(base_supp, head_supp, base_pkg, head_pkg):
     problems = []
     gone = {path: counts(rules) for path, rules in (base_supp or {}).items() if path not in head_supp}
     for path, rules in sorted(head_supp.items() if base_supp is not None else []):
-        renamed_from = next((old for old, before in sorted(gone.items()) if before == counts(rules)), None)
+        renamed_from = None
+        if path not in base_supp:
+            renamed_from = next((old for old, before in sorted(gone.items()) if before == counts(rules)), None)
         hint = f" (it looks like a rename of {renamed_from}: same rules and counts)" if renamed_from else ""
         for rule, entry in sorted(rules.items()):
             count = entry.get("count", 0)
@@ -59,7 +61,7 @@ def counts(rules):
 def at_least(pkg):
     """The type-coverage threshold in a package.json's scripts, or None when it has none.
 
-    Exits 1 with a sentence when the value is not a number (e.g. `97.4.`).
+    Raises ValueError naming the value when it is not a number (e.g. `97.4.`).
     """
     found = re.search(r"--at-least[ =]([0-9.]+)", pkg.get("scripts", {}).get("type-coverage", ""))
     if not found:
@@ -67,7 +69,7 @@ def at_least(pkg):
     try:
         return float(found.group(1))
     except ValueError:
-        sys.exit(f"✘ {PACKAGE}: type-coverage --at-least {found.group(1)!r} is not a number.")
+        raise ValueError(f"{PACKAGE}: type-coverage --at-least {found.group(1)!r} is not a number.") from None
 
 
 def read_at(root, ref, path):
@@ -95,12 +97,14 @@ def main(argv=None):
         print(f"✘ {SUPPRESSIONS} was deleted: that drops the ratchet. Keep it (ADR-0049).", file=sys.stderr)
         return 1
 
-    problems = loosenings(
-        base_supp,
-        json.loads((root / SUPPRESSIONS).read_text()),
-        read_at(root, args.base_ref, PACKAGE) or {},
-        json.loads((root / PACKAGE).read_text()),
-    )
+    head_supp = json.loads((root / SUPPRESSIONS).read_text())
+    base_pkg = read_at(root, args.base_ref, PACKAGE) or {}
+    head_pkg = json.loads((root / PACKAGE).read_text())
+    try:
+        problems = loosenings(base_supp, head_supp, base_pkg, head_pkg)
+    except ValueError as bad:  # a malformed --at-least
+        print(f"✘ {bad}", file=sys.stderr)
+        return 1
     if problems:
         print(f"✘ This change loosens the frontend ratchet against {args.base_ref} (ADR-0049):", file=sys.stderr)
         for problem in problems:

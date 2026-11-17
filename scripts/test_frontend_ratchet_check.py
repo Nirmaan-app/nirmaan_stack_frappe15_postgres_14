@@ -67,8 +67,21 @@ class RenamedFile(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertNotIn("rename", problems[0])
 
+    def test_a_file_already_in_base_gets_no_rename_hint(self):
+        base = {**BASE, "src/vendors.tsx": {"no-restricted-imports": {"count": 1}}}
+        head = {"src/vendors.tsx": {"no-restricted-imports": {"count": 1}, "no-restricted-syntax": {"count": 1}}}
+        base_gone = {**base, "src/gone.tsx": {"no-restricted-imports": {"count": 1}, "no-restricted-syntax": {"count": 1}}}
+        problems = loosenings(base_gone, head, package(97.47), package(97.47))
+        self.assertEqual(len(problems), 1)
+        self.assertNotIn("rename", problems[0])
+
 
 class TypeCoverageThreshold(unittest.TestCase):
+    def test_a_malformed_threshold_raises_a_value_error_naming_it(self):
+        bad = {"scripts": {"type-coverage": "type-coverage --strict --at-least 97.4."}}
+        with self.assertRaisesRegex(ValueError, "97.4."):
+            loosenings(BASE, BASE, package(97.47), bad)
+
     def test_a_lowered_threshold_is_refused(self):
         problems = loosenings(BASE, BASE, package(97.47), package(97.2))
         self.assertEqual(len(problems), 1)
