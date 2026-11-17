@@ -12,7 +12,7 @@ test -s "$DUMP" || { echo "error=no dump at $DUMP"; exit 1; }
 P -c "DROP DATABASE IF EXISTS \"$SCRATCH\"" > /dev/null 2>&1
 P -c "CREATE DATABASE \"$SCRATCH\" OWNER \"$OWNER\" ENCODING 'UTF8' TEMPLATE template0" > /dev/null || { echo "error=cannot create the scratch database"; exit 1; }
 # pg_dump 17.6+ writes \restrict / \unrestrict meta-commands that psql 14 does not know: strip them (as restore_db.sh).
-if ! gunzip -c "$DUMP" | sed -e '/^\restrict /d' -e '/^\unrestrict /d' \
+if ! gunzip -c "$DUMP" | sed -e '/^\\restrict /d' -e '/^\\unrestrict /d' \
     | psql -U postgres -d "$SCRATCH" -q -v ON_ERROR_STOP=1 > /tmp/envsync_ckpt_check.log 2>&1; then
   echo "error=the dump did not load"; head -c 600 /tmp/envsync_ckpt_check.log; echo; exit 1
 fi

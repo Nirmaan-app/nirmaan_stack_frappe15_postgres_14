@@ -207,6 +207,8 @@ check "counts_check: a copy with no counts fails" '! cc "count_a=1" "count_a=1" 
 H=$( ( cd "$W" && bash "$SRC/env_sync.sh" no-such-command 2>&1 ) )
 check "the help names checkpoint-code, checkpoint and resume-on-laptop" 'grep -q "checkpoint-code --slice" <<< "$H" && grep -q "checkpoint --slice S" <<< "$H" && grep -q "resume-on-laptop --slice" <<< "$H"'
 check "a checkpoint command without --slice is refused" '! ( cd "$W" && PATH="$BIN:$PATH" STUB_LOG="$W/x" bash "$SRC/env_sync.sh" resume-on-laptop > /dev/null 2>&1 )'
+check "scratch_counts.sh strips pg_dump's restrict lines exactly as restore_db.sh does (a missing backslash made AC2's first proof refuse the dump)" '
+  [ "$(grep -o "sed -e .*unrestrict /d.\?" "$SRC/remote/scratch_counts.sh" | head -1)" = "$(grep -o "sed -e .*unrestrict /d.\?" "$SRC/remote/restore_db.sh" | head -1)" ]'
 check "backups leave private/backups: backup_local.sh writes to envsync/backups and db-push / db-pull use it" '
   grep -q -- "--backup-path \"\$PWD/\$D\"" "$SRC/remote/backup_local.sh" && [ "$(grep -c "bash backup_local.sh" "$SRC/env_sync.sh")" = 3 ] && ! grep -q "bash backup.sh" "$SRC/env_sync.sh"'
 
