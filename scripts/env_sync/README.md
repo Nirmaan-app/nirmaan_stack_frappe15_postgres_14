@@ -60,7 +60,7 @@ the proved restore; kept on a failure so a later run can see them).
 ## If the checkpoint process fails (owner 2026-11-17 19:11) - hard rules
 
 - **F1** A checkpoint failure never stops or blocks the slice. A failed B1 / B2 / B4 copy is logged once (in
-  `checkpoints\<slice>ailures.log` and as one relay entry `<slice>-CKPFAIL` naming the last good checkpoint and its age),
+  `checkpoints\<slice>\failures.log` and as one relay entry `<slice>-CKPFAIL` naming the last good checkpoint and its age),
   the slice goes on, and the copy is simply tried again at the next mark. The slice's own work never waits on a copy.
 - **F2** The "leaving" pause has a ceiling: the desktop waits at its safe point at most **20 minutes**. If the copy fails
   before the code and database are captured, the laptop releases it at once (`CHECKPOINT FAILED ... carry on`); if the
