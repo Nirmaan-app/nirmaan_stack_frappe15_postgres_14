@@ -41,15 +41,28 @@ export function useEstimates(boq: string | null, sheetName?: string | null) {
   return { estimates: reply, error, isLoading };
 }
 
+/** Cache key of the project-wide read; outside the `estimates:<boq>:` keys, so a BOQ named like it never matches. */
+const projectEstimatesKey = (project: string) => `estimates-project:${project}`;
+
+/** The estimates of every Selected BOQ of a project together (Estimate Items "All BOQs"); `null` fetches nothing. */
+export function useProjectEstimates(project: string | null) {
+  const { data, error, isLoading } = useFrappeGetCall<{ message: EstimatesReply }>(
+    `${API}.boq_view.get_estimates`, project ? { project } : {}, project ? projectEstimatesKey(project) : null,
+  );
+  const reply: EstimatesReply = useMemo(() => data?.message ?? { current: [], older: [] }, [data]);
+  return { estimates: reply, error, isLoading };
+}
+
 /**
- * Refetches every cached estimates read of a BOQ (each sheet, and the all-sheets one Estimate Items uses), so a
- * save, Re-attach or Remove on one view is never shown stale on another. Uses frappe-react-sdk's own SWR cache:
- * `useSWRConfig` from "swr" would be a different cache and refresh nothing.
+ * Refetches every cached estimates read of a BOQ (each sheet, and the all-sheets one Estimate Items uses) and the
+ * project-wide "All BOQs" read, so a save, Re-attach or Remove on one view is never shown stale on another. Uses
+ * frappe-react-sdk's own SWR cache: `useSWRConfig` from "swr" would be a different cache and refresh nothing.
  */
 export function useRefreshEstimates() {
   const { mutate } = useSWRConfig();
   return useCallback(
-    (boq: string) => mutate((key: unknown) => typeof key === "string" && key.startsWith(`estimates:${boq}:`)),
+    (boq: string) => mutate((key: unknown) => typeof key === "string"
+      && (key.startsWith(`estimates:${boq}:`) || key.startsWith(projectEstimatesKey("")))),
     [mutate],
   );
 }

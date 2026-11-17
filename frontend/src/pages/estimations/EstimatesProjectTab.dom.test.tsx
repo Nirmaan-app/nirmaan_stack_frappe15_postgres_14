@@ -145,6 +145,10 @@ describe("EstimatesProjectTab", () => {
     act(() => state.panel!.onOpenLine("Made-up sheet", 14));
     expect(state.params).toMatchObject({ estBoq: "BOQ-A", estSheet: "Made-up sheet", estRow: "14", estTab: "line-item-view" });
     expect(panel()).toBe("Line Item View");
+    // From Estimate Items "All BOQs": the line's own BOQ is opened, not the first one.
+    act(() => state.panel!.onBoq("all"));
+    act(() => state.panel!.onOpenLine("Made-up other sheet", 5, "BOQ-B"));
+    expect(state.params).toMatchObject({ estBoq: "BOQ-B", estSheet: "Made-up other sheet", estRow: "5", estTab: "line-item-view" });
   });
 
   it("opens the form, and after a save focuses the saved line", () => {

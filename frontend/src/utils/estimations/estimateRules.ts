@@ -97,16 +97,19 @@ export interface MaterialTotal {
   unit: string;
   quantity: number;
   lines: number;
+  /** How many BOQs those lines are in (Estimate Items "All BOQs"). */
+  boqs: number;
 }
 
 const clean = (v: string | null | undefined) => (v || "").trim();
 
 /**
- * Material totals: the same Items record + make + unit added up across lines; a custom item grouped by name +
- * unit, ignoring case and surrounding spaces. Never adds across different units.
+ * Material totals: the same Items record + make + unit added up across lines (and across BOQs, when the entries
+ * come from several); a custom item grouped by name + unit, ignoring case and surrounding spaces. Never adds
+ * across different units.
  */
 export function materialTotals(entries: EstimateEntry[], type: "all" | "Normal" | "Custom" = "all"): MaterialTotal[] {
-  const totals = new Map<string, MaterialTotal & { nodes: Set<string> }>();
+  const totals = new Map<string, MaterialTotal & { nodes: Set<string>; boqSet: Set<string> }>();
   for (const entry of entries) {
     for (const item of entry.items) {
       if (type !== "all" && item.item_type !== type) continue;
@@ -119,17 +122,20 @@ export function materialTotals(entries: EstimateEntry[], type: "all" | "Normal" 
       if (!total) {
         total = {
           key, item_type: item.item_type, item_id: item.item_id ?? null, item_name: clean(item.item_name),
-          make: clean(item.make), category: clean(item.category), unit, quantity: 0, lines: 0, nodes: new Set(),
+          make: clean(item.make), category: clean(item.category), unit, quantity: 0, lines: 0, boqs: 0,
+          nodes: new Set(), boqSet: new Set(),
         };
         totals.set(key, total);
       }
       total.quantity += Number(item.quantity) || 0;
       total.nodes.add(entry.boq_node);
       total.lines = total.nodes.size;
+      total.boqSet.add(entry.boq ?? "");
+      total.boqs = total.boqSet.size;
     }
   }
   return [...totals.values()]
-    .map(({ nodes: _nodes, ...rest }) => rest)
+    .map(({ nodes: _nodes, boqSet: _boqSet, ...rest }) => rest)
     .sort((a, b) => a.item_name.localeCompare(b.item_name) || a.unit.localeCompare(b.unit));
 }
 

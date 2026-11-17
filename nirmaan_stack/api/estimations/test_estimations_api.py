@@ -464,6 +464,56 @@ class TestEstimationsApi(FrappeTestCase):
     def test_a_draft_boq_reads_empty(self):
         self.assertEqual(boq_view.get_estimates(boq=self.other_boq), {"current": [], "older": []})
 
+    def _second_selected_boq(self):
+        """A second Selected BOQ on the project with one current line item; removed again by the test's clean-up, so
+        no other test ever sees two Selected BOQs. Returns that line item."""
+        boq, sheet, node = (f"TEST-EST-BOQ3-{self.s}", f"TEST-EST-SH3-{self.s}", f"TEST-EST-N-b3row4-{self.s}")
+
+        def drop():
+            frappe.db.rollback()
+            names = frappe.get_all(DOCTYPE, filters={"boq": boq}, pluck="name")
+            if names:
+                frappe.db.delete("BOQ Line Estimate Item", {"parent": ["in", names]})
+                frappe.db.delete(DOCTYPE, {"name": ["in", names]})
+            frappe.db.delete("BOQ Nodes", {"name": node})
+            frappe.db.delete("BoQ Sheet", {"name": sheet})
+            frappe.db.delete("BOQs", {"name": boq})
+            frappe.db.commit()
+
+        self.addCleanup(drop)
+        frappe.get_doc({"doctype": "BOQs", "name": boq, "project": self.project, "boq_name": "Made-up electrical BOQ",
+                        "status": "Selected"}).db_insert()
+        frappe.get_doc({"doctype": "BoQ Sheet", "name": sheet, "boq": boq, "sheet_name": "Made-up lighting",
+                        "is_current": 1, "commit_version": 0, "treat_as": "data"}).db_insert()
+        frappe.get_doc({"doctype": "BOQ Nodes", "name": node, "boq": boq, "sheet": sheet, "is_current": 1,
+                        "source_row_number": 4, "node_type": "Line Item", "description": "Made-up light fitting",
+                        "qty": 5, "unit": "Nos", "sort_order": 4}).db_insert()
+        frappe.db.commit()
+        return boq, node
+
+    def test_project_read_returns_every_selected_boq_named_and_no_draft(self):
+        # Estimate Items "All BOQs" (owner 17 Nov): one read for the project equals the per-BOQ reads put together,
+        # in the overview's BOQ order, each entry naming its BOQ. The project's Draft BOQ is left out.
+        self.addCleanup(self._purge)
+        boq3, node3 = self._second_selected_boq()
+        estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[self._row()])
+        estimate_writes.save_estimate(boq_node=node3, items=[self._row(quantity=3)])
+        self._older("old16", self.sheet_v1, 4)  # an older-version estimate is carried through too
+
+        whole = boq_view.get_estimates(project=self.project)
+        self.assertEqual([(e["boq"], e["boq_name"], e["line"]["excel_row"]) for e in whole["current"]],
+                         [(self.boq, "Made-up BOQ", 15), (boq3, "Made-up electrical BOQ", 4)])
+        self.assertEqual([e["boq"] for e in whole["older"]], [self.boq])
+        one, three = boq_view.get_estimates(boq=self.boq), boq_view.get_estimates(boq=boq3)
+        self.assertEqual(whole, {"current": one["current"] + three["current"], "older": one["older"] + three["older"]})
+        self.assertNotIn(self.other_boq, {e["boq"] for e in whole["current"] + whole["older"]})
+        # A sheet name narrows every BOQ to that sheet; a project with no Selected BOQ reads empty.
+        self.assertEqual([e["boq"] for e in boq_view.get_estimates(project=self.project, sheet_name="Made-up lighting")["current"]],
+                         [boq3])
+        self.assertEqual(boq_view.get_estimates(project=self.other_project), {"current": [], "older": []})
+        with self.assertRaisesRegex(frappe.ValidationError, "boq or project is required"):
+            boq_view.get_estimates()
+
     def test_a_save_on_a_draft_boq_is_refused(self):
         # The screens show Selected BOQs only; the server refuses a save through the API on any other (review issue 5).
         self.addCleanup(self._purge)
@@ -486,6 +536,8 @@ class TestEstimationsApi(FrappeTestCase):
         with self.assertRaises(frappe.PermissionError):
             boq_view.get_estimates_overview(project=self.project)
         with self.assertRaises(frappe.PermissionError):
+            boq_view.get_estimates(project=self.project)
+        with self.assertRaises(frappe.PermissionError):
             estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[self._row()])
         with self.assertRaises(frappe.PermissionError):
             estimate_writes.reattach_estimates(boq=self.boq, sheet_name=self.sheet_name)
@@ -504,12 +556,18 @@ class TestEstimationsApi(FrappeTestCase):
                              [self.boq])
             saved = estimate_writes.save_estimate(boq_node=self.nodes["new15"], items=[self._row()])
             self.assertEqual(len(boq_view.get_estimates(boq=self.boq)["current"]), 1)
+            self.assertEqual(len(boq_view.get_estimates(project=self.project)["current"]), 1)
 
             frappe.set_user(outsider)
             with self.assertRaises(frappe.PermissionError):
                 boq_view.get_estimates_overview(project=self.project)
             with self.assertRaises(frappe.PermissionError):
                 boq_view.get_estimates(boq=self.boq)
+            with self.assertRaises(frappe.PermissionError):
+                boq_view.get_estimates(project=self.project)
+            # A boq the user may not read is refused even when a project they may read is sent beside it.
+            with self.assertRaises(frappe.PermissionError):
+                boq_view.get_estimates(boq=self.boq, project=self.other_project)
             with self.assertRaises(frappe.PermissionError):
                 estimate_writes.save_estimate(boq_node=self.nodes["new16"], items=[self._row()])
             frappe.db.rollback()

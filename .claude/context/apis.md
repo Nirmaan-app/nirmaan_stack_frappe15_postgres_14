@@ -43,8 +43,9 @@ User Permissions allow. Writes need an editing profile (Admin, PMO, Estimates Ex
 `BOQ Line Estimate` controller.
 - `boq_view.get_estimates_overview(project)` - the project's Selected BOQs and per-sheet counts (line items,
   estimated, older)
-- `boq_view.get_estimates(boq, sheet_name)` - `{current, older}`: estimates on current lines, and older-version ones
-  that still need a person (`state` can_copy / changed / line_missing; settled history left out)
+- `boq_view.get_estimates(boq, sheet_name, project)` - `{current, older}`: estimates on current lines, and older-version
+  ones that still need a person (`state` can_copy / changed / line_missing; settled history left out). With `project`
+  and no `boq`: every Selected BOQ of the project together (Estimate Items "All BOQs"); each entry carries `boq`, `boq_name`
 - `estimate_writes.save_estimate(boq_node, items, expected_modified)` - create / replace / delete (empty list) one
   line's estimate; refuses a stale save
 - `estimate_writes.reattach_estimates(boq, sheet_name)` - copy unchanged-line estimates to the current version

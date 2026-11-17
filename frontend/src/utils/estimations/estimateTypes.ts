@@ -67,6 +67,9 @@ export interface EstimateEntry {
   name: string;
   modified: string;
   boq_node: string;
+  /** The BOQ the estimate belongs to, and its name (every read sends them; "All BOQs" needs them). */
+  boq?: string;
+  boq_name?: string;
   item_count: number;
   line: EstimateLine;
   items: EstimateItemRow[];

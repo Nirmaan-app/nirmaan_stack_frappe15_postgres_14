@@ -12,6 +12,12 @@ export const EST_BOQ_PARAM = "estBoq";
 export const EST_SHEET_PARAM = "estSheet";
 export const EST_ROW_PARAM = "estRow";
 
+/**
+ * `estBoq` value for Estimate Items' "All BOQs" (owner 17 Nov): every Selected BOQ of the project together. It names
+ * no BOQ, so BOQ View then lists the BOQs and Line Item View opens the first one, as with no `estBoq` at all.
+ */
+export const EST_ALL_BOQS = "all";
+
 /** The three sub-tabs, in display order. */
 export const EST_TABS = [
   { value: "boq-view", label: "BOQ View" },
