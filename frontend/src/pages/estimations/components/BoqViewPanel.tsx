@@ -56,7 +56,7 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
   const refreshEstimates = useRefreshEstimates();
   const [search, setSearch] = useState("");
   const [show, setShow] = useState({ showNotes: true, showSubtotals: true, showSpacers: false });
-  const { expanded, highlight, toggle, expandMany, collapseAll } = useFocusedLines(rows, focusRow, onFocusRow);
+  const { expanded, toggle, expandMany, collapseAll } = useFocusedLines(rows, focusRow, onFocusRow);
 
   const byNode = useMemo(() => new Map<string, EstimateEntry>(estimates.current.map((e) => [e.boq_node, e])), [estimates]);
   const filtered = useMemo(() => gridRows(rows, { ...show, search }), [rows, show, search]);
@@ -134,7 +134,7 @@ const BoqSheetView: React.FC<PanelProps & { boq: NonNullable<PanelProps["boq"]> 
       </div>
       {isLoading ? <p className="text-sm text-muted-foreground">Loading the sheet…</p> : (
         <EstimateSheetGrid
-          rows={visible} estimates={byNode} expanded={expanded} highlight={highlight} canEdit={canEdit}
+          rows={visible} estimates={byNode} expanded={expanded} canEdit={canEdit}
           onToggle={(node) => toggle(node, rows.find((r) => r.name === node)?.source_row_number ?? null)}
           onEdit={edit} onOpenInLineView={(row) => onOpenLine(activeSheet ?? "", row.source_row_number)}
           hiddenUnder={hiddenUnder}

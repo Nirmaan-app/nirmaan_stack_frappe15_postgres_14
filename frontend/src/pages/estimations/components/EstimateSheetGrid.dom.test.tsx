@@ -27,7 +27,7 @@ afterEach(() => act(() => root.unmount()));
 type Props = Parameters<typeof EstimateSheetGrid>[0];
 const render = (over: Partial<Props> = {}) => {
   const props: Props = {
-    rows: ROWS, estimates: ESTIMATES, expanded: new Set(), highlight: null, canEdit: true,
+    rows: ROWS, estimates: ESTIMATES, expanded: new Set(), canEdit: true,
     onToggle: vi.fn(), onEdit: vi.fn(), onOpenInLineView: vi.fn(), ...over,
   };
   act(() => root.render(<EstimateSheetGrid {...props} />));
@@ -90,10 +90,9 @@ describe("EstimateSheetGrid", () => {
     expect(cell("H2", 5).textContent).toBe("MADE-UP DUCTS(+1 line)");
   });
 
-  it("marks the highlighted line, and says so when nothing matches", () => {
-    render({ highlight: "L2" });
-    expect(row("L2")!.className).toContain("bg-yellow-50");
-    expect(row("L1")!.className).not.toContain("bg-yellow-50");
+  it("gives no row a yellow background (owner 17 Nov), and says so when nothing matches", () => {
+    render({ expanded: new Set(["L1"]) });
+    expect(container.querySelectorAll("tbody tr[class*='yellow']").length).toBe(0);
     render({ rows: [] });
     expect(container.querySelector("tbody")!.textContent).toBe("No rows match. Clear the search or show more row types.");
   });

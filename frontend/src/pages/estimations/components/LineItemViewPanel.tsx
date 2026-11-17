@@ -26,7 +26,7 @@ export const LineItemViewPanel: React.FC<PanelProps> = ({
   const refreshEstimates = useRefreshEstimates();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const { expanded, highlight, toggle, expandMany, collapseAll } = useFocusedLines(rows, focusRow, onFocusRow);
+  const { expanded, toggle, expandMany, collapseAll } = useFocusedLines(rows, focusRow, onFocusRow);
 
   const byNode = useMemo(() => new Map<string, EstimateEntry>(estimates.current.map((e) => [e.boq_node, e])), [estimates]);
   const groups = useMemo(() => {
@@ -84,7 +84,7 @@ export const LineItemViewPanel: React.FC<PanelProps> = ({
                     const open = expanded.has(r.name);
                     return (
                       <Fragment key={r.name}>
-                        <tr id={`est-row-${r.name}`} className={`border-t align-top ${highlight === r.name ? "bg-yellow-50" : ""}`}>
+                        <tr id={`est-row-${r.name}`} className="border-t align-top">
                           <td className="px-1 py-1.5 text-center">
                             <button type="button" aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} materials for row ${r.source_row_number ?? ""}`}
                               className="h-6 w-6 rounded border text-[11px]" onClick={() => toggle(r.name, r.source_row_number)}>{open ? "▾" : "▸"}</button>
