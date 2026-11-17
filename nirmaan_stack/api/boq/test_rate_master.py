@@ -53,7 +53,7 @@ SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
     population, and names it; a fully-eligible selection passes                     -> test_78
   - _guard_only_rows refuses resume+only_rows together, and refuses a scoped run
     when AI is off (it would blank the picked rows) or when there is no completed
-    run to carry forward from                                                       -> test_79
+    run to carry forward from (INVERTED by SR-1: a first selected run is allowed)    -> test_79
   - pass_attempted_count reads THIS PASS's rows off the envelope, and is NOT the
     document-level attempted_count a carried scoped run inflates (POSITIVE +
     NEGATIVE); absent/empty envelopes yield 0 rather than raising                    -> test_80
@@ -4932,14 +4932,14 @@ class TestRateMaster(FrappeTestCase):
             # POSITIVE -- an eligible selection raises nothing
             rate_master._guard_only_rows("B", "S", 4, [16, 41], None)
 
-    def test_79_guard_refuses_resume_plus_scope_ai_off_and_no_carry_source(self):
-        """Three NEGATIVE pre-flight refusals, each before a single token is spent:
+    def test_79_guard_refuses_resume_plus_scope_and_ai_off_but_NOT_a_first_run(self):
+        """Two NEGATIVE pre-flight refusals, each before a single token is spent:
         (a) a resume already has its own scope, so it cannot also take a selection;
         (b) AI off would blank the picked rows AND stamp ai_status='disabled' onto a document
             whose carried rows were extracted with AI on -- mislabelling the whole document;
-        (c) with no completed run to carry forward from there is nothing to preserve, so the
-            'run the whole sheet once first' boundary is stated rather than silently producing a
-            partial that the editor would never adopt."""
+        (c) INVERTED by SLICE SR-1 (owner 2026-11-16 10:34 / 2026-11-17 13:09): with no completed run to
+            carry forward from, a selected-row run is ALLOWED -- it is a FIRST run and reads only the
+            selected rows. The old 'Nothing to carry forward' refusal is gone (POSITIVE: no exception)."""
         ai_on = mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
                            return_value={"enabled": True})
         key_on = mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_api_key",
@@ -4957,11 +4957,10 @@ class TestRateMaster(FrappeTestCase):
                 rate_master._guard_only_rows("B", "S", 4, [16], None)
             self.assertIn("AI", str(ctx.exception))
 
-        # (c) nothing to carry forward from
-        with ai_on, key_on, mock.patch.object(rate_master, "_carry_source_run", return_value=None):
-            with self.assertRaises(frappe.ValidationError) as ctx:
-                rate_master._guard_only_rows("B", "S", 4, [16], None)
-            self.assertIn("carry", str(ctx.exception).lower())
+        # (c) SR-1: nothing to carry forward from -> a FIRST selected run, ALLOWED (rows inside the population)
+        with ai_on, key_on, mock.patch.object(rate_master, "_carry_source_run", return_value=None), \
+             mock.patch.object(rate_master, "_population_rows", return_value={16, 17}):
+            self.assertIsNone(rate_master._guard_only_rows("B", "S", 4, [16], None))
 
 
     def test_80_pass_attempted_count_reads_this_pass_not_the_document(self):
@@ -5061,7 +5060,9 @@ class TestRateMaster(FrappeTestCase):
         # and the ONLY new key is the one this slice added
         expected = {"status", "boq", "sheet_name", "committed_version", "run_id", "ai_status",
                     "run_status", "results", "attempted_count", "population_count", "halt_reason",
-                    "scoped_row_count", "pass_attempted_count"}
+                    "scoped_row_count", "pass_attempted_count",
+                    # SLICE SR-1 C10 (2026-11-17): the additive, informational first-selected-run flag
+                    "first_selected_run"}
         self.assertEqual(set(self._run_worker_capture(complete_env).keys()), expected)
 
     # ── SCOPE PERSISTENCE: a halted scoped run must resume SCOPED ────────────────────
@@ -5207,13 +5208,17 @@ class TestRateMaster(FrappeTestCase):
                    "attempted_rows": "[1,2,3]", "halt_reason": "x", "results": "[]",
                    "scope_rows": "[30, 36]"}
         with mock.patch.object(frappe, "get_all", side_effect=[[], [dict(partial)]]), \
-             mock.patch.object(rate_master, "_population_rows", return_value={1, 2, 3}):
+             mock.patch.object(rate_master, "_population_categories", return_value={1: "", 2: "", 3: ""}), \
+             mock.patch.object(rate_master, "_resolve_committed_version", return_value=None):
+            # SR-1: the read takes the population with categories in ONE call (_population_categories) and asks the
+            # committed version for never_read_rows; both mocked here (this test pins scope_pending, unchanged)
             out = rate_master.get_active_suggestion_run(boq="B", sheet_name="S")
         self.assertEqual(out["partial_run"]["scope_pending"], [30, 36])
         self.assertEqual(out["partial_run"]["scope_pending_count"], 2)
 
         with mock.patch.object(frappe, "get_all", side_effect=[[], [dict(partial, scope_rows=None)]]), \
-             mock.patch.object(rate_master, "_population_rows", return_value={1, 2, 3}):
+             mock.patch.object(rate_master, "_population_categories", return_value={1: "", 2: "", 3: ""}), \
+             mock.patch.object(rate_master, "_resolve_committed_version", return_value=None):
             out2 = rate_master.get_active_suggestion_run(boq="B", sheet_name="S")
         self.assertIsNone(out2["partial_run"]["scope_pending_count"])
 

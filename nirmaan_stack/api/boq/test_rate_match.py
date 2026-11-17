@@ -249,7 +249,8 @@ class TestSuggestWorkerHook(FrappeTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(sorted(payload), sorted(["status", "boq", "sheet_name", "committed_version", "run_id", "ai_status",
                                                  "run_status", "results", "attempted_count", "population_count",
-                                                 "halt_reason", "scoped_row_count", "pass_attempted_count"]))
+                                                 "halt_reason", "scoped_row_count", "pass_attempted_count",
+                                                 "first_selected_run"]))  # SR-1 C10: additive, informational
 
     def test_a_trigger_that_raises_never_fails_the_suggest_run(self):
         calls, (_ev, payload), _c = self._run(_env(True), trigger_raises=True)

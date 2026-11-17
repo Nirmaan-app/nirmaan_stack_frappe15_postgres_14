@@ -679,9 +679,24 @@ export interface SuggestConfirmCopy {
   confirmLabel: string;
   /** True for the whole-sheet branch -- the caller styles that action as the destructive one. */
   wholeSheet: boolean;
-  /** SLICE 12e-5b (owner R8): the line naming the rows no run has read yet, which a selected-row run also reads.
-   * Present ONLY on a selected-row run where there are such rows; absent, the copy is exactly as before. */
+  /** SLICE SR-1 (owner QR-1 "option a"): the INFORMATION-ONLY line naming the eligible rows this run will NOT read
+   * (rows nobody has read yet that were not ticked). Present only on a selected-row run where there are such rows. */
   neverRead?: string;
+  /** SLICE SR-1 (owner QR-2 Q2 (a)): on a whole-sheet re-extract over a live run, how many rows are read AGAIN. */
+  readAgain?: string;
+}
+
+/** What a selected-row run would carry forward from (server `carry_source`): the live run, a halted partial (QR-2 Q3
+ * (a)), or nothing (a first run). */
+export type SuggestCarrySource = "live" | "partial" | null;
+
+function byCategoryLine(labels: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const l of labels) counts.set(l, (counts.get(l) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([l, c]) => `${l} ${c}`)
+    .join(", ");
 }
 
 /**
@@ -701,46 +716,61 @@ export interface SuggestConfirmCopy {
 export function suggestConfirmCopy(
   selectedCount: number,
   eligibleCount: number,
-  /** SLICE 12e-5b (owner R8 "option a"): one category label per eligible row no run has read yet and the user did
-   * not tick (`never_read_rows`). A selected-row run reads them too, so the line names them and the count includes
-   * them. Empty (the default) -> the copy is byte-identical to before. */
-  neverReadLabels: readonly string[] = [],
+  /** SLICE SR-1: one category label per eligible row this run will NOT read -- rows the carried run (or, on a first
+   * run, nobody) has read, minus the ticked ones (`never_read_rows`). Information only: a selected-row run reads ONLY
+   * the ticked rows (owner QR-1 "option a"; the 12e-5b auto-add is retired). */
+  unreadLabels: readonly string[] = [],
+  /** SLICE SR-1: what a selected-row run carries forward from (`carry_source`). */
+  carrySource: SuggestCarrySource = "live",
 ): SuggestConfirmCopy {
-  if (selectedCount > 0 && neverReadLabels.length > 0) {
-    const rowWord = selectedCount === 1 ? "row" : "rows";
-    const n = neverReadLabels.length;
-    const total = selectedCount + n;
-    const counts = new Map<string, number>();
-    for (const l of neverReadLabels) counts.set(l, (counts.get(l) ?? 0) + 1);
-    const byCategory = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([l, c]) => `${l} ${c}`)
-      .join(", ");
-    return {
-      title: `Suggest rates for ${selectedCount} selected ${rowWord}?`,
-      body:
-        `${selectedCount} ${rowWord} will be re-extracted. Every other row keeps the attributes it ` +
-        `already has -- they are carried forward unchanged.`,
-      warning: "",
-      confirmLabel: `Run ${total} ${total === 1 ? "row" : "rows"}`,
-      wholeSheet: false,
-      neverRead:
-        `This sheet's last run is older than some of its rows. This run will also read ${n} ` +
-        `${n === 1 ? "row" : "rows"} that no run has read yet (by category: ${byCategory}).`,
-    };
-  }
+  const rows = (n: number) => (n === 1 ? "row" : "rows");
+  const u = unreadLabels.length;
   if (selectedCount > 0) {
-    const rowWord = selectedCount === 1 ? "row" : "rows";
+    const n = selectedCount;
+    const base = { title: `Suggest rates for ${n} selected ${rows(n)}?`, warning: "", confirmLabel: `Run ${n} ${rows(n)}`, wholeSheet: false };
+    if (carrySource === null) {
+      // FIRST run (owner 2026-11-17 13:09): only the ticked rows are read; nothing is carried
+      const other = Math.max(0, eligibleCount - n);
+      return {
+        ...base,
+        body:
+          `Only the ${n} ${rows(n)} you selected will be read. This sheet has no suggestions yet; the other ${other} ` +
+          `eligible ${rows(other)} will not be read and will have no suggestions.`,
+        ...(u > 0 ? {
+          neverRead:
+            `Not in this run: ${u} ${rows(u)} (by category: ${byCategoryLine(unreadLabels)}). ` +
+            `Select them, or clear the selection to run the whole sheet.`,
+        } : {}),
+      };
+    }
+    // LATER run -- carried from the live run, or from a halted partial (QR-2 Q2 (a)): the untouched rows keep their attributes
     return {
-      title: `Suggest rates for ${selectedCount} selected ${rowWord}?`,
+      ...base,
       body:
-        `${selectedCount} ${rowWord} will be re-extracted. Every other row keeps the attributes it ` +
+        `Only the ${n} ${rows(n)} you selected will be read. Every other row keeps the attributes it ` +
         `already has -- they are carried forward unchanged.`,
-      warning: "",
-      confirmLabel: `Run ${selectedCount} ${rowWord}`,
-      wholeSheet: false,
+      ...(u > 0 ? {
+        neverRead:
+          `${u} ${rows(u)} on this sheet ${u === 1 ? "has" : "have"} not been read yet (by category: ` +
+          `${byCategoryLine(unreadLabels)}). They are not in this run. Select them, or clear the selection to run the whole sheet.`,
+      } : {}),
     };
   }
+  if (carrySource !== "live") {
+    // WHOLE-SHEET FIRST run (no live run; a halted partial is not live either - QR-2 Q2 (a)): nothing to overwrite, so
+    // no OVERWRITES line; still the big destructive-styled action so a stray click cannot launch a full first run
+    return {
+      title: `Suggest rates for the whole sheet (${eligibleCount} rows)?`,
+      body:
+        `No rows are selected, so all ${eligibleCount} eligible rows will be read. To read just a few, tick them in ` +
+        `the Excel-row column first.`,
+      warning: "",
+      confirmLabel: `Run all ${eligibleCount} rows`,
+      wholeSheet: true,
+    };
+  }
+  // WHOLE-SHEET re-extract over a live run: today's text, plus (QR-2 Q2 (a)) how many rows are read again
+  const again = Math.max(0, eligibleCount - u);
   return {
     title: `Re-extract the whole sheet (${eligibleCount} rows)?`,
     body:
@@ -750,6 +780,9 @@ export function suggestConfirmCopy(
       "To re-run just a few, tick them in the Excel-row column first.",
     confirmLabel: `Re-extract all ${eligibleCount} rows`,
     wholeSheet: true,
+    ...(again > 0 ? {
+      readAgain: `${again} of these rows already ${again === 1 ? "has" : "have"} suggestions from an earlier run; ${again === 1 ? "it" : "they"} will be read again.`,
+    } : {}),
   };
 }
 

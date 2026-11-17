@@ -42,6 +42,8 @@ export interface SuggestModalSummary {
    *  and is inflated by carried rows on a scoped run). Present from the pass-count slice onward;
    *  ABSENT on any older payload, which degrades to the previous "split unavailable" wording. */
   pass_attempted_count?: number;
+  /** SR-1 C10: true on a fresh selected run that carried nothing (a first selected run). Absent on older payloads. */
+  first_selected_run?: boolean;
 }
 
 /** The three outcomes a completion message may report. `null` = not applicable to this run shape
@@ -137,6 +139,17 @@ export function suggestCompletionLine(s: SuggestModalSummary | null): string {
       `Every other row is carried forward unchanged — resume to finish the rest.`;
   }
   const parts: string[] = [];
+  // SR-1 C10: a FIRST selected run (the server's `first_selected_run`: fresh, nothing carried) read its rows for the first
+  // time -- say "read", and how many eligible rows on the sheet are still unread (population - the document's rows);
+  // omitted at 0 (owner call 4). Any other run keeps the re-extracted / carried wording.
+  const halted = s?.run_status === "partial" || s?.status === "partial";
+  if (!halted && s?.first_selected_run === true && c.reExtracted !== null) {
+    parts.push(`${c.reExtracted} ${rowWord(c.reExtracted)} read.`);
+    const pop = typeof s?.population_count === "number" ? s.population_count : null;
+    const unread = pop !== null ? Math.max(0, pop - (s?.results?.length ?? 0)) : 0;
+    if (unread > 0) parts.push(`${unread} ${rowWord(unread)} on this sheet ${unread === 1 ? "has" : "have"} not been read yet.`);
+    return parts.join(" ");
+  }
   if (c.reExtracted !== null) parts.push(`${c.reExtracted} ${rowWord(c.reExtracted)} re-extracted.`);
   if (c.carriedForward !== null && c.carriedForward > 0) {
     parts.push(`${c.carriedForward} ${rowWord(c.carriedForward)} carried forward unchanged.`);
@@ -240,17 +253,19 @@ export function confirmEstimateLine(
   return matchWaitEstimate(rows, paces, rowsWithoutCard).line;
 }
 
-/** PURE (DEV2-B8 S2). The rows a Suggest press will read, as the confirm box counts them: the ticked rows plus the
- *  never-read ones the run reads too, or (nothing ticked) the whole eligible set. Sorted, no repeats: the rows the
- *  no-card count is asked for. */
+/** PURE (DEV2-B8 S2; SR-1). The rows a Suggest press will read, as the confirm box counts them: exactly the ticked
+ *  rows (owner QR-1 "option a" - the 12e-5b never-read rows are no longer added), or (nothing ticked) the whole
+ *  eligible set. Sorted, no repeats: the rows the no-card count is asked for. */
 export function suggestReadRows(
   selected: ReadonlySet<number>,
-  neverRead: readonly { excel_row: number }[],
   eligible: ReadonlySet<number>,
 ): number[] {
-  const out = selected.size > 0 ? new Set<number>([...selected, ...neverRead.map((r) => r.excel_row)]) : new Set(eligible);
+  const out = selected.size > 0 ? new Set<number>(selected) : new Set(eligible);
   return [...out].sort((a, b) => a - b);
 }
+
+/** PURE (SR-1 C9): re-exported from the one typed accessor for a frappe error shape (src/utils, rule F2). */
+export { serverRefusalText } from "@/utils/frappeErrorText";
 
 export interface MatchPhaseState {
   state: "running" | "done" | "failed";
