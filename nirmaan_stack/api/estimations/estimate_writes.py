@@ -109,6 +109,7 @@ def _copy_matched(older: list) -> tuple[int, list]:
             _set_items(doc, [{f: row.get(f) for f in ITEM_FIELDS} for row in e["items"]])
             doc.flags.reattach_copy = True
             doc.insert()
+            _keep_owner(doc.name, frappe.db.get_value(DOCTYPE, e["name"], "owner"))
             _mark_settled([e["name"]])
             copied += 1
         except (frappe.ValidationError, frappe.PermissionError) as exc:
@@ -119,6 +120,23 @@ def _copy_matched(older: list) -> tuple[int, list]:
             failed.append({"estimate": e["name"], "excel_row": e["line"]["excel_row"],
                            "description": e["line"]["description"], "reason": str(exc)})
     return copied, failed
+
+
+def _keep_owner(copy: str, owner: str) -> None:
+    """Owner 17 Nov: a copy to a new version is owned by whoever added the estimate, not by the copier (the
+    after-commit job runs as Administrator; Re-attach as whoever clicked it). Frappe stamps `owner` from the session
+    user on insert and discards a value set before it, so it is written after the insert, on the estimate and its
+    material rows. A copy of a copy carries the first adder along. Raw writes on purpose: `owner` is record
+    metadata -- no rule, derived field or hook reads it, so skipping hooks recomputes nothing. `modified` is left
+    alone (update_modified=False / not touched), so the stale-save check is unaffected."""
+    if not owner:
+        return
+    frappe.db.set_value(DOCTYPE, copy, "owner", owner, update_modified=False)
+    frappe.db.sql(
+        """update "tabBOQ Line Estimate Item" set owner = %(owner)s
+           where parent = %(parent)s and parenttype = %(parenttype)s""",
+        {"owner": owner, "parent": copy, "parenttype": DOCTYPE},
+    )
 
 
 def _mark_settled(names: list) -> None:

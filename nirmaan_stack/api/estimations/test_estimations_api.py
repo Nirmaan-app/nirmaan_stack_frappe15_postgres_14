@@ -200,22 +200,35 @@ class TestEstimationsApi(FrappeTestCase):
         self.assertEqual(out, {"deleted": True})
         self.assertIsNone(self._estimate_on(self.nodes["new15"]))
 
-    def _older(self, key, sheet, qty, name=None, stamp=None):
+    def _older(self, key, sheet, qty, name=None, stamp=None, owner=None):
         """An estimate left on an older version, with one material row (written bare: the controller refuses an
-        older line item)."""
+        older line item). `owner` stands for the person who added it (bare inserts keep the value given)."""
         name = name or f"TEST-EST-E-{key}-{self.s}"
         doc = frappe.get_doc({"doctype": DOCTYPE, "boq_node": self.nodes[key], "boq": self.boq, "boq_sheet": sheet,
                               "item_count": 1})
         doc.name = name
         if stamp:
             doc.creation = doc.modified = stamp
-        doc.db_insert()
         row = frappe.get_doc({"doctype": "BOQ Line Estimate Item", "parent": name, "parenttype": DOCTYPE,
                               "parentfield": "items", "idx": 1, "item_type": "Normal", "item_id": self.item,
                               "item_name": "Made-up panel", "unit": "sqm", "quantity": qty, "category": self.category})
         row.name = f"{name}-r1"
+        if owner:
+            # db_insert keeps a given owner only when creation is set too; otherwise it stamps the session user.
+            for d in (doc, row):
+                d.creation = d.modified = d.creation or frappe.utils.now()
+                d.owner = d.modified_by = owner
+        doc.db_insert()
         row.db_insert()
+        if owner:
+            self.assertEqual(frappe.db.get_value(DOCTYPE, name, "owner"), owner)
         return name
+
+    def _copy_owners(self, key):
+        """(owner of the estimate on the current line `key`, owners of its material rows)."""
+        name = frappe.db.get_value(DOCTYPE, {"boq_node": self.nodes[key]}, "name")
+        return (frappe.db.get_value(DOCTYPE, name, "owner"),
+                frappe.get_all("BOQ Line Estimate Item", filters={"parent": name}, pluck="owner"))
 
     def _older_states(self):
         older = boq_view.get_estimates(boq=self.boq, sheet_name=self.sheet_name)["older"]
@@ -271,7 +284,9 @@ class TestEstimationsApi(FrappeTestCase):
     def test_reattach_copies_unchanged_lines_keeps_history_and_lists_changed_ones(self):
         # Owner 2026-11-12: copied, not moved -- the BOQ keeps every version, and so does each version's estimate.
         self.addCleanup(self._purge)
-        e15, e16 = self._older("old15", self.sheet_v1, 12), self._older("old16", self.sheet_v1, 5)
+        adder = "made-up-adder@example.com"
+        e15 = self._older("old15", self.sheet_v1, 12, owner=adder)
+        e16 = self._older("old16", self.sheet_v1, 5)
         frappe.db.commit()
         self.assertEqual(boq_view.get_estimates_overview(project=self.project)["boqs"][0]["sheets"][0]["older"], 2)
         self.assertEqual(self._older_states(), {e15: "can_copy", e16: "changed"})  # row 16's text changed
@@ -280,6 +295,7 @@ class TestEstimationsApi(FrappeTestCase):
         self.assertEqual(out["copied"], 1)
         self.assertEqual([u["excel_row"] for u in out["unmatched"]], [16])  # listed, never guessed
         self.assertEqual(self._on("new15"), [[12]])  # the copy on the current version
+        self.assertEqual(self._copy_owners("new15"), (adder, [adder]))  # the adder's, not the clicker's
         self.assertEqual(frappe.db.get_value(DOCTYPE, e15, ["boq_node", "settled"]), (self.nodes["old15"], 1))  # kept, settled
         self.assertEqual(self._older_states(), {e16: "changed"})  # history is not listed
 
@@ -436,7 +452,9 @@ class TestEstimationsApi(FrappeTestCase):
         from nirmaan_stack.integrations.controllers import boq_line_estimate as controller
 
         self.addCleanup(self._purge)
-        e15, e16 = self._older("old15", self.sheet_v1, 12), self._older("old16", self.sheet_v1, 5)
+        adder = "made-up-adder@example.com"  # who added it; the job itself runs as Administrator
+        e15 = self._older("old15", self.sheet_v1, 12, owner=adder)
+        e16 = self._older("old16", self.sheet_v1, 5)
         frappe.db.commit()
 
         def sheet(**over):
@@ -455,6 +473,9 @@ class TestEstimationsApi(FrappeTestCase):
         out = estimate_writes.copy_estimates_after_commit(self.boq, self.sheet_name)
         self.assertEqual((out["copied"], out["failed"]), (1, []))
         self.assertEqual(self._on("new15"), [[12]])
+        # Owner 17 Nov: the copy belongs to whoever added the estimate, not to Administrator (the job's user).
+        self.assertEqual(frappe.session.user, "Administrator")
+        self.assertEqual(self._copy_owners("new15"), (adder, [adder]))
         self.assertEqual(frappe.db.get_value(DOCTYPE, e15, ["boq_node", "settled"]), (self.nodes["old15"], 1))  # history
         self.assertEqual(self._older_states(), {e16: "changed"})  # its text changed: still for a person
         # A BOQ that is not Selected is left alone (estimates are saved only on Selected BOQs).
