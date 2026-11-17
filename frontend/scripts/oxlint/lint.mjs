@@ -10,6 +10,9 @@ const OXLINT = join(FRONTEND, "node_modules", ".bin", "oxlint");
 
 // The config cannot ignore a folder outside its own (oxlint refuses `..` in ignorePatterns), so the generated
 // shadcn/ui primitives that eslint.config.js ignores are left out here.
-const args = ["-c", join(HERE, "oxlintrc.json"), "--ignore-pattern", "src/components/ui/**", ...process.argv.slice(2)];
+// A `-c <config>` among the arguments (oxlintrc.whole.json) replaces the default config.
+const given = process.argv.slice(2);
+const config = given.includes("-c") ? [] : ["-c", join(HERE, "oxlintrc.json")];
+const args = [...config, "--ignore-pattern", "src/components/ui/**", ...given];
 const run = spawnSync(OXLINT, args, { cwd: FRONTEND, stdio: "inherit" });
 process.exit(run.status ?? 1);
