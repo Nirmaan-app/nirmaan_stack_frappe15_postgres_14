@@ -131,7 +131,7 @@ export const CustomerOverview: React.FC<CustomerOverviewProps> = ({
   // Fetch address data
   const { data: customerAddress } = useFrappeGetDoc<Address>(
     "Address",
-    data?.company_address,
+    data?.company_address ?? undefined,
     data?.company_address ? `Address ${data?.company_address}` : null,
     {
       revalidateIfStale: false,
