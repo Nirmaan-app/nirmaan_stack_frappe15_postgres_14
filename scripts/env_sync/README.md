@@ -60,6 +60,10 @@ the proved restore; kept on a failure so a later run can see them).
   `CAUGHT-UP` (`catch-up --slice S --name N [--yes]` by hand does the same). If the desktop does not answer:
   `resume-on-laptop --slice S --name N`, and on the owner's word `--takeover --yes`, then post `RESUMED-ON-LAPTOP` with the
   step to continue from.
+- **Laptop standby = Docker off** (owner 2026-11-18, MEM-R0 F3; applies whenever the DESKTOP is master): the laptop's 4
+  devcontainer containers and Docker Desktop stay stopped. A sync, db-pull or checkpoint starts them first and stops
+  them after (it claims the turn file first and frees it after). Measured gain: ~1.3-1.7 GB of WSL memory plus ~0.5 GB
+  for Docker Desktop. While the laptop is master (a takeover), they run as normal. Never start dev2.
 
 ## If the checkpoint process fails (owner 2026-11-17 19:11) - hard rules
 
