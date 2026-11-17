@@ -9,9 +9,9 @@ export interface CategoryBOQAttachmentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** BOQ : Attach */
-	boq?: string
+	boq?: string | null
 	/** Procurement Request : Link - Procurement Requests */
-	procurement_request?: string
+	procurement_request?: string | null
 	/** Category : Link - Category */
-	category?: string
+	category?: string | null
 }

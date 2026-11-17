@@ -9,7 +9,7 @@ export interface DesignTrackerCategoryDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Category Name : Data */
-	category_name?: string
+	category_name?: string | null
 	/** Work Package : Link - Work Packages */
-	work_package?: string
+	work_package?: string | null
 }

@@ -54,6 +54,26 @@ describe("customerSaveUpdates", () => {
   });
 });
 
+describe("customerSaveUpdates with empty fields", () => {
+  // Frappe sends null for an empty field; the form holds "" for it (#1703).
+  const EMPTY_CUSTOMER = { ...CUSTOMER, company_phone: null, company_gst: null, company_email: null };
+  const EMPTY_ADDRESS = { ...ADDRESS, address_line2: null };
+  const unchanged = { ...VALUES, address_line1: "1 Test Road", company_phone: "", company_gst: "", company_email: "",
+    address_line2: "" };
+
+  it("plans nothing when an empty phone, GST, email or address line 2 is still empty", () => {
+    expect(save({ customer: EMPTY_CUSTOMER, address: EMPTY_ADDRESS, values: unchanged })).toEqual([]);
+  });
+
+  it("writes an empty field as null, never as an empty string", () => {
+    const [customer, address] = save({
+      customer: EMPTY_CUSTOMER, address: EMPTY_ADDRESS, values: { ...unchanged, company_name: "Acme Builders Pvt" },
+    });
+    expect(customer.fields).toMatchObject({ company_phone: null, company_gst: null, company_email: null });
+    expect(address).toBeUndefined();
+  });
+});
+
 describe("sendCustomerSave", () => {
   const sender = () => {
     const sent: DocUpdate[] = [];

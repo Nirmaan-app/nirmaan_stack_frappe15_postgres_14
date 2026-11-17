@@ -12,13 +12,13 @@ export interface ProjectDesignTrackerDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Project Name : Data */
-	project_name?: string
+	project_name?: string | null
 	/** Overall Deadline : Date */
-	overall_deadline?: string
+	overall_deadline?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Hide Design Tracker : Check */
 	hide_design_tracker?: 0 | 1
 	/** Handover Generated : Check */
@@ -26,9 +26,9 @@ export interface ProjectDesignTrackerDocType {
 	/** Design Tracker Task : Table - Design Tracker Task Child Table */
 	design_tracker_task?: DesignTrackerTaskChildTableDocType[]
 	/** Phase : Data */
-	phase?: string
+	phase?: string | null
 	/** Zone : Table - Design Tracker Zone */
 	zone?: DesignTrackerZoneDocType[]
 	/** Start Date : Date */
-	start_date?: string
+	start_date?: string | null
 }

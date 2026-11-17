@@ -11,23 +11,23 @@ export interface PORevisionsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Revised PO : Link - Procurement Orders */
-	revised_po?: string
+	revised_po?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Revision Justification : Text */
-	revision_justification?: string
+	revision_justification?: string | null
 	/** Total Amount Difference : Currency */
 	total_amount_difference?: number
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Approved By : Data */
-	approved_by?: string
+	approved_by?: string | null
 	/** Approval Date : Datetime */
-	approval_date?: string
+	approval_date?: string | null
 	/** Revision Items : Table - PO Revisions Items */
 	revision_items?: PORevisionsItemsDocType[]
 	/** Payment Return Details : JSON */
-	payment_return_details?: unknown
+	payment_return_details?: unknown | null
 }

@@ -16,11 +16,11 @@ export interface ProjectScheduleMilestoneDocType {
 	/** Milestone : Data */
 	work_milestone: string
 	/** Start Date : Date */
-	start_date?: string
+	start_date?: string | null
 	/** End Date : Date */
-	end_date?: string
+	end_date?: string | null
 	/** Edited By User : Link - User */
-	edited_by_user?: string
+	edited_by_user?: string | null
 	/** Changed By User : Check */
 	changed_by_user?: 0 | 1
 }

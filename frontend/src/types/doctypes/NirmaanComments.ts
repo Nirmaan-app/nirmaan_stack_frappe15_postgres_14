@@ -9,17 +9,17 @@ export interface NirmaanCommentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Comment Type : Data */
-	comment_type?: string
+	comment_type?: string | null
 	/** Content : Data */
-	content?: string
+	content?: string | null
 	/** Subject : Data */
-	subject?: string
+	subject?: string | null
 	/** Is System Generated : Check */
 	is_system_generated?: 0 | 1
 	/** Reference Doctype : Link - DocType */
-	reference_doctype?: string
+	reference_doctype?: string | null
 	/** Reference Name : Dynamic Link */
-	reference_name?: string
+	reference_name?: string | null
 	/** Comment By : Data */
-	comment_by?: string
+	comment_by?: string | null
 }

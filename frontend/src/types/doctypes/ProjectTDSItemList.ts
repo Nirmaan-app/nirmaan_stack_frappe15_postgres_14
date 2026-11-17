@@ -9,37 +9,37 @@ export interface ProjectTDSItemListDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** TDSI Project ID : Link - Projects */
-	tdsi_project_id?: string
+	tdsi_project_id?: string | null
 	/** TDSI Project Name : Data */
-	tdsi_project_name?: string
+	tdsi_project_name?: string | null
 	/** TDS Work Package : Data */
-	tds_work_package?: string
+	tds_work_package?: string | null
 	/** TDS Category : Small Text */
-	tds_category?: string
+	tds_category?: string | null
 	/** TDS Item ID : Data */
-	tds_item_id?: string
+	tds_item_id?: string | null
 	/** TDS Item Name : Data */
-	tds_item_name?: string
+	tds_item_name?: string | null
 	/** TDS Make : Data */
-	tds_make?: string
+	tds_make?: string | null
 	/** TDS Description : Text */
-	tds_description?: string
+	tds_description?: string | null
 	/** TDS Attachment : Attach */
-	tds_attachment?: string
+	tds_attachment?: string | null
 	/** TDS Status : Data */
-	tds_status?: string
+	tds_status?: string | null
 	/** TDS Request ID : Data */
-	tds_request_id?: string
+	tds_request_id?: string | null
 	/** TDS Rejection Reason : Data */
-	tds_rejection_reason?: string
+	tds_rejection_reason?: string | null
 	/** TDS BOQ Line Item : Text */
-	tds_boq_line_item?: string
+	tds_boq_line_item?: string | null
 	/** Client Status : Select */
-	client_status?: "" | "Approved by Client" | "Rejected by Client"
+	client_status?: "" | "Approved by Client" | "Rejected by Client" | null
 	/** Marked By : Link - User */
-	client_status_by?: string
+	client_status_by?: string | null
 	/** Marked On : Datetime */
-	client_status_on?: string
+	client_status_on?: string | null
 	/** Client's Reason : Small Text */
-	client_rejection_reason?: string
+	client_rejection_reason?: string | null
 }

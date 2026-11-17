@@ -13,11 +13,11 @@ export interface ProjectGSTDocType {
 	/** GSTIN : Data */
 	gstin: string
 	/** Address : Small Text */
-	address?: string
+	address?: string | null
 	/** City : Data */
-	city?: string
+	city?: string | null
 	/** State : Data */
-	state?: string
+	state?: string | null
 	/** Pincode : Data */
-	pincode?: string
+	pincode?: string | null
 }

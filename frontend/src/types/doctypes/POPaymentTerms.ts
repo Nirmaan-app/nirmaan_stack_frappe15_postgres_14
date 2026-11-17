@@ -12,21 +12,21 @@ export interface POPaymentTermsDocType {
 	parentfield: string
 	parenttype: string
 	/** Payment Type : Data */
-	payment_type?: string
+	payment_type?: string | null
 	/** Label : Data */
-	label?: string
+	label?: string | null
 	/** Percentage : Data */
-	percentage?: string
+	percentage?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Due Date : Date */
-	due_date?: string
+	due_date?: string | null
 	/** Project Payment : Link - Project Payments */
-	project_payment?: string
+	project_payment?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Term Status : Data */
-	term_status?: string
+	term_status?: string | null
 }

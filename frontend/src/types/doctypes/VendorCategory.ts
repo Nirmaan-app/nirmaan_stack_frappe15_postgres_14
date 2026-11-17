@@ -9,9 +9,9 @@ export interface VendorCategoryDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Category : Link - Category */
-	category?: string
+	category?: string | null
 	/** Vendor Name : Data */
-	vendor_name?: string
+	vendor_name?: string | null
 }

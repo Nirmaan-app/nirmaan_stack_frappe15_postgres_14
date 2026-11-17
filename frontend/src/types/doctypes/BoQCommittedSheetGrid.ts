@@ -15,13 +15,13 @@ export interface BoQCommittedSheetGridDocType {
 	/** Source Sheet Name : Data */
 	source_sheet_name: string
 	/** Sheet Disposition : Select */
-	sheet_disposition?: "grid_only" | "grid_and_nodes"
+	sheet_disposition?: "grid_only" | "grid_and_nodes" | null
 	/** Commit Version : Int */
 	commit_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Committed At : Datetime */
-	committed_at?: string
+	committed_at?: string | null
 	/** Rows : Table - BoQ Committed Sheet Grid Row */
 	rows?: BoQCommittedSheetGridRowDocType[]
 }

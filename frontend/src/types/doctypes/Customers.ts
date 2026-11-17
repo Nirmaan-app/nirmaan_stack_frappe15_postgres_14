@@ -13,13 +13,13 @@ export interface CustomersDocType {
 	/** Customer Nickname : Data */
 	customer_nickname: string
 	/** Company Address : Link - Address */
-	company_address?: string
+	company_address?: string | null
 	/** Company Contact Person : Data */
-	company_contact_person?: string
+	company_contact_person?: string | null
 	/** Company Phone : Data */
-	company_phone?: string
+	company_phone?: string | null
 	/** Company Email : Data */
-	company_email?: string
+	company_email?: string | null
 	/** Company GST : Data */
-	company_gst?: string
+	company_gst?: string | null
 }

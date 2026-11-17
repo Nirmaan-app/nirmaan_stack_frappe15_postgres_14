@@ -9,13 +9,13 @@ export interface MilestoneAttachmentsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Milestone : Link - Project Work Milestones */
-	milestone?: string
+	milestone?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Area Name : Data */
-	area_name?: string
+	area_name?: string | null
 	/** Area Status : Data */
-	area_status?: string
+	area_status?: string | null
 	/** Image : Attach Image */
-	image?: string
+	image?: string | null
 }

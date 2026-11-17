@@ -13,9 +13,9 @@ export interface CEOHoldReasonDocType {
 	/** Source : Select */
 	source: "cashflow" | "dn_pending"
 	/** Dedup Key : Data */
-	dedup_key?: string
+	dedup_key?: string | null
 	/** Reason : Small Text */
-	reason_text?: string
+	reason_text?: string | null
 	/** Set At : Datetime */
-	set_at?: string
+	set_at?: string | null
 }

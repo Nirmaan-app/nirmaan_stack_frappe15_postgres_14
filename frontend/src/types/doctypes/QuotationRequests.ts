@@ -9,29 +9,29 @@ export interface QuotationRequestsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Procurement Task : Link - Procurement Requests */
-	procurement_task?: string
+	procurement_task?: string | null
 	/** Category : Link - Category */
-	category?: string
+	category?: string | null
 	/** Item : Link - Items */
-	item?: string
+	item?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** City : Data */
-	city?: string
+	city?: string | null
 	/** State : Data */
-	state?: string
+	state?: string | null
 	/** Lead Time : Data */
-	lead_time?: string
+	lead_time?: string | null
 	/** Quantity : Data */
-	quantity?: string
+	quantity?: string | null
 	/** Quote : Data */
-	quote?: string
+	quote?: string | null
 	/** Comments : Data */
-	comments?: string
+	comments?: string | null
 	/** Attachment : Data */
-	attachment?: string
+	attachment?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Makes : JSON */
-	makes?: unknown
+	makes?: unknown | null
 }

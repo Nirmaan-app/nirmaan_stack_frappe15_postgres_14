@@ -9,25 +9,25 @@ export interface MaterialDeliveryPlanDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** PO Link : Link - Procurement Orders */
-	po_link?: string
+	po_link?: string | null
 	/** Package Name : Data */
-	package_name?: string
+	package_name?: string | null
 	/** MP_Items : JSON */
-	mp_items?: unknown
+	mp_items?: unknown | null
 	/** Delivery Date : Date */
-	delivery_date?: string
+	delivery_date?: string | null
 	/** Delivery Status : Select */
-	delivery_status?: "Not Delivered" | "Delivered" | "Partially Delivered"
+	delivery_status?: "Not Delivered" | "Delivered" | "Partially Delivered" | null
 	/** PO Type : Data */
-	po_type?: string
+	po_type?: string | null
 	/** Critical PO Category : Data */
-	critical_po_category?: string
+	critical_po_category?: string | null
 	/** Critical PO Task : Data */
-	critical_po_task?: string
+	critical_po_task?: string | null
 	/** Critical PO Sub Category : Data */
-	critical_po_sub_category?: string
+	critical_po_sub_category?: string | null
 	/** Remarks : Text */
-	remarks?: string
+	remarks?: string | null
 }

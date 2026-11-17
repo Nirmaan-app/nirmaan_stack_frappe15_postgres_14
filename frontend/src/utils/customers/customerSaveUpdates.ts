@@ -1,31 +1,14 @@
-import type { CustomersDocType } from "@/types/doctypes/Customers";
-import type { Address } from "@/types/NirmaanStack/Address";
+import type { AddressFields, CustomerFields, CustomerFormValues } from "./customerForm";
 
-type CustomerFields = Pick<
-  CustomersDocType,
-  "company_name" | "customer_nickname" | "company_email" | "company_phone" | "company_contact_person" | "company_gst"
->;
-type AddressFields = Pick<Address, "address_line1" | "address_line2" | "city" | "state" | "pincode">;
+/** One `updateDoc` call: the document and the fields to write to it, typed by its DocType. */
+export type DocUpdate =
+  | { doctype: "Customers"; name: string; fields: CustomerFields }
+  | { doctype: "Address"; name: string; fields: AddressFields };
 
-/** The Edit Customer form's values that the save compares with the saved Customer and Address. */
-export interface CustomerSaveValues {
-  company_name: string;
-  customer_nickname: string;
-  company_email?: string;
-  company_phone?: string;
-  company_contact_person?: string;
-  company_gst?: string;
-  address_line1: string;
-  address_line2?: string;
-  pin_code: string;
-}
-
-/** One `updateDoc` call: the document and the fields to write to it. */
-export interface DocUpdate {
-  doctype: "Customers" | "Address";
-  name: string;
-  fields: Record<string, string | undefined>;
-}
+/** The server's empty is null, the form's is "": the two are the same value. */
+const same = (saved: string | null | undefined, form: string) => (saved ?? "") === form;
+/** A form value as the server stores it: an empty field is null. */
+const stored = (form: string) => (form === "" ? null : form);
 
 type SaveInput = Parameters<typeof customerSaveUpdates>[0];
 
@@ -58,19 +41,19 @@ export function customerSaveUpdates({
   addressId?: string;
   customer?: Partial<CustomerFields>;
   address?: Partial<AddressFields>;
-  values: CustomerSaveValues;
+  values: CustomerFormValues;
   city: string;
   state: string;
 }): DocUpdate[] {
   const updates: DocUpdate[] = [];
 
   const customerChanged =
-    customer?.company_name !== values.company_name ||
-    customer?.customer_nickname !== values.customer_nickname ||
-    customer?.company_email !== values.company_email ||
-    customer?.company_phone !== values.company_phone ||
-    customer?.company_contact_person !== values.company_contact_person ||
-    customer?.company_gst !== values.company_gst;
+    !same(customer?.company_name, values.company_name) ||
+    !same(customer?.customer_nickname, values.customer_nickname) ||
+    !same(customer?.company_email, values.company_email) ||
+    !same(customer?.company_phone, values.company_phone) ||
+    !same(customer?.company_contact_person, values.company_contact_person) ||
+    !same(customer?.company_gst, values.company_gst);
   if (customerChanged) {
     if (!customerId) throw new Error("No customer is open, so its details could not be saved");
     updates.push({
@@ -79,20 +62,20 @@ export function customerSaveUpdates({
       fields: {
         company_name: values.company_name,
         customer_nickname: values.customer_nickname,
-        company_email: values.company_email,
-        company_phone: values.company_phone,
-        company_contact_person: values.company_contact_person,
-        company_gst: values.company_gst,
+        company_email: stored(values.company_email),
+        company_phone: stored(values.company_phone),
+        company_contact_person: stored(values.company_contact_person),
+        company_gst: stored(values.company_gst),
       },
     });
   }
 
   const addressChanged =
-    address?.address_line1 !== values.address_line1 ||
-    address?.address_line2 !== values.address_line2 ||
-    address?.city !== city ||
-    address?.state !== state ||
-    address?.pincode !== values.pin_code;
+    !same(address?.address_line1, values.address_line1) ||
+    !same(address?.address_line2, values.address_line2) ||
+    !same(address?.city, city) ||
+    !same(address?.state, state) ||
+    !same(address?.pincode, values.pin_code);
   if (addressChanged) {
     if (!addressId) throw new Error("This customer has no company address, so the address could not be saved");
     updates.push({
@@ -101,12 +84,12 @@ export function customerSaveUpdates({
       fields: {
         address_title: values.company_name,
         address_line1: values.address_line1,
-        address_line2: values.address_line2,
+        address_line2: stored(values.address_line2),
         city,
         state,
         pincode: values.pin_code,
-        email_id: values.company_email,
-        phone: values.company_phone,
+        email_id: stored(values.company_email),
+        phone: stored(values.company_phone),
       },
     });
   }

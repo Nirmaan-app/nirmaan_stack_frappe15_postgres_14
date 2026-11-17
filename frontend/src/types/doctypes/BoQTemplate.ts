@@ -15,13 +15,13 @@ export interface BoQTemplateDocType {
 	/** Is Active : Check */
 	is_active?: 0 | 1
 	/** Seeded From BoQ : Data */
-	seeded_from_boq?: string
+	seeded_from_boq?: string | null
 	/** Seeded At : Datetime */
-	seeded_at?: string
+	seeded_at?: string | null
 	/** Last Updated By : Data */
-	last_updated_by?: string
+	last_updated_by?: string | null
 	/** Last Updated On : Datetime */
-	last_updated_on?: string
+	last_updated_on?: string | null
 	/** Sheets : Table - BoQ Template Sheet */
 	sheets?: BoQTemplateSheetDocType[]
 }

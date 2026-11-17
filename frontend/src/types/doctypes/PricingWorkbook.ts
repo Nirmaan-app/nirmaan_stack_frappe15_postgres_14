@@ -11,11 +11,11 @@ export interface PricingWorkbookDocType {
 	/** Title : Data */
 	title: string
 	/** Workbook JSON : JSON */
-	workbook_json?: unknown
+	workbook_json?: unknown | null
 	/** Current Version : Int */
 	current_version?: number
 	/** Checked Out By : Link - User */
-	checked_out_by?: string
+	checked_out_by?: string | null
 	/** Checked Out At : Datetime */
-	checked_out_at?: string
+	checked_out_at?: string | null
 }

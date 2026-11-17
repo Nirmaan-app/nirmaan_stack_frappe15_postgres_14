@@ -9,15 +9,15 @@ export interface CommissionReportTasksDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Task name : Data */
-	task_name?: string
+	task_name?: string | null
 	/** Report Type : Select */
-	report_type?: "Field" | "Vendor"
+	report_type?: "Field" | "Vendor" | null
 	/** Category Link : Link - Commission Report Category */
-	category_link?: string
+	category_link?: string | null
 	/** Deadline Offset : Int */
 	deadline_offset?: number
 	/** Is Active : Check */
 	is_active?: 0 | 1
 	/** Source Format (JSON) : Long Text */
-	source_format?: string
+	source_format?: string | null
 }

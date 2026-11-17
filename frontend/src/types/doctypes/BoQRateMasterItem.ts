@@ -13,21 +13,21 @@ export interface BoQRateMasterItemDocType {
 	/** Kind : Data */
 	kind: string
 	/** Brand : Data */
-	brand?: string
+	brand?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Attributes : JSON */
-	attributes?: unknown
+	attributes?: unknown | null
 	/** Rates : JSON */
-	rates?: unknown
+	rates?: unknown | null
 	/** Source Sheet : Data */
-	source_sheet?: string
+	source_sheet?: string | null
 	/** Source Row : Int */
 	source_row?: number
 	/** Import Batch : Data */
-	import_batch?: string
+	import_batch?: string | null
 	/** Active : Check */
 	active?: 0 | 1
 	/** Item UID : Data */
-	item_uid?: string
+	item_uid?: string | null
 }

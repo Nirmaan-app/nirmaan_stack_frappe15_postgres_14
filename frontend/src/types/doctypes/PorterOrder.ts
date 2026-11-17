@@ -11,37 +11,37 @@ export interface PorterOrderDocType {
 	/** CRN : Data */
 	crn: string
 	/** Porter Invoice : Link - Porter Invoice */
-	porter_invoice?: string
+	porter_invoice?: string | null
 	/** Import Line : Link - Outflow Import Row */
-	import_row?: string
+	import_row?: string | null
 	/** Completed At : Datetime */
-	completed_at?: string
+	completed_at?: string | null
 	/** Order Status : Data */
-	order_status?: string
+	order_status?: string | null
 	/** City : Data */
-	city?: string
+	city?: string | null
 	/** Vehicle Type : Data */
-	vehicle_type?: string
+	vehicle_type?: string | null
 	/** Booked By : Data */
-	booked_by?: string
+	booked_by?: string | null
 	/** Mobile : Data */
-	booked_by_mobile?: string
+	booked_by_mobile?: string | null
 	/** Email : Data */
-	booked_by_email?: string
+	booked_by_email?: string | null
 	/** Remark : Small Text */
-	remark?: string
+	remark?: string | null
 	/** From : Small Text */
-	from_address?: string
+	from_address?: string | null
 	/** To : Small Text */
-	to_address?: string
+	to_address?: string | null
 	/** Waypoints : Small Text */
-	waypoint_addresses?: string
+	waypoint_addresses?: string | null
 	/** Distance (km) : Float */
 	distance_km?: number
 	/** Travel Duration : Data */
-	travel_duration?: string
+	travel_duration?: string | null
 	/** Waiting Time : Data */
-	waiting_time?: string
+	waiting_time?: string | null
 	/** Fare : Currency */
 	fare?: number
 	/** Reverse-charge GST : Currency */

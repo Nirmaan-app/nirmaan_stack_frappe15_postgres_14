@@ -13,35 +13,35 @@ export interface AssetMasterDocType {
 	/** Asset Name : Data */
 	asset_name: string
 	/** Asset Description : Text */
-	asset_description?: string
+	asset_description?: string | null
 	/** Asset Category : Link - Asset Category */
 	asset_category: string
 	/** Asset Condition : Data */
-	asset_condition?: string
+	asset_condition?: string | null
 	/** Asset Serial Number : Data */
-	asset_serial_number?: string
+	asset_serial_number?: string | null
 	/** Asset Value : Currency */
 	asset_value?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** City : Data */
-	asset_city?: string
+	asset_city?: string | null
 	/** State : Data */
-	asset_state?: string
+	asset_state?: string | null
 	/** Invoice Attachment : Attach */
-	asset_invoice_attachment?: string
+	asset_invoice_attachment?: string | null
 	/** Certificate Attachment : Attach */
-	asset_certificate_attachment?: string
+	asset_certificate_attachment?: string | null
 	/** Asset Email : Data */
-	asset_email?: string
+	asset_email?: string | null
 	/** Asset Email Password : Password */
-	asset_email_password?: string
+	asset_email_password?: string | null
 	/** Asset PIN : Password */
-	asset_pin?: string
+	asset_pin?: string | null
 	/** Current Assignee : Link - Nirmaan Users */
-	current_assignee?: string
+	current_assignee?: string | null
 	/** Department : Link - Nirmaan Department */
-	department?: string
+	department?: string | null
 	/** Asset History : Table - Asset History */
 	asset_history?: AssetHistoryDocType[]
 	/** Lost/Damaged : Check */

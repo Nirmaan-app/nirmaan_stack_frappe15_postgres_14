@@ -9,5 +9,5 @@ export interface MakelistDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Make Name : Data */
-	make_name?: string
+	make_name?: string | null
 }

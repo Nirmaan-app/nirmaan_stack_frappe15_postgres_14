@@ -11,11 +11,11 @@ export interface AutoApprovalRuleDocType {
 	/** Rule Name : Data */
 	rule_name: string
 	/** Rule Key : Data */
-	rule_key?: string
+	rule_key?: string | null
 	/** Enabled : Check */
 	enabled?: 0 | 1
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Threshold Value : Currency */
 	threshold_value?: number
 }

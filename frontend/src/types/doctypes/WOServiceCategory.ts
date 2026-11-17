@@ -11,5 +11,5 @@ export interface WOServiceCategoryDocType {
 	/** Category Name : Data */
 	category_name: string
 	/** Work Package : Link - Work Packages */
-	work_package?: string
+	work_package?: string | null
 }

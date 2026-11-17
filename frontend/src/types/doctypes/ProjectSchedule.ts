@@ -13,7 +13,7 @@ export interface ProjectScheduleDocType {
 	/** Project : Link - Projects */
 	project: string
 	/** Project Name : Data */
-	project_name?: string
+	project_name?: string | null
 	/** Milestones : Table - Project Schedule Milestone */
 	milestones?: ProjectScheduleMilestoneDocType[]
 }

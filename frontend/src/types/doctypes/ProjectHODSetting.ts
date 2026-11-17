@@ -13,7 +13,7 @@ export interface ProjectHODSettingDocType {
 	/** Project : Link - Projects */
 	project: string
 	/** Header Roles : Small Text */
-	header_roles?: string
+	header_roles?: string | null
 	/** Package Signed Copies : Table - Project HOD Package File */
 	package_files?: ProjectHODPackageFileDocType[]
 }

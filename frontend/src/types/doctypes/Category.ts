@@ -13,9 +13,9 @@ export interface CategoryDocType {
 	/** Procurement Package : Link - Procurement Packages */
 	work_package: string
 	/** Image Url : Attach Image */
-	image_url?: string
+	image_url?: string | null
 	/** Tax : Data */
-	tax?: string
+	tax?: string | null
 	/** New Items Addition : Data */
-	new_items?: string
+	new_items?: string | null
 }

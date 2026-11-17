@@ -16,5 +16,5 @@ export interface BoQCommittedSheetGridRowDocType {
 	/** Row Order : Int */
 	row_order?: number
 	/** Cells : JSON */
-	cells?: unknown
+	cells?: unknown | null
 }

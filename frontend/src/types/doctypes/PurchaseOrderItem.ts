@@ -12,9 +12,9 @@ export interface PurchaseOrderItemDocType {
 	parentfield: string
 	parenttype: string
 	/** Item ID : Data */
-	item_id?: string
+	item_id?: string | null
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Unit : Data */
 	unit: string
 	/** Quantity Ordered : Float */
@@ -28,11 +28,11 @@ export interface PurchaseOrderItemDocType {
 	/** Category : Data */
 	category: string
 	/** Procurement Package : Data */
-	procurement_package?: string
+	procurement_package?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Selected Make : Data */
-	make?: string
+	make?: string | null
 	/** Tax Rate : Float */
 	tax?: number
 	/** Tax Amount : Currency */
@@ -40,13 +40,13 @@ export interface PurchaseOrderItemDocType {
 	/** Total Amount (inc. Tax) : Currency */
 	total_amount?: number
 	/** Comment : Small Text */
-	comment?: string
+	comment?: string | null
 	/** Procurement Request Item : Link - Procurement Request Item Detail */
-	procurement_request_item?: string
+	procurement_request_item?: string | null
 	/** Master PO : Link - Procurement Orders */
-	po?: string
+	po?: string | null
 	/** Quoted Rate : Currency */
 	quote: number
 	/** Billing Status : Select */
-	billing_status?: "Billable" | "Non-Billable"
+	billing_status?: "Billable" | "Non-Billable" | null
 }

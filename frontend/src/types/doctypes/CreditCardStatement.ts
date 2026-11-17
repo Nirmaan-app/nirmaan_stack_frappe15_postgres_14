@@ -11,17 +11,17 @@ export interface CreditCardStatementDocType {
 	/** Card Holder : Data */
 	holder: string
 	/** Company : Data */
-	company?: string
+	company?: string | null
 	/** Statement Date : Date */
-	statement_date?: string
+	statement_date?: string | null
 	/** Period From : Date */
 	period_from: string
 	/** Period To : Date */
 	period_to: string
 	/** Import Batch : Link - Outflow Import Batch */
-	import_batch?: string
+	import_batch?: string | null
 	/** Statement PDF : Attach */
-	statement_file?: string
+	statement_file?: string | null
 	/** Previous Balance : Currency */
 	previous_balance?: number
 	/** Purchases / Charges : Currency */

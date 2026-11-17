@@ -17,11 +17,11 @@ export interface HODSystemDocType {
 	/** Active : Check */
 	is_active?: 0 | 1
 	/** Warranty Equipment : Small Text */
-	warranty_equipment?: string
+	warranty_equipment?: string | null
 	/** Recommended Tools : Small Text */
-	tools?: string
+	tools?: string | null
 	/** Documents Switched Off by Default : Small Text */
-	default_disabled_documents?: string
+	default_disabled_documents?: string | null
 	/** Report Keywords : Small Text */
-	source_keywords?: string
+	source_keywords?: string | null
 }

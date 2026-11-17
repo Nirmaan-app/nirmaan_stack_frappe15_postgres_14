@@ -9,27 +9,27 @@ export interface WOGeneratedInvoiceDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Work Order : Link - Service Requests */
-	work_order?: string
+	work_order?: string | null
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Status : Select */
-	status?: "Generated" | "Signed" | "Approved" | "Voided"
+	status?: "Generated" | "Signed" | "Approved" | "Voided" | null
 	/** Invoice Type : Select */
-	invoice_type?: "RA" | "FINAL"
+	invoice_type?: "RA" | "FINAL" | null
 	/** RA Number : Int */
 	ra_number?: number
 	/** Invoice No : Data */
-	invoice_no?: string
+	invoice_no?: string | null
 	/** Invoice Date : Date */
-	invoice_date?: string
+	invoice_date?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Void Reason : Small Text */
-	void_reason?: string
+	void_reason?: string | null
 	/** Vendor Invoice : Link - Vendor Invoices */
-	vendor_invoice?: string
+	vendor_invoice?: string | null
 	/** Signed Copy : Link - Nirmaan Attachments */
-	signed_attachment?: string
+	signed_attachment?: string | null
 }

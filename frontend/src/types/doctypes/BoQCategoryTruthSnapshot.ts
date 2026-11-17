@@ -25,7 +25,7 @@ export interface BoQCategoryTruthSnapshotDocType {
 	/** Source : Select */
 	source: "Bulk-loaded ground truth" | "Frozen in product"
 	/** Snapshot At : Datetime */
-	snapshot_at?: string
+	snapshot_at?: string | null
 	/** Snapshot By : Data */
-	snapshot_by?: string
+	snapshot_by?: string | null
 }

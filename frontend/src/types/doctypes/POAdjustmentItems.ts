@@ -14,23 +14,23 @@ export interface POAdjustmentItemsDocType {
 	/** Entry Type : Data */
 	entry_type: string
 	/** Revision : Link - PO Revisions */
-	revision_id?: string
+	revision_id?: string | null
 	/** Amount : Currency */
 	amount: number
 	/** Description : Small Text */
-	description?: string
+	description?: string | null
 	/** Timestamp : Datetime */
-	timestamp?: string
+	timestamp?: string | null
 	/** Project Payment : Link - Project Payments */
-	project_payment?: string
+	project_payment?: string | null
 	/** Target PO : Link - Procurement Orders */
-	target_po?: string
+	target_po?: string | null
 	/** Expense Type : Data */
-	expense_type?: string
+	expense_type?: string | null
 	/** Refund Date : Date */
-	refund_date?: string
+	refund_date?: string | null
 	/** Refund Attachment : Attach */
-	refund_attachment?: string
+	refund_attachment?: string | null
 	/** Vendor Refund : Link - Vendor Refunds */
-	vendor_refund?: string
+	vendor_refund?: string | null
 }

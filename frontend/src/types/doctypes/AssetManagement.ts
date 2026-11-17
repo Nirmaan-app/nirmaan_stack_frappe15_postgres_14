@@ -13,27 +13,27 @@ export interface AssetManagementDocType {
 	/** Assigned To : Link - Nirmaan Users */
 	asset_assigned_to: string
 	/** Asset Assigned On : Date */
-	asset_assigned_on?: string
+	asset_assigned_on?: string | null
 	/** Asset Declaration Attachment : Attach */
-	asset_declaration_attachment?: string
+	asset_declaration_attachment?: string | null
 	/** Received : Check */
 	received?: 0 | 1
 	/** Received Date : Date */
-	received_on?: string
+	received_on?: string | null
 	/** Returned By User : Check */
 	returned?: 0 | 1
 	/** Return Date : Date */
-	returned_on?: string
+	returned_on?: string | null
 	/** Audit Status : Select */
-	audit_status?: "" | "Pending" | "Fulfilled"
+	audit_status?: "" | "Pending" | "Fulfilled" | null
 	/** Audit Month : Data */
-	audit_month?: string
+	audit_month?: string | null
 	/** Last Audit On : Date */
-	last_audit_on?: string
+	last_audit_on?: string | null
 	/** Audit Proof : Attach Image */
-	audit_proof?: string
+	audit_proof?: string | null
 	/** Overdue Since : Data */
-	audit_overdue_since?: string
+	audit_overdue_since?: string | null
 	/** Audit Answers : JSON */
-	audit_answers?: unknown
+	audit_answers?: unknown | null
 }

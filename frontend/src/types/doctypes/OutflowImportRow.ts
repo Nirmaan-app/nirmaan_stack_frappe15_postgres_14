@@ -13,113 +13,113 @@ export interface OutflowImportRowDocType {
 	/** Transfer Id : Data */
 	transfer_id: string
 	/** Reference Id : Data */
-	reference_id?: string
+	reference_id?: string | null
 	/** Added On : Datetime */
-	added_on?: string
+	added_on?: string | null
 	/** Amount : Currency */
 	amount?: number
 	/** Transfer Status : Data */
-	status_raw?: string
+	status_raw?: string | null
 	/** Beneficiary Name : Data */
-	beneficiary_name?: string
+	beneficiary_name?: string | null
 	/** Beneficiary Id : Data */
-	beneficiary_id?: string
+	beneficiary_id?: string | null
 	/** Bank Account : Data */
-	bank_account?: string
+	bank_account?: string | null
 	/** IFSC : Data */
-	ifsc?: string
+	ifsc?: string | null
 	/** Remarks : Text */
-	remarks?: string
+	remarks?: string | null
 	/** Bank Reference No : Data */
-	bank_reference_no?: string
+	bank_reference_no?: string | null
 	/** Service Charge : Currency */
 	service_charge?: number
 	/** Service Tax : Currency */
 	service_tax?: number
 	/** Added By (raw) : Data */
-	added_by_raw?: string
+	added_by_raw?: string | null
 	/** Normalized Account : Data */
-	normalized_account?: string
+	normalized_account?: string | null
 	/** Normalized Reference : Data */
-	normalized_reference?: string
+	normalized_reference?: string | null
 	/** Settlement Reference : Text */
-	settlement_reference?: string
+	settlement_reference?: string | null
 	/** Resolved Vendor : Link - Vendors */
-	resolved_vendor?: string
+	resolved_vendor?: string | null
 	/** Resolved Project : Link - Projects */
-	resolved_project?: string
+	resolved_project?: string | null
 	/** Suggested Doctype : Data */
-	suggested_doctype?: string
+	suggested_doctype?: string | null
 	/** Suggested Record : Data */
-	suggested_name?: string
+	suggested_name?: string | null
 	/** Suggestion Rule : Data */
-	suggestion_rule?: string
+	suggestion_rule?: string | null
 	/** Auto Matched : Check */
 	auto_matched?: 0 | 1
 	/** Match Basis : Data */
-	match_basis?: string
+	match_basis?: string | null
 	/** Suggested Refunds : JSON */
-	suggested_refunds?: unknown
+	suggested_refunds?: unknown | null
 	/** Row Status : Select */
-	row_status?: "Pending match run" | "Matched" | "Mismatched" | "Partially Allocated" | "Settled" | "Internal Transfer" | "Skipped" | "Error"
+	row_status?: "Pending match run" | "Matched" | "Mismatched" | "Partially Allocated" | "Settled" | "Internal Transfer" | "Skipped" | "Error" | null
 	/** Skip Reason : Small Text */
-	skip_reason?: string
+	skip_reason?: string | null
 	/** Skip Origin : Select */
-	skip_origin?: "" | "System" | "Manual"
+	skip_origin?: "" | "System" | "Manual" | null
 	/** Skip Kind : Select */
-	skip_kind?: "" | "Already imported" | "Repeated in same file" | "Bank refused" | "No amount" | "Outflow Already Recorded" | "Inflow Already Recorded" | "Cashfree wallet top-up" | "Cashbook wallet top-up" | "Porter wallet top-up" | "Wallet money returned" | "Bank internal transfer" | "Failed payment bounced back" | "Bank card rounding (₹2)" | "Credit card bill payment" | "Credit card auto-debit" | "Cashbook internal movement" | "Skipped by hand" | "Porter order cancelled" | "Card payment received" | "Card cashback" | "Card refund pair" | "Paired wallet refund" | "Unknown Cashbook type"
+	skip_kind?: "" | "Already imported" | "Repeated in same file" | "Bank refused" | "No amount" | "Outflow Already Recorded" | "Inflow Already Recorded" | "Cashfree wallet top-up" | "Cashbook wallet top-up" | "Porter wallet top-up" | "Wallet money returned" | "Bank internal transfer" | "Failed payment bounced back" | "Bank card rounding (₹2)" | "Credit card bill payment" | "Credit card auto-debit" | "Cashbook internal movement" | "Skipped by hand" | "Porter order cancelled" | "Card payment received" | "Card cashback" | "Card refund pair" | "Paired wallet refund" | "Unknown Cashbook type" | null
 	/** Outcome Note : Text */
-	outcome_note?: string
+	outcome_note?: string | null
 	/** Duplicate Basis : JSON */
-	duplicate_basis?: unknown
+	duplicate_basis?: unknown | null
 	/** Decided At : Datetime */
-	decided_at?: string
+	decided_at?: string | null
 	/** Decided By : Data */
-	decided_by?: string
+	decided_by?: string | null
 	/** Settlement Origin : Select */
-	settlement_origin?: "" | "Suggestion accepted" | "Suggestion overridden" | "No suggestion"
+	settlement_origin?: "" | "Suggestion accepted" | "Suggestion overridden" | "No suggestion" | null
 	/** Source : Data */
-	source?: string
+	source?: string | null
 	/** Suggested Expense Type : Data */
-	suggested_expense_type?: string
+	suggested_expense_type?: string | null
 	/** Direction : Select */
-	direction?: "" | "Debit" | "Credit"
+	direction?: "" | "Debit" | "Credit" | null
 	/** Confirm By Hand : Check */
 	confirm_by_hand?: 0 | 1
 	/** Porter Invoice : Link - Porter Invoice */
-	porter_invoice?: string
+	porter_invoice?: string | null
 	/** Porter Line : JSON */
-	porter_line?: unknown
+	porter_line?: unknown | null
 	/** Placement Reason : Data */
-	placement_reason?: string
+	placement_reason?: string | null
 	/** Placement Strength : Select */
-	placement_strength?: "" | "Strong" | "Check"
+	placement_strength?: "" | "Strong" | "Check" | null
 	/** Type Source : Select */
-	type_source?: "" | "Earlier statement" | "AI" | "Fallback" | "Chosen on Review"
+	type_source?: "" | "Earlier statement" | "AI" | "Fallback" | "Chosen on Review" | null
 	/** Card Refund Partner : Link - Outflow Import Row */
-	card_refund_partner?: string
+	card_refund_partner?: string | null
 	/** Bill Links : JSON */
-	bill_links?: unknown
+	bill_links?: unknown | null
 	/** Bill Not Copied : Small Text */
-	bill_problem?: string
+	bill_problem?: string | null
 	/** Statement Type : Data */
-	row_kind?: string
+	row_kind?: string | null
 	/** Stored Bill : Attach */
-	stored_bill?: string
+	stored_bill?: string | null
 	/** Bill Check : Select */
-	bill_check?: "" | "Checking" | "Matched" | "Mismatched" | "Not read" | "Not checked"
+	bill_check?: "" | "Checking" | "Matched" | "Mismatched" | "Not read" | "Not checked" | null
 	/** Bill Check Reason : Small Text */
-	bill_check_reason?: string
+	bill_check_reason?: string | null
 	/** Reading Claimed At : Datetime */
-	read_claimed_at?: string
+	read_claimed_at?: string | null
 	/** Read Total : Currency */
 	read_total?: number
 	/** Read Invoice No : Data */
-	read_invoice_no?: string
+	read_invoice_no?: string | null
 	/** Read Invoice Date : Date */
-	read_invoice_date?: string
+	read_invoice_date?: string | null
 	/** Reader Output : JSON */
-	reader_output?: unknown
+	reader_output?: unknown | null
 	/** Cashbook Refund Partner : Data */
-	cashbook_refund_partner?: string
+	cashbook_refund_partner?: string | null
 }

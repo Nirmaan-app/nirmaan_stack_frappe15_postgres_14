@@ -15,11 +15,11 @@ export interface TDSChallanAttachmentDocType {
 	/** Date of Deposit : Date */
 	date_of_deposit: string
 	/** Tender Date : Date */
-	tender_date?: string
+	tender_date?: string | null
 	/** Mode of Payment : Select */
-	mode_of_payment?: "" | "Net Banking" | "Debit Card" | "RTGS/NEFT" | "Pay at Bank Counter" | "Payment Gateway"
+	mode_of_payment?: "" | "Net Banking" | "Debit Card" | "RTGS/NEFT" | "Pay at Bank Counter" | "Payment Gateway" | null
 	/** Bank Name : Data */
-	bank_name?: string
+	bank_name?: string | null
 	/** Bank Reference Number : Data */
 	bank_reference_number: string
 	/** BSR Code : Data */
@@ -31,5 +31,5 @@ export interface TDSChallanAttachmentDocType {
 	/** Reconciled Amount : Currency */
 	reconciled_amount?: number
 	/** TDS Payment Expense : Link - Non Project Expenses */
-	tds_payment_expense?: string
+	tds_payment_expense?: string | null
 }

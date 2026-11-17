@@ -11,31 +11,31 @@ export interface ServiceRequestsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Service Order List : JSON */
-	service_order_list?: unknown
+	service_order_list?: unknown | null
 	/** Work Order Items : Table - Work Order Items */
 	work_order_items?: WorkOrderItemsDocType[]
 	/** Service Category List : JSON */
-	service_category_list?: unknown
+	service_category_list?: unknown | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Notes : JSON */
-	notes?: unknown
+	notes?: unknown | null
 	/** GST : Data */
-	gst?: string
+	gst?: string | null
 	/** Advance : Data */
-	advance?: string
+	advance?: string | null
 	/** Project GST : Data */
-	project_gst?: string
+	project_gst?: string | null
 	/** Invoice Number : Data */
-	invoice_no?: string
+	invoice_no?: string | null
 	/** Invoice Date : Date */
-	invoice_date?: string
+	invoice_date?: string | null
 	/** Latest Payment Date : Datetime */
-	latest_payment_date?: string
+	latest_payment_date?: string | null
 	/** Total Amount : Currency */
 	total_amount?: number
 	/** Amount Paid : Currency */
@@ -45,9 +45,9 @@ export interface ServiceRequestsDocType {
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
 	/** Finalized By : Data */
-	finalized_by?: string
+	finalized_by?: string | null
 	/** Finalized On : Datetime */
-	finalized_on?: string
+	finalized_on?: string | null
 	/** Amount Invoiced (Approved) : Currency */
 	amount_invoiced?: number
 	/** GST Invoiced : Currency */
@@ -55,7 +55,7 @@ export interface ServiceRequestsDocType {
 	/** Amount Due : Currency */
 	amount_due?: number
 	/** Approved On : Datetime */
-	approved_on?: string
+	approved_on?: string | null
 	/** Approved By : Data */
-	approved_by?: string
+	approved_by?: string | null
 }

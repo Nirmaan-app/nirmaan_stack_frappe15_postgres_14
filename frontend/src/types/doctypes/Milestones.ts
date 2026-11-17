@@ -11,9 +11,9 @@ export interface MilestonesDocType {
 	/** Milestone Name : Data */
 	milestone_name: string
 	/** Scope of Work : Link - Scopes of Work */
-	scope_of_work?: string
+	scope_of_work?: string | null
 	/** Start Day : Data */
-	start_day?: string
+	start_day?: string | null
 	/** End Day : Data */
-	end_day?: string
+	end_day?: string | null
 }

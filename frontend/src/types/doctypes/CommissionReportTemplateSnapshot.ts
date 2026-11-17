@@ -11,13 +11,13 @@ export interface CommissionReportTemplateSnapshotDocType {
 	/** Payload Hash (SHA-256) : Data */
 	payload_hash: string
 	/** Template ID : Data */
-	template_id?: string
+	template_id?: string | null
 	/** Template Version : Int */
 	template_version?: number
 	/** Template Title : Data */
-	template_title?: string
+	template_title?: string | null
 	/** First Seen At : Datetime */
-	first_seen_at?: string
+	first_seen_at?: string | null
 	/** Payload (JSON) : Long Text */
 	payload: string
 }

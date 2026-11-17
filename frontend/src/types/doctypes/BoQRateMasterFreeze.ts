@@ -11,7 +11,7 @@ export interface BoQRateMasterFreezeDocType {
 	/** Frozen : Check */
 	frozen?: 0 | 1
 	/** Frozen By : Data */
-	frozen_by?: string
+	frozen_by?: string | null
 	/** Frozen At : Datetime */
-	frozen_at?: string
+	frozen_at?: string | null
 }

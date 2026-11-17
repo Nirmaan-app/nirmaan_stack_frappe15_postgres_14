@@ -11,23 +11,23 @@ export interface BOQUploadReviewAISettingsDocType {
 	/** Enable AI Pass : Check */
 	enabled?: 0 | 1
 	/** Provider : Select */
-	provider?: "Anthropic"
+	provider?: "Anthropic" | null
 	/** Model : Data */
-	model?: string
+	model?: string | null
 	/** Max Output Tokens : Int */
 	max_tokens?: number
 	/** Request Timeout (Seconds) : Int */
 	request_timeout_seconds?: number
 	/** Anthropic API Key : Password */
-	anthropic_api_key?: string
+	anthropic_api_key?: string | null
 	/** Matching enabled : Check */
 	match_enabled?: 0 | 1
 	/** Make spec cards at commit : Check */
 	match_cards_at_commit?: 0 | 1
 	/** Card model : Data */
-	match_card_model?: string
+	match_card_model?: string | null
 	/** Judge model : Data */
-	match_judge_model?: string
+	match_judge_model?: string | null
 	/** Calls at once : Int */
 	match_calls_at_once?: number
 	/** Reply length cap (tokens) : Int */

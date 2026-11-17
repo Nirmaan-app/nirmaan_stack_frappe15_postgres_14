@@ -14,7 +14,7 @@ export interface WorkMilestoneDependencyDocType {
 	/** Dependent Milestone : Link - Work Milestones */
 	dependent_milestone: string
 	/** Milestone Name : Data */
-	milestone_name?: string
+	milestone_name?: string | null
 	/** Order : Int */
 	dependent_milestone_order?: number
 	/** Dependency Type : Select */

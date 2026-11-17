@@ -13,25 +13,25 @@ export interface ProjectActionItemDocType {
 	/** Action Type : Select */
 	action_type: "DN_PENDING" | "DC_PENDING"
 	/** Reference Doctype : Link - DocType */
-	reference_doctype?: string
+	reference_doctype?: string | null
 	/** Reference Name : Dynamic Link */
 	reference_name: string
 	/** Status : Select */
-	status?: "Open" | "Resolved"
+	status?: "Open" | "Resolved" | null
 	/** Assigned Role : Data */
-	assigned_role?: string
+	assigned_role?: string | null
 	/** Dedup Key : Data */
-	dedup_key?: string
+	dedup_key?: string | null
 	/** Title : Data */
-	title?: string
+	title?: string | null
 	/** Action URL : Data */
-	action_url?: string
+	action_url?: string | null
 	/** First Opened At : Datetime */
-	first_opened_at?: string
+	first_opened_at?: string | null
 	/** Last Opened At : Datetime */
-	last_opened_at?: string
+	last_opened_at?: string | null
 	/** Resolved At : Datetime */
-	resolved_at?: string
+	resolved_at?: string | null
 	/** Source : Data */
-	source?: string
+	source?: string | null
 }

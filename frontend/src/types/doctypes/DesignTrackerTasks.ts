@@ -9,9 +9,9 @@ export interface DesignTrackerTasksDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Task name : Data */
-	task_name?: string
+	task_name?: string | null
 	/** Category Link : Link - Design Tracker Category */
-	category_link?: string
+	category_link?: string | null
 	/** Deadline Offset : Int */
 	deadline_offset?: number
 }

@@ -12,7 +12,7 @@ export interface ProjectProgressReportManpowerDetailsDocType {
 	parentfield: string
 	parenttype: string
 	/** Label : Data */
-	label?: string
+	label?: string | null
 	/** Count : Data */
-	count?: string
+	count?: string | null
 }

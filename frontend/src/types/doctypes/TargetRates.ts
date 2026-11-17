@@ -11,15 +11,15 @@ export interface TargetRatesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Item ID : Data */
-	item_id?: string
+	item_id?: string | null
 	/** Item Name : Data */
-	item_name?: string
+	item_name?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Rate : Data */
-	rate?: string
+	rate?: string | null
 	/** Selected Quotations : Table - Selected Quotations */
 	selected_quotations?: SelectedQuotationsDocType[]
 	/** Make : Data */
-	make?: string
+	make?: string | null
 }

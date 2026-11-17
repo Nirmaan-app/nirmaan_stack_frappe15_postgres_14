@@ -14,7 +14,7 @@ export interface TDSItemsChildTableDocType {
 	/** Item : Link - Items */
 	item: string
 	/** Item Name : Data */
-	item_name?: string
+	item_name?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 }

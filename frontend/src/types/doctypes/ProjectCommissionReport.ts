@@ -11,13 +11,13 @@ export interface ProjectCommissionReportDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Project Name : Data */
-	project_name?: string
+	project_name?: string | null
 	/** Overall Deadline : Date */
-	overall_deadline?: string
+	overall_deadline?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Hide Commission Report : Check */
 	hide_commission_report?: 0 | 1
 	/** Handover Generated : Check */
@@ -25,7 +25,7 @@ export interface ProjectCommissionReportDocType {
 	/** Commission Report Task : Table - Commission Report Task Child Table */
 	commission_report_task?: CommissionReportTaskChildTableDocType[]
 	/** Phase : Data */
-	phase?: string
+	phase?: string | null
 	/** Start Date : Date */
-	start_date?: string
+	start_date?: string | null
 }

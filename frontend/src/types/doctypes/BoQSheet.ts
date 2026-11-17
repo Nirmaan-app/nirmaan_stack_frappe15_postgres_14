@@ -17,67 +17,67 @@ export interface BoQSheetDocType {
 	/** Sheet Order : Int */
 	sheet_order: number
 	/** Sheet Label : Data */
-	sheet_label?: string
+	sheet_label?: string | null
 	/** Work Packages : Table - BoQ Sheet Work Package */
 	work_packages?: BoQSheetWorkPackageDocType[]
 	/** Treat As : Select */
-	treat_as?: "data" | "master_preamble"
+	treat_as?: "data" | "master_preamble" | null
 	/** Header Row : Int */
 	header_row?: number
 	/** Header Row Count : Int */
 	header_row_count?: number
 	/** Column Role Map : JSON */
-	column_role_map?: unknown
+	column_role_map?: unknown | null
 	/** Column Headers : JSON */
-	column_headers?: unknown
+	column_headers?: unknown | null
 	/** Area Dimensions : JSON */
-	area_dimensions?: unknown
+	area_dimensions?: unknown | null
 	/** Sheet Config Snapshot : JSON */
-	sheet_config_snapshot?: unknown
+	sheet_config_snapshot?: unknown | null
 	/** Last Parsed At : Datetime */
-	last_parsed_at?: string
+	last_parsed_at?: string | null
 	/** Commit Version : Int */
 	commit_version?: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Committed At : Datetime */
-	committed_at?: string
+	committed_at?: string | null
 	/** Last Exported At : Datetime */
-	last_exported_at?: string
+	last_exported_at?: string | null
 	/** Is Locked : Check */
 	is_locked?: 0 | 1
 	/** Locked By : Data */
-	locked_by?: string
+	locked_by?: string | null
 	/** Locked At : Datetime */
-	locked_at?: string
+	locked_at?: string | null
 	/** Classification Frozen : Check */
 	classification_frozen?: 0 | 1
 	/** Frozen By : Data */
-	frozen_by?: string
+	frozen_by?: string | null
 	/** Frozen At : Datetime */
-	frozen_at?: string
+	frozen_at?: string | null
 	/** Category Gate Override : Check */
 	category_gate_override?: 0 | 1
 	/** Category Override By : Data */
-	category_override_by?: string
+	category_override_by?: string | null
 	/** Category Override At : Datetime */
-	category_override_at?: string
+	category_override_at?: string | null
 	/** Category Override Reason : Small Text */
-	category_override_reason?: string
+	category_override_reason?: string | null
 	/** BCS Enabled : Check */
 	bcs_enabled?: 0 | 1
 	/** BCS Quantity Source : JSON */
-	bcs_qty_source?: unknown
+	bcs_qty_source?: unknown | null
 	/** BCS Amount Source : JSON */
-	bcs_amount_source?: unknown
+	bcs_amount_source?: unknown | null
 	/** BCS Confirmed By : Data */
-	bcs_confirmed_by?: string
+	bcs_confirmed_by?: string | null
 	/** BCS Confirmed At : Datetime */
-	bcs_confirmed_at?: string
+	bcs_confirmed_at?: string | null
 	/** Source BoQ : Link - BOQs */
-	source_boq?: string
+	source_boq?: string | null
 	/** Source Commit Version : Int */
 	source_commit_version?: number
 	/** Source Sheet Name : Data */
-	source_sheet_name?: string
+	source_sheet_name?: string | null
 }

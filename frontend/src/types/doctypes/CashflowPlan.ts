@@ -9,29 +9,29 @@ export interface CashflowPlanDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** ID Link : Data */
-	id_link?: string
+	id_link?: string | null
 	/** Planned Date : Date */
-	planned_date?: string
+	planned_date?: string | null
 	/** Planned Amount : Currency */
 	planned_amount?: number
 	/** Type : Data */
-	type?: string
+	type?: string | null
 	/** Estimated Price : Currency */
 	estimated_price?: number
 	/** Remarks : Text */
-	remarks?: string
+	remarks?: string | null
 	/** Critical PO Category : Data */
-	critical_po_category?: string
+	critical_po_category?: string | null
 	/** Critical PO Task : Data */
-	critical_po_task?: string
+	critical_po_task?: string | null
 	/** Items : JSON */
-	items?: unknown
+	items?: unknown | null
 	/** Vendor Name : Data */
-	vendor_name?: string
+	vendor_name?: string | null
 	/** Critical PO Sub Category : Data */
-	critical_po_sub_category?: string
+	critical_po_sub_category?: string | null
 }

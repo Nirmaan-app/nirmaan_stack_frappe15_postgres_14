@@ -14,15 +14,15 @@ export interface RemainingItemEntryDocType {
 	/** Item ID : Data */
 	item_id: string
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** DN Quantity : Float */
 	dn_quantity?: number
 	/** Remaining Quantity : Float */
 	remaining_quantity?: number
 	/** Make : Data */
-	make?: string
+	make?: string | null
 }

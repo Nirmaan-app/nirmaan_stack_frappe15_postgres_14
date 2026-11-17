@@ -27,11 +27,11 @@ export interface BoQRateMatchFeedbackDocType {
 	/** Action : Select */
 	action: "not_a_match" | "undo"
 	/** Reason : Select */
-	reason?: "" | "Different spec" | "Different item" | "Different unit" | "Different scope" | "Other"
+	reason?: "" | "Different spec" | "Different item" | "Different unit" | "Different scope" | "Other" | null
 	/** Note : Small Text */
-	note?: string
+	note?: string | null
 	/** User : Link - User */
-	user?: string
+	user?: string | null
 	/** Marked At : Datetime */
-	marked_at?: string
+	marked_at?: string | null
 }

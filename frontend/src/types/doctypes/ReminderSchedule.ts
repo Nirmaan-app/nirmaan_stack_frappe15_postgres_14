@@ -26,11 +26,11 @@ export interface ReminderScheduleDocType {
 	/** Notify Before (Days) : Int */
 	notify_before_days?: number
 	/** Message : Small Text */
-	message?: string
+	message?: string | null
 	/** Next Due Date : Date */
-	next_due_date?: string
+	next_due_date?: string | null
 	/** Reminds On : Date */
-	reminds_on?: string
+	reminds_on?: string | null
 	/** Last Notified On : Date */
-	last_notified_on?: string
+	last_notified_on?: string | null
 }

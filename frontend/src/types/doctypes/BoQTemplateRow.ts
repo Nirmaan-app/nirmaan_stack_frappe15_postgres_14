@@ -17,29 +17,29 @@ export interface BoQTemplateRowDocType {
 	/** Row Index : Int */
 	row_index?: number
 	/** Classification : Data */
-	classification?: string
+	classification?: string | null
 	/** Level : Int */
 	level?: number
 	/** Parent Index : Int */
 	parent_index?: number
 	/** Path : Data */
-	path?: string
+	path?: string | null
 	/** Attached To Index : Int */
 	attached_to_index?: number
 	/** Attached Notes : JSON */
-	attached_notes?: unknown
+	attached_notes?: unknown | null
 	/** Sl No Value : Data */
-	sl_no_value?: string
+	sl_no_value?: string | null
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Make / Model : Text */
-	make_model?: string
+	make_model?: string | null
 	/** Rate Only : Check */
 	is_rate_only?: 0 | 1
 	/** Row Notes : Text */
-	row_notes?: string
+	row_notes?: string | null
 	/** Append Notes Raw : JSON */
-	append_notes_raw?: unknown
+	append_notes_raw?: unknown | null
 }

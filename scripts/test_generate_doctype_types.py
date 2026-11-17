@@ -97,14 +97,30 @@ class FieldTypes(unittest.TestCase):
             'import type { SampleOrderItemDocType } from "./SampleOrderItem";\n'
             'import type { SampleTagDocType } from "./SampleTag";\n\n'), ts)
 
-    def test_a_field_is_optional_unless_required(self):
+    def test_a_field_not_required_is_optional_and_may_be_null(self):
+        # Frappe sends null for an empty field, so the type says so (owner, 2026-11-17, #1703).
         ts = render_interface(doctype("Sample", [field("a", "Data", reqd=1), field("b", "Data")]))
         self.assertIn("\ta: string\n", ts)
-        self.assertIn("\tb?: string\n", ts)
+        self.assertIn("\tb?: string | null\n", ts)
+
+    def test_a_column_frappe_stores_not_null_is_never_null(self):
+        # Frappe's schema makes Check, Int, Float, Currency and Percent `not null default 0`, and sends a child table
+        # as a list, empty or not.
+        fields = [field(ft.lower(), ft) for ft in ("Check", "Int", "Float", "Currency", "Percent")]
+        ts = render_interface(doctype("Sample", fields + [field("items", "Table", options="Sample Item")]))
+        for name, ts_type in (("check", "0 | 1"), ("int", "number"), ("float", "number"), ("currency", "number"),
+                              ("percent", "number"), ("items", "SampleItemDocType[]")):
+            self.assertIn(f"\t{name}?: {ts_type}\n", ts)
+        self.assertNotIn("null", ts)
+
+    def test_a_number_frappe_may_leave_empty_may_be_null(self):
+        ts = render_interface(doctype("Sample", [field("stars", "Rating"), field("took", "Duration")]))
+        self.assertIn("\tstars?: number | null\n", ts)
+        self.assertIn("\ttook?: number | null\n", ts)
 
     def test_each_field_carries_its_label_and_fieldtype(self):
         ts = render_interface(doctype("Sample", [field("vendor", "Link", label="Vendor */ Name", options="Vendors")]))
-        self.assertIn("\t/** Vendor * / Name : Link - Vendors */\n\tvendor?: string\n", ts)
+        self.assertIn("\t/** Vendor * / Name : Link - Vendors */\n\tvendor?: string | null\n", ts)
 
 
 class Folder(unittest.TestCase):

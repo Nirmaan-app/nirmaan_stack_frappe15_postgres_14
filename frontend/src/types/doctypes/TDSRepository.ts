@@ -11,13 +11,13 @@ export interface TDSRepositoryDocType {
 	/** TDS Item : Link - TDS Items */
 	tds_item: string
 	/** Work Package : Link - Procurement Packages */
-	work_package?: string
+	work_package?: string | null
 	/** Make : Data */
-	make?: string
+	make?: string | null
 	/** Status : Select */
-	status?: "Verified" | "Not Verified"
+	status?: "Verified" | "Not Verified" | null
 	/** Description : Text */
-	description?: string
+	description?: string | null
 	/** TDS Attachment : Attach */
-	tds_attachment?: string
+	tds_attachment?: string | null
 }

@@ -17,19 +17,19 @@ export interface BoQCellRemarkDocType {
 	/** Committed Version : Int */
 	committed_version: number
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Remark : Small Text */
-	remark?: string
+	remark?: string | null
 	/** Remark Version : Int */
 	remark_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Remarked At : Datetime */
-	remarked_at?: string
+	remarked_at?: string | null
 	/** Carried From BoQ : Link - BOQs */
-	carried_from_boq?: string
+	carried_from_boq?: string | null
 	/** Carried From Version : Int */
 	carried_from_version?: number
 	/** Carried At : Datetime */
-	carried_at?: string
+	carried_at?: string | null
 }

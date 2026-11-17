@@ -13,7 +13,7 @@ export interface CardMerchantMemoryDocType {
 	/** Expense Type : Link - Expense Type */
 	expense_type: string
 	/** Last Confirmed By : Link - User */
-	confirmed_by?: string
+	confirmed_by?: string | null
 	/** Last Confirmed At : Datetime */
-	confirmed_at?: string
+	confirmed_at?: string | null
 }

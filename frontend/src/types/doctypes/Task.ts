@@ -9,31 +9,31 @@ export interface TaskDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Document Type : Link - DocType */
-	task_doctype?: string
+	task_doctype?: string | null
 	/** Document Name : Dynamic Link */
-	task_docname?: string
+	task_docname?: string | null
 	/** Assignee : Data */
-	assignee?: string
+	assignee?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Reference Field Name 1 : Data */
-	reference_name_1?: string
+	reference_name_1?: string | null
 	/** Reference Field Value 1 : Data */
-	reference_value_1?: string
+	reference_value_1?: string | null
 	/** Reference Field Name 2 : Data */
-	reference_name_2?: string
+	reference_name_2?: string | null
 	/** Reference Field Value 2 : Data */
-	reference_value_2?: string
+	reference_value_2?: string | null
 	/** Task Type : Data */
-	task_type?: string
+	task_type?: string | null
 	/** Assignee Role : Data */
-	assignee_role?: string
+	assignee_role?: string | null
 	/** Reference Field Name 3 : Data */
-	reference_name_3?: string
+	reference_name_3?: string | null
 	/** Reference Field Value 3 : Data */
-	reference_value_3?: string
+	reference_value_3?: string | null
 	/** Reference Field Name 4 : Data */
-	reference_name_4?: string
+	reference_name_4?: string | null
 	/** Reference Field Value 4 : Data */
-	reference_value_4?: string
+	reference_value_4?: string | null
 }

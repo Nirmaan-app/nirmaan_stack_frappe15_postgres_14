@@ -15,23 +15,23 @@ export interface BoQRateSuggestionRunDocType {
 	/** Committed Version : Int */
 	committed_version?: number
 	/** Run Id : Data */
-	run_id?: string
+	run_id?: string | null
 	/** Status : Select */
-	status?: "running" | "partial" | "complete" | "failed"
+	status?: "running" | "partial" | "complete" | "failed" | null
 	/** AI Status : Data */
-	ai_status?: string
+	ai_status?: string | null
 	/** Results : JSON */
-	results?: unknown
+	results?: unknown | null
 	/** Attempted Rows : JSON */
-	attempted_rows?: unknown
+	attempted_rows?: unknown | null
 	/** Scope Rows (pending) : JSON */
-	scope_rows?: unknown
+	scope_rows?: unknown | null
 	/** Halt Reason : Small Text */
-	halt_reason?: string
+	halt_reason?: string | null
 	/** Run By : Data */
-	run_by?: string
+	run_by?: string | null
 	/** Run At : Datetime */
-	run_at?: string
+	run_at?: string | null
 	/** Active : Check */
 	active?: 0 | 1
 }

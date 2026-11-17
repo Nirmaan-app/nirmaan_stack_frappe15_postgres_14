@@ -12,35 +12,35 @@ export interface CustomerPOChildTableDocType {
 	parentfield: string
 	parenttype: string
 	/** Customer PO Number : Data */
-	customer_po_number?: string
+	customer_po_number?: string | null
 	/** Customer PO Value inc.Tax : Currency */
 	customer_po_value_inctax?: number
 	/** Customer PO Value exc.Tax : Currency */
 	customer_po_value_exctax?: number
 	/** Customer PO Link : Small Text */
-	customer_po_link?: string
+	customer_po_link?: string | null
 	/** Customer PO Attachment : Attach */
-	customer_po_attachment?: string
+	customer_po_attachment?: string | null
 	/** Customer PO Payment Terms : Long Text */
-	customer_po_payment_terms?: string
+	customer_po_payment_terms?: string | null
 	/** customer_po_creation_date : Date */
-	customer_po_creation_date?: string
+	customer_po_creation_date?: string | null
 	/** Autofill Used : Check */
 	autofill_used?: 0 | 1
 	/** Autofill Model : Data */
-	autofill_processor_id?: string
+	autofill_processor_id?: string | null
 	/** AI Extracted PO Number : Data */
-	autofill_extracted_po_number?: string
+	autofill_extracted_po_number?: string | null
 	/** AI Extracted Value inc.Tax : Currency */
 	autofill_extracted_value_inctax?: number
 	/** AI Extracted Value exc.Tax : Currency */
 	autofill_extracted_value_exctax?: number
 	/** AI Extracted Project Reference : Data */
-	autofill_extracted_project_reference?: string
+	autofill_extracted_project_reference?: string | null
 	/** AI Project Match : Data */
-	autofill_project_match?: string
+	autofill_project_match?: string | null
 	/** Autofill Confidence JSON : Long Text */
-	autofill_confidence_json?: string
+	autofill_confidence_json?: string | null
 	/** Autofill All Entities JSON : Long Text */
-	autofill_all_entities_json?: string
+	autofill_all_entities_json?: string | null
 }

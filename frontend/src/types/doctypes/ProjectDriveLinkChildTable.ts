@@ -12,7 +12,7 @@ export interface ProjectDriveLinkChildTableDocType {
 	parentfield: string
 	parenttype: string
 	/** Drive Name : Data */
-	drive_name?: string
+	drive_name?: string | null
 	/** Drive Link : Small Text */
-	drive_link?: string
+	drive_link?: string | null
 }

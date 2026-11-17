@@ -19,47 +19,47 @@ export interface BoQRowCategoryDocType {
 	/** Discipline : Data */
 	discipline: string
 	/** Rule Category Id : Data */
-	rule_category_id?: string
+	rule_category_id?: string | null
 	/** Rule Band : Data */
-	rule_band?: string
+	rule_band?: string | null
 	/** Rule Score : Float */
 	rule_score?: number
 	/** AI Category Id : Data */
-	ai_category_id?: string
+	ai_category_id?: string | null
 	/** AI Confidence : Float */
 	ai_confidence?: number
 	/** Final Category Id : Data */
-	final_category_id?: string
+	final_category_id?: string | null
 	/** Routing : Select */
-	routing?: "Auto-accepted" | "Needs review"
+	routing?: "Auto-accepted" | "Needs review" | null
 	/** Routing Reason : Small Text */
-	routing_reason?: string
+	routing_reason?: string | null
 	/** Review Priority : Check */
 	review_priority?: 0 | 1
 	/** Human Category Id : Data */
-	human_category_id?: string
+	human_category_id?: string | null
 	/** Human Verdict At : Datetime */
-	human_verdict_at?: string
+	human_verdict_at?: string | null
 	/** Human Verdict By : Link - User */
-	human_verdict_by?: string
+	human_verdict_by?: string | null
 	/** Rules Version : Data */
-	rules_version?: string
+	rules_version?: string | null
 	/** Prompt Version : Data */
-	prompt_version?: string
+	prompt_version?: string | null
 	/** Model : Data */
-	model?: string
+	model?: string | null
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Category Version : Int */
 	category_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Classified At : Datetime */
-	classified_at?: string
+	classified_at?: string | null
 	/** Carried From BoQ : Link - BOQs */
-	carried_from_boq?: string
+	carried_from_boq?: string | null
 	/** Carried From Version : Int */
 	carried_from_version?: number
 	/** Carried At : Datetime */
-	carried_at?: string
+	carried_at?: string | null
 }

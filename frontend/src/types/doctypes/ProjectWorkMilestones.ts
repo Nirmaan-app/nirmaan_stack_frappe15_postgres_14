@@ -9,19 +9,19 @@ export interface ProjectWorkMilestonesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Data */
-	project?: string
+	project?: string | null
 	/** Work Package : Data */
-	work_package?: string
+	work_package?: string | null
 	/** Scope of Work : Data */
-	scope_of_work?: string
+	scope_of_work?: string | null
 	/** Milestone : Data */
-	milestone?: string
+	milestone?: string | null
 	/** End Date : Date */
-	end_date?: string
+	end_date?: string | null
 	/** Start Date : Date */
-	start_date?: string
+	start_date?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Status List : JSON */
-	status_list?: unknown
+	status_list?: unknown | null
 }

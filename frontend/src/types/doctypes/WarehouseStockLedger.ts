@@ -12,17 +12,17 @@ export interface WarehouseStockLedgerDocType {
 	parentfield: string
 	parenttype: string
 	/** Doctype : Data */
-	doctype_ref?: string
+	doctype_ref?: string | null
 	/** Docname : Data */
-	docname_ref?: string
+	docname_ref?: string | null
 	/** Source : Data */
-	source_project?: string
+	source_project?: string | null
 	/** Target : Data */
-	target_project?: string
+	target_project?: string | null
 	/** Impact : Select */
-	impact?: "Increase" | "Decrease"
+	impact?: "Increase" | "Decrease" | null
 	/** Quantity : Float */
 	quantity: number
 	/** Date : Date */
-	date?: string
+	date?: string | null
 }

@@ -9,11 +9,11 @@ export interface CriticalPOItemsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Critical PO Category : Link - Critical PO Category */
-	critical_po_category?: string
+	critical_po_category?: string | null
 	/** Item Name : Data */
-	item_name?: string
+	item_name?: string | null
 	/** Sub Category : Data */
-	sub_category?: string
+	sub_category?: string | null
 	/** Release Timeline Offset : Int */
 	release_timeline_offset?: number
 }

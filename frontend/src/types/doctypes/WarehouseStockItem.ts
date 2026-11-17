@@ -13,13 +13,13 @@ export interface WarehouseStockItemDocType {
 	/** Item ID : Data */
 	item_id: string
 	/** Item Name : Text */
-	item_name?: string
+	item_name?: string | null
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Category : Data */
-	category?: string
+	category?: string | null
 	/** Make : Data */
-	make?: string
+	make?: string | null
 	/** Quantity : Float */
 	quantity?: number
 	/** Estimated Rate : Currency */

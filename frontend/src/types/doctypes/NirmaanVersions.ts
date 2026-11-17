@@ -9,17 +9,17 @@ export interface NirmaanVersionsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Doctype : Link - DocType */
-	ref_doctype?: string
+	ref_doctype?: string | null
 	/** Docname : Data */
-	docname?: string
+	docname?: string | null
 	/** Data : JSON */
-	data?: unknown
+	data?: unknown | null
 	/** Previous State : Data */
-	previous_state?: string
+	previous_state?: string | null
 	/** New State : Data */
-	new_state?: string
+	new_state?: string | null
 	/** Reason : Data */
-	reason?: string
+	reason?: string | null
 	/** Outcome : Select */
-	outcome?: "" | "Accepted" | "Reverted"
+	outcome?: "" | "Accepted" | "Reverted" | null
 }

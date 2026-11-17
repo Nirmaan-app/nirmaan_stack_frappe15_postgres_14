@@ -106,9 +106,9 @@ describe("dateFilterToRange", () => {
     for (const d of days) {
       for (const time of ["00:00:00", "23:59:59"]) {
         const stamp = `${d} ${time}`;
-        const row = { getValue: () => stamp } as never;
+        const row = { getValue: () => stamp };
         expect(inRange(range, d), `${filter.operator} ${filter.value} @ ${stamp}`).toBe(
-          dateFilterFn(row, "date", filter, () => {}),
+          dateFilterFn(row, "date", filter),
         );
       }
     }

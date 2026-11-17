@@ -13,7 +13,7 @@ export interface WOServiceItemDocType {
 	/** Category : Link - WO Service Category */
 	category_link: string
 	/** Unit : Data */
-	unit?: string
+	unit?: string | null
 	/** Rate : Currency */
 	rate?: number
 	/** Deadline Offset : Int */

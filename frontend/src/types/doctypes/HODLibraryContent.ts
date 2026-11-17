@@ -13,15 +13,15 @@ export interface HODLibraryContentDocType {
 	/** Document : Select */
 	document: "O&M Manual" | "Do's & Don'ts" | "Maintenance Checklist"
 	/** Sub-system : Data */
-	sub_system?: string
+	sub_system?: string | null
 	/** Display Order : Int */
 	display_order?: number
 	/** Title : Data */
 	title: string
 	/** Manual Text : Text Editor */
-	content?: string
+	content?: string | null
 	/** List 1 : Small Text */
-	list_1?: string
+	list_1?: string | null
 	/** List 2 : Small Text */
-	list_2?: string
+	list_2?: string | null
 }

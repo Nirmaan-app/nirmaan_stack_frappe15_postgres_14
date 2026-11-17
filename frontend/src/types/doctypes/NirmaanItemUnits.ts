@@ -9,7 +9,7 @@ export interface NirmaanItemUnitsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Unit Name : Data */
-	unit_name?: string
+	unit_name?: string | null
 	/** Unit Abb : Data */
-	unit_abb?: string
+	unit_abb?: string | null
 }

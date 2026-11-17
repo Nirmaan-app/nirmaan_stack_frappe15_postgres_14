@@ -16,13 +16,13 @@ export interface BoQTemplateSheetDocType {
 	/** Sheet Order : Int */
 	sheet_order: number
 	/** Sheet Label : Data */
-	sheet_label?: string
+	sheet_label?: string | null
 	/** Disposition : Select */
-	disposition?: "data" | "general_specs"
+	disposition?: "data" | "general_specs" | null
 	/** Sheet Config : JSON */
-	sheet_config?: unknown
+	sheet_config?: unknown | null
 	/** Work Packages : JSON */
-	work_packages?: unknown
+	work_packages?: unknown | null
 	/** Preamble Text : Text */
-	preamble_text?: string
+	preamble_text?: string | null
 }

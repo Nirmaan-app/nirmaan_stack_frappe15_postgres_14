@@ -9,7 +9,7 @@ export interface CategoryMakelistDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Category : Link - Category */
-	category?: string
+	category?: string | null
 	/** Make : Link - Makelist */
-	make?: string
+	make?: string | null
 }

@@ -12,31 +12,31 @@ export interface ProcurementRequestsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Procurement List : JSON */
-	procurement_list?: unknown
+	procurement_list?: unknown | null
 	/** Procurement Package : Data */
-	work_package?: string
+	work_package?: string | null
 	/** Amended From : Link - Procurement Requests */
-	amended_from?: string
+	amended_from?: string | null
 	/** Category List : JSON */
-	category_list?: unknown
+	category_list?: unknown | null
 	/** Project Lead : Link - Nirmaan Users */
-	project_lead?: string
+	project_lead?: string | null
 	/** Procurement Executive : Link - Nirmaan Users */
-	procurement_executive?: string
+	procurement_executive?: string | null
 	/** Comment : Long Text */
-	comment?: string
+	comment?: string | null
 	/** RFQ Data : JSON */
-	rfq_data?: unknown
+	rfq_data?: unknown | null
 	/** Order List : Table - Procurement Request Item Detail */
 	order_list?: ProcurementRequestItemDetailDocType[]
 	/** Estimated Value : Currency */
 	estimated_value?: number
 	/** Target Value : Data */
-	target_value?: string
+	target_value?: string | null
 	/** Payment Terms : JSON */
-	payment_terms?: unknown
+	payment_terms?: unknown | null
 	/** PR Tag List : Table - PR Tag Child Table */
 	pr_tag_list?: PRTagChildTableDocType[]
 }

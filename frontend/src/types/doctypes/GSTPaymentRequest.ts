@@ -11,19 +11,19 @@ export interface GSTPaymentRequestDocType {
 	/** Work Order : Link - Service Requests */
 	work_order: string
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Amount : Currency */
 	amount: number
 	/** Status : Select */
-	status?: "Pending" | "Approved" | "Rejected" | "Paid"
+	status?: "Pending" | "Approved" | "Rejected" | "Paid" | null
 	/** Reviewed By : Link - User */
-	reviewed_by?: string
+	reviewed_by?: string | null
 	/** Reviewed On : Datetime */
-	reviewed_on?: string
+	reviewed_on?: string | null
 	/** Review Comment : Small Text */
-	review_comment?: string
+	review_comment?: string | null
 	/** Project Payment : Link - Project Payments */
-	project_payment?: string
+	project_payment?: string | null
 }

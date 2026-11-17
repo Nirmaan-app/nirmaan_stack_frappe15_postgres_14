@@ -16,5 +16,5 @@ export interface ProjectWorkPackageCategoryMakeDocType {
 	/** Category : Link - Category */
 	category: string
 	/** Make : Link - Makelist */
-	make?: string
+	make?: string | null
 }

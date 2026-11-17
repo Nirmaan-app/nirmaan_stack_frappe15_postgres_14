@@ -19,13 +19,13 @@ export interface BoQCellPricingDocType {
 	/** Committed Version : Int */
 	committed_version: number
 	/** Node : Link - BOQ Nodes */
-	node?: string
+	node?: string | null
 	/** Area : Data */
-	area?: string
+	area?: string | null
 	/** Rate Kind : Data */
-	rate_kind?: string
+	rate_kind?: string | null
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Rate : Currency */
 	rate?: number
 	/** Is Filled : Check */
@@ -35,7 +35,7 @@ export interface BoQCellPricingDocType {
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Priced At : Datetime */
-	priced_at?: string
+	priced_at?: string | null
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
 }

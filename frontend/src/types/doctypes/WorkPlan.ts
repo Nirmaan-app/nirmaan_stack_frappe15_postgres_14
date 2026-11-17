@@ -9,27 +9,27 @@ export interface WorkPlanDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Work Header : Link - Work Headers */
-	work_header?: string
+	work_header?: string | null
 	/** Work Milestone : Data */
-	work_milestone?: string
+	work_milestone?: string | null
 	/** WP Title : Data */
-	wp_title?: string
+	wp_title?: string | null
 	/** WP Description : Text */
-	wp_description?: string
+	wp_description?: string | null
 	/** WP Start Date : Date */
-	wp_start_date?: string
+	wp_start_date?: string | null
 	/** WP End Date : Date */
-	wp_end_date?: string
+	wp_end_date?: string | null
 	/** WP Status : Data */
-	wp_status?: string
+	wp_status?: string | null
 	/** WP Zone : Data */
-	wp_zone?: string
+	wp_zone?: string | null
 	/** WP Progress : Data */
-	wp_progress?: string
+	wp_progress?: string | null
 	/** WP Estimate Completion Date : Date */
-	wp_estimate_completion_date?: string
+	wp_estimate_completion_date?: string | null
 	/** WP Remarks : Text */
-	wp_remarks?: string
+	wp_remarks?: string | null
 }

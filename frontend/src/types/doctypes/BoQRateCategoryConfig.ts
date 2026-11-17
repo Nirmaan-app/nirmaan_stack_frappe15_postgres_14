@@ -15,9 +15,9 @@ export interface BoQRateCategoryConfigDocType {
 	/** Config : JSON */
 	config: unknown
 	/** Source Workbook : Data */
-	source_workbook?: string
+	source_workbook?: string | null
 	/** Import Batch : Data */
-	import_batch?: string
+	import_batch?: string | null
 	/** Active : Check */
 	active?: 0 | 1
 }

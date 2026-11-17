@@ -9,5 +9,5 @@ export interface AutoApprovalCounterSettingsDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Auto Approved PR Count : Data */
-	auto_approved_pr_count?: string
+	auto_approved_pr_count?: string | null
 }

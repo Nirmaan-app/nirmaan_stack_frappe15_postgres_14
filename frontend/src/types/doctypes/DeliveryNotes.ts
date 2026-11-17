@@ -11,25 +11,25 @@ export interface DeliveryNotesDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Procurement Order : Link - Procurement Orders */
-	procurement_order?: string
+	procurement_order?: string | null
 	/** Parent Doctype : Select */
-	parent_doctype?: "Procurement Orders" | "Internal Transfer Memo"
+	parent_doctype?: "Procurement Orders" | "Internal Transfer Memo" | null
 	/** Parent Docname : Dynamic Link */
-	parent_docname?: string
+	parent_docname?: string | null
 	/** Project : Link - Projects */
 	project: string
 	/** Vendor : Link - Vendors */
-	vendor?: string
+	vendor?: string | null
 	/** Note Number : Int */
 	note_no: number
 	/** Delivery Date : Date */
 	delivery_date: string
 	/** Updated By : Data */
-	updated_by_user?: string
+	updated_by_user?: string | null
 	/** Nirmaan Attachment : Link - Nirmaan Attachments */
-	nirmaan_attachment?: string
+	nirmaan_attachment?: string | null
 	/** Notes : Small Text */
-	notes?: string
+	notes?: string | null
 	/** Items : Table - Delivery Note Item */
 	items?: DeliveryNoteItemDocType[]
 	/** Is Stub (Legacy) : Check */

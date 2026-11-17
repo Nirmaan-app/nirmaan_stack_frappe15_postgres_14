@@ -12,29 +12,29 @@ export interface ProjectProgressReportWorkMilestonesDocType {
 	parentfield: string
 	parenttype: string
 	/** Work Milestone Name : Data */
-	work_milestone_name?: string
+	work_milestone_name?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Expected Starting Date : Date */
-	expected_starting_date?: string
+	expected_starting_date?: string | null
 	/** Expected Completion Date : Date */
-	expected_completion_date?: string
+	expected_completion_date?: string | null
 	/** Remarks : Text */
-	remarks?: string
+	remarks?: string | null
 	/** Progress : Data */
-	progress?: string
+	progress?: string | null
 	/** Work header : Link - Work Headers */
-	work_header?: string
+	work_header?: string | null
 	/** Previous Status : Data */
-	previous_status?: string
+	previous_status?: string | null
 	/** Previous Starting Date : Date */
-	previous_starting_date?: string
+	previous_starting_date?: string | null
 	/** Previous Completion Date : Date */
-	previous_completion_date?: string
+	previous_completion_date?: string | null
 	/** Previous Remarks : Data */
-	previous_remarks?: string
+	previous_remarks?: string | null
 	/** Previous Progress : Data */
-	previous_progress?: string
+	previous_progress?: string | null
 	/** Work Plan : Long Text */
-	work_plan?: string
+	work_plan?: string | null
 }

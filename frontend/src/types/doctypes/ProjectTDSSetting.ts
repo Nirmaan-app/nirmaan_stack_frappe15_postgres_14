@@ -9,43 +9,43 @@ export interface ProjectTDSSettingDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** TDS Project ID : Link - Projects */
-	tds_project_id?: string
+	tds_project_id?: string | null
 	/** TDS Project Name : Data */
-	tds_project_name?: string
+	tds_project_name?: string | null
 	/** Enable Client : Check */
 	enable_client?: 0 | 1
 	/** Client Name : Data */
-	client_name?: string
+	client_name?: string | null
 	/** Enable Manager : Check */
 	enable_manager?: 0 | 1
 	/** Manager Name : Data */
-	manager_name?: string
+	manager_name?: string | null
 	/** Enable Architect : Check */
 	enable_architect?: 0 | 1
 	/** Architect Name : Data */
-	architect_name?: string
+	architect_name?: string | null
 	/** Enable Consultant : Check */
 	enable_consultant?: 0 | 1
 	/** Consultant Name : Data */
-	data_tjxu?: string
+	data_tjxu?: string | null
 	/** Enable GC Contractor : Check */
 	enable_gc_contractor?: 0 | 1
 	/** GC Contractor Name : Data */
-	gc_contractor_name?: string
+	gc_contractor_name?: string | null
 	/** Enable MEP Contractor : Check */
 	enable_mep_contractor?: 0 | 1
 	/** MEP Contractor Name : Data */
-	mep_contractor_name?: string
+	mep_contractor_name?: string | null
 	/** Client Logo : Attach */
-	client_logo?: string
+	client_logo?: string | null
 	/** Mananger Logo : Attach */
-	mananger_logo?: string
+	mananger_logo?: string | null
 	/** Architect Logo : Attach */
-	architect_logo?: string
+	architect_logo?: string | null
 	/** Consultant Logo : Attach */
-	consultant_logo?: string
+	consultant_logo?: string | null
 	/** GC Contractor Logo : Attach */
-	gc_contractor_logo?: string
+	gc_contractor_logo?: string | null
 	/** MEP ContractorLogo : Attach */
-	mep_contractorlogo?: string
+	mep_contractorlogo?: string | null
 }

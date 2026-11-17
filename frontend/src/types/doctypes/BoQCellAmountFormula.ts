@@ -17,21 +17,21 @@ export interface BoQCellAmountFormulaDocType {
 	/** Target Value Field : Data */
 	target_value_field: string
 	/** Target Value Key (area / NULL=default-or-scalar) : Data */
-	target_value_key?: string
+	target_value_key?: string | null
 	/** Target Rate Subkey (amount kind) : Data */
-	target_rate_subkey?: string
+	target_rate_subkey?: string | null
 	/** Target Column Letter (guard) : Data */
-	target_col?: string
+	target_col?: string | null
 	/** Description (guard) : Small Text */
-	description?: string
+	description?: string | null
 	/** Formula (token-tree JSON) : Long Text */
-	formula?: string
+	formula?: string | null
 	/** Formula Version : Int */
 	formula_version: number
 	/** Is Current : Check */
 	is_current?: 0 | 1
 	/** Defined At : Datetime */
-	defined_at?: string
+	defined_at?: string | null
 	/** Is Finalized : Check */
 	is_finalized?: 0 | 1
 }

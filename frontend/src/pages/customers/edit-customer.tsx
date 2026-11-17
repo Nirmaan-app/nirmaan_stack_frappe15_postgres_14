@@ -4,7 +4,6 @@ import {
   useSWRConfig,
 } from "@/lib/frappe";
 import { useForm } from "react-hook-form";
-import * as z from "zod";
 import {
   Form,
   FormControl,
@@ -26,58 +25,7 @@ import { CustomersDocType } from "@/types/doctypes/Customers";
 import { PincodesDocType } from "@/types/doctypes/Pincodes";
 import { Address } from "@/types/NirmaanStack/Address";
 import { sendCustomerSave } from "@/utils/customers/customerSaveUpdates";
-const CustomerFormSchema = z.object({
-  company_name: z
-    .string({
-      required_error: "Company Name is Required",
-    })
-    .min(3, {
-      message: "Must be at least 3 characters.",
-    }),
-  customer_nickname: z
-    .string({
-      required_error: "Customer Nickname is Required",
-    })
-    .min(2, {
-      message: "Nickname must be at least 2 characters.",
-    })
-    .max(30, {
-      message: "Nickname must be at most 30 characters.",
-    }),
-  company_email: z.string().email().optional().or(z.literal("")),
-  company_phone: z
-    .string()
-    .max(10, { message: "Mobile number must be of 10 digits" })
-    .min(10, { message: "Mobile number must be of 10 digits" })
-    .optional(),
-  company_contact_person: z
-    .string()
-    .optional(),
-  company_gst: z
-    .string({
-      required_error: "Customer GST Required",
-    })
-    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/, {
-      message: "Invalid GST format. Example: 22AAAAA0000A1Z5",
-    })
-    .optional(),
-  address_line1: z
-    .string({
-      required_error: "Address Line 1 Required",
-    })
-    .min(1, {
-      message: "Address Line 1 Required",
-    }),
-  address_line2: z.string().optional(),
-  pin_code: z
-    .string({
-      required_error: "Must provide Pincode",
-    })
-    .max(6, { message: "Pincode must be of 6 digits" })
-    .min(6, { message: "Pincode must be of 6 digits" }),
-});
-
-type CustomerFormValues = z.infer<typeof CustomerFormSchema>;
+import { CustomerFormSchema, customerFormChanged, customerFormValues, type CustomerFormValues } from "@/utils/customers/customerForm";
 
 const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
 
@@ -92,7 +40,7 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
     }
   );
 
-  const companyAddress = data?.company_address;
+  const companyAddress = data?.company_address ?? undefined;
 
   const { data: addressData, mutate: addressMutate } = useFrappeGetDoc<Address>(
     "Address",
@@ -141,53 +89,19 @@ const EditCustomer = ({ toggleEditSheet }: { toggleEditSheet: () => void }) => {
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(CustomerFormSchema),
-    defaultValues: {
-      company_name: data?.company_name,
-      customer_nickname: data?.customer_nickname,
-      company_email: data?.company_email,
-      company_phone: data?.company_phone,
-      company_contact_person: data?.company_contact_person,
-      company_gst: data?.company_gst,
-      address_line1: addressData?.address_line1,
-      address_line2: addressData?.address_line2,
-      pin_code: addressData?.pincode,
-    },
+    defaultValues: customerFormValues(data, addressData),
     mode: "onBlur",
   });
 
   useEffect(() => {
     if (data && addressData) {
-      form.reset({
-        company_name: data?.company_name,
-        customer_nickname: data?.customer_nickname,
-        company_email: data?.company_email,
-        company_phone: data?.company_phone,
-        company_contact_person: data?.company_contact_person,
-        company_gst: data?.company_gst,
-        address_line1: addressData?.address_line1,
-        address_line2: addressData?.address_line2,
-        pin_code: addressData?.pincode,
-      });
+      form.reset(customerFormValues(data, addressData));
     }
 
     setPincode(addressData?.pincode ?? "");
   }, [data, addressData, form]);
 
-  const hasChanges = () => {
-    const values = form.getValues();
-    const originalValues = {
-      company_name: data?.company_name,
-      customer_nickname: data?.customer_nickname,
-      company_email: data?.company_email,
-      company_phone: data?.company_phone,
-      company_contact_person: data?.company_contact_person,
-      company_gst: data?.company_gst,
-      address_line1: addressData?.address_line1,
-      address_line2: addressData?.address_line2,
-      pin_code: addressData?.pincode,
-    };
-    return JSON.stringify(values) !== JSON.stringify(originalValues);
-  };
+  const hasChanges = () => customerFormChanged(form.getValues(), data, addressData);
 
   const { fetchDocList } = useCustomFetchHook();
 

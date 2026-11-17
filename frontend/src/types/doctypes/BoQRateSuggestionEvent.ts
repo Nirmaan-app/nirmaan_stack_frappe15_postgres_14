@@ -15,27 +15,27 @@ export interface BoQRateSuggestionEventDocType {
 	/** Excel Row : Int */
 	excel_row: number
 	/** Col : Data */
-	col?: string
+	col?: string | null
 	/** Kind : Data */
-	kind?: string
+	kind?: string | null
 	/** Helper Id : Data */
-	helper_id?: string
+	helper_id?: string | null
 	/** Category Id : Data */
-	category_id?: string
+	category_id?: string | null
 	/** Run Id : Data */
-	run_id?: string
+	run_id?: string | null
 	/** Extracted Attributes : JSON */
-	extracted_attributes?: unknown
+	extracted_attributes?: unknown | null
 	/** Extracted Confidences : JSON */
-	extracted_confidences?: unknown
+	extracted_confidences?: unknown | null
 	/** Corrected Attributes : JSON */
-	corrected_attributes?: unknown
+	corrected_attributes?: unknown | null
 	/** Computed Value : Float */
 	computed_value?: number
 	/** Used Value : Float */
 	used_value?: number
 	/** Event User : Data */
-	event_user?: string
+	event_user?: string | null
 	/** Used At : Datetime */
-	used_at?: string
+	used_at?: string | null
 }

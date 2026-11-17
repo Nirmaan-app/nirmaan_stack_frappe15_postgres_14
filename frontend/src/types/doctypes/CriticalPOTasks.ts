@@ -9,25 +9,25 @@ export interface CriticalPOTasksDocType {
 	docstatus?: 0 | 1 | 2
 	idx?: number
 	/** Project : Link - Projects */
-	project?: string
+	project?: string | null
 	/** Critical PO Category : Link - Critical PO Category */
-	critical_po_category?: string
+	critical_po_category?: string | null
 	/** Project Name : Data */
-	project_name?: string
+	project_name?: string | null
 	/** Item Name : Data */
-	item_name?: string
+	item_name?: string | null
 	/** Sub Category : Data */
-	sub_category?: string
+	sub_category?: string | null
 	/** PO Release Date : Date */
-	po_release_date?: string
+	po_release_date?: string | null
 	/** Status : Data */
-	status?: string
+	status?: string | null
 	/** Revised Date : Date */
-	revised_date?: string
+	revised_date?: string | null
 	/** Remarks : Text */
-	remarks?: string
+	remarks?: string | null
 	/** Associated POs : JSON */
-	associated_pos?: unknown
+	associated_pos?: unknown | null
 	/** Linked PO Count : Int */
 	linked_po_count?: number
 }
