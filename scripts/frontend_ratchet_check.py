@@ -94,9 +94,45 @@ def severity(setting):
     return SEVERITY.get(level.lower() if isinstance(level, str) else level, "off")
 
 
+# The rules whose options are ban lists: an entry may be added (a tightening), never dropped.
+BAN_LISTS = {"no-restricted-imports", "no-restricted-properties", "no-restricted-globals"}
+# The top-level keys compared below, and the ones that change no finding of an ADR-0049 rule. Any other key (e.g.
+# `extends`, which pulls in another config) is refused when it changes: this check cannot tell what it loosens.
+COMPARED = {"plugins", "categories", "ignorePatterns", "rules", "overrides"}
+HARMLESS = {"$schema", "env", "globals", "settings"}
+
+
+def options_kept(rule, base_setting, head_setting):
+    """True when head's options for <rule> refuse at least what base's did (equal, ban lists may grow).
+
+    A ban's `message` is text for the reader, not a limit: it may change.
+    """
+    grow = rule in BAN_LISTS
+
+    def kept(before, after):
+        if isinstance(before, dict) and isinstance(after, dict):
+            keys = set(before) - {"message"}
+            return keys == set(after) - {"message"} and all(kept(before[k], after[k]) for k in keys)
+        if isinstance(before, list) and isinstance(after, list):
+            if grow:
+                return all(any(kept(b, a) for a in after) for b in before)
+            return len(before) == len(after) and all(map(kept, before, after))
+        return before == after
+
+    options = lambda setting: setting[1:] if isinstance(setting, list) else []  # noqa: E731
+    return kept(options(base_setting), options(head_setting))
+
+
 def config_loosenings(base, head):
     """The ways head's .oxlintrc.json weakens base's ADR-0049 lint, one sentence each; empty when it does not."""
-    problems = []
+    problems = [f"{CONFIG}: plugin {plugin} was dropped (its rules no longer run)"
+                for plugin in base.get("plugins", []) if plugin not in head.get("plugins", [])]
+    head_categories = head.get("categories", {})
+    for category, setting in sorted(base.get("categories", {}).items()):
+        if severity(setting) == "error" and severity(head_categories.get(category, "off")) != "error":
+            problems.append(f"{CONFIG}: category {category} is set to {severity(head_categories.get(category, 'off'))}")
+    problems += [f"{CONFIG}: ignorePatterns adds {pattern} (its files are no longer linted)"
+                 for pattern in head.get("ignorePatterns", []) if pattern not in base.get("ignorePatterns", [])]
     head_rules = head.get("rules", {})
     for rule, setting in sorted(base.get("rules", {}).items()):
         if severity(setting) != "error":
@@ -105,6 +141,10 @@ def config_loosenings(base, head):
             problems.append(f"{CONFIG}: rule {rule} was removed")
         elif severity(head_rules[rule]) != "error":
             problems.append(f"{CONFIG}: rule {rule} is set to {severity(head_rules[rule])} (oxlint passes a warning)")
+        elif not options_kept(rule, setting, head_rules[rule]):
+            problems.append(f"{CONFIG}: rule {rule} has weaker options than before")
+    problems += [f"{CONFIG}: key {key} changed; this check cannot tell what it loosens, so it is refused"
+                 for key in sorted((set(base) | set(head)) - COMPARED - HARMLESS) if base.get(key) != head.get(key)]
     return problems
 
 

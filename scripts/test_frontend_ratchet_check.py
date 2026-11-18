@@ -287,6 +287,35 @@ class LintSettings(unittest.TestCase):
         self.edit_config('"typescript/no-explicit-any": "error"', '"typescript/no-explicit-any": "warn"')
         self.refused("typescript/no-explicit-any", "warn")
 
+    def test_a_rule_turned_off_or_removed_is_refused(self):
+        self.edit_config('"react/rules-of-hooks": "error",', '"react/rules-of-hooks": "off",')
+        self.refused("react/rules-of-hooks", "off")
+        self.edit_config('"react/rules-of-hooks": "off",', '')
+        self.refused("react/rules-of-hooks", "removed")
+
+    def test_a_ban_list_entry_dropped_is_refused(self):
+        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}', '{"paths": []}')
+        self.refused("no-restricted-imports", "options")
+
+    def test_an_ignored_folder_with_its_suppressions_pruned_is_refused(self):
+        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/components/ui/**", "src/orders.tsx"]')
+        (self.repo / OXLINT).write_text("{}")
+        self.refused("ignorePatterns", "src/orders.tsx")
+
+    def test_a_plugin_dropped_is_refused(self):
+        self.edit_config('"plugins": ["eslint", "typescript", "react"]', '"plugins": ["eslint", "typescript"]')
+        self.refused("plugin react")
+
+    def test_a_category_turned_down_from_error_is_refused(self):
+        self.edit_config('"categories": {"correctness": "off"}', '"categories": {"correctness": "error"}')
+        self.git("commit", "-qam", "correctness on")
+        self.edit_config('"categories": {"correctness": "error"}', '"categories": {"correctness": "warn"}')
+        self.refused("category correctness", "warn")
+
+    def test_an_unknown_top_level_key_added_is_refused(self):
+        self.edit_config('"plugins"', '"extends": ["./loose.json"], "plugins"')
+        self.refused("extends")
+
 
 if __name__ == "__main__":
     unittest.main()
