@@ -74,6 +74,7 @@ import { gstMatchesVendor, isGstOn } from "@/utils/workOrderGst";
 import { canMatchGstToVendor, isNirmaanAdmin } from "@/constants/roles";
 import { MatchGstToVendorDialog } from "../components/MatchGstToVendorDialog";
 import { TdsCutUndoActions } from "../components/TdsCutUndoActions";
+import { RejectionReasonNote } from "@/pages/ProjectPayments/components/RejectionReasonNote";
 
 // Everything requested but not yet `Paid` -- INCLUDING `Reconciliation Pending`, which counts as
 // neither paid (money figures count `Paid` alone) nor pending anywhere else. Left out, its amount
@@ -889,7 +890,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 <TableCell className="font-semibold">
                                                     {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
                                                 </TableCell>
-                                                <TableCell className="font-semibold">{payment?.status}</TableCell>
+                                                <TableCell className="font-semibold">
+                                                    {payment?.status}
+                                                    <RejectionReasonNote payment={payment} />
+                                                </TableCell>
                                                 {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
                                                 <TableCell className="text-center w-[10%]">
                                                     {payment?.status === "Paid" && orderData?.name ? (

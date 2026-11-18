@@ -4,6 +4,60 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-11-12 — L1 single reject no longer stamps `approval_date`
+
+`approve-payments/ApprovePayments.tsx`: the L1 dialog's update writes `approval_date` only on an approve. A reject
+stamped it, and the summary's "L1 Approval Today / Last 7 days" cards (`get_project_payment_summary`, counted by
+`approval_date` alone) counted the reject as an approval with its amount. Bulk reject and both CEO rejects never
+stamped a date. Rows rejected before this keep their date (an L1 reject and "L1 approved, CEO rejected" look the
+same in the data, so there is no safe clean-up). Typecheck 0 new; payments unit 349/349.
+
+---
+
+## 2026-11-12 — Rejection reason: required on reject, shown in the Payments queue and on PO / WO pages
+
+Branch `feat/payment-reject-reason` (uncommitted). Backend and schema: `../../.claude/CHANGELOG.md` (same date);
+GLOSSARY *Rejection reason*; walk record `../../docs/browser-walk-reject-reason.md`.
+
+### What changed
+
+- **Single reject asks for a reason:** `approve-payments/components/PaymentActionDialog.tsx` draws a required
+  "Reason for rejection" box on a PO / WO payment's reject (L1 and CEO); Confirm stays disabled while it is empty or
+  only spaces. `ApprovePayments.tsx` saves `rejection_reason` (trimmed) with the status through `rejectionFields`.
+  The rules live in `approve-payments/rejectReason.ts` (`rejectNeedsReason`, `rejectReasonBox`, `rejectionFields`).
+- **Reason column:** `config/approvalColumns.tsx` `rejection_reason` (two lines, full text on hover, "—" when empty)
+  on All Payments and Payment Raised By Me; `rejected_on` (id `modified`) on the Rejected view;
+  `approvalExportColumns.ts` "Rejection Reason" CSV column.
+- **Payment Raised By Me views:** `components/ByMeViews.tsx` + `hooks/useByMeView.ts` — All · Paid · Rejected with
+  counts from the badge fetch (`by_me_counts`), `?view=` in the link (`replaceState`, like the tabs), each view its own
+  table state. Drawn like the page's tab buttons, selected view in red (`bg-primary`). Config:
+  `approvalsTable.config.ts` `BY_ME_VIEWS`, `BY_ME_VIEW_COLUMNS`, `BY_ME_VIEW_SORT`, `byMeViewFilters`,
+  `byMeViewCounts`, `byMeViewStateTab`; `AllPayments.tsx` takes `byMeView`; `RenderProjectPaymentsComponent.tsx`
+  renders `ByMeViews` for the tab.
+- **Open PO / Open WO:** `components/poRoute.ts` `orderPageHref` (PO → `/purchase-orders/<id>`, WO → its approved
+  view); the Against cell shows the link on the Rejected view (`ctx.linkOrderPage`).
+- **PO / WO page:** `components/RejectionReasonNote.tsx` under the Rejected badge in `TransactionDetailsCard.tsx` and
+  `approved-sr.tsx`: one line cut with "…", whole reason in the hover tooltip.
+- `types/NirmaanStack/ProjectPayments.ts`: `rejection_reason`.
+
+**Code-review fixes (same day):** the Reason column and its CSV read the reason through
+`components/rejectionReason.rejectionReasonText` (shown only while Rejected, as on the PO page; one helper instead of
+three copies); `rejectReason.ts` / `rejectionReason.ts` use `PAYMENT_STATUS.REJECTED`; the view param is
+`?by_me_view=` (was `?view=`, which `AssetsPage` uses) and `hooks/useByMeView.ts` removes it when the tab unmounts.
+
+### Verification
+
+- After the review fixes: `rejectionReasonColumns.dom.test.tsx` 15/15 (leftover reason hidden on a Paid row; the
+  param follows the view, is removed on leaving the tab, and a link's view opens); `src/pages/ProjectPayments`
+  unit 354/354; `yarn typecheck` 0 new errors.
+- vitest: `rejectReason.test.ts` 9, `byMeViews.test.ts` 17, `rejectionReason.test.ts` 4, `poRoute.test.ts` 10,
+  `approvalExportColumns.test.ts` 3, `rejectionReasonColumns.dom.test.tsx` 11 (DOM, jsdom linked from
+  `/tmp/jsdomenv`); the touched page folders 712/712. `yarn typecheck`: 0 new errors.
+- Browser walk 16/16 before the last two layout changes (one-line PO reason with tooltip, red view buttons); those
+  two are not re-walked.
+
+---
+
 ## 2026-11-06 — Generate Invoice: an amount between what is paid and the Work Order
 
 Backend and rule: `../../.claude/CHANGELOG.md` (same date), ADR-0040 Amendment C.

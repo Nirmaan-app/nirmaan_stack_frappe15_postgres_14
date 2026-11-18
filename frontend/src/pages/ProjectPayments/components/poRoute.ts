@@ -42,3 +42,16 @@ export const orderDetailPath = (
   if (docName.startsWith("SR-")) return `/service-requests/${id}?tab=approved-sr`;
   return inReports ? `/reports/po/${id}` : `/projects/${projectId}/po/${id}`;
 };
+
+/**
+ * The PO / WO's own page, where its Transaction Details list the payment (with a rejected one's reason) and
+ * a rejected payment can be deleted to free its term ("Payment Raised By Me → Rejected", 2026-11-12). A PO
+ * opens bare (`/purchase-orders/<id>` renders the PO for every status); a WO opens its approved view. Null
+ * for a row with no order (an expense).
+ */
+export const orderPageHref = (docName?: string | null, docType?: string | null): string | null => {
+  if (!docName) return null;
+  if (docType === "Service Requests") return `/service-requests/${routeName(docName)}?tab=approved-sr`;
+  if (docType === "Procurement Orders") return `/purchase-orders/${routeName(docName)}`;
+  return null;
+};

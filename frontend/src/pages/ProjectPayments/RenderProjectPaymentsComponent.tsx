@@ -25,6 +25,7 @@ const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayme
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
 const ProjectPaymentsList = React.lazy(() => import("./project-payments-list"));
 const AllPayments = React.lazy(() => import("./AllPayments"));
+const ByMeViews = React.lazy(() => import("./components/ByMeViews"));
 const PaymentSummaryCards = React.lazy(() => import("./PaymentSummaryCards"));
 const GstRequestsTab = React.lazy(() => import("./gst-requests/GstRequestsTab"));
 
@@ -47,6 +48,8 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             counts: Record<string, number>;
             amounts: Record<string, number>;
             by_me?: number;
+            /** "Payment Raised By Me" by status: its Paid and Rejected views' badges. */
+            by_me_counts?: Record<string, number>;
             all?: number;
             /** The payments Reconciliation Pending leaves out: they wait in the Cheque Tracker (#1483). */
             cheque_tracker?: { payments: number; cheques: number };
@@ -276,7 +279,11 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                                     {tab === PP_TABS.RECONCILIATION_PENDING && (
                                         <ChequeTrackerNote role={role} waiting={queueCounts?.message?.cheque_tracker} />
                                     )}
-                                    <AllPayments tab={tab} refetchRef={listRefetchRef} />
+                                    {tab === PP_TABS.PAYMENT_BY_ME ? (
+                                        <ByMeViews refetchRef={listRefetchRef} />
+                                    ) : (
+                                        <AllPayments tab={tab} refetchRef={listRefetchRef} />
+                                    )}
                                 </>
                             )
                                 : (
