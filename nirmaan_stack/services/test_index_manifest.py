@@ -119,7 +119,8 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
         calls = _controller_calls()
         # DEV2-B4: 42 -> 44, BoQ Rate Match Run's two add_index calls (boq/sheet_name/active, suggest_run)
         # DEV2-B5: 44 -> 45, BoQ Rate Match Feedback's one (boq/sheet_name/excel_row)
-        self.assertEqual(len(calls), 45)
+        # New Estimations: 45 -> 46, BOQ Line Estimate Item's parent index (on_doctype_update)
+        self.assertEqual(len(calls), 46)
         self.assertEqual(calls[("BoQ Rate Match Feedback", ("boq", "sheet_name", "excel_row"), False)],
                          "boq_rate_match_feedback_boq_sheet_name_excel_row_idx")
         self.assertEqual(calls[("BoQ Rate Match Run", ("boq", "sheet_name", "active"), False)],
@@ -129,7 +130,9 @@ class TestTheManifestMatchesTheDeclarations(FrappeTestCase):
         # a name passed as a module constant (asset_history.py PARENT_INDEX) resolves to its value
         self.assertEqual(calls[("Asset History", ("parent",), False)], "asset_history_parent_index")
         # #1639: 106 -> 109, Expense Bill's search_index fields (bill_check, expense, status)
-        self.assertEqual(len(_search_index_entries()), 109)
+        # New Estimations: 109 -> 111, BOQ Line Estimate's boq and boq_sheet (boq_node is `unique`, which Frappe
+        # indexes as its own table-named constraint and strips search_index from, so it has no manifest entry)
+        self.assertEqual(len(_search_index_entries()), 111)
 
     def test_a_name_that_is_no_literal_constant_is_refused_by_name(self):
         # Negative half of the resolver: a bare name with no top-level literal behind it is refused,
