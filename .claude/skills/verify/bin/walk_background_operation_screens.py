@@ -296,7 +296,8 @@ def one_download(page, out, kind, start, timeout_s=600, while_queued=None, runni
         return None
     record = records([ops[-1]], out)[ops[-1]]
     if running_text:
-        check_running(bool(seen_running), record, running_text.pattern.replace("\\", ""))
+        # Unescape the dots only, so `\d+` still reads as a number.
+        check_running(bool(seen_running), record, running_text.pattern.replace("\\.", "."))
     check_file("download", record, dls[0] if dls else None, out, kind)
     return record
 

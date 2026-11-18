@@ -519,6 +519,11 @@ def _work_kwargs(queued):
     return queued[0]["kwargs"]["kwargs"]["work_kwargs"]
 
 
+def _new_boq(queued):
+    """The BoQ the one queued clone fills: the reply is the operation's record alone, which names no BoQ."""
+    return _work_kwargs(queued)["new_boq"]
+
+
 def _work_off(queued):
     """Run each queued wrapper here, as a worker would (a worker starts as no particular user)."""
     original = frappe.session.user
@@ -559,8 +564,8 @@ class TestCloneOperation(FrappeTestCase):
 
         status = get_status(op_id=op_id)
         self.assertEqual(status["state"], "finished", status.get("error"))
-        self.assertEqual(status["result"], {"status": "success", "boq_name": reply["boq_id"]})
-        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": reply["boq_id"]}), 3)
+        self.assertEqual(status["result"], {"status": "success", "boq_name": _new_boq(queued)})
+        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": _new_boq(queued)}), 3)
 
     def test_only_the_user_who_started_a_clone_reads_its_status(self):
         op_id, _, queued = _start_clone(project=self.project.name, boq_name="OwnClone", sheet_names=[_SHEET_B])
@@ -579,7 +584,30 @@ class TestCloneOperation(FrappeTestCase):
 
         self.assertEqual(frappe.db.count("BOQs", {"project": self.project.name}), before)
         self.assertEqual(queued_again, [])
-        self.assertEqual(again["op_id"], first["op_id"])
+        self.assertEqual(again, first)  # both replies are the operation's record, and nothing more
+
+    def test_a_repeat_arriving_while_the_first_is_between_its_check_and_its_start_makes_no_second_boq(self):
+        """Two POSTs of one id at once: the repeat runs whole after the first has checked the id and before the
+        first has started the operation. Only one BoQ is made, and only one clone is queued."""
+        op_id = str(uuid.uuid4())
+        request = {"op_id": op_id, "project": self.project.name, "boq_name": "InFlightClone", "sheet_names": [_SHEET_A]}
+        before = frappe.db.count("BOQs", {"project": self.project.name})
+        real_started_before = cft.background_ops.started_before
+        repeat = {}
+
+        def the_first_check_then_the_repeat(checked_id):
+            found = real_started_before(checked_id)
+            if not repeat:
+                repeat["running"] = True
+                _, repeat["reply"], repeat["queued"] = _start_clone(**request)
+            return found
+
+        with patch.object(cft.background_ops, "started_before", side_effect=the_first_check_then_the_repeat):
+            _, first, queued = _start_clone(**request)
+
+        self.assertEqual(frappe.db.count("BOQs", {"project": self.project.name}), before + 1)
+        self.assertEqual(len(queued) + len(repeat["queued"]), 1)
+        self.assertEqual(first["op_id"], repeat["reply"]["op_id"])
 
     def test_a_sheet_removed_from_the_master_meanwhile_ends_in_template_changed(self):
         op_id, reply, queued = _start_clone(project=self.project.name, boq_name="ChangedClone", sheet_names=[_SHEET_B])
@@ -594,9 +622,9 @@ class TestCloneOperation(FrappeTestCase):
         status = get_status(op_id=op_id)
         self.assertEqual(status["state"], "finished", status.get("error"))
         self.assertEqual(
-            status["result"], {"status": "error", "error_code": "template_changed", "boq_name": reply["boq_id"]}
+            status["result"], {"status": "error", "error_code": "template_changed", "boq_name": _new_boq(queued)}
         )
-        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": reply["boq_id"]}), 0)
+        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": _new_boq(queued)}), 0)
 
     def test_a_clone_that_breaks_ends_failed_and_writes_no_rows(self):
         began = frappe.utils.now()
@@ -612,7 +640,7 @@ class TestCloneOperation(FrappeTestCase):
         status = get_status(op_id=op_id)
         self.assertEqual(status["state"], "failed")
         self.assertNotIn("boom", status["error"])
-        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": reply["boq_id"]}), 0)
+        self.assertEqual(frappe.db.count("BoQ Review Row", {"boq": _new_boq(queued)}), 0)
 
 
 # ---------------------------------------------------------------------------
@@ -754,15 +782,18 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             sheet_names=[_SHEET_A],
         )
         self.assertEqual(res["state"], "queued")
-        shell = frappe.get_doc("BOQs", res["boq_id"])
+        # The one clone queued fills the one new BoQ of this name, from the master.
+        shell = frappe.get_doc("BOQs", _new_boq(queued))
+        self.assertEqual(
+            frappe.get_all("BOQs", {"project": self.project.name, "boq_name": shell.boq_name}, pluck="name"),
+            [shell.name],
+        )
         self.assertEqual(shell.origin, "template")
         self.assertEqual(shell.source_template, self.master)
         self.assertEqual(shell.is_template_source, 0)
         self.assertEqual(shell.wizard_state, "Parsed")
         self.assertEqual(shell.boq_name, f"{self.project.project_name}_BOQ")
-        # The clone was queued with the new boq id + the master.
         kwargs = _work_kwargs(queued)
-        self.assertEqual(kwargs.get("new_boq"), res["boq_id"])
         self.assertEqual(kwargs.get("template"), self.master)
         self.assertEqual(kwargs.get("sheet_names"), [_SHEET_A])
 
@@ -785,8 +816,10 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
                 except Exception as e:
                     self.fail(f"the overlapping create did not commit: {type(e).__name__}: {e}")
         frappe.db.rollback()
-        self.assertRegex(res["boq_id"], r"^BOQ-\d{2}-\d{5}$")
-        self.assertEqual(int(res["boq_id"].rsplit("-", 1)[1]), int(other.name.rsplit("-", 1)[1]) + 1)
+        made = frappe.db.get_value("BOQs", {"project": self.project.name, "boq_name": "OverlapBoQ"})
+        self.assertEqual(res["state"], "queued")
+        self.assertRegex(made, r"^BOQ-\d{2}-\d{5}$")
+        self.assertEqual(int(made.rsplit("-", 1)[1]), int(other.name.rsplit("-", 1)[1]) + 1)
 
     def test_create_is_refused_quickly_while_another_boq_creation_holds_the_series_lock(self):
         """#1659 review: a web request waits a bounded time for the BoQ series lock (an upload holds it for its whole
@@ -823,7 +856,7 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             boq_name="ExplicitName",
             sheet_names=json.dumps([_SHEET_A, _SHEET_B]),
         )
-        self.assertEqual(frappe.db.get_value("BOQs", res["boq_id"], "boq_name"), "ExplicitName")
+        self.assertEqual(frappe.db.get_value("BOQs", _new_boq(queued), "boq_name"), "ExplicitName")
 
     def test_create_persists_tax_treatment_and_notes(self):
         # A2: the create-from-template form carries GST Treatment (-> tax_treatment) + Notes.
@@ -834,7 +867,7 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             tax_treatment="Post-tax",
             notes="from the tender pack",
         )
-        shell = frappe.get_doc("BOQs", res["boq_id"])
+        shell = frappe.get_doc("BOQs", _new_boq(queued))
         self.assertEqual(shell.tax_treatment, "Post-tax")
         self.assertEqual(shell.notes, "from the tender pack")
 
@@ -848,14 +881,14 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             tax_treatment="Gibberish",
         )
         self.assertEqual(
-            frappe.db.get_value("BOQs", res["boq_id"], "tax_treatment"), "Pre-tax"
+            frappe.db.get_value("BOQs", _new_boq(queued), "tax_treatment"), "Pre-tax"
         )
 
     def test_create_three_arg_caller_still_works(self):
         # A2 additive-kwargs proof: the pre-A2 3-arg signature must be unaffected; unspecified
         # tax_treatment falls back to the safe default.
-        _, res, _ = _start_clone(project=self.project.name, boq_name="ThreeArgBoQ", sheet_names=[_SHEET_A])
-        shell = frappe.get_doc("BOQs", res["boq_id"])
+        _, res, queued = _start_clone(project=self.project.name, boq_name="ThreeArgBoQ", sheet_names=[_SHEET_A])
+        shell = frappe.get_doc("BOQs", _new_boq(queued))
         self.assertEqual(shell.boq_name, "ThreeArgBoQ")
         self.assertEqual(shell.tax_treatment, "Pre-tax")
 
@@ -867,7 +900,7 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             sheet_names=[_SHEET_A],
             areas=["Tower A", "Tower B"],
         )
-        raw = frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions")
+        raw = frappe.db.get_value("BOQs", _new_boq(queued), "area_dimensions")
         self.assertEqual(json.loads(raw), ["Tower A", "Tower B"])
         self.assertEqual(_work_kwargs(queued).get("areas"), ["Tower A", "Tower B"])
 
@@ -876,7 +909,7 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             project=self.project.name, boq_name="SingleAreaBoQ",
             sheet_names=[_SHEET_A], areas=[],
         )
-        self.assertFalse(frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions"))
+        self.assertFalse(frappe.db.get_value("BOQs", _new_boq(queued), "area_dimensions"))
 
     def test_create_multi_area_accepts_json_string(self):
         # areas arrives from the FE as a JSON string (like sheet_names).
@@ -885,7 +918,7 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
             sheet_names=json.dumps([_SHEET_A]), areas=json.dumps(["A1", "A2"]),
         )
         self.assertEqual(
-            json.loads(frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions")),
+            json.loads(frappe.db.get_value("BOQs", _new_boq(queued), "area_dimensions")),
             ["A1", "A2"],
         )
 

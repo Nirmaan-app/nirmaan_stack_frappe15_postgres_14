@@ -62,6 +62,7 @@ from __future__ import annotations
 import json
 
 import frappe
+from frappe import _
 from frappe.www.printview import validate_print_permission
 
 from nirmaan_stack.api.snags import require_read_access
@@ -238,9 +239,9 @@ def start_snag_pdf(
         "nirmaan_stack.api.snags.bulk_download.snag_pdf_op",
         op_id=op_id,
         timeout=JOB_TIMEOUT_SECONDS,
-        document=kind,  # not `kind`: that is `start`'s own parameter, the operation's kind
+        pdf_kind=kind,
         project=project,
-        one_per_user="A snag PDF is already being prepared for you. Wait for it to finish, then try again.",
+        one_per_user=_("A snag PDF is already being prepared for you. Wait for it to finish, then try again."),
         params={
             "mode": mode,
             "batches": batches if kind == KIND_TAB else None,
@@ -253,9 +254,10 @@ def start_snag_pdf(
     )
 
 
-def snag_pdf_op(document=None, project=None, params=None):
+def snag_pdf_op(pdf_kind=None, project=None, params=None):
     """The work of `start_snag_pdf` (runs as the user who started it, under `background_ops.run`): build the
-    PDF and keep it as the operation's finished file, for that user alone. `document` is the request's `kind`.
+    PDF and keep it as the operation's finished file, for that user alone. `pdf_kind` is the request's `kind`
+    (`start`'s own `kind` is the operation's).
 
     The checks run AGAIN here, as the user: the request may have waited in the queue. A refusal
     (`frappe.throw`) fails the operation in its own words; anything else is logged and fails it with a plain
@@ -268,8 +270,8 @@ def snag_pdf_op(document=None, project=None, params=None):
             round(100 * done / total) if total else 0, None, detail={"done": done, "total": total}
         )
 
-    _check_request(document, project, params.get("mode"))
-    if document == KIND_ALL:
+    _check_request(pdf_kind, project, params.get("mode"))
+    if pdf_kind == KIND_ALL:
         pdf, filename = _build_all_pdf(project, params, progress)
     else:
         progress(0, 1)

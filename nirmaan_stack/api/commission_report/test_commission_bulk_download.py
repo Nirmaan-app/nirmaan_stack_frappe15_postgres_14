@@ -12,6 +12,7 @@ deleted again in `tearDown`.
 import datetime
 import io
 import os
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -26,6 +27,7 @@ from rq.job import Job, JobStatus
 from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.commission_report import bulk_download_reports as cbd
 from nirmaan_stack.services import background_ops
+from nirmaan_stack.services.background_ops_held_queue import HeldQueue
 
 STRANGER = "commission-bulk-stranger@example.com"
 
@@ -169,8 +171,7 @@ class TestCommissionBulkDownload(FrappeTestCase):
 		op_id = str(uuid.uuid4())
 		# Dropping the record frees the user whatever the test did (a missing record reads as lost).
 		self.addCleanup(frappe.cache().delete, background_ops._key(op_id))
-		with patch("frappe.utils.background_jobs.get_queue") as get_queue:
-			get_queue.return_value.count = 0
+		with HeldQueue(self):  # its RQ job stays queued, so it never reads as lost, however slow the run
 			cbd.start_commission_reports(op_id=op_id, tracker=self.tracker, tasks=[{"name": self.submitted[0]}])
 			frappe.db.commit()
 		return op_id
@@ -178,7 +179,10 @@ class TestCommissionBulkDownload(FrappeTestCase):
 	def test_one_download_per_user_at_a_time_named_in_the_refusal_and_an_ended_one_frees_the_user(self):
 		first = self._queue_only()
 
-		with self.assertRaises(frappe.ValidationError) as refused:
+		# A slow run: the second start comes after the first has waited past the stale-heartbeat limit.
+		later = time.time() + background_ops.HEARTBEAT_STALE_SECONDS + 1
+		with patch("nirmaan_stack.services.background_ops.time.time", return_value=later), \
+				self.assertRaises(frappe.ValidationError) as refused:
 			self._queue_only()
 		self.assertEqual(
 			str(refused.exception),

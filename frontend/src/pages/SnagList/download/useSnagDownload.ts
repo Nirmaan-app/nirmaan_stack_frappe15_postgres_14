@@ -97,17 +97,19 @@ function useSnagPdfOperation(storageKey: string, flow: SnagPdfFlow) {
   const { view, start } = op;
   const isDownloading = view.phase === "starting" || view.phase === "queued" || view.phase === "running";
 
-  // The toast says where the operation stands; a reload that picked one up shows it again.
+  // The toast says where the operation stands; a reload that picked one up shows it again. The effect depends on
+  // the sentence (a primitive), not on `view`, so it runs only when what the toast says changes.
+  const progressText = view.phase === "queued" || view.phase === "running" ? snagPdfProgressText(view) : null;
   useEffect(() => {
-    if (view.phase !== "queued" && view.phase !== "running") return;
-    const description = snagPdfProgressText(view);
+    if (progressText === null) return;
+    const description = progressText;
     if (toastRef.current) {
       toastRef.current.update({ id: toastRef.current.id, title: "Generating PDF...", description });
     } else {
       // Stays up until the result toast replaces it: an operation can take minutes.
       toastRef.current = toast({ title: "Generating PDF...", duration: Infinity, description });
     }
-  }, [view]);
+  }, [progressText]);
 
   const run = useCallback(
     (params: Record<string, string>, context: SnagPdfContext, startText: string): Promise<boolean> =>

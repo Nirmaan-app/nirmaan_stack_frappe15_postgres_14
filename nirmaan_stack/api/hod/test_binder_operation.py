@@ -11,6 +11,7 @@ queued only once the start commits) and deleted again in `tearDown`.
 
 import io
 import os
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -23,6 +24,7 @@ from pypdf import PdfReader, PdfWriter
 from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.hod import binder
 from nirmaan_stack.services import background_ops
+from nirmaan_stack.services.background_ops_held_queue import HeldQueue
 
 SYSTEM = "HVAC"
 DOCUMENT = "key_list"
@@ -148,8 +150,7 @@ class TestBinderOperation(FrappeTestCase):
 		op_id = str(uuid.uuid4())
 		# Dropping the record frees the user whatever the test did (a missing record reads as lost).
 		self.addCleanup(frappe.cache().delete, background_ops._key(op_id))
-		with patch("frappe.utils.background_jobs.get_queue") as get_queue:
-			get_queue.return_value.count = 0
+		with HeldQueue(self):  # its RQ job stays queued, so it never reads as lost, however slow the run
 			binder.start_binder(op_id=op_id, project=self.project, hod_system=SYSTEM, document=document)
 			frappe.db.commit()
 		return op_id
@@ -161,7 +162,10 @@ class TestBinderOperation(FrappeTestCase):
 		first = self._queue_only()
 
 		project_name = frappe.db.get_value("Projects", self.project, "project_name")
-		with self.assertRaises(frappe.ValidationError) as refused:
+		# A slow run: the second start comes after the first has waited past the stale-heartbeat limit.
+		later = time.time() + background_ops.HEARTBEAT_STALE_SECONDS + 1
+		with patch("nirmaan_stack.services.background_ops.time.time", return_value=later), \
+				self.assertRaises(frappe.ValidationError) as refused:
 			self._queue_only(document=DOCUMENT)  # the whole binder is still queued
 		self.assertEqual(
 			str(refused.exception),

@@ -79,8 +79,8 @@ def start(kind, method, *, op_id, timeout, queue="long", one_per_user=None, **kw
     `one_per_user`: the owner may have only ONE operation of this `kind` queued or running at a time, so one user
     cannot hold every worker. The value is the sentence that names THIS operation to its owner while it is ("Your
     handover binder for <project> is still being prepared. ..."); a second start of the kind is refused with the
-    running one's sentence (`_take_slot`). Its request rolls back, so the refused operation reads as failed and
-    nothing is queued.
+    running one's sentence (`_take_slot`) before anything is set to queue, and the refused operation's record ends
+    failed with that sentence as its error.
     """
     _check_op_id(op_id)
     owner = frappe.session.user
@@ -106,6 +106,15 @@ def start(kind, method, *, op_id, timeout, queue="long", one_per_user=None, **kw
             frappe.throw("This operation id is already in use.", frappe.PermissionError)
         return existing
 
+    # Before the queueing is registered: a refused start never queues, even for a caller that catches the
+    # refusal and commits. Its record ends failed in the running one's words, for a screen that reloads it.
+    if one_per_user:
+        running = _take_slot(kind, owner, op_id)
+        if running:
+            busy = running.get("busy_message") or one_per_user
+            _end(op_id, FAILED, error=busy)
+            frappe.throw(busy, title="Already in progress")
+
     def enqueue():
         try:
             frappe.enqueue(
@@ -125,10 +134,6 @@ def start(kind, method, *, op_id, timeout, queue="long", one_per_user=None, **kw
     frappe.db.after_rollback.add(
         lambda: _end(op_id, FAILED, error="The request that started this operation failed, so it was not queued.")
     )
-    if one_per_user:
-        running = _take_slot(kind, owner, op_id)
-        if running:
-            frappe.throw(running.get("busy_message") or one_per_user, title="Already in progress")
     return public(record)
 
 

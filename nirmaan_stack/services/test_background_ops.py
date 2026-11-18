@@ -24,6 +24,7 @@ from rq.job import Job, JobStatus
 
 from nirmaan_stack.api import background_ops as api
 from nirmaan_stack.services import background_ops
+from nirmaan_stack.services.background_ops_held_queue import HeldQueue
 
 OWNER = "bgops-owner@example.com"
 STRANGER = "bgops-stranger@example.com"
@@ -179,6 +180,35 @@ class TestBackgroundOps(FrappeTestCase):
                 background_ops.start("check", _WORK, op_id=op_id, timeout=60)
             frappe.db.commit()
         self.assertEqual(len(queue.jobs), 1)
+
+    def _one_check_still_queued(self, queue):
+        """Start one operation of kind `check` that allows one per user, commit it, and leave it queued."""
+        slot = background_ops._slot_key("check", OWNER)
+        frappe.cache().delete(slot)
+        self.addCleanup(frappe.cache().delete, slot)
+        first = _start(one_per_user="Your first check is still being prepared.")
+        frappe.db.commit()
+        return first
+
+    def test_a_refused_second_start_queues_nothing_even_when_its_caller_catches_the_refusal_and_commits(self):
+        with HeldQueue(self) as queue:
+            first = self._one_check_still_queued(queue)
+            with self.assertRaises(frappe.ValidationError):
+                background_ops.start("check", _WORK, op_id=str(uuid.uuid4()), timeout=60, one_per_user="Second.")
+            frappe.db.commit()
+        self.assertEqual([job["job_id"] for job in queue.jobs], [create_job_id(first)])
+
+    def test_a_refused_start_reads_as_failed_with_the_running_operations_sentence(self):
+        refused = str(uuid.uuid4())
+        with HeldQueue(self) as queue:
+            self._one_check_still_queued(queue)
+            with self.assertRaises(frappe.ValidationError):
+                background_ops.start("check", _WORK, op_id=refused, timeout=60, one_per_user="Second.")
+            frappe.db.rollback()  # the refused request rolls back
+
+        status = api.get_status(op_id=refused)
+        self.assertEqual(status["state"], "failed")
+        self.assertEqual(status["error"], "Your first check is still being prepared.")
 
     def test_the_work_runs_as_its_owner_and_reads_running_then_finished_with_its_result(self):
         seen = {}

@@ -157,14 +157,20 @@ def at_once(calls):
 
 def clone_run(ctx, run, timeout):
     """The N creates start at once, so their BoQ number inserts overlap on the BoQ series lock (#1659)."""
+    tag = uuid.uuid4().hex[:6]  # names unique to this invocation too: an earlier one left BoQs of its own
+    names = [f"Background operations check {run}-{i + 1} {tag}" for i in range(ctx["at_once"])]
     replies = at_once([
-        lambda i=i: create_from_template.create_from_template(
-            project=ctx["project"], boq_name=f"Background operations check {run}-{i + 1}", sheet_names=[ctx["sheet"]],
-            op_id=str(uuid.uuid4()),
+        lambda name=name: create_from_template.create_from_template(
+            project=ctx["project"], boq_name=name, sheet_names=[ctx["sheet"]], op_id=str(uuid.uuid4()),
         )
-        for i in range(ctx["at_once"])
+        for name in names
     ])
-    started = {reply["op_id"]: reply["boq_id"] for reply in replies}
+    frappe.db.rollback()  # a fresh snapshot: each create committed its BoQ on its own connection
+    # The reply is the operation's record alone; each create's BoQ is found by its name.
+    started = {
+        reply["op_id"]: frappe.db.get_value("BOQs", {"project": ctx["project"], "boq_name": name})
+        for reply, name in zip(replies, names)
+    }
 
     def read(op_id):
         status = background_ops.get_status(op_id=op_id)

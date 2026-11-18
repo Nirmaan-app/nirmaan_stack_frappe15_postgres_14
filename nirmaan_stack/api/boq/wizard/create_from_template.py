@@ -17,7 +17,7 @@ the active master itself and the picker only chooses the sheet subset.
 
 Public API:
   get_master_template()                                          [GET-capable] -> active master + sheets
-  create_from_template(project, boq_name, sheet_names, op_id)    [POST] -> the clone's status record + boq_id
+  create_from_template(project, boq_name, sheet_names, op_id)    [POST] -> the clone's status record
 
 The clone is a background operation (ADR 0047, #1669): the browser makes `op_id`, the screen follows the
 operation's status record (`api/background_ops.get_status`), and the finished record's `result` is
@@ -250,11 +250,12 @@ def create_from_template(
     verbatim), commits it so the (async, possibly cross-process) worker can read it,
     then starts _clone_worker as the background operation `op_id` (kind boq_template_clone, ADR 0047).
 
-    Returns the operation's status record plus "boq_id" (the new BOQs docname). The same user starting the same
-    `op_id` again gets that record back, and no second BoQ is made.
+    Returns the operation's status record; the finished record's `result` names the BoQ. The same user starting
+    the same `op_id` again gets that record back, and no second BoQ is made, even while the first request runs.
     """
     _ensure_wizard_role()
-    # Checked before the shell is made: the series lock commits it, so a repeat must not reach it.
+    # Checked before the shell is made: the series lock commits it, so a repeat must not reach it. Checked again
+    # under the lock, below: a repeat that passed this check while the first request ran finds its record there.
     earlier = background_ops.started_before(op_id)
     if earlier:
         return earlier
@@ -348,26 +349,29 @@ def create_from_template(
         new_boq_doc.area_dimensions = json.dumps(areas)
     # The BoQ number is counted and users see it, so the insert holds the BoQ series lock (ADR 0048):
     # an upload creating a BoQ at the same time would otherwise fail on the counter, or this would.
-    # The lock commits the shell BEFORE enqueue, so the (async, possibly cross-process) worker can
-    # read the new BOQs row. CODING_STANDARDS.md: commit after DML in a whitelisted method.
+    # The operation starts under the lock too, so its record exists before the lock is let go: two
+    # requests with one op_id take the lock in turn, and the second finds the first's record and makes
+    # no BoQ. The lock's commit both saves the shell and queues the clone (after commit), so the
+    # (async, possibly cross-process) worker can read the new BOQs row.
     # An upload holds the lock for its whole run, so this request waits a bounded time, then refuses.
     try:
         with series_lock(boq_series(), wait_s=_BOQ_LOCK_WAIT_SEC):
-            new_boq_doc.insert(ignore_permissions=True)
+            earlier = background_ops.started_before(op_id)
+            if not earlier:
+                new_boq_doc.insert(ignore_permissions=True)
+                record = background_ops.start(
+                    "boq_template_clone",
+                    "nirmaan_stack.api.boq.wizard.create_from_template._clone_worker",
+                    op_id=op_id,
+                    timeout=_CLONE_TIMEOUT_SEC,
+                    new_boq=new_boq_doc.name,
+                    template=master.name,
+                    sheet_names=sheet_names,
+                    areas=areas,
+                )
     except SeriesBusy:
         frappe.throw("Another BoQ is being created right now. Try again in a minute.", title="BoQ creation busy")
-
-    record = background_ops.start(
-        "boq_template_clone",
-        "nirmaan_stack.api.boq.wizard.create_from_template._clone_worker",
-        op_id=op_id,
-        timeout=_CLONE_TIMEOUT_SEC,
-        new_boq=new_boq_doc.name,
-        template=master.name,
-        sheet_names=sheet_names,
-        areas=areas,
-    )
-    return {**record, "boq_id": new_boq_doc.name}
+    return earlier or record
 
 
 # ---------------------------------------------------------------------------
