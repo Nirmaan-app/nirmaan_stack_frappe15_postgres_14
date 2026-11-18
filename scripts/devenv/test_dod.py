@@ -94,40 +94,47 @@ class SkillRule(unittest.TestCase):
 
 
 class UnfinishedReport(unittest.TestCase):
-    """A report written while the builder's own review or a test run is still going is not done (#1699's fix round
-    said DONE with "Review: pending ... is running" and "running when this was written")."""
+    """A DONE report whose own code-review is still going is not done (#1699's fix round said DONE with its review
+    "pending ... is running", and "running when this was written" in Evidence)."""
 
-    def problems(self, review, evidence="all tests pass"):
+    def problems(self, review, evidence="all tests pass", status="DONE. built"):
         import importlib.util
         spec = importlib.util.spec_from_file_location("dod", DOD)
         dod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(dod)
-        text = (f"# Report\n\nCommit: abc1234\n\n## Status\nDONE. built\n\n## What changed\nx\n\n"
+        text = (f"# Report\n\nCommit: abc1234\n\n## Status\n{status}\n\n## What changed\nx\n\n"
                 f"## Evidence\n{evidence}\n\n## Data\nnone\n\n## Review\n{review}\n\n## Open questions\nnone\n")
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "REPORT.md"
             path.write_text(text)
             return dod.report_problems(path, "abc1234")[0]
 
-    def test_a_review_still_pending_is_not_done(self):
-        out = self.problems("pending: `mattpocock-skills:code-review` against 03d44ec3e is running.")
-        self.assertTrue(any("still going" in p for p in out), out)
-
-    def test_a_run_still_going_in_evidence_is_not_done(self):
-        out = self.problems("code-review: no findings.", evidence="vitest (full): running when this was written")
-        self.assertTrue(any("still going" in p for p in out), out)
-
-    def test_the_separate_checkers_verdict_may_be_pending(self):
-        out = self.problems("code-review: no findings.\n\nSeparate checker's verdict: pending.")
+    def test_a_finished_review_in_the_templates_shape_is_done(self):
+        out = self.problems("Own code-review: two findings fixed in abc1234, against 03d44ec3e\nSeparate review: pending")
         self.assertEqual(out, [])
 
-    def test_the_independent_or_owner_review_may_be_pending(self):
-        for line in ("The independent review of the merged result (`task.sh done`) is **pending**.",
-                     "code-review against 1fafb5957. Separate owner review: pending."):
-            self.assertEqual(self.problems(line), [], line)
+    def test_an_own_review_still_going_is_not_done(self):
+        for value in ("pending: code-review against 03d44ec3e is running", "running", "in progress", "awaiting", ""):
+            out = self.problems(f"Own code-review: {value}\nSeparate review: pending")
+            self.assertTrue(any("not finished" in p for p in out), (value, out))
 
-    def test_a_pending_status_in_evidence_is_not_flagged(self):
-        out = self.problems("code-review: no findings.", evidence="the PR moves to Pending, as the walk saw")
+    def test_a_done_report_without_the_own_review_line_is_not_done(self):
+        out = self.problems("code-review: no findings")
+        self.assertTrue(any("Own code-review" in p for p in out), out)
+
+    def test_a_run_left_going_in_evidence_is_not_done(self):
+        out = self.problems("Own code-review: no findings\nSeparate review: pending",
+                            evidence="vitest (full): running when this was written")
+        self.assertTrue(any("still going" in p for p in out), out)
+
+    def test_honest_words_elsewhere_are_not_flagged(self):
+        review = ("Own code-review: no findings pending; one finding about the Pending PR filter, fixed\n"
+                  "Separate review: pending")
+        out = self.problems(review, evidence="the worker is still running after restart, as the walk saw")
+        self.assertEqual(out, [])
+
+    def test_a_blocked_report_owes_no_own_review(self):
+        out = self.problems("none: blocked before review", status="BLOCKED. the owner must decide X")
         self.assertEqual(out, [])
 
 

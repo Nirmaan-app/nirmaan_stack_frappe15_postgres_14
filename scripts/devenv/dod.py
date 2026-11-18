@@ -159,15 +159,11 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     # A placeholder written while a run is still going (#1607's report said done with "RESULT_PENDING" in Evidence).
     if re.search(r"\b[A-Z]+_PENDING\b", text):
         problems.append(f"replace every *_PENDING placeholder in {path} with the real result")
-    # Prose said the same while the builder's own review still ran (#1699's fix round). "pending" is read only in
-    # Review, past the lines on the separate (independent, owner's) review, pending by design: Evidence may name the
-    # app's Pending status.
-    review = re.search(r"^## Review\s*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-    review_lines = [ln for ln in (review.group(1) if review else "").splitlines()
-                    if not re.search(r"separate|independent|owner", ln, re.I)]
-    if (any(re.search(r"\bpending\b", ln, re.I) for ln in review_lines)
-            or re.search(r"\bstill running\b|\brunning when this was written\b", text, re.I)):
-        problems.append(f"the report says a review or run is still going: wait for it, then write its result in {path}")
+    # The builder's own review must be finished, not still running (#1699's fix round said DONE with its review
+    # "pending ... is running"). The template's Review holds two set lines; only the first must carry a result, the
+    # separate review stays pending by design. A run left going reads "running when this was written".
+    if re.search(r"\brunning when this was written\b", text, re.I):
+        problems.append(f"the report says a run is still going: wait for it, then write its result in {path}")
     if head_short not in text:
         problems.append(f"the report must name the commit it describes: {head_short} (git rev-parse --short HEAD)")
     for section in REPORT_SECTIONS:
@@ -178,6 +174,12 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     status = m.group(1).upper() if m else None
     if status not in ("DONE", "BLOCKED"):
         problems.append("'## Status' must start with DONE or BLOCKED")
+    if status == "DONE":
+        own = re.search(r"^Own code-review:[ \t]*(.*)$", text, re.M)
+        if not own:
+            problems.append(f"the report's Review needs its line 'Own code-review: <result> against <commit>' ({path})")
+        elif re.match(r"\s*(?:$|pending|running|in progress|awaiting|tbd)", own.group(1), re.I):
+            problems.append(f"your own code-review is not finished: wait for it, then write its result in {path}")
     return problems, status
 
 
@@ -264,7 +266,8 @@ TODO: the test and type-check verdicts, and every verify evidence folder (one li
 TODO: the data the env ran on (devenv.sh up prints its backup date)
 
 ## Review
-TODO: the separate checker's verdict, or "pending"
+Own code-review: TODO: its result (fixed findings, and what was left and why), against the task's base commit
+Separate review: pending
 
 ## Open questions
 TODO: or "none"
