@@ -496,7 +496,10 @@ pull_copy_prove_restore() { pull_copy; prove_restore "$1"; }
 # keeps the newest HELD_KEEP. Docker is not touched. Sets HOLD_DIR.
 hold_copy() {
   local covers="$1" hstamp dfp
-  hstamp=$(basename "$(dirname "$PB_PREFIX")"); HOLD_DIR="$PENDING_ROOT/$hstamp"
+  # the folder is named after the backup FILE's own stamp (the laptop's local time), not the desktop's backup folder (its
+  # container writes that one in UTC: on 2026-11-19 a fresh 01:08 backup read "20261118_193802" and looked a day old)
+  hstamp=$(basename "$PB_PREFIX" | cut -d- -f1); [[ "$hstamp" =~ ^[0-9]{8}_[0-9]{6}$ ]] || hstamp=$(date +%Y%m%d_%H%M%S)
+  HOLD_DIR="$PENDING_ROOT/$hstamp"
   mkdir -p "$HOLD_DIR" || die "cannot create $HOLD_DIR"
   dfp="${HOLD_DFP:-$(fp_of desktop)}"
   pull_copy
@@ -506,7 +509,7 @@ hold_copy() {
     printf '%s\n' "$PB_SHA" | sed 's/^/sha_/'; printf '%s\n' "$dfp" | sed 's/^/desktop_/'; } > "$HOLD_DIR/held.txt"
   chunks_cleanup
   prune_held
-  echo "DB COPY HELD (not restored) $hstamp: $(du -sm "$HOLD_DIR" | cut -f1) MB in $HOLD_DIR; every file's size + sha256 equals the desktop's; Docker was not started; covers: ${covers:-a db-pull on request}"
+  echo "DB COPY HELD (not restored) $hstamp (a FRESH desktop backup made for this copy, in ${PB_TOOK:-?} s; the stamp is local time): $(du -sm "$HOLD_DIR" | cut -f1) MB in $HOLD_DIR; every file's size + sha256 equals the desktop's; Docker was not started; covers: ${covers:-a db-pull on request}"
   echo "  it is loaded only on a takeover (resume-on-laptop --takeover) or by: env_sync.sh db-restore-held --yes"
 }
 # prune_held: keep the newest HELD_KEEP complete held copies. A folder without held.txt is a copy that failed part-way:

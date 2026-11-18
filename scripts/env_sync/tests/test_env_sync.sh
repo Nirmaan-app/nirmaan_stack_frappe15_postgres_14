@@ -639,13 +639,17 @@ export PBP PBS
 e8reset; mk_backup 20261119_010000; e8 "$SETPB; hold_copy 'a paid run'"
 H1="$E8/pending/20261119_010000"
 check "HOLD: the three backup files land in pending\<stamp>\ on the laptop's own disk, each with the desktop's size and sha256" '
-  [ "$(ls "$H1" | grep -c "localhost-")" = 3 ] && cmp -s "$H1/20261119_010000-localhost-database.sql.gz" "$E8/desk/20261119_010000-localhost-database.sql.gz" && grep -q "^DB COPY HELD (not restored) 20261119_010000: .* size + sha256 equals the desktop.s; Docker was not started; covers: a paid run$" "$E8/out"'
+  [ "$(ls "$H1" | grep -c "localhost-")" = 3 ] && cmp -s "$H1/20261119_010000-localhost-database.sql.gz" "$E8/desk/20261119_010000-localhost-database.sql.gz" && grep -q "^DB COPY HELD (not restored) 20261119_010000 (.*): .* size + sha256 equals the desktop.s; Docker was not started; covers: a paid run$" "$E8/out"'
 check "HOLD: held.txt records what a later restore needs (covers, the desktop counts, the file hashes, the desktop fingerprint, not restored)" '
   grep -q "^held=20[0-9-]* [0-9:]*$" "$H1/held.txt" && grep -q "^covers=a paid run$" "$H1/held.txt" && grep -q "^restored=$" "$H1/held.txt" && grep -q "^before_count_tables=10$" "$H1/held.txt" &&
   [ "$(grep -c "^sha_file=" "$H1/held.txt")" = 3 ] && grep -q "^desktop_fp_rm_items=5 (newest 2026-11-18 14:32:45.600237)$" "$H1/held.txt"'
 check "HOLD: no docker command at all, and the laptop turn file is not even claimed" '[ "$(n8 "^docker")" = 0 ] && [ "$(n8 "^wsl")" = 0 ] && grep -q "^free 2026-11-19 00:00:00$" "$E8/turn.txt"'
 check "HOLD: never OneDrive, never private/backups (the folder is frappe-bench\envsync\backups\pending)" '
   grep -q "PENDING_ROOT=\"\${ENV_SYNC_PENDING_ROOT:-\$BENCH_HOST/\$STAGE/backups/pending}\"" "$SRC/env_sync.sh" && ! grep -n "PENDING_ROOT=" "$SRC/env_sync.sh" "$SRC/poller_run.sh" | grep -qi "onedrive\|private"'
+e8reset; mk_backup 20261119_013000; e8 "$SETPB; PB_PREFIX=../envsync/backups/20261118_200000/20261119_013000-localhost; hold_copy utc"
+check "HOLD: the folder carries the backup FILE's own (local) stamp, not the desktop folder's UTC stamp - a fresh copy never looks a day old" '
+  [ -f "$E8/pending/20261119_013000/held.txt" ] && [ ! -d "$E8/pending/20261118_200000" ] && grep -q "^DB COPY HELD (not restored) 20261119_013000 (a FRESH desktop backup" "$E8/out" && grep -q "^backup=../envsync/backups/20261118_200000/20261119_013000-localhost$" "$E8/pending/20261119_013000/held.txt"'
+rm -rf "$E8/pending/20261119_013000"
 e8reset; mk_backup 20261119_020000; e8 "$SETPB; hold_copy two"; e8reset; mk_backup 20261119_030000; e8 "$SETPB; hold_copy three"
 check "HOLD: the newest 2 held copies are kept, the older one is removed" '[ ! -d "$H1" ] && [ -d "$E8/pending/20261119_020000" ] && [ -d "$E8/pending/20261119_030000" ]'
 e8reset; mk_backup 20261119_040000; echo "20261119_040000-localhost-files.tar" > "$E8/corrupt.txt"; e8 "$SETPB; hold_copy four; echo not-reached"
