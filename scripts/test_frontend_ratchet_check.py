@@ -374,6 +374,16 @@ class LintSettings(unittest.TestCase):
         self.package({"scripts": {**LINT_PACKAGE["scripts"], "lint": "oxlint --type-aware --deny-warnings src"}})
         self.passes()
 
+    def test_a_raised_residence_baseline_entry_that_ci_reads_is_refused(self):
+        self.baseline({**BASELINE, "s1_oversized_files": {**BASELINE["s1_oversized_files"], "count": 4}})
+        self.refused("scripts/residence_baseline.json", "s1_oversized_files", "3 -> 4")
+
+    def test_a_lowered_ci_entry_or_a_raised_local_only_entry_passes(self):
+        # B3 is an ADR-0010 rule: CI does not run it, so its entry is the commit hook's to tighten.
+        self.baseline({"s1_oversized_files": {**BASELINE["s1_oversized_files"], "count": 2},
+                       "b3_workflow_state_writers": {**BASELINE["b3_workflow_state_writers"], "count": 6}})
+        self.passes()
+
     def test_a_folder_moved_to_the_typed_path_passes(self):
         self.edit_config('"files": ["src/pages/orders/**/*.{ts,tsx}"]',
                          '"files": ["src/pages/orders/**/*.{ts,tsx}", "src/pages/vendors/**/*.{ts,tsx}"]')

@@ -27,11 +27,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from residence_check import JSON_CALL_RULE, JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
+from residence_check import CHECKS, CI_SUBSET, JSON_CALL_RULE, select_checks  # noqa: E402
+from residence_check import JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
 
 OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"
 PACKAGE = "frontend/package.json"
+RESIDENCE = "scripts/residence_baseline.json"
 CONFIG = "frontend/.oxlintrc.json"
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -92,6 +94,21 @@ def lint_script_loosenings(base_pkg, head_pkg):
         change = "; ".join(filter(None, [dropped and f"drops {' '.join(dropped)}", added and f"adds {' '.join(added)}"]))
         problems.append(f"{PACKAGE}: the lint script {change} ({base_scripts['lint']!r} -> {head_scripts['lint']!r}); "
                         f"it may only add {', '.join(sorted(STRICTER_FLAGS))}")
+    return problems
+
+
+def residence_loosenings(base_baseline, head_baseline):
+    """The entries of scripts/residence_baseline.json that CI's residence checks read and head raised.
+
+    CI runs `residence_check.py --check --only ci` against the PR's own baseline file, so a raised count there lets
+    that many new violations through. A check with a pass mark ignores the file.
+    """
+    problems = []
+    for check in select_checks(CHECKS, CI_SUBSET):
+        before = base_baseline.get(check.id, {}).get("count")
+        after = head_baseline.get(check.id, {}).get("count", 0)
+        if check.pass_mark is None and before is not None and after > before:
+            problems.append(f"{RESIDENCE}: {check.id} (rule {check.rule}) rose {before} -> {after}")
     return problems
 
 
@@ -349,6 +366,9 @@ def main(argv=None):
         head_config = (root / CONFIG).read_text() if (root / CONFIG).exists() else "{}"
         problems += config_loosenings(parse_jsonc(base_config), parse_jsonc(head_config))
     problems += tree_loosenings(root)
+    if (root / RESIDENCE).exists():
+        problems += residence_loosenings(read_at(root, args.base_ref, RESIDENCE) or {},
+                                         json.loads((root / RESIDENCE).read_text()))
     if problems:
         print(f"✘ This change loosens the frontend ratchet against {args.base_ref} (ADR-0049):", file=sys.stderr)
         for problem in problems:
