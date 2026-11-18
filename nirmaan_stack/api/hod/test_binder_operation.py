@@ -11,6 +11,7 @@ queued only once the start commits) and deleted again in `tearDown`.
 
 import io
 import os
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -23,6 +24,7 @@ from pypdf import PdfReader, PdfWriter
 from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.hod import binder
 from nirmaan_stack.services import background_ops
+from nirmaan_stack.services.background_ops_held_queue import HeldQueue
 
 SYSTEM = "HVAC"
 DOCUMENT = "key_list"
@@ -142,6 +144,38 @@ class TestBinderOperation(FrappeTestCase):
 			get_status(op_id=op_id)
 		with self.assertRaises(frappe.PermissionError):
 			collect_result(op_id=op_id)
+
+	def _queue_only(self, document=None):
+		"""Start a build and commit, but leave it in the queue: the user's binder is still being prepared."""
+		op_id = str(uuid.uuid4())
+		# Dropping the record frees the user whatever the test did (a missing record reads as lost).
+		self.addCleanup(frappe.cache().delete, background_ops._key(op_id))
+		with HeldQueue(self):  # its RQ job stays queued, so it never reads as lost, however slow the run
+			binder.start_binder(op_id=op_id, project=self.project, hod_system=SYSTEM, document=document)
+			frappe.db.commit()
+		return op_id
+
+	def test_one_binder_per_user_at_a_time_named_in_the_refusal_and_an_ended_one_frees_the_user(self):
+		for pf in (binder.PF_DOCUMENT, binder.PF_CHECKLIST):
+			if not frappe.db.exists("Print Format", pf):
+				raise unittest.SkipTest(f"Print Format {pf} missing on this site")
+		first = self._queue_only()
+
+		project_name = frappe.db.get_value("Projects", self.project, "project_name")
+		# A slow run: the second start comes after the first has waited past the stale-heartbeat limit.
+		later = time.time() + background_ops.HEARTBEAT_STALE_SECONDS + 1
+		with patch("nirmaan_stack.services.background_ops.time.time", return_value=later), \
+				self.assertRaises(frappe.ValidationError) as refused:
+			self._queue_only(document=DOCUMENT)  # the whole binder is still queued
+		self.assertEqual(
+			str(refused.exception),
+			f"Your handover binder for {project_name} ({SYSTEM}) is still being prepared. "
+			"Wait for it to finish, then try again.",
+		)
+		frappe.db.rollback()
+
+		background_ops._end(first, background_ops.FINISHED)  # however it ends, the user is free again
+		self._start_and_work_off()
 
 	def test_a_document_that_is_not_done_is_refused_before_anything_is_queued(self):
 		frappe.db.set_value(binder.DOCTYPE, {"project": self.project}, "status", "WIP")

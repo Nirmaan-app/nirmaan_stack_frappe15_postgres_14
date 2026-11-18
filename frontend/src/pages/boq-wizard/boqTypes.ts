@@ -310,14 +310,6 @@ export interface BOQsDoc {
   is_template_source?: 0 | 1;
 }
 
-/** Payload of the "boq:template_clone_done" socket event (create_from_template._publish_and_record). */
-export interface TemplateCloneDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  /** error only: "template_changed" = a requested sheet was removed from the master mid-flight. */
-  error_code?: "internal" | "template_changed";
-}
-
 /** One sheet of the master template, from get_master_template (drives the create-time picker). */
 export interface MasterTemplateSheet {
   sheet_name: string;

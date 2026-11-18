@@ -13,24 +13,18 @@
 export const SNAG_PRINT_FORMAT_NAME = "Project Snag";
 
 /**
- * Both downloads are BUILT IN A BACKGROUND JOB — a big project's PDF outlasted the web
- * request (`api/snags/bulk_download.enqueue_snag_pdf`):
- *  - `enqueue` queues it and answers at once with a `request_id`;
- *  - `status` is asked every few seconds until it reads `ready` or `failed`;
- *  - `fetch` hands the finished file over, once.
+ * Both downloads are BUILT IN A BACKGROUND OPERATION — a big project's PDF outlasted the web
+ * request (ADR 0047). This starts one (`api/snags/bulk_download.start_snag_pdf`); the shared
+ * `useBackgroundOperation` hook follows it and collects its file by operation id.
  *
- * Our endpoints, not Frappe's `download_pdf`: that one type-checks its `pdf_generator`
+ * Our endpoint, not Frappe's `download_pdf`: that one type-checks its `pdf_generator`
  * argument ("wkhtmltopdf" | "chrome" only), so it cannot carry the generator that keeps the
  * photo ↔ row jump links (FrappeTypeError, 2026-10-08). Ours sets it on the server.
  */
-export const SNAG_PDF_ENDPOINTS = {
-  enqueue: "nirmaan_stack.api.snags.bulk_download.enqueue_snag_pdf",
-  status: "nirmaan_stack.api.snags.bulk_download.get_snag_pdf_status",
-  fetch: "nirmaan_stack.api.snags.bulk_download.fetch_snag_pdf",
-} as const;
+export const SNAG_PDF_START = "nirmaan_stack.api.snags.bulk_download.start_snag_pdf";
 
 /**
- * Which document `enqueue` builds. `tab` = the single Download (one render of the tab as
+ * Which document `start_snag_pdf` builds. `tab` = the single Download (one render of the tab as
  * it stands); `all` = Download All — one report PER BATCH, merged server-side into a
  * single PDF behind a master summary. Different in kind, so the server owns `batches`
  * for `all`.

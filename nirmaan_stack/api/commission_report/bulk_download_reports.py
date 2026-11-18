@@ -56,11 +56,16 @@ def start_commission_reports(op_id=None, tracker=None, tasks=None):
     if not frappe.has_permission(PARENT_DOCTYPE, "read", doc=tracker):
         raise frappe.PermissionError(_("Not permitted to read this tracker."))
 
+    # One download queued or running per user: it holds a `long` worker for as long as its reports render.
+    project_name = frappe.db.get_value(PARENT_DOCTYPE, tracker, "project_name") or tracker
     return background_ops.start(
         "commission_bulk_download",
         "nirmaan_stack.api.commission_report.bulk_download_reports.commission_reports_op",
         op_id=op_id,
         timeout=TIMEOUT_SECONDS,
+        one_per_user=_(
+            "Your commission reports download for {0} is still being prepared. Wait for it to finish, then try again."
+        ).format(project_name),
         tracker=tracker,
         tasks=tasks,
     )

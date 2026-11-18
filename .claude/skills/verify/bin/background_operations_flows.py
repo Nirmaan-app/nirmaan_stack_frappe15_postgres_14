@@ -8,8 +8,9 @@ own count, 10 for clone and classify, 5 for suggest, 3 for tds). One run of a fl
 starts its operations at once, as Administrator through the same endpoints the screens call, and waits for each
 operation's outcome where the screen reads it (the status the polling fallback returns):
 
-- clone: N template clones at once (`create_from_template`, the active master's largest data sheet each). An
-  operation is ok when its clone status is success and the new BoQ holds one Review Row per template row.
+- clone: N template clones at once (`create_from_template`, the active master's largest data sheet each), each with
+  its own operation id (#1669). An operation is ok when its status record ends finished with a success result and
+  the new BoQ holds one Review Row per template row.
 - classify: ceil(N/2) Classify clicks at once, each on its own committed sheet with Electrical and HVAC rows, and
   each click starts both engines (`start_classify` per engine, as `ClassifySheetDialog` does). An operation (one
   engine) is ok when its classify status is success.
@@ -156,21 +157,30 @@ def at_once(calls):
 
 def clone_run(ctx, run, timeout):
     """The N creates start at once, so their BoQ number inserts overlap on the BoQ series lock (#1659)."""
+    tag = uuid.uuid4().hex[:6]  # names unique to this invocation too: an earlier one left BoQs of its own
+    names = [f"Background operations check {run}-{i + 1} {tag}" for i in range(ctx["at_once"])]
     replies = at_once([
-        lambda i=i: create_from_template.create_from_template(
-            project=ctx["project"], boq_name=f"Background operations check {run}-{i + 1}", sheet_names=[ctx["sheet"]]
+        lambda name=name: create_from_template.create_from_template(
+            project=ctx["project"], boq_name=name, sheet_names=[ctx["sheet"]], op_id=str(uuid.uuid4()),
         )
-        for i in range(ctx["at_once"])
+        for name in names
     ])
-    started = {reply["job_id"]: reply["boq_id"] for reply in replies}
+    frappe.db.rollback()  # a fresh snapshot: each create committed its BoQ on its own connection
+    # The reply is the operation's record alone; each create's BoQ is found by its name.
+    started = {
+        reply["op_id"]: frappe.db.get_value("BOQs", {"project": ctx["project"], "boq_name": name})
+        for reply, name in zip(replies, names)
+    }
 
-    def read(job_id):
-        status = create_from_template.get_clone_status(job_id)
-        if status.get("state") != "done":
+    def read(op_id):
+        status = background_ops.get_status(op_id=op_id)
+        if status["state"] not in TDS_ENDED:
             return None
-        boq = started[job_id]
-        if status.get("status") != "success":
-            return {"ok": False, "detail": f"clone of {boq}: {status.get('status')} {status.get('error_code')}"}
+        boq = started[op_id]
+        result = status.get("result") or {}
+        if status["state"] != "finished" or result.get("status") != "success":
+            detail = status.get("error") or f"{result.get('status')} {result.get('error_code')}"
+            return {"ok": False, "detail": f"clone of {boq}: ended {status['state']}, {detail}"}
         frappe.db.rollback()  # a fresh snapshot: the worker committed after this transaction began
         rows = frappe.db.count("BoQ Review Row", {"boq": boq})
         if rows != ctx["expected"]:

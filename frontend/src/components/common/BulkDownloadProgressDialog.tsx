@@ -23,8 +23,8 @@ const AUTO_CLOSE_MS = 2_000;
 
 /**
  * The bulk download progress window, shared by the Quick Download button and the wizard. While the
- * job runs it cannot be dismissed (leaving the page cancels the job), only cancelled; once ready or
- * failed it shows the outcome until closed.
+ * job runs it cannot be dismissed, only cancelled; leaving the page does not stop the job, and the window
+ * comes back on return. Once ready or failed it shows the outcome until closed.
  */
 export const BulkDownloadProgressDialog = ({ run, scopeName, onCancel, onClose }: BulkDownloadProgressDialogProps) => {
     const status = run?.status;
@@ -129,7 +129,7 @@ export const BulkDownloadProgressDialog = ({ run, scopeName, onCancel, onClose }
 
                 <div className="border-t bg-muted/30 px-6 py-4 flex items-center justify-between gap-4">
                     <p className="text-xs text-muted-foreground">
-                        {working ? "Keep this page open until the file downloads." : ""}
+                        {working ? "You can leave this page. The download carries on and picks up again when you come back." : ""}
                     </p>
                     {working ? (
                         <Button

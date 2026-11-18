@@ -12,6 +12,7 @@ deleted again in `tearDown`.
 import datetime
 import io
 import os
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -26,6 +27,7 @@ from rq.job import Job, JobStatus
 from nirmaan_stack.api.background_ops import collect_result, get_status
 from nirmaan_stack.api.commission_report import bulk_download_reports as cbd
 from nirmaan_stack.services import background_ops
+from nirmaan_stack.services.background_ops_held_queue import HeldQueue
 
 STRANGER = "commission-bulk-stranger@example.com"
 
@@ -163,3 +165,42 @@ class TestCommissionBulkDownload(FrappeTestCase):
 		status = get_status(op_id=op_id)
 		self.assertEqual(status["state"], "failed")
 		self.assertIn("None of the selected tasks are eligible", status["error"])
+
+	def _queue_only(self):
+		"""Start a download and commit, but leave it in the queue: the user's download is still being prepared."""
+		op_id = str(uuid.uuid4())
+		# Dropping the record frees the user whatever the test did (a missing record reads as lost).
+		self.addCleanup(frappe.cache().delete, background_ops._key(op_id))
+		with HeldQueue(self):  # its RQ job stays queued, so it never reads as lost, however slow the run
+			cbd.start_commission_reports(op_id=op_id, tracker=self.tracker, tasks=[{"name": self.submitted[0]}])
+			frappe.db.commit()
+		return op_id
+
+	def test_one_download_per_user_at_a_time_named_in_the_refusal_and_an_ended_one_frees_the_user(self):
+		first = self._queue_only()
+
+		# A slow run: the second start comes after the first has waited past the stale-heartbeat limit.
+		later = time.time() + background_ops.HEARTBEAT_STALE_SECONDS + 1
+		with patch("nirmaan_stack.services.background_ops.time.time", return_value=later), \
+				self.assertRaises(frappe.ValidationError) as refused:
+			self._queue_only()
+		self.assertEqual(
+			str(refused.exception),
+			f"Your commission reports download for {self.project_name} is still being prepared. "
+			"Wait for it to finish, then try again.",
+		)
+		frappe.db.rollback()
+
+		background_ops._end(first, background_ops.FAILED, error="Nope")  # however it ends, the user is free again
+		self._start_and_work_off(self.submitted)
+
+	def test_a_download_still_being_prepared_does_not_hold_back_a_handover_binder(self):
+		self._queue_only()
+
+		binder_op = str(uuid.uuid4())
+		self.addCleanup(frappe.cache().delete, background_ops._key(binder_op))
+		started = background_ops.start(
+			"hod_binder", "frappe.utils.now", op_id=binder_op, timeout=60, one_per_user="Your handover binder ..."
+		)
+		self.assertEqual(started["state"], "queued")
+		frappe.db.rollback()  # queue nothing
