@@ -20,3 +20,6 @@ room is not re-joined after a reconnect, and its events go out before the databa
 
 The cost: each open operation polls (20 requests a minute at a 3-second interval, fewer while the socket is up), and
 the status record outlives RQ's memory, so it needs its own expiry. The investigation's evidence is summarised in spec #1654.
+
+The decision holds for any number of `long` workers: each operation has its own record, so a second, third or
+Nth worker changes only which operation finishes first, never which result a screen reads (2026-11-18 re-triage).

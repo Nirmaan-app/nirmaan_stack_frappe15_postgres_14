@@ -25,3 +25,7 @@ with random names, the click finishing in 24.9 s against 48.2 s with one worker.
 The cost: these names are no longer in creation order and carry no year; nothing reads them that way today (no
 `order_by name`, no Link field, no screen shows them; the only stored copy, `BoQ Nodes.review_row_name`, is written
 and never read). The change goes through Frappe's doctype tooling, never a hand edit of the doctype JSON. The investigation's evidence is summarised in spec #1654.
+
+The clash needs only two overlapping transactions, so random names remove it for any number of `long` workers. The
+session lock serializes BoQ creation across all workers, so with N workers up to N-1 BoQ-creating operations may
+wait, each holding a worker (2026-11-18 re-triage).
