@@ -96,8 +96,9 @@ def insert_requested_payment(src, amount, gst_payment: bool, payload: dict, *, g
     Payment Request (`api/payments/gst_payment_requests`), so the two route, auto-approve, comment and
     put a cheque on alike. The caller has checked the order's limit and commits; nothing is committed
     here. The raiser is the session user, or `gst_request`'s requester when an approved request makes the
-    payment: routed on the requester's level, and owned by them (`gst_payment_requests.link_payment`, at
-    `after_insert`), with no switch of the session user.
+    payment: owned by them (`gst_payment_requests.link_payment`, at `after_insert`), with no switch of the
+    session user. An approved request's payment is NOT routed by amount: the decider's approval is its only
+    one, so it is born Approved (`gst_payment_requests.approved_payment_route`, ADR-0030 Amendment B).
     """
     raiser = gst_request.owner if gst_request else None
     # Before the insert: its `after_insert` commits, so a refusal after it would come too late.
@@ -107,7 +108,10 @@ def insert_requested_payment(src, amount, gst_payment: bool, payload: dict, *, g
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
     # through manual review, hence the strict `0 < amount` lower bound.
-    auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque, raiser)
+    if gst_request:
+        auto_approve, status, l1_cleared, ceo_cleared = gst_payment_requests.approved_payment_route()
+    else:
+        auto_approve, status, l1_cleared, ceo_cleared = tier_new_payment(amount, cheque, raiser)
 
     pay = frappe.new_doc("Project Payments")
     pay.update({
@@ -140,7 +144,8 @@ def insert_requested_payment(src, amount, gst_payment: bool, payload: dict, *, g
     if auto_approve:
         pay.add_comment("Comment", _("Auto-approved: amount below {0}.").format(
             frappe.format_value(TIER_AUTO_APPROVE_BELOW, "Currency")))
-    elif l1_cleared:
+    elif l1_cleared and not gst_request:
+        # An approved GST request's payment is commented by the approval itself, naming the decider.
         _comment_raiser_approval(pay, ceo_cleared, raiser)
 
     cheque_name = put_on_new_cheque(pay.name, cheque)

@@ -27,12 +27,19 @@ from nirmaan_stack.api.payments.gst_payment_requests import (
 )
 from nirmaan_stack.api.payments.project_payments import create_payment_request_for_service
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.integrations.controllers.project_payments import _auto_approved_note, _notify_admins_auto_approved
 from nirmaan_stack.integrations.controllers.service_requests import (
     validate_gst_not_switched_off_with_gst_payments,
 )
 from nirmaan_stack.services import gst_payment_requests as gpr
 from nirmaan_stack.services.order_payments import work_order_summary
-from nirmaan_stack.services.role_profiles import ACCOUNTANT_PROFILE, PROJECT_MANAGER_PROFILE
+from nirmaan_stack.services.role_profiles import (
+    ACCOUNTANT_LEAD_PROFILE,
+    ACCOUNTANT_PROFILE,
+    ADMIN_PROFILE,
+    PROCUREMENT_EXECUTIVE_PROFILE,
+    PROJECT_MANAGER_PROFILE,
+)
 
 PAYMENT = "Project Payments"
 SR = "Service Requests"
@@ -253,16 +260,171 @@ class TestGstPaymentRequests(FrappeTestCase):
         name = self._ask(sr, 10000)
         out = self._approve(name)
         pay = frappe.get_doc(PAYMENT, out["project_payment"])
+        # Amendment B (owner, 2026-11-18): the Accountant approved it, so it is NOT auto-approved, even below
+        # ₹15,000 (it used to be: `auto_approved` 1).
         self.assertEqual((pay.owner, pay.is_gst_payment, flt(pay.amount), pay.status, pay.auto_approved),
-                         (self.pm, 1, 10000, "Approved", 1))  # below ₹15,000: auto-approved, as any payment
+                         (self.pm, 1, 10000, "Approved", 0))
         req = frappe.get_doc(gpr.DOCTYPE, name)
         self.assertEqual((req.status, req.project_payment, req.reviewed_by), (gpr.APPROVED, pay.name, self.accountant))
         self.assertEqual(self._gst_left(sr), 8000)  # the payment holds what the request held, once
 
-    def test_approval_routes_by_amount(self):
-        sr = self._wo(total=236000, gst_invoiced=36000)
-        out = self._approve(self._ask(sr, 20000))
-        self.assertEqual(out["payment_status"], "Requested")  # ₹15,000 to ₹50,000: L1
+    # -- Amendment B: the decider's approval is the only one ------------------------------------
+    def _big_wo(self):
+        """Base 15,00,000 + GST 2,70,000, all invoiced: room for every amount below on one Work Order."""
+        return self._wo(total=1770000, gst_invoiced=270000)
+
+    def _assert_ready_to_pay(self, pay_name, amount):
+        pay = frappe.get_doc(PAYMENT, pay_name)
+        self.assertEqual((pay.status, flt(pay.amount), pay.auto_approved, bool(pay.approval_date),
+                          bool(pay.ceo_approval_date)), ("Approved", amount, 0, True, True),
+                         f"₹{amount:,} GST payment")
+
+    def test_every_amount_is_ready_to_pay(self):
+        # Amendment B (owner, 2026-11-18) REPLACES "the approval routes by amount": ₹15,000 to ₹50,000 used to
+        # be born Requested (L1) and above ₹50,000 Requested (L1, then the CEO).
+        sr = self._big_wo()
+        for amount in (14999, 15000, 30000, 50000, 50001, 70000):
+            out = self._approve(self._ask(sr, amount))
+            self.assertEqual(out["payment_status"], "Approved", f"₹{amount:,}")
+            self._assert_ready_to_pay(out["project_payment"], amount)
+
+    def test_who_raised_the_request_does_not_matter(self):
+        # Administrator holds L1: its own ₹70,000 payment would be born CEO Pending. Its approved request's is not.
+        sr = self._big_wo()
+        out = self._approve(request_gst_payment(sr, 70000)["name"])  # raised as Administrator
+        self._assert_ready_to_pay(out["project_payment"], 70000)
+        self.assertEqual(frappe.db.get_value(PAYMENT, out["project_payment"], "owner"), U)
+
+    def test_an_accountant_lead_or_admin_approval_is_ready_to_pay_too(self):  # B1
+        sr = self._big_wo()
+        for profile in (ACCOUNTANT_LEAD_PROFILE, ADMIN_PROFILE):
+            decider = self._user(profile)
+            out = self._as(decider, approve_gst_payment_request, self._ask(sr, 70000))
+            self._assert_ready_to_pay(out["project_payment"], 70000)
+            self.assertEqual(frappe.db.get_value(PAYMENT, out["project_payment"], "owner"), self.pm)
+
+    def test_a_base_payment_keeps_the_amount_rule(self):
+        # The same Work Order, a Procurement Executive (raises payments, holds no L1): ₹70,000 of BASE is still
+        # born Requested, for L1 then the CEO.
+        sr = self._big_wo()
+        raiser = self._user(PROCUREMENT_EXECUTIVE_PROFILE)
+        payload = json.dumps({"doctype": SR, "docname": sr, "amount": 70000, "is_gst_payment": 0})
+        pay = json.loads(self._as(raiser, create_payment_request_for_service, payload))["name"]
+        self.assertEqual(frappe.db.get_value(PAYMENT, pay, ["status", "is_gst_payment"]), ("Requested", 0))
+
+    def test_no_one_is_asked_to_approve_it(self):
+        sr = self._big_wo()
+        pay = self._approve(self._ask(sr, 70000))["project_payment"]
+        asked = frappe.get_all("Nirmaan Notifications", filters={"docname": pay}, pluck="event_id")
+        self.assertNotIn("payment:new", asked)  # the admins' "approve this" bell
+        self.assertNotIn("payment:approved", asked)  # the CEO's "waiting for you" bell
+        # The Accountants' "ready to fulfil" bell (its event name is shared with the CEO's approval).
+        self.assertIn("payment:ceo_approved", asked)
+        comments = frappe.get_all("Comment", filters={"reference_doctype": PAYMENT, "reference_name": pay,
+                                                      "comment_type": "Comment"}, pluck="content")
+        self.assertTrue(any("needs no L1 or CEO approval" in (c or "") for c in comments), comments)
+        self.assertFalse([c for c in comments if "Approved at request" in (c or "")], comments)
+
+    def test_the_admins_note_names_the_accountant_and_the_request(self):
+        doc = frappe._dict(name="PAY-X", document_name="SR-X", auto_approved=0,
+                           flags=frappe._dict({gpr.FROM_GST_REQUEST: "GPR-26-99999"}))
+        title, description = self._as(self.accountant, _auto_approved_note, doc)
+        self.assertEqual(title, "GST Payment Approved")
+        self.assertIn(frappe.utils.get_fullname(self.accountant), description)
+        self.assertIn("GPR-26-99999", description)
+        self.assertIn("no L1 or CEO", description)
+        self.assertNotIn("holds the approval", description)
+        self.assertLessEqual(len(description), 140)
+
+    def test_the_admins_note_always_fits_the_bell(self):
+        # Browser walk-through, 2026-11-18: a 150-character note made `Nirmaan Notifications` refuse its insert
+        # ("will get truncated, as max characters allowed is 140"), which failed the whole approval. The muted
+        # fan-out in `setUp` hid it from every other test here.
+        doc = frappe._dict(name="PAY-00058-303", document_name="SR-00058-000314", auto_approved=0,
+                           flags=frappe._dict({gpr.FROM_GST_REQUEST: "GPR-26-00003"}))
+        with patch(f"{CONTROLLER}.get_user_name", return_value="A Very Long Accountant Name " * 6):
+            _title, description = _auto_approved_note(doc)
+        self.assertLessEqual(len(description), 140, description)
+        self.assertTrue(description.startswith("GST payment PAY-00058-303 approved by"), description)
+
+    def test_a_bell_that_cannot_be_saved_never_fails_the_approval(self):
+        # The admins' bell goes to a recipient that does not exist, so `Nirmaan Notifications` refuses it (its
+        # `recipient` is a Link). Before `_insert_bell` that refusal rolled back the whole approval; now the
+        # approval stands and the refusal goes to the Error Log.
+        sr = self._big_wo()
+        name = self._ask(sr, 70000)
+        ghost = [{"name": "no-such-user@example.invalid", "role_profile": "Nirmaan Admin Profile", "full_name": "Ghost"}]
+        self.addCleanup(self._delete_skipped_bell_logs)
+        with patch(f"{CONTROLLER}._notify_admins_auto_approved", new=_notify_admins_auto_approved), \
+                patch(f"{CONTROLLER}.get_admin_users", return_value=ghost):
+            out = self._approve(name)
+        self._assert_ready_to_pay(out["project_payment"], 70000)
+        self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, "status"), gpr.APPROVED)
+        self.assertFalse(frappe.db.exists("Nirmaan Notifications", {"recipient": ghost[0]["name"]}))
+        self.assertTrue(frappe.db.exists("Error Log", {"method": ["like", f"Payment notification skipped: {out['project_payment']}%"]}))
+
+    # -- B2: the one-time patch for GST payments still waiting at L1 / CEO -------------------------
+    def test_b2_patch_moves_only_waiting_gst_payments_with_an_approved_request(self):
+        # Scoped to this test's own payments: it reads `find_waiting` / `find_left_alone` and moves only its rows,
+        # never `run()`, which would touch every waiting GST payment on the live site.
+        from nirmaan_stack.patches.v3_0 import gst_payments_waiting_to_approved as b2
+
+        sr = self._big_wo()
+        a, b, c, d = (self._approve(self._ask(sr, amount))["project_payment"] for amount in (12000, 40000, 5000, 7000))
+        req = {p: frappe.db.get_value(gpr.DOCTYPE, {"project_payment": p}, "name") for p in (a, b, c, d)}
+        self.addCleanup(self._delete_comments, [a, b, c, d])
+        # Make them look like payments approved before Amendment B (raw, as the patch's real rows were born).
+        frappe.db.set_value(PAYMENT, a, {"status": "Requested", "approval_date": None, "ceo_approval_date": None},
+                            update_modified=False)
+        frappe.db.set_value(PAYMENT, b, {"status": "CEO Pending", "approval_date": "2026-11-10", "ceo_approval_date": None},
+                            update_modified=False)
+        frappe.db.set_value(PAYMENT, c, {"status": "Rejected"}, update_modified=False)  # rejected on purpose
+        frappe.db.set_value(PAYMENT, d, {"status": "Requested", "approval_date": None, "ceo_approval_date": None},
+                            update_modified=False)
+        frappe.db.set_value(gpr.DOCTYPE, req[d], "project_payment", None, update_modified=False)  # no request
+        frappe.db.set_value(gpr.DOCTYPE, req[a], "reviewed_on", "2026-11-12 10:00:00", update_modified=False)
+        frappe.db.set_value(gpr.DOCTYPE, req[b], "reviewed_on", "2026-11-13 10:00:00", update_modified=False)
+        frappe.db.commit()
+        modified_before = {p: frappe.db.get_value(PAYMENT, p, "modified") for p in (a, b, c, d)}
+
+        def mine(rows):
+            return sorted(r.payment for r in rows if r.payment in modified_before)
+
+        self.assertEqual(mine(b2.find_waiting()), sorted([a, b]))   # Requested + CEO Pending with an approved request
+        self.assertEqual(mine(b2.find_left_alone()), [d])            # waiting, but no request: listed, not moved
+        for row in b2.find_waiting():
+            if row.payment in modified_before:
+                b2.move(row)
+        frappe.db.commit()
+
+        after = {p: frappe.db.get_value(PAYMENT, p, ["status", "approval_date", "ceo_approval_date", "modified"],
+                                        as_dict=True) for p in modified_before}
+        day = frappe.utils.getdate
+        self.assertEqual((after[a].status, after[a].approval_date, after[a].ceo_approval_date),
+                         ("Approved", day("2026-11-12"), day("2026-11-12")))
+        self.assertEqual((after[b].status, after[b].approval_date, after[b].ceo_approval_date),
+                         ("Approved", day("2026-11-13"), day("2026-11-13")))  # the old L1 date gives way (owner)
+        self.assertEqual((after[c].status, after[d].status), ("Rejected", "Requested"))
+        for p in modified_before:
+            self.assertEqual(after[p].modified, modified_before[p], f"{p}: `modified` must not move")
+        self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, req[a], "status"), gpr.APPROVED)  # requests untouched
+        comments = {p: frappe.db.count("Comment", {"reference_name": p, "content": ["like", "%one-time patch%"]})
+                    for p in modified_before}
+        self.assertEqual(comments, {a: 1, b: 1, c: 0, d: 0})
+        self.assertEqual(mine(b2.find_waiting()), [])  # a second run finds nothing to move
+
+    @staticmethod
+    def _delete_comments(payments):
+        frappe.db.rollback()
+        frappe.db.delete("Comment", {"reference_doctype": PAYMENT, "reference_name": ["in", payments]})
+        frappe.db.commit()
+
+    @staticmethod
+    def _delete_skipped_bell_logs():
+        frappe.db.rollback()
+        frappe.db.delete("Error Log", {"method": ["like", "Payment notification skipped:%TEST%"]})
+        frappe.db.delete("Error Log", {"method": ["like", "Payment notification skipped:%no-such-user@example.invalid"]})
+        frappe.db.commit()
 
     def test_a_request_is_approved_once(self):
         sr = self._wo()
@@ -288,9 +450,11 @@ class TestGstPaymentRequests(FrappeTestCase):
         self.assertEqual((frappe.db.get_value(gpr.DOCTYPE, name, "status"), self._payments(sr)), (gpr.PENDING, 0))
 
     def test_only_an_accountant_raises_a_gst_payment_afterwards(self):
-        sr = self._wo(total=236000, gst_invoiced=36000)
-        pay = frappe.get_doc(PAYMENT, self._approve(self._ask(sr, 20000))["project_payment"])  # Requested
-        pay.amount = 21000
+        # Within the auto band, so the payment-step raise rule (L1 from ₹15,000) stays out of the way and the
+        # GST rule is what refuses it. The payment is Approved (Amendment B; it used to be Requested at ₹20,000).
+        sr = self._wo()
+        pay = frappe.get_doc(PAYMENT, self._approve(self._ask(sr, 10000))["project_payment"])
+        pay.amount = 11000
         with self.assertRaisesRegex(frappe.ValidationError, "Only an Accountant may raise"):
             self._as(self.pm, pay.save)
         frappe.db.rollback()
@@ -357,7 +521,7 @@ class TestGstPaymentRequests(FrappeTestCase):
     def test_paid_only_while_its_payment_is_paid(self):
         sr = self._wo()
         name = self._ask(sr, 10000)
-        pay = self._approve(name)["project_payment"]  # auto-approved: Approved
+        pay = self._approve(name)["project_payment"]  # Approved
         self._move(pay, "Reconciliation Pending")
         self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, "status"), gpr.APPROVED)
         self._move(pay, "Paid")
@@ -365,11 +529,11 @@ class TestGstPaymentRequests(FrappeTestCase):
         self._move(pay, "Reconciliation Pending")  # un-reconciled
         self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, "status"), gpr.APPROVED)
 
-    def test_a_payment_l1_rejects_leaves_its_request_approved(self):
+    def test_a_payment_rejected_afterwards_leaves_its_request_approved(self):
         sr = self._wo(total=236000, gst_invoiced=36000)
         name = self._ask(sr, 20000)
-        pay = self._approve(name)["project_payment"]  # Requested: L1
-        self._move(pay, "Rejected")
+        pay = self._approve(name)["project_payment"]  # Approved (Amendment B)
+        self._move(pay, "Rejected")  # an Admin's correction
         self.assertEqual(frappe.db.get_value(gpr.DOCTYPE, name, "status"), gpr.APPROVED)
         self.assertEqual(self._gst_left(sr), 16000)  # the rejected payment still holds it, until deleted
 

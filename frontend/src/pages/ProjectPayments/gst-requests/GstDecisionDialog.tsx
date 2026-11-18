@@ -94,6 +94,9 @@ export const GstDecisionDialog = ({ target, kind, onClose, onDone }: GstDecision
 						leftLabel={approving ? "GST left after this approval" : "GST left if approved"} />
 				)}
 
+				{approving && figures?.fits && (
+					<p className="text-xs text-muted-foreground">The payment goes straight to Payment need to paid. No L1 or CEO approval.</p>
+				)}
 				{approving && figures && !figures.fits && (
 					<p className="text-xs text-red-600">This no longer fits the GST on approved invoices. Reject it; a new request can be raised for what is left.</p>
 				)}
