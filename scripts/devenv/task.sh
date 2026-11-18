@@ -26,6 +26,8 @@
 #                            crashed (no agent in its env and no finished report) or unreachable (the box did not
 #                            answer). One SSH per box, read only. A change prints ALERT and raises a macOS notification;
 #                            the last state per task is kept in ${XDG_STATE_HOME:-~/.local/state}/devbox/watch/<name>.
+#                            It also WARNs while a box checkout's core.hooksPath is not .githooks (its worktrees
+#                            would run another checkout's hooks), and alerts when that path changes.
 #                            --every repeats until Ctrl-C.
 #
 # <name>: lowercase letters, digits and dashes (it names the env, its site t-<name>.localhost and its DB).
@@ -81,6 +83,12 @@ for n in "$@"; do
     /^## Status/ {f=1} END {print p}' ~/claude-artifacts/dod/box-"$n"/REPORT.md 2>/dev/null)"
   printf '%s\t%s\t%s\t%s\n' "$n" "$alive" "$dod" "$line"
 done
+# One more row, "@hooks\t<core.hooksPath>", from the box checkout's shared git config. Anything but the relative
+# .githooks makes every worktree there run another checkout's hooks (on air an absolute dev/.githooks came back
+# after it was fixed, 2026-11-19, and the #1705 agent's commits skipped its own new check).
+if git -C ~/"$co" rev-parse --git-dir >/dev/null 2>&1; then
+  printf '@hooks\t%s\n' "$(git -C ~/"$co" config --get core.hooksPath || echo unset)"
+fi
 EOF
 }
 
@@ -113,7 +121,7 @@ EOF
 WATCH_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/devbox/watch"
 
 watch_pass() {
-  local recs box names n out rc note row alive dod line word state detail old alerts="" f
+  local recs box names n out rc note row alive dod line word state detail old alerts="" f hooks
   mkdir -p "$WATCH_DIR"
   recs="$(git config --get-regexp '^devbox-task\..*\.box$' | sed 's/^devbox-task\.\(.*\)\.box /\1 /' | sort -k2,2 -k1,1 || true)"
   echo; echo "== $(date '+%Y-%m-%d %H:%M:%S')  task watch"
@@ -146,6 +154,13 @@ watch_pass() {
       fi
       echo "$state" > "$WATCH_DIR/$n.new" && mv "$WATCH_DIR/$n.new" "$WATCH_DIR/$n"
     done
+    hooks="$(printf '%s\n' "$out" | awk -F'\t' '$1 == "@hooks" {print $2; exit}')"
+    if [ -n "$hooks" ]; then
+      [ "$hooks" = .githooks ] || echo "WARN  $box: core.hooksPath is $hooks, not .githooks: its worktrees run those hooks, not their own"
+      old="$(cat "$WATCH_DIR/.hooks-$box" 2>/dev/null || echo .githooks)"
+      [ "$old" = "$hooks" ] || alerts="$alerts$box: core.hooksPath $old -> $hooks"$'\n'
+      echo "$hooks" > "$WATCH_DIR/.hooks-$box.new" && mv "$WATCH_DIR/.hooks-$box.new" "$WATCH_DIR/.hooks-$box"
+    fi
   done
   printf '%s' "$alerts" | while IFS= read -r a; do
     echo "ALERT $a"
@@ -163,7 +178,7 @@ watch_pass() {
 
 # box_pick: set PICK and PICK_WHY for a start without --box (the rule is in the header, under <box>).
 box_pick() {
-  local order b names out rc busy cap alive dod line word
+  local order b names n out rc busy cap alive dod line word
   PICK="" PICK_WHY=""
   box_registry
   order="$(git config -f "$DEVBOX_REGISTRY" devbox.order || true)"
@@ -175,7 +190,8 @@ box_pick() {
     rc=0; out="$(watch_probe | ssh "${BOX_SSH_OPTS[@]}" "$BOX_SSH" bash -s -- "$BOX_CO" $names 2>/dev/null)" || rc=$?
     if [ "$rc" != 0 ]; then echo "  $b: did not answer over SSH (exit $rc)"; continue; fi
     busy=0
-    while IFS=$'\t' read -r _ alive dod line; do
+    while IFS=$'\t' read -r n alive dod line; do
+      case "$n" in @*) continue ;; esac
       [ -n "$alive" ] || continue
       word="$(printf '%s\n' "$line" | awk '{print toupper($1)}' | tr -cd 'A-Z0-9_')"
       [ "$(task_state "$alive" "$word" "$dod")" != working ] || busy=$((busy + 1))

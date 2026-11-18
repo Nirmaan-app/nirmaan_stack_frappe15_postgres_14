@@ -258,4 +258,25 @@ pick
 rc_is 1 "pick exits 1 when no box in the order has a free agent"
 line '^STOP  no box in devbox.order \(air\) has a free agent' "the refusal says why and what to do"
 
+# core.hooksPath of a box checkout: anything but .githooks warns on every pass and alerts when it changes
+git -C "$AH/work/y/variants/master" init -q
+git -C "$AH/work/y/variants/master" config core.hooksPath /elsewhere/dev/.githooks
+git config -f "$R" devbox.order "air contabo"
+git config -f "$R" box.air.agents 3
+: > "$OSA_LOG"
+watch
+line '^WARN  air: core.hooksPath is /elsewhere/dev/.githooks, not .githooks' "a box hooksPath other than .githooks warns"
+line '^ALERT air: core.hooksPath .githooks -> /elsewhere/dev/.githooks$' "a hooksPath that changed away from .githooks alerts"
+same "$(grep -c hooksPath "$OSA_LOG" || true)" 1 "the hooksPath alert raises one notification"
+no_line '^WARN  contabo' "a box checkout that is not a git checkout is not judged"
+watch
+line '^WARN  air: core.hooksPath' "the warning repeats while the path is wrong"
+no_line '^ALERT air: core.hooksPath' "an unchanged wrong path alerts once only"
+pick
+line '^  air: 2 of 3 agents working$' "pick does not count the hooksPath row as an agent"
+git -C "$AH/work/y/variants/master" config core.hooksPath .githooks
+watch
+no_line '^WARN  air' "a box back on .githooks does not warn"
+line '^ALERT air: core.hooksPath /elsewhere/dev/.githooks -> .githooks$' "a hooksPath set back alerts too"
+
 echo; echo "all $N checks passed"
