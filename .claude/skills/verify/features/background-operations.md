@@ -21,6 +21,18 @@ The screens (`walk_background_operation_screens.py --part <name>`):
 - `boq` Upload BoQ: two tabs upload at once, each shows its own outcome; the 30 s "taking a little longer" note waits
   for the parse to start running.
 - `template` Admin Options -> BoQ Templates -> seed from a workbook: queued, then its own outcome.
+- `classify` a committed sheet's pricing page -> `Classify sheet` -> Electrical and HVAC -> `Classify 2 engines`: one
+  `boq_classify` operation per engine, the modal "Waiting in the queue" with no worker, then a summary that names both
+  engines (#1666).
+- `suggest` two sheets on two BoQs, `Suggest rates` -> `Run all N rows` at once in two tabs, on one worker: each tab
+  follows its own `boq_rate_suggest` and shows its own sheet's run; each suggest's match (`boq_rate_match`, the id
+  its result names) shows "waiting in the queue", then its outcome (#1667).
+- `hub` a BoQ hub -> a sheet's `Re-parse Sheet` -> `Re-parse 1 sheet` (-> `Re-parse anyway` on a Finalized sheet):
+  "Waiting in the queue..." with Parse and Re-parse disabled, then the parse's end dialog says what its own record
+  says (Parse complete naming the sheet, or Parse error in the server's words), the BoQ's parse flags are released and
+  Re-parse is enabled again (#1668).
+- `review` the review screen of that sheet (hub -> `Review`), opened while the hub's re-parse waits in another tab:
+  the "This sheet is being parsed" banner shows, and clears when the parse ends (#1668).
 
 The N-worker check (`walk_background_operations.py --workers N`, no screen: it drives the endpoints the screens call
 and reads each operation's outcome where the screen reads it):
@@ -48,6 +60,10 @@ and reads each operation's outcome where the screen reads it):
 - `bulk`: sidebar `Projects` -> the project -> `Bulk Download` (a Procurement Executive on the project).
 - `boq`: sidebar `Upload BoQ` -> pick a project -> Continue -> drop a workbook (an Estimates Executive).
 - `template`: sidebar `Admin Options` -> `BoQ Templates` (Admin or Estimates Executive).
+- `classify`, `suggest`, `hub`, `review` (an Estimates Executive): sidebar `Projects` -> the project (the `Tendering
+  Projects` tab for a pre-Won one) -> `BOQs` -> the BoQ's row (a pre-Won project's row opens the hub) -> the hub. The
+  pricing page: the hub's `Tendering` (the first committed sheet) -> the sheet's tab. The review screen: the sheet's
+  `Review` on the hub.
 - A clone: Projects -> a project -> Create BoQ from template -> pick sheets -> Create. The screen waits on
   `boq:template_clone_done`, else polls `get_clone_status`.
 - A Classify click: a committed sheet's pricing page -> Classify -> both engines ticked -> Start. The page starts
@@ -89,10 +105,21 @@ The screens, as their roles:
   Project Manager with a project that has TDS items, Done HVAC handover documents and Submitted Field commission
   reports; a Procurement Executive on a project with delivery challans; an Estimates Executive.
 - **Whole walk, one part at a time.** `python3 BIN/walk_background_operation_screens.py --task <task> --part
-  tds|handover|commission|bulk|boq|template --user <email> --password <pw> [--project <id> --project-name <name>]`
-  (the four project parts need both project flags). It starts its operations with no worker running, saves the
-  screen showing them queued, then starts the worker(s) it needs through `BIN/bgops_workers.py`. It prints one
-  `ok`/`MISS` line per check and exits 1 on any miss.
+  tds|handover|commission|bulk|boq|template|classify|suggest|hub|review --user <email> --password <pw> [--project
+  <id> --project-name <name>] [--sheet '<BoQ title>::<sheet name>' ...]` (every part but `boq` and `template` needs
+  both project flags; `classify`, `hub` and `review` one `--sheet`, `suggest` two, on two BoQs of the project, each
+  sheet verbatim). It starts its operations with no worker running, saves the screen showing them queued, then
+  starts the worker(s) it needs through `BIN/bgops_workers.py`. It prints one `ok`/`MISS` line per check, a `NOT
+  WALKED <what>: <why>` line for a step the env cannot drive, and exits 1 on any miss.
+- **The BoQ parts' data.** `classify`: a committed, unfrozen sheet with Electrical and HVAC rows (the N-worker
+  check's `classify_sheets` query finds them). `suggest`: two committed sheets on two BoQs that pass the suggest gate
+  (`suggest_sheets`); the match switch (`BOQ Upload Review AI Settings.match_enabled`) on, else each match is
+  reported not walked. `hub`, `review`: a parsed sheet of an uploaded BoQ. **The re-parse is real**: where the env
+  can read the workbook (it could on the `air` box, 2026-11-19) it rebuilds the sheet's rows and a Finalized sheet
+  becomes Parsed, on the env DB only (`devenv.sh reset` restores it); where it cannot, the parse fails at the fetch
+  before it writes anything, and the part checks that path instead. These four parts switch the BoQ AI setting off
+  and put it back (`BIN/bgops_boq_state.py`), as the N-worker flows do. Pick the sheets on the env with a
+  `devenv.sh script` query (real project and BoQ names stay out of this file: the repo is public).
 - **What it proves.** Each tab's operation id comes from the hook's `get_status?op_id=` reads. `BIN/bgops_db.py`
   reads those records from the cache Redis (saved as `db.txt`): the owner is the walking user, the kind and end state
   are the flow's, the two tabs followed two operations, and each downloaded file is exactly the size its own record
@@ -120,6 +147,8 @@ The N-worker check, one command:
 
 ## Gotchas
 
+- The review screen learns of a parse started in another tab only when it is opened (no realtime on a dev env):
+  the `review` part reloads it after the hub's parse is queued.
 - A dev env serves no realtime (Socket.IO), so every screen here ends by polling alone (about every 3 s with the
   socket down). That is also the dropped-socket case.
 - BoQ upload and template seed always fail on a dev env: the worker reads the workbook only from the production
@@ -129,6 +158,12 @@ The N-worker check, one command:
   (`TestBoqNumbersStayCounted`).
 - The status records live in the cache Redis for 24 hours, not in the DB; finished files are in
   `sites/<site>/private/background_ops/<op_id>.bin`, and `logs/background_ops.log` has one line per ended operation.
+- A parse starts its sheets' automatic AI checks only with the BoQ AI setting on, which would call a real provider,
+  so the walks keep it off and the parse's result names no check (`checks: {}`): the hub's check chip ("Waiting to
+  check rows…" / "Checking rows…") and the review screen's check (`get_check_operation`) are reported not walked.
+- A suggest with the AI off takes about 1.5 s, so a match waits in the queue for less than one of the screen's ~3 s
+  polls. The `suggest` part queues Frappe's own 20 s sleep job (`background_jobs.test_job`, `bgops_boq_state.py
+  hold-queue`) behind the two suggests, so each match visibly waits behind it.
 - The bulk download window says "Waiting for the server to start…" while queued, and the Handover TDS export only
   "Exporting..." (its ticket asks queued apart from running of the binder only).
 - The screen walk's TDS exports and Handover TDS export read each datasheet from the production bucket (read-only
