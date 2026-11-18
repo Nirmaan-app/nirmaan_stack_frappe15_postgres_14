@@ -1,7 +1,7 @@
 // The two ways oxlint and the residence check are started (ADR-0049): `yarn lint` from package.json, which a
 // teammate runs on Windows (cmd.exe), and the commit hooks' .githooks/checks.sh.
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +12,15 @@ const CHECKS = join(FRONTEND, "..", ".githooks", "checks.sh");
 const pkg = JSON.parse(readFileSync(join(FRONTEND, "package.json"), "utf8"));
 const dirs = [];
 afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+
+describe("yarn type-coverage", () => {
+  // At node's default heap it runs out of memory in the dev container (V8 abort, exit 134); it passes at 4 GB.
+  it("starts type-coverage through node with a 4 GB heap, at a file that exists, keeping its --at-least", () => {
+    const m = pkg.scripts["type-coverage"].match(/^node --max-old-space-size=4096 (\S+) --strict --at-least [0-9.]+$/);
+    expect(m, pkg.scripts["type-coverage"]).not.toBeNull();
+    expect(existsSync(join(FRONTEND, m[1])), m[1]).toBe(true);
+  });
+});
 
 describe("yarn lint", () => {
   const lint = pkg.scripts.lint;

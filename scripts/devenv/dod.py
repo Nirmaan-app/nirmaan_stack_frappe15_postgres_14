@@ -159,6 +159,15 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     # A placeholder written while a run is still going (#1607's report said done with "RESULT_PENDING" in Evidence).
     if re.search(r"\b[A-Z]+_PENDING\b", text):
         problems.append(f"replace every *_PENDING placeholder in {path} with the real result")
+    # Prose said the same while the builder's own review still ran (#1699's fix round). "pending" is read only in
+    # Review, past the lines on the separate (independent, owner's) review, pending by design: Evidence may name the
+    # app's Pending status.
+    review = re.search(r"^## Review\s*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    review_lines = [ln for ln in (review.group(1) if review else "").splitlines()
+                    if not re.search(r"separate|independent|owner", ln, re.I)]
+    if (any(re.search(r"\bpending\b", ln, re.I) for ln in review_lines)
+            or re.search(r"\bstill running\b|\brunning when this was written\b", text, re.I)):
+        problems.append(f"the report says a review or run is still going: wait for it, then write its result in {path}")
     if head_short not in text:
         problems.append(f"the report must name the commit it describes: {head_short} (git rev-parse --short HEAD)")
     for section in REPORT_SECTIONS:

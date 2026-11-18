@@ -339,6 +339,8 @@ doctor() {
   else echo "WARN  frappe locked at $(lock 'd["frappe"]["ref"]'); production deploys version-15, now $newest: bootstrap.sh bump"; fi
   check "Desk assets built" '[ -f "$BENCH/sites/assets/assets.json" ]'
   check "frontend node_modules" '[ -d "$ROOT/nirmaan_stack_variants/$NAME/frontend/node_modules/.bin" ]'
+  # Relative, so each checkout runs its own .githooks; an absolute path to another checkout ran none of the checks.
+  check "git hooks: core.hooksPath is .githooks" '[ "$(git -C "$CHECKOUT" config --get core.hooksPath)" = .githooks ]'
   check "Python Playwright on the host" 'python3 -c "import playwright" 2>/dev/null'
   if [ -f "$BENCH/sites/localhost/site_config.json" ]; then ok "site localhost exists"
   else echo "todo  no site localhost yet: scripts/devenv/data.sh restore <backup>"; bad=1; fi
