@@ -35,7 +35,7 @@ from residence_check import (  # noqa: E402
 )
 from residence_check import (  # noqa: E402  (D1, #1705)
     EVERY_RULE,
-    adr0049_rules,
+    rules_the_config_turns_on,
     disable_comment_texts,
     disable_counts,
     disable_directive,
@@ -532,11 +532,11 @@ class DisableComments(unittest.TestCase):
                   "rules": {"typescript/no-explicit-any": "error", "no-console": "off", "eqeqeq": ["warn"]},
                   "overrides": [{"files": ["a/**"], "rules": {"typescript/no-unsafe-call": "error"}},
                                 {"files": ["b.ts"], "rules": {"no-restricted-imports": "off"}}]}
-        self.assertEqual(adr0049_rules(config), {"no-explicit-any": "typescript/no-explicit-any",
+        self.assertEqual(rules_the_config_turns_on(config), {"no-explicit-any": "typescript/no-explicit-any",
                                                  "eqeqeq": "eqeqeq", "no-unsafe-call": "typescript/no-unsafe-call"})
 
     def test_the_real_config_counts_its_rules_and_not_exhaustive_deps(self):
-        rules = adr0049_rules(parse_jsonc((REPO / "frontend/.oxlintrc.json").read_text()))
+        rules = rules_the_config_turns_on(parse_jsonc((REPO / "frontend/.oxlintrc.json").read_text()))
         for name in ("no-explicit-any", "use-unknown-in-catch-callback-variable", "rules-of-hooks",
                      "no-restricted-imports", "no-restricted-properties", "no-unsafe-assignment"):
             self.assertIn(name, rules)
@@ -544,7 +544,7 @@ class DisableComments(unittest.TestCase):
 
     def test_a_category_switched_on_is_refused_its_rules_cannot_be_listed(self):
         with self.assertRaisesRegex(ValueError, "suspicious"):
-            adr0049_rules({"categories": {"suspicious": "error"}})
+            rules_the_config_turns_on({"categories": {"suspicious": "error"}})
 
     def test_counts_per_file_and_rule_under_any_alias_and_comments_naming_no_rule(self):
         rules = {"no-explicit-any": "typescript/no-explicit-any", "rules-of-hooks": "react/rules-of-hooks"}

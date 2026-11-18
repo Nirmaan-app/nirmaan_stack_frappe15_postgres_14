@@ -568,7 +568,7 @@ def disable_comment_texts(sources: dict[str, str]) -> dict[str, list[str]]:
 EVERY_RULE = "every-rule"
 
 
-def adr0049_rules(config: dict) -> dict[str, str]:
+def rules_the_config_turns_on(config: dict) -> dict[str, str]:
     """{rule name: config key} of every rule the oxlint config turns on, at the top level or in an override.
 
     The name is the one oxlint matches a disable comment by (oxlint_settings_check.rule_name). Raises ValueError for
@@ -587,7 +587,7 @@ def adr0049_rules(config: dict) -> dict[str, str]:
 
 
 def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dict[str, dict]:
-    """The disable comments per file that can switch off one of ``rules`` (adr0049_rules), in oxlint's suppressions
+    """The disable comments per file that can switch off one of ``rules`` (rules_the_config_turns_on), in oxlint's suppressions
     shape ({path: {rule key: {"count": n}}}); a comment naming no rule counts under EVERY_RULE. A comment counts once
     per rule it names, however many of that rule's names it gives. Files with none are left out."""
     out: dict[str, dict] = {}
@@ -616,7 +616,7 @@ def disable_comments_found() -> dict[str, dict]:
         src = read(p)
         if "-disable" in src:  # a file without the text holds no directive; the parser is the slow part
             sources[p.relative_to(REPO_ROOT / "frontend").as_posix()] = src
-    rules = adr0049_rules(parse_jsonc(read(REPO_ROOT / CONFIG)))
+    rules = rules_the_config_turns_on(parse_jsonc(read(REPO_ROOT / CONFIG)))
     return disable_counts(disable_comment_texts(sources), rules)
 
 
