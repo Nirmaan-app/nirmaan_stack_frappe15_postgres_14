@@ -90,8 +90,8 @@ from nirmaan_stack.services.outflow_import.candidates import (
 from nirmaan_stack.services.outflow_import.cashbook import CashbookPlan, plan_statement
 from nirmaan_stack.services.outflow_import.cashbook_cutoff import before_cutoff_note, only_before_cutoff_message
 from nirmaan_stack.services.outflow_import.cashbook_late_bills import LateBill, late_bills
-from nirmaan_stack.services.outflow_import.cashbook_refund_expense import refund_description
-from nirmaan_stack.services.outflow_import.cashbook_refunds import REFUND_ROW_KINDS
+from nirmaan_stack.services.outflow_import.cashbook_refund_expense import money_in_description
+from nirmaan_stack.services.outflow_import.cashbook_refunds import CREDIT_ROW_KINDS
 from nirmaan_stack.services.outflow_import.cashbook_review import preview_payload
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -525,10 +525,11 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     # out of the database after a real run. `expenses.create_expense` has always used this adapter;
     # this path simply did not, which is the whole of the defect.
     staged = StagedRow(doc)
-    # #1709: a *Wallet refund expense* -- minus the line's Credit, where its spend is booked. On a refund line the
-    # statement's From is the merchant paying back and To the wallet holder, so who spent it is the To.
-    refund = (doc.get("row_kind") or "").strip() in REFUND_ROW_KINDS
-    spent_by = doc.get("beneficiary_name") if refund else doc.get("added_by_raw")
+    # #1709, #1720: a *Wallet refund expense* or *Wallet credit expense* -- minus the line's Credit. On a money-in line
+    # the statement's From is whoever paid it in and To the wallet holder, so who spent it is the To.
+    kind = (doc.get("row_kind") or "").strip()
+    money_in = kind in CREDIT_ROW_KINDS
+    spent_by = doc.get("beneficiary_name") if money_in else doc.get("added_by_raw")
     result = create_expense_from_row(
         staged,
         doctype=doc["suggested_doctype"],
@@ -536,15 +537,17 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         actor=actor,
         project=doc.get("resolved_project"),
         # A spend's description is left to `settle._default_description`, which composes the payee with the
-        # remark; a refund's names its spend and the merchant (#1709).
-        description=refund_description(doc["transfer_id"], (doc.get("added_by_raw") or "").strip()) if refund else None,
+        # remark; a refund's names its spend and the merchant (#1709), a credit's who paid it in (#1720).
+        description=(
+            money_in_description(kind, doc["transfer_id"], (doc.get("added_by_raw") or "").strip()) if money_in else None
+        ),
         comment=import_comment(None, batch),
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement (a spend's From, a refund's To) -- not the accountant importing it.
         payment_by=(spent_by or "").strip() or None,
         # #1592: the marker that makes this wallet spend wait in Pending Invoices Upload -> Cashbook.
         cashbook_batch=batch,
-        cashbook_refund=refund,
+        cashbook_refund=money_in,
         # ⚠️ NO `payment_ref` OVERRIDE ANY MORE, AND THAT IS THE SLICE (ADR-0020 B9). It used to
         # pass the wallet's transaction id here, because there is no UTR -- a per-path remedy that
         # fixed THIS write site and left the payment one blank for this source. `_stage` now

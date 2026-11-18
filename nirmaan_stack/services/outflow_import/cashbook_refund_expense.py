@@ -22,10 +22,10 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 from nirmaan_stack.services.outflow_import.cashbook_placement import placement
-from nirmaan_stack.services.outflow_import.cashbook_refunds import refunded_spend_id
+from nirmaan_stack.services.outflow_import.cashbook_refunds import WALLET_CREDIT_ROW_KIND, refunded_spend_id
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex
 
-__all__ = ["RefundPlacement", "SpendExpense", "refund_placement", "refund_description"]
+__all__ = ["RefundPlacement", "SpendExpense", "refund_placement", "refund_description", "money_in_description"]
 
 
 @dataclass(frozen=True)
@@ -103,3 +103,11 @@ def refund_description(transfer_id: str, payee: str) -> str:
     return " ".join(
         part for part in ("Wallet refund", f"of {spend}" if spend else "", f"from {payee}" if payee else "") if part
     )
+
+
+def money_in_description(row_kind: str, transfer_id: str, payee: str) -> str:
+    """The description of a line booked at minus its Credit: a refund's (`refund_description`), or a Wallet Credit's
+    (#1720) "Wallet credit from <who paid it in>", the payer left out when the line has none."""
+    if row_kind == WALLET_CREDIT_ROW_KIND:
+        return f"Wallet credit from {payee}" if payee else "Wallet credit"
+    return refund_description(transfer_id, payee)
