@@ -240,6 +240,26 @@ class TestThePatchBooksTheRefundsLeftOpen(RefundExpenseCase):
         self.assertEqual(frappe.db.get_value("Outflow Import Row", line.name, "row_status"), "Mismatched")
 
 
+    def test_a_zero_line_is_not_selected_so_it_never_prints_on_a_run(self):
+        from nirmaan_stack.patches.v3_0.create_open_cashbook_refund_expenses import create_open_refund_expenses
+
+        frappe.db.set_value("Outflow Import Row", self.refunds[1], "amount", 0)  # raw: a test fixture
+        frappe.db.commit()
+        report = create_open_refund_expenses(self.refunds)
+        self.assertEqual((sum(report.created.values()), report.failed), (1, []))
+        self.assertEqual(frappe.db.get_value("Outflow Import Row", self.refunds[1], "row_status"), "Mismatched")
+
+    def test_a_ledger_outside_the_expense_ledgers_is_refused_before_any_write_and_the_run_goes_on(self):
+        from nirmaan_stack.api.outflow_import.cashbook_open_lines import LinePlace, create_open_lines, open_lines
+
+        lines = open_lines(("Credit Adjustment", "Refund to Wallet"), self.refunds)
+        report = create_open_lines(lines, lambda line: LinePlace("Bogus Ledger", None, "Petty Cash"))
+        self.assertEqual(sum(report.created.values()), 0)
+        self.assertEqual(sorted(line for line, _ in report.failed), sorted(self.refunds))
+        for line in self.refunds:
+            self.assertEqual(frappe.db.get_value("Outflow Import Row", line, "row_status"), "Mismatched")
+
+
 class TestAReUpload(RefundExpenseCase):
     def test_the_same_statement_again_books_no_second_refund(self):
         self._stage_and_run()

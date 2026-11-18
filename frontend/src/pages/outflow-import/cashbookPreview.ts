@@ -83,7 +83,7 @@ export interface CashbookPreviewResult {
     total_rows: number;
     creating: number;
     /** #1709 code review: the spends among `creating` (the wallet refunds left out), the count `total_value` sums. */
-    spending?: number;
+    spending: number;
     skipping: number;
     total_value: number;
     warnings: string[];
@@ -388,13 +388,13 @@ export const stoppedText = (status: CashbookStatus | null | undefined): string |
     return `Stopped: ${parts.join(", ")}`;
 };
 
-/** A count as Review prints it: "1,305". The one formatter of this screen's sentences. */
-export const count = (n: number): string => n.toLocaleString("en-IN");
+/** A count with Indian digit grouping, as Review prints it: "1,305". The one count formatter of these sentences. */
+export const formatCount = (n: number): string => n.toLocaleString("en-IN");
 
 /** Review's headline, "115 expense records": the spends only, as `total_value` sums them; refunds are apart (#1709). */
-export const spendsHeadline = (preview: { creating: number; spending?: number }): string => {
-    const n = preview.spending ?? preview.creating;
-    return `${count(n)} expense ${n === 1 ? "record" : "records"}`;
+export const spendsHeadline = (preview: { spending: number }): string => {
+    const n = preview.spending;
+    return `${formatCount(n)} expense ${n === 1 ? "record" : "records"}`;
 };
 
 /**
@@ -409,11 +409,11 @@ export const invoiceCountsText = (preview: {
     // The spends only: `creating` also counts the wallet refunds, which need no bill (#1709).
     const n = invoices ? invoices.one_file + invoices.merged + invoices.waiting : 0;
     if (!invoices || preview.creating <= 0 || n <= 0) return null;
-    const spends = `${count(n)} ${n === 1 ? "spend" : "spends"}`;
+    const spends = `${formatCount(n)} ${n === 1 ? "spend" : "spends"}`;
     return (
-        `${spends}: ${count(invoices.one_file)} with 1 file, ` +
-        `${count(invoices.merged)} with 2–4 files (merged), ` +
-        `${count(invoices.waiting)} will wait for an invoice`
+        `${spends}: ${formatCount(invoices.one_file)} with 1 file, ` +
+        `${formatCount(invoices.merged)} with 2–4 files (merged), ` +
+        `${formatCount(invoices.waiting)} will wait for an invoice`
     );
 };
 
@@ -431,7 +431,7 @@ export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined)
     if (!status || status.running || lines.length === 0) return null;
     return lines.length === 1
         ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
-        : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
+        : `${formatCount(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
 };
 
 /**
@@ -443,7 +443,7 @@ export const openLinesHeading = (lines: readonly CashbookSkippedRow[] | undefine
     if (n === 0) return null;
     return n === 1
         ? "1 line will stay open for someone to decide on the transactions screen"
-        : `${count(n)} lines will stay open for someone to decide on the transactions screen`;
+        : `${formatCount(n)} lines will stay open for someone to decide on the transactions screen`;
 };
 
 /**
@@ -455,7 +455,7 @@ export const lateBillsHeading = (lines: readonly CashbookLateBill[] | undefined)
     if (n === 0) return null;
     return n === 1
         ? "1 existing Expense will get its bill. Its line is already imported and is not saved again"
-        : `${count(n)} existing Expenses will get their bills. Their lines are already imported and are not saved again`;
+        : `${formatCount(n)} existing Expenses will get their bills. Their lines are already imported and are not saved again`;
 };
 
 /** How one late bill reads: "NPE-0042 · OBO… · Pay to merchant" (the bill count when there is no remark). */
@@ -467,7 +467,7 @@ export const lateBillLabel = (line: CashbookLateBill): string =>
 /** The progress screen's line about the late bills (#1593), or null when there were none. */
 export const lateBillsDoneText = (n: number, running: boolean): string | null => {
     if (n <= 0) return null;
-    const expenses = `${count(n)} existing ${n === 1 ? "Expense" : "Expenses"}`;
+    const expenses = `${formatCount(n)} existing ${n === 1 ? "Expense" : "Expenses"}`;
     if (running) return `Adding bills to ${expenses}…`;
     return `${n === 1 ? "Bill" : "Bills"} added to ${expenses}, unless someone had already attached an invoice or marked it No invoice.`;
 };
@@ -481,7 +481,7 @@ export const reopenedHeading = (lines: readonly CashbookReopenedLine[] | undefin
     if (n === 0) return null;
     return n === 1
         ? "1 line an earlier import skipped as own balances will be re-opened under the new rules"
-        : `${count(n)} lines earlier imports skipped as own balances will be re-opened under the new rules`;
+        : `${formatCount(n)} lines earlier imports skipped as own balances will be re-opened under the new rules`;
 };
 
 /** How one re-opened line reads: "Wallet Credit PTM6 · in OFI-26-00237 · stays open". */

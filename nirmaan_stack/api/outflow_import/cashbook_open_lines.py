@@ -6,8 +6,8 @@ share, `v3_0.create_open_collect_payment_expenses` (#1708) and `v3_0.create_open
 Each patch says only which lines it takes and where each one goes; this module does the rest.
 
 WHICH LINES (`open_lines`)
-    A line of a Cashbook Statement import of the given statement Types, at `Mismatched`, with no Settled
-    `Outflow Row Match` and no hand decision: no `decided_by`, no "Confirm by hand" mark (an Unreconcile leaves one)
+    A line of a Cashbook Statement import of the given statement Types, at `Mismatched`, above zero (the job skips a
+    zero line), with no Settled `Outflow Row Match` and no hand decision: no `decided_by`, no "Confirm by hand" mark (an Unreconcile leaves one)
     and no skip origin. A line a person decided is left as they left it.
 
 WHAT EACH GETS (`create_open_lines`)
@@ -16,7 +16,8 @@ WHAT EACH GETS (`create_open_lines`)
     writes its Expense exactly as the job does, in the name of the person who uploaded its import.
 
 ONE LINE, ONE TRANSACTION. A line whose write is refused is rolled back, left open and printed; the others go on.
-A line already booked (`already_booked`) is left open and counted, not printed: it would print on every run.
+A line already booked (`already_booked`, the job's own check: `booked_holder`) is left open and counted, not
+printed: it would print on every run. A placement outside the expense ledgers is refused before any write.
 
 IDEMPOTENT. A created line is Settled, so a second run selects nothing and writes nothing.
 """
@@ -24,11 +25,12 @@ IDEMPOTENT. A created line is Settled, so a second run selects nothing and write
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Callable, Iterable
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.cashbook import write_line_expense
+from nirmaan_stack.api.outflow_import.cashbook import booked_as, write_line_expense
 from nirmaan_stack.api.outflow_import.cashbook_lines import MATCH_BASIS, ROW_DOCTYPE, lock_line_if
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 from nirmaan_stack.services.outflow_import.row_settlement import refresh_batch_rollup
@@ -73,7 +75,7 @@ def open_lines(kinds: Iterable[str], lines: list[str] | None = None) -> list[fra
                r.suggested_expense_type, r.resolved_project, r.stored_bill, r.bill_links, b.uploaded_by
         FROM "tabOutflow Import Row" r
         JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch AND b.source = %(source)s
-        WHERE r.row_kind IN %(kinds)s AND r.row_status = %(open)s
+        WHERE r.row_kind IN %(kinds)s AND r.row_status = %(open)s AND r.amount > 0
           AND COALESCE(r.decided_by, '') = '' AND COALESCE(r.confirm_by_hand, 0) = 0
           AND COALESCE(r.skip_origin, '') = ''
           AND NOT EXISTS (
@@ -111,6 +113,8 @@ def create_open_lines(
                 report.already_booked += 1
                 continue
             place = place_of(line)
+            if place.ledger not in report.created:
+                raise ValueError(f"{place.ledger} is not an expense ledger")
             created = _create_one(line, place, actor)
             if created and after_write:
                 after_write(line, actor)
@@ -128,6 +132,12 @@ def create_open_lines(
         refresh_batch_rollup(batch)
     frappe.db.commit()
     return report
+
+
+def booked_holder(line, amount: Decimal) -> str | None:
+    """The Expense already holding this line's Txn Id at `amount` on its date (the import's "already booked" check,
+    `cashbook.booked_as`): a Collect payment at its Debit, a refund at minus its Credit."""
+    return booked_as(line.transfer_id, amount, line.added_on.date() if line.added_on else None)
 
 
 def _create_one(line, place: LinePlace, actor: str) -> bool:

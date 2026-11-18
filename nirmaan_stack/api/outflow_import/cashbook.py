@@ -47,7 +47,8 @@ accountants and administrators and returns 403 for everyone else. Reversing it i
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import frappe
@@ -864,7 +865,7 @@ def _booked_index(ids) -> dict:
     return index_prior_sightings(entries)
 
 
-def booked_as(transfer_id: str, amount, when) -> str | None:
+def booked_as(transfer_id: str, amount: Decimal, when: date | None) -> str | None:
     """The Expense already carrying `transfer_id` at `amount` on `when`, as the label the "already booked" skip names
     ("<doctype> <name>"), or `None`: the one check `_already_booked` makes, for one Txn Id."""
     return find_prior_sighting(_booked_index([transfer_id]), transfer_id, amount, when)

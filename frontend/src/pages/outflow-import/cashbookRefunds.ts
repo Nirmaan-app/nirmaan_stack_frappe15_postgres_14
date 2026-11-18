@@ -4,7 +4,7 @@
 // unpaired ones (#1709, ADR-0015 Amendment D). No React, no fetch.
 // GLOSSARY: *Wallet refund expense*. Split out of `cashbookPreview.ts` (file size).
 
-import { count, type CashbookRefundLine, type CashbookRefundPair } from "./cashbookPreview";
+import { formatCount, type CashbookRefundLine, type CashbookRefundPair } from "./cashbookPreview";
 
 /** The heading over the wallet refunds, or null when there are none. */
 export const refundsHeading = (lines: readonly CashbookRefundLine[] | undefined): string | null => {
@@ -12,7 +12,7 @@ export const refundsHeading = (lines: readonly CashbookRefundLine[] | undefined)
     if (n === 0) return null;
     return n === 1
         ? "1 wallet refund will be booked as a minus expense where its spend is booked"
-        : `${count(n)} wallet refunds will be booked as minus expenses where their spends are booked`;
+        : `${formatCount(n)} wallet refunds will be booked as minus expenses where their spends are booked`;
 };
 
 /** "Credit Adjustment REF-OBO… · reduces OBO… (9surl50t7h) · Non Project Expenses · Petty Cash". */
@@ -33,7 +33,7 @@ export const pairsHeading = (pairs: readonly CashbookRefundPair[] | undefined): 
     if (n === 0) return null;
     return n === 1
         ? "1 paired wallet refund: the refund gives back the whole spend, so neither line is recorded"
-        : `${count(n)} paired wallet refunds: each refund gives back a whole spend, so neither line is recorded`;
+        : `${formatCount(n)} paired wallet refunds: each refund gives back a whole spend, so neither line is recorded`;
 };
 
 /** How a pair's spend reads beside its refund: "Collect Payment OBO…3 · Testshop Collect Three". */

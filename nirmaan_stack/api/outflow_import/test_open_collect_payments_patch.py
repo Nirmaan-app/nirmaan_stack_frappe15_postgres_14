@@ -104,3 +104,35 @@ class TestALineWithNoLedgerIsPlacedAsTheJobPlacesIt(OpenCollectPaymentCase):
         self.assertEqual((sum(report.created.values()), report.failed), (2, []))
         expense = self._expense_of(COLLECT_NO_LINK)
         self.assertEqual((expense.doctype, expense.type), (planned.suggested_doctype, planned.suggested_expense_type))
+
+
+class TestALineAlreadyOnAHandExpenseIsLeftOpen(OpenCollectPaymentCase):
+    """A Txn Id already on an Expense keyed in by hand (its `payment_ref`, no match row): the job would skip the line
+    as already booked, so the patch creates nothing for it and counts it."""
+
+    def test_the_patch_creates_no_second_expense_and_counts_it(self):
+        line = self._line(COLLECT_NO_LINK)
+        project = frappe.db.get_value(
+            "Projects", {"tendering_status": "Won", "status": ["!=", "CEO Hold"]}, "name", order_by="creation asc"
+        )
+        doc = frappe.new_doc("Project Expenses")
+        doc.update(
+            {
+                "projects": project,
+                "type": frappe.db.get_value("Expense Type", {"project": 1, "non_project": 0}, "name"),
+                "status": "Paid",
+                "amount": line.amount,
+                "payment_date": line.added_on.date(),
+                "payment_ref": line.transfer_id,
+                "description": "Hand-keyed wallet spend",
+            }
+        )
+        doc.flags.ignore_permissions = True
+        doc.insert()
+        frappe.db.commit()
+        self.addCleanup(lambda: (frappe.db.delete("Project Expenses", doc.name), frappe.db.commit()))
+
+        report = self._patch()
+        self.assertEqual((sum(report.created.values()), report.already_booked, report.failed), (1, 1, []))
+        self.assertIn("Already booked: 1", report.text())
+        self.assertEqual((self._line(COLLECT_NO_LINK).row_status, self._expenses_of(COLLECT_NO_LINK)), ("Mismatched", []))

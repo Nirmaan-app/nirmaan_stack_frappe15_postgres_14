@@ -24,14 +24,20 @@ WHAT EACH GETS
     (`expense_bills.receive_bill`); its File stays on the line (`file_stays`), and the Expense bill is read afresh.
     Without one, the Expense waits in Pending Invoices Upload -> Cashbook like any spend without a bill.
 
+ALREADY BOOKED
+    A line whose Txn Id is already on an Expense at its amount and date (one keyed in by hand, for one) is left open
+    and counted, as the job skips it (`cashbook_open_lines.booked_holder`).
+
 ONE LINE, ONE TRANSACTION, IDEMPOTENT: see `cashbook_open_lines`. A line whose write is refused (its Txn Id's
 Expense already exists, for one) is rolled back, left open and printed; the others go on.
 
 IT PRINTS
-    How many Expenses it created per ledger, and each line it could not create.
+    How many Expenses it created per ledger, how many lines were already booked, and each line it could not create.
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 import frappe
 
@@ -41,6 +47,7 @@ from nirmaan_stack.api.outflow_import.cashbook_lines import ROW_DOCTYPE
 from nirmaan_stack.api.outflow_import.cashbook_open_lines import (
     CreateReport,
     LinePlace,
+    booked_holder,
     create_open_lines,
     open_lines,
 )
@@ -61,7 +68,12 @@ def create_open_collect_payment_expenses(lines: list[str] | None = None) -> Crea
         planned = placement((line.remarks or "").strip(), index, rules)
         return LinePlace(planned["ledger"], planned["project"], planned["expense_type"])
 
-    return create_open_lines(open_lines((COLLECT_ROW_KIND,), lines), place_of, after_write=_file_stored_bill)
+    return create_open_lines(
+        open_lines((COLLECT_ROW_KIND,), lines),
+        place_of,
+        already_booked=lambda line: booked_holder(line, Decimal(str(line.amount))),
+        after_write=_file_stored_bill,
+    )
 
 
 def _file_stored_bill(line, actor: str) -> None:

@@ -17,7 +17,7 @@ WHAT EACH GETS
     it is now when it has one (`cashbook_refund_spends.spend_expenses`), else a Non Project Expense typed from the
     refund's remark. `cashbook_open_lines.create_open_lines` then writes its Expense exactly as the job does, in the
     name of the person who uploaded its import. A refund whose negative Expense is already booked (its Txn Id at minus
-    its Credit, `cashbook.booked_as`) is left open and counted.
+    its Credit, `cashbook_open_lines.booked_holder`) is left open and counted.
 
 ONE LINE, ONE TRANSACTION, IDEMPOTENT: see `cashbook_open_lines`. A line whose write is refused is rolled back, left
 open and printed; the others go on.
@@ -30,10 +30,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from nirmaan_stack.api.outflow_import.cashbook import booked_as
 from nirmaan_stack.api.outflow_import.cashbook_open_lines import (
     CreateReport,
     LinePlace,
+    booked_holder,
     create_open_lines,
     open_lines,
 )
@@ -55,13 +55,9 @@ def create_open_refund_expenses(lines: list[str] | None = None) -> CreateReport:
         )
         return LinePlace(place.ledger, place.project, place.expense_type)
 
-    return create_open_lines(refunds, place_of, already_booked=_already_booked)
-
-
-def _already_booked(line) -> str | None:
-    """The Expense already holding this refund (its Txn Id at minus its Credit), as the import's check finds it."""
-    when = line.added_on.date() if line.added_on else None
-    return booked_as(line.transfer_id, -Decimal(str(line.amount)), when)
+    return create_open_lines(
+        refunds, place_of, already_booked=lambda line: booked_holder(line, -Decimal(str(line.amount)))
+    )
 
 
 def execute():
