@@ -6,6 +6,7 @@ Stdlib only, like the check itself (J1's tests also need node and frontend/node_
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -615,6 +616,17 @@ class DisableComments(unittest.TestCase):
         self.assertEqual(sorted(sources), sorted(linted))
         self.assertEqual(unreadable, [])
 
+    def test_skips_only_the_files_git_ignores_as_oxlint_does(self):
+        # Measured on oxlint 1.94: it lints folders named public, dist, node_modules or hidden ones unless a
+        # .gitignore names them, and skips a git-ignored file even when it was added with `git add -f`.
+        read = ["src/a/public/p.ts", "src/dist/d.ts", "src/node_modules/n.ts", "src/.hidden/h.ts", "src/untracked.ts"]
+        ignored = ["src/gen/g.ts", "src/forced.gen.ts"]
+        root = self.frontend_tree({".gitignore": "gen/\n*.gen.ts\n", **{p: self.DISABLE for p in read + ignored}})
+        git = ["git", "-C", str(root), "-c", "user.name=x", "-c", "user.email=x@example.invalid"]
+        subprocess.run([*git, "add", "-f", "src/forced.gen.ts", "src/a/public/p.ts"], check=True)
+        subprocess.run([*git, "commit", "-qm", "x"], check=True)
+        self.assertEqual(sorted(disable_comment_sources(root)[0]), sorted(read))
+
     def test_a_vue_svelte_or_astro_file_holding_disable_text_is_unreadable(self):
         # oxlint lints their script blocks; D1's TypeScript parser cannot read them, so each is a finding.
         root = self.frontend_tree({"src/f.vue": "<script>// eslint-disable</script>", "src/f.svelte": "",
@@ -687,16 +699,23 @@ class DisableComments(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertEqual(after, self.FROZEN)
 
+    def path_without_node(self):
+        """A PATH holding git and no node: D1 lists the files with git, then cannot parse them."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        os.symlink(shutil.which("git"), Path(tmp.name) / "git")
+        return tmp.name
+
     def test_in_the_commit_hook_d1_warns_and_passes_when_node_is_missing(self):
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+        with mock.patch.dict(os.environ, {"PATH": self.path_without_node()}), redirect_stdout(out):
             rc = main(["--hook", "--only", "D1"])
         self.assertEqual(rc, 0, out.getvalue())
         self.assertIn("⚠ D1 skipped: node could not run", out.getvalue())
 
     def test_d1_fails_when_node_is_missing_outside_the_hook(self):
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {"PATH": ""}), redirect_stdout(out):
+        with mock.patch.dict(os.environ, {"PATH": self.path_without_node()}), redirect_stdout(out):
             rc = main(["--check", "--only", "D1"])
         self.assertEqual(rc, 1, out.getvalue())
 

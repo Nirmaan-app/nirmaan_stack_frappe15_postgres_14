@@ -613,15 +613,25 @@ LINTED_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 OTHER_LINTED_SUFFIXES = (".vue", ".svelte", ".astro")
 
 
+def _git_files(frontend: Path, *flags: str) -> set[str]:
+    run = subprocess.run(["git", "-C", str(frontend), "ls-files", "-z", *flags, "--exclude-standard", "--", "src"],
+                         capture_output=True, text=True, check=True)
+    return set(filter(None, run.stdout.split("\0")))
+
+
 def disable_comment_sources(frontend: Path) -> tuple[dict[str, str], list[str]]:
     """(sources, unreadable) under ``frontend``/src, keyed by paths relative to ``frontend``: each file oxlint lints
     whose text holds `-disable` (a file without it holds no directive; the parser is the slow part), and each such
-    file D1's parser cannot read (OTHER_LINTED_SUFFIXES)."""
+    file D1's parser cannot read (OTHER_LINTED_SUFFIXES).
+
+    oxlint walks every folder (`public`, `dist` and hidden ones too) and skips what a .gitignore names, a file added
+    with `git add -f` included (measured on oxlint 1.94), so git lists the files: tracked or untracked, less every
+    ignored one. Raises OSError or CalledProcessError when git cannot list them."""
     sources, unreadable = {}, []
-    for p in sorted((frontend / "src").rglob("*")):
-        if not p.is_file() or SKIP_DIRS & set(p.parts):
+    for rel in sorted(_git_files(frontend, "--cached", "--others") - _git_files(frontend, "--cached", "--ignored")):
+        p = frontend / rel
+        if not p.is_file():  # deleted in the working tree, not yet staged
             continue
-        rel = p.relative_to(frontend).as_posix()
         if p.suffix in LINTED_SUFFIXES and "-disable" in (src := read(p)):
             sources[rel] = src
         elif p.suffix in OTHER_LINTED_SUFFIXES and "-disable" in read(p):
@@ -680,6 +690,8 @@ def disable_comments_unfrozen() -> list[str]:
         return [f"D1 could not count disable comments: {e}"]
     except ValueError as e:
         return [f"D1 could not list ADR-0049's rules: {e}"]
+    except (OSError, subprocess.CalledProcessError) as e:
+        return [f"D1 could not list the files oxlint lints with git: {e}"]
     found, unreadable = found
     over, under = disable_drift(found, _read_disable_suppressions())
     return (over + [f"{line} (fewer: lower it with python3 scripts/residence_check.py {PRUNE_FLAG})" for line in under]
@@ -691,7 +703,7 @@ def prune_disable_comments() -> int:
     """Lower DISABLE_SUPPRESSIONS to today's counts (a file or rule at 0 goes); never raise one. 0 = done."""
     try:
         found, _ = disable_comments_found()
-    except (TsParserError, ValueError) as e:
+    except (TsParserError, ValueError, OSError, subprocess.CalledProcessError) as e:
         print(f"✗ {PRUNE_FLAG}: D1 could not count disable comments: {e}", file=sys.stderr)
         return 1
     over, _ = disable_drift(found, _read_disable_suppressions())
