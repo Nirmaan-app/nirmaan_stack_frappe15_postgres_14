@@ -613,6 +613,8 @@ def counted_names_on_background_doctypes(doctype_dir: Path, doctypes: list[str],
 
 
 def counted_names() -> list[str]:
+    """N1's findings for this repo: BACKGROUND_WRITTEN_DOCTYPES read from the doctype folders, less
+    COUNTED_NAME_WAITING. It reads only the JSON and the controller file, not the DB or hooks."""
     return counted_names_on_background_doctypes(DOCTYPE_DIR, BACKGROUND_WRITTEN_DOCTYPES, COUNTED_NAME_WAITING)
 
 
@@ -812,7 +814,8 @@ CHECKS: list[Check] = [
         rule="N1",
         description="Doctypes in BACKGROUND_WRITTEN_DOCTYPES that take a counted name (a tabSeries number from the "
                     "doctype's autoname or its controller's getseries / make_autoname) and are not in "
-                    "COUNTED_NAME_WAITING.",
+                    "COUNTED_NAME_WAITING. It reads the doctype JSON and controller only, so it cannot see a "
+                    "Document Naming Rule record in the DB, set_name_by_naming_series, or a name set from hooks.",
         route_hint="name it `hash` (Naming Rule Random) through the DocType form, never by hand (ADR-0048); a user-seen "
                    "number keeps its counter behind a session lock per series instead (BoQ numbers, #1659).",
         measure=lambda: len(counted_names()),

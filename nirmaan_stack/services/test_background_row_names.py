@@ -219,6 +219,13 @@ class TestBoqNumbersStayCounted(FrappeTestCase):
     def test_a_boq_creation_waits_for_the_lock_holder_then_takes_the_next_number(self):
         """Two BoQ creations really at once: the second, on its own connection in a thread, waits on the series
         lock while the first holds it, then commits the next number."""
+        self.assert_second_creation_waits_then_takes_the_next_number()
+
+    def test_a_bounded_wait_that_is_granted_in_time_is_recorded_too(self):
+        """A web request's wait is bounded (`wait_s`); one granted within its bound behaves as the unbounded wait."""
+        self.assert_second_creation_waits_then_takes_the_next_number(wait_s=20)
+
+    def assert_second_creation_waits_then_takes_the_next_number(self, **lock_kwargs):
         site, sites_path = frappe.local.site, frappe.local.sites_path
         second = {}
 
@@ -227,7 +234,7 @@ class TestBoqNumbersStayCounted(FrappeTestCase):
             frappe.connect()
             try:
                 frappe.set_user("Administrator")
-                with series_lock(boq_series()):
+                with series_lock(boq_series(), **lock_kwargs):
                     second["name"] = _new_boq(self.projects[1], "Clash fixture second")
             except Exception as e:
                 second["error"] = f"{type(e).__name__}: {e}"

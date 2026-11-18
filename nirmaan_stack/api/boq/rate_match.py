@@ -115,11 +115,8 @@ def _set_marker(boq, sheet_name, marker):
 
 
 def _maybe_self_heal(boq, sheet_name, marker):
-    """'running' | 'cleared' | 'cleared_stale': rate_master._s_maybe_self_heal's rule (stale from start, #1660)."""
-    state = operation_marker.job_state(marker.get("job_id"), marker.get("enqueued_at"), _STALE_MATCH_SECONDS)
-    if state != "running":
-        frappe.cache().delete_value(_marker_key(boq, sheet_name))
-    return state
+    """'running' | 'cleared' | 'cleared_stale': rate_master._s_maybe_self_heal's rule (operation_marker.heal)."""
+    return operation_marker.heal(_marker_key(boq, sheet_name), marker, _STALE_MATCH_SECONDS)
 
 
 def start_after_suggest(boq, sheet_name, suggest_run_id, only_rows=None, resume_run_id=None, user=None):
@@ -140,7 +137,7 @@ def start_after_suggest(boq, sheet_name, suggest_run_id, only_rows=None, resume_
         job_id = frappe.generate_hash(length=32)
         marker = {"job_id": job_id, "run": None, "suggest_run_id": suggest_run_id, "enqueued_at": frappe.utils.now(),
                   "user": user, "phase": "queued", "done": 0, "total": 0}
-        claimed = operation_marker.claim(_marker_key(boq, sheet_name), marker, _M_MARKER_TTL_SEC)
+        claimed = operation_marker.claim(_marker_key(boq, sheet_name), marker)
         if not claimed:
             return _in_progress(boq, sheet_name, suggest_run_id, _get_marker(boq, sheet_name))
         doc = frappe.get_doc({"doctype": MATCH_DOCTYPE, "boq": boq, "sheet_name": sheet_name, "job_id": job_id,
@@ -150,7 +147,9 @@ def start_after_suggest(boq, sheet_name, suggest_run_id, only_rows=None, resume_
         doc.insert(ignore_permissions=True)
         frappe.db.commit()
         frappe.cache().delete_value(_status_key(boq, sheet_name))
-        _set_marker(boq, sheet_name, {**marker, "run": doc.name})
+        # Still waiting to run: keep the claim's TTL, not the running marker's (#1660 review)
+        frappe.cache().set_value(_marker_key(boq, sheet_name), {**marker, "run": doc.name},
+                                 expires_in_sec=operation_marker.CLAIM_TTL_SEC)
         # A queue call that fails leaves this run doc `queued`: tasks/match_run_healer halts it.
         frappe.enqueue(WORKER, queue="long", timeout=_MATCH_JOB_TIMEOUT_SEC, job_id=job_id, run_name=doc.name,
                        boq=boq, sheet_name=sheet_name, suggest_run_id=suggest_run_id, user=user,

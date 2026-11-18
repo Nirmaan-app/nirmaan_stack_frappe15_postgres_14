@@ -57,7 +57,8 @@ from nirmaan_stack.services.boq_category.runner import classify_line
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name, purge_boq, purge_docs
 from nirmaan_stack.services.test_operation_marker import (
-    held_in_queue, later, never_queued, new_request, queue_call_fails, started_job,
+    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails, started_job,
+    wait_past_one_second_ttl,
 )
 
 _ROW_CATEGORY = "BoQ Row Category"
@@ -541,6 +542,37 @@ class TestClassifyAlreadyRunning(FrappeTestCase):
                 with self.assertRaises(frappe.ValidationError):
                     self._start()
         self.assertEqual(len(jobs), 1)
+
+    def test_a_run_held_in_the_queue_longer_than_the_marker_ttl_still_blocks_a_second_start(self):
+        """The marker's progress TTL counts from the claim; a queue wait longer than it must not drop the marker."""
+        with held_in_queue() as jobs, mock.patch.object(classify, "_MARKER_TTL_SEC", 1):
+            self._start()
+            wait_past_one_second_ttl()
+            self.assertEqual(self._status(), "running")
+            with self.assertRaises(frappe.ValidationError):
+                self._start()
+        self.assertEqual(len(jobs), 1)
+
+    def test_two_starts_that_both_heal_one_stale_marker_queue_once(self):
+        """B reads stale marker M; A heals M, claims M' and queues; B then heals what it read (M), not A's M'."""
+        leave_stale_marker(classify._marker_key(self.boq, self.sheet, "Electrical"))
+        first = []
+        real_get = classify._get_marker
+
+        def b_reads_then_a_runs(*args):
+            seen = real_get(*args)
+            if not first:
+                first.append(None)
+                saved = frappe.local.cache
+                first[0] = self._start()
+                frappe.local.cache = saved
+            return seen
+
+        with held_in_queue() as jobs, mock.patch.object(classify, "_get_marker", side_effect=b_reads_then_a_runs):
+            with self.assertRaises(frappe.ValidationError):
+                start_classify(boq=self.boq, sheet_name=self.sheet, discipline="Electrical", scope={"mode": "sheet"})
+        self.assertEqual(first[0]["status"], "queued")
+        self.assertEqual(len(jobs), 1, "two starts that healed one stale marker must not both queue")
 
     def test_a_run_whose_worker_never_starts_is_healed(self):
         with never_queued():

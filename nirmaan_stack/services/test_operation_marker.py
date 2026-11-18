@@ -7,6 +7,8 @@ The fixtures here serve the four flows' own tests (classify, rate suggest, rate 
   never_queued()      a start whose operation never reaches rq (its worker never starts)
   queue_call_fails()  a start whose queue call raises
   new_request()       each simulated request starts with an empty per-request cache, as a real request does
+  leave_stale_marker(key)  a marker an hour old whose job rq does not know (the next read heals it)
+  wait_past_one_second_ttl()  outlast a flow's marker TTL patched to 1 s
   later(seconds)      the clock reads `seconds` later
   fake_job(status)    what rq's get_job returns for a job in that status; started_job() one just started
 
@@ -14,6 +16,7 @@ The tests here pin `operation_marker.job_state` at its edges with real rq job re
 """
 
 import datetime
+import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest import mock
@@ -78,6 +81,17 @@ def queue_call_fails():
 
 def new_request():
     frappe.local.cache = {}
+
+
+def leave_stale_marker(key):
+    """A marker at cache `key` whose job rq does not know, set an hour ago: the next read heals it."""
+    frappe.cache().set_value(key, {"job_id": frappe.generate_hash(length=32), "user": "Administrator",
+                                   "enqueued_at": str(frappe.utils.add_to_date(frappe.utils.now_datetime(), hours=-1))})
+
+
+def wait_past_one_second_ttl():
+    """Outlast a marker TTL patched to 1 s (Redis counts it; no fake clock reaches it)."""
+    time.sleep(2.1)
 
 
 @contextmanager

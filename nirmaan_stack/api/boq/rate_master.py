@@ -249,7 +249,6 @@ def _s_set_marker(boq, sheet_name, job_id, user):
     return operation_marker.claim(
         _s_marker_key(boq, sheet_name),
         {"job_id": job_id, "enqueued_at": frappe.utils.now(), "user": user},
-        _S_MARKER_TTL_SEC,
     )
 
 
@@ -271,12 +270,8 @@ def _s_update_marker_progress(boq, sheet_name, done, total):
 
 
 def _s_maybe_self_heal(boq, sheet_name, marker):
-    """'running' | 'cleared' | 'cleared_stale' -- classify._maybe_self_heal's rule (stale counts from the start of
-    running, #1660), clearing the marker unless it is running."""
-    state = operation_marker.job_state(marker.get("job_id"), marker.get("enqueued_at"), _STALE_SUGGEST_SECONDS)
-    if state != "running":
-        _s_clear_marker(boq, sheet_name)
-    return state
+    """'running' | 'cleared' | 'cleared_stale' -- classify._maybe_self_heal's rule (operation_marker.heal)."""
+    return operation_marker.heal(_s_marker_key(boq, sheet_name), marker, _STALE_SUGGEST_SECONDS)
 
 
 def _resolve_committed_version(boq, sheet_name):
@@ -527,22 +522,18 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None)
             title="Suggest in progress",
         )
     frappe.cache().delete_value(_s_status_key(boq, sheet_name))
-    frappe.db.commit()
-    try:
-        frappe.enqueue(
-            "nirmaan_stack.api.boq.rate_master._suggest_worker",
-            queue="long",
-            timeout=_SUGGEST_JOB_TIMEOUT_SEC,
-            job_id=raw_job_id,
-            user=user,
-            boq=boq,
-            sheet_name=sheet_name,
-            resume_run_id=resume_run_id,
-            only_rows=only,
-        )
-    except Exception:
-        _s_clear_marker(boq, sheet_name)
-        raise
+    operation_marker.enqueue_claimed(
+        _s_marker_key(boq, sheet_name),
+        "nirmaan_stack.api.boq.rate_master._suggest_worker",
+        queue="long",
+        timeout=_SUGGEST_JOB_TIMEOUT_SEC,
+        job_id=raw_job_id,
+        user=user,
+        boq=boq,
+        sheet_name=sheet_name,
+        resume_run_id=resume_run_id,
+        only_rows=only,
+    )
     return {
         "status": "queued",
         "job_id": raw_job_id,
@@ -980,8 +971,12 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
         # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write, the
         # failed mark and the done message below would all fail with it (#1657). The rollback discards only
         # the uncommitted work since the last checkpoint; every checkpoint was committed as it was taken, so
-        # the run keeps its rows, is marked failed, and stays resumable.
-        frappe.db.rollback()
+        # the run keeps its rows, is marked failed, and stays resumable. A rollback that fails (dead connection)
+        # must not skip the log and the done message.
+        try:
+            frappe.db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         frappe.log_error(title="BoQ suggest worker failed", message=frappe.get_traceback())
         halt_reason = "The suggestion run stopped unexpectedly. Anything already extracted was kept."
         if run_name:

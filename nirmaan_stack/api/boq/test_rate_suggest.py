@@ -41,7 +41,7 @@ from nirmaan_stack.services.boq_rate_master import extraction
 from nirmaan_stack.api.boq.wizard.test_classify import _FakeClient, _Resp, _new_boq, _new_sheet, _node
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 from nirmaan_stack.services.test_operation_marker import (
-    held_in_queue, later, never_queued, new_request, queue_call_fails,
+    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails, wait_past_one_second_ttl,
 )
 
 _ROW_CATEGORY = "BoQ Row Category"
@@ -1430,6 +1430,46 @@ class TestRateSuggest(FrappeTestCase):
                 with later(rate_master._STALE_SUGGEST_SECONDS + 1):
                     self.assertEqual(self._suggest_state(), "idle")
                     self.assertEqual(self._start_suggest()["status"], "queued")
+        finally:
+            self._forget_suggest_marker()
+
+    def test_47_a_run_held_in_the_queue_longer_than_the_marker_ttl_still_blocks_a_second_start(self):
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+        try:
+            with held_in_queue() as jobs, mock.patch.object(rate_master, "_S_MARKER_TTL_SEC", 1):
+                self._start_suggest()
+                wait_past_one_second_ttl()
+                self.assertEqual(self._suggest_state(), "running")
+                with self.assertRaises(frappe.ValidationError):
+                    self._start_suggest()
+            self.assertEqual(len(jobs), 1)
+        finally:
+            self._forget_suggest_marker()
+
+    def test_48_two_starts_that_both_heal_one_stale_marker_queue_once(self):
+        from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
+        _categorise_fixture_eligible_rows(self.boq, self.sheet_name, self.cv)
+        leave_stale_marker(rate_master._s_marker_key(self.boq, self.sheet_name))
+        first = []
+        real_get = rate_master._s_get_marker
+
+        def b_reads_then_a_runs(*args):
+            seen = real_get(*args)
+            if not first:
+                first.append(None)
+                saved = frappe.local.cache
+                first[0] = self._start_suggest()
+                frappe.local.cache = saved
+            return seen
+
+        try:
+            with held_in_queue() as jobs, \
+                    mock.patch.object(rate_master, "_s_get_marker", side_effect=b_reads_then_a_runs):
+                with self.assertRaises(frappe.ValidationError):
+                    rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
+            self.assertEqual(first[0]["status"], "queued")
+            self.assertEqual(len(jobs), 1, "two starts that healed one stale marker must not both queue")
         finally:
             self._forget_suggest_marker()
 

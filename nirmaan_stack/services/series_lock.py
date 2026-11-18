@@ -16,7 +16,8 @@ lock taken inside the transaction does not work: the snapshot is already taken (
 commits before it unlocks, so the next holder sees its rows; a failure rolls back first, so the unlock runs on a
 usable transaction. A worker that dies drops its connection, and Postgres drops its session locks with it.
 
-With N workers, up to N-1 operations that create BoQs wait here, each holding a worker. Each wait is recorded in
+With N workers, up to N-1 operations that create BoQs wait here, each holding a worker. A web request waits at most
+its `wait_s` (an upload holds the lock for its whole run), then is refused. Each wait that is granted is recorded in
 `recent_waits()` (the last 500, in the cache): the N-worker check reports the longest.
 """
 
@@ -35,19 +36,25 @@ def boq_series() -> str:
     return frappe.get_meta("BOQs").autoname
 
 
-@contextmanager
-def series_lock(*series: str):
-    """Hold the lock of every series in `series` for the `with` block, inside a transaction that started after
-    they were granted. Commits on a clean exit and rolls back on an exception, both before unlocking.
+class SeriesBusy(Exception):
+    """The series lock was not granted within the caller's `wait_s`."""
 
-    ⚠️ Commits the caller's open transaction first. Several series are always locked in one order, so two
-    holders of overlapping sets cannot deadlock."""
-    held = []
+
+@contextmanager
+def series_lock(series: str, wait_s: int | None = None):
+    """Hold `series`'s lock for the `with` block, inside a transaction that started after it was granted. Commits on
+    a clean exit and rolls back on an exception, both before unlocking.
+
+    `wait_s`: wait at most this long for the lock, then raise SeriesBusy (a web request: an upload holds the lock
+    for its whole run, longer than a request may wait). None waits without limit (a worker).
+
+    ⚠️ Commits the caller's open transaction first."""
+    key = f"naming_series:{series}"
+    held = False
     frappe.db.commit()
     try:
-        for key in [f"naming_series:{s}" for s in sorted(set(series))]:
-            _lock(key)
-            held.append(key)
+        _lock(key, wait_s)
+        held = True
         frappe.db.commit()
         yield
         frappe.db.commit()
@@ -55,15 +62,25 @@ def series_lock(*series: str):
         frappe.db.rollback()
         raise
     finally:
-        for key in reversed(held):
-            frappe.db.sql("SELECT pg_advisory_unlock(hashtext(%s))", (key,))
+        if held:
+            try:  # a dead connection has dropped the lock already; never hide the original exception
+                frappe.db.sql("SELECT pg_advisory_unlock(hashtext(%s))", (key,))
+            except Exception:  # noqa: BLE001 -- logged to file: the DB may be what failed
+                frappe.logger("series_lock").exception(f"unlock of {key} failed")
 
 
-def _lock(key: str) -> None:
+def _lock(key: str, wait_s: int | None) -> None:
     if frappe.db.sql("SELECT pg_try_advisory_lock(hashtext(%s))", (key,))[0][0]:
         return
     started = time.monotonic()
-    frappe.db.sql("SELECT pg_advisory_lock(hashtext(%s))", (key,))
+    if wait_s is not None:
+        # lock_timeout bounds this transaction's lock waits, advisory ones included; the commit after the lock
+        # (or the rollback on SeriesBusy) ends it.
+        frappe.db.sql(f"SET LOCAL lock_timeout = '{int(wait_s * 1000)}ms'")
+    try:
+        frappe.db.sql("SELECT pg_advisory_lock(hashtext(%s))", (key,))
+    except frappe.QueryTimeoutError as e:
+        raise SeriesBusy(key) from e
     wait = {"key": key, "wait_s": round(time.monotonic() - started, 3), "at": time.time()}
     try:  # best-effort: the lock is held now, and a cache failure must not leave it held
         frappe.cache().lpush(WAITS_KEY, json.dumps(wait))

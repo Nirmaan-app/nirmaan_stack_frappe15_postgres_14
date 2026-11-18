@@ -32,7 +32,8 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq import rate_match as RM
 from nirmaan_stack.api.boq import rate_master
 from nirmaan_stack.services.test_operation_marker import (
-    held_in_queue, later, never_queued, new_request, queue_call_fails, started_job,
+    held_in_queue, later, leave_stale_marker, never_queued, new_request, queue_call_fails, started_job,
+    wait_past_one_second_ttl,
 )
 
 
@@ -275,6 +276,34 @@ class TestAlreadyRunning(FrappeTestCase):
                 self.assertEqual(self._state(), "running")
                 self.assertFalse(self._start()["queued"])
         self.assertEqual(len(jobs), 1)
+
+    def test_a_match_held_in_the_queue_longer_than_the_marker_ttl_still_blocks_a_second_start(self):
+        with held_in_queue() as jobs, patch.object(RM, "_M_MARKER_TTL_SEC", 1):
+            self.assertTrue(self._start()["queued"])
+            wait_past_one_second_ttl()
+            self.assertEqual(self._state(), "running")
+            self.assertFalse(self._start()["queued"])
+        self.assertEqual(len(jobs), 1)
+
+    def test_two_starts_that_both_heal_one_stale_marker_queue_once(self):
+        leave_stale_marker(RM._marker_key(self.boq, self.sheet))
+        first = []
+        real_get = RM._get_marker
+
+        def b_reads_then_a_runs(*args):
+            seen = real_get(*args)
+            if not first:
+                first.append(None)
+                saved = frappe.local.cache
+                first[0] = self._start()
+                frappe.local.cache = saved
+            return seen
+
+        with held_in_queue() as jobs, patch.object(RM, "_get_marker", side_effect=b_reads_then_a_runs):
+            second = RM.start_after_suggest(self.boq, self.sheet, "run1", user="u@x")
+        self.assertTrue(first[0]["queued"])
+        self.assertFalse(second["queued"])
+        self.assertEqual(len(jobs), 1, "two starts that healed one stale marker must not both queue")
 
     def test_a_match_whose_worker_never_starts_is_healed(self):
         # The run doc it left `queued` is halted by tasks/match_run_healer (test_match_run_healer

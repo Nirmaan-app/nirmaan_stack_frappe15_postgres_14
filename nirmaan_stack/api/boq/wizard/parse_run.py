@@ -17,8 +17,9 @@ import tempfile
 import urllib.parse
 from typing import Any
 
-import frappe
 from psycopg2.errors import SerializationFailure
+
+import frappe
 
 from nirmaan_stack.services import operation_marker
 from nirmaan_stack.services.boq_parser.config import (
@@ -1013,8 +1014,12 @@ def _run_parse_worker(
 
     except Exception:
         # Roll back FIRST: after a database error the transaction is aborted, and the Error Log write and the
-        # publish below would fail with it, leaving the hub on "Parsing..." (#1657).
-        frappe.db.rollback()
+        # publish below would fail with it, leaving the hub on "Parsing..." (#1657). A rollback that fails (dead
+        # connection) must not skip them.
+        try:
+            frappe.db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         frappe.log_error(
             title=f"BoQ parse worker: unhandled error for {boq_name}",
             message=frappe.get_traceback(),

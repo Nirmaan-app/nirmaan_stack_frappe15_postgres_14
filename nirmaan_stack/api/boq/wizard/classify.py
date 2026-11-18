@@ -52,7 +52,6 @@ def _set_marker(boq, sheet_name, discipline, job_id, user):
     return operation_marker.claim(
         _marker_key(boq, sheet_name, discipline),
         {"job_id": job_id, "enqueued_at": frappe.utils.now(), "user": user},
-        _MARKER_TTL_SEC,
     )
 
 
@@ -83,12 +82,9 @@ def _update_marker_progress(boq, sheet_name, discipline, done, total):
 
 
 def _maybe_self_heal(boq, sheet_name, discipline, marker):
-    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale' (operation_marker.job_state: stale
-    counts from the start of running), clearing the marker unless it is running."""
-    state = operation_marker.job_state(marker.get("job_id"), marker.get("enqueued_at"), _STALE_CLASSIFY_SECONDS)
-    if state != "running":
-        _clear_marker(boq, sheet_name, discipline)
-    return state
+    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale' (operation_marker.heal: stale counts
+    from the start of running), clearing the marker unless it is running."""
+    return operation_marker.heal(_marker_key(boq, sheet_name, discipline), marker, _STALE_CLASSIFY_SECONDS)
 
 
 def _resolve_committed_version(boq, sheet_name):
@@ -200,22 +196,18 @@ def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=Non
     # The claim is ours: drop a prior run's terminal payload, commit, then queue (the job reads
     # only committed rows). A failed queue call removes the claim so nothing is left stuck.
     frappe.cache().delete_value(_status_key(boq, sheet_name, discipline))
-    frappe.db.commit()
-    try:
-        frappe.enqueue(
-            "nirmaan_stack.api.boq.wizard.classify._classify_worker",
-            queue="long",
-            timeout=600,
-            job_id=raw_job_id,
-            user=user,
-            boq=boq,
-            sheet_name=sheet_name,
-            discipline=discipline,
-            scope=norm_scope,
-        )
-    except Exception:
-        _clear_marker(boq, sheet_name, discipline)
-        raise
+    operation_marker.enqueue_claimed(
+        _marker_key(boq, sheet_name, discipline),
+        "nirmaan_stack.api.boq.wizard.classify._classify_worker",
+        queue="long",
+        timeout=600,
+        job_id=raw_job_id,
+        user=user,
+        boq=boq,
+        sheet_name=sheet_name,
+        discipline=discipline,
+        scope=norm_scope,
+    )
     return {"status": "queued", "job_id": raw_job_id}
 
 
