@@ -32,7 +32,15 @@ from residence_check import (  # noqa: E402
     json_call_count,
     json_call_counts,
     json_call_drift,
+    disable_directive,
+    adr0049_rules,
+    disable_counts,
+    EVERY_RULE,
+    disable_comment_texts,
 )
+from oxlint_settings_check import parse_jsonc  # noqa: E402
+
+REPO = Path(__file__).resolve().parent.parent
 
 
 class FrontendPaymentSums(unittest.TestCase):
@@ -481,6 +489,94 @@ class JsonCalls(unittest.TestCase):
         with redirect_stdout(out):
             rc = main(["--check", "--only", "J1"])
         self.assertEqual(rc, 0, out.getvalue())
+
+
+
+class DisableComments(unittest.TestCase):
+    """D1 (#1705): a disable comment that can switch off an ADR-0049 rule is frozen per file and rule.
+
+    The forms were measured on oxlint 1.94 (the report of box/disable-ratchet-1705 lists each probe)."""
+
+    def test_reads_the_rules_a_disable_comment_names(self):
+        self.assertEqual(disable_directive("// eslint-disable-next-line @typescript-eslint/no-explicit-any"),
+                         ["@typescript-eslint/no-explicit-any"])
+        self.assertEqual(disable_directive("// oxlint-disable-next-line typescript/no-explicit-any"),
+                         ["typescript/no-explicit-any"])
+        self.assertEqual(disable_directive("/* eslint-disable-line a, b */"), ["a", "b"])
+        self.assertEqual(disable_directive("//\teslint-disable-next-line\tx y"), ["x", "y"])
+        self.assertEqual(disable_directive("/* eslint-disable-next-line\n   x */"), ["x"])
+        self.assertEqual(disable_directive("/*eslint-disable-next-line x*/"), ["x"])
+        self.assertEqual(disable_directive("// eslint-disable-next-line ,x,,y"), ["x", "y"])
+
+    def test_a_reason_after_two_dashes_names_no_rule(self):
+        self.assertEqual(disable_directive("// eslint-disable-next-line x -- why, y"), ["x"])
+        self.assertEqual(disable_directive("// eslint-disable-next-line x--y"), ["x"])
+        self.assertEqual(disable_directive("// eslint-disable-next-line react-hooks/exhaustive-deps --x"),
+                         ["react-hooks/exhaustive-deps"])
+
+    def test_a_comment_that_names_no_rule_disables_every_rule(self):
+        for text in ("/* eslint-disable */", "// eslint-disable", "/*eslint-disable*/", "// oxlint-disable-line",
+                     "// eslint-disable-next-line", "// eslint-disable-next-line -- a reason only"):
+            self.assertEqual(disable_directive(text), [], text)
+
+    def test_text_oxlint_does_not_read_as_a_directive_is_none(self):
+        for text in ("// ESLINT-DISABLE-NEXT-LINE x", "// a note eslint-disable-next-line x", "/** eslint-disable */",
+                     "/*\n * eslint-disable\n */", "// eslint-disablefoo", "// eslint-disable-next-linex",
+                     "// eslint-disable-next-line: x", "// eslint-enable x", "// a plain comment"):
+            self.assertIsNone(disable_directive(text), text)
+
+    def test_the_counted_rules_are_every_rule_the_config_turns_on(self):
+        config = {"categories": {"correctness": "off"},
+                  "rules": {"typescript/no-explicit-any": "error", "no-console": "off", "eqeqeq": ["warn"]},
+                  "overrides": [{"files": ["a/**"], "rules": {"typescript/no-unsafe-call": "error"}},
+                                {"files": ["b.ts"], "rules": {"no-restricted-imports": "off"}}]}
+        self.assertEqual(adr0049_rules(config), {"no-explicit-any": "typescript/no-explicit-any",
+                                                 "eqeqeq": "eqeqeq", "no-unsafe-call": "typescript/no-unsafe-call"})
+
+    def test_the_real_config_counts_its_rules_and_not_exhaustive_deps(self):
+        rules = adr0049_rules(parse_jsonc((REPO / "frontend/.oxlintrc.json").read_text()))
+        for name in ("no-explicit-any", "use-unknown-in-catch-callback-variable", "rules-of-hooks",
+                     "no-restricted-imports", "no-restricted-properties", "no-unsafe-assignment"):
+            self.assertIn(name, rules)
+        self.assertNotIn("exhaustive-deps", rules)
+
+    def test_a_category_switched_on_is_refused_its_rules_cannot_be_listed(self):
+        with self.assertRaisesRegex(ValueError, "suspicious"):
+            adr0049_rules({"categories": {"suspicious": "error"}})
+
+    def test_counts_per_file_and_rule_under_any_alias_and_comments_naming_no_rule(self):
+        rules = {"no-explicit-any": "typescript/no-explicit-any", "rules-of-hooks": "react/rules-of-hooks"}
+        comments = {
+            "src/a.ts": ["// eslint-disable-next-line @typescript-eslint/no-explicit-any -- why",
+                         "// oxlint-disable-next-line typescript/no-explicit-any",
+                         "// eslint-disable-next-line no-explicit-any, @typescript-eslint/no-explicit-any",
+                         "// eslint-disable-next-line react-hooks/rules-of-hooks",
+                         "/* eslint-disable */"],
+            "src/b.tsx": ["// eslint-disable-next-line react-hooks/exhaustive-deps", "// a note", "/** eslint-disable */"],
+        }
+        self.assertEqual(disable_counts(comments, rules), {
+            "src/a.ts": {"typescript/no-explicit-any": {"count": 3}, "react/rules-of-hooks": {"count": 1},
+                         EVERY_RULE: {"count": 1}},
+        })
+
+    def comments(self, src, path="src/a.ts"):
+        return disable_comment_texts({path: src})[path]
+
+    def test_reads_the_comments_that_may_hold_a_directive_and_not_strings_templates_regexes_or_jsx_text(self):
+        src = ('#!/usr/bin/env node\n// eslint-disable\n'
+               'const s = "// eslint-disable-next-line";\n'
+               'const t = `\n// eslint-disable-next-line\n${1 /* eslint-disable-line a */}`;\n'
+               'const r = /\\/\\/ eslint-disable/;\n'
+               'const a: any = 1; // eslint-disable-line b\n'
+               '/* eslint-disable-next-line\n c */\nexport {};\n// eslint-disable-next-line d\n')
+        self.assertEqual(self.comments(src), ["// eslint-disable", "/* eslint-disable-line a */",
+                                              "// eslint-disable-line b", "/* eslint-disable-next-line\n c */",
+                                              "// eslint-disable-next-line d"])
+
+    def test_reads_a_comment_inside_jsx_braces_but_not_jsx_text(self):
+        src = ("export const C = () => (<div>// eslint-disable-next-line x\n"
+               "  {/* eslint-disable-next-line y */}\n  <b title=\"// eslint-disable z\" />\n</div>);\n")
+        self.assertEqual(self.comments(src, "src/c.tsx"), ["/* eslint-disable-next-line y */"])
 
 
 if __name__ == "__main__":

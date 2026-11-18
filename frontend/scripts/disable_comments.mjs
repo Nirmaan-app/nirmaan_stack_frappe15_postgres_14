@@ -1,0 +1,48 @@
+// D1's parser (scripts/residence_check.py, #1705): the comments in TS/TSX sources that may hold a disable directive,
+// found with TypeScript's own parser. A comment is the trivia between two tokens, as the compiler reads it, so text
+// in a string, a template, a regex literal or JSX text is not one, and a `{/* */}` inside JSX is. residence_check.py
+// reads each comment's directive; this only keeps the comments whose text holds `-disable`.
+//
+//   stdin:  {"<path>": "<source>", ...}      a path ending in .tsx is parsed as TSX
+//   stdout: {"<path>": ["<comment>", ...], ...}
+import { realpathSync } from "node:fs";
+import ts from "typescript";
+
+/** The comments of one source that hold `-disable`, in source order, each with its `//` or `/* *\/`. */
+export function disableComments(path, source) {
+  const tsx = path.endsWith(".tsx");
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, tsx ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, tsx ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard);
+  const found = [];
+  const triviaBefore = (token) => {
+    const start = token.getStart(file);
+    scanner.setText(source, token.pos, start - token.pos);
+    for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
+      const text = scanner.getTokenText();
+      if ((kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) &&
+          text.includes("-disable")) found.push(text);
+    }
+  };
+  const visit = (node) => {
+    // JSDoc nodes cover comment text the trivia scan already reads.
+    if (node.kind >= ts.SyntaxKind.FirstJSDocNode && node.kind <= ts.SyntaxKind.LastJSDocNode) return;
+    const children = node.getChildren(file);
+    if (children.length) {
+      children.forEach(visit);
+    } else if (node.kind !== ts.SyntaxKind.JsxText) {
+      // JSX text is not trivia: `<div>// x</div>` holds no comment.
+      triviaBefore(node);
+    }
+  };
+  visit(file);
+  return found;
+}
+
+// Real paths: a symlinked checkout (or macOS /tmp) gives argv[1] and import.meta.filename different spellings.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(import.meta.filename)) {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  const sources = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const comments = Object.fromEntries(Object.entries(sources).map(([path, src]) => [path, disableComments(path, src)]));
+  process.stdout.write(JSON.stringify(comments));
+}

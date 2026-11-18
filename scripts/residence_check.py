@@ -37,6 +37,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, NamedTuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from oxlint_settings_check import CONFIG, parse_jsonc, rule_name, severity  # noqa: E402  (D1 reads the config)
+
 # Repo root = the parent of this scripts/ directory (NOT the cwd).
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = Path(__file__).resolve().parent / "residence_baseline.json"
@@ -454,23 +457,28 @@ class JsonCallParserError(RuntimeError):
 J1_MAY_SKIP = False
 
 
-def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
-    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX).
+def run_ts_parser(parser: str, sources: dict[str, str]):
+    """What node script ``parser`` (J1's or D1's, under frontend/scripts/) prints for ``sources``, read as JSON.
 
-    Raises JsonCallParserError when node or TypeScript is missing: J1 never passes by not running.
+    Raises JsonCallParserError when node or TypeScript is missing: neither check passes by not running.
     """
     try:
-        run = subprocess.run(["node", str(REPO_ROOT / JSON_CALL_PARSER)], input=json.dumps(sources),
+        run = subprocess.run(["node", str(REPO_ROOT / parser)], input=json.dumps(sources),
                              capture_output=True, text=True, encoding="utf-8")
     except OSError as e:
         raise JsonCallParserError(f"node could not run ({e}); install Node.js so 'node' is on PATH") from e
     if run.returncode != 0:
-        raise JsonCallParserError(f"{JSON_CALL_PARSER} failed (exit {run.returncode}; run 'yarn install' in "
+        raise JsonCallParserError(f"{parser} failed (exit {run.returncode}; run 'yarn install' in "
                                   f"frontend/ if typescript is missing): {run.stderr.strip()[:2000]}")
     try:
         return json.loads(run.stdout)
     except ValueError as e:
-        raise JsonCallParserError(f"{JSON_CALL_PARSER} printed no counts: {run.stdout.strip()[:2000]}") from e
+        raise JsonCallParserError(f"{parser} printed no result: {run.stdout.strip()[:2000]}") from e
+
+
+def json_call_counts(sources: dict[str, str]) -> dict[str, int]:
+    """The `.json()` calls in each TS/TSX source, keyed as given (a key ending in .tsx is parsed as TSX)."""
+    return run_ts_parser(JSON_CALL_PARSER, sources)
 
 
 def json_call_count(src: str) -> int:
@@ -517,6 +525,81 @@ def json_calls_unfrozen() -> list[str]:
     frozen_path = REPO_ROOT / JSON_CALL_SUPPRESSIONS
     frozen = json.loads(read(frozen_path)) if frozen_path.exists() else {}
     return json_call_drift(found, frozen)
+
+
+# --- Rule D1: disable comments for ADR-0049's rules (#1705) -----------------------
+# A disable comment switches a lint rule off, so `// eslint-disable-next-line @typescript-eslint/no-explicit-any`
+# above a new `any` passed `yarn lint`. The comments that can switch off a rule frontend/.oxlintrc.json turns on (or
+# every rule: one that names none) are frozen per file and rule in DISABLE_SUPPRESSIONS; a file over its frozen count
+# fails. The 77 `react-hooks/exhaustive-deps` comments name a rule that is off, so they are not counted.
+#
+# What oxlint 1.94 reads as a directive (measured, #1705): the comment's text, trimmed, starts with `eslint-disable`
+# or `oxlint-disable`, then `-next-line`, `-line` or nothing, then whitespace or the end; case counts. A `/** */` or a
+# `/*` whose first word is `*` is no directive. Rules are split on commas and whitespace up to the first `--` (a
+# reason); a rule matches by its last `/` segment, whatever the plugin prefix. Comments only: a string, template or
+# regex literal holding the text switches nothing off (frontend/scripts/disable_comments.mjs reads the comments).
+
+_DISABLE_DIRECTIVE = re.compile(r"(?:eslint|oxlint)-disable(?:-next-line|-line)?(?=\s|$)")
+
+
+def disable_directive(comment: str) -> list[str] | None:
+    """The rules a comment's disable directive names ([] = every rule), or None when it is no disable directive.
+
+    ``comment`` is the whole comment, with its `//` or `/* */`."""
+    body = comment[2:-2] if comment.startswith("/*") else comment[2:]
+    body = body.strip()
+    found = _DISABLE_DIRECTIVE.match(body)
+    if not found:
+        return None
+    rules = body[found.end():].split("--", 1)[0]
+    return [rule for rule in re.split(r"[\s,]+", rules) if rule]
+
+
+DISABLE_COMMENT_PARSER = "frontend/scripts/disable_comments.mjs"
+
+
+def disable_comment_texts(sources: dict[str, str]) -> dict[str, list[str]]:
+    """The comments of each TS/TSX source that hold `-disable` (TypeScript's parser), keyed as given."""
+    return run_ts_parser(DISABLE_COMMENT_PARSER, sources)
+
+
+# The rule key of a comment that names no rule: it switches off every rule, ADR-0049's included.
+EVERY_RULE = "every-rule"
+
+
+def adr0049_rules(config: dict) -> dict[str, str]:
+    """{rule name: config key} of every rule the oxlint config turns on, at the top level or in an override.
+
+    The name is the one oxlint matches a disable comment by (oxlint_settings_check.rule_name). Raises ValueError for
+    a category switched on: its rules are oxlint's, not listed in the config, so they cannot be counted."""
+    on = [category for category, level in config.get("categories", {}).items() if severity(level) != "off"]
+    if on:
+        raise ValueError(f"{CONFIG} switches on categor{'y' if len(on) == 1 else 'ies'} {', '.join(on)}: D1 cannot "
+                         "list their rules; name each rule in `rules` instead")
+    blocks = [config.get("rules", {})] + [o.get("rules", {}) for o in config.get("overrides", [])]
+    rules: dict[str, str] = {}
+    for block in blocks:
+        for key, setting in block.items():
+            if severity(setting) != "off":
+                rules.setdefault(rule_name(key), key)
+    return rules
+
+
+def disable_counts(comments: dict[str, list[str]], rules: dict[str, str]) -> dict[str, dict]:
+    """The disable comments per file that can switch off one of ``rules`` (adr0049_rules), in oxlint's suppressions
+    shape ({path: {rule key: {"count": n}}}); a comment naming no rule counts under EVERY_RULE. A comment counts once
+    per rule it names, however many of that rule's names it gives. Files with none are left out."""
+    out: dict[str, dict] = {}
+    for path, texts in comments.items():
+        for text in texts:
+            named = disable_directive(text)
+            if named is None:
+                continue
+            keys = {rules[rule_name(r)] for r in named if rule_name(r) in rules} if named else {EVERY_RULE}
+            for key in keys:
+                entry = out.setdefault(path, {}).setdefault(key, {"count": 0})
+                entry["count"] += 1
+    return out
 
 
 # --- check registry ----------------------------------------------------------
