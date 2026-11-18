@@ -210,5 +210,83 @@ class CommandLine(unittest.TestCase):
         self.assertIn("src/new.tsx no-json-call is new", result.stderr)
 
 
+# The lint settings (#1702): a made-up config in .oxlintrc.json's shape, with JSONC comments and a trailing comma.
+CONFIG_TEXT = """{
+  // the frontend's type ratchet
+  "plugins": ["eslint", "typescript", "react"],
+  "categories": {"correctness": "off"},
+  "ignorePatterns": ["src/components/ui/**"],
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "react/rules-of-hooks": "error", /* a block comment */
+    "no-restricted-imports": ["error", {"paths": [{"name": "sdk-lib", "message": "Use '@/lib/sdk' // not this"}]}],
+  },
+  "overrides": [
+    {
+      "files": ["src/pages/orders/**/*.{ts,tsx}"],
+      "rules": {"typescript/no-unsafe-call": "error", "typescript/no-unsafe-return": "error"}
+    },
+    {"files": ["src/lib/sdk.ts"], "rules": {"no-restricted-imports": "off"}}
+  ]
+}
+"""
+LINT_PACKAGE = {"scripts": {"lint": "oxlint --type-aware src",
+                            "type-coverage": "type-coverage --strict --at-least 97.47"}}
+BASELINE = {"s1_oversized_files": {"count": 3, "rule": "S1", "description": "big files"},
+            "b3_workflow_state_writers": {"count": 5, "rule": "B3", "description": "local only"}}
+
+
+class LintSettings(unittest.TestCase):
+    """A PR that weakens the lint itself, without touching a suppressions file, is refused, naming the loosening."""
+
+    def setUp(self):
+        self.repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.repo)
+        subprocess.run(["git", "init", "-q", "-b", "base", str(self.repo)], check=True)
+        (self.repo / "frontend/src/pages/orders").mkdir(parents=True)
+        (self.repo / "scripts").mkdir()
+        (self.repo / OXLINT).write_text(json.dumps(BASE))
+        (self.repo / JSON_CALLS).write_text(json.dumps(JSON_BASE))
+        self.config(CONFIG_TEXT)
+        self.package(LINT_PACKAGE)
+        self.baseline(BASELINE)
+        self.git("add", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base")
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+
+    def config(self, text, where="frontend/.oxlintrc.json"):
+        (self.repo / where).write_text(text)
+
+    def edit_config(self, old, new):
+        text = (self.repo / "frontend/.oxlintrc.json").read_text()
+        self.assertIn(old, text)
+        self.config(text.replace(old, new))
+
+    def package(self, pkg):
+        (self.repo / "frontend/package.json").write_text(json.dumps(pkg))
+
+    def baseline(self, data):
+        (self.repo / "scripts/residence_baseline.json").write_text(json.dumps(data))
+
+    def refused(self, *named):
+        result = subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        for words in named:
+            self.assertIn(words, result.stderr)
+
+    def passes(self):
+        result = subprocess.run([sys.executable, str(SCRIPT), "--base-ref", "base", "--root", str(self.repo)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_rule_set_to_warn_is_refused(self):
+        self.edit_config('"typescript/no-explicit-any": "error"', '"typescript/no-explicit-any": "warn"')
+        self.refused("typescript/no-explicit-any", "warn")
+
+
 if __name__ == "__main__":
     unittest.main()
