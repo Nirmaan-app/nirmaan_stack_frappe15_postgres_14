@@ -110,25 +110,28 @@ class UnfinishedReport(unittest.TestCase):
             return dod.report_problems(path, "abc1234")[0]
 
     def test_a_finished_review_in_the_templates_shape_is_done(self):
-        out = self.problems("Own code-review: two findings fixed in abc1234, against 03d44ec3e\nSeparate review: pending")
-        self.assertEqual(out, [])
+        for value in ("finished, two findings fixed in abc1234, against 03d44ec3e", "**Finished**: no findings",
+                      "finished. Running it found nothing; the Pending-status filter finding is fixed"):
+            out = self.problems(f"Own code-review: {value}\nSeparate review: pending")
+            self.assertEqual(out, [], value)
 
     def test_an_own_review_still_going_is_not_done(self):
-        for value in ("pending: code-review against 03d44ec3e is running", "running", "in progress", "awaiting", ""):
+        for value in ("pending: code-review against 03d44ec3e is running", "**pending**", "(pending)", "in progress",
+                      "review started, results soon", "waiting for subagents", "queued", "unfinished", ""):
             out = self.problems(f"Own code-review: {value}\nSeparate review: pending")
-            self.assertTrue(any("not finished" in p for p in out), (value, out))
+            self.assertTrue(any("must start with 'finished" in p for p in out), (value, out))
 
     def test_a_done_report_without_the_own_review_line_is_not_done(self):
         out = self.problems("code-review: no findings")
         self.assertTrue(any("Own code-review" in p for p in out), out)
 
     def test_a_run_left_going_in_evidence_is_not_done(self):
-        out = self.problems("Own code-review: no findings\nSeparate review: pending",
+        out = self.problems("Own code-review: finished, no findings\nSeparate review: pending",
                             evidence="vitest (full): running when this was written")
         self.assertTrue(any("still going" in p for p in out), out)
 
     def test_honest_words_elsewhere_are_not_flagged(self):
-        review = ("Own code-review: no findings pending; one finding about the Pending PR filter, fixed\n"
+        review = ("Own code-review: finished, no findings pending; one about the Pending PR filter, fixed\n"
                   "Separate review: pending")
         out = self.problems(review, evidence="the worker is still running after restart, as the walk saw")
         self.assertEqual(out, [])

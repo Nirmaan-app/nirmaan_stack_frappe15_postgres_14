@@ -457,7 +457,7 @@ case "$CMD" in
     ROOT="$(box_root)"
     BASE="$(box_ssh "cd $ROOT/benches/$NAME/apps/nirmaan_stack 2>/dev/null && python3 scripts/devenv/dod.py base" 2>/dev/null || true)"
     git rev-parse -q --verify "${BASE}^{commit}" >/dev/null 2>&1 || BASE="$(git merge-base master "$BRANCH")"
-    echo "Separate review (fills the report's ## Review): /mattpocock-skills:code-review ${BASE:0:9}, on $BRANCH"
+    echo "Separate review (fills the report's 'Separate review:' line): /mattpocock-skills:code-review ${BASE:0:9}, on $BRANCH"
     echo "Then merge and push yourself. After the merge: task.sh prune (lists what can go; --yes cleans it)"
     ;;
 

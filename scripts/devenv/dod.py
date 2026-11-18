@@ -160,7 +160,8 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
     if re.search(r"\b[A-Z]+_PENDING\b", text):
         problems.append(f"replace every *_PENDING placeholder in {path} with the real result")
     # The builder's own review must be finished, not still running (#1699's fix round said DONE with its review
-    # "pending ... is running"). The template's Review holds two set lines; only the first must carry a result, the
+    # "pending ... is running"). The template's Review holds two set lines: the first must start with "finished"
+    # (a positive word, since word lists of "pending" and the like both missed and blocked honest text), the
     # separate review stays pending by design. A run left going reads "running when this was written".
     if re.search(r"\brunning when this was written\b", text, re.I):
         problems.append(f"the report says a run is still going: wait for it, then write its result in {path}")
@@ -178,8 +179,9 @@ def report_problems(path: Path, head_short: str) -> tuple[list[str], str | None]
         own = re.search(r"^Own code-review:[ \t]*(.*)$", text, re.M)
         if not own:
             problems.append(f"the report's Review needs its line 'Own code-review: <result> against <commit>' ({path})")
-        elif re.match(r"\s*(?:$|pending|running|in progress|awaiting|tbd)", own.group(1), re.I):
-            problems.append(f"your own code-review is not finished: wait for it, then write its result in {path}")
+        elif not re.match(r"[\s*_`]*finished\b", own.group(1), re.I):
+            problems.append(f"the 'Own code-review:' line must start with 'finished, ' and the review's result: once "
+                            f"your code-review has finished, write it in {path}")
     return problems, status
 
 
@@ -266,7 +268,7 @@ TODO: the test and type-check verdicts, and every verify evidence folder (one li
 TODO: the data the env ran on (devenv.sh up prints its backup date)
 
 ## Review
-Own code-review: TODO: its result (fixed findings, and what was left and why), against the task's base commit
+Own code-review: TODO: once it has finished, "finished, " then its result (fixed findings, what was left and why), against the task's base commit
 Separate review: pending
 
 ## Open questions

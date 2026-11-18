@@ -51,8 +51,8 @@ Set the report's `## Status` to `BLOCKED` and explain why, and what the owner mu
   the evidence and writes its verdict in the report's `## Review` section, on its `Separate review:` line, which
   stays `pending` until then. The hook cannot tell who wrote it, so the runner that starts agent tasks owns this
   step: `task.sh done` prints the `/mattpocock-skills:code-review` command against the task's base. What the hook
-  does check is the builder's own review: a DONE report's `Own code-review:` line must hold its result, not
-  pending, running or in progress.
+  does check is the builder's own review: a DONE report's `Own code-review:` line must start with `finished, `
+  and give the result.
 - **Test quality.** A green run proves the tests pass, not that they test the right thing. Review covers that.
 - **Fresh data.** `devenv.sh up` and `create` print the data's age and warn past 7 days. Ask the owner for a fresh
   backup (`scripts/devenv/data.sh`); never fetch one yourself.
