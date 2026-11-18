@@ -165,6 +165,28 @@ class DisableComments(unittest.TestCase):
         for pattern, linted in measured.items():
             self.assertEqual([f for f in sorted(files) if not ignored_by([pattern], f)], linted, pattern)
 
+    def test_globs_and_ignore_patterns_read_names_braces_and_negations_as_oxlint_does(self):
+        # Measured on oxlint 1.94 (review of #1705's fix round).
+        files = ["src/a.test.ts", "src/a1.ts", "src/b.ts", "src/gen/keep.ts", "src/gen/other.ts", "src/x/y/c.ts",
+                 "src/xqy.ts"]
+        for glob, matched in {"src/x[!a]y.ts": ["src/xqy.ts"], "src/x**.ts": ["src/xqy.ts"],
+                              "src/{a1,{b,xqy}}.ts": ["src/a1.ts", "src/b.ts", "src/xqy.ts"]}.items():
+            self.assertEqual([f for f in files if override_glob_matches(glob, f)], matched, glob)
+        everything_but = lambda *gone: [f for f in files if f not in gone]  # noqa: E731
+        for patterns, linted in {("*.test.ts", "!src/"): everything_but("src/a.test.ts"),
+                                 ("src/gen/", "!src/gen/keep.ts"): everything_but("src/gen/other.ts"),
+                                 ("src/gen/*", "!src/gen/keep.ts"): everything_but("src/gen/other.ts"),
+                                 ("src/x**.ts",): everything_but("src/xqy.ts")}.items():
+            self.assertEqual([f for f in files if not ignored_by(list(patterns), f)], linted, patterns)
+
+    def test_an_override_skips_the_files_its_exclude_files_match(self):
+        # Measured on oxlint 1.94: excludeFiles reads globs as `files` does.
+        config = {"overrides": [{"files": ["src/**/*.ts"], "excludeFiles": ["src/gen/**", "*.test.ts"],
+                                 "rules": {"typescript/no-explicit-any": "error"}}]}
+        comment = ["// eslint-disable-next-line typescript/no-explicit-any"]
+        counts = disable_counts({"src/a.ts": comment, "src/gen/b.ts": comment, "src/x/c.test.ts": comment}, config)
+        self.assertEqual(sorted(counts), ["src/a.ts"])
+
     def test_a_file_the_config_ignores_is_not_read(self):
         root = self.frontend_tree({"src/components/ui/button.tsx": self.DISABLE, "src/components/b.tsx": self.DISABLE})
         self.assertEqual(sorted(disable_comment_sources(root)[0]), ["src/components/b.tsx"])

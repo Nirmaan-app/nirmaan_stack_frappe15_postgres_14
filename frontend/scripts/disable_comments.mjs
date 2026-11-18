@@ -1,7 +1,7 @@
-// D1's parser (scripts/residence_check.py, #1705): the comments in the sources oxlint lints that may hold a directive,
-// found with TypeScript's own parser. A comment is the trivia between two tokens, as the compiler reads it, so text
-// in a string, a template, a regex literal or JSX text is not one, and a `{/* */}` inside JSX is. residence_check.py
-// reads each comment's directive; this only keeps the comments whose text holds `-disable`.
+// D1's parser (scripts/disable_comment_check.py, #1705): the comments in the sources oxlint lints that may hold a
+// directive, found with TypeScript's own parser. A comment is the trivia between two tokens, as the compiler reads it,
+// so text in a string, a template, a regex literal or JSX text is not one, and a `{/* */}` inside JSX is.
+// disable_comment_check.py reads each comment's directive; this only keeps the comments whose text holds `-disable`.
 //
 //   stdin:  {"<path>": "<source>", ...}      parsed by extension (SCRIPT_KINDS)
 //   stdout: {"<path>": ["<comment>", ...], ...}

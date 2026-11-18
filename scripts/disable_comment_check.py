@@ -12,10 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from frozen_counts import TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
+from frozen_counts import REPO_ROOT, TsParserError, frozen_drift, node_cannot_run, read_frozen, run_ts_parser
 from oxlint_settings_check import CONFIG, parse_jsonc, rule_name, severity
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def read(path: Path) -> str:
@@ -77,18 +75,27 @@ EVERY_RULE = "every-rule"
 FILE_WIDE = " (file-wide)"
 
 
+def _rule_blocks(config: dict, path: str | None = None) -> list[dict]:
+    """The config's `rules` blocks in order: the top level's, then each override's (with ``path``, only the overrides
+    that apply to it: a `files` glob matches it and no `excludeFiles` glob does, as oxlint 1.94 reads them)."""
+    def applies(override: dict) -> bool:
+        return path is None or (any(override_glob_matches(g, path) for g in override.get("files", []))
+                                and not any(override_glob_matches(g, path) for g in override.get("excludeFiles", [])))
+    return [config.get("rules", {})] + [o.get("rules", {}) for o in config.get("overrides", []) if applies(o)]
+
+
 def rules_the_config_turns_on(config: dict) -> dict[str, str]:
     """{rule name: config key} of every rule the oxlint config turns on, at the top level or in an override.
 
     The name is the one oxlint matches a disable comment by (oxlint_settings_check.rule_name). Raises ValueError for
-    a category switched on: its rules are oxlint's, not listed in the config, so they cannot be counted."""
+    a category switched on: its rules are oxlint's, not listed in the config, so they cannot be counted (oxlint 1.94
+    refuses `categories` inside an override)."""
     on = [category for category, level in config.get("categories", {}).items() if severity(level) != "off"]
     if on:
         raise ValueError(f"{CONFIG} switches on categor{'y' if len(on) == 1 else 'ies'} {', '.join(on)}: D1 cannot "
                          "list their rules; name each rule in `rules` instead")
-    blocks = [config.get("rules", {})] + [o.get("rules", {}) for o in config.get("overrides", [])]
     rules: dict[str, str] = {}
-    for block in blocks:
+    for block in _rule_blocks(config):
         for key, setting in block.items():
             if severity(setting) != "off":
                 rules.setdefault(rule_name(key), key)
@@ -96,30 +103,31 @@ def rules_the_config_turns_on(config: dict) -> dict[str, str]:
 
 
 def _glob_regex(glob: str) -> str:
-    """A glob as a regex over a `/` path: `**/` any folders or none, `**` anything, `*` and `?` within a name,
-    `[...]` and `{a,b}` as in a shell; nothing else (no extglob: oxlint 1.94 matched no file by `!(x)`)."""
+    """A glob as a regex over a `/` path, as oxlint 1.94 reads one (measured, #1705): `**` as a whole path segment is
+    any folders or none (`**` inside a name is `*`), `*` and `?` stay within a name, `[...]` (`[!...]` negated) never
+    matches `/`, `{a,b}` nests, `\\` escapes the next character; no extglob (`!(x)` matched no file)."""
     out, i = [], 0
     while i < len(glob):
-        if glob.startswith("**/", i):
-            out.append("(?:.*/)?")
+        at_segment_start = i == 0 or glob[i - 1] == "/"
+        if glob.startswith("**", i) and at_segment_start and glob[i + 2:i + 3] in ("/", ""):
+            out.append("(?:.*/)?" if glob[i + 2:i + 3] == "/" else ".*")
             i += 3
-        elif glob.startswith("**", i):
-            out.append(".*")
-            i += 2
         elif glob[i] == "*":
             out.append("[^/]*")
-            i += 1
+            i += 2 if glob.startswith("**", i) else 1
         elif glob[i] == "?":
             out.append("[^/]")
             i += 1
+        elif glob[i] == "\\" and i + 1 < len(glob):
+            out.append(re.escape(glob[i + 1]))
+            i += 2
         elif glob[i] == "[" and "]" in glob[i + 2:]:
             end = glob.index("]", i + 2)
-            body = glob[i + 1:end]
-            out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
+            body = glob[i + 1:end].replace("\\", "\\\\")
+            out.append("(?!/)[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
             i = end + 1
-        elif glob[i] == "{" and "}" in glob[i:]:
-            end = glob.index("}", i)
-            out.append("(?:" + "|".join(_glob_regex(part) for part in glob[i + 1:end].split(",")) + ")")
+        elif glob[i] == "{" and (end := _closing_brace(glob, i)) is not None:
+            out.append("(?:" + "|".join(_glob_regex(part) for part in _split_top_level(glob[i + 1:end])) + ")")
             i = end + 1
         else:
             out.append(re.escape(glob[i]))
@@ -127,47 +135,70 @@ def _glob_regex(glob: str) -> str:
     return "".join(out)
 
 
+def _closing_brace(glob: str, start: int) -> int | None:
+    depth = 0
+    for i in range(start, len(glob)):
+        depth += {"{": 1, "}": -1}.get(glob[i], 0)
+        if depth == 0:
+            return i
+    return None
+
+
+def _split_top_level(body: str) -> list[str]:
+    """``body`` split at the commas outside nested braces."""
+    parts, depth, start = [], 0, 0
+    for i, char in enumerate(body):
+        depth += {"{": 1, "}": -1}.get(char, 0)
+        if char == "," and depth == 0:
+            parts.append(body[start:i])
+            start = i + 1
+    return parts + [body[start:]]
+
+
 def override_glob_matches(glob: str, path: str) -> bool:
-    """Whether an override's `files` glob picks ``path`` (relative to the config's folder), as oxlint 1.94 does
-    (measured, #1705): a glob without a `/` matches a file's name in any folder, one with a `/` the whole path;
-    a leading `./` is dropped."""
+    """Whether an override's `files` (or `excludeFiles`) glob picks ``path`` (relative to the config's folder), as
+    oxlint 1.94 does (measured, #1705): a glob without a `/` matches a file's name in any folder, one with a `/` the
+    whole path; a leading `./` is dropped."""
     glob = glob.removeprefix("./")
     target = path if "/" in glob else path.rsplit("/", 1)[-1]
     return re.fullmatch(_glob_regex(glob), target) is not None
 
 
-def ignored_by(patterns: list[str], path: str) -> bool:
-    """Whether the config's `ignorePatterns` skip ``path`` (relative to the config's folder), read as .gitignore
-    lines, as oxlint 1.94 does (measured, #1705): a pattern names a file or a folder holding it; one without a `/`
-    (a trailing one aside) matches a name in any folder, one with a `/` the path from the config's folder; a
-    trailing `/` names folders only; the last pattern that matches wins, and a `!` one re-includes."""
-    parts = path.split("/")
-    candidates = [("/".join(parts[:n]), n < len(parts)) for n in range(1, len(parts) + 1)]
-    ignored = False
+def _ignore_verdict(patterns: list[str], target: str, is_folder: bool) -> bool | None:
+    """True (ignored) or False (re-included by a `!` pattern) by the last pattern that matches ``target`` itself;
+    None when none does."""
+    verdict = None
     for pattern in patterns:
         negated = pattern.startswith("!")
         pattern = pattern.removeprefix("!")
-        folders_only = pattern.endswith("/")
+        if pattern.endswith("/") and not is_folder:
+            continue
         pattern = pattern.rstrip("/")
-        anchored = "/" in pattern
-        regex = _glob_regex(pattern.removeprefix("/"))
-        for candidate, is_folder in candidates:
-            if folders_only and not is_folder:
-                continue
-            target = candidate if anchored else candidate.rsplit("/", 1)[-1]
-            if re.fullmatch(regex, target):
-                ignored = not negated
-                break
-    return ignored
+        subject = target if "/" in pattern else target.rsplit("/", 1)[-1]
+        if re.fullmatch(_glob_regex(pattern.removeprefix("/")), subject):
+            verdict = not negated
+    return verdict
+
+
+def ignored_by(patterns: list[str], path: str) -> bool:
+    """Whether the config's `ignorePatterns` skip ``path`` (relative to the config's folder), read as .gitignore
+    lines, as oxlint 1.94 does (measured, #1705): a pattern without a `/` (a trailing one aside) matches a name in any
+    folder, one with a `/` the path from the config's folder; a trailing `/` names folders only. The last pattern that
+    matches the file itself decides (a `!` one re-includes, even under an ignored folder); when none does, the last
+    that matches its nearest folder that any pattern matches."""
+    parts = path.split("/")
+    for n in range(len(parts), 0, -1):
+        verdict = _ignore_verdict(patterns, "/".join(parts[:n]), is_folder=n < len(parts))
+        if verdict is not None:
+            return verdict
+    return False
 
 
 def rules_on_in(config: dict, path: str) -> set[str]:
     """The names (oxlint_settings_check.rule_name) of the rules the config turns on for ``path`` (relative to the
-    config's folder): the top-level rules, then each override whose `files` match it, in order."""
+    config's folder): the top-level rules, then each override that applies to it, in order."""
     on: set[str] = set()
-    blocks = [config.get("rules", {})] + [o.get("rules", {}) for o in config.get("overrides", [])
-                                          if any(override_glob_matches(g, path) for g in o.get("files", []))]
-    for block in blocks:
+    for block in _rule_blocks(config, path):
         for key, setting in block.items():
             (on.add if severity(setting) != "off" else on.discard)(rule_name(key))
     return on
@@ -258,14 +289,13 @@ def disable_comments_unfrozen() -> list[str]:
 
     When the parser cannot run, that is D1's one finding (frozen_counts.node_cannot_run)."""
     try:
-        found = disable_comments_found()
+        found, unreadable = disable_comments_found()
     except TsParserError as e:
         return node_cannot_run("D1", "disable comments", e)
     except ValueError as e:
         return [f"D1 could not list ADR-0049's rules: {e}"]
     except (OSError, subprocess.CalledProcessError) as e:
         return [f"D1 could not list the files oxlint lints with git: {e}"]
-    found, unreadable = found
     over, under = frozen_drift(found, read_frozen(DISABLE_SUPPRESSIONS), _describe)
     return (over + [f"{line} (fewer: lower it with python3 scripts/residence_check.py {PRUNE_FLAG})" for line in under]
             + [f"frontend/{path}: holds disable text in a file D1 cannot parse (oxlint lints its script blocks)"
