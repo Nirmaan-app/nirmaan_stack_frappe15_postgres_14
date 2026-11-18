@@ -10,7 +10,11 @@ from nirmaan_stack.api.projects._tendering_guard import validate_won
 from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.finance import PO_PENDING_STATUSES, po_available_balance, po_balance_refusal
-from nirmaan_stack.services.gst_payment_requests import gst_payment_birth_problem, gst_raise_problem
+from nirmaan_stack.services.gst_payment_requests import (
+    FROM_GST_REQUEST,
+    gst_payment_birth_problem,
+    gst_raise_problem,
+)
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.services.payment_steps import PAST_APPROVAL, is_system_move, refuse_step_out_of_tier
@@ -18,6 +22,7 @@ from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_pai
 from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.services.work_order_lifecycle import WorkOrderChangeRefused, payment_request_problem
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of, on_payment_rejected
+from nirmaan_stack.integrations.Notifications.gst_payment_request_notify import fit_bell_description
 from nirmaan_stack.services.cheques.decide import DECIDING_FLAG, held_by_a_live_cheque, refuse_lone_approval
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.payment_mode import (
@@ -134,6 +139,37 @@ def _get_ceo_user():
     )
 
 
+BELL_SAVEPOINT = "payment_bell"
+
+
+def _insert_bell(fields: dict, event: str, message: dict, user: str) -> None:
+    """Save one recipient's in-app note and push it, without ever failing the payment save that sent it.
+
+    The text is cut to the bell's 140 characters (`Nirmaan Notifications.description` is a Data field).
+    A note that still cannot be saved (a bad recipient, any other refusal) is undone alone, back to a
+    savepoint, written to the Error Log and skipped. Before 2026-11-18 such a refusal reached the user and
+    rolled back the whole approval (a 150-character GST note, found in the browser walk-through).
+    A savepoint, not a bare `except`: a PostgreSQL error aborts the transaction, and the commit after it
+    would silently roll back the payment too.
+    """
+    fields["description"] = fit_bell_description(fields.get("description") or "")
+    message["description"] = fields["description"]
+    frappe.db.savepoint(BELL_SAVEPOINT)
+    try:
+        row = frappe.new_doc("Nirmaan Notifications")
+        row.update(fields)
+        row.insert(ignore_permissions=True)
+    except Exception:
+        frappe.db.rollback(save_point=BELL_SAVEPOINT)
+        frappe.log_error(title=f"Payment notification skipped: {fields.get('docname')} to {user}",
+                         message=frappe.get_traceback(), reference_doctype="Project Payments",
+                         reference_name=fields.get("docname"))
+        return
+    frappe.db.commit()
+    message["notificationId"] = row.name
+    frappe.publish_realtime(event=event, message=message, user=user)
+
+
 def _notify_accountants_payment_ready(doc):
     """Notify project accountants that a payment is Approved and ready to fulfil.
 
@@ -168,20 +204,14 @@ def _notify_accountants_payment_ready(doc):
             "description": _(f"Payment for {doc.document_name} is approved and ready to fulfil."),
             "project": doc.project, "sender": frappe.session.user, "docname": doc.name
         }
-        new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-        new_notification_doc.update({
+        _insert_bell({
             "recipient": user.get('name'), "recipient_role": user.get('role_profile'),
             "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
             "title": message["title"], "description": message["description"],
             "document": 'Project Payments', "docname": doc.name, "project": doc.project,
             "seen": "false", "type": "info", "event_id": "payment:ceo_approved",
             "action_url": "project-payments?tab=New%20Payments"
-        })
-        new_notification_doc.insert(ignore_permissions=True)
-        frappe.db.commit()
-
-        message["notificationId"] = new_notification_doc.name
-        frappe.publish_realtime(event="payment:ceo_approved", message=message, user=user.get('name'))
+        }, "payment:ceo_approved", message, user.get('name'))
 
 
 def notify_ceo_payment_awaiting(doc, how_it_arrived: str):
@@ -219,43 +249,51 @@ def notify_ceo_payment_awaiting(doc, how_it_arrived: str):
     frappe.publish_realtime(event="payment:approved", message=message, user=ceo_user.get('name'))
 
 
+def _auto_approved_note(doc) -> tuple[str, str]:
+    """`(title, description)` of the admins' note for a payment born Approved, saying why it was.
+
+    Three reasons: an approved GST request (`FROM_GST_REQUEST`; the session user is the decider who
+    approved it, ADR-0030 Amendment B), the auto band (`auto_approved`), or a raiser who already holds the
+    approval it needed (owner, 2026-09-21).
+    """
+    request = doc.flags.get(FROM_GST_REQUEST)
+    if request:
+        # Cut to the bell's 140 characters: an over-long description makes the note's insert, and so the
+        # whole approval, fail (found in the 2026-11-18 browser walk-through).
+        return _("GST Payment Approved"), fit_bell_description(_(
+            f"GST payment {doc.name} approved by {get_user_name(frappe.session.user)} from {request}. "
+            "Ready to pay: no L1 or CEO."
+        ))
+    if doc.get("auto_approved"):
+        return _("Payment Auto-Approved"), _(
+            f"Payment {doc.name} ({doc.document_name}) was auto-approved (amount below threshold).")
+    return _("Payment Approved at Request"), _(
+        f"Payment {doc.name} ({doc.document_name}) was approved at request: "
+        f"{get_user_name(frappe.session.user)} raised it and holds the approval it needed."
+    )
+
+
 def _notify_admins_auto_approved(doc):
     """Informational 'record' note to admins that a small payment auto-approved.
 
     In-app Nirmaan Notification + realtime only (no FCM push) — admins have no
     action to take, this is purely for visibility/audit.
     """
-    # Born Approved for one of two reasons: the auto band (`auto_approved`), or because the person
-    # who raised it already holds the approval it needed (owner, 2026-09-21).
-    if doc.get("auto_approved"):
-        title = _("Payment Auto-Approved")
-        description = _(f"Payment {doc.name} ({doc.document_name}) was auto-approved (amount below threshold).")
-    else:
-        title = _("Payment Approved at Request")
-        description = _(
-            f"Payment {doc.name} ({doc.document_name}) was approved at request: "
-            f"{get_user_name(frappe.session.user)} raised it and holds the approval it needed."
-        )
+    title, description = _auto_approved_note(doc)
     for user in get_admin_users() or []:
         message = {
             "title": title,
             "description": description,
             "project": doc.project, "sender": frappe.session.user, "docname": doc.name
         }
-        new_notification_doc = frappe.new_doc('Nirmaan Notifications')
-        new_notification_doc.update({
+        _insert_bell({
             "recipient": user.get('name'), "recipient_role": user.get('role_profile'),
             "sender": frappe.session.user if frappe.session.user != 'Administrator' else None,
             "title": message["title"], "description": message["description"],
             "document": 'Project Payments', "docname": doc.name, "project": doc.project,
             "seen": "false", "type": "info", "event_id": "payment:auto_approved",
             "action_url": "project-payments?tab=Approve%20Payments"
-        })
-        new_notification_doc.insert(ignore_permissions=True)
-        frappe.db.commit()
-
-        message["notificationId"] = new_notification_doc.name
-        frappe.publish_realtime(event="payment:auto_approved", message=message, user=user.get('name'))
+        }, "payment:auto_approved", message, user.get('name'))
 
 
 # --- HOOK IMPLEMENTATIONS ---
