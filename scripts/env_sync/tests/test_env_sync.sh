@@ -411,13 +411,16 @@ echo "LEAVING 2026-11-18 19:19:00 raised by a test" > "$PW/leaving.flag"; POLLER
 check "LEAVING: a session with a status file is asked to pause (CHECKPOINT); one WITHOUT is not asked - it is copied as it stands" '
   [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name other")" = 0 ]'
 check "LEAVING: main dev gets ONE code + database checkpoint (office or away), Docker is started for it and put back" '
-  [ "$(grep -c "^env_sync checkpoint --slice u-main-feature-x --yes --name s1$" "$PW/calls.log")" = 1 ] && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" && [[ "$(hb)" == "LEAVING READY: main dev code + database"* ]]'
+  [ "$(grep -c "^env_sync checkpoint --slice u-main-feature-x --yes --name s1 --also-tell d4b$" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name d4b --text CHECKPOINT TAKEN")" = 0 ] && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" && [[ "$(hb)" == "LEAVING READY: main dev code + database"* ]]'
 check "LEAVING: every other unit is copied as it stands; READY per unit in ONE relay entry; the flag is cleared; the heartbeat says so" '
   grep -q "^env_sync checkpoint-code --slice u-main-scratch-b --checkout C:/Users/USER/Documents/wt_b --env main --name d4b$" "$PW/calls.log" && [ "$(grep -c "id LEAVING" "$PW/ops.md")" = 1 ] &&
   grep -q "u-main-feature-x (main dev.s checkout; paused at a safe point: s1 d4b; every other session there copied as it stands): READY" "$PW/ops.md" && grep -q "u-main-scratch-b (main, scratch/b; d4b(working)): READY - code copied as it stands" "$PW/ops.md" &&
   [ ! -f "$PW/leaving.flag" ] && [ -f "$PW/leaving.last" ] && grep -q "^leaving:  *READY at " "$PW/hb.txt"'
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; touch "$PW/leave_ok"; echo "LEAVING x" > "$PW/leaving.flag"; POLLER_LEAVING_SKIP="misc" prun
 check "LEAVING rehearsal switch: a named session is left alone (never told to pause), the others are" '[ "$(calls "tell --name misc")" = 0 ] && [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ]'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT,new1:77777777:working:HEARTBEAT"; touch "$PW/leave_ok"; echo "LEAVING x2" > "$PW/leaving.flag"; POLLER_LEAVING_ONLY="s1" prun
+check "LEAVING rehearsal ALLOW-list: only the named sessions are ever told to pause - a session nobody listed is never reached" '
+  [ "$(calls "tell --name misc")" = 0 ] && [ "$(calls "tell --name new1")" = 0 ] && [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ] && ! grep -q "also-tell" "$PW/calls.log"'
 : > "$PW/ops.md"
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT"; echo "LEAVING y" > "$PW/leaving.flag"; prun
 check "LEAVING FAILURE: the paused session is released at once (CHECKPOINT FAILED ... carry on), FAILED in the relay entry, the flag still cleared" '

@@ -32,7 +32,8 @@
 # State (laptop local disk):                            frappe-bench\envsync\poll\  (units\, paused, offline, lock, ...)
 # Rehearsals only: frappe-bench\envsync\poll\poller_test.env may set ENV_SYNC_DESKTOP (an alias that does not answer),
 # ENV_SYNC_TEST_FAIL=b1, POLLER_B1_MINUTES, POLLER_LOCATION, POLLER_FAIL_UNIT or POLLER_LEAVING_SKIP for the runs while it
-# exists. The other POLLER_* variables are for scripts/env_sync/tests only.
+# exists (POLLER_LEAVING_ONLY names the only sessions a rehearsal may pause). The other POLLER_* variables are for
+# scripts/env_sync/tests only.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -170,6 +171,8 @@ if [ "$LEAVING" = 1 ]; then
       # a session honours CHECKPOINT when it keeps a status file (our brief footer); a rehearsal may leave named ones alone
       [ "$sstate" = working ] && [ -n "$sfirst" ] && [ "$sname" != console ] || continue
       case " ${POLLER_LEAVING_SKIP:-} " in *" $sname "*) continue;; esac
+      # a rehearsal names the ONLY sessions it may pause, so it can never reach a session it did not start
+      if [ -n "${POLLER_LEAVING_ONLY:-}" ]; then case " $POLLER_LEAVING_ONLY " in *" $sname "*) ;; *) continue;; esac; fi
       es 120 tell --name "$sname" --text "CHECKPOINT $(date '+%F %H:%M') | the owner is leaving" > /dev/null 2>&1 && PAUSED_NAMES+=" $sname"
     done
   done <<< "$UOUT"
@@ -254,11 +257,13 @@ if [ "$LEAVING" = 1 ] && [ -n "$MAIN_ID" ] && grep -q "^unit|main|" <<< "$UOUT";
   if engine_up; then
     find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null
     args=(checkpoint --slice "$MAIN_ID" --yes); [ -n "$lname" ] && args+=(--name "$lname")
+    # every other paused session is released by the checkpoint itself, the moment the desktop side is captured
+    others=""; for n in $PAUSED_NAMES; do [ "$n" = "$lname" ] || others+="${others:+ }$n"; done
+    [ -n "$others" ] && args+=(--also-tell "$others")
     out=$(es 10800 "${args[@]}" 2>&1); rc=$?
     printf '%s\n' "$(now) leaving checkpoint for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
   else out="Docker did not start on the laptop"; rc=9; fi
   engine_restore "$MAIN_ID"
-  for n in $PAUSED_NAMES; do [ "$n" = "$lname" ] || es 120 tell --name "$n" --text "CHECKPOINT TAKEN $(date '+%F %H:%M') | carry on" > /dev/null 2>&1; done
   if grep -q '^CHECKPOINT READY' <<< "$out"; then
     echo "$(now) $MAIN_ID leaving-checkpoint" > "$ST/units/$MAIN_ID.last"
     LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}; every other session there copied as it stands): READY - code + database. $(grep '^CHECKPOINT READY' <<< "$out" | one_line 260)"$'\n'"$LEAVE_LINES"

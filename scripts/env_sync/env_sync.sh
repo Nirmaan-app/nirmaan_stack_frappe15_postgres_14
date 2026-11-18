@@ -637,6 +637,7 @@ ckfail() {
   relay="$RELAY_ROOT/$SLICE/to_chat.md"
   [ -f "$relay" ] && printf '\n=== %s | %s | UPDATE | id %s-CKPFAIL ===\n- %s\n- %s; the slice carries on (a checkpoint failure never blocks it); next try at the next mark.\n' "$(date '+%F %H:%M')" "$SLICE" "$SLICE" "$msg" "$good" >> "$relay"
   [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ] && tell_session "CHECKPOINT FAILED $(date '+%F %H:%M') | $good | carry on" && echo "  the waiting session was released (CHECKPOINT FAILED ... carry on)" >&2
+  if [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ]; then local also; for also in ${ALSO_TELL:-}; do NAME="$also" tell_session "CHECKPOINT FAILED $(date '+%F %H:%M') | $good | carry on"; done; fi
   laptop_down >&2; exit 3
 }
 # test_fail <point>: forces a failure at a named point for the rehearsals (ENV_SYNC_TEST_FAIL=b1|b3-capture|b3-copy|b3-silent).
@@ -786,6 +787,9 @@ cmd_checkpoint() {
   pull_backup
   t_code=$(( $(date +%s) - t0 ))
   tell_session "CHECKPOINT TAKEN $(date '+%F %H:%M') | $br ${commit:0:9} + database backup $(basename "$PB_PREFIX") | carry on"
+  # CKP-4: every OTHER session that paused for this "leaving" is released at the same moment (--also-tell "n1 n2"), not when
+  # the laptop has finished its restore minutes later (AC3, 2026-11-18: two sessions waited out their ceiling).
+  local also; for also in ${ALSO_TELL:-}; do NAME="$also" tell_session "CHECKPOINT TAKEN $(date '+%F %H:%M') | $br ${commit:0:9} + database backup $(basename "$PB_PREFIX") | carry on"; done
   echo "desktop: the code and the database are captured ($t_code s); the session may carry on"
   CK_RELEASE_ON_FAIL=0
   test_fail b3-copy
@@ -1110,7 +1114,7 @@ while [ $# -gt 0 ]; do
     --discard-desktop-writes) DISCARD=1;;
     --slice) SLICE="${2:-}"; shift;; --if-older) IF_OLDER="${2:-}"; shift;; --covers) COVERS="${2:-}"; shift;;
     --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;;
-    --text) TEXT="${2:-}"; shift;;
+    --text) TEXT="${2:-}"; shift;; --also-tell) ALSO_TELL="${2:-}"; shift;;
     --checkout) CK_CHECKOUT="${2:-}"; shift;; --env) CK_ENV="${2:-}"; shift;; --units) UNITS=1;; --no-data-check) SKIP_DATA=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
     --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
