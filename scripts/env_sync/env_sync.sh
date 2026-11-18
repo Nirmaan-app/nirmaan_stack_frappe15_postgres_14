@@ -1052,7 +1052,7 @@ cmd_resume_units() {
     head=$(sed -n 's/^head=//p' "$newest/head.txt"); base=$(sed -n 's/^base=//p' "$newest/head.txt")
     [ -f "$newest/commits.bundle" ] && git -C "$target" fetch -q "$newest/commits.bundle" "+refs/heads/*:refs/ckpt-incoming/*" 2>/dev/null
     start=""
-    for c in "$base" "$head"; do if [ -n "$c" ] && git -C "$target" cat-file -e "$c^{commit}" 2>/dev/null; then start="$c"; break; fi; done
+    for c in "$head" "$base"; do if [ -n "$c" ] && git -C "$target" cat-file -e "$c^{commit}" 2>/dev/null; then start="$c"; break; fi; done
     if [ -z "$start" ]; then echo "  DRY RUN FAILED: neither the checkpoint's base nor its head is on the laptop (no bundle)"; bad=$((bad + 1)); continue; fi
     git -C "$target" checkout -q -B "$branch" "$start" || { echo "  DRY RUN FAILED: cannot put the clone on $branch"; bad=$((bad + 1)); continue; }
     if bash "$HERE/remote/ckpt_apply.sh" apply "$target" "$newest" > "$TMPD/apply_$id.out" 2>&1 && grep -q '^applied: tree equals' "$TMPD/apply_$id.out"; then
