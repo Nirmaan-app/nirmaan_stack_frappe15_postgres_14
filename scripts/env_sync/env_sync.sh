@@ -160,7 +160,16 @@ die() { printf 'env_sync: %b\n' "$*" >&2; exit 2; }
 kv() { printf '%s\n' "$2" | sed -n "s/^$1=//p" | head -1; }
 lgit() { git -C "$REPO" "$@"; }
 dps() { "$SSH" "${SSHO[@]}" "$DESKTOP" "$@" 2>&1 | tr -d '\r'; }   # a PowerShell command on the desktop
-TMPD="$(mktemp -d)"; trap 'rm -rf "$TMPD"' EXIT
+TMPD="$(mktemp -d)"
+# Whatever ends the command - an error included - the containers and the Docker Desktop THIS run started are put back
+# (the laptop's standby), unless a takeover has just made the laptop the master (KEEP_LAPTOP_UP).
+at_exit() {
+  if [ "${KEEP_LAPTOP_UP:-0}" != 1 ] && { [ -n "${LAPTOP_STARTED:-}" ] || [ "${ENGINE_STARTED:-0}" = 1 ] || [ "${LAPTOP_TURN_OURS:-0}" = 1 ]; }; then
+    echo "env_sync: the command ended early - putting the laptop back as it was" >&2; laptop_down >&2
+  fi
+  rm -rf "$TMPD"
+}
+trap at_exit EXIT
 
 # Copy remote/ into frappe-bench/envsync on both machines, once per run.
 ensure_stage() {
@@ -473,7 +482,7 @@ prove_restore() {
   { echo "# desktop fingerprint at the laptop's last db-pull (${HELD_MADE:-$(date '+%F %T')}, backup $(basename "$PB_PREFIX"))"
     echo "# covers: ${covers:-a db-pull on request}"
     echo "# backup: $PB_PREFIX"
-    echo "# copy: $COPY_ROUTE, $COPY_SECS s; network: $COPY_NET"
+    echo "# copy: ${HELD_COPY:-${COPY_ROUTE:-unknown}, ${COPY_SECS:-?} s; network: ${COPY_NET:-unknown}}"
     fp_of laptop; } > "$PULL_RECORD"
   echo "laptop: recorded the pulled fingerprint in $PULL_RECORD (covers: ${covers:-a db-pull on request})"
   chunks_cleanup
@@ -528,6 +537,7 @@ held_load() {
   PB_BEFORE=$(sed -n 's/^before_//p' "$HOLD_DIR/held.txt"); PB_AFTER=$(sed -n 's/^after_//p' "$HOLD_DIR/held.txt")
   PB_SHA=$(sed -n 's/^sha_//p' "$HOLD_DIR/held.txt"); HELD_DFP=$(sed -n 's/^desktop_//p' "$HOLD_DIR/held.txt")
   HELD_MADE=$(sed -n 's/^held=//p' "$HOLD_DIR/held.txt"); HELD_COVERS=$(sed -n 's/^covers=//p' "$HOLD_DIR/held.txt")
+  HELD_COPY=$(sed -n 's/^copy=//p' "$HOLD_DIR/held.txt"); HELD_COPY="${HELD_COPY:-held copy}"
   for suf in -database.sql.gz -files.tar -private-files.tar; do
     f="$(lfile "$suf")"
     [ -f "$f" ] && [ "$(want_of "$(basename "$f")")" = "$(got_of "$f")" ] || die "the held copy's $(basename "$f") is missing or no longer matches its recorded sha256; the laptop database is unchanged"
@@ -1151,6 +1161,7 @@ cmd_resume_on_laptop() {
     laptop_down
     echo "DRY RUN done: the checkout, the database and the master are unchanged; the desktop stays the master"; return $held_bad
   fi
+  KEEP_LAPTOP_UP=1      # the laptop is the master now: its Docker and containers stay up
   echo "laptop $SLICE $(date '+%F %T') (resume-on-laptop from $(basename "$prev"))" > "$MASTER_REC"
   LAPTOP_TURN_OURS=0; echo "main $SLICE MASTER $(date '+%F %T')" > "$TURN_FILE"
   echo "RESUMED-ON-LAPTOP $SLICE $(date '+%F %H:%M'): the laptop is the master; continue from $prev/resume.md:"

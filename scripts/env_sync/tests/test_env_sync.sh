@@ -554,7 +554,9 @@ cat > "$E8/bin/docker" <<'EOF'
 echo "docker $*" >> "$E8_LOG"
 case "$1 ${2:-}" in
   "info "*) [ -f "$E8_DIR/engine_up" ];;
-  "inspect "*) echo true;;
+  "inspect "*) [ -f "$E8_DIR/containers_off" ] && echo false || echo true;;
+  "exec "*) case "$*" in *get_db_name.sh*) echo "db_name=_db1";; *scratch_counts.sh*) echo "load=ok"; echo "count_tables=10";; *restore_db.sh*) echo "restored _db1; the replaced one is kept as _db1_envsync_prev";;
+              *restore_files.sh*) echo "migrate ok";; *ports.sh*) printf '8000 open\n8080 open\n';; *db_fingerprint.py*) echo "fp_rm_items=5 (newest 2026-11-18 14:32:45.600237)";; esac;;
   "desktop start") n=$(cat "$E8_DIR/start_ok_at" 2>/dev/null || echo 0); c=$(( $(cat "$E8_DIR/start_n" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$E8_DIR/start_n"
                    [ "$n" -gt 0 ] && [ "$c" -ge "$n" ] && touch "$E8_DIR/engine_up"; exit 0;;
   "desktop stop") [ -f "$E8_DIR/stop_hang" ] && sleep 6; rm -f "$E8_DIR/engine_up"; exit 0;;
@@ -578,7 +580,7 @@ if grep -qx "$name" "$E8_DIR/corrupt.txt" 2>/dev/null; then printf 'X' >> "$dst"
 EOF
 printf '#!/usr/bin/env bash\necho "ssh $*" >> "$E8_LOG"\nexit 0\n' > "$E8/bin/ssh"
 chmod +x "$E8/bin/"*
-e8reset() { rm -f "$E8/engine_up" "$E8/start_ok_at" "$E8/start_n" "$E8/stop_hang" "$E8/wsl_running" "$E8/corrupt.txt"; : > "$E8/log"; echo "free 2026-11-19 00:00:00" > "$E8/turn.txt"; }
+e8reset() { rm -f "$E8/engine_up" "$E8/start_ok_at" "$E8/start_n" "$E8/stop_hang" "$E8/wsl_running" "$E8/corrupt.txt" "$E8/containers_off" "$E8/pull_record"; : > "$E8/log"; echo "free 2026-11-19 00:00:00" > "$E8/turn.txt"; }
 # e8 <shell text>: run it inside env_sync.sh (everything before its dispatch), with the stubs. PRE holds lines run first.
 e8() {
   ( export E8_LOG="$E8/log" E8_DIR="$E8" STUB_LOG="$E8/log" ENV_SYNC_DOCKER="$E8/bin/docker" ENV_SYNC_WSL="$E8/bin/wsl" ENV_SYNC_ENGINE_KILL="$E8/bin/kill_docker" \
@@ -689,6 +691,21 @@ check "db-restore-held: Docker is started for it, the NEWEST held copy is loaded
   grep -q "^PROVE_RESTORE_CALLED covers=.*(held 20.*, loaded 20.*) from=$E8/pending/20261119_070000/20261119_070000-localhost-database.sql.gz$" "$E8/out" && grep -q "^restored=20[0-9-]* [0-9:]*$" "$E8/pending/20261119_070000/held.txt" &&
   grep -q "^DB RESTORED from the held copy 20261119_070000" "$E8/out" && [ "$(n8 "desktop start")" = 1 ] && [ "$(n8 "desktop stop")" = 1 ] && grep -q "^free 20" "$E8/turn.txt"'
 check "the pull record of a restored HELD copy carries the moment the copy was MADE, not the moment it was loaded" 'grep -q "last db-pull (\${HELD_MADE:-\$(date" "$SRC/env_sync.sh"'
+# the REAL restore half (prove_restore) from a held copy, docker answering as a healthy laptop would: this is the path whose
+# last step stopped on an unset variable in the live rehearsal (2026-11-19 01:33), after the database had been replaced
+NOPROVE='pull_backup() { :; }; cmd_status() { :; }'
+sed -i "s/^restored=.*/restored=/" "$E8/pending/20261119_070000/held.txt"
+e8reset; echo 1 > "$E8/start_ok_at"; touch "$E8/containers_off"; e8 "$NOPROVE; YES=1; cmd_db_restore_held; echo rc=\$?"
+check "A HELD copy is restored END TO END by the real restore code: scratch proof, restore, files, the record with its fingerprint, marked restored" '
+  grep -q "^rc=0$" "$E8/out" && grep -q "scratch restore PASS" "$E8/out" && grep -q "^DB RESTORED from the held copy 20261119_070000" "$E8/out" && ! grep -q "unbound variable" "$E8/out" &&
+  grep -q "^fp_rm_items=5 (newest 2026-11-18 14:32:45.600237)$" "$E8/pull_record" && grep -q "^# copy: normal, [0-9]* s; network: " "$E8/pull_record" && grep -q "^# desktop fingerprint at the laptop.s last db-pull ($(sed -n "s/^held=//p" "$E8/pending/20261119_070000/held.txt")," "$E8/pull_record" &&
+  grep -q "^restored=20" "$E8/pending/20261119_070000/held.txt"'
+check "and the laptop is put back afterwards: the containers it started are stopped, Docker Desktop is off again, the turn file is free" '
+  grep -q "^docker stop frappe_docker_devcontainer" "$E8/log" && [ "$(n8 "desktop stop")" = 1 ] && grep -q "^free 20" "$E8/turn.txt"'
+e8reset; echo 1 > "$E8/start_ok_at"; touch "$E8/containers_off"; e8 "$NOPROVE; prove_restore() { echo before-the-error; \"\$NO_SUCH_VARIABLE_AT_ALL\"; }; YES=1; cmd_db_restore_held; echo not-reached"
+check "A command that ENDS EARLY after starting Docker still puts the laptop back (containers stopped, Docker off, turn file free)" '
+  grep -q "before-the-error" "$E8/out" && ! grep -q "not-reached" "$E8/out" && grep -q "the command ended early - putting the laptop back as it was" "$E8/out" && grep -q "^docker stop frappe_docker_devcontainer" "$E8/log" && [ "$(n8 "desktop stop")" = 1 ] && grep -q "^free 20" "$E8/turn.txt"'
+check "a takeover that made the laptop the master keeps its Docker up (the early-end clean-up stands down)" 'grep -q "KEEP_LAPTOP_UP=1      # the laptop is the master now" "$SRC/env_sync.sh"'
 e8reset; touch "$E8/engine_up"; e8 "$FAKES; held_scratch_check() { echo SCRATCH_CHECK_CALLED; return 0; }; DRY_RUN=1; cmd_db_restore_held; echo rc=\$?"
 check "db-restore-held --dry-run only loads the copy into a scratch database: nothing is restored, nothing marked" '
   grep -q SCRATCH_CHECK_CALLED "$E8/out" && ! grep -q PROVE_RESTORE_CALLED "$E8/out" && grep -q "^DRY RUN done: the held copy loads, counts and fingerprint equal the desktop.s; nothing real changed$" "$E8/out" && grep -q "^rc=0$" "$E8/out"'

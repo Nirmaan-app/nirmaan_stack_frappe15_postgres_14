@@ -157,7 +157,7 @@ fi
 rm -f "$ST/leaving_offline_told"
 LOCATION=$(where_am_i)
 BACK=""; if [ -f "$ST/offline" ]; then BACK=$(cat "$ST/offline"); rm -f "$ST/offline"; fi
-FOLLOW_SLICE="" FOLLOW_NAME=""; read -r FOLLOW_SLICE FOLLOW_NAME _ < "$ST/active.txt" 2>/dev/null || true
+FOLLOW_SLICE="" FOLLOW_NAME=""; if [ -f "$ST/active.txt" ]; then read -r FOLLOW_SLICE FOLLOW_NAME _ < "$ST/active.txt" || true; fi
 
 # ---- "leaving": ask the sessions that honour CHECKPOINT to stop at their safe point, and wait for them -------------
 PAUSED_NAMES=""; LEAVE_T0=$(date +%s)
