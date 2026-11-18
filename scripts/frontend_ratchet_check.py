@@ -163,7 +163,8 @@ def rule_name(key):
 def options_kept(name, base_setting, head_setting):
     """True when head's options for rule <name> refuse at least what base's did (equal; ban lists may grow).
 
-    A ban's `message` is text for the reader, not a limit: it may change.
+    A ban's `message` is text for the reader, not a limit: it may change. A new `!` entry in a ban list is no growth:
+    oxlint reads it as "but not these", so ["x/*", "!x/**"] bans nothing.
     """
     grow = name in BAN_LISTS
 
@@ -173,7 +174,9 @@ def options_kept(name, base_setting, head_setting):
             return keys == set(after) - {"message"} and all(kept(before[k], after[k]) for k in keys)
         if isinstance(before, list) and isinstance(after, list):
             if grow:
-                return all(any(kept(b, a) for a in after) for b in before)
+                new = [a for a in after if not any(kept(b, a) for b in before)]
+                return (all(any(kept(b, a) for a in after) for b in before)
+                        and not any(isinstance(a, str) and a.startswith("!") for a in new))
             return len(before) == len(after) and all(map(kept, before, after))
         return before == after
 

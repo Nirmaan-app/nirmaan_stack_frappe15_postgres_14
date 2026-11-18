@@ -299,6 +299,15 @@ class LintSettings(unittest.TestCase):
         self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}', '{"paths": []}')
         self.refused("no-restricted-imports", "options")
 
+    def test_a_ban_list_emptied_by_a_new_negated_entry_is_refused(self):
+        # oxlint reads a `!` entry as "but not these": ["sdk-lib/*", "!sdk-lib/**"] bans nothing.
+        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}',
+                         '{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}], '
+                         '"patterns": [{"group": ["sdk-lib/*"], "message": "Use \'@/lib/sdk\'"}]}')
+        self.git("commit", "-qam", "ban sdk-lib's subpaths")
+        self.edit_config('"group": ["sdk-lib/*"]', '"group": ["sdk-lib/*", "!sdk-lib/**"]')
+        self.refused("no-restricted-imports", "options")
+
     def test_an_ignored_folder_with_its_suppressions_pruned_is_refused(self):
         self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/components/ui/**", "src/orders.tsx"]')
         (self.repo / OXLINT).write_text("{}")
