@@ -1,6 +1,8 @@
 // D1's parser (scripts/disable_comment_check.py, #1705): the comments in the sources oxlint lints that may hold a
-// directive, found with TypeScript's own parser. A comment is the trivia between two tokens, as the compiler reads it,
-// so text in a string, a template, a regex literal or JSX text is not one, and a `{/* */}` inside JSX is.
+// directive. Most are found with TypeScript's own parser: a comment is the trivia between two tokens, as the compiler
+// reads it, so text in a string, a template, a regex literal or JSX text is not one, and a `{/* */}` inside JSX is.
+// The HTML-like comments oxlint also reads (`<!--`, a line-start `-->`) are code to TypeScript, so they are found by
+// text outside those comments and literals (firstHtmlComment).
 // disable_comment_check.py reads each comment's directive; this only keeps the comments whose text holds `-disable`.
 //
 //   stdin:  {"<path>": "<source>", ...}      parsed by extension (SCRIPT_KINDS)
@@ -57,13 +59,14 @@ function parse(path, source, kind) {
   return { comments, literals };
 }
 
-const inside = (ranges, at) => ranges.some(([start, end]) => start <= at && at < end);
+/** The range of ``ranges`` that holds ``at``, or undefined. */
+const rangeAt = (ranges, at) => ranges.find(([start, end]) => start <= at && at < end);
 
 /** Whether only whitespace and comments stand between the start of ``at``'s line and ``at``. */
 function startsItsLine(source, comments, at) {
   for (let i = at - 1; i >= 0; i--) {
     if (LINE_BREAK.test(source[i])) return true;
-    const comment = comments.find(([start, end]) => start <= i && i < end);
+    const comment = rangeAt(comments, i);
     if (comment) {
       if (comment[0] < i && LINE_BREAK.test(source.slice(comment[0], i))) return true;
       i = comment[0];
@@ -78,7 +81,7 @@ function startsItsLine(source, comments, at) {
 function firstHtmlComment(source, { comments, literals }) {
   for (const found of source.matchAll(/<!--|-->/g)) {
     const at = found.index;
-    if (inside(comments, at) || inside(literals, at)) continue;
+    if (rangeAt(comments, at) || rangeAt(literals, at)) continue;
     if (found[0] === "-->" && !startsItsLine(source, comments, at)) continue;
     const rest = source.slice(at).search(LINE_BREAK);
     return [at, rest === -1 ? source.length : at + rest];
@@ -86,7 +89,7 @@ function firstHtmlComment(source, { comments, literals }) {
   return null;
 }
 
-/** The comments of one source that hold `-disable`, in source order, each as written (`//`, `/* *\/`, `<!--`, `-->`). */
+/** The comments of one source that hold `-disable`, in source order, each as written: `//`, `/* *\/`, `<!--`, `-->`. */
 export function disableComments(path, source) {
   const ext = path.slice(path.lastIndexOf("."));
   const kind = SCRIPT_KINDS[ext] ?? ts.ScriptKind.TS;

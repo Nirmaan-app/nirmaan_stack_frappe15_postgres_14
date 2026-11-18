@@ -41,8 +41,9 @@ def _directive(comment: str) -> tuple[re.Match, str] | None:
     """The directive match in a comment and the comment's trimmed text, or None when it is no disable directive."""
     if comment.startswith("/*"):
         body = comment[2:-2]
-    else:  # `//`, or an HTML-like comment: `<!--`, or `-->` at a line's start (read to the end of its line)
-        body = comment[4:] if comment.startswith("<!--") else comment[3:] if comment.startswith("-->") else comment[2:]
+    else:  # `//`, or an HTML-like comment: `<!--`, or `-->` at a line's start (each read to the end of its line)
+        prefix = next(p for p in ("<!--", "-->", "//") if comment.startswith(p))
+        body = comment[len(prefix):]
     body = body.strip()
     found = _DISABLE_DIRECTIVE.match(body)
     return (found, body) if found else None
