@@ -55,7 +55,9 @@ describe("yarn lint", () => {
     if (suppressions) writeFileSync(join(root, "oxlint-suppressions.json"), JSON.stringify(suppressions));
     symlinkSync(join(FRONTEND, "node_modules"), join(root, "node_modules"));
     const [bin, ...args] = lint.split(" ");
-    return spawnSync(join(root, "node_modules", ".bin", bin), args, { cwd: root, encoding: "utf8" });
+    // Under GITHUB_ACTIONS oxlint prints GitHub annotations, which drop the help lines these tests read.
+    const { GITHUB_ACTIONS, ...env } = process.env;
+    return spawnSync(join(root, "node_modules", ".bin", bin), args, { cwd: root, env, encoding: "utf8" });
   }
   const frozen = (count) => ({ "src/sample.ts": { "typescript/no-explicit-any": { count } } });
   const twoAnys = "export const a: any = 1;\nexport const b: any = 2;\n";
