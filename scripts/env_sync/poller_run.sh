@@ -49,17 +49,17 @@ HB="${POLLER_HEARTBEAT:-$RUN_RECORDS/ckp_heartbeat.txt}"
 LOG="${POLLER_LOG:-$BENCH_HOST/envsync/checkpoints/poller.log}"
 LEAVING_FLAG="${ENV_SYNC_LEAVING_FLAG:-$RUN_RECORDS/ckp_leaving.flag}"
 ENVSYNC="${POLLER_ENV_SYNC:-$HERE/env_sync.sh}"
-DOCKER="${POLLER_DOCKER:-docker}"
-DOCKER_DESKTOP_EXE="${POLLER_DOCKER_DESKTOP_EXE:-/c/Program Files/Docker/Docker/Docker Desktop.exe}"
 D_BENCH="${ENV_SYNC_DESKTOP_BENCH:-C:/Users/USER/Documents/frappe_docker/development/frappe-bench}"
 MAIN_ROOT="$(tr '[:upper:]' '[:lower:]' <<< "$D_BENCH/apps/nirmaan_stack")"
 PULL_RECORD="${ENV_SYNC_PULL_RECORD:-$BENCH_HOST/envsync/last_pull_fingerprint.txt}"
+# CKP-5: the copier NEVER starts Docker. A database copy is fetched and sha256-checked into this folder on the laptop's own
+# disk and HELD there; it is loaded only on a takeover or by `env_sync.sh db-restore-held`.
+PENDING_ROOT="${ENV_SYNC_PENDING_ROOT:-$BENCH_HOST/envsync/backups/pending}"
 TURN_FILE="${ENV_SYNC_TURN_FILE:-$(cygpath -u "$USERPROFILE")/envsync_laptop_turn.txt}"
 LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1}"
 B1_EVERY="${POLLER_B1_MINUTES:-13}"      # under the task's 15 minutes, so every scheduled run that finds work takes a B1
 LOCK_STALE_MIN="${POLLER_LOCK_STALE_MIN:-180}"
 B2_RETRY_MIN="${POLLER_B2_RETRY_MIN:-60}"          # a failed database copy is tried again for the same point after this long
-B2_MIN_FREE_MB="${POLLER_B2_MIN_FREE_MB:-3000}"    # no database copy is started with less free memory than this on the laptop
 LEAVING_WAIT="${POLLER_LEAVING_WAIT:-600}"         # seconds the copier waits for the sessions' CHECKPOINT SAFE on "leaving"
 # The relay entry for things no single slice owns (a "leaving" result, a failure, CAUGHT-UP, the dev2 question): a fixed
 # folder _relay\_checkpoints\ once it exists, CKP-4's folder until then.
@@ -74,8 +74,19 @@ es() { local t="$1"; shift; timeout "$t" bash "$ENVSYNC" "$@" < /dev/null; }
 say() { echo "$(now) $*" >> "$LOG"; }
 one_line() { tr '\n' ' ' | sed 's/  */ /g' | cut -c1-"${1:-300}"; }
 relay() { [ -f "$OPS_RELAY" ] && printf '\n=== %s | CKP | UPDATE | id %s ===\n%s\n' "$(date '+%F %H:%M')" "$1" "$2" >> "$OPS_RELAY"; return 0; }
-# The moment of the laptop's last database copy: the time in the pull record's first line (a db-pull or a db-push wrote it).
+# The moment of the laptop's last LOADED database copy: the time in the pull record's first line (a db-pull, a db-push or
+# a restore of a held copy wrote it).
 last_b2() { sed -n '1s/.*(\([0-9]\{4\}-[0-9-]* [0-9:]*\),.*/\1/p' "$PULL_RECORD" 2>/dev/null; }
+# The newest HELD copy: "<made> <folder>" and whether it was loaded since.
+held_dir() { local d; for d in $(ls -1d "$PENDING_ROOT"/[0-9]*_[0-9]* 2>/dev/null | sort -r); do [ -f "$d/held.txt" ] && { echo "$d"; return; }; done; }
+last_held() { local d; d=$(held_dir); [ -n "$d" ] && sed -n 's/^held=//p' "$d/held.txt"; }
+held_line() {
+  local d r; d=$(held_dir); [ -n "$d" ] || { echo "none"; return; }
+  r=$(sed -n 's/^restored=//p' "$d/held.txt")
+  echo "$(sed -n 's/^held=//p' "$d/held.txt") ($(basename "$d"); $( [ -n "$r" ] && echo "loaded $r" || echo "held, NOT loaded - it is loaded only on a takeover or by db-restore-held" ))"
+}
+# The newest database copy of either kind, as a moment (what a costly step is compared with).
+newest_db() { { last_b2; last_held; } | sort | tail -1; }
 newest_b1() { cat "$ST"/units/*.last 2>/dev/null | sort | tail -1; }
 UNIT_LINES=""; DETECTED="not checked"; LOCATION=""
 # heartbeat <result> <desktop reachable y/n/not asked>
@@ -85,10 +96,11 @@ heartbeat() {
     echo "result:            $1"
     echo "detected:          $DETECTED"
     echo "desktop reachable: ${2:-not asked}"
-    echo "location:          ${LOCATION:-not checked} (office = code copies only; away = code + database)"
+    echo "location:          ${LOCATION:-not checked} (office = code copies only; away = code + the database file, held)"
     [ -n "$UNIT_LINES" ] && printf '%s' "$UNIT_LINES"
     echo "last good B1:      $(newest_b1 | grep . || echo none recorded)"
-    echo "last good B2:      $(last_b2 | grep . || echo none recorded) (main dev: the laptop's last proved database copy)"
+    echo "last held db copy: $(held_line)"
+    echo "last restored db copy: $(last_b2 | grep . || echo none recorded) (what the laptop's database holds now)"
     echo "off switch:        Desktop shortcuts Copier - Pause / Resume / Status, or env_sync.sh poller pause | resume | remove"
   } > "$HB"
 }
@@ -104,40 +116,6 @@ where_am_i() {
   if grep -qE ' via (10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+:[0-9]+' <<< "$out"; then echo office; else echo away; fi
 }
 unit_id() { printf 'u-%s-%s' "$1" "$2" | sed 's/[^A-Za-z0-9-]/-/g' | cut -c1-41; }
-# Docker on the laptop only for a database copy, and put back as it was (MEM-R0 F3). Never dev2.
-# Every docker call has a time limit: on 2026-11-18 20:42 Docker Desktop hung at "Starting the Docker Engine" with no free
-# memory, `docker info` never returned, and a real "leaving" waited on it until the owner had it stopped by hand.
-dk() { timeout "${POLLER_DOCKER_TIMEOUT:-25}" "$DOCKER" "$@"; }
-ENGINE_WAS=up; RUNNING_BEFORE=""; TURN_BEFORE=""; ENGINE_WHY=""
-engine_up() {
-  local t0
-  TURN_BEFORE=$(head -1 "$TURN_FILE" 2>/dev/null)
-  ENGINE_WAS=up; dk info > /dev/null 2>&1 || ENGINE_WAS=down
-  if [ "$ENGINE_WAS" = down ]; then
-    say "Docker Desktop is off (laptop standby) - starting it for the database copy"
-    if [ -n "${POLLER_ENGINE_START:-}" ]; then "$POLLER_ENGINE_START"          # tests: a stub, never the real Docker Desktop
-    else
-      timeout 240 "$DOCKER" desktop start > /dev/null 2>&1 ||
-        cmd.exe //c start "" "$(cygpath -w "$DOCKER_DESKTOP_EXE" 2>/dev/null || echo "$DOCKER_DESKTOP_EXE")" > /dev/null 2>&1
-    fi
-    t0=$(date +%s)          # at most ENGINE_MAX seconds in all for the engine to answer, however long each try hangs
-    while [ $(( $(date +%s) - t0 )) -lt "${POLLER_ENGINE_MAX:-300}" ]; do dk info > /dev/null 2>&1 && break; sleep "${POLLER_ENGINE_STEP:-5}"; done
-    dk info > /dev/null 2>&1 && sleep "${POLLER_ENGINE_SETTLE:-45}"   # a just-started Docker Desktop drops large requests
-  fi
-  RUNNING_BEFORE=""
-  for c in $LAPTOP_CONTAINERS; do [ "$(dk inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && RUNNING_BEFORE+=" $c"; done
-  if dk info > /dev/null 2>&1; then return 0; fi
-  ENGINE_WHY="Docker on the laptop did not start within ${POLLER_ENGINE_MAX:-300} s"; return 1
-}
-engine_restore() {   # $1 = the unit id whose turn-file claim a failed copy may have left behind
-  for c in $LAPTOP_CONTAINERS; do
-    case " $RUNNING_BEFORE " in *" $c "*) ;; *) [ "$(dk inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] && timeout 90 "$DOCKER" stop "$c" > /dev/null 2>&1;; esac
-  done
-  case "$TURN_BEFORE" in free*) case "$(head -1 "$TURN_FILE" 2>/dev/null)" in "main $1 "*) echo "free $(now)" > "$TURN_FILE";; esac;; esac
-  if [ "$ENGINE_WAS" = down ]; then timeout 120 "$DOCKER" desktop stop > /dev/null 2>&1; say "Docker Desktop stopped again (it was off before)"; fi
-}
-free_mb() { echo "${POLLER_FREE_MB:-$(powershell.exe -NoProfile -Command "[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024)" 2>/dev/null | tr -d '\r')}"; }
-
 # One instance at a time (the task also ignores a new start while one runs).
 if ! mkdir "$ST/lock" 2>/dev/null; then
   age=$(( ($(date +%s) - $(stat -c %Y "$ST/lock" 2>/dev/null || date +%s)) / 60 ))
@@ -272,35 +250,28 @@ fi
 POINT=$(sed -n 's/^point|main|//p' <<< "$UOUT" | awk -F'|' '{ print $2 "|" $1 }' | sort | tail -1)   # "<DBCOPY-POINT line>|<session>"
 PT_NAME="${POINT##*|}"; POINT="${POINT%|*}"
 if [ "$LEAVING" = 1 ] && [ -n "$MAIN_ID" ] && grep -q "^unit|main|" <<< "$UOUT"; then
-  heartbeat "RUNNING since $RUN_START - LEAVING: code + database checkpoint of main dev started $(now) (about 7-10 minutes)" y
+  heartbeat "RUNNING since $RUN_START - LEAVING: checkpoint of main dev started $(now): code + the database FILE copied to the laptop (no Docker; a few minutes)" y
   lname="${PAUSED_NAMES# }"; lname="${lname%% *}"; lname="${lname:-$MAIN_NAME}"
-  # The code of every unit is already on the laptop (the loop above copied it, no Docker needed). The database copy is
-  # extra: it is skipped with the reason when the laptop is short of memory or Docker will not start, and "leaving" still
-  # ends by itself as READY (CODE ONLY) with every paused session released (owner 2026-11-18 20:5x, a real leaving).
-  db_why=""; fm=$(free_mb)
-  if [ -n "$fm" ] && [ "$fm" -lt "$B2_MIN_FREE_MB" ] 2>/dev/null; then db_why="the laptop has only $fm MB of memory free (under $B2_MIN_FREE_MB)"; fi
-  if [ -n "$db_why" ]; then out="$db_why"; rc=8; ENGINE_WAS=up; RUNNING_BEFORE="$LAPTOP_CONTAINERS"
-  elif engine_up; then
-    find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null
-    args=(checkpoint --slice "$MAIN_ID" --yes); [ -n "$lname" ] && args+=(--name "$lname")
-    # every other paused session is released by the checkpoint itself, the moment the desktop side is captured
-    others=""; for n in $PAUSED_NAMES; do [ "$n" = "$lname" ] || others+="${others:+ }$n"; done
-    [ -n "$others" ] && args+=(--also-tell "$others")
-    out=$(es 10800 "${args[@]}" 2>&1); rc=$?
-    printf '%s\n' "$(now) leaving checkpoint for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
-  else out="$ENGINE_WHY"; rc=9; db_why="$ENGINE_WHY"; fi
-  engine_restore "$MAIN_ID"
+  # The code of every unit is already on the laptop (the loop above). The database is copied as a FILE and held (CKP-5):
+  # no Docker is started, so "leaving" cannot hang on it. If even that copy fails, "leaving" still ends by itself as
+  # READY (CODE ONLY) with every paused session released (owner 2026-11-18 20:5x, a real leaving).
+  args=(checkpoint --slice "$MAIN_ID" --hold); [ -n "$lname" ] && args+=(--name "$lname")
+  # every other paused session is released by the checkpoint itself, the moment the desktop side is captured
+  others=""; for n in $PAUSED_NAMES; do [ "$n" = "$lname" ] || others+="${others:+ }$n"; done
+  [ -n "$others" ] && args+=(--also-tell "$others")
+  out=$(es "${POLLER_LEAVING_DB_LIMIT:-5400}" "${args[@]}" 2>&1); rc=$?
+  printf '%s\n' "$(now) leaving checkpoint for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
   if grep -q '^CHECKPOINT READY' <<< "$out"; then
     echo "$(now) $MAIN_ID leaving-checkpoint" > "$ST/units/$MAIN_ID.last"
-    LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}; every other session there copied as it stands): READY - code + database. $(grep '^CHECKPOINT READY' <<< "$out" | one_line 260)"$'\n'"$LEAVE_LINES"
-    RESULT="LEAVING READY: main dev code + database; $RESULT"
+    LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}; every other session there copied as it stands): READY - code + the database file HELD on the laptop (not loaded; it is loaded only if you take over). $(grep '^CHECKPOINT READY' <<< "$out" | one_line 330)"$'\n'"$LEAVE_LINES"
+    RESULT="LEAVING READY: main dev code + database copy held (not loaded); $RESULT"
   else
     # No database copy. Every waiting session is released at once (F2). If the code copy above worked, this is still READY.
-    [ -n "$db_why" ] || db_why="the database copy failed: $(tail -2 <<< "$out" | one_line 160)"
+    db_why="the database copy failed: $(tail -2 <<< "$out" | one_line 160)"
     code_ok=0; grep -q "$MAIN_ID: B1 OK" <<< "$RESULT" && code_ok=1
     for n in $PAUSED_NAMES; do es 120 tell --name "$n" --text "CHECKPOINT $( [ "$code_ok" = 1 ] && echo "TAKEN $(date '+%F %H:%M') | CODE ONLY (the database copy was NOT taken: $db_why)" || echo "FAILED $(date '+%F %H:%M')" ) | carry on" > /dev/null 2>&1; done
     if [ "$code_ok" = 1 ]; then
-      LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}): READY (CODE ONLY) - the database copy was NOT taken: $db_why. The laptop's last database copy is $(last_b2 | grep . || echo none). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
+      LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}): READY (CODE ONLY) - the database copy was NOT taken: $db_why. The laptop's last database copies: held $(last_held | grep . || echo none), loaded $(last_b2 | grep . || echo none). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
       RESULT="LEAVING READY (CODE ONLY - database copy NOT taken: $db_why); $RESULT"
     else
       LEAVE_LINES="- $MAIN_ID (main dev's checkout): FAILED - neither the code nor the database was copied ($db_why). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
@@ -309,31 +280,23 @@ if [ "$LEAVING" = 1 ] && [ -n "$MAIN_ID" ] && grep -q "^unit|main|" <<< "$UOUT";
   fi
 elif [ -n "$POINT" ] && [ -n "$MAIN_ID" ]; then
   pt_epoch=$(date -d "$(awk '{print $2" "$3}' <<< "$POINT")" +%s 2>/dev/null || echo 0)
-  rec=$(last_b2); rec_epoch=$( [ -n "$rec" ] && date -d "$rec" +%s 2>/dev/null || echo 0)
+  rec=$(newest_db); rec_epoch=$( [ -n "$rec" ] && date -d "$rec" +%s 2>/dev/null || echo 0)
   if [ "$pt_epoch" -gt "$rec_epoch" ]; then
     B2_WAIT=""
     if [ "$LOCATION" = office ]; then B2_WAIT="B2 not in office (a database copy is due; it is made once the laptop is away, or by 'leaving' / the slice-end db-pull)"
     elif [ -f "$ST/b2_failed.txt" ] && [ "$(sed -n 1p "$ST/b2_failed.txt")" = "$POINT" ] && [ $(( ($(date +%s) - $(stat -c %Y "$ST/b2_failed.txt")) / 60 )) -lt "$B2_RETRY_MIN" ]; then
       B2_WAIT="B2 PENDING (the copy failed $(( ($(date +%s) - $(stat -c %Y "$ST/b2_failed.txt")) / 60 )) min ago; next try after $B2_RETRY_MIN min)"
-    else
-      fm=$(free_mb)
-      if [ -n "$fm" ] && [ "$fm" -lt "$B2_MIN_FREE_MB" ] 2>/dev/null; then B2_WAIT="B2 PENDING (the laptop has only $fm MB of memory free, under $B2_MIN_FREE_MB; tried again at the next run)"; fi
     fi
     if [ -n "$B2_WAIT" ]; then RESULT="$RESULT + $B2_WAIT"
     else
       say "B2 due: $POINT (the last copy: ${rec:-none})"
-      heartbeat "RUNNING since $RUN_START - $RESULT; B2 database copy of main dev started $(now) (10-15 minutes; this line is replaced by the result)" y
-      if engine_up; then
-        find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null   # a lock left by an earlier pull fails the migrate
-        out=$(es 10800 catch-up --slice "$MAIN_ID" --name "$PT_NAME" --checkout "$MAIN_PATH" --env main --yes 2>&1); rc=$?
-        printf '%s\n' "$(now) B2 for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
-        rec2=$(last_b2); rec2_epoch=$( [ -n "$rec2" ] && date -d "$rec2" +%s 2>/dev/null || echo 0)
-        if [ "$rec2_epoch" -ge "$pt_epoch" ]; then RESULT="$RESULT + B2 OK (covers: $(one_line 80 <<< "$POINT"))"; rm -f "$ST/b2_failed.txt"
-        else RESULT="$RESULT + FAILED B2 (rc $rc): $(tail -3 <<< "$out" | one_line 200)"; echo "$POINT" > "$ST/b2_failed.txt"; fi
-      else
-        RESULT="$RESULT + FAILED B2: Docker did not start on the laptop"; echo "$POINT" > "$ST/b2_failed.txt"
-      fi
-      engine_restore "$MAIN_ID"
+      heartbeat "RUNNING since $RUN_START - $RESULT; B2: the database FILE of main dev is being copied to the laptop since $(now) (no Docker; this line is replaced by the result)" y
+      # CKP-5: the copy is HELD - fetched and sha256-checked, Docker never started, nothing loaded
+      out=$(es "${POLLER_B2_LIMIT:-5400}" catch-up --slice "$MAIN_ID" --name "$PT_NAME" --checkout "$MAIN_PATH" --env main --yes --hold 2>&1); rc=$?
+      printf '%s\n' "$(now) B2 for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
+      rec2=$(last_held); rec2_epoch=$( [ -n "$rec2" ] && date -d "$rec2" +%s 2>/dev/null || echo 0)
+      if [ "$rec2_epoch" -ge "$pt_epoch" ]; then RESULT="$RESULT + B2 HELD (database file copied, not loaded; covers: $(one_line 80 <<< "$POINT"))"; rm -f "$ST/b2_failed.txt"
+      else RESULT="$RESULT + FAILED B2 (rc $rc): $(tail -3 <<< "$out" | one_line 200)"; echo "$POINT" > "$ST/b2_failed.txt"; fi
     fi
   fi
 fi
@@ -342,7 +305,8 @@ fi
 if [ "$LEAVING" = 1 ]; then
   took=$(( $(date +%s) - LEAVE_T0 ))
   [ -n "$LEAVE_LINES" ] || LEAVE_LINES="- nothing was running on the desktop: no unit to checkpoint"$'\n'
-  verdict=READY; grep -q 'READY (CODE ONLY)' <<< "$LEAVE_LINES" && verdict="READY (CODE ONLY - no database copy)"
+  verdict="READY (code + database copy held, not loaded)"; grep -q "main dev's checkout" <<< "$LEAVE_LINES" || verdict=READY
+  grep -q 'READY (CODE ONLY)' <<< "$LEAVE_LINES" && verdict="READY (CODE ONLY - no database copy)"
   grep -q ': FAILED' <<< "$LEAVE_LINES" && verdict="READY WITH FAILURES - read each line"
   relay "LEAVING" "CHECKPOINT $verdict $(date '+%F %H:%M') - \"leaving\" took $took s. Per unit:
 $LEAVE_LINES- flag: $(head -1 "$LEAVING_FLAG" | one_line 120). It is cleared now."

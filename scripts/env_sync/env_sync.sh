@@ -11,6 +11,13 @@
 #                                      master); STEP is written into the pull record (which step the copy covers). The normal
 #                                      copy is tried once on any network; if it fails, the resumable chunked copy takes
 #                                      over (--chunked forces it)
+#   env_sync.sh db-pull --yes --hold | --restore
+#                                      CKP-5: AWAY from the office the copy is only HELD (fetched + sha256-checked into
+#                                      frappe-bench\envsync\backups\pending\<stamp>\, no Docker, nothing loaded); in the
+#                                      office it is loaded as before. --hold / --restore force one or the other
+#   env_sync.sh db-restore-held --yes [--dry-run]
+#                                      load the newest HELD copy into the laptop's database (scratch proof, restore,
+#                                      migrate, fingerprint); --dry-run only loads it into a scratch database and compares
 #   env_sync.sh db-push --yes [--discard-desktop-writes]
 #                                      after a desktop drop (the laptop was the master): replace the DESKTOP's database
 #                                      with a fresh backup of the laptop's, after a proved desktop backup
@@ -122,6 +129,20 @@ CHUNK_TRIES="${ENV_SYNC_CHUNK_TRIES:-4}"
 COPY_TIMEOUT="${ENV_SYNC_COPY_TIMEOUT:-3600}"
 CKPT_KEEP="${ENV_SYNC_CKPT_KEEP:-8}"                  # checkpoint folders kept per slice
 BACKUP_KEEP="${ENV_SYNC_BACKUP_KEEP:-3}"              # envsync/backups folders kept per machine
+# CKP-5 (owner 2026-11-19 00:16 "1,3, and 4 we will do"; 00:19 "just copy without docker....load later if required during
+# takeover"): a database copy made for "leaving" or while AWAY is only HELD on the laptop's own disk - fetched and checked by
+# size + sha256, Docker never started. It is loaded on a takeover or by db-restore-held. Never OneDrive, never private/backups.
+PENDING_ROOT="${ENV_SYNC_PENDING_ROOT:-$BENCH_HOST/$STAGE/backups/pending}"
+HELD_KEEP="${ENV_SYNC_HELD_KEEP:-2}"                  # held copies kept
+# Any Docker start this tooling makes on the laptop (a restore, a takeover, the office db-pull) - DOCK-R0 fixes 3 and 4:
+DOCKER_BIN="${ENV_SYNC_DOCKER:-docker}"
+WSL_BIN="${ENV_SYNC_WSL:-wsl.exe}"
+ENGINE_WAIT="${ENV_SYNC_ENGINE_WAIT:-90}"             # seconds a start may take before it counts as hung
+ENGINE_STEP="${ENV_SYNC_ENGINE_STEP:-3}"
+ENGINE_SETTLE="${ENV_SYNC_ENGINE_SETTLE:-20}"         # after the engine first answers, before large requests
+WAKE_DELAY="${ENV_SYNC_WAKE_DELAY:-180}"              # no Docker start this soon after a wake from sleep / hibernate
+MIN_FREE_MB="${ENV_SYNC_MIN_FREE_MB:-3000}"           # no Docker start with less free memory (owner: the gate stays 3 GB)
+DK_T="${ENV_SYNC_DOCKER_TIMEOUT:-25}"                 # every docker probe has a time limit
 # CKP-4: the second environment's checkout on each machine (code snapshots only; its containers are NEVER started here).
 DEV2_D_CHECKOUT="${ENV_SYNC_DEV2_DESKTOP_CHECKOUT:-C:/Users/USER/Documents/frappe_docker_dev2/development/frappe-bench/apps/nirmaan_stack}"
 DEV2_L_REPO="${ENV_SYNC_DEV2_LAPTOP_REPO:-$(cygpath -u "$USERPROFILE")/Documents/frappe_docker_dev2/development/frappe-bench/apps/nirmaan_stack}"
@@ -356,13 +377,18 @@ pull_backup() {
 # (the replaced one stays as <db>_envsync_prev). Writes the pull record with what the copy covers.
 # want_of <file name>: "<sha256> <size>" of a proved desktop backup file (PB_SHA).
 want_of() { grep -F "file=$1 " <<< "$PB_SHA" | sed 's/.* size=\([0-9]*\) sha256=\([0-9a-f]*\)/\2 \1/'; }
+# lfile <suffix>: where that backup file lives on the laptop - beside the desktop's path under sites/ for a copy that is
+# loaded at once, in the held copy's own folder (HOLD_DIR) for a copy that is only held.
+lfile() { if [ -n "${HOLD_DIR:-}" ]; then echo "$HOLD_DIR/$(basename "$PB_PREFIX")$1"; else echo "$BENCH_HOST/sites/$PB_PREFIX$1"; fi; }
+# cprefix: the same place as the laptop's frappe container sees it, relative to sites/ (restore_files.sh takes it).
+cprefix() { if [ -n "${HOLD_DIR:-}" ]; then echo "../${HOLD_DIR#"$BENCH_HOST"/}/$(basename "$PB_PREFIX")"; else echo "$PB_PREFIX"; fi; }
 got_of() { echo "$(sha256sum < "$1" | cut -c1-64) $(stat -c %s "$1")"; }
 
 # copy_normal: each backup file in one scp (one try, COPY_TIMEOUT each), sha256 + size checked. 0 = all three whole.
 copy_normal() {
   local suf f
   for suf in -database.sql.gz -files.tar -private-files.tar; do
-    f="$BENCH_HOST/sites/$PB_PREFIX$suf"
+    f="$(lfile "$suf")"
     timeout "$COPY_TIMEOUT" "$SCP" -q "${SSHO[@]}" "$DESKTOP:$D_BENCH/sites/$PB_PREFIX$suf" "$f" || { COPY_WHY="scp of $(basename "$f") failed or timed out"; return 1; }
     [ "$(want_of "$(basename "$f")")" = "$(got_of "$f")" ] || { COPY_WHY="$(basename "$f") differs (desktop $(want_of "$(basename "$f")"), laptop $(got_of "$f"))"; return 1; }
     echo "  copied   $(basename "$f")  $(got_of "$f" | cut -c1-16) $(stat -c %s "$f")"
@@ -376,7 +402,7 @@ copy_chunked() {
   local suf name f out parts p psize psha try ok cdir ldir
   CHUNK_STAMP=$(date +%Y%m%d_%H%M%S); CHUNK_PARTS=0; CHUNK_RESENT=0
   for suf in -database.sql.gz -files.tar -private-files.tar; do
-    name="$(basename "$PB_PREFIX")$suf"; f="$BENCH_HOST/sites/$PB_PREFIX$suf"
+    name="$(basename "$PB_PREFIX")$suf"; f="$(lfile "$suf")"
     cdir="$C_BENCH/$STAGE/chunks/$CHUNK_STAMP/$suf"; ldir="$BENCH_HOST/$STAGE/chunks/$CHUNK_STAMP/$suf"
     out=$(rrun desktop bash chunk_split.sh "$C_BENCH/sites/$PB_PREFIX$suf" "$cdir" "$CHUNK_MB")
     parts=$(kv parts "$out"); [ -n "$parts" ] || die "the desktop could not split $name; the laptop database is unchanged:
@@ -404,12 +430,12 @@ chunks_cleanup() {
   [ -n "${CHUNK_STAMP:-}" ] || return 0
   rm -rf -- "$BENCH_HOST/$STAGE/chunks/$CHUNK_STAMP"
   dps "Remove-Item -LiteralPath '$D_BENCH/$STAGE/chunks/$CHUNK_STAMP' -Recurse -Force" > /dev/null
-  echo "chunks: removed $CHUNK_STAMP on both machines (after the proved restore)"
+  echo "chunks: removed $CHUNK_STAMP on both machines (after the checked copy)"; CHUNK_STAMP=""
 }
 
-pull_copy_prove_restore() {
-  local covers="$1" db out
-  mkdir -p "$BENCH_HOST/sites/$(dirname "$PB_PREFIX")"
+# pull_copy: the copy half (no Docker anywhere): every file sha256 + size equal to the desktop's proved backup.
+pull_copy() {
+  mkdir -p "$(dirname "$(lfile x)")"
   on_lan > /dev/null 2>&1; COPY_NET="${LAN_PATH:-unknown}"; is_lan_path "$COPY_NET" && COPY_NET="office LAN ($COPY_NET)" || COPY_NET="not the office LAN ($COPY_NET)"
   echo "network: $COPY_NET"
   local tc; tc=$(date +%s); COPY_ROUTE=normal
@@ -420,9 +446,14 @@ pull_copy_prove_restore() {
   fi
   COPY_SECS=$(( $(date +%s) - tc ))
   echo "copy: $COPY_ROUTE, $COPY_SECS s$( [ -n "${CHUNK_PARTS:-}" ] && echo ", ${CHUNK_PARTS} part(s), ${CHUNK_RESENT:-0} re-sent")"
-  prune_local "$BENCH_HOST/$STAGE/backups" "$BACKUP_KEEP"
+}
+# prove_restore <covers>: the Docker half. The dump goes into a SCRATCH database first; only when its counts are the
+# desktop's does it replace the laptop's database. Works from wherever lfile points (a fresh copy or a held one).
+prove_restore() {
+  local covers="$1" db out
+  [ -n "${HOLD_DIR:-}" ] || prune_local "$BENCH_HOST/$STAGE/backups" "$BACKUP_KEEP"
   db=$(kv db_name "$(rrun laptop bash get_db_name.sh)"); [ -n "$db" ] || die "cannot read the laptop's database name"
-  MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$BENCH_HOST/sites/$PB_PREFIX-database.sql.gz")" "$PG_C:/tmp/envsync_restore.sql.gz" || die "docker cp of the dump failed"
+  MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$(lfile -database.sql.gz)")" "$PG_C:/tmp/envsync_restore.sql.gz" || die "docker cp of the dump failed"
   for s in restore_db.sh scratch_counts.sh db_counts.sh; do
     MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$HERE/remote/$s")" "$PG_C:/tmp/$s" > /dev/null || die "docker cp of $s failed"
   done
@@ -434,11 +465,12 @@ pull_copy_prove_restore() {
   rrun laptop bash stop_bench.sh > /dev/null
   out=$(MSYS_NO_PATHCONV=1 docker exec "$PG_C" bash /tmp/restore_db.sh "$db" /tmp/envsync_restore.sql.gz 2>&1)
   grep -q "^restored $db" <<< "$out" || die "the database restore failed (bench is stopped):\n$out"
-  rrun laptop bash restore_files.sh "$PB_PREFIX" | sed 's/^/  /' || die "files or migrate failed (bench is stopped)"
+  rrun laptop bash restore_files.sh "$(cprefix)" | sed 's/^/  /' || die "files or migrate failed (bench is stopped)"
   start_services laptop
   # The laptop now holds exactly the desktop's backup: its fingerprint is the desktop's as of this pull. db-push
-  # refuses later if the desktop has moved away from it (writes the laptop never saw).
-  { echo "# desktop fingerprint at the laptop's last db-pull ($(date '+%F %T'), backup $(basename "$PB_PREFIX"))"
+  # refuses later if the desktop has moved away from it (writes the laptop never saw). A HELD copy keeps the moment it
+  # was made (HELD_MADE), not the moment it was loaded: it covers nothing the desktop did after that.
+  { echo "# desktop fingerprint at the laptop's last db-pull (${HELD_MADE:-$(date '+%F %T')}, backup $(basename "$PB_PREFIX"))"
     echo "# covers: ${covers:-a db-pull on request}"
     echo "# backup: $PB_PREFIX"
     echo "# copy: $COPY_ROUTE, $COPY_SECS s; network: $COPY_NET"
@@ -446,14 +478,129 @@ pull_copy_prove_restore() {
   echo "laptop: recorded the pulled fingerprint in $PULL_RECORD (covers: ${covers:-a db-pull on request})"
   chunks_cleanup
 }
+pull_copy_prove_restore() { pull_copy; prove_restore "$1"; }
+
+# ---- CKP-5: a database copy that is HELD, not loaded ----------------------------------------------------------------
+# hold_copy <covers>: after pull_backup. Fetches the three backup files into PENDING_ROOT/<the desktop backup's stamp>/
+# (normal copy first, chunked on failure, each file sha256 + size equal), writes held.txt with everything a later restore
+# needs (the desktop's counts before / after its backup, the file hashes, the desktop's fingerprint at backup time) and
+# keeps the newest HELD_KEEP. Docker is not touched. Sets HOLD_DIR.
+hold_copy() {
+  local covers="$1" hstamp dfp
+  hstamp=$(basename "$(dirname "$PB_PREFIX")"); HOLD_DIR="$PENDING_ROOT/$hstamp"
+  mkdir -p "$HOLD_DIR" || die "cannot create $HOLD_DIR"
+  dfp="${HOLD_DFP:-$(fp_of desktop)}"
+  pull_copy
+  { echo "held=$(date '+%F %T')"; echo "covers=${covers:-a db-pull on request}"; echo "backup=$PB_PREFIX"; echo "db=$PB_DB"
+    echo "copy=$COPY_ROUTE, $COPY_SECS s; network: $COPY_NET"; echo "restored="
+    printf '%s\n' "$PB_BEFORE" | sed 's/^/before_/'; printf '%s\n' "$PB_AFTER" | sed 's/^/after_/'
+    printf '%s\n' "$PB_SHA" | sed 's/^/sha_/'; printf '%s\n' "$dfp" | sed 's/^/desktop_/'; } > "$HOLD_DIR/held.txt"
+  chunks_cleanup
+  prune_held
+  echo "DB COPY HELD (not restored) $hstamp: $(du -sm "$HOLD_DIR" | cut -f1) MB in $HOLD_DIR; every file's size + sha256 equals the desktop's; Docker was not started; covers: ${covers:-a db-pull on request}"
+  echo "  it is loaded only on a takeover (resume-on-laptop --takeover) or by: env_sync.sh db-restore-held --yes"
+}
+# prune_held: keep the newest HELD_KEEP complete held copies. A folder without held.txt is a copy that failed part-way:
+# it is removed, so a failed copy can never take the place of a good one.
+prune_held() {
+  local d n=0
+  for d in $(ls -1d "$PENDING_ROOT"/[0-9]*_[0-9]* 2>/dev/null | sort -r); do
+    if [ -f "$d/held.txt" ]; then n=$((n + 1)); [ "$n" -le "$HELD_KEEP" ] && continue; fi
+    [ "$d" = "${HOLD_DIR:-}" ] && continue
+    rm -rf -- "$d" && echo "laptop: removed the $( [ -f "$d/held.txt" ] && echo old || echo incomplete ) held copy $(basename "$d")"
+  done
+}
+# held_newest [unrestored]: the newest held copy's folder ("" when there is none; with "unrestored", the newest one that
+# has not been loaded yet).
+held_newest() {
+  local d
+  for d in $(ls -1d "$PENDING_ROOT"/[0-9]*_[0-9]* 2>/dev/null | sort -r); do
+    [ -f "$d/held.txt" ] || continue
+    if [ "${1:-}" = unrestored ] && [ -n "$(sed -n 's/^restored=//p' "$d/held.txt")" ]; then continue; fi
+    echo "$d"; return 0
+  done
+}
+# held_load <folder>: point the restore at a held copy and check its files again (size + sha256 as recorded).
+held_load() {
+  local suf f
+  HOLD_DIR="$1"; [ -f "$HOLD_DIR/held.txt" ] || die "no held copy in $HOLD_DIR"
+  PB_PREFIX=$(sed -n 's/^backup=//p' "$HOLD_DIR/held.txt"); PB_DB=$(sed -n 's/^db=//p' "$HOLD_DIR/held.txt")
+  PB_BEFORE=$(sed -n 's/^before_//p' "$HOLD_DIR/held.txt"); PB_AFTER=$(sed -n 's/^after_//p' "$HOLD_DIR/held.txt")
+  PB_SHA=$(sed -n 's/^sha_//p' "$HOLD_DIR/held.txt"); HELD_DFP=$(sed -n 's/^desktop_//p' "$HOLD_DIR/held.txt")
+  HELD_MADE=$(sed -n 's/^held=//p' "$HOLD_DIR/held.txt"); HELD_COVERS=$(sed -n 's/^covers=//p' "$HOLD_DIR/held.txt")
+  for suf in -database.sql.gz -files.tar -private-files.tar; do
+    f="$(lfile "$suf")"
+    [ -f "$f" ] && [ "$(want_of "$(basename "$f")")" = "$(got_of "$f")" ] || die "the held copy's $(basename "$f") is missing or no longer matches its recorded sha256; the laptop database is unchanged"
+  done
+  echo "held copy $(basename "$HOLD_DIR"): made $HELD_MADE, covers: $HELD_COVERS; files checked again (size + sha256)"
+}
+# held_scratch_check: load the held dump into a SCRATCH database on the laptop (never the live one), compare its counts
+# with the desktop's and its fingerprint with the desktop's at backup time, drop it. 0 = both equal. Changes nothing real.
+held_scratch_check() {
+  local s out sfp
+  MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$(lfile -database.sql.gz)")" "$PG_C:/tmp/envsync_held_check.sql.gz" || { echo "  docker cp of the held dump failed"; return 1; }
+  for s in scratch_counts.sh db_counts.sh; do MSYS_NO_PATHCONV=1 docker cp "$(cygpath -w "$HERE/remote/$s")" "$PG_C:/tmp/$s" > /dev/null || return 1; done
+  out=$(MSYS_NO_PATHCONV=1 docker exec "$PG_C" bash /tmp/scratch_counts.sh "$PB_DB" /tmp/envsync_held_check.sql.gz fp)
+  MSYS_NO_PATHCONV=1 docker exec "$PG_C" rm -f /tmp/envsync_held_check.sql.gz > /dev/null 2>&1
+  grep -qx 'load=ok' <<< "$out" || { echo "  the held copy did not load into the scratch database:"; printf '%s\n' "$out" | head -5 | sed 's/^/    /'; return 1; }
+  counts_check "$PB_BEFORE" "$PB_AFTER" "$(grep '^count_' <<< "$out")" || { echo "  the held copy's counts are not the desktop's"; return 1; }
+  sfp=$(grep '^fp_' <<< "$out")
+  if [ -n "$sfp" ] && [ "$sfp" = "$HELD_DFP" ]; then echo "  scratch fingerprint = the desktop's at backup time: $(tr '\n' ' ' <<< "$sfp")"; return 0; fi
+  echo "  scratch fingerprint DIFFERS from the desktop's at backup time:"; echo "    scratch: $(tr '\n' ' ' <<< "$sfp")"; echo "    desktop: $(tr '\n' ' ' <<< "$HELD_DFP")"; return 1
+}
+# held_restore: prove_restore from the loaded held copy, then mark it restored. Needs the laptop's containers (laptop_up).
+held_restore() {
+  local t; t=$(date +%s)
+  prove_restore "$HELD_COVERS (held $HELD_MADE, loaded $(date '+%F %T'))"
+  sed -i "s/^restored=.*/restored=$(date '+%F %T')/" "$HOLD_DIR/held.txt"
+  HELD_RESTORE_SECS=$(( $(date +%s) - t ))
+  echo "DB RESTORED from the held copy $(basename "$HOLD_DIR") in $HELD_RESTORE_SECS s (scratch proof, restore, files, migrate, fingerprint recorded)"
+}
+cmd_db_restore_held() {
+  local hd; hd=$(held_newest)
+  [ -n "$hd" ] || die "there is no held database copy in $PENDING_ROOT"
+  [ "${DRY_RUN:-0}" = 1 ] || [ "${YES:-0}" = 1 ] || die "db-restore-held REPLACES the laptop's database with the held copy $(basename "$hd"). Re-run with --yes (or --dry-run to load it into a scratch database only)."
+  held_load "$hd"
+  [ -n "$(sed -n 's/^restored=//p' "$hd/held.txt")" ] && echo "note: this copy was already loaded at $(sed -n 's/^restored=//p' "$hd/held.txt")"
+  SLICE="${SLICE:-db-restore-held}"
+  if ! LAPTOP_UP_SOFT=1 laptop_up; then echo "DATABASE RESTORE NOT DONE: $ENGINE_WHY. The held copy is kept ($hd); the laptop's database is unchanged."; return 3; fi
+  if [ "${DRY_RUN:-0}" = 1 ]; then
+    local rc=0; echo "dry run: loading the held copy into a scratch database (the laptop's database is not touched) ..."
+    held_scratch_check || rc=1
+    laptop_down
+    echo "DRY RUN done: $( [ "$rc" = 0 ] && echo "the held copy loads, counts and fingerprint equal the desktop's" || echo "PROBLEM, see above" ); nothing real changed"; return $rc
+  fi
+  held_restore
+  laptop_down
+}
+# where_db_goes: "hold" or "restore" for a database copy asked for without --hold / --restore. AWAY from the office the
+# copy is only held (owner 2026-11-19 00:19); in the office it is loaded as before. Office = a direct private-LAN path.
+where_db_goes() {
+  if [ "${HOLD:-0}" = 1 ]; then echo hold; elif [ "${RESTORE:-0}" = 1 ]; then echo restore
+  elif [ -n "${ENV_SYNC_LOCATION:-}" ]; then [ "$ENV_SYNC_LOCATION" = office ] && echo restore || echo hold
+  elif on_lan > /dev/null 2>&1; then echo restore; else echo hold; fi
+}
 
 cmd_db_pull() {
   [ "${YES:-0}" = 1 ] || die "db-pull REPLACES the laptop's database with a fresh backup of the desktop's (the master).\nRe-run with --yes."
-  local t0; t0=$(date +%s)
+  local t0 goes; t0=$(date +%s)
+  goes=$(where_db_goes)
   pull_backup
-  pull_copy_prove_restore "${COVERS:-}"
-  echo "db-pull took $(( $(date +%s) - t0 )) s (desktop backup $PB_TOOK s)"
-  NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
+  if [ "$goes" = restore ]; then
+    # the office: loaded as before. Docker is started here if it is off (time-limited, one recovery) and put back after.
+    SLICE="${SLICE:-db-pull}"
+    if LAPTOP_UP_SOFT=1 laptop_up; then
+      pull_copy_prove_restore "${COVERS:-}"
+      echo "db-pull took $(( $(date +%s) - t0 )) s (desktop backup $PB_TOOK s)"
+      NO_DATA=0; cmd_status > "$TMPD/st" 2>&1; sed -n '/^data/,$p' "$TMPD/st"
+      laptop_down; return 0
+    fi
+    echo "db-pull: $ENGINE_WHY - the copy is HELD instead of loaded (the laptop's database is unchanged)"
+  else
+    echo "db-pull: away from the office (or --hold) - the copy is HELD, not loaded: no Docker is started"
+  fi
+  hold_copy "${COVERS:-}"
+  echo "db-pull took $(( $(date +%s) - t0 )) s (desktop backup $PB_TOOK s); result: held (not loaded)"
 }
 
 # db-push: the laptop -> desktop twin of db-pull, for the owner's desktop-drop rule (2026-10-26): while the desktop was
@@ -649,13 +796,83 @@ test_fail() {
   ckfail "TEST failure forced at $1 (ENV_SYNC_TEST_FAIL)"
 }
 
+# ---- the Docker engine on the laptop (CKP-5; DOCK-R0 2026-11-19) ---------------------------------------------------
+# On standby the laptop's Docker Desktop is off. Whatever needs the laptop's containers (a restore, a takeover, the office
+# db-pull) starts it here, by these rules:
+#   - never with less than MIN_FREE_MB of memory free, and never within WAKE_DELAY seconds of a wake (F3: WSL answered
+#     "Catastrophic failure" 46 s after a resume from hibernate) - the remaining seconds are waited out;
+#   - a start that does not answer within ENGINE_WAIT seconds is HUNG (a good start answers in 3-16 s): Docker Desktop is
+#     stopped (time-limited; force-closed if its own stop hangs too), WSL is shut down (`wsl --shutdown`, the owner's
+#     2026-11-19 allowance for exactly this) and ONE more start is tried;
+#   - never a second Docker Desktop on top of a hung one (F4's double start), and after a failed start nothing is left
+#     running: both docker distros must read Stopped.
+ENGINE_STARTED=0; ENGINE_WHY=""
+dkt() { timeout "$DK_T" "$DOCKER_BIN" "$@"; }
+engine_ok() { dkt info > /dev/null 2>&1; }
+free_mb_now() { echo "${ENV_SYNC_FREE_MB:-$(powershell.exe -NoProfile -Command "[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024)" 2>/dev/null | tr -d '\r')}"; }
+# wake_age: seconds since the laptop last woke (resume from sleep / hibernate, or leaving Modern Standby); "" if unknown.
+wake_age() {
+  if [ -n "${ENV_SYNC_WAKE_AGE+x}" ]; then echo "$ENV_SYNC_WAKE_AGE"; return; fi
+  powershell.exe -NoProfile -Command "\$e = @(Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Power-Troubleshooter'; Id=1} -MaxEvents 1 -ErrorAction SilentlyContinue) + @(Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-Kernel-Power'; Id=107,507} -MaxEvents 1 -ErrorAction SilentlyContinue) | Sort-Object TimeCreated | Select-Object -Last 1; if (\$e) { [int]((Get-Date) - \$e.TimeCreated).TotalSeconds }" 2>/dev/null | tr -d '\r'
+}
+engine_force_close() {
+  if [ -n "${ENV_SYNC_ENGINE_KILL:-}" ]; then "$ENV_SYNC_ENGINE_KILL"; return; fi
+  powershell.exe -NoProfile -Command "Get-Process | Where-Object { \$_.Name -match '^(Docker Desktop|com\.docker\..*|docker-desktop.*)\$' } | Stop-Process -Force -ErrorAction SilentlyContinue" > /dev/null 2>&1
+}
+engine_stop() {
+  if timeout "${ENV_SYNC_ENGINE_STOP_T:-60}" "$DOCKER_BIN" desktop stop > /dev/null 2>&1; then echo "laptop: Docker Desktop stopped"
+  else echo "laptop: Docker Desktop did not stop by itself in ${ENV_SYNC_ENGINE_STOP_T:-60} s - its processes are force-closed"; engine_force_close; fi
+}
+wsl_docker_running() { timeout 20 "$WSL_BIN" -l -v 2>/dev/null | tr -d '\0\r' | grep -E 'docker-desktop.*Running' > /dev/null; }
+wsl_reset() {
+  echo "laptop: wsl --shutdown (stops WSL's machines; on this laptop only Docker's two exist)"
+  timeout 60 "$WSL_BIN" --shutdown > /dev/null 2>&1; sleep "${ENV_SYNC_WSL_PAUSE:-5}"
+  if wsl_docker_running; then echo "laptop: WARNING a docker distro still reads Running after wsl --shutdown"; else echo "laptop: both docker distros read Stopped"; fi
+}
+engine_ensure() {
+  local fm age try t0
+  ENGINE_STARTED=0; ENGINE_WHY=""
+  engine_ok && return 0
+  fm=$(free_mb_now)
+  if [[ "$fm" =~ ^[0-9]+$ ]] && [ "$fm" -lt "$MIN_FREE_MB" ]; then ENGINE_WHY="the laptop has only $fm MB of memory free (under $MIN_FREE_MB), so Docker is not started; close some programs and try again"; return 1; fi
+  age=$(wake_age)
+  if [[ "$age" =~ ^[0-9]+$ ]] && [ "$age" -lt "$WAKE_DELAY" ]; then
+    echo "laptop: woke $age s ago - no Docker start within $WAKE_DELAY s of a wake; waiting $(( WAKE_DELAY - age )) s"
+    sleep $(( WAKE_DELAY - age ))
+  fi
+  for try in 1 2; do
+    echo "laptop: Docker Desktop is off - starting it (try $try of 2, at most $ENGINE_WAIT s)"
+    t0=$(date +%s)
+    if [ -n "${ENV_SYNC_ENGINE_START:-}" ]; then "$ENV_SYNC_ENGINE_START"; else timeout "$ENGINE_WAIT" "$DOCKER_BIN" desktop start > /dev/null 2>&1; fi
+    while ! engine_ok; do [ $(( $(date +%s) - t0 )) -ge "$ENGINE_WAIT" ] && break; sleep "$ENGINE_STEP"; done
+    if engine_ok; then ENGINE_STARTED=1; echo "laptop: the Docker engine answers after $(( $(date +%s) - t0 )) s"; sleep "$ENGINE_SETTLE"; return 0; fi
+    echo "laptop: the Docker engine did not answer within $ENGINE_WAIT s (try $try of 2) - HUNG START"
+    engine_stop
+    if [ "$try" = 1 ]; then wsl_reset; fi
+  done
+  if wsl_docker_running; then timeout 60 "$WSL_BIN" --shutdown > /dev/null 2>&1; fi
+  ENGINE_WHY="Docker on the laptop did not start (2 tries of $ENGINE_WAIT s, WSL shut down in between); nothing was left running ($(wsl_docker_running && echo "WARNING: a docker distro still reads Running" || echo "both docker distros read Stopped"))"
+  return 1
+}
+engine_down() {
+  [ "${ENGINE_STARTED:-0}" = 1 ] || return 0
+  ENGINE_STARTED=0; engine_stop; echo "laptop: Docker Desktop is off again (it was off before)"
+}
+
 # laptop_up / laptop_down: the laptop's containers only for a database copy (owner 2026-10-26 / CKP-1 Q3), through the
 # laptop's turn file (shared with the dev2 lane): claim it first, free it after. Refuses while another lane holds it.
+# With LAPTOP_UP_SOFT=1 a Docker that will not start returns 1 (ENGINE_WHY says why) instead of ending the command.
 laptop_up() {
   local t c; t=$(head -1 "$TURN_FILE" 2>/dev/null)
   case "$t" in free*|"main "*) ;; "") die "the laptop turn file $TURN_FILE is missing; ask the owner";; *) die "the laptop turn file says '$t'; wait until it is free";; esac
   case "$t" in "main "*) LAPTOP_TURN_OURS=0;; *) echo "main $SLICE $(date '+%F %T')" > "$TURN_FILE"; LAPTOP_TURN_OURS=1;; esac
   LAPTOP_STARTED=""
+  if ! engine_ensure; then
+    [ "${LAPTOP_TURN_OURS:-0}" = 1 ] && { echo "free $(date '+%F %T')" > "$TURN_FILE"; LAPTOP_TURN_OURS=0; }
+    [ "${LAPTOP_UP_SOFT:-0}" = 1 ] && return 1
+    if [ "${CK_RELEASE_ON_FAIL:-0}" = 1 ]; then ckfail "$ENGINE_WHY"; fi
+    die "$ENGINE_WHY"
+  fi
   for c in $LAPTOP_CONTAINERS; do
     [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || { docker start "$c" > /dev/null || die "cannot start $c"; LAPTOP_STARTED+="$c "; }
   done
@@ -664,6 +881,7 @@ laptop_up() {
 }
 laptop_down() {
   [ -n "${LAPTOP_STARTED:-}" ] && { docker stop $LAPTOP_STARTED > /dev/null; echo "laptop: stopped $LAPTOP_STARTED"; LAPTOP_STARTED=""; }
+  engine_down
   [ "${LAPTOP_TURN_OURS:-0}" = 1 ] && { echo "free $(date '+%F %T')" > "$TURN_FILE"; echo "laptop: turn file free"; LAPTOP_TURN_OURS=0; }
   return 0
 }
@@ -773,7 +991,10 @@ tell_session() {
 
 cmd_checkpoint() {
   need_slice
-  [ "${YES:-0}" = 1 ] || die "checkpoint REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
+  # CKP-5: the "leaving" checkpoint HOLDS the database copy (no Docker, nothing loaded) unless --restore asks for the old
+  # behaviour, which replaces the laptop's database and so needs --yes.
+  local hold=1; [ "${RESTORE:-0}" = 1 ] && hold=0
+  [ "$hold" = 1 ] || [ "${YES:-0}" = 1 ] || die "checkpoint --restore REPLACES the laptop's database with a proved copy of the desktop's. Re-run with --yes."
   local t0 t_code stamp out br commit parent tree lfp gottree
   t0=$(date +%s); stamp=$(date +%Y%m%d-%H%M)
   CK_RELEASE_ON_FAIL=1          # until CHECKPOINT TAKEN, a failure releases the waiting session at once (F2)
@@ -783,8 +1004,9 @@ cmd_checkpoint() {
   br=$(kv branch "$out"); commit=$(kv commit "$out"); parent=$(kv parent "$out"); tree=$(kv tree "$out")
   [ -n "$commit" ] || ckfail "the checkpoint commit failed:\n$out"
   echo "  $br = ${commit:0:9} (parent ${parent:0:9}, tree ${tree:0:12})"
-  laptop_up
+  [ "$hold" = 1 ] || laptop_up
   pull_backup
+  [ "$hold" = 1 ] && HOLD_DFP=$(fp_of desktop)     # the desktop's fingerprint while the session is still at its safe point
   t_code=$(( $(date +%s) - t0 ))
   tell_session "CHECKPOINT TAKEN $(date '+%F %H:%M') | $br ${commit:0:9} + database backup $(basename "$PB_PREFIX") | carry on"
   # CKP-4: every OTHER session that paused for this "leaving" is released at the same moment (--also-tell "n1 n2"), not when
@@ -795,6 +1017,16 @@ cmd_checkpoint() {
   test_fail b3-copy
   make_code_ckpt B3 "$commit"
   { echo "ckpt_branch=$br"; echo "ckpt_commit=$commit"; echo "backup=$PB_PREFIX"; } >> "$CK_DIR/ckpt.txt"
+  if [ "$hold" = 1 ]; then
+    hold_copy "CHECKPOINT $SLICE $stamp ($br ${commit:0:9})"
+    { echo "held=$HOLD_DIR"; printf '%s\n' "$HOLD_DFP" | sed 's/^/fingerprint=/'; } >> "$CK_DIR/ckpt.txt"
+    git -C "$REPO" fetch -q "$CK_DIR/commits.bundle" "+refs/heads/$br:refs/ckpt/$br" 2>/dev/null || ckfail "the checkpoint bundle does not fetch on the laptop"
+    gottree=$(git -C "$REPO" rev-parse "refs/ckpt/$br^{tree}")
+    { [ "$gottree" = "$tree" ] && [ "$CK_TREE" = "$tree" ]; } || ckfail "code hash mismatch: desktop $tree, bundle $gottree, checkpoint $CK_TREE"
+    grep -q "^# RESUME NOTE - $SLICE" "$CK_DIR/resume.md" || ckfail "the resume note is not readable"
+    echo "CHECKPOINT READY $SLICE $(date '+%F %H:%M'): code $br ${commit:0:9} (tree ${tree:0:12} = bundle = checkpoint), database $(basename "$PB_PREFIX") HELD on the laptop (not loaded: every file's sha256 equals the desktop's; Docker not started; it is loaded only on a takeover), resume note $CK_DIR/resume.md; took $(( $(date +%s) - t0 )) s (desktop captured in $t_code s)"
+    return 0
+  fi
   pull_copy_prove_restore "CHECKPOINT $SLICE $stamp ($br ${commit:0:9})"
   lfp=$(fp_of laptop); printf '%s\n' "$lfp" | sed 's/^/fingerprint=/' >> "$CK_DIR/ckpt.txt"
   # verify: the code (the bundle rebuilds the checkpoint commit's tree on the laptop), the data, the resume note
@@ -825,9 +1057,12 @@ cmd_catch_up() {
   if [ -n "$lastpt" ]; then
     pt_epoch=$(date -d "$(awk '{print $2" "$3}' <<< "$lastpt")" +%s 2>/dev/null || echo 0)
     rec_epoch=$( [ -n "$last" ] && date -d "$last" +%s || echo 0)
+    local hd hm; hd=$(held_newest); hm=$( [ -n "$hd" ] && sed -n 's/^held=//p' "$hd/held.txt")
+    if [ -n "$hm" ] && [ "$(date -d "$hm" +%s 2>/dev/null || echo 0)" -gt "$rec_epoch" ]; then rec_epoch=$(date -d "$hm" +%s); echo "  a newer HELD copy exists (made $hm, not loaded)"; fi
     if [ "$pt_epoch" -gt "$rec_epoch" ]; then
       echo "  the last costly step is newer than the last data copy: $lastpt"
-      if [ "${YES:-0}" = 1 ]; then echo "  bringing the data up to date (normal copy first, then chunked) ..."; COVERS="catch-up after: $lastpt"; laptop_up; pull_backup; pull_copy_prove_restore "$COVERS"; laptop_down
+      if [ "${YES:-0}" = 1 ] && [ "$(where_db_goes)" = hold ]; then echo "  copying the data WITHOUT Docker (held, not loaded) ..."; COVERS="catch-up after: $lastpt"; pull_backup; hold_copy "$COVERS"
+      elif [ "${YES:-0}" = 1 ]; then echo "  bringing the data up to date (normal copy first, then chunked) ..."; COVERS="catch-up after: $lastpt"; laptop_up; pull_backup; pull_copy_prove_restore "$COVERS"; laptop_down
       else echo "  re-run with --yes to bring the data up to date (it replaces the laptop's database after the proofs)"; fi
     else echo "  data: no costly step after the last copy"; fi
   fi
@@ -868,10 +1103,25 @@ cmd_resume_on_laptop() {
   if [ "$mode" = report ]; then echo "nothing done: re-run with --takeover --yes on the owner's word (or --dry-run to rehearse)"; return 3; fi
   [ "$mode" = takeover ] && [ "${YES:-0}" != 1 ] && die "the takeover makes the laptop the master; re-run with --yes"
 
-  # data: the laptop must hold the B3 copy (the checkpoint restored it); a takeover never overwrites a database itself
+  # data (CKP-5): a held copy that was never loaded is loaded FIRST - that is what "held" is for. A dry run loads it into
+  # a scratch database only and compares counts and fingerprint; nothing real changes.
+  local hd held_bad=0; hd=$(held_newest unrestored)
   laptop_up
+  if [ -n "$hd" ]; then
+    held_load "$hd"; want="$HELD_DFP"
+    if [ "$mode" = dry-run ]; then
+      local ts; ts=$(date +%s)
+      echo "data: a takeover would first load the held copy $(basename "$hd") - rehearsing it on a scratch database ..."
+      held_scratch_check || held_bad=1
+      echo "data: held copy rehearsal $( [ "$held_bad" = 0 ] && echo PASS || echo FAILED ) in $(( $(date +%s) - ts )) s (the laptop's database is not touched)"
+    else
+      echo "data: loading the held copy $(basename "$hd") first ..."
+      held_restore
+    fi
+  fi
   fp=$(fp_of laptop)
-  if [ "$fp" = "$want" ]; then echo "data: the laptop holds the checkpoint's copy (fingerprint equal)"
+  if [ -n "$hd" ] && [ "$mode" = dry-run ]; then :
+  elif [ "$fp" = "$want" ]; then echo "data: the laptop holds the checkpoint's copy (fingerprint equal)"
   elif [ "$mode" = dry-run ]; then echo "data: DIFFERENT from the checkpoint's copy - a takeover would stop and ask for $(sed -n 's/^backup=//p' "$b3/ckpt.txt") to be restored first"
   else
     laptop_down
@@ -895,10 +1145,11 @@ cmd_resume_on_laptop() {
     [ "$rc" = 0 ] || { laptop_down; die "STOPPED at $(basename "$s") (see above); $target is left as it is"; }
     prev="$s"
   done <<< "$snaps"
-  echo "code: $target = $(basename "$prev") (tree $(sed -n 's/^tree=//p' "$prev/head.txt" | cut -c1-12)); data fingerprint $( [ "$(fp_of laptop)" = "$want" ] && echo equal || echo DIFFERENT)"
+  if [ -n "$hd" ] && [ "$mode" = dry-run ]; then echo "code: $target = $(basename "$prev") (tree $(sed -n 's/^tree=//p' "$prev/head.txt" | cut -c1-12)); data: held copy $(basename "$hd") $( [ "$held_bad" = 0 ] && echo "loads, counts and fingerprint equal the desktop's" || echo "FAILED its rehearsal")"
+  else echo "code: $target = $(basename "$prev") (tree $(sed -n 's/^tree=//p' "$prev/head.txt" | cut -c1-12)); data fingerprint $( [ "$(fp_of laptop)" = "$want" ] && echo equal || echo DIFFERENT)"; fi
   if [ "$mode" = dry-run ]; then
     laptop_down
-    echo "DRY RUN done: the checkout, the database and the master are unchanged; the desktop stays the master"; return 0
+    echo "DRY RUN done: the checkout, the database and the master are unchanged; the desktop stays the master"; return $held_bad
   fi
   echo "laptop $SLICE $(date '+%F %T') (resume-on-laptop from $(basename "$prev"))" > "$MASTER_REC"
   LAPTOP_TURN_OURS=0; echo "main $SLICE MASTER $(date '+%F %T')" > "$TURN_FILE"
@@ -1113,7 +1364,7 @@ while [ $# -gt 0 ]; do
     --yes) YES=1;; --allow-dirty) ALLOW_DIRTY=1;; --no-restart) NO_RESTART=1;; --no-data) NO_DATA=1;;
     --discard-desktop-writes) DISCARD=1;;
     --slice) SLICE="${2:-}"; shift;; --if-older) IF_OLDER="${2:-}"; shift;; --covers) COVERS="${2:-}"; shift;;
-    --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;;
+    --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;; --hold) HOLD=1;; --restore) RESTORE=1;;
     --text) TEXT="${2:-}"; shift;; --also-tell) ALSO_TELL="${2:-}"; shift;;
     --checkout) CK_CHECKOUT="${2:-}"; shift;; --env) CK_ENV="${2:-}"; shift;; --units) UNITS=1;; --no-data-check) SKIP_DATA=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
@@ -1127,7 +1378,7 @@ case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|ch
 [ "$CMD" = resume-on-laptop ] && STAGE_LAPTOP_ONLY=1   # catch-up stages lazily too: it must first say whether the desktop answers   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
-  db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
+  db-pull) cmd_db_pull;; db-restore-held) cmd_db_restore_held;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
   checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;;
   resume-on-laptop) if [ "${UNITS:-0}" = 1 ]; then cmd_resume_units; else cmd_resume_on_laptop; fi;;
   units) cmd_units;; leaving) cmd_leaving;; tell) cmd_tell;;

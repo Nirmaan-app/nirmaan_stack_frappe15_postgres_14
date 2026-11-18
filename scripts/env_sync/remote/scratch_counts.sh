@@ -18,3 +18,11 @@ if ! gunzip -c "$DUMP" | sed -e '/^\\restrict /d' -e '/^\\unrestrict /d' \
 fi
 echo "load=ok"
 bash "$(dirname "$0")/db_counts.sh" "$SCRATCH"
+# CKP-5: with a third argument "fp", also the scratch copy's data fingerprint, in db_fingerprint.py's exact words, so a HELD
+# copy can be compared with the desktop's fingerprint at backup time without touching the laptop's live database.
+if [ "${3:-}" = fp ]; then
+  Q() { P -d "$SCRATCH" -c "$1" 2>/dev/null; }
+  echo "fp_rm_items=$(Q "select count(*) || ' (newest ' || coalesce(max(modified)::text, 'None') || ')' from \"tabBoQ Rate Master Item\"")"
+  echo "fp_rm_snapshot=$(Q "select name from \"tabBoQ Rate Master Snapshot\" order by modified desc limit 1")"
+  echo "fp_versions=$(Q "select count(*) || ' (newest ' || coalesce(max(creation)::text, 'None') || ')' from \"tabVersion\"")"
+fi

@@ -275,8 +275,9 @@ case "$1" in
          if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$PW_DIR/units_fail"; exit 2; fi     # the first n calls fail, like a clash
          [ -f "$PW_DIR/units_out" ] || exit 2; cat "$PW_DIR/units_out"; exit 0;;
   tell) exit 0;;
-  checkpoint) if [ -f "$PW_DIR/leave_ok" ]; then echo "CHECKPOINT READY $slice 2026-11-18 19:00: code + data; took 400 s"; exit 0; fi; echo "env_sync: the desktop backup failed"; exit 2;;
-  catch-up) case "$*" in *"--yes"*) [ -f "$PW_DIR/b2_record" ] && cp "$PW_DIR/b2_record" "$PW_DIR/pull_record";; esac;;
+  checkpoint) if [ -f "$PW_DIR/leave_ok" ]; then echo "CHECKPOINT READY $slice 2026-11-18 19:00: code + database HELD on the laptop (not loaded); took 100 s"; exit 0; fi; echo "env_sync: the desktop backup failed"; exit 2;;
+  # CKP-5: the away copy is HELD - the stub leaves a held copy made at the moment the case names (b2_held)
+  catch-up) case "$*" in *"--yes --hold"*) if [ -f "$PW_DIR/b2_held" ]; then h=$(cat "$PW_DIR/b2_held"); d="$PW_DIR/pending/$(tr -d ':-' <<< "$h" | tr ' ' '_')"; mkdir -p "$d"; printf 'held=%s\nrestored=\n' "$h" > "$d/held.txt"; fi;; esac;;
 esac
 if [ -f "$PW_DIR/ck_out_$slice" ]; then cat "$PW_DIR/ck_out_$slice"; else cat "$PW_DIR/es_out" 2>/dev/null; fi
 exit "$(cat "$PW_DIR/es_rc" 2>/dev/null || echo 0)"
@@ -298,7 +299,9 @@ cat > "$PW/bin/tailscale" <<'EOF'
 #!/usr/bin/env bash
 cat "$PW_DIR/ts_out" 2>/dev/null
 EOF
-chmod +x "$PW/bin/"*
+# CKP-5: the copier must never start Docker. A docker on the PATH that only records that it was called, for the whole section.
+mkdir -p "$PW/pathbin"; printf '#!/usr/bin/env bash\necho "docker $*" >> "$PW_DIR/docker_ever.log"; echo "docker $*" >> "$PW_LOG"\n' > "$PW/pathbin/docker"
+chmod +x "$PW/bin/"* "$PW/pathbin/docker"
 prun() {   # one copier run against the stubs (the real Docker Desktop, tailscale and desktop are never touched by a test)
   PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" \
   POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_SETTLE=0 \
@@ -308,11 +311,12 @@ prun() {   # one copier run against the stubs (the real Docker Desktop, tailscal
   POLLER_DETECT_SLEEP=0 POLLER_DETECT_TRIES_LEAVING=4 POLLER_ENGINE_MAX="${POLLER_ENGINE_MAX:-3}" POLLER_ENGINE_STEP=1 \
   POLLER_DOCKER_TIMEOUT="${POLLER_DOCKER_TIMEOUT:-5}" POLLER_ENGINE_START="${ENGINE_START_STUB:-$PW/bin/engine_start}" \
   ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" ENV_SYNC_RELAY_ROOT="$PW/relay" \
+  ENV_SYNC_PENDING_ROOT="$PW/pending" PATH="$PW/pathbin:$PATH" \
   bash "$SRC/poller_run.sh" > "$PW/out.txt" 2>&1
 }
 hb() { sed -n 's/^result: *//p' "$PW/hb.txt"; }
 calls() { grep -c "$1" "$PW/calls.log" 2>/dev/null || true; }
-preset() { rm -f "$PW/calls.log" "$PW/units_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/engine_up" "$PW/hb.txt" "$PW/leave_ok" "$PW/units_fail" "$PW/docker_hang" "$PW"/ck_out_*; : > "$PW/calls.log"; }
+preset() { rm -f "$PW/calls.log" "$PW/units_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/b2_held" "$PW/engine_up" "$PW/hb.txt" "$PW/leave_ok" "$PW/units_fail" "$PW/docker_hang" "$PW"/ck_out_*; : > "$PW/calls.log"; }
 # units <sessions of main dev's checkout> [<extra unit lines>]: what `env_sync.sh units` answers. KEY changes the tree key.
 units() { { echo "ssh=ok"; echo "unit|main|$MR|feature/x|aaaa|${KEY:-k1}|0|$1"; [ -n "${2:-}" ] && printf '%s\n' "$2"; echo "dev2_containers=${DEV2UP:-0}"; } > "$PW/units_out"; }
 OKX='CHECKPOINT CODE u-main-feature-x: /x/checkpoints/u-main-feature-x/20261118_190000'
@@ -322,9 +326,9 @@ echo "# desktop fingerprint after the laptop's db-push (2026-11-18 13:57:40, bac
 preset; units ""; prun
 check "IDLE: nothing running -> detected 0, heartbeat IDLE, nothing copied (the desktop is asked once, read-only)" '
   [[ "$(hb)" == "IDLE (detected 0"* ]] && [ "$(calls "^env_sync units")" = 1 ] && [ "$(calls "checkpoint")" = 0 ] && grep -q "^detected:  *0 unit" "$PW/hb.txt"'
-check "the heartbeat v2 names the run time, detected units, reachability, the location, the last good B1 and B2, and the off switch" '
+check "the heartbeat names the run time, detected units, reachability, the location, the last good B1, the HELD and the RESTORED database copy separately, and the off switch" '
   grep -q "^run:  *20[0-9-]* [0-9:]*$" "$PW/hb.txt" && grep -q "^desktop reachable: y" "$PW/hb.txt" && grep -q "^location:  *away" "$PW/hb.txt" &&
-  grep -q "^last good B1: " "$PW/hb.txt" && grep -q "^last good B2:  *2026-11-18 13:57:40" "$PW/hb.txt" && grep -q "Copier - Pause / Resume / Status" "$PW/hb.txt"'
+  grep -q "^last good B1: " "$PW/hb.txt" && grep -q "^last held db copy:  *none" "$PW/hb.txt" && grep -q "^last restored db copy:  *2026-11-18 13:57:40" "$PW/hb.txt" && grep -q "Copier - Pause / Resume / Status" "$PW/hb.txt"'
 
 preset; prun
 check "OFFLINE: the desktop does not answer -> heartbeat OFFLINE, nothing copied, no failure" '[[ "$(hb)" == OFFLINE* ]] && [ "$(calls "checkpoint")" = 0 ] && [ -f "$PW/state/offline" ] && grep -q "^desktop reachable: n" "$PW/hb.txt" && [ ! -s "$PW/ops.md" ]'
@@ -378,32 +382,33 @@ preset; KEY=k2 units ""; prun
 check "and then nothing more is copied while it stays as it is" '[[ "$(hb)" == "IDLE (detected 0"* ]] && [ "$(calls "checkpoint")" = 0 ]'
 
 P1="point|main|s1|DBCOPY-POINT 2026-11-18 15:30:00 a paid run"
-preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P1"; echo "checkpoint not due: x" > "$PW/es_out"
-echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 15:31:10, backup y)" > "$PW/b2_record"; prun
-check "AWAY + a DBCOPY-POINT newer than the last copy -> Docker Desktop started, catch-up --yes for main dev, containers and Docker put back" '
-  [[ "$(hb)" == *"+ B2 OK"* ]] && grep -q "^env_sync catch-up --slice u-main-feature-x --name s1 --checkout $MR --env main --yes$" "$PW/calls.log" && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" &&
-  grep -q "^last good B2:  *2026-11-18 15:31:10" "$PW/hb.txt" && ! grep -q "dev2" "$PW/calls.log" && grep -q "^free" "$PW/turn.txt"'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P1"; echo "checkpoint not due: x" > "$PW/es_out"; echo "2026-11-18 15:31:10" > "$PW/b2_held"; prun
+check "AWAY + a DBCOPY-POINT newer than the last copy -> the database FILE is copied and HELD (catch-up --yes --hold); Docker is never started" '
+  [[ "$(hb)" == *"+ B2 HELD (database file copied, not loaded"* ]] && grep -q "^env_sync catch-up --slice u-main-feature-x --name s1 --checkout $MR --env main --yes --hold$" "$PW/calls.log" &&
+  [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ] && ! grep -q "dev2" "$PW/calls.log" && grep -q "^free" "$PW/turn.txt"'
+check "the heartbeat says held (not loaded) plainly, and keeps the RESTORED copy apart from it" '
+  grep -q "^last held db copy:  *2026-11-18 15:31:10 (20261118_153110; held, NOT loaded" "$PW/hb.txt" && grep -q "^last restored db copy:  *2026-11-18 13:57:40" "$PW/hb.txt"'
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P1"; echo "checkpoint not due: x" > "$PW/es_out"; prun
-check "B2 is not repeated once the copy is newer than the DBCOPY-POINT" '[ "$(hb)" = "u-main-feature-x: B1 SKIP not due" ] && [ "$(calls "catch-up")" = 0 ]'
+check "B2 is not repeated once a HELD copy is newer than the DBCOPY-POINT" '[ "$(hb)" = "u-main-feature-x: B1 SKIP not due" ] && [ "$(calls "catch-up")" = 0 ]'
 
 P2="point|main|s1|DBCOPY-POINT 2026-11-18 16:40:00 another paid run"
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; echo 2 > "$PW/es_rc"; prun
-check "B2 FAILURE: a failed copy is one heartbeat + log line, the containers and Docker are still put back" '
-  [[ "$(hb)" == *"+ FAILED B2 (rc 2)"* ]] && [ "$(grep -c "FAILED B2" "$PW/poller.log")" = 1 ] && grep -q "^docker desktop stop" "$PW/calls.log" && grep -q "another paid run" "$PW/state/b2_failed.txt"'
+check "B2 FAILURE: a failed copy is one heartbeat + log line; nothing was started that would need putting back" '
+  [[ "$(hb)" == *"+ FAILED B2 (rc 2)"* ]] && [ "$(grep -c "FAILED B2" "$PW/poller.log")" = 1 ] && [ "$(calls "^docker")" = 0 ] && grep -q "another paid run" "$PW/state/b2_failed.txt"'
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; prun
 check "NO TIGHT RETRY: the next run does not try the same failed copy again (B2 PENDING), and starts nothing" '
   [[ "$(hb)" == *"B2 PENDING (the copy failed"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ]'
 rm -f "$PW/state/b2_failed.txt"
-preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; POLLER_FREE_MB=1500 prun
-check "LOW MEMORY: with too little free memory on the laptop no copy is started (B2 PENDING), and it is not counted as a failure" '
-  [[ "$(hb)" == *"B2 PENDING (the laptop has only 1500 MB"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ]'
-preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "$OKX" > "$PW/es_out"; POLLER_LOCATION=office prun
-check "OFFICE: code only - B1 is taken, the due database copy is NOT made, Docker is never started, and it is not a failure" '
-  [[ "$(hb)" == "u-main-feature-x: B1 OK + B2 not in office"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ] && grep -q "^location:  *office" "$PW/hb.txt"'
-preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"
-echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup w)" > "$PW/b2_record"; POLLER_LOCATION=away prun
-check "AWAY: the copy that was held back in the office is made at the first run away (code + database)" '
-  [[ "$(hb)" == *"+ B2 OK"* ]] && [ "$(calls "catch-up")" = 1 ] && grep -q "^location:  *away" "$PW/hb.txt"'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; echo "2026-11-18 16:41:00" > "$PW/b2_held"; POLLER_FREE_MB=1500 prun
+check "LOW MEMORY is no obstacle any more: the file copy needs no Docker, so it is made and held with 1,500 MB free" '
+  [[ "$(hb)" == *"+ B2 HELD"* ]] && [ "$(calls "catch-up")" = 1 ] && [ "$(calls "^docker")" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ]'
+P3="point|main|s1|DBCOPY-POINT 2026-11-18 17:00:00 a third paid run"
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P3"; echo "$OKX" > "$PW/es_out"; POLLER_LOCATION=office prun
+check "OFFICE: code only - B1 is taken, the due database copy is NOT made, and it is not a failure" '
+  [[ "$(hb)" == "u-main-feature-x: B1 OK + B2 not in office"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ] && grep -q "^location:  *office" "$PW/hb.txt"'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P3"; echo "checkpoint not due: x" > "$PW/es_out"; echo "2026-11-18 17:05:00" > "$PW/b2_held"; POLLER_LOCATION=away prun
+check "AWAY: the copy that was held back in the office is made at the first run away (code + the database file, held)" '
+  [[ "$(hb)" == *"+ B2 HELD"* ]] && [ "$(calls "catch-up")" = 1 ] && grep -q "^location:  *away" "$PW/hb.txt" && grep -q "^last held db copy:  *2026-11-18 17:05:00" "$PW/hb.txt"'
 loc() { echo "$1" > "$PW/ts_out"; preset; KEY=k2 units ""; POLLER_LOCATION="" POLLER_TAILSCALE="$PW/bin/tailscale" prun; sed -n 's/^location: *\([a-z]*\) .*/\1/p' "$PW/hb.txt"; }
 check "LOCATION: a direct private-LAN path to the desktop is the office; the relay, a public address or no answer is away (also when idle)" '
   [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 192.168.0.22:41641 in 9ms")" = office ] && [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 10.0.0.7:41641 in 3ms")" = office ] &&
@@ -429,14 +434,15 @@ preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,other:55555555:working:" "$W
 echo "LEAVING 2026-11-18 19:19:00 raised by a test" > "$PW/leaving.flag"; POLLER_LOCATION=office prun
 check "LEAVING: a session with a status file is asked to pause (CHECKPOINT); one WITHOUT is not asked - it is copied as it stands" '
   [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name other")" = 0 ]'
-check "LEAVING: the CODE of main dev is copied FIRST, before any Docker is started (it never depends on the database copy)" '
-  a=$(grep -n "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main --name s1$" "$PW/calls.log" | head -1 | cut -d: -f1) && b=$(grep -n "^engine_start" "$PW/calls.log" | head -1 | cut -d: -f1) && [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]'
-check "LEAVING: main dev gets ONE code + database checkpoint (office or away), Docker is started for it and put back" '
-  [ "$(grep -c "^env_sync checkpoint --slice u-main-feature-x --yes --name s1 --also-tell d4b$" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name d4b --text CHECKPOINT TAKEN")" = 0 ] && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" && [[ "$(hb)" == "LEAVING READY: main dev code + database"* ]]'
+check "LEAVING: the CODE of main dev is copied FIRST, before the database checkpoint (it never depends on the database copy)" '
+  a=$(grep -n "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main --name s1$" "$PW/calls.log" | head -1 | cut -d: -f1) && b=$(grep -n "^env_sync checkpoint --slice" "$PW/calls.log" | head -1 | cut -d: -f1) && [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]'
+check "LEAVING: main dev gets ONE checkpoint whose database copy is HELD (--hold), office or away; Docker is NEVER started" '
+  [ "$(grep -c "^env_sync checkpoint --slice u-main-feature-x --hold --name s1 --also-tell d4b$" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name d4b --text CHECKPOINT TAKEN")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [[ "$(hb)" == "LEAVING READY: main dev code + database copy held (not loaded)"* ]]'
 check "LEAVING: every other unit is copied as it stands; READY per unit in ONE relay entry; the flag is cleared; the heartbeat says so" '
   grep -q "^env_sync checkpoint-code --slice u-main-scratch-b --checkout C:/Users/USER/Documents/wt_b --env main --name d4b$" "$PW/calls.log" && [ "$(grep -c "id LEAVING" "$PW/ops.md")" = 1 ] &&
   grep -q "u-main-feature-x (main dev.s checkout; paused at a safe point: s1 d4b; every other session there copied as it stands): READY" "$PW/ops.md" && grep -q "u-main-scratch-b (main, scratch/b; d4b(working)): READY - code copied as it stands" "$PW/ops.md" &&
-  [ ! -f "$PW/leaving.flag" ] && [ -f "$PW/leaving.last" ] && grep -q "^leaving:  *READY at " "$PW/hb.txt"'
+  grep -q "READY - code + the database file HELD on the laptop (not loaded; it is loaded only if you take over)" "$PW/ops.md" && grep -q "^CHECKPOINT READY (code + database copy held, not loaded) 20" "$PW/ops.md" &&
+  [ ! -f "$PW/leaving.flag" ] && [ -f "$PW/leaving.last" ] && grep -q "^leaving:  *READY (code + database copy held, not loaded) at " "$PW/hb.txt"'
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; touch "$PW/leave_ok"; echo "LEAVING x" > "$PW/leaving.flag"; POLLER_LEAVING_SKIP="misc" prun
 check "LEAVING rehearsal switch: a named session is left alone (never told to pause), the others are" '[ "$(calls "tell --name misc")" = 0 ] && [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ]'
 preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT,new1:77777777:working:HEARTBEAT"; touch "$PW/leave_ok"; echo "LEAVING x2" > "$PW/leaving.flag"; POLLER_LEAVING_ONLY="s1" prun
@@ -450,21 +456,17 @@ preset; KEY=k9 units ""; echo "LEAVING z" > "$PW/leaving.flag"; echo "CHECKPOINT
 check "LEAVING with nothing running still answers and clears the flag" '[ ! -f "$PW/leaving.flag" ] && grep -q "^leaving:  *READY" "$PW/hb.txt"'
 # the database copy cannot be made -> READY (CODE ONLY), by itself, every paused session released (the real leaving of 2026-11-18)
 : > "$PW/ops.md"
-preset; KEY=k10 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c1" > "$PW/leaving.flag"; ENGINE_START_STUB=/usr/bin/true prun
-check "LEAVING, Docker will not start: it gives up after a bounded wait and ends READY (CODE ONLY) - no hang" '
-  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: Docker on the laptop did not start"* ]] && [ "$(calls "^env_sync checkpoint --slice")" = 0 ] && [ ! -f "$PW/leaving.flag" ] && grep -q "^leaving:  *READY (CODE ONLY" "$PW/hb.txt"'
-check "and EVERY paused session is told to carry on, with the plain reason; the relay entry says CODE ONLY and names the last database copy" '
-  [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT TAKEN 20.* | CODE ONLY (the database copy was NOT taken: Docker on the laptop did not start.*) | carry on$" "$PW/calls.log")" = 1 ] &&
-  [ "$(grep -c "^env_sync tell --name misc --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ] && grep -q "READY (CODE ONLY) - the database copy was NOT taken" "$PW/ops.md" && grep -q "last database copy is 2026-11-18" "$PW/ops.md"'
-preset; KEY=k11 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c2" > "$PW/leaving.flag"; POLLER_FREE_MB=900 prun
-check "LEAVING, laptop short of memory: Docker is not even started; READY (CODE ONLY) with the reason" '
-  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: the laptop has only 900 MB"* ]] && [ "$(calls engine_start)" = 0 ] && [ "$(calls "^docker desktop")" = 0 ] && [ "$(grep -c "tell --name s1 --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ]'
-preset; KEY=k12 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c3" > "$PW/leaving.flag"; touch "$PW/docker_hang"; t0=$(date +%s); POLLER_DOCKER_TIMEOUT=1 POLLER_ENGINE_MAX=2 prun; took=$(( $(date +%s) - t0 ))
-check "A HUNG docker command is cut off (every docker call has a time limit): the run still ends, READY (CODE ONLY), in seconds" '
-  [[ "$(hb)" == "LEAVING READY (CODE ONLY"* ]] && [ "$took" -lt 60 ] && [ ! -f "$PW/leaving.flag" ] && [ ! -d "$PW/state/lock" ]'
-preset; KEY=k13 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c4" > "$PW/leaving.flag"; prun
-check "LEAVING, the database checkpoint itself fails after the code copy worked: still READY (CODE ONLY), session released" '
-  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: the database copy failed"* ]] && [ "$(grep -c "tell --name s1 --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ] && grep -q "^docker desktop stop" "$PW/calls.log"'
+preset; KEY=k10 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c1" > "$PW/leaving.flag"; prun
+check "LEAVING, the database file copy fails after the code copy worked: it still ends by itself, READY (CODE ONLY)" '
+  [[ "$(hb)" == "LEAVING READY (CODE ONLY - database copy NOT taken: the database copy failed"* ]] && [ "$(calls "^env_sync checkpoint --slice")" = 1 ] && [ ! -f "$PW/leaving.flag" ] && grep -q "^leaving:  *READY (CODE ONLY" "$PW/hb.txt" && [ ! -d "$PW/state/lock" ]'
+check "and EVERY paused session is told to carry on, with the plain reason; the relay entry says CODE ONLY and names the last held and loaded copies" '
+  [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT TAKEN 20.* | CODE ONLY (the database copy was NOT taken: the database copy failed.*) | carry on$" "$PW/calls.log")" = 1 ] &&
+  [ "$(grep -c "^env_sync tell --name misc --text CHECKPOINT TAKEN 20.* CODE ONLY" "$PW/calls.log")" = 1 ] && grep -q "READY (CODE ONLY) - the database copy was NOT taken" "$PW/ops.md" && grep -q "last database copies: held 2026-11-18 17:05:00, loaded 2026-11-18 13:57:40" "$PW/ops.md"'
+preset; KEY=k11 units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; echo "LEAVING c2" > "$PW/leaving.flag"; touch "$PW/leave_ok"; POLLER_FREE_MB=900 prun
+check "LEAVING with the laptop short of memory: the database file is still copied and held (no Docker is needed for it)" '
+  [[ "$(hb)" == "LEAVING READY: main dev code + database copy held (not loaded)"* ]] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ]'
+check "THE COPIER NEVER STARTS DOCKER: in every case of this section no docker command and no Docker Desktop start was ever run" '
+  [ ! -s "$PW/docker_ever.log" ] && ! grep -q "engine_start\|docker desktop\|wsl" "$PW/poller.log" && ! grep -n "docker\b.*\(info\|desktop\|start\|stop\)" "$SRC/poller_run.sh" | grep -v "^[0-9]*:#" | grep -q .'
 
 # `poller follow` is optional now: it only names main dev's unit after a slice while that session works
 echo "T-1 s1 since 2026-11-18 15:00:00" > "$PW/state/active.txt"
@@ -542,6 +544,162 @@ git -C "$UC" fetch -q "$UO/commits.bundle" "+refs/heads/*:refs/ckpt-incoming/*" 
 check "ANY BRANCH: a local-only branch's snapshot carries its commits in a bundle and rebuilds on a clone that never had it (tree equal)" '
   grep -q "^bundle=commits.bundle" "$UO/head.txt" && grep -q "^branch=scratch/b" "$UO/head.txt" && bash "$SRC/remote/ckpt_apply.sh" apply "$UC" "$UO" 2>&1 | grep -q "^applied: tree equals" &&
   [ "$(git -C "$UR" status --porcelain | wc -l)" = 2 ] && [ "$(git -C "$UR" rev-parse --abbrev-ref HEAD)" = scratch/b ]'
+
+echo "== 8. CKP-5: a database copy that is HELD (no Docker), the restore later, the wake delay, the hung-start recovery"
+# env_sync.sh's own functions with docker, wsl, the force-close, scp and ssh replaced by stubs. Nothing real is started,
+# stopped, copied or restored: the real Docker Desktop and the real WSL are never touched by a test.
+E8="$W/e8"; mkdir -p "$E8/bin" "$E8/desk"
+cat > "$E8/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "docker $*" >> "$E8_LOG"
+case "$1 ${2:-}" in
+  "info "*) [ -f "$E8_DIR/engine_up" ];;
+  "inspect "*) echo true;;
+  "desktop start") n=$(cat "$E8_DIR/start_ok_at" 2>/dev/null || echo 0); c=$(( $(cat "$E8_DIR/start_n" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$E8_DIR/start_n"
+                   [ "$n" -gt 0 ] && [ "$c" -ge "$n" ] && touch "$E8_DIR/engine_up"; exit 0;;
+  "desktop stop") [ -f "$E8_DIR/stop_hang" ] && sleep 6; rm -f "$E8_DIR/engine_up"; exit 0;;
+esac
+EOF
+cat > "$E8/bin/wsl" <<'EOF'
+#!/usr/bin/env bash
+echo "wsl $*" >> "$E8_LOG"
+case "$*" in "-l -v") printf '  NAME                   STATE           VERSION\n* docker-desktop-data    Stopped         2\n  docker-desktop         %s         2\n' "$( [ -f "$E8_DIR/wsl_running" ] && echo Running || echo Stopped )";;
+  "--shutdown") rm -f "$E8_DIR/wsl_running";; esac
+EOF
+printf '#!/usr/bin/env bash\necho "force_close" >> "$E8_LOG"\n' > "$E8/bin/kill_docker"
+# scp: the "desktop" is a folder; a file named in corrupt.txt arrives with one byte changed
+cat > "$E8/bin/scp" <<'EOF'
+#!/usr/bin/env bash
+echo "scp $*" >> "$E8_LOG"
+dst="${@: -1}"; src="${@: -2:1}"; name=$(basename "$src")
+[ -f "$E8_DIR/desk/$name" ] || exit 1
+cp "$E8_DIR/desk/$name" "$dst"
+if grep -qx "$name" "$E8_DIR/corrupt.txt" 2>/dev/null; then printf 'X' >> "$dst"; fi
+EOF
+printf '#!/usr/bin/env bash\necho "ssh $*" >> "$E8_LOG"\nexit 0\n' > "$E8/bin/ssh"
+chmod +x "$E8/bin/"*
+e8reset() { rm -f "$E8/engine_up" "$E8/start_ok_at" "$E8/start_n" "$E8/stop_hang" "$E8/wsl_running" "$E8/corrupt.txt"; : > "$E8/log"; echo "free 2026-11-19 00:00:00" > "$E8/turn.txt"; }
+# e8 <shell text>: run it inside env_sync.sh (everything before its dispatch), with the stubs. PRE holds lines run first.
+e8() {
+  ( export E8_LOG="$E8/log" E8_DIR="$E8" STUB_LOG="$E8/log" ENV_SYNC_DOCKER="$E8/bin/docker" ENV_SYNC_WSL="$E8/bin/wsl" ENV_SYNC_ENGINE_KILL="$E8/bin/kill_docker" \
+      ENV_SYNC_ENGINE_WAIT="${EW:-2}" ENV_SYNC_ENGINE_STEP=1 ENV_SYNC_ENGINE_SETTLE=0 ENV_SYNC_WSL_PAUSE=0 ENV_SYNC_ENGINE_STOP_T=2 ENV_SYNC_DOCKER_TIMEOUT=5 \
+      ENV_SYNC_FREE_MB="${FREE:-8000}" ENV_SYNC_WAKE_AGE="${WAKE:-9999}" ENV_SYNC_WAKE_DELAY="${WDELAY:-180}" ENV_SYNC_TURN_FILE="$E8/turn.txt" \
+      ENV_SYNC_PENDING_ROOT="$E8/pending" ENV_SYNC_PULL_RECORD="$E8/pull_record" ENV_SYNC_TAILSCALE="$E8/bin/no-tailscale" ENV_SYNC_LOCATION="${LOC:-}"
+    PATH="$E8/bin:$PATH"
+    . "$NEW"
+    SSH="$E8/bin/ssh"; SCP="$E8/bin/scp"; STAGED=1; SLICE=T8
+    eval "$1"
+  ) > "$E8/out" 2>&1
+}
+n8() { grep -c "$1" "$E8/log" 2>/dev/null || true; }
+
+e8reset; touch "$E8/engine_up"; e8 'engine_ensure; echo "rc=$? started=$ENGINE_STARTED"'
+check "ENGINE already up: nothing is started, nothing is stopped later" 'grep -q "^rc=0 started=0$" "$E8/out" && [ "$(n8 "desktop start")" = 0 ] && [ "$(n8 "^wsl")" = 0 ]'
+e8reset; echo 1 > "$E8/start_ok_at"; e8 'engine_ensure; echo "rc=$? started=$ENGINE_STARTED"; engine_down'
+check "A NORMAL START: one start, the engine answers, and engine_down switches Docker off again (it was off before)" '
+  grep -q "^rc=0 started=1$" "$E8/out" && [ "$(n8 "desktop start")" = 1 ] && [ "$(n8 "desktop stop")" = 1 ] && [ "$(n8 "^wsl")" = 0 ] && grep -q "Docker Desktop is off again" "$E8/out"'
+
+# K2 / AC4: the wake delay (a test clock: the "wake" was 1 s ago and the delay is 4 s)
+e8reset; echo 1 > "$E8/start_ok_at"; t0=$(date +%s); WAKE=1 WDELAY=4 e8 'engine_ensure; echo "rc=$?"'; took=$(( $(date +%s) - t0 ))
+check "WAKE DELAY: just after a wake no Docker start is made until the delay has passed (waited out, then started)" '
+  grep -q "woke 1 s ago - no Docker start within 4 s of a wake; waiting 3 s" "$E8/out" && [ "$took" -ge 3 ] && grep -q "^rc=0$" "$E8/out" && [ "$(n8 "desktop start")" = 1 ]'
+e8reset; echo 1 > "$E8/start_ok_at"; WAKE=500 WDELAY=180 e8 'engine_ensure; echo "rc=$?"'
+check "WAKE DELAY: long after a wake there is no wait" '! grep -q "woke" "$E8/out" && grep -q "^rc=0$" "$E8/out"'
+check "the real wake reading asks Windows for a resume from sleep / hibernate and for leaving Modern Standby" '
+  grep -q "Power-Troubleshooter" "$SRC/env_sync.sh" && grep -q "Id=107,507" "$SRC/env_sync.sh"'
+e8reset; FREE=900 e8 'engine_ensure; echo "rc=$? why=$ENGINE_WHY"'
+check "MEMORY GATE (3 GB, unchanged): with too little free memory Docker is not started at all" 'grep -q "^rc=1 why=the laptop has only 900 MB" "$E8/out" && [ "$(n8 "desktop start")" = 0 ]'
+
+# K3 / AC5: the hung start
+e8reset; touch "$E8/wsl_running"; t0=$(date +%s); e8 'engine_ensure; echo "rc=$? started=$ENGINE_STARTED"; echo "why=$ENGINE_WHY"'; took=$(( $(date +%s) - t0 ))
+check "HUNG START: no answer in the limit -> stop Docker Desktop -> wsl --shutdown -> ONE more start -> stop -> a clean end" '
+  [ "$(grep -v " info$\|-l -v" "$E8/log" | tr "\n" ";")" = "docker desktop start;docker desktop stop;wsl --shutdown;docker desktop start;docker desktop stop;" ] && grep -q "^rc=1 started=0$" "$E8/out"'
+check "HUNG START: exactly two starts (never a third, never a second Docker Desktop on top), one report line, nothing left running, bounded time" '
+  [ "$(n8 "desktop start")" = 2 ] && ! grep -q "Docker Desktop.exe\|cmd.exe" "$SRC/env_sync.sh" && grep -q "^why=Docker on the laptop did not start (2 tries of 2 s, WSL shut down in between); nothing was left running (both docker distros read Stopped)$" "$E8/out" && grep -q "both docker distros read Stopped" "$E8/out" && [ "$took" -lt 40 ]'
+e8reset; echo 2 > "$E8/start_ok_at"; e8 'engine_ensure; echo "rc=$? started=$ENGINE_STARTED"'
+check "HUNG START that recovers: the second start (after wsl --shutdown) answers -> carried on, one wsl --shutdown" 'grep -q "^rc=0 started=1$" "$E8/out" && [ "$(n8 "wsl --shutdown")" = 1 ] && [ "$(n8 "desktop start")" = 2 ]'
+e8reset; touch "$E8/stop_hang"; e8 'engine_ensure; echo "rc=$?"'
+check "A Docker Desktop whose own stop hangs is force-closed (time-limited stop), and the run still ends" 'grep -q "^rc=1$" "$E8/out" && [ "$(n8 "^force_close")" = 2 ] && grep -q "did not stop by itself" "$E8/out"'
+e8reset; e8 'LAPTOP_UP_SOFT=1 laptop_up; echo "rc=$?"; cat "$TURN_FILE"'
+check "laptop_up with a Docker that will not start: returns the reason and frees the turn file it had claimed" 'grep -q "^rc=1$" "$E8/out" && grep -q "^free 20" "$E8/out"'
+e8reset; e8 'laptop_up; echo "not reached"'
+check "without the soft switch the command ends there with the reason (nothing half done)" '! grep -q "not reached" "$E8/out" && grep -q "env_sync: Docker on the laptop did not start" "$E8/out" && grep -q "^free 20" "$E8/turn.txt"'
+
+# K1: the held copy. A fake desktop backup of three files, with the desktop's proof lines.
+mk_backup() {   # mk_backup <stamp>
+  local st="$1" n
+  for n in database.sql.gz files.tar private-files.tar; do printf 'content of %s %s\n' "$st" "$n" > "$E8/desk/$st-localhost-$n"; done
+  PBP="../envsync/backups/$st/$st-localhost"
+  PBS=$(for n in database.sql.gz files.tar private-files.tar; do f="$E8/desk/$st-localhost-$n"; echo "file=$st-localhost-$n size=$(stat -c %s "$f") sha256=$(sha256sum < "$f" | cut -c1-64)"; done)
+}
+SETPB='PB_PREFIX="$PBP"; PB_SHA="$PBS"; PB_DB=_db1; PB_BEFORE="count_tables=10"; PB_AFTER="count_tables=10"; HOLD_DFP="fp_rm_items=5 (newest 2026-11-18 14:32:45.600237)"'
+export PBP PBS
+e8reset; mk_backup 20261119_010000; e8 "$SETPB; hold_copy 'a paid run'"
+H1="$E8/pending/20261119_010000"
+check "HOLD: the three backup files land in pending\<stamp>\ on the laptop's own disk, each with the desktop's size and sha256" '
+  [ "$(ls "$H1" | grep -c "localhost-")" = 3 ] && cmp -s "$H1/20261119_010000-localhost-database.sql.gz" "$E8/desk/20261119_010000-localhost-database.sql.gz" && grep -q "^DB COPY HELD (not restored) 20261119_010000: .* size + sha256 equals the desktop.s; Docker was not started; covers: a paid run$" "$E8/out"'
+check "HOLD: held.txt records what a later restore needs (covers, the desktop counts, the file hashes, the desktop fingerprint, not restored)" '
+  grep -q "^held=20[0-9-]* [0-9:]*$" "$H1/held.txt" && grep -q "^covers=a paid run$" "$H1/held.txt" && grep -q "^restored=$" "$H1/held.txt" && grep -q "^before_count_tables=10$" "$H1/held.txt" &&
+  [ "$(grep -c "^sha_file=" "$H1/held.txt")" = 3 ] && grep -q "^desktop_fp_rm_items=5 (newest 2026-11-18 14:32:45.600237)$" "$H1/held.txt"'
+check "HOLD: no docker command at all, and the laptop turn file is not even claimed" '[ "$(n8 "^docker")" = 0 ] && [ "$(n8 "^wsl")" = 0 ] && grep -q "^free 2026-11-19 00:00:00$" "$E8/turn.txt"'
+check "HOLD: never OneDrive, never private/backups (the folder is frappe-bench\envsync\backups\pending)" '
+  grep -q "PENDING_ROOT=\"\${ENV_SYNC_PENDING_ROOT:-\$BENCH_HOST/\$STAGE/backups/pending}\"" "$SRC/env_sync.sh" && ! grep -n "PENDING_ROOT=" "$SRC/env_sync.sh" "$SRC/poller_run.sh" | grep -qi "onedrive\|private"'
+e8reset; mk_backup 20261119_020000; e8 "$SETPB; hold_copy two"; e8reset; mk_backup 20261119_030000; e8 "$SETPB; hold_copy three"
+check "HOLD: the newest 2 held copies are kept, the older one is removed" '[ ! -d "$H1" ] && [ -d "$E8/pending/20261119_020000" ] && [ -d "$E8/pending/20261119_030000" ]'
+e8reset; mk_backup 20261119_040000; echo "20261119_040000-localhost-files.tar" > "$E8/corrupt.txt"; e8 "$SETPB; hold_copy four; echo not-reached"
+check "HOLD: a file that arrives different (sha256) is NOT accepted - no held record is written for that copy" '
+  [ ! -f "$E8/pending/20261119_040000/held.txt" ] && ! grep -q "not-reached\|DB COPY HELD" "$E8/out" && grep -q "normal copy failed\|differs" "$E8/out"'
+e8reset; e8 'echo "newest=$(basename "$(held_newest)") unrestored=$(basename "$(held_newest unrestored)")"; sed -i "s/^restored=.*/restored=2026-11-19 03:30:00/" "$PENDING_ROOT/20261119_030000/held.txt"; echo "after=$(basename "$(held_newest unrestored)")"'
+check "the newest held copy is found; one already loaded is passed over when a takeover looks for a copy to load" 'grep -q "^newest=20261119_030000 unrestored=20261119_030000$" "$E8/out" && grep -q "^after=20261119_020000$" "$E8/out"'
+e8reset; e8 'held_load "$PENDING_ROOT/20261119_020000"; echo "prefix=$PB_PREFIX db=$PB_DB dfp=$HELD_DFP file=$(lfile -database.sql.gz) c=$(cprefix)"'
+check "a held copy loads back exactly (prefix, database, counts, hashes, fingerprint) and its files are checked again" '
+  grep -q "files checked again (size + sha256)" "$E8/out" && grep -q "^prefix=../envsync/backups/20261119_020000/20261119_020000-localhost db=_db1 dfp=fp_rm_items=5 (newest 2026-11-18 14:32:45.600237) file=$E8/pending/20261119_020000/20261119_020000-localhost-database.sql.gz c=" "$E8/out"'
+e8reset; printf 'tampered' >> "$E8/pending/20261119_020000/20261119_020000-localhost-files.tar"; e8 'held_load "$PENDING_ROOT/20261119_020000"; echo not-reached'
+check "a held copy whose file changed on disk since it was checked is REFUSED before anything is restored" '! grep -q "not-reached" "$E8/out" && grep -q "no longer matches its recorded sha256; the laptop database is unchanged" "$E8/out"'
+rm -rf "$E8/pending/20261119_020000"
+
+# where a database copy goes: held when away, loaded in the office (owner 2026-11-19 00:19)
+e8reset; LOC=away e8 'echo "a=$(where_db_goes)"; HOLD=1; echo "b=$(where_db_goes)"'; cp "$E8/out" "$E8/o1"; LOC=office e8 'echo "c=$(where_db_goes)"; HOLD=1; echo "d=$(where_db_goes)"; HOLD=0; RESTORE=1; ENV_SYNC_LOCATION=away; echo "e=$(where_db_goes)"'
+check "AWAY a database copy is held, in the OFFICE it is loaded; --hold and --restore force one or the other" '
+  grep -q "^a=hold$" "$E8/o1" && grep -q "^b=hold$" "$E8/o1" && grep -q "^c=restore$" "$E8/out" && grep -q "^d=hold$" "$E8/out" && grep -q "^e=restore$" "$E8/out"'
+e8reset; e8 'echo "x=$(where_db_goes)"'
+check "with no direct office path to the desktop (no tailscale answer) the laptop counts as away: held" 'grep -q "^x=hold$" "$E8/out"'
+
+# the slice-end db-pull (owner 2026-11-19 00:19: away it is only held; in the office it restores as before)
+FAKES='pull_backup() { PB_PREFIX="$PBP"; PB_SHA="$PBS"; PB_DB=_db1; PB_BEFORE="count_tables=10"; PB_AFTER="count_tables=10"; PB_TOOK=1; echo "desktop: backup proved (fake)"; }; fp_of() { echo "fp_rm_items=5 (newest 2026-11-18 14:32:45.600237)"; }; prove_restore() { echo "PROVE_RESTORE_CALLED covers=$1 from=$(lfile -database.sql.gz)"; }; cmd_status() { echo "data"; echo "  verdict SAME"; }'
+e8reset; mk_backup 20261119_050000; LOC=away e8 "$FAKES; YES=1; cmd_db_pull"
+check "SLICE-END db-pull AWAY: the copy is HELD - fetched and sha-checked, nothing loaded, no Docker started" '
+  grep -q "away from the office (or --hold) - the copy is HELD, not loaded: no Docker is started" "$E8/out" && grep -q "^DB COPY HELD (not restored) 20261119_050000" "$E8/out" && grep -q "result: held (not loaded)$" "$E8/out" &&
+  ! grep -q PROVE_RESTORE_CALLED "$E8/out" && [ "$(n8 "^docker")" = 0 ] && [ -f "$E8/pending/20261119_050000/held.txt" ]'
+e8reset; touch "$E8/engine_up"; mk_backup 20261119_060000; LOC=office e8 "$FAKES; YES=1; cmd_db_pull"
+check "SLICE-END db-pull in the OFFICE: restored as before (the copy goes beside sites, not into pending)" '
+  grep -q "^PROVE_RESTORE_CALLED covers= from=.*/sites/../envsync/backups/20261119_060000/20261119_060000-localhost-database.sql.gz$" "$E8/out" && [ ! -d "$E8/pending/20261119_060000" ] && ! grep -q "DB COPY HELD" "$E8/out"'
+e8reset; mk_backup 20261119_070000; LOC=office e8 "$FAKES; YES=1; cmd_db_pull"
+check "SLICE-END db-pull in the office with a Docker that will not start: the copy is HELD instead, the database untouched" '
+  grep -q "Docker on the laptop did not start .* - the copy is HELD instead of loaded" "$E8/out" && grep -q "^DB COPY HELD (not restored) 20261119_070000" "$E8/out" && ! grep -q PROVE_RESTORE_CALLED "$E8/out" && grep -q "^free 20" "$E8/turn.txt"'
+
+# the restore later
+e8reset; e8 "$FAKES; cmd_db_restore_held"
+check "db-restore-held refuses without --yes (it replaces the laptop's database)" 'grep -q "db-restore-held REPLACES the laptop.s database with the held copy 20261119_070000" "$E8/out" && ! grep -q PROVE_RESTORE_CALLED "$E8/out"'
+e8reset; e8 "$FAKES; YES=1; cmd_db_restore_held; echo rc=\$?"
+check "db-restore-held with a Docker that will not start: ONE clear line, the held copy is kept, the database unchanged" '
+  grep -q "^DATABASE RESTORE NOT DONE: Docker on the laptop did not start .* The held copy is kept (.*20261119_070000); the laptop.s database is unchanged.$" "$E8/out" && grep -q "^rc=3$" "$E8/out" && [ -f "$E8/pending/20261119_070000/held.txt" ] && ! grep -q PROVE_RESTORE_CALLED "$E8/out"'
+e8reset; echo 1 > "$E8/start_ok_at"; e8 "$FAKES; YES=1; cmd_db_restore_held; echo rc=\$?"
+check "db-restore-held: Docker is started for it, the NEWEST held copy is loaded from its own folder, marked restored, and Docker is switched off again" '
+  grep -q "^PROVE_RESTORE_CALLED covers=.*(held 20.*, loaded 20.*) from=$E8/pending/20261119_070000/20261119_070000-localhost-database.sql.gz$" "$E8/out" && grep -q "^restored=20[0-9-]* [0-9:]*$" "$E8/pending/20261119_070000/held.txt" &&
+  grep -q "^DB RESTORED from the held copy 20261119_070000" "$E8/out" && [ "$(n8 "desktop start")" = 1 ] && [ "$(n8 "desktop stop")" = 1 ] && grep -q "^free 20" "$E8/turn.txt"'
+check "the pull record of a restored HELD copy carries the moment the copy was MADE, not the moment it was loaded" 'grep -q "last db-pull (\${HELD_MADE:-\$(date" "$SRC/env_sync.sh"'
+e8reset; touch "$E8/engine_up"; e8 "$FAKES; held_scratch_check() { echo SCRATCH_CHECK_CALLED; return 0; }; DRY_RUN=1; cmd_db_restore_held; echo rc=\$?"
+check "db-restore-held --dry-run only loads the copy into a scratch database: nothing is restored, nothing marked" '
+  grep -q SCRATCH_CHECK_CALLED "$E8/out" && ! grep -q PROVE_RESTORE_CALLED "$E8/out" && grep -q "^DRY RUN done: the held copy loads, counts and fingerprint equal the desktop.s; nothing real changed$" "$E8/out" && grep -q "^rc=0$" "$E8/out"'
+check "the scratch fingerprint is written in db_fingerprint.py's exact words, so the two can be compared as text" '
+  grep -q "fp_rm_items=.*(newest " "$SRC/remote/scratch_counts.sh" && grep -q "fp_rm_snapshot=" "$SRC/remote/scratch_counts.sh" && grep -q "fp_versions=.*(newest " "$SRC/remote/scratch_counts.sh" && grep -q "\"\${3:-}\" = fp" "$SRC/remote/scratch_counts.sh"'
+check "a takeover loads the newest held copy FIRST; its dry run only rehearses it on a scratch database" '
+  grep -q "hd=\$(held_newest unrestored)" "$SRC/env_sync.sh" && grep -q "data: loading the held copy" "$SRC/env_sync.sh" && grep -q "rehearsing it on a scratch database" "$SRC/env_sync.sh"'
+check "the leaving checkpoint holds its database copy by default (--restore asks for the old behaviour and needs --yes)" '
+  grep -q "local hold=1; \[ \"\${RESTORE:-0}\" = 1 \] && hold=0" "$SRC/env_sync.sh" && grep -q "HELD on the laptop (not loaded" "$SRC/env_sync.sh"'
+H=$(bash "$SRC/env_sync.sh" 2>/dev/null)
+check "the help names db-restore-held and the held / restore switch" 'grep -q "db-restore-held --yes" <<< "$H" && grep -q "db-pull --yes --hold | --restore" <<< "$H"'
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

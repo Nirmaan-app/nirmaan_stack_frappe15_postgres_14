@@ -205,3 +205,61 @@ by hand as READY (code only).
 - **A second click on "Leaving"** changes nothing (flag kept, the task ignores a start while it runs); the box says so.
 - **Vacuity checks run on a scratch copy.** Copy `scripts/env_sync` elsewhere, switch the rule off there, and run that
   copy's tests with `ENV_SYNC_TEST_REPO=<the real checkout>`. Never edit the live folder: the scheduled task runs it.
+
+## CKP-5 (2026-11-19): the database copy is HELD, not loaded; the wake delay; the hung-start recovery
+
+Owner 2026-11-19 00:16 on DOCK-R0's fixes: "1,3, and 4 we will do"; 00:19: "1 should be also for database copy during
+home...just copy without docker....load later if required during takeover". DOCK-R0 showed that every failed database
+copy on the laptop failed in WSL or for want of memory, never in the copy itself. So the copy no longer needs Docker.
+
+### A held copy
+
+- **What is held.** The desktop makes its proved backup as before. The laptop fetches the dump and the two files tars
+  over SSH (normal copy first, the chunked route if that fails) into `frappe-bench\envsync\backups\pending\<stamp>\`
+  (the laptop's own disk: never OneDrive, never `private/backups`). Every file is checked by size + sha256 against the
+  desktop's. `held.txt` beside them records the moment, what the copy covers, the desktop's row counts before and after
+  its backup, the file hashes and the desktop's data fingerprint at backup time. **Docker is not started and nothing is
+  loaded.** The newest 2 held copies are kept; a copy that failed part-way is removed and never counts.
+- **When a copy is held.**
+
+  | Copy | Office | Away |
+  |---|---|---|
+  | "Leaving" (`checkpoint`) | held | held |
+  | The copier's copy after a costly step (B2) | not made (as before) | held |
+  | The slice-end `db-pull --yes` | loaded, as before | held |
+
+  "Office" is a direct private-LAN path to the desktop, as in CKP-3. `--hold` and `--restore` force one or the other on
+  `db-pull` and `checkpoint` (`checkpoint --restore` needs `--yes`: it replaces the laptop's database). An office
+  `db-pull` whose Docker will not start holds the copy instead of failing.
+- **The copier never starts Docker** (`poller_run.sh` holds no docker call; a test fails if one appears).
+- **The heartbeat** shows `last held db copy` (with "held, NOT loaded" or "loaded <time>") and `last restored db copy`
+  separately. A costly step is compared with the newer of the two.
+
+### Loading a held copy
+
+- `env_sync.sh db-restore-held --yes`: the newest held copy; its files are checked again, the dump goes into a scratch
+  database first (counts against the desktop's), then it replaces the laptop's database (the old one stays as
+  `<db>_envsync_prev`), files, migrate, the fingerprint is recorded. The pull record carries the moment the copy was
+  MADE, not the moment it was loaded. `--dry-run` only loads it into a scratch database and compares counts and
+  fingerprint; nothing real changes.
+- `resume-on-laptop --takeover --yes` loads the newest held copy that was not loaded yet FIRST. `--dry-run` rehearses
+  that on a scratch database and says which copy it would load.
+- If Docker will not start: ONE line, `DATABASE RESTORE NOT DONE: <why>. The held copy is kept`, and the command ends.
+
+### Any Docker start the tooling makes (restore, takeover, the office db-pull): `engine_ensure`
+
+- Not with less than 3,000 MB of memory free (`ENV_SYNC_MIN_FREE_MB`; the owner kept the gate at 3 GB).
+- **Wake delay:** not within 180 s of a wake (`ENV_SYNC_WAKE_DELAY`). The wake is read from Windows: Power-Troubleshooter
+  event 1, Kernel-Power 107 (resume from sleep) and 507 (leaving Modern Standby). The remaining seconds are waited out.
+- **Hung start:** a good start answers in 3 to 16 s. No answer in 90 s (`ENV_SYNC_ENGINE_WAIT`) = hung: Docker Desktop
+  is stopped (60 s limit; its processes are force-closed if its own stop hangs), `wsl --shutdown` is run (the owner's
+  allowance for exactly this; on the laptop only Docker's two distros exist) and ONE more start is made. If that does
+  not answer either: stop, check both docker distros read Stopped, one line with the reason, the command ends.
+- Never a second Docker Desktop on top of a hung one: the only start command is `docker desktop start`.
+- A Docker that the tooling started is switched off again when the work is done (`laptop_down`); one that was already
+  running is left running.
+
+### Rehearsal switches (tests and rehearsals only)
+
+`ENV_SYNC_LOCATION=office|away`, `ENV_SYNC_WAKE_AGE=<seconds>`, `ENV_SYNC_FREE_MB`, `ENV_SYNC_ENGINE_START` (a stub
+start), `ENV_SYNC_DOCKER`, `ENV_SYNC_WSL`, `ENV_SYNC_ENGINE_KILL`, `ENV_SYNC_ENGINE_WAIT`, `ENV_SYNC_PENDING_ROOT`.
