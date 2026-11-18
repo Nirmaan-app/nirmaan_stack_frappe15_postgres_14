@@ -2306,10 +2306,9 @@ class TestSnagApi(FrappeTestCase):
     # -- the PDF is built in a background operation (review #8; #1669, ADR 0047) ---------
 
     def _forget_pdf_operations(self, *op_ids):
-        """Drop the caller's one-at-a-time slot and these operations' records and files, whatever a test left
-        behind."""
+        """Drop these operations' records and files, whatever a test left behind (a missing record reads as lost,
+        so the user's one-at-a-time slot is free again)."""
         cache = frappe.cache()
-        cache.delete(cache.make_key(bulk_download._slot_name(frappe.session.user)))
         for op_id in op_ids:
             cache.delete(background_ops._key(op_id))
             with contextlib.suppress(OSError):
@@ -2433,9 +2432,7 @@ class TestSnagApi(FrappeTestCase):
                     for kind in ("tab", "all"):
                         with self.assertRaises(frappe.PermissionError):
                             bulk_download.start_snag_pdf(op_id=str(uuid.uuid4()), kind=kind, project=self.project)
-            start.assert_not_called()
-            cache = frappe.cache()
-            self.assertFalse(cache.get(cache.make_key(bulk_download._slot_name(frappe.session.user))))
+            start.assert_not_called()  # the user's one-at-a-time slot is taken only inside `start`
         finally:
             snag_pkg._user_role = original
             frappe.session.user = "Administrator"

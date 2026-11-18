@@ -143,6 +143,36 @@ class TestBinderOperation(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			collect_result(op_id=op_id)
 
+	def _queue_only(self, document=None):
+		"""Start a build and commit, but leave it in the queue: the user's binder is still being prepared."""
+		op_id = str(uuid.uuid4())
+		# Dropping the record frees the user whatever the test did (a missing record reads as lost).
+		self.addCleanup(frappe.cache().delete, background_ops._key(op_id))
+		with patch("frappe.utils.background_jobs.get_queue") as get_queue:
+			get_queue.return_value.count = 0
+			binder.start_binder(op_id=op_id, project=self.project, hod_system=SYSTEM, document=document)
+			frappe.db.commit()
+		return op_id
+
+	def test_one_binder_per_user_at_a_time_named_in_the_refusal_and_an_ended_one_frees_the_user(self):
+		for pf in (binder.PF_DOCUMENT, binder.PF_CHECKLIST):
+			if not frappe.db.exists("Print Format", pf):
+				raise unittest.SkipTest(f"Print Format {pf} missing on this site")
+		first = self._queue_only()
+
+		project_name = frappe.db.get_value("Projects", self.project, "project_name")
+		with self.assertRaises(frappe.ValidationError) as refused:
+			self._queue_only(document=DOCUMENT)  # the whole binder is still queued
+		self.assertEqual(
+			str(refused.exception),
+			f"Your handover binder for {project_name} ({SYSTEM}) is still being prepared. "
+			"Wait for it to finish, then try again.",
+		)
+		frappe.db.rollback()
+
+		background_ops._end(first, background_ops.FINISHED)  # however it ends, the user is free again
+		self._start_and_work_off()
+
 	def test_a_document_that_is_not_done_is_refused_before_anything_is_queued(self):
 		frappe.db.set_value(binder.DOCTYPE, {"project": self.project}, "status", "WIP")
 		frappe.db.commit()

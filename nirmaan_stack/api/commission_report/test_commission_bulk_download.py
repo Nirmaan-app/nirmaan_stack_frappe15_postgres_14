@@ -163,3 +163,40 @@ class TestCommissionBulkDownload(FrappeTestCase):
 		status = get_status(op_id=op_id)
 		self.assertEqual(status["state"], "failed")
 		self.assertIn("None of the selected tasks are eligible", status["error"])
+
+	def _queue_only(self):
+		"""Start a download and commit, but leave it in the queue: the user's download is still being prepared."""
+		op_id = str(uuid.uuid4())
+		# Dropping the record frees the user whatever the test did (a missing record reads as lost).
+		self.addCleanup(frappe.cache().delete, background_ops._key(op_id))
+		with patch("frappe.utils.background_jobs.get_queue") as get_queue:
+			get_queue.return_value.count = 0
+			cbd.start_commission_reports(op_id=op_id, tracker=self.tracker, tasks=[{"name": self.submitted[0]}])
+			frappe.db.commit()
+		return op_id
+
+	def test_one_download_per_user_at_a_time_named_in_the_refusal_and_an_ended_one_frees_the_user(self):
+		first = self._queue_only()
+
+		with self.assertRaises(frappe.ValidationError) as refused:
+			self._queue_only()
+		self.assertEqual(
+			str(refused.exception),
+			f"Your commission reports download for {self.project_name} is still being prepared. "
+			"Wait for it to finish, then try again.",
+		)
+		frappe.db.rollback()
+
+		background_ops._end(first, background_ops.FAILED, error="Nope")  # however it ends, the user is free again
+		self._start_and_work_off(self.submitted)
+
+	def test_a_download_still_being_prepared_does_not_hold_back_a_handover_binder(self):
+		self._queue_only()
+
+		binder_op = str(uuid.uuid4())
+		self.addCleanup(frappe.cache().delete, background_ops._key(binder_op))
+		started = background_ops.start(
+			"hod_binder", "frappe.utils.now", op_id=binder_op, timeout=60, one_per_user="Your handover binder ..."
+		)
+		self.assertEqual(started["state"], "queued")
+		frappe.db.rollback()  # queue nothing

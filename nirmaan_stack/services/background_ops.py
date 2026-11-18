@@ -62,7 +62,7 @@ _NO_RECORD = "The server has no record of this operation. It may have expired; p
 _OP_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def start(kind, method, *, op_id, timeout, queue="long", **kwargs):
+def start(kind, method, *, op_id, timeout, queue="long", one_per_user=None, **kwargs):
     """Write the operation's queued record, then queue `method(**kwargs)` under the wrapper `run`.
 
     `kind` names the flow in the log line. `method` is the work, a dotted path; it runs as the owner, and what it
@@ -75,6 +75,12 @@ def start(kind, method, *, op_id, timeout, queue="long", **kwargs):
 
     The same user starting the same id again gets the existing record back and nothing is queued again; an id
     another user already used is refused. Returns the record as its owner reads it.
+
+    `one_per_user`: the owner may have only ONE operation of this `kind` queued or running at a time, so one user
+    cannot hold every worker. The value is the sentence that names THIS operation to its owner while it is ("Your
+    handover binder for <project> is still being prepared. ..."); a second start of the kind is refused with the
+    running one's sentence (`_take_slot`). Its request rolls back, so the refused operation reads as failed and
+    nothing is queued.
     """
     _check_op_id(op_id)
     owner = frappe.session.user
@@ -91,6 +97,7 @@ def start(kind, method, *, op_id, timeout, queue="long", **kwargs):
         "progress": None,
         "result": None,
         "error": None,
+        "busy_message": one_per_user,
     }
     # Set only if absent: of two starts with one id, exactly one writes the record and queues.
     if not frappe.cache().set(_key(op_id), json.dumps(record), ex=KEEP_SECONDS, nx=True):
@@ -118,7 +125,40 @@ def start(kind, method, *, op_id, timeout, queue="long", **kwargs):
     frappe.db.after_rollback.add(
         lambda: _end(op_id, FAILED, error="The request that started this operation failed, so it was not queued.")
     )
+    if one_per_user:
+        running = _take_slot(kind, owner, op_id)
+        if running:
+            frappe.throw(running.get("busy_message") or one_per_user, title="Already in progress")
     return public(record)
+
+
+def _slot_key(kind, owner):
+    return frappe.cache().make_key(f"background_op_slot:{kind}:{owner}")
+
+
+def _take_slot(kind, owner, op_id):
+    """Make `op_id` the owner's one operation of `kind`. Returns None when it took the slot -- free, already held by
+    `op_id`, or held by an operation that has ended (finished, failed, lost or expired), so however an operation
+    ends its owner is free again, with no lock for a dead worker to leave behind -- else the record of the operation
+    still queued or running. A compare-and-set on the slot: of two starts racing, one takes it.
+    """
+    key = _slot_key(kind, owner)
+    outcome = {}
+
+    def attempt(pipe):
+        outcome.clear()
+        raw = pipe.get(key)
+        holder = raw.decode() if isinstance(raw, bytes) else raw
+        if holder and holder != op_id:
+            record = _read(holder)
+            if record and status(holder)["state"] in (QUEUED, RUNNING):
+                outcome["running"] = record
+                return
+        pipe.multi()
+        pipe.set(key, op_id, ex=KEEP_SECONDS)
+
+    frappe.cache().transaction(attempt, key)
+    return outcome.get("running")
 
 
 def started_before(op_id):
@@ -360,8 +400,8 @@ def read_own(op_id):
 
 
 def public(record):
-    """The record as its owner reads it: without the owner and the queue's own job id."""
-    return {key: value for key, value in record.items() if key not in ("owner", "rq_job_id")}
+    """The record as its owner reads it: without the owner, the queue's own job id and the one-per-user sentence."""
+    return {key: value for key, value in record.items() if key not in ("owner", "rq_job_id", "busy_message")}
 
 
 def _check_op_id(op_id):

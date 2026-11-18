@@ -224,7 +224,7 @@ def start_snag_pdf(
 
     Filters arrive exactly as the Jinja reads them. `kind="tab"` also takes `batches` (the tab)
     and `mode="master"` (Summary only); `kind="all"` takes `mode="full"|"summary"` and owns
-    `batches` itself. ONE snag PDF queued or running per user (`_take_users_slot`): a second start is refused
+    `batches` itself. ONE snag PDF queued or running per user (`one_per_user`): a second start is refused
     while the first is.
     """
     earlier = background_ops.started_before(op_id)
@@ -233,13 +233,14 @@ def start_snag_pdf(
     mode = _normal_mode(kind, mode)
     _check_request(kind, project, mode)
 
-    record = background_ops.start(
+    return background_ops.start(
         "snag_pdf",
         "nirmaan_stack.api.snags.bulk_download.snag_pdf_op",
         op_id=op_id,
         timeout=JOB_TIMEOUT_SECONDS,
         document=kind,  # not `kind`: that is `start`'s own parameter, the operation's kind
         project=project,
+        one_per_user="A snag PDF is already being prepared for you. Wait for it to finish, then try again.",
         params={
             "mode": mode,
             "batches": batches if kind == KIND_TAB else None,
@@ -250,49 +251,6 @@ def start_snag_pdf(
             "search_field": search_field,
         },
     )
-    # After the start: the refusal rolls the request back, which ends this record failed and queues nothing.
-    if not _take_users_slot(frappe.session.user, op_id):
-        frappe.throw(
-            "A snag PDF is already being prepared for you. Wait for it to finish, then try again.",
-            title="Download in progress",
-        )
-    return record
-
-
-def _slot_name(user):
-    return f"snag_pdf_slot:{user}"
-
-
-def _take_users_slot(user, op_id):
-    """Make `op_id` the user's one snag PDF. True when the slot was free, already held `op_id`, or held an
-    operation that has ended (finished, failed, lost, or expired) -- so however an operation ends, its user is
-    free again, with no lock for a dead worker to leave behind. A compare-and-set on the slot: of two starts
-    racing, one takes it.
-    """
-    cache = frappe.cache()
-    key = cache.make_key(_slot_name(user))
-    taken = {}
-
-    def attempt(pipe):
-        taken.clear()
-        raw = pipe.get(key)
-        holder = raw.decode() if isinstance(raw, bytes) else raw
-        if holder and holder != op_id and _still_working(holder):
-            return
-        pipe.multi()
-        pipe.set(key, op_id, ex=background_ops.KEEP_SECONDS)
-        taken["ok"] = True
-
-    cache.transaction(attempt, key)
-    return bool(taken)
-
-
-def _still_working(op_id):
-    """Is the caller's operation `op_id` queued or running (a dead worker's reads as lost)?"""
-    try:
-        return background_ops.status(op_id)["state"] in (background_ops.QUEUED, background_ops.RUNNING)
-    except (frappe.ValidationError, frappe.PermissionError):
-        return False  # not an operation id this user can hold: nothing of theirs is running under it
 
 
 def snag_pdf_op(document=None, project=None, params=None):

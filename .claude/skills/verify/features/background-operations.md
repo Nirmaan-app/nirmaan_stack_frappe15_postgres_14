@@ -57,6 +57,14 @@ and reads each operation's outcome where the screen reads it):
   or "Built i of n sections...", then the file saves and a Success toast shows (or an Error toast with the server's
   words). Only the user who started it reads its status or collects its file; a second start while one is queued
   or running is refused ("A snag PDF is already being prepared for you").
+- One per user, the same rule (`background_ops.start(..., one_per_user=...)`, #1663 #1664): a second commission
+  bulk download (`Commission Report` tab -> the tracker -> `Bulk Approved Reports` -> `Export`) while the user's first is queued
+  or running fails with a `Failed` toast naming the first: "Your commission reports download for <project> is still
+  being prepared. Wait for it to finish, then try again." A second handover binder or document download fails with
+  a `Download failed` toast: "Your handover binder for <project> (<system>) is still being prepared. ..." (or "Your
+  <document> download for ..."). The two limits are apart: a running commission download never holds back a binder.
+  The screen disables its own button while one runs, so reach the second start from ANOTHER project's commission tab
+  (commission) or a second browser tab (binder, whose tab slot is one per browser tab).
 - A Classify click: a committed sheet's pricing page -> Classify -> both engines ticked -> Start. The dialog calls
   `start_classify` once per engine; the page polls `get_classify_status` per engine.
 - A rate suggest: a committed sheet's pricing page -> Suggest rates -> whole sheet -> Start. The page waits on
