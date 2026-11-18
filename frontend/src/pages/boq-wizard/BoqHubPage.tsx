@@ -1424,7 +1424,7 @@ const BoqHubPage = () => {
         pendingSheetNames={pendingDialogSheetNames}
         skippedSheetNames={skippedDialogSheetNames}
         generalSpecsSheetNames={generalSpecsDialogList}
-        isLoading={parseInFlight}
+        inFlightLabel={hubParse.label}
         mode={parseDialogMode}
         reparseDrafts={reparseEligibleDrafts}
         restrictToSheetName={reparseRestrictSheet}
