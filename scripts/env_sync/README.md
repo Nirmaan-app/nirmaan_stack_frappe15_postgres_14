@@ -39,6 +39,27 @@ each machine (newest 3 kept; **never** a cloud drive, **never** `sites\<site>\pr
 chunked copy runs in `frappe-bench\envsync\chunks\<stamp>\` on both machines (outside any Frappe backups folder; removed after
 the proved restore; kept on a failure so a later run can see them).
 
+## Any Stack dev work, several at once, "leaving" from anywhere (CKP-4, 2026-11-18)
+
+Owner 2026-11-18 17:30: "it should cover whichever dev work is going on from which ever chat and also multiple dev works
+going simultaneously". Since CKP-4 the copier needs no `poller follow`: every run DETECTS what is running.
+
+| | |
+|---|---|
+| Detection | `env_sync.sh units` (read-only; `desktop/detect_units.ps1`): every existing git worktree of main dev's and dev2's checkout on the desktop is a **unit**. The Claude Code sessions working in it are found from their processes and Claude's own job files (`~\.claude\jobs\<id>\state.json`: folder, name, state), whichever chat or project started them; a session typed at the console counts while its transcript was written in the last 10 minutes. "Working" = Claude's job state says working; blocked / done sessions are listed, not copied for |
+| One copy per checkout | Per unit with a working session: `checkpoint-code --slice <unit> --checkout <path> --env main\|dev2 --if-older 13`. Two sessions in one checkout share the copy. Any branch: a local-only branch's commits travel in the snapshot's bundle. When nobody works in a unit any more but its tree moved since the last copy, one more copy is taken. Checkpoints land in `envsync\checkpoints\u-<env>-<branch>\` |
+| A failure on one unit | written once to the heartbeat, the log and the relay (`CKPFAIL-<unit>`); the other units are still copied; no session is stopped |
+| dev2 | code copies only. The copier NEVER starts a dev2 container on either machine. If dev2 runs on the desktop and has work, ONE question goes to the relay ("a dev2 database copy needs the owner's word"); nothing is copied without it |
+| Database copies | main dev only, away from the office only (CKP-3's rule), plus the one copy "leaving" makes |
+| **"Leaving"** | One shared flag, `BoQ main lane\_run_records\ckp_leaving.flag`, raised by chat-Claude (any chat), by `env_sync.sh leaving`, or by the Desktop shortcut **"Leaving"** (which also starts the task at once). The run that finds it: asks every main-dev session that keeps a status file (our brief footer) to pause at its safe point (`=== CHECKPOINT ... ===` in its message file) and waits up to 10 minutes for `CHECKPOINT SAFE`; makes ONE code + database checkpoint of main dev, office or away (`checkpoint --slice <unit> --name <one session> --also-tell "<the others>"`: all are released by the same `CHECKPOINT TAKEN ... carry on` the moment the desktop side is captured, about 75 s); copies every other unit and every session without a status file as it stands; writes READY / FAILED per unit to the heartbeat and ONE relay entry (`id LEAVING`); clears the flag. Measured 2026-11-18: 532 s and 604 s to READY; the sessions paused 3 minutes |
+| Takeover | `resume-on-laptop --units` lists every unit's last checkpoint; `--units --dry-run` rebuilds each on a throw-away clone and compares the laptop's data fingerprint with its last proved copy. A real takeover stays on the owner's word |
+| Heartbeat v2 | `detected: N unit(s)`, one `unit:` line each (environment, branch, sessions and their state, last code copy, this run's result), `location:`, a `leaving:` line after a leaving run. chat-Claude's alarm: a unit with a working session and no code copy for over 20 minutes; or "detected 0" while a slice is known to run |
+| Relay entries no slice owns | a leaving result, a unit's failure, CAUGHT-UP, the dev2 question: `_relay\_checkpoints\to_chat.md` once that folder exists, `_relay\CKP-4\to_chat.md` until then |
+| `poller follow` | OPTIONAL now. It only names main dev's unit after a slice while that session works; the name drops by itself |
+| Robustness | every ssh / scp has keep-alives (a stalled connection is given up after 4 x 15 s), every copier step has a time limit, and every call gets its stdin from /dev/null (ssh inside the per-unit loop once swallowed the rest of the unit list) |
+| Rehearsal switches | in `envsync\poll\poller_test.env`, besides CKP-3's: `POLLER_LOCATION=away`, `POLLER_FAIL_UNIT=<unit>`, `POLLER_LEAVING_ONLY="<the only sessions a rehearsal may pause>"`. A real "leaving" pauses every session with a status file: that is the point |
+| Launching in another worktree | `desktop/start_task.ps1 -Name N -Mode start -Dir <worktree>` (default: the repo, arguments unchanged) |
+
 ## The scheduled poller (CKP-3, 2026-11-18): the copies no longer depend on Claude Code
 
 On 2026-11-17 Claude Code's memory reaper stopped the laptop session's poller, and no checkpoint was taken after it. Since
@@ -49,7 +70,7 @@ CKP-3 the copies are made by a **Windows scheduled task on the laptop**, `BoQ Ch
 |---|---|
 | Runs | every 15 minutes, at log-on, on network connect, on resume from sleep; one run at a time; no window (`laptop/poller_hidden.vbs`) |
 | As | the logged-on user, "run only when the user is logged on" (no password is stored), least privilege |
-| Follows | the slice named with `env_sync.sh poller follow --slice S --name N` (the laptop session runs this right after it launches a desktop session). Each run checks the desktop session's status file, read-only; `DONE` / `FAILED` there ends the following after one last B1 |
+| Follows | since CKP-4 every working session it DETECTS (section above); `poller follow` is optional |
 | Each run | nothing followed -> IDLE. Desktop silent -> OFFLINE (logged once, B1 skipped). Desktop back -> the B4 catch-up by itself, `CAUGHT-UP` in the log and one relay entry. Otherwise B1 `checkpoint-code --if-older 13`, then B2 when the session's newest `DBCOPY-POINT` is newer than the last database copy |
 | **Office vs away** | **In the office: code only. After "leaving" and at home: code + database** (owner 2026-11-18 16:42 "ok option a"). "Office" = the laptop reaches the desktop over a direct private-LAN path (`tailscale ping` says `via 192.168.x.x:port` and the like); the Tailscale relay, a public address, no answer or no Tailscale = "away". In the office a due `DBCOPY-POINT` is NOT copied by the poller and the laptop's Docker is never started for it (`B2 not in office`); the point stays due and is copied at the first run away. The standing rules are unchanged: code after every commit, the slice-end `db-pull`, and the B3 "leaving" checkpoint with its full code + database copy on the office LAN. The heartbeat has a `location:` line |
 | B2 and standby | Docker Desktop and the four main containers are started only for the copy and put back as they were (MEM-R0 F3); never dev2. After Docker starts the run waits 45 s before the copy (a just-started Docker Desktop dropped a 277 MB `docker cp` with "502 Bad Gateway") |
@@ -59,7 +80,8 @@ CKP-3 the copies are made by a **Windows scheduled task on the laptop**, `BoQ Ch
 | A failure | one heartbeat line + one log line; `ckfail` adds the one `<slice>-CKPFAIL` relay entry (F1 unchanged). No retry loop: the next run tries at its next mark |
 
 **The owner's Desktop shortcuts** (owner 2026-11-18 17:10 "yes add the shortcut"): **double-click "Copier - Pause",
-"Copier - Resume" or "Copier - Status" on the laptop's Desktop.** Each shows one message box and no console window.
+"Copier - Resume", "Copier - Status" or (CKP-4) "Leaving" on the laptop's Desktop.** "Leaving" raises the shared flag,
+starts the copier at once and says "Checkpoint started - wait for READY in the chat". Each shows one message box and no console window.
 Pause and Resume call `poller pause` / `poller resume` and then run the poller once, so the heartbeat shows the new
 state at once; Status only reads the heartbeat. They are made by `env_sync.sh poller shortcuts` (removed by
 `poller shortcuts-remove`); the `.lnk` files live only on the Desktop and call `laptop/copier_shortcut.vbs` here.
@@ -86,9 +108,9 @@ Desktop, and the heartbeat go to `<laptop Desktop>\BoQ main lane\_run_records\`,
 
 ## Who runs what, and when
 
-- **The scheduled task copies; the laptop session only watches the status.** B1, B2 and the catch-up are the scheduled
-  poller's job (above). A laptop session that launches a desktop slice runs `poller follow --slice S --name N` and then
-  only relays status lines and questions. `slice_poll.sh` (below) is kept for a session that wants the events in its own
+- **The scheduled task copies; the laptop session only watches the status.** B1, B2, the catch-up and "leaving" are
+  the scheduled copier's job (above). It finds every working session by itself (CKP-4), so a laptop session that launches
+  a desktop slice runs NO copier command; it only relays status lines and questions. `slice_poll.sh` (below) is kept for a session that wants the events in its own
   terminal; running it beside the task is harmless, because both use `checkpoint-code --if-older`.
 - **The laptop session's slice poller** is `bash scripts/env_sync/slice_poll.sh --slice S --name N`: it polls the desktop
   session's status file once a minute (plain reads over SSH), runs `checkpoint-code --if-older 15` on each poll (B1), and
