@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
 // The Bulk Download screens (Quick Download and the wizard) follow each download as a background operation
-// (ADR 0047, #1664), through the real shared hook. Only the server is faked: `fetch` answers the start endpoint,
-// the status read and the file collect, and a fake socket sends the "read now" message.
+// (ADR 0047, #1664), through the real shared hook. Only the server is faked, at the hook's two edges: the SDK's
+// call API (`FrappeContext.call`) answers a start, the status read and Cancel, `fetch` answers the file collect,
+// and a fake socket sends the "read now" message.
 //
 // What this pins, on the side that broke before:
 //  1. A FAILED DOWNLOAD NEVER SHOWS "Download Complete!". Only a delivered file means done; a failure after an
@@ -17,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BulkDocType, BulkDownloadScope } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
-import { parseJson } from "@/lib/parseJson";
+import { isRecord } from "@/utils/backgroundOps/operationFollower";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,6 +34,9 @@ const h = vi.hoisted(() => {
             off: (event: string, fn: (data: unknown) => void) => void listeners.get(event)?.delete(fn),
             emit: (event: string, data: unknown) => listeners.get(event)?.forEach((fn) => fn(data)),
         },
+        /** The SDK's call API the screens reach through `FrappeContext`: a start, the status read and Cancel go
+         *  through it. `beforeEach` gives each a fresh fake-server implementation. */
+        call: { get: vi.fn(), post: vi.fn() },
         /** Doctype -> rows the list hook returns (when the wizard asks for that list at all), or a
          *  function of the query when one doctype backs two lists (PO / WO payments). */
         lists: {} as Record<string, unknown[] | ((args: { filters: unknown[] }) => unknown[])>,
@@ -45,10 +49,10 @@ const h = vi.hoisted(() => {
 
 vi.mock("@/components/ui/use-toast", () => ({ useToast: () => ({ toast: h.toast }), toast: h.toast }));
 vi.mock("@/hooks/useUserData", () => ({ useUserData: () => ({ role: "Nirmaan Admin Profile" }) }));
-// The shared background-operation hook reads the socket from here.
+// The shared background-operation hook reads the socket and the SDK's call API from here.
 vi.mock("@/lib/frappe", async () => {
     const { createContext } = await import("react");
-    return { FrappeContext: createContext({ socket: h.socket }) };
+    return { FrappeContext: createContext({ socket: h.socket, call: h.call }) };
 });
 vi.mock("frappe-react-sdk", () => ({
     useFrappeGetDocList: (doctype: string, args: { filters: unknown[] }, key: unknown) => {
@@ -73,50 +77,67 @@ const SERVER_REFUSAL = {
     _server_messages: JSON.stringify([JSON.stringify({ message: "Select at least one PO to download." })]),
 };
 
-/** A reply as `fetch` gives it. */
+/** A reply as `fetch` gives it (only the finished file goes through `fetch`). */
 const reply = (status: number, body: unknown) => ({
     ok: status < 400,
     status,
     text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
     blob: async () => new Blob(["%PDF-1.4"]),
 });
-const refused = (status: number, body: unknown) => reply(status, body);
-const htmlPage = (status: number) => reply(status, "<html><body>Bad gateway</body></html>");
+/** How the SDK's `call.post` rejects a failed reply (frappe-js-sdk `FrappeCall`): the reply body's own fields,
+ *  spread as they come (an HTML page spreads to its characters), then the status and the SDK's fallbacks. */
+const refused = (status: number, body: unknown) => {
+    const data = isRecord(body) ? body : {};
+    return Object.assign({}, body, {
+        httpStatus: status,
+        httpStatusText: "",
+        message: data.message ?? "There was an error.",
+        exception: data.exception ?? "",
+    });
+};
+const htmlPage = (status: number) => refused(status, "<html><body>Bad gateway</body></html>");
 
-/** The fake server: what each operation's record says now, and every request the screens sent. */
+const STATUS_METHOD = "nirmaan_stack.api.background_ops.get_status";
+
+/** The fake server: what each operation's record says now, and what the next start is refused with, if anything. */
 let records: Map<string, Record<string, unknown>>;
-let nextStart: ReturnType<typeof reply> | null;
+let nextStart: ReturnType<typeof refused> | null;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 const urlOf = (input: unknown) => String(input);
-/** The start requests (a download endpoint), with their JSON bodies. */
-const starts = () => fetchMock.mock.calls
-    .filter(([url, init]) => (init as RequestInit | undefined)?.method === "POST" && /bulk_download\.download_/.test(urlOf(url)))
-    .map(([url, init]) => ({ url: urlOf(url), body: parseJson(String((init as RequestInit).body)) as Record<string, unknown> }));
-const cancels = () => fetchMock.mock.calls
-    .filter(([url]) => urlOf(url).endsWith("cancel_bulk_download"))
-    .map(([, init]) => ((init as RequestInit).body as FormData).get("op_id"));
+/** The start requests (a download endpoint) as `call.post` got them: the method and its params. */
+const starts = () => h.call.post.mock.calls
+    .filter(([method]) => /bulk_download\.download_/.test(String(method)))
+    .map(([method, params]) => ({ method: String(method), args: params as Record<string, unknown> }));
+const cancels = () => h.call.post.mock.calls
+    .filter(([method]) => String(method).endsWith("cancel_bulk_download"))
+    .map(([, params]) => (params as Record<string, unknown>).op_id);
 const collects = () => fetchMock.mock.calls.filter(([url]) => urlOf(url).includes("background_ops.collect_result"));
-const lastOpId = () => String(starts().at(-1)!.body.op_id);
+const lastOpId = () => String(starts().at(-1)!.args.op_id);
 
-function serve(input: unknown, init?: RequestInit) {
-    const url = urlOf(input);
-    if (/bulk_download\.download_/.test(url)) {
-        const body = parseJson(String(init!.body)) as Record<string, unknown>;
-        const opId = String(body.op_id);
+/** `call.post`: a start records its operation as queued, or is refused; Cancel is acknowledged. */
+async function servePost(method: string, params: Record<string, unknown>): Promise<unknown> {
+    if (/bulk_download\.download_/.test(method)) {
         if (nextStart) {
             const refusal = nextStart;
             nextStart = null;
-            return Promise.resolve(refusal);
+            throw refusal;
         }
+        const opId = String(params.op_id);
         records.set(opId, { op_id: opId, state: "queued", now: 1000 });
-        return Promise.resolve(reply(200, { message: { op_id: opId, state: "queued" } }));
+        return { message: { op_id: opId, state: "queued" } };
     }
-    if (url.includes("background_ops.get_status")) {
-        const opId = new URL(url, "http://x").searchParams.get("op_id")!;
-        return Promise.resolve(reply(200, { message: records.get(opId) ?? { op_id: opId, state: "lost", error: "No record." } }));
-    }
-    return Promise.resolve(reply(200, { message: "ok" }));
+    return { message: "ok" };
+}
+/** `call.get`: the status read answers from the records. */
+async function serveGet(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    if (method !== STATUS_METHOD) throw refused(404, {});
+    const opId = String(params?.op_id);
+    return { message: records.get(opId) ?? { op_id: opId, state: "lost", error: "No record." } };
+}
+/** `fetch`: only the finished file; any other request is a wrong edge and fails. */
+function serve(input: unknown) {
+    return Promise.resolve(urlOf(input).includes("background_ops.collect_result") ? reply(200, "") : reply(404, {}));
 }
 
 /** The server moves the last download on, and tells the screen to read it now. */
@@ -162,6 +183,8 @@ beforeEach(() => {
     records = new Map();
     nextStart = null;
     window.sessionStorage.clear();
+    h.call.get.mockReset().mockImplementation(serveGet);
+    h.call.post.mockReset().mockImplementation(servePost);
     fetchMock = vi.fn(serve);
     vi.stubGlobal("fetch", fetchMock);
     window.URL.createObjectURL = vi.fn(() => "blob:test");
@@ -342,24 +365,24 @@ describe("payment vouchers", () => {
 
     it("PO: Download posts the payment names to the PO voucher endpoint; Done names the kind", async () => {
         await download("POPaymentVoucher", ["PAY-P1", "PAY-P3"]);
-        const [{ url, body }] = starts();
-        expect(url).toMatch(/bulk_download\.download_selected_po_payment_vouchers$/);
-        expect(body.names).toBe(JSON.stringify(["PAY-P1", "PAY-P3"]));
-        expect(body.vendor).toBe("VEN-1");
+        const [{ method, args }] = starts();
+        expect(method).toMatch(/bulk_download\.download_selected_po_payment_vouchers$/);
+        expect(args.names).toBe(JSON.stringify(["PAY-P1", "PAY-P3"]));
+        expect(args.vendor).toBe("VEN-1");
         await finished("Vendor One_Selected_PO_Payment_Vouchers.pdf", { included: 2, total: 2 });
         expect(wiz.downloadedLabel).toBe("PO Payment Voucher");
     });
 
     it("WO: Download posts to the WO voucher endpoint", async () => {
         await download("WOPaymentVoucher", ["PAY-W1"]);
-        expect(starts()[0].url).toMatch(/bulk_download\.download_selected_wo_payment_vouchers$/);
+        expect(starts()[0].method).toMatch(/bulk_download\.download_selected_wo_payment_vouchers$/);
     });
 
     it("Quick Download: 'all' asks the server for each kind by its own doc type", async () => {
         mount(Quick);
         await act(() => quick.handleBulkDownload("POPaymentVoucher"));
         await act(() => quick.handleBulkDownload("WOPaymentVoucher"));
-        const sent = starts().map(({ url, body }) => [url.split(".").pop(), body.doc_type]);
+        const sent = starts().map(({ method, args }) => [method.split(".").pop(), args.doc_type]);
         expect(sent).toEqual([["download_project_attachments", "PO Payment Vouchers"], ["download_project_attachments", "WO Payment Vouchers"]]);
     });
 
@@ -478,12 +501,12 @@ describe("the all scope (Reports > Bulk Download: every project, no picker)", ()
     it("Download posts all_scope=1 and no project or vendor", async () => {
         mount(AllWizard);
         await download("PO", ["PO-1", "PO-2"]);
-        const [{ url, body }] = starts();
-        expect(url).toContain("download_selected_pos");
-        expect(body.all_scope).toBe(1);
-        expect(body).not.toHaveProperty("project");
-        expect(body).not.toHaveProperty("vendor");
-        expect(body.names).toBe(JSON.stringify(["PO-1", "PO-2"]));
+        const [{ method, args }] = starts();
+        expect(method).toContain("download_selected_pos");
+        expect(args.all_scope).toBe(1);
+        expect(args).not.toHaveProperty("project");
+        expect(args).not.toHaveProperty("vendor");
+        expect(args.names).toBe(JSON.stringify(["PO-1", "PO-2"]));
     });
 
     it("refuses more than 500 before asking the server; exactly 500 goes through", async () => {
@@ -499,9 +522,9 @@ describe("the all scope (Reports > Bulk Download: every project, no picker)", ()
         mount(ProjectWizard);
         expect(fetched().map(([doctype]) => doctype)).toContain("Procurement Orders");
         await download("PO", ["PO-1"]);
-        const [{ body }] = starts();
-        expect(body.project).toBe("P-1");
-        expect(body).not.toHaveProperty("all_scope");
+        const [{ args }] = starts();
+        expect(args.project).toBe("P-1");
+        expect(args).not.toHaveProperty("all_scope");
     });
 });
 
@@ -536,11 +559,11 @@ describe("Porter Invoices (Report Bulk Download only)", () => {
     it("Download posts the invoice numbers (never file links) with all_scope", async () => {
         mount(AllWizard);
         await download("PorterInvoice", ["PRT-BLR-0412", "PRT-CHN-0091"]);
-        const [{ url, body }] = starts();
-        expect(url).toContain("bulk_download.download_selected_porter_invoices");
-        expect(body.names).toBe(JSON.stringify(["PRT-BLR-0412", "PRT-CHN-0091"]));
-        expect(body.all_scope).toBe(1);
-        expect(body).not.toHaveProperty("attachment_names");
+        const [{ method, args }] = starts();
+        expect(method).toContain("bulk_download.download_selected_porter_invoices");
+        expect(args.names).toBe(JSON.stringify(["PRT-BLR-0412", "PRT-CHN-0091"]));
+        expect(args.all_scope).toBe(1);
+        expect(args).not.toHaveProperty("attachment_names");
     });
 });
 
