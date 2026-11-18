@@ -35,9 +35,18 @@
 #                                      checkpoint on the laptop and make the laptop the master
 #
 # The checkpoint poller - a Windows scheduled task on the laptop, so the copies go on without Claude Code (CKP-3):
+#   env_sync.sh units                  CKP-4: which Claude Code sessions work in which Stack checkout on the desktop, read-only
+#                                      (every worktree of main dev and dev2 = one unit; no `poller follow` needed)
+#   env_sync.sh checkpoint-code --slice <unit> --checkout <desktop path> [--env main|dev2]
+#                                      B1 of any checkout / branch (a unit), into checkpoints\<unit>\ on the laptop
+#   env_sync.sh resume-on-laptop --units [--dry-run]
+#                                      every unit's last checkpoint; --dry-run rebuilds each on a throw-away clone
+#   env_sync.sh leaving                raise the shared "leaving" flag (the Desktop shortcut "Leaving" and chat-Claude do
+#                                      the same); the copier then checkpoints every detected unit and writes READY
 #   env_sync.sh poller install         register the task "BoQ Checkpoint Poller" (every 15 min, log-on, network connect,
 #                                      resume from sleep; the logged-on user, no stored password, hidden, one at a time)
-#   env_sync.sh poller follow --slice S --name N     the slice and desktop session the poller copies for (unfollow: none)
+#   env_sync.sh poller follow --slice S --name N     OPTIONAL since CKP-4 (sessions are detected): names main dev's unit
+#                                      after a slice while that session works (unfollow: back to the detected name)
 #   env_sync.sh poller status          the task, what it follows, pause state, the last heartbeat
 #   env_sync.sh poller pause | resume  the off switch (runs still write a PAUSED heartbeat)
 #   env_sync.sh poller run             one run now, in this terminal
@@ -113,6 +122,9 @@ CHUNK_TRIES="${ENV_SYNC_CHUNK_TRIES:-4}"
 COPY_TIMEOUT="${ENV_SYNC_COPY_TIMEOUT:-3600}"
 CKPT_KEEP="${ENV_SYNC_CKPT_KEEP:-8}"                  # checkpoint folders kept per slice
 BACKUP_KEEP="${ENV_SYNC_BACKUP_KEEP:-3}"              # envsync/backups folders kept per machine
+# CKP-4: the second environment's checkout on each machine (code snapshots only; its containers are NEVER started here).
+DEV2_D_CHECKOUT="${ENV_SYNC_DEV2_DESKTOP_CHECKOUT:-C:/Users/USER/Documents/frappe_docker_dev2/development/frappe-bench/apps/nirmaan_stack}"
+DEV2_L_REPO="${ENV_SYNC_DEV2_LAPTOP_REPO:-$(cygpath -u "$USERPROFILE")/Documents/frappe_docker_dev2/development/frappe-bench/apps/nirmaan_stack}"
 MASTER_REC="$BENCH_HOST/$STAGE/master.txt"            # present only while the laptop is the master (resume-on-laptop)
 TURN_FILE="${ENV_SYNC_TURN_FILE:-$(cygpath -u "$USERPROFILE")/envsync_laptop_turn.txt}"
 GITBASH="${ENV_SYNC_DESKTOP_GITBASH:-C:/Program Files/Git/bin/bash.exe}"   # the desktop host's Git Bash (hrun)
@@ -689,15 +701,19 @@ hrun() {
 # make_code_ckpt <kind> [<commit>]: build a code checkpoint on the desktop host, copy it to the laptop's slice folder, check
 # every file's sha256 on both sides, add the resume note and ckpt.txt. Sets CK_DIR, CK_TREE, CK_SIZE, CK_OUT, D_HEAD, D_BRANCH.
 make_code_ckpt() {
-  local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum
+  local kind="$1" commit="${2:-}" stamp hdir ldir lsum dsum repo base
+  # CKP-4: a UNIT is any checkout / worktree of main dev or dev2 (--checkout, --env); without --checkout it is main dev's
+  # own checkout, exactly as before. The bundle's base is what the laptop already has of that environment.
+  repo="${CK_CHECKOUT:-$D_BENCH/apps/nirmaan_stack}"
   stamp=$(date +%Y%m%d_%H%M%S)
   [ "$kind" = B1 ] && test_fail b1
   hdir="$D_BENCH/$STAGE/ckpt_out/$SLICE/$stamp"; ldir="$(ckpt_dir)/$stamp"
-  L_HEAD=$(lgit rev-parse HEAD)
-  CK_OUT=$(hrun ckpt_code.sh "$D_BENCH/apps/nirmaan_stack" "$hdir" "$L_HEAD" "$commit")
+  L_HEAD=$(lgit rev-parse HEAD); base="$L_HEAD"
+  if [ "${CK_ENV:-main}" = dev2 ]; then base=$(git -C "$DEV2_L_REPO" rev-parse HEAD 2>/dev/null); base="${base:-none}"; fi
+  CK_OUT=$(hrun ckpt_code.sh "$repo" "$hdir" "$base" "$commit")
   [ -n "$(kv ckpt "$CK_OUT")" ] || ckfail "the desktop could not make the code checkpoint:\n$CK_OUT"
   CK_TREE=$(kv tree "$CK_OUT"); D_HEAD=$(kv head "$CK_OUT"); D_BRANCH=$(kv branch "$CK_OUT")
-  [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] || ckfail "the desktop is on $D_BRANCH, the laptop on $(lgit rev-parse --abbrev-ref HEAD)"
+  [ -n "${CK_CHECKOUT:-}" ] || [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] || ckfail "the desktop is on $D_BRANCH, the laptop on $(lgit rev-parse --abbrev-ref HEAD)"
   mkdir -p "$(ckpt_dir)" || ckfail "cannot create $(ckpt_dir)"
   "$SCP" -q -r "${SSHO[@]}" "$DESKTOP:$hdir" "$(ckpt_dir)/" || ckfail "copying the checkpoint to the laptop failed"
   dsum=$(dps "Get-ChildItem -LiteralPath '$hdir' -File | ForEach-Object { (Get-FileHash -Algorithm SHA256 -LiteralPath \$_.FullName).Hash.ToLower() + ' ' + \$_.Name }" | sort)
@@ -706,7 +722,9 @@ make_code_ckpt() {
   resume_note "$ldir/resume.md" "$kind"
   CK_SIZE=$(du -sb "$ldir" | cut -f1); CK_DIR="$ldir"
   { echo "kind=$kind"; echo "slice=$SLICE"; echo "session=${NAME:-}"; echo "made=$(date '+%F %T')"
-    echo "desktop_head=$D_HEAD"; echo "laptop_head=$L_HEAD"; echo "tree=$CK_TREE"; echo "size=$CK_SIZE"; } > "$ldir/ckpt.txt"
+    echo "desktop_head=$D_HEAD"; echo "laptop_head=$L_HEAD"; echo "tree=$CK_TREE"; echo "size=$CK_SIZE"
+    echo "env=${CK_ENV:-main}"; echo "checkout=$repo"; echo "branch=$D_BRANCH"; } > "$ldir/ckpt.txt"
+  if [ -n "${CK_CHECKOUT:-}" ]; then { echo "env=${CK_ENV:-main}"; echo "checkout=$repo"; echo "branch=$D_BRANCH"; } > "$(ckpt_dir)/unit.txt"; fi
   # keep the newest CKPT_KEEP on both machines
   prune_local "$(ckpt_dir)" "$CKPT_KEEP"
   dps "Get-ChildItem -LiteralPath '$D_BENCH/$STAGE/ckpt_out/$SLICE' -Directory | Sort-Object Name | Select-Object -SkipLast $CKPT_KEEP | Remove-Item -Recurse -Force" > /dev/null
@@ -729,7 +747,11 @@ cmd_checkpoint_code() {
   echo "  desktop ${D_HEAD:0:9}, tree $CK_TREE, $(( CK_SIZE / 1024 )) KiB, $(sed -n 's/^tracked_files=//p' "$CK_DIR/head.txt") tracked + $(sed -n 's/^untracked_files=//p' "$CK_DIR/head.txt") new file(s), took $(( $(date +%s) - t0 )) s; nothing applied on the laptop"
   # the desktop's commits come across as after every commit (fast-forward only, no restart: nothing is served from
   # here). Only when the desktop is ahead - its git_state check in the container is the slow part.
-  if [ "$D_HEAD" != "$L_HEAD" ] && [ "$(kv base_is_ancestor "$CK_OUT")" = 1 ]; then
+  local ff=1
+  if [ -n "${CK_CHECKOUT:-}" ]; then
+    [ "${CK_ENV:-main}" = main ] && [ "$D_BRANCH" = "$(lgit rev-parse --abbrev-ref HEAD)" ] && [ "${CK_CHECKOUT,,}" = "$(tr '[:upper:]' '[:lower:]' <<< "$D_BENCH/apps/nirmaan_stack")" ] || ff=0
+  fi
+  if [ "$ff" = 1 ] && [ "$D_HEAD" != "$L_HEAD" ] && [ "$(kv base_is_ancestor "$CK_OUT")" = 1 ]; then
     if [ -z "$(lgit status --porcelain --untracked-files=no)" ]; then
       ( ALLOW_DIRTY=1 NO_RESTART=1 cmd_from_desktop ) 2>&1 | sed 's/^/  /' || true
     else
@@ -985,6 +1007,62 @@ print(" ".join(r["sessionId"][:8] for r in rows if r.get("name") == sys.argv[1] 
   for id in $ids; do dps "claude stop $id"; done        # claude stop takes the short id
 }
 
+# ---- CKP-4: units (any Stack dev work on the desktop), the shared "leaving" flag, a takeover of several units ------
+# units: read-only. One line per unit (every existing worktree of main dev's and dev2's checkout) with the Claude Code
+# sessions working there, plus each session's newest DBCOPY-POINT and how many dev2 containers run (desktop/detect_units.ps1).
+cmd_units() {
+  dps "powershell -NoProfile -ExecutionPolicy Bypass -File '$D_BENCH/$STAGE/desktop/detect_units.ps1' -Envs 'main=$D_BENCH/apps/nirmaan_stack;dev2=$DEV2_D_CHECKOUT'" | sed '1s/^\xEF\xBB\xBF//'
+}
+# tell --name N --text "<one line>": append `=== <text> ===` to that desktop session's message file (never overwrites). The
+# copier uses it on "leaving" (CHECKPOINT ... / CHECKPOINT TAKEN ... carry on / CHECKPOINT FAILED ... carry on).
+cmd_tell() {
+  check_name "${NAME:-}"; [ -n "${TEXT:-}" ] || die "tell needs --text"
+  tell_session "$TEXT" && echo "told $NAME: $TEXT"
+}
+LEAVING_FLAG="${ENV_SYNC_LEAVING_FLAG:-$RUN_RECORDS/ckp_leaving.flag}"
+cmd_leaving() {
+  mkdir -p "$RUN_RECORDS"
+  if [ -f "$LEAVING_FLAG" ]; then echo "leaving: the flag is already up ($(head -1 "$LEAVING_FLAG"))"; return 0; fi
+  echo "LEAVING $(date '+%F %T') raised by ${LEAVING_BY:-env_sync.sh leaving}" > "$LEAVING_FLAG"
+  echo "leaving: flag raised ($LEAVING_FLAG); the copier checkpoints every detected unit at its next run and writes READY"
+}
+# resume-on-laptop --units: every unit's last checkpoint; --dry-run rebuilds each one on a throw-away clone (nothing real
+# changes) and compares the laptop's data fingerprint with its last proved copy. A REAL takeover of the unit that is main
+# dev's own checkout is the existing `resume-on-laptop --slice <unit> --takeover --yes`, on the owner's word only.
+cmd_resume_units() {
+  local u dir id env branch newest target src start head base ok=0 bad=0 fp
+  for u in "$CKPT_ROOT"/*/unit.txt; do
+    [ -f "$u" ] || continue
+    dir=$(dirname "$u"); id=$(basename "$dir")
+    [ -n "${SLICE:-}" ] && [ "$SLICE" != "$id" ] && continue
+    env=$(sed -n 's/^env=//p' "$u"); branch=$(sed -n 's/^branch=//p' "$u")
+    newest=$(ls -1d "$dir"/[0-9]*_[0-9]* 2>/dev/null | sort | tail -1)
+    [ -n "$newest" ] || { echo "unit $id ($env, $branch): no checkpoint yet"; continue; }
+    echo "unit $id ($env, $branch): last checkpoint $(basename "$newest") $(sed -n 's/^kind=//p' "$newest/ckpt.txt"), tree $(sed -n 's/^tree=//p' "$newest/head.txt" | cut -c1-12), $(( ($(date +%s) - $(stat -c %Y "$newest")) / 60 )) min old"
+    [ "${DRY_RUN:-0}" = 1 ] || continue
+    src="$REPO"; [ "$env" = dev2 ] && src="$DEV2_L_REPO"
+    if ! git -C "$src" rev-parse --git-dir > /dev/null 2>&1; then echo "  DRY RUN SKIPPED: the laptop has no checkout of $env ($src)"; bad=$((bad + 1)); continue; fi
+    target="$TMPD/clone_$id"; git clone -q --shared "$src" "$target" || { echo "  DRY RUN FAILED: cannot clone $src"; bad=$((bad + 1)); continue; }
+    head=$(sed -n 's/^head=//p' "$newest/head.txt"); base=$(sed -n 's/^base=//p' "$newest/head.txt")
+    [ -f "$newest/commits.bundle" ] && git -C "$target" fetch -q "$newest/commits.bundle" "+refs/heads/*:refs/ckpt-incoming/*" 2>/dev/null
+    start=""
+    for c in "$base" "$head"; do if [ -n "$c" ] && git -C "$target" cat-file -e "$c^{commit}" 2>/dev/null; then start="$c"; break; fi; done
+    if [ -z "$start" ]; then echo "  DRY RUN FAILED: neither the checkpoint's base nor its head is on the laptop (no bundle)"; bad=$((bad + 1)); continue; fi
+    git -C "$target" checkout -q -B "$branch" "$start" || { echo "  DRY RUN FAILED: cannot put the clone on $branch"; bad=$((bad + 1)); continue; }
+    if bash "$HERE/remote/ckpt_apply.sh" apply "$target" "$newest" > "$TMPD/apply_$id.out" 2>&1 && grep -q '^applied: tree equals' "$TMPD/apply_$id.out"; then
+      echo "  DRY RUN OK: rebuilt on a throw-away clone, tree equals the checkpoint's ($(sed -n 's/^tree=//p' "$TMPD/apply_$id.out" | cut -c1-12))"; ok=$((ok + 1))
+    else echo "  DRY RUN FAILED:"; sed 's/^/    /' "$TMPD/apply_$id.out" | head -5; bad=$((bad + 1)); fi
+  done
+  [ "${DRY_RUN:-0}" = 1 ] || { echo "nothing done: add --dry-run to rehearse; a real takeover needs the owner's word (resume-on-laptop --slice <unit> --takeover --yes)"; return 0; }
+  if [ "${SKIP_DATA:-0}" != 1 ]; then
+    SLICE="${SLICE:-units}"; laptop_up; fp=$(fp_of laptop); laptop_down
+    if [ "$fp" = "$(grep '^fp_' "$PULL_RECORD" 2>/dev/null)" ]; then echo "data: the laptop's fingerprint equals its last proved copy ($(sed -n '1s/.*(\([0-9]\{4\}-[0-9-]* [0-9:]*\),.*/\1/p' "$PULL_RECORD"))"
+    else echo "data: the laptop's fingerprint DIFFERS from its last proved copy - a takeover would stop and ask for a restore first"; bad=$((bad + 1)); fi
+  fi
+  echo "DRY RUN done: $ok unit(s) rebuilt, $bad problem(s); the checkouts, the database and the master are unchanged"
+  [ "$bad" = 0 ]
+}
+
 # ---- the checkpoint poller as a scheduled task (CKP-3) ------------------------------------------------------------
 # The task runs poller_run.sh (through laptop/poller_hidden.vbs, no window). Which slice it copies for is DECLARED here on
 # the laptop (poll/active.txt, written by `poller follow` when a slice is launched) and CHECKED at every run against the
@@ -1000,8 +1078,8 @@ cmd_poller() {
     follow)
       need_slice; check_name "${NAME:-}"
       echo "$SLICE $NAME since $(date '+%F %T')" > "$POLL_ST/active.txt"; rm -f "$POLL_ST/offline"
-      echo "poller: following $SLICE (desktop session $NAME); it stops by itself when the session's status says DONE or FAILED";;
-    unfollow) if [ -f "$POLL_ST/active.txt" ]; then mv -f "$POLL_ST/active.txt" "$POLL_ST/last_active.txt"; fi; rm -f "$POLL_ST/offline"; echo "poller: following nothing (IDLE)";;
+      echo "poller: main dev's unit is named $SLICE while session $NAME works (OPTIONAL since CKP-4: the copier detects every session by itself); the name is dropped by itself when that session stops working";;
+    unfollow) if [ -f "$POLL_ST/active.txt" ]; then mv -f "$POLL_ST/active.txt" "$POLL_ST/last_active.txt"; fi; echo "poller: no slice name set; the copier still detects and copies every working session by itself";;
     pause) date '+%F %T' > "$POLL_ST/paused"; echo "poller: paused (runs write a PAUSED heartbeat and copy nothing); undo: env_sync.sh poller resume";;
     resume) rm -f "$POLL_ST/paused"; echo "poller: resumed";;
     shortcuts) powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$HERE/laptop/copier_shortcuts.ps1")" -Action create 2>&1 | tr -d '\r';;
@@ -1009,7 +1087,8 @@ cmd_poller() {
     run) bash "$HERE/poller_run.sh"; echo "poller: one run done"; sed 's/^/  /' "$RUN_RECORDS/ckp_heartbeat.txt" 2>/dev/null;;
     status)
       poller_ps -Action status | sed 's/^/  /'
-      echo "  following=$(cat "$POLL_ST/active.txt" 2>/dev/null || echo nothing)"
+      echo "  slice name (optional follow)=$(cat "$POLL_ST/active.txt" 2>/dev/null || echo none - units are detected)"
+      echo "  leaving flag=$([ -f "$LEAVING_FLAG" ] && head -1 "$LEAVING_FLAG" || echo not raised)"
       echo "  paused=$([ -f "$POLL_ST/paused" ] && echo "yes, since $(cat "$POLL_ST/paused")" || echo no)"
       echo "  heartbeat=$RUN_RECORDS/ckp_heartbeat.txt"
       sed 's/^/    /' "$RUN_RECORDS/ckp_heartbeat.txt" 2>/dev/null || echo "    (no heartbeat yet)"
@@ -1029,6 +1108,8 @@ while [ $# -gt 0 ]; do
     --discard-desktop-writes) DISCARD=1;;
     --slice) SLICE="${2:-}"; shift;; --if-older) IF_OLDER="${2:-}"; shift;; --covers) COVERS="${2:-}"; shift;;
     --takeover) TAKEOVER=1;; --dry-run) DRY_RUN=1;; --chunked) FORCE_CHUNKED=1;;
+    --text) TEXT="${2:-}"; shift;;
+    --checkout) CK_CHECKOUT="${2:-}"; shift;; --env) CK_ENV="${2:-}"; shift;; --units) UNITS=1;; --no-data-check) SKIP_DATA=1;;
     --logs) LOGS="${2:-}"; shift;; --lines) LINES_N="${2:-40}"; shift;;
     --name) NAME="${2:-}"; shift;; --brief) BRIEF="${2:-}"; shift;; --message) MESSAGE="${2:-}"; shift;;
     --interval) INTERVAL="${2:-60}"; shift;; --idle-limit) IDLE_LIMIT="${2:-5}"; shift;; --pull-back) PULL_BACK=1;;
@@ -1036,12 +1117,14 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint) ensure_stage;; esac   # once, outside any $(...)
+case "$CMD" in status|to-desktop|from-desktop|db-pull|db-push|watch|session-*|checkpoint-code|checkpoint|units) ensure_stage;; esac   # once, outside any $(...)
 [ "$CMD" = resume-on-laptop ] && STAGE_LAPTOP_ONLY=1   # catch-up stages lazily too: it must first say whether the desktop answers   # once, outside any $(...)
 case "$CMD" in
   status) cmd_status;; to-desktop) cmd_to_desktop;; from-desktop) cmd_from_desktop;;
   db-pull) cmd_db_pull;; db-push) cmd_db_push;; reports) cmd_reports;; watch) cmd_watch;; print) cmd_print;;
-  checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;; resume-on-laptop) cmd_resume_on_laptop;;
+  checkpoint-code) cmd_checkpoint_code;; checkpoint) cmd_checkpoint;; catch-up) cmd_catch_up;;
+  resume-on-laptop) if [ "${UNITS:-0}" = 1 ]; then cmd_resume_units; else cmd_resume_on_laptop; fi;;
+  units) cmd_units;; leaving) cmd_leaving;; tell) cmd_tell;;
   session-start) cmd_session_start;; session-send) cmd_session_send;;
   session-wait) cmd_session_wait;; session-stop) cmd_session_stop;;
   poller) cmd_poller;;

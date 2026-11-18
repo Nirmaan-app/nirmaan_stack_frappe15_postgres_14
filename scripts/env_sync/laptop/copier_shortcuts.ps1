@@ -11,7 +11,8 @@ if (-not (Test-Path -LiteralPath $Desktop)) { "error=no Desktop folder at $Deskt
 $items = @(
   @{ Name = 'Copier - Pause'; Arg = 'pause'; Tip = 'Pause the checkpoint copier (BoQ Checkpoint Poller)' },
   @{ Name = 'Copier - Resume'; Arg = 'resume'; Tip = 'Turn the checkpoint copier back on' },
-  @{ Name = 'Copier - Status'; Arg = 'status'; Tip = 'Show what the checkpoint copier last did (read-only)' }
+  @{ Name = 'Copier - Status'; Arg = 'status'; Tip = 'Show what the checkpoint copier last did (read-only)' },
+  @{ Name = 'Leaving'; Arg = 'leaving'; Tip = 'Leaving the office: checkpoint every running dev session now (wait for READY in the chat)' }
 )
 $ws = New-Object -ComObject WScript.Shell
 foreach ($i in $items) {

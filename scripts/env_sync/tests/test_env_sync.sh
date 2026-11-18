@@ -251,21 +251,23 @@ check "backups leave private/backups: backup_local.sh writes to envsync/backups 
 check "db-push makes the laptop backup's envsync/backups/<stamp> folder on the desktop before copying into it (SYNC-D4)" '
   awk "/^cmd_db_push\\(\\)/,/^}/" "$SRC/env_sync.sh" | grep -B1 -A3 "New-Item -ItemType Directory -Force -Path .\$D_BENCH/sites/\$(dirname \"\$lprefix\")" | grep -q "for suf in -database.sql.gz"'
 
-echo "== 7. the checkpoint poller as a scheduled task (CKP-3): one run at a time, heartbeat, B1 / B2 / offline / failure"
-# poller_run.sh with every outside call replaced: the desktop probe (ssh), env_sync.sh and docker are stubs that log their
-# arguments and answer what the case sets. Nothing reaches a machine, a container or a scheduled task.
+echo "== 7. the checkpoint copier (CKP-3 scheduled task; CKP-4 any Stack dev work, several units at once, 'leaving')"
+# poller_run.sh with every outside call replaced: env_sync.sh (units, checkpoint-code, catch-up, checkpoint, tell), docker,
+# the Docker Desktop start, tailscale and the memory reading are stubs that log their arguments and answer what the case
+# sets. Nothing reaches a machine, a container, a session or a scheduled task.
 PW="$W/poller"; mkdir -p "$PW/state" "$PW/bin" "$PW/sites/localhost/locks"
-cat > "$PW/bin/ssh" <<'EOF'
-#!/usr/bin/env bash
-echo "ssh $*" >> "$PW_LOG"
-[ -f "$PW_DIR/ssh_out" ] || exit 255
-cat "$PW_DIR/ssh_out"
-EOF
+MR="C:/Users/USER/Documents/frappe_docker/development/frappe-bench/apps/nirmaan_stack"
 cat > "$PW/bin/env_sync" <<'EOF'
 #!/usr/bin/env bash
 echo "env_sync $*" >> "$PW_LOG"
-case "$*" in *"--yes"*) [ -f "$PW_DIR/b2_record" ] && cp "$PW_DIR/b2_record" "$PW_DIR/pull_record";; esac
-cat "$PW_DIR/es_out" 2>/dev/null
+slice=""; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --slice ] && slice="${a[$((i + 1))]}"; done
+case "$1" in
+  units) [ -f "$PW_DIR/units_out" ] || exit 2; cat "$PW_DIR/units_out"; exit 0;;
+  tell) exit 0;;
+  checkpoint) if [ -f "$PW_DIR/leave_ok" ]; then echo "CHECKPOINT READY $slice 2026-11-18 19:00: code + data; took 400 s"; exit 0; fi; echo "env_sync: the desktop backup failed"; exit 2;;
+  catch-up) case "$*" in *"--yes"*) [ -f "$PW_DIR/b2_record" ] && cp "$PW_DIR/b2_record" "$PW_DIR/pull_record";; esac;;
+esac
+if [ -f "$PW_DIR/ck_out_$slice" ]; then cat "$PW_DIR/ck_out_$slice"; else cat "$PW_DIR/es_out" 2>/dev/null; fi
 exit "$(cat "$PW_DIR/es_rc" 2>/dev/null || echo 0)"
 EOF
 cat > "$PW/bin/docker" <<'EOF'
@@ -281,113 +283,168 @@ cat > "$PW/bin/engine_start" <<'EOF'
 #!/usr/bin/env bash
 echo "engine_start" >> "$PW_LOG"; touch "$PW_DIR/engine_up"
 EOF
+cat > "$PW/bin/tailscale" <<'EOF'
+#!/usr/bin/env bash
+cat "$PW_DIR/ts_out" 2>/dev/null
+EOF
 chmod +x "$PW/bin/"*
-prun() {   # one poller run against the stubs (POLLER_ENGINE_START: the real Docker Desktop is never started by a test)
+prun() {   # one copier run against the stubs (the real Docker Desktop, tailscale and desktop are never touched by a test)
   PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" \
-  POLLER_SSH="$PW/bin/ssh" POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_SETTLE=0 POLLER_FREE_MB="${POLLER_FREE_MB:-8000}" POLLER_LOCATION="${POLLER_LOCATION-away}" POLLER_TAILSCALE="${POLLER_TAILSCALE:-}" POLLER_ENGINE_START="$PW/bin/engine_start" \
+  POLLER_ENV_SYNC="$PW/bin/env_sync" POLLER_DOCKER="$PW/bin/docker" POLLER_ENGINE_WAIT=1 POLLER_ENGINE_SETTLE=0 \
+  POLLER_FREE_MB="${POLLER_FREE_MB:-8000}" POLLER_LOCATION="${POLLER_LOCATION-away}" POLLER_TAILSCALE="${POLLER_TAILSCALE:-}" \
+  POLLER_ENGINE_START="$PW/bin/engine_start" POLLER_LEAVING_WAIT="${POLLER_LEAVING_WAIT:-0}" POLLER_LEAVING_STEP=1 \
+  POLLER_OPS_RELAY="$PW/ops.md" ENV_SYNC_LEAVING_FLAG="$PW/leaving.flag" \
   ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" ENV_SYNC_RELAY_ROOT="$PW/relay" \
   bash "$SRC/poller_run.sh" > "$PW/out.txt" 2>&1
 }
 hb() { sed -n 's/^result: *//p' "$PW/hb.txt"; }
 calls() { grep -c "$1" "$PW/calls.log" 2>/dev/null || true; }
-preset() { rm -f "$PW/calls.log" "$PW/ssh_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/engine_up" "$PW/hb.txt"; : > "$PW/calls.log"; }
-echo "free 2026-11-18 14:05:00" > "$PW/turn.txt"
+preset() { rm -f "$PW/calls.log" "$PW/units_out" "$PW/es_out" "$PW/es_rc" "$PW/b2_record" "$PW/engine_up" "$PW/hb.txt" "$PW/leave_ok" "$PW"/ck_out_*; : > "$PW/calls.log"; }
+# units <sessions of main dev's checkout> [<extra unit lines>]: what `env_sync.sh units` answers. KEY changes the tree key.
+units() { { echo "ssh=ok"; echo "unit|main|$MR|feature/x|aaaa|${KEY:-k1}|0|$1"; [ -n "${2:-}" ] && printf '%s\n' "$2"; echo "dev2_containers=${DEV2UP:-0}"; } > "$PW/units_out"; }
+OKX='CHECKPOINT CODE u-main-feature-x: /x/checkpoints/u-main-feature-x/20261118_190000'
+echo "free 2026-11-18 14:05:00" > "$PW/turn.txt"; : > "$PW/ops.md"
 echo "# desktop fingerprint after the laptop's db-push (2026-11-18 13:57:40, backup x)" > "$PW/pull_record"
 
-preset; prun
-check "IDLE: no slice followed -> heartbeat IDLE, the desktop is not asked, nothing copied" '[[ "$(hb)" == IDLE* ]] && [ "$(calls .)" = 0 ]'
-check "the heartbeat names the run time, the slice, reachability, the last good B1 and B2, and the off switch" '
-  grep -q "^run:  *20[0-9-]* [0-9:]*$" "$PW/hb.txt" && grep -q "^active slice:  *none" "$PW/hb.txt" && grep -q "^desktop reachable: not asked" "$PW/hb.txt" &&
-  grep -q "^last good B1: " "$PW/hb.txt" && grep -q "^last good B2:  *2026-11-18 13:57:40" "$PW/hb.txt" && grep -q "poller pause | resume | remove" "$PW/hb.txt"'
+preset; units ""; prun
+check "IDLE: nothing running -> detected 0, heartbeat IDLE, nothing copied (the desktop is asked once, read-only)" '
+  [[ "$(hb)" == "IDLE (detected 0"* ]] && [ "$(calls "^env_sync units")" = 1 ] && [ "$(calls "checkpoint")" = 0 ] && grep -q "^detected:  *0 unit" "$PW/hb.txt"'
+check "the heartbeat v2 names the run time, detected units, reachability, the location, the last good B1 and B2, and the off switch" '
+  grep -q "^run:  *20[0-9-]* [0-9:]*$" "$PW/hb.txt" && grep -q "^desktop reachable: y" "$PW/hb.txt" && grep -q "^location:  *away" "$PW/hb.txt" &&
+  grep -q "^last good B1: " "$PW/hb.txt" && grep -q "^last good B2:  *2026-11-18 13:57:40" "$PW/hb.txt" && grep -q "Copier - Pause / Resume / Status" "$PW/hb.txt"'
 
-echo "T-1 t1 since 2026-11-18 15:00:00" > "$PW/state/active.txt"
 preset; prun
-check "OFFLINE: the desktop does not answer -> heartbeat OFFLINE, B1 skipped, no failure" '[[ "$(hb)" == OFFLINE* ]] && [ "$(calls "^env_sync")" = 0 ] && [ -f "$PW/state/offline" ] && grep -q "^desktop reachable: n" "$PW/hb.txt"'
+check "OFFLINE: the desktop does not answer -> heartbeat OFFLINE, nothing copied, no failure" '[[ "$(hb)" == OFFLINE* ]] && [ "$(calls "checkpoint")" = 0 ] && [ -f "$PW/state/offline" ] && grep -q "^desktop reachable: n" "$PW/hb.txt" && [ ! -s "$PW/ops.md" ]'
 n1=$(grep -c OFFLINE "$PW/poller.log"); preset; prun
 check "OFFLINE is logged once, not at every run" '[ "$(grep -c OFFLINE "$PW/poller.log")" = "$n1" ] && [[ "$(hb)" == OFFLINE* ]]'
 
-preset; printf 'ssh=ok\nF=HEARTBEAT 2026-11-18 15:10:00 M1\nP=\n' > "$PW/ssh_out"
-printf 'desktop answers\nCHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_151000\nCAUGHT-UP T-1 2026-11-18 15:10: code = the checkpoint above\n' > "$PW/es_out"
-mkdir -p "$PW/relay/T-1"; : > "$PW/relay/T-1/to_chat.md"; prun
-check "RECONNECT: the desktop answers again -> the catch-up runs by itself, CAUGHT-UP in the heartbeat, the log and ONE relay entry" '
-  [[ "$(hb)" == CAUGHT-UP* ]] && grep -q "^env_sync catch-up --slice T-1 --name t1$" "$PW/calls.log" && [ ! -f "$PW/state/offline" ] &&
-  [ "$(grep -c "id T-1-CAUGHTUP" "$PW/relay/T-1/to_chat.md")" = 1 ] && grep -q "CAUGHT-UP" "$PW/poller.log" && grep -q "20261118_151000" "$PW/state/last_b1.txt"'
+preset; units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; prun
+check "RECONNECT: the desktop answers again -> the working unit is copied at once (not gated), CAUGHT-UP in the heartbeat and ONE relay entry" '
+  [[ "$(hb)" == "CAUGHT-UP (the desktop answers again"* ]] && grep -q "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main --name s1$" "$PW/calls.log" && [ ! -f "$PW/state/offline" ] && [ "$(grep -c "id CAUGHTUP" "$PW/ops.md")" = 1 ]'
 
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; printf 'CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_152500\n  desktop abc\n' > "$PW/es_out"; prun
-check "B1 OK: checkpoint-code --if-older is called, the heartbeat says B1 OK and records the checkpoint" '
-  [ "$(hb)" = "B1 OK" ] && grep -q "^env_sync checkpoint-code --slice T-1 --name t1 --if-older 13$" "$PW/calls.log" && grep -q "T-1 20261118_152500" "$PW/state/last_b1.txt" && grep -q "^desktop reachable: y" "$PW/hb.txt"'
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; echo "checkpoint not due: the newest (x) is 3 min old (< 13)" > "$PW/es_out"; prun
-check "B1 SKIP: not due -> said so, the last good B1 kept, no B2 without a DBCOPY-POINT" '[ "$(hb)" = "B1 SKIP not due" ] && grep -q "20261118_152500" "$PW/hb.txt" && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ]'
+preset; units "s1:11111111:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; prun
+check "DETECTION + B1 OK: a working session is found with NO follow step; its checkout is copied (--if-older) and the heartbeat has a unit line" '
+  [ "$(hb)" = "u-main-feature-x: B1 OK" ] && grep -q "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main --name s1 --if-older 13$" "$PW/calls.log" &&
+  grep -q "^detected:  *1 unit" "$PW/hb.txt" && grep -q "^unit:  *u-main-feature-x | main | feature/x | sessions: s1(working) | last code copy: 20[0-9-]* [0-9:]* 20261118_190000 | this run: B1 OK" "$PW/hb.txt" && [ ! -f "$PW/state/active.txt" ]'
+preset; units "s1:11111111:working:HEARTBEAT"; echo "checkpoint not due: the newest (x) is 3 min old (< 13)" > "$PW/es_out"; prun
+check "B1 SKIP: not due -> said so, the last good copy kept, no database copy without a DBCOPY-POINT" '[ "$(hb)" = "u-main-feature-x: B1 SKIP not due" ] && grep -q "20261118_190000" "$PW/hb.txt" && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ]'
 
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; echo "CHECKPOINT FAILED (T-1, now): TEST failure forced at b1" > "$PW/es_out"; echo 3 > "$PW/es_rc"; prun
-check "FAILURE: a failed B1 is ONE heartbeat line and ONE log line, exit 0, the slice stays followed, no retry" '
-  [[ "$(hb)" == "FAILED B1 (rc 3)"* ]] && [ "$(grep -c "FAILED B1" "$PW/poller.log")" = 1 ] && [ "$(calls "^env_sync")" = 1 ] && [ -f "$PW/state/active.txt" ]'
+preset; units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; prun
+check "TWO SESSIONS IN ONE CHECKOUT share ONE code copy; both are named in the unit line" '
+  [ "$(calls "^env_sync checkpoint-code")" = 1 ] && grep -q "sessions: s1(working), misc(working)" "$PW/hb.txt" && grep -q "^detected:  *1 unit" "$PW/hb.txt"'
 
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 15:30:00 a paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"
+W2="unit|main|C:/Users/USER/Documents/wt_b|scratch/b|bbbb|kb1|1|d4b:33333333:working:HEARTBEAT"
+preset; units "s1:11111111:working:HEARTBEAT" "$W2"; echo "$OKX" > "$PW/es_out"; echo "CHECKPOINT CODE u-main-scratch-b: /x/checkpoints/u-main-scratch-b/20261118_190100" > "$PW/ck_out_u-main-scratch-b"; prun
+check "A SECOND BRANCH (its own worktree) is its own unit: two copies, two unit lines, detected 2" '
+  grep -q "^env_sync checkpoint-code --slice u-main-scratch-b --checkout C:/Users/USER/Documents/wt_b --env main --name d4b --if-older 13$" "$PW/calls.log" && [ "$(calls "^env_sync checkpoint-code")" = 2 ] &&
+  grep -q "^detected:  *2 unit" "$PW/hb.txt" && [ "$(grep -c "^unit: " "$PW/hb.txt")" = 2 ] && [[ "$(hb)" == "u-main-feature-x: B1 OK; u-main-scratch-b: B1 OK" ]]'
+
+: > "$PW/ops.md"
+preset; units "s1:11111111:working:HEARTBEAT" "$W2"; echo "$OKX" > "$PW/es_out"; POLLER_FAIL_UNIT=u-main-scratch-b prun
+check "FAILURE ON ONE UNIT: it is FAILED in the heartbeat and ONE relay entry; the OTHER unit is still copied; exit 0" '
+  [[ "$(hb)" == "u-main-feature-x: B1 OK; u-main-scratch-b: FAILED B1 (rc 3)"* ]] && [ "$(grep -c "id CKPFAIL-u-main-scratch-b" "$PW/ops.md")" = 1 ] && grep -q "No session is stopped or blocked" "$PW/ops.md"'
+preset; units "s1:11111111:working:HEARTBEAT" "$W2"; echo "$OKX" > "$PW/es_out"; POLLER_FAIL_UNIT=u-main-scratch-b prun
+check "the same unit failing again is NOT reported to the relay a second time (logged once)" '[ "$(grep -c "id CKPFAIL-u-main-scratch-b" "$PW/ops.md")" = 1 ] && [[ "$(hb)" == *"FAILED B1"* ]]'
+
+preset; KEY=k2 units ""; echo "$OKX" > "$PW/es_out"; prun
+check "LAST STATE: nobody works there any more but the tree moved since the last copy -> one more copy, not gated" '
+  [[ "$(hb)" == "u-main-feature-x: B1 OK (last state; no session working)"* ]] && grep -q "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main$" "$PW/calls.log" && grep -q "^detected:  *0 unit" "$PW/hb.txt"'
+preset; KEY=k2 units ""; prun
+check "and then nothing more is copied while it stays as it is" '[[ "$(hb)" == "IDLE (detected 0"* ]] && [ "$(calls "checkpoint")" = 0 ]'
+
+P1="point|main|s1|DBCOPY-POINT 2026-11-18 15:30:00 a paid run"
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P1"; echo "checkpoint not due: x" > "$PW/es_out"
 echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 15:31:10, backup y)" > "$PW/b2_record"; prun
-check "B2 WITH STANDBY: a DBCOPY-POINT newer than the last copy -> Docker Desktop started, catch-up --yes, containers and Docker put back" '
-  [[ "$(hb)" == *"+ B2 OK"* ]] && grep -q "^env_sync catch-up --slice T-1 --name t1 --yes$" "$PW/calls.log" && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" &&
+check "AWAY + a DBCOPY-POINT newer than the last copy -> Docker Desktop started, catch-up --yes for main dev, containers and Docker put back" '
+  [[ "$(hb)" == *"+ B2 OK"* ]] && grep -q "^env_sync catch-up --slice u-main-feature-x --name s1 --checkout $MR --env main --yes$" "$PW/calls.log" && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" &&
   grep -q "^last good B2:  *2026-11-18 15:31:10" "$PW/hb.txt" && ! grep -q "dev2" "$PW/calls.log" && grep -q "^free" "$PW/turn.txt"'
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 15:30:00 a paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; prun
-check "B2 is not repeated once the copy is newer than the DBCOPY-POINT" '[ "$(hb)" = "B1 SKIP not due" ] && [ "$(calls "catch-up")" = 0 ]'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P1"; echo "checkpoint not due: x" > "$PW/es_out"; prun
+check "B2 is not repeated once the copy is newer than the DBCOPY-POINT" '[ "$(hb)" = "u-main-feature-x: B1 SKIP not due" ] && [ "$(calls "catch-up")" = 0 ]'
 
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 16:40:00 another paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; echo 2 > "$PW/es_rc"; prun
+P2="point|main|s1|DBCOPY-POINT 2026-11-18 16:40:00 another paid run"
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; echo 2 > "$PW/es_rc"; prun
 check "B2 FAILURE: a failed copy is one heartbeat + log line, the containers and Docker are still put back" '
   [[ "$(hb)" == *"+ FAILED B2 (rc 2)"* ]] && [ "$(grep -c "FAILED B2" "$PW/poller.log")" = 1 ] && grep -q "^docker desktop stop" "$PW/calls.log" && grep -q "another paid run" "$PW/state/b2_failed.txt"'
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 16:40:00 another paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; prun
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; prun
 check "NO TIGHT RETRY: the next run does not try the same failed copy again (B2 PENDING), and starts nothing" '
   [[ "$(hb)" == *"B2 PENDING (the copy failed"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ]'
 rm -f "$PW/state/b2_failed.txt"
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 16:40:00 another paid run\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; POLLER_FREE_MB=1500 prun
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"; POLLER_FREE_MB=1500 prun
 check "LOW MEMORY: with too little free memory on the laptop no copy is started (B2 PENDING), and it is not counted as a failure" '
   [[ "$(hb)" == *"B2 PENDING (the laptop has only 1500 MB"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ]'
-echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup z)" > "$PW/pull_record"
-
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"
-cat > "$PW/bin/env_sync_peek" <<'EOF'
-#!/usr/bin/env bash
-cp "$POLLER_HEARTBEAT" "$PW_DIR/hb_during.txt"; echo "checkpoint not due: x"
-EOF
-chmod +x "$PW/bin/env_sync_peek"
-PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" POLLER_SSH="$PW/bin/ssh" \
-  POLLER_ENV_SYNC="$PW/bin/env_sync_peek" POLLER_DOCKER="$PW/bin/docker" ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" \
-  ENV_SYNC_RELAY_ROOT="$PW/relay" POLLER_FREE_MB=8000 POLLER_LOCATION=away bash "$SRC/poller_run.sh" > /dev/null 2>&1
-check "EVERY run writes the heartbeat FIRST: while a step runs it says RUNNING since <start>, then the result replaces it" '
-  grep -q "^result:  *RUNNING since 20[0-9-]* [0-9:]* " "$PW/hb_during.txt" && grep -q "^active slice:  *T-1" "$PW/hb_during.txt" && [ "$(hb)" = "B1 SKIP not due" ]'
-
-# Office vs away (owner 2026-11-18 "ok option a"). prun's default location is "away"; these runs set it, or let the
-# poller read it from a stub tailscale. No Wi-Fi, adapter or Tailscale setting is touched.
-echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup z)" > "$PW/pull_record"
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 17:30:00 a load in the office\n' > "$PW/ssh_out"; printf 'CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_173100\n' > "$PW/es_out"; POLLER_LOCATION=office prun
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "$OKX" > "$PW/es_out"; POLLER_LOCATION=office prun
 check "OFFICE: code only - B1 is taken, the due database copy is NOT made, Docker is never started, and it is not a failure" '
-  [[ "$(hb)" == "B1 OK + B2 not in office"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ] && grep -q "^location:  *office" "$PW/hb.txt"'
-preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=DBCOPY-POINT 2026-11-18 17:30:00 a load in the office\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"
-echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 17:40:00, backup w)" > "$PW/b2_record"; POLLER_LOCATION=away prun
+  [[ "$(hb)" == "u-main-feature-x: B1 OK + B2 not in office"* ]] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ] && [ ! -f "$PW/state/b2_failed.txt" ] && grep -q "^location:  *office" "$PW/hb.txt"'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT" "$P2"; echo "checkpoint not due: x" > "$PW/es_out"
+echo "# desktop fingerprint at the laptop's last db-pull (2026-11-18 16:45:00, backup w)" > "$PW/b2_record"; POLLER_LOCATION=away prun
 check "AWAY: the copy that was held back in the office is made at the first run away (code + database)" '
-  [[ "$(hb)" == *"+ B2 OK"* ]] && grep -q "^env_sync catch-up --slice T-1 --name t1 --yes$" "$PW/calls.log" && grep -q "^location:  *away" "$PW/hb.txt"'
-cat > "$PW/bin/tailscale" <<'EOF'
-#!/usr/bin/env bash
-cat "$PW_DIR/ts_out" 2>/dev/null
-EOF
-chmod +x "$PW/bin/tailscale"
-loc() { echo "$1" > "$PW/ts_out"; preset; printf 'ssh=ok\nF=HEARTBEAT x\nP=\n' > "$PW/ssh_out"; echo "checkpoint not due: x" > "$PW/es_out"; POLLER_LOCATION="" POLLER_TAILSCALE="$PW/bin/tailscale" prun; sed -n 's/^location: *\([a-z]*\) .*/\1/p' "$PW/hb.txt"; }
-check "LOCATION: a direct private-LAN path to the desktop is the office; the relay, a public address or no answer is away" '
+  [[ "$(hb)" == *"+ B2 OK"* ]] && [ "$(calls "catch-up")" = 1 ] && grep -q "^location:  *away" "$PW/hb.txt"'
+loc() { echo "$1" > "$PW/ts_out"; preset; KEY=k2 units ""; POLLER_LOCATION="" POLLER_TAILSCALE="$PW/bin/tailscale" prun; sed -n 's/^location: *\([a-z]*\) .*/\1/p' "$PW/hb.txt"; }
+check "LOCATION: a direct private-LAN path to the desktop is the office; the relay, a public address or no answer is away (also when idle)" '
   [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 192.168.0.22:41641 in 9ms")" = office ] && [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 10.0.0.7:41641 in 3ms")" = office ] &&
   [ "$(loc "pong from nitesh-desktop (100.84.255.77) via DERP(sin) in 120ms")" = away ] && [ "$(loc "pong from nitesh-desktop (100.84.255.77) via 122.171.18.123:16983 in 40ms")" = away ] && [ "$(loc "no reply")" = away ]'
+
+# dev2: code only; its containers are never started; a database copy needs the owner's word
+D2="unit|dev2|C:/Users/USER/Documents/frappe_docker_dev2/development/frappe-bench/apps/nirmaan_stack|feature/h|cccc|kd1|2|h1:44444444:working:HEARTBEAT"
+: > "$PW/ops.md"
+preset; KEY=k2 units "" "$D2"; echo "CHECKPOINT CODE u-dev2-feature-h: /x/checkpoints/u-dev2-feature-h/20261118_191000" > "$PW/es_out"; prun
+check "DEV2 stopped (no dev2 container runs): its CODE is copied like any unit, no question, no container touched" '
+  grep -q "^env_sync checkpoint-code --slice u-dev2-feature-h --checkout C:/Users/USER/Documents/frappe_docker_dev2/development/frappe-bench/apps/nirmaan_stack --env dev2 --name h1 --if-older 13$" "$PW/calls.log" &&
+  [ "$(calls "^docker")" = 0 ] && [ ! -s "$PW/ops.md" ] && [[ "$(hb)" != *"owner"* ]]'
+preset; DEV2UP=4 KEY=k2 units "" "$D2
+point|dev2|h1|DBCOPY-POINT 2026-11-18 19:20:00 a dev2 load"; echo "checkpoint not due: x" > "$PW/es_out"; prun
+check "DEV2 running with work: ONE question for the owner, no dev2 database copy, no container started on either machine" '
+  [[ "$(hb)" == *"dev2: code copied, its database copy needs the owner"* ]] && [ "$(grep -c "id DEV2-QUESTION" "$PW/ops.md")" = 1 ] && [ "$(calls "catch-up")" = 0 ] && [ "$(calls "^docker")" = 0 ] && [ "$(calls engine_start)" = 0 ]'
+preset; DEV2UP=4 KEY=k2 units "" "$D2"; echo "checkpoint not due: x" > "$PW/es_out"; prun
+check "the dev2 question is asked once, not at every run" '[ "$(grep -c "id DEV2-QUESTION" "$PW/ops.md")" = 1 ]'
+
+# "leaving": the shared flag
+: > "$PW/ops.md"
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,other:55555555:working:" "$W2"; echo "CHECKPOINT CODE u-main-scratch-b: /x/checkpoints/u-main-scratch-b/20261118_192000" > "$PW/es_out"; touch "$PW/leave_ok"
+echo "LEAVING 2026-11-18 19:19:00 raised by a test" > "$PW/leaving.flag"; POLLER_LOCATION=office prun
+check "LEAVING: a session with a status file is asked to pause (CHECKPOINT); one WITHOUT is not asked - it is copied as it stands" '
+  [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ] && [ "$(calls "tell --name other")" = 0 ]'
+check "LEAVING: main dev gets ONE code + database checkpoint (office or away), Docker is started for it and put back" '
+  [ "$(grep -c "^env_sync checkpoint --slice u-main-feature-x --yes --name s1$" "$PW/calls.log")" = 1 ] && grep -q "^engine_start" "$PW/calls.log" && grep -q "^docker desktop stop" "$PW/calls.log" && [[ "$(hb)" == "LEAVING READY: main dev code + database"* ]]'
+check "LEAVING: every other unit is copied as it stands; READY per unit in ONE relay entry; the flag is cleared; the heartbeat says so" '
+  grep -q "^env_sync checkpoint-code --slice u-main-scratch-b --checkout C:/Users/USER/Documents/wt_b --env main --name d4b$" "$PW/calls.log" && [ "$(grep -c "id LEAVING" "$PW/ops.md")" = 1 ] &&
+  grep -q "u-main-feature-x (main dev.s checkout; paused at a safe point: s1 d4b; every other session there copied as it stands): READY" "$PW/ops.md" && grep -q "u-main-scratch-b (main, scratch/b; d4b(working)): READY - code copied as it stands" "$PW/ops.md" &&
+  [ ! -f "$PW/leaving.flag" ] && [ -f "$PW/leaving.last" ] && grep -q "^leaving:  *READY at " "$PW/hb.txt"'
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT,misc:22222222:working:HEARTBEAT"; touch "$PW/leave_ok"; echo "LEAVING x" > "$PW/leaving.flag"; POLLER_LEAVING_SKIP="misc" prun
+check "LEAVING rehearsal switch: a named session is left alone (never told to pause), the others are" '[ "$(calls "tell --name misc")" = 0 ] && [ "$(grep -c "^env_sync tell --name s1 --text CHECKPOINT 20" "$PW/calls.log")" = 1 ]'
+: > "$PW/ops.md"
+preset; KEY=k2 units "s1:11111111:working:HEARTBEAT"; echo "LEAVING y" > "$PW/leaving.flag"; prun
+check "LEAVING FAILURE: the paused session is released at once (CHECKPOINT FAILED ... carry on), FAILED in the relay entry, the flag still cleared" '
+  [[ "$(hb)" == "LEAVING FAILED for main dev"* ]] && grep -q "^env_sync tell --name s1 --text CHECKPOINT FAILED 20.* | carry on$" "$PW/calls.log" && grep -q "FAILED" "$PW/ops.md" && [ ! -f "$PW/leaving.flag" ]'
+preset; KEY=k9 units ""; echo "LEAVING z" > "$PW/leaving.flag"; echo "CHECKPOINT CODE u-main-feature-x: /x/checkpoints/u-main-feature-x/20261118_193000" > "$PW/es_out"; touch "$PW/leave_ok"; prun
+check "LEAVING with nothing running still answers and clears the flag" '[ ! -f "$PW/leaving.flag" ] && grep -q "^leaving:  *READY" "$PW/hb.txt"'
+
+# `poller follow` is optional now: it only names main dev's unit after a slice while that session works
+echo "T-1 s1 since 2026-11-18 15:00:00" > "$PW/state/active.txt"
+preset; KEY=k9 units "s1:11111111:working:HEARTBEAT"; echo "CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_194000" > "$PW/es_out"; prun
+check "OPTIONAL FOLLOW: main dev's unit carries the slice's name while that session works" 'grep -q "^env_sync checkpoint-code --slice T-1 --checkout $MR --env main --name s1 --if-older 13$" "$PW/calls.log" && [[ "$(hb)" == "T-1: B1 OK" ]]'
+preset; KEY=k9 units "zz:66666666:working:HEARTBEAT"; echo "$OKX" > "$PW/es_out"; prun
+check "and the name is dropped by itself when that session no longer works; detection carries on with the session that does" '[ ! -f "$PW/state/active.txt" ] && grep -q "^env_sync checkpoint-code --slice u-main-feature-x --checkout $MR --env main --name zz" "$PW/calls.log"'
+
+preset; KEY=k9 units "s1:11111111:working:HEARTBEAT"
+cat > "$PW/bin/env_sync_peek" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in units) cat "$PW_DIR/units_out";; *) cp "$POLLER_HEARTBEAT" "$PW_DIR/hb_during.txt"; echo "checkpoint not due: x";; esac
+EOF
+chmod +x "$PW/bin/env_sync_peek"
+PW_DIR="$PW" PW_LOG="$PW/calls.log" POLLER_STATE="$PW/state" POLLER_HEARTBEAT="$PW/hb.txt" POLLER_LOG="$PW/poller.log" \
+  POLLER_ENV_SYNC="$PW/bin/env_sync_peek" POLLER_DOCKER="$PW/bin/docker" ENV_SYNC_PULL_RECORD="$PW/pull_record" ENV_SYNC_TURN_FILE="$PW/turn.txt" \
+  ENV_SYNC_RELAY_ROOT="$PW/relay" POLLER_OPS_RELAY="$PW/ops.md" ENV_SYNC_LEAVING_FLAG="$PW/leaving.flag" POLLER_FREE_MB=8000 POLLER_LOCATION=away bash "$SRC/poller_run.sh" > /dev/null 2>&1
+check "EVERY run writes the heartbeat FIRST: while a step runs it says RUNNING since <start>, then the result replaces it" '
+  grep -q "^result:  *RUNNING since 20[0-9-]* [0-9:]* " "$PW/hb_during.txt" && [ "$(hb)" = "u-main-feature-x: B1 SKIP not due" ]'
 
 preset; date '+%F %T' > "$PW/state/paused"; prun
 check "PAUSE: the off switch -> heartbeat PAUSED, nothing asked, nothing copied" '[[ "$(hb)" == PAUSED* ]] && [ "$(calls .)" = 0 ]'
 rm -f "$PW/state/paused"
-
 preset; mkdir "$PW/state/lock"; prun
 check "ONE AT A TIME: a second run while one holds the lock does nothing" '[ ! -f "$PW/hb.txt" ] && grep -q "SKIP another run holds the lock" "$PW/poller.log" && [ -d "$PW/state/lock" ]'
 rmdir "$PW/state/lock"
-
-preset; printf 'ssh=ok\nF=DONE 2026-11-18 16:00:00 all done\nP=\n' > "$PW/ssh_out"; printf 'CHECKPOINT CODE T-1: /x/checkpoints/T-1/20261118_160100\n' > "$PW/es_out"; prun
-check "SLICE END: status DONE -> one last B1 (not gated by --if-older), then the slice is no longer followed" '
-  grep -q "^env_sync checkpoint-code --slice T-1 --name t1$" "$PW/calls.log" && [ ! -f "$PW/state/active.txt" ] && [ -f "$PW/state/last_active.txt" ] && [[ "$(hb)" == "B1 OK; "*"no longer followed"* ]]'
-preset; prun
-check "after the slice ended the next run is IDLE" '[[ "$(hb)" == IDLE* ]] && [ "$(calls .)" = 0 ]'
+preset; KEY=k9 units ""; prun
 check "the lock is released after every run" '[ ! -d "$PW/state/lock" ]'
 
 X=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SRC/laptop/poller_task.ps1")" -PrintOnly 2>/dev/null | tr -d '\r')
@@ -402,12 +459,14 @@ else
 fi
 check "poller_hidden.vbs runs poller_run.sh hidden (window style 0) and waits for it" 'grep -q "poller_run.sh" "$SRC/laptop/poller_hidden.vbs" && grep -q ", 0, True)" "$SRC/laptop/poller_hidden.vbs"'
 H=$(bash "$SRC/env_sync.sh" 2>/dev/null)
-check "the help names the poller commands and the off switch" 'grep -q "poller install" <<< "$H" && grep -q "poller pause | resume" <<< "$H" && grep -q "poller remove" <<< "$H" && grep -q "poller follow --slice S --name N" <<< "$H"'
+check "the help names the poller commands, the off switch, units, leaving and the multi-unit takeover; follow is OPTIONAL" '
+  grep -q "poller install" <<< "$H" && grep -q "poller pause | resume" <<< "$H" && grep -q "poller remove" <<< "$H" && grep -q "OPTIONAL since CKP-4" <<< "$H" &&
+  grep -q "env_sync.sh units" <<< "$H" && grep -q "env_sync.sh leaving" <<< "$H" && grep -q "resume-on-laptop --units" <<< "$H"'
 check "P6: db-push's run record and the copied loose report files go to BoQ main lane/_run_records, never the Desktop root" '
   grep -q "RUN_RECORDS=\"\${ENV_SYNC_RUN_RECORDS:-\$L_REPORTS/BoQ main lane/_run_records}\"" "$SRC/env_sync.sh" && grep -q "run=\"\$RUN_RECORDS/" "$SRC/env_sync.sh" && ! grep -q "run=\"\$L_REPORTS/" "$SRC/env_sync.sh" && grep -q "lp=\"\$RUN_RECORDS/\$name\"" "$SRC/env_sync.sh"'
 FS="$W/follow"; mkdir -p "$FS"
 ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller follow --slice T-9 --name t9 ) > /dev/null 2>&1
-check "poller follow writes the followed slice; unfollow, pause and resume are the off switches" '
+check "poller follow / unfollow / pause / resume still work as switches" '
   grep -q "^T-9 t9 since " "$FS/active.txt" && ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller pause > /dev/null 2>&1 ) && [ -f "$FS/paused" ] &&
   ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller resume > /dev/null 2>&1 ) && [ ! -f "$FS/paused" ] &&
   ( POLLER_STATE="$FS" bash "$SRC/env_sync.sh" poller unfollow > /dev/null 2>&1 ) && [ ! -f "$FS/active.txt" ]'
@@ -415,13 +474,27 @@ check "catch-up reads the last copy's moment from a db-pull record AND a db-push
   a=$(echo "# desktop fingerprint at the laptop'"'"'s last db-pull (2026-11-17 20:20:56, backup b)" | sed -n "$(grep -o "1s/\.\*(.*p" "$SRC/env_sync.sh" | head -1)") &&
   b=$(echo "# desktop fingerprint after the laptop'"'"'s db-push (2026-11-18 13:57:40, backup b)" | sed -n "$(grep -o "1s/\.\*(.*p" "$SRC/env_sync.sh" | head -1)") &&
   [ "$a" = "2026-11-17 20:20:56" ] && [ "$b" = "2026-11-18 13:57:40" ]'
-check "IDLE runs still say where the laptop is (the owner's Status shortcut shows it)" '
-  preset; POLLER_LOCATION=office prun; [[ "$(hb)" == IDLE* ]] && grep -q "^location:  *office" "$PW/hb.txt" && [ "$(calls .)" = 0 ]'
-check "the owner's Desktop shortcuts: Pause / Resume / Status, hidden start, the scripts stay in the repo, the off switch is undoable" '
-  grep -q "Copier - Pause" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Copier - Resume" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Copier - Status" "$SRC/laptop/copier_shortcuts.ps1" &&
-  grep -q "wscript.exe" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "poller pause" "$SRC/laptop/copier_shortcut.vbs" && grep -q "poller resume" "$SRC/laptop/copier_shortcut.vbs" &&
-  grep -q "The checkpoint copier is PAUSED" "$SRC/laptop/copier_shortcut.vbs" && grep -q "The checkpoint copier is ON" "$SRC/laptop/copier_shortcut.vbs" && grep -q "poller shortcuts" <<< "$H" &&
+check "the owner's Desktop shortcuts: Pause / Resume / Status / Leaving, hidden start, the scripts stay in the repo" '
+  grep -q "Copier - Pause" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Copier - Resume" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Copier - Status" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "Leaving" "$SRC/laptop/copier_shortcuts.ps1" &&
+  grep -q "wscript.exe" "$SRC/laptop/copier_shortcuts.ps1" && grep -q "poller pause" "$SRC/laptop/copier_shortcut.vbs" && grep -q "poller resume" "$SRC/laptop/copier_shortcut.vbs" && grep -q " leaving" "$SRC/laptop/copier_shortcut.vbs" &&
+  grep -q "The checkpoint copier is PAUSED" "$SRC/laptop/copier_shortcut.vbs" && grep -q "Checkpoint started - wait for READY in the chat" "$SRC/laptop/copier_shortcut.vbs" && grep -q "poller shortcuts" <<< "$H" &&
   [ "$(grep -c "$(printf "\r")" "$SRC/env_sync.sh")" = 0 ]'
+LF="$W/lflag"; mkdir -p "$LF"
+check "env_sync.sh leaving raises the shared flag once (a second call leaves the first in place)" '
+  ( ENV_SYNC_RUN_RECORDS="$LF" bash "$SRC/env_sync.sh" leaving > /dev/null 2>&1 ) && grep -q "^LEAVING 20" "$LF/ckp_leaving.flag" && a=$(cat "$LF/ckp_leaving.flag") &&
+  ( ENV_SYNC_RUN_RECORDS="$LF" bash "$SRC/env_sync.sh" leaving 2>&1 | grep -q "already up" ) && [ "$a" = "$(cat "$LF/ckp_leaving.flag")" ]'
+check "detect_units.ps1 is read-only: it starts, stops and writes nothing" '
+  ! grep -qiE "Stop-Process|Start-Process|Remove-Item|Set-Content|Add-Content|Out-File|docker (start|stop|exec|run)|git (checkout|commit|stash|reset|clean|add)" "$SRC/desktop/detect_units.ps1" && grep -q "git -C" "$SRC/desktop/detect_units.ps1"'
+# a unit that is NOT main dev's own checkout: a throw-away checkout on another branch, snapshotted and rebuilt on a clone
+UR="$W/unit_repo"; git init -q -b main "$UR" && ( cd "$UR" && git config user.email t@t && git config user.name t && echo a > a.txt && git add a.txt && git commit -qm base &&
+  git checkout -q -b scratch/b && echo b > b.txt && git add b.txt && git commit -qm "local only" && echo c >> a.txt && echo n > new.txt )
+BASE_U=$(git -C "$UR" rev-parse main); UO="$W/unit_ck"
+bash "$SRC/remote/ckpt_code.sh" "$UR" "$UO" "$BASE_U" > "$W/unit_ck.out" 2>&1
+UC="$W/unit_clone"; git clone -q "$UR" "$UC" 2>/dev/null; git -C "$UC" checkout -q -B main "$BASE_U"; git -C "$UC" branch -D scratch/b > /dev/null 2>&1
+git -C "$UC" fetch -q "$UO/commits.bundle" "+refs/heads/*:refs/ckpt-incoming/*" 2>/dev/null; git -C "$UC" checkout -q -B scratch/b "$BASE_U"
+check "ANY BRANCH: a local-only branch's snapshot carries its commits in a bundle and rebuilds on a clone that never had it (tree equal)" '
+  grep -q "^bundle=commits.bundle" "$UO/head.txt" && grep -q "^branch=scratch/b" "$UO/head.txt" && bash "$SRC/remote/ckpt_apply.sh" apply "$UC" "$UO" 2>&1 | grep -q "^applied: tree equals" &&
+  [ "$(git -C "$UR" status --porcelain | wc -l)" = 2 ] && [ "$(git -C "$UR" rev-parse --abbrev-ref HEAD)" = scratch/b ]'
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

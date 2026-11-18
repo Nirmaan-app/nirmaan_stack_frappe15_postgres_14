@@ -68,6 +68,16 @@ ElseIf action = "resume" Then
   Else
     msg = "The checkpoint copier is ON." & vbCrLf & "Location: " & HbLine("location") & "." & vbCrLf & "Last code copy: " & HbLine("last good B1") & "."
   End If
+ElseIf action = "leaving" Then
+  ' CKP-4 D4: raise the shared "leaving" flag, then start the copier's task at once (it would see the flag within 15
+  ' minutes anyway). The copier checkpoints every detected unit and writes READY to the heartbeat and the relay.
+  RunHidden q & envsync & q & " leaving"
+  sh.Run "schtasks.exe /Run /TN " & q & "BoQ Checkpoint Poller" & q, 0, False
+  If fso.FileExists(stateDir & "\paused") Then
+    msg = "The copier is PAUSED, so no checkpoint was started." & vbCrLf & "Double-click 'Copier - Resume' first, then 'Leaving' again."
+  Else
+    msg = "Checkpoint started - wait for READY in the chat." & vbCrLf & "(This box will not close the laptop. 'Copier - Status' shows the result.)"
+  End If
 Else
   If fso.FileExists(stateDir & "\paused") Then msg = "The checkpoint copier is PAUSED." Else msg = "The checkpoint copier is ON."
   msg = msg & vbCrLf & vbCrLf & HbAll()
