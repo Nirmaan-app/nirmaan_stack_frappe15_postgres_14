@@ -108,10 +108,10 @@ def ignore_order_loosenings(base_ignores, head_ignores):
     The last pattern that matches a file wins, so the `!` pattern no longer brings back the files both match. Moving
     it after one lints more and passes. Patterns are compared as written, not by the files they match.
     """
-    def last(patterns):
+    def last_index(patterns):
         return {pattern: index for index, pattern in enumerate(patterns)}
 
-    base_at, head_at = last(base_ignores), last(head_ignores)
+    base_at, head_at = last_index(base_ignores), last_index(head_ignores)
     kept = [pattern for pattern in base_at if pattern in head_at]
     return [f"{CONFIG}: ignorePatterns moves {negated} before {ignored}, so {ignored} wins for the files both match "
             f"(they are no longer linted)"
@@ -133,7 +133,7 @@ def rules_by_name(config):
     return {rule_name(key): setting for key, setting in config.get("rules", {}).items()}
 
 
-def relaxes(name, setting, top):
+def is_exception(name, setting, top):
     """True when an override's <setting> of rule <name> is an exception: "warn" or "off", or an error weaker than the
     top level's (<top> from rules_by_name). Otherwise it turns the rule on for its files (the typed path)."""
     return not (as_strict(name, top[name], setting) if name in top else severity(setting) == "error")
@@ -141,7 +141,7 @@ def relaxes(name, setting, top):
 
 def override_entries(config, top):
     """An OverrideEntry per rule each override sets, per pattern; <top> is rules_by_name(config)."""
-    return [OverrideEntry(index, pattern, key, setting, relaxes(rule_name(key), setting, top))
+    return [OverrideEntry(index, pattern, key, setting, is_exception(rule_name(key), setting, top))
             for index, override in enumerate(config.get("overrides", []))
             for key, setting in override.get("rules", {}).items() for pattern in override.get("files", [])]
 
@@ -180,8 +180,8 @@ def override_loosenings(base, head):
         name = rule_name(old.key)
         if old.relaxes or (name in head_top and as_strict(name, old.setting, head_top[name])):
             continue
-        if not any(new.pattern == old.pattern and rule_name(new.key) == name and as_strict(name, old.setting, new.setting)
-                   for new in head_entries):
+        if not any(new.pattern == old.pattern and rule_name(new.key) == name
+                   and as_strict(name, old.setting, new.setting) for new in head_entries):
             problems.append(f"{CONFIG}: rule {old.key} no longer applies to {old.pattern}, as an error with the same "
                             f"options")
     problems += [f"{CONFIG}: an override relaxing {key} for {pattern} now comes after the one that turns it on for "

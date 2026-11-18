@@ -7,11 +7,11 @@ The ratchet is counts and a number a PR can only tighten:
     does both).
   - the `--at-least` threshold of `type-coverage` in frontend/package.json. It may rise; it may not fall.
   - the lint settings themselves (#1702), which `yarn lint` takes from the PR's own tree: frontend/.oxlintrc.json,
-    compared by oxlint_settings_check.py (no wider ignorePatterns, no rule removed or turned down to "warn" or "off", at the top level or in an override,
-    no folder taken off the typed path), no nested oxlint config, .eslintignore or .gitignore that hides src files,
-    the `lint` script in frontend/package.json (no path, flag or shell word that narrows it), and the counts of
-    scripts/residence_baseline.json that CI's residence checks read. A tightening passes: a rule switched on, a
-    folder added to the typed path, an ignore pattern dropped, a ban-list entry added.
+    compared by oxlint_settings_check.py (no wider ignorePatterns, no rule removed or turned down to "warn" or "off",
+    at the top level or in an override, no folder taken off the typed path), no nested oxlint config, .eslintignore or
+    .gitignore that hides src files, the `lint` script in frontend/package.json (no path, flag or shell word that
+    narrows it), and the counts of scripts/residence_baseline.json that CI's residence checks read. A tightening
+    passes: a rule switched on, a folder added to the typed path, an ignore pattern dropped, a ban-list entry added.
 
 A base from before the switch to oxlint holds frontend/eslint-suppressions.json instead; both files are then held
 to its counts (from_eslint), so the change that switches cannot loosen the ratchet either.
@@ -35,9 +35,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from oxlint_settings_check import CONFIG, config_loosenings, parse_jsonc  # noqa: E402
 from residence_check import CHECKS, CI_SUBSET, JSON_CALL_RULE, select_checks  # noqa: E402
 from residence_check import JSON_CALL_SUPPRESSIONS as JSON_CALLS  # noqa: E402  (check J1's file)
-from oxlint_settings_check import CONFIG, config_loosenings, parse_jsonc  # noqa: E402
 
 OXLINT = "frontend/oxlint-suppressions.json"
 ESLINT = "frontend/eslint-suppressions.json"

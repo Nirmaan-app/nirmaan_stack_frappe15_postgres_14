@@ -41,6 +41,13 @@ class OxlintSettings(LintRepo, unittest.TestCase):
         self.edit_config('"group": ["sdk-lib/*"]', '"group": ["sdk-lib/*", "!sdk-lib/**"]')
         self.refused("no-restricted-imports", "options")
 
+    def test_a_negated_ban_entry_already_in_base_with_a_new_ban_entry_passes(self):
+        self.edit_config('{"paths": [{"name": "sdk-lib", "message": "Use \'@/lib/sdk\' // not this"}]}',
+                         '{"patterns": [{"group": ["sdk-lib/*", "!sdk-lib/types"]}]}')
+        self.commit("ban sdk-lib's subpaths but its types")
+        self.edit_config('"group": ["sdk-lib/*", "!sdk-lib/types"]', '"group": ["sdk-lib/*", "!sdk-lib/types", "old-lib/*"]')
+        self.passes()
+
     def test_an_ignored_folder_with_its_suppressions_pruned_is_refused(self):
         self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/components/ui/**", "src/orders.tsx"]')
         (self.repo / OXLINT).write_text("{}")
@@ -107,15 +114,19 @@ class OxlintSettings(LintRepo, unittest.TestCase):
 
     def test_a_negated_ignore_pattern_moved_before_the_pattern_it_undoes_is_refused(self):
         # The last pattern that matches a file wins: "!src/ui/b.ts" first is beaten by "src/ui/**", so b.ts is skipped.
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
+        self.edit_config('"ignorePatterns": ["src/components/ui/**"]',
+                         '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
         self.commit("lint b.ts")
-        self.edit_config('"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]', '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
+        self.edit_config('"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]',
+                         '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
         self.refused("ignorePatterns", "!src/ui/b.ts", "src/ui/**")
 
     def test_a_negated_ignore_pattern_moved_after_the_pattern_it_undoes_passes(self):
-        self.edit_config('"ignorePatterns": ["src/components/ui/**"]', '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
+        self.edit_config('"ignorePatterns": ["src/components/ui/**"]',
+                         '"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]')
         self.commit("b.ts not yet linted")
-        self.edit_config('"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]', '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
+        self.edit_config('"ignorePatterns": ["!src/ui/b.ts", "src/ui/**"]',
+                         '"ignorePatterns": ["src/ui/**", "!src/ui/b.ts"]')
         self.passes()
 
     def test_a_negated_ignore_pattern_lints_more_and_passes(self):
