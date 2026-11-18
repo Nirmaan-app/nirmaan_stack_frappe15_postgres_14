@@ -1,4 +1,4 @@
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "@/lib/frappe";
 
 import type { RefetchRef } from "@/hooks/usePublishRefetch";
 

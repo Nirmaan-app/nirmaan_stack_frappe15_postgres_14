@@ -8,7 +8,7 @@ import type { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
-import { FrappeContext, type FrappeConfig } from "frappe-react-sdk";
+import { FrappeContext, type FrappeConfig } from "@/lib/frappe";
 import { describe, expect, it } from "vitest";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

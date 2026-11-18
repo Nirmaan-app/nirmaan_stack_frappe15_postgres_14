@@ -3750,7 +3750,7 @@
   },
   "src/pages/outflow-import/outflowTableModel.test.ts": {
     "typescript/no-explicit-any": {
-      "count": 46
+      "count": 45
     }
   },
   "src/pages/outflow-import/outflowTableModel.ts": {
