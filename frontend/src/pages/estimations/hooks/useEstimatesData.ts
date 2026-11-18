@@ -1,4 +1,4 @@
-import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "@/lib/frappe";
 import { useCallback, useMemo } from "react";
 
 import type {

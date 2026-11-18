@@ -98,7 +98,7 @@ export const OlderVersionNotice: React.FC<OlderVersionNoticeProps> = ({ boq, she
       rows: e.items, fromRow: e.line.excel_row,
       onKept: () => {
         void settleOlder({ ...args, estimates: JSON.stringify([e.name]) })
-          .catch((err) => toast({ title: "The materials were saved, but the older estimate is still listed", description: getFrappeErrorText(err), variant: "destructive" }))
+          .catch((err: unknown) => toast({ title: "The materials were saved, but the older estimate is still listed", description: getFrappeErrorText(err), variant: "destructive" }))
           .finally(onDone);
       },
     });
