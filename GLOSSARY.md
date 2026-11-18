@@ -270,7 +270,7 @@ A shared glossary of domain terms. Definitions only — no implementation detail
   recorded for it, and it stays skipped, like every skip the Cashbook import makes, until the app learns that Type.
   A Cashbook move between the company's own balances that the wallet did not complete is not one of these: it is
   skipped as refused by the bank. (Owner, 2026-11-07.)
-  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, no longer given).
+  *Avoid*: Cashbook internal movement (the old Skip Type of every non-spend Cashbook line, retired with seven others in 2026-11, #1628: their lines are Internal Transfers).
 
 - **Unpaired wallet refund** — a refund that is not a *Paired wallet refund*: it gives back only part of a spend, or a spend from an earlier statement or already recorded, or it names no spend. It is recorded as a *Wallet refund expense*. (Owner, 2026-11-02; recorded since 2026-11-18, [ADR-0015 Amendment D](docs/adr/0015-cashbook-import-creates-expenses.md). Before that it was kept as an open line for someone to decide.)
 

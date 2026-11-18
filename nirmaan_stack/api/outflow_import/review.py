@@ -140,7 +140,11 @@ from nirmaan_stack.services.outflow_import.sources import (
     source_has_settlement_path,
     source_runs_the_matcher,
 )
-from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_BY_HAND, SKIP_KIND_CARD_REFUND_PAIR
+from nirmaan_stack.services.outflow_import.skip_kinds import (
+    RETIRED_SKIP_KINDS,
+    SKIP_KIND_BY_HAND,
+    SKIP_KIND_CARD_REFUND_PAIR,
+)
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -3371,10 +3375,11 @@ def get_outflow_facet_values(
         tuple(params) + (max(1, min(int(limit or 500), 2000)),),
         as_dict=True,
     )
-    return {
-        "column": column,
-        "values": [r["value"] for r in rows if (r["value"] or "").strip()],
-    }
+    values = [r["value"] for r in rows if (r["value"] or "").strip()]
+    if column == "skip_kind":
+        # #1628: a line imported before spec #1619 may still hold a retired kind; its kind is no longer offered.
+        values = [value for value in values if value not in RETIRED_SKIP_KINDS]
+    return {"column": column, "values": values}
 
 
 def _resolve_scope(scope: str) -> str:

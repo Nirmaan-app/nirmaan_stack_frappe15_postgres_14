@@ -150,7 +150,8 @@ class TestUnskipRefusals(SkipFixture):
     def test_a_cashbook_line_not_skipped_by_hand_is_refused(self):
         """#1314 (owner Q4) NARROWS decision B1: only a Cashbook HAND skip comes back; every system kind
         stays locked. The hand-skip half is pinned in `test_cashbook_undo`."""
-        for kind in ("Cashbook internal movement", "Outflow Already Recorded", "No amount"):
+        # #1628: "Cashbook internal movement" retired; "Unknown Cashbook type" is the Cashbook system kind now.
+        for kind in ("Unknown Cashbook type", "Outflow Already Recorded", "No amount"):
             with self.subTest(kind=kind):
                 row = self._line(
                     status=ROW_SKIPPED, skip_origin=SKIP_ORIGIN_MANUAL, skip_kind=kind, source="Cashbook"
@@ -169,9 +170,10 @@ class TestUnskipASystemSkip(SkipFixture):
         row = self._line(
             status=ROW_SKIPPED,
             skip_origin=SKIP_ORIGIN_SYSTEM,
-            skip_kind="Porter wallet top-up",
+            # #1628: a bank-rule kind still skipped; the 8 retired ones can no longer be unskipped.
+            skip_kind="Failed payment bounced back",
             skip_reason="Not spending -- this line is money moving inside the bank or between our own "
-            "accounts. Excluded by bank-statement rule 'platform_porter'.",
+            "accounts. Excluded by bank-statement rule 'neft_return_failed'.",
             outcome_note=None,
             amount=8231.77,
         )
