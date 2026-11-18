@@ -22,9 +22,11 @@ database halves:
 doctype's `track_changes` keeps a Version of every field it changed, and a Comment on the line naming the import that
 re-opened it. The decision fields an unskip clears are cleared too.
 
-⚠️ IT NEVER CREATES AN EXPENSE. A re-opened line is open (`Mismatched`, which the job never takes) or one line of a
-*Paired wallet refund* (Skipped); `Pending match run` is never written. A person decides an open line on the main
-table. A re-opened Collect payment's bill is copied by the job like a new one's (`cashbook_bills.store_collect_bills`).
+⚠️ ONLY A COLLECT PAYMENT IS RE-OPENED TO BE CREATED (#1708, ADR-0015 Amendment C). It is written at `Pending match
+run` with the plan's placement, and its own import's job creates its Expense and copies its bills like any spend's;
+the re-opening confirm queues that job (`cashbook.confirm_cashbook_import`). Any other re-opened line is open
+(`Mismatched`, which the job never takes) or one line of a *Paired wallet refund* (Skipped), and a person decides an
+open line on the main table.
 """
 
 from __future__ import annotations
@@ -115,7 +117,12 @@ def claim_reopens(plan: CashbookPlan) -> set[str]:
 
 def reopen_comment(batch: str, actor: str, planned) -> str:
     """The Comment a re-opened line carries: which import re-opened it, who ran it, and what it is now."""
-    now = f"Open: {planned.reason}" if planned.opens else f"Skipped: {planned.reason}"
+    if planned.creates:
+        now = "Its import creates its expense now."
+    elif planned.opens:
+        now = f"Open: {planned.reason}"
+    else:
+        now = f"Skipped: {planned.reason}"
     return (
         f"Re-opened by the Cashbook import {batch} ({actor}). An earlier import skipped this "
         f"{planned.row_kind or 'line'} as moving money between our own balances. {now}"

@@ -25,12 +25,8 @@ import {
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_ERROR,
-    COLLECT_PAYMENT_CHOICES_REFUSAL,
-    COLLECT_PAYMENT_SKIP_REFUSAL,
-    COLLECT_ROW_KIND,
     canSkipByHand,
     canUndoOutflow,
-    isCollectPaymentLine,
 } from "./outflowImportStatus";
 
 const pyFile = (relative: string) =>
@@ -111,27 +107,6 @@ describe("undo access parity -- the screen hides exactly what the server refuses
     });
 });
 
-describe("a Collect payment is told apart, and refused, as the server does (spec #1585)", () => {
-    const refundsSource = pyFile("services/outflow_import/cashbook_refunds.py");
-    const collectSource = pyFile("services/outflow_import/cashbook_collect.py");
-
-    it("★ the statement Type is the server's", () => {
-        expect(refundsSource).toContain(`COLLECT_ROW_KIND = "${COLLECT_ROW_KIND}"`);
-    });
-
-    it("★ the two refusals are the server's, word for word", () => {
-        expect(collectSource).toContain(`"${COLLECT_PAYMENT_SKIP_REFUSAL}"`);
-        expect(collectSource).toContain(`"${COLLECT_PAYMENT_CHOICES_REFUSAL}"`);
-    });
-
-    it("is a Cashbook line whose stored Type is Collect Payment, trimmed", () => {
-        expect(isCollectPaymentLine({ source: " Cashbook ", row_kind: " Collect Payment " })).toBe(true);
-        expect(isCollectPaymentLine({ source: "Cashbook", row_kind: "Wallet Spend" })).toBe(false);
-        expect(isCollectPaymentLine({ source: "Cashbook", row_kind: null })).toBe(false);
-        expect(isCollectPaymentLine({ source: "Cashfree", row_kind: "Collect Payment" })).toBe(false);
-    });
-});
-
 describe("canUndoOutflow", () => {
     it("admits Admin, Accountant Lead and the Administrator user", () => {
         expect(canUndoOutflow("Nirmaan Admin Profile", "a@x.com")).toBe(true);
@@ -150,44 +125,34 @@ describe("canUndoOutflow", () => {
 describe("canSkipByHand -- the Skip box shows on open lines, for every module user", () => {
     it("shows on every open status", () => {
         for (const row_status of [ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR]) {
-            expect(canSkipByHand({ row_status, source: "Cashfree" }, false)).toBe(true);
+            expect(canSkipByHand({ row_status, source: "Cashfree" })).toBe(true);
         }
     });
 
     it("hides on a line with money written, or already skipped", () => {
         for (const row_status of [ROW_SETTLED, ROW_PARTIALLY_ALLOCATED, ROW_SKIPPED]) {
-            expect(canSkipByHand({ row_status, source: "Cashfree" }, false)).toBe(false);
+            expect(canSkipByHand({ row_status, source: "Cashfree" })).toBe(false);
         }
     });
 
     it("★ shows on an open Cashbook line (#1314 -- INVERTS \"hides on Cashbook, even while open\")", () => {
         for (const row_status of [ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR]) {
-            expect(canSkipByHand({ row_status, source: " Cashbook " }, false)).toBe(true);
+            expect(canSkipByHand({ row_status, source: " Cashbook " })).toBe(true);
         }
     });
 
     it("hides on a Cashbook line its own job has not written yet", () => {
-        expect(canSkipByHand({ row_status: ROW_PENDING_MATCH, source: " Cashbook " }, true)).toBe(false);
+        expect(canSkipByHand({ row_status: ROW_PENDING_MATCH, source: " Cashbook " })).toBe(false);
     });
 
-    it("★ a plain Accountant may skip every line but a Collect payment (ADR-0022 Amendment E)", () => {
-        // The second argument is `canUndoOutflow`'s answer. It hides the box on a Collect payment only.
-        for (const row of [
-            { row_status: ROW_MISMATCHED, source: "Cashfree" },
-            { row_status: ROW_MISMATCHED, source: "Cashbook", row_kind: "Wallet Credit" },
-            { row_status: ROW_MISMATCHED, source: "Cashbook", row_kind: null },
-        ]) {
-            expect(canSkipByHand(row, false)).toBe(true);
+    it("★ shows on any open Cashbook line whatever its Type, a Collect payment included (#1708)", () => {
+        for (const row_kind of ["Wallet Credit", "Collect Payment", null]) {
+            const line = { row_status: ROW_MISMATCHED, source: "Cashbook", row_kind };
+            expect(canSkipByHand(line)).toBe(true);
         }
     });
 
-    it("★ an open Collect payment's box shows only to an Admin or an Accountant Lead (spec #1585 story 39)", () => {
-        const collect = { row_status: ROW_MISMATCHED, source: "Cashbook", row_kind: "Collect Payment" };
-        expect(canSkipByHand(collect, false)).toBe(false);
-        expect(canSkipByHand(collect, true)).toBe(true);
-    });
-
     it("hides with no line", () => {
-        expect(canSkipByHand(null, true)).toBe(false);
+        expect(canSkipByHand(null)).toBe(false);
     });
 });

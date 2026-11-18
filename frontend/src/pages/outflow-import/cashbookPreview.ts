@@ -7,7 +7,6 @@
 // placement FINDABLE in about ten seconds. Every ordering decision below serves that and nothing
 // else -- see `sortGroups`.
 
-import type { CollectPaymentLine } from "./cashbookCollect";
 
 export const PROJECT_LEDGER = "Project Expenses";
 export const NON_PROJECT_LEDGER = "Non Project Expenses";
@@ -89,8 +88,6 @@ export interface CashbookPreviewResult {
     duplicate_of_batch: string | null;
     /** #1591: the spends to create, by their bills. Absent from a server that predates it. */
     invoices?: InvoiceCounts;
-    /** #1595: the Collect payments left open for a person to decide. Absent from a server that predates it. */
-    collect_payments?: CollectPaymentLine[];
     /**
      * #1623, owner decision 7 (#1619): Cashbook's own moves, listed under their own "Internal transfers" heading,
      * each with the money it moved and its From and To as `reason`. Not in `skipped`. Absent from an older server.
@@ -111,11 +108,12 @@ export interface CashbookPreviewResult {
 
 /**
  * #1596: a line an earlier import skipped as "own balances" that this statement re-opens in place, in the import
- * that holds it. It is also listed under what it becomes (a Collect payment, an open line, a pair).
+ * that holds it. It is also listed under what it becomes (a spend to create, an open line, a pair). A Collect payment
+ * becomes "created" (#1708): its own import's job creates its Expense.
  */
 export interface CashbookReopenedLine extends CashbookSkippedRow {
     earlier_batch: string;
-    becomes: "open" | "paired";
+    becomes: "created" | "open" | "paired";
 }
 
 /** #1593: a repeat line bringing a bill for an existing Expense that still waits for one. */
@@ -166,8 +164,7 @@ export interface CashbookStatus {
     failed: number;
     skipped: number;
     pending: number;
-    /** Bills the job has still to copy: open Collect payments' and late bills (code review S1, S2). Absent from a
-     * server that predates it. */
+    /** Late bills the job has still to copy (code review S1, S2). Absent from a server that predates it. */
     bills_waiting?: number;
     /** The batch's job is queued or running (the queue's answer, not the pending count; #1589). */
     running: boolean;
@@ -376,10 +373,10 @@ export const invoiceCountsText = (preview: {
     );
 };
 
-/** One bill not copied as the import summary lists it: the Txn Id and its Expense, or an open Collect payment's line,
- * which has none (#1595). The server's reason follows it. */
+/** One bill not copied as the import summary lists it: the Txn Id and its Expense (none only on a Collect payment
+ * line left open before #1708). The server's reason follows it. */
 export const billNotCopiedLabel = (line: BillNotCopied): string =>
-    `${line.transfer_id} (${line.expense ? line.expense : "open Collect payment"})`;
+    `${line.transfer_id} (${line.expense ? line.expense : "no Expense"})`;
 
 /**
  * The heading over the spends whose bills the job could not copy (#1591), or null while it runs or when
@@ -388,19 +385,9 @@ export const billNotCopiedLabel = (line: BillNotCopied): string =>
 export const billsNotCopiedHeading = (status: CashbookStatus | null | undefined): string | null => {
     const lines = status?.bills_not_copied ?? [];
     if (!status || status.running || lines.length === 0) return null;
-    // Code review R6: an open Collect payment's line has no Expense (`expense` blank); it stays open to decide.
-    const collect = lines.filter((line) => !line.expense).length;
-    if (collect === 0) {
-        return lines.length === 1
-            ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
-            : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
-    }
-    if (collect === lines.length) {
-        return lines.length === 1
-            ? "1 Collect payment's bills were not copied. It stays open on the main table for Create expense or Skip by hand:"
-            : `${count(lines.length)} Collect payments' bills were not copied. They stay open on the main table for Create expense or Skip by hand:`;
-    }
-    return `${count(lines.length)} bills were not copied. Each Expense waits for an invoice; each Collect payment stays open on the main table:`;
+    return lines.length === 1
+        ? "1 spend's bills were not copied. Its Expense waits for an invoice:"
+        : `${count(lines.length)} spends' bills were not copied. Their Expenses wait for an invoice:`;
 };
 
 /**
@@ -472,9 +459,15 @@ export const reopenedHeading = (lines: readonly CashbookReopenedLine[] | undefin
 };
 
 /** How one re-opened line reads: "Wallet Credit PTM6 · in OFI-26-00237 · stays open". */
+const REOPENED_BECOMES: Record<CashbookReopenedLine["becomes"], string> = {
+    created: "its expense is created",
+    open: "stays open",
+    paired: "paired wallet refund",
+};
+
 export const reopenedLabel = (line: CashbookReopenedLine): string =>
     [
         `${line.row_kind || "Line"} ${line.transfer_id}`,
         `in ${line.earlier_batch}`,
-        line.becomes === "paired" ? "paired wallet refund" : "stays open",
+        REOPENED_BECOMES[line.becomes],
     ].join(" · ");

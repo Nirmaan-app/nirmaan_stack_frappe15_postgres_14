@@ -170,7 +170,7 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
    - Downloads run outside the line's transaction, because saving a file commits. A bill is attached only after locking the Expense and re-checking that it still has no invoice and no No invoice mark.
 4. **Every Cashbook spend without a bill waits** in Vendor Invoice Recon → Pending Invoices Upload → *Cashbook*, Project and Non-Project alike. It waits until an invoice is attached or an Admin or Accountant Lead marks it *No invoice* with a reason (the Credit Card rules). Only Expenses made by this import wait; Expenses made by earlier imports do not.
 5. **A bill that arrives later is attached later.** A repeat line that now carries a link attaches its bill to the existing Expense, old or new, when that Expense has no invoice and is not marked No invoice. A file of only repeats is no longer refused when some bring new links.
-6. **A Collect Payment is decided by a person.** It is kept open and highlighted on Review, with two choices: Create expense (pre-filled, with its bill copied at import) or Skip by hand.
+6. ~~**A Collect Payment is decided by a person.** It is kept open and highlighted on Review, with two choices: Create expense (pre-filled, with its bill copied at import) or Skip by hand.~~ *Replaced by Amendment C (2026-11-18): a Collect Payment is created like any wallet spend.*
 7. **Refunds and Wallet Credits follow the card rules.** A refund of a whole spend on the same statement skips both lines, each naming the other. Any other refund, and every Wallet Credit, is an open line with the choices an unpaired card credit has.
 8. **Lines an earlier import skipped as "own balances" are re-opened** when a new statement carries them and they are a Collect Payment, a refund or a Wallet Credit.
 
@@ -181,3 +181,25 @@ Split / Part payment. Every one of those is a person's pick, made in the decisio
 - *Leave old wrong skips alone.* Rejected: real money left the company and was never looked at.
 
 **Open.** The financial year's older Expenses still lack invoices. Decision 5 attaches what each new upload brings; a dedicated catch-up import is future work.
+
+
+## Amendment C — a Collect Payment is created like any wallet spend (2026-11-18, #1708, owner)
+
+**Status:** Accepted (owner grill, 2026-11-18, spec #1711). Replaces Amendment B decision 6. Terms: `GLOSSARY.md` § *Collect payment*.
+
+**Why.** A Collect Payment is a shop-requested payment the employee approved (Zomato, Urban Company, Blinkit). It is real money that left the wallet, like a Wallet Spend. Holding each one open for a person added a step nobody needed. After the 18 Nov 2026 Cashbook reset, 9 lines sat open in import `OFI-26-00337` (₹4,001.41, 15 Jul to 31 Aug 2026). No other import that creates records holds a line kind back for a person: every card spend becomes an Expense (ADR-0039 decision 1), and Porter's check is on a whole invoice (ADR-0032).
+
+**Decision.**
+
+1. **A successful Collect Payment that passes the spend skip tests is created by the import**, exactly as a Wallet Spend is: placed by its remark (ledger, project, expense type), created by the import's job with the Cashbook marker, `payment_by` = the statement's From and `payment_ref` = its Txn Id, and its bills copied onto the Expense as its invoice. It waits in Pending Invoices Upload → Cashbook when it has no bill. Review lists it with the spends; the "shop-requested payments" box is gone.
+2. **Nothing about a Collect Payment line is special on the main table any more.** Link, Allocate, Split and Skip by hand are offered on it as on any money-out line, to every user who may use them.
+3. **Refund pairing is unchanged.** A full refund of a Collect Payment on the same statement still skips both lines as a *Paired wallet refund*.
+4. **A Collect Payment an earlier import skipped as "own balances" is re-opened to be created** (decision 8 of Amendment B). It is written back onto that earlier line at *Pending match run*, and the job of the import that holds the line creates its Expense; the re-opening import queues that job.
+5. **The lines already open are created by a one-off patch** (`patches/v3_0/create_open_collect_payment_expenses`). Each open Collect Payment line with no live match and no hand decision gets its Expense as the job writes one. A bill already stored on the line becomes its invoice, and its Bill check is read again on the new Expense bill; otherwise the Expense waits like any spend without a bill. A line someone already decided by hand is left alone. A second run creates nothing.
+
+**Considered options.**
+
+- *Keep the person's step only for large Collect Payments.* Rejected: no line kind in any other import is held back by amount.
+- *Keep the bill check made on the line at import and carry it to the Expense bill.* Rejected for the patch: 9 bills read once more is cheaper than keeping that path for one run.
+
+**Kept.** Every Cashbook line still stores its statement Type (`Outflow Import Row.row_kind`), and an Expense created by hand from any line this import staged still gets the Cashbook marker, so it waits for its invoice like the job's. The line fields that held an open Collect Payment's bill and its check (`stored_bill`, `bill_check`, the `read_*` fields) stay on the doctype as history; nothing new writes them.
