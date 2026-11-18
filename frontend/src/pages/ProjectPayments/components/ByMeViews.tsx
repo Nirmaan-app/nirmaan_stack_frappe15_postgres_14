@@ -1,15 +1,10 @@
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "@/lib/frappe";
 
 import type { RefetchRef } from "@/hooks/usePublishRefetch";
 
 import AllPayments from "../AllPayments";
-import {
-  APPROVAL_COUNTS_API,
-  APPROVAL_COUNTS_SWR_KEY,
-  BY_ME_VIEW_OPTIONS,
-  ByMeCountsMessage,
-  byMeViewCounts,
-} from "../config/approvalsTable.config";
+import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY } from "../config/approvalsTable.config";
+import { BY_ME_VIEW_OPTIONS, ByMeCountsMessage, byMeViewCounts } from "../config/byMeViews.config";
 import { PP_TABS } from "../config/ppTabs.constants";
 import { useByMeView } from "../hooks/useByMeView";
 

@@ -24,13 +24,15 @@ import {
     ApprovalTab,
     TAB_COLUMNS,
     TAB_DEFAULT_SORT,
+} from "./config/approvalsTable.config";
+import {
     BY_ME_VIEWS,
     BY_ME_VIEW_COLUMNS,
     BY_ME_VIEW_SORT,
     ByMeView,
     byMeViewFilters,
     byMeViewStateTab,
-} from "./config/approvalsTable.config";
+} from "./config/byMeViews.config";
 import { buildApprovalColumns, ApprovalColumnCtx } from "./config/approvalColumns";
 import { useApprovalQueueExport } from "./hooks/useApprovalQueueExport";
 import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./update-payment/UpdatePaymentDialog";
