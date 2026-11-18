@@ -145,7 +145,7 @@ class TestMatchRefusal(FrappeTestCase):
 
 _DEFAULTS = {"match_calls_at_once": 50, "match_reply_max_tokens": 32000, "match_card_reply_max_tokens": 32000,
              "match_burst_failures": 10, "match_burst_window_s": 60, "match_max_request_tokens": 100000,
-             "match_lane_workers": 2}
+             "match_lane_workers": 2, "match_site_calls_at_once": 50}
 # Production's Single at go-live (2026-11-06): models and prices typed, every Int limit saved as "0".
 _ALL_ZERO = dict(_COMPLETE, match_enabled="1", match_retry_wait_s="0",
                  **{f: "0" for f in _DEFAULTS})
@@ -243,3 +243,24 @@ class TestExistingSettingsUntouched(FrappeTestCase):
         self.assertIn(set(got), [{"enabled", "provider", "model", "max_tokens", "request_timeout_seconds"},
                                  {"enabled", "request_timeout_seconds"}])
         self.assertEqual(frappe.get_meta(s.SETTINGS_DOCTYPE).get_field("model").default, "claude-sonnet-4-6")
+
+
+class TestSiteWideLimit(FrappeTestCase):
+    """#1718: the site-wide limit on matching calls in flight is a setting every run's limits carry."""
+
+    def test_a_runs_limits_carry_the_site_wide_limit_default_fifty(self):
+        from nirmaan_stack.services.boq_rate_match.call_runner import Limits
+
+        with _stored(_COMPLETE):
+            card = s.require_match_settings("card")
+            judge = s.require_match_settings("judge")
+        self.assertEqual((card["site_calls_at_once"], judge["site_calls_at_once"]), (50, 50))
+        self.assertEqual(Limits.from_settings(card).site_calls_at_once, 50)
+        with _stored(dict(_COMPLETE, match_site_calls_at_once="7")):
+            self.assertEqual(Limits.from_settings(s.require_match_settings("judge")).site_calls_at_once, 7)
+
+    def test_a_negative_site_wide_limit_refuses_naming_it(self):
+        with _stored(dict(_COMPLETE, match_site_calls_at_once="-1")):
+            with self.assertRaises(s.MatchSettingsIncomplete) as ctx:
+                s.require_match_settings("card")
+        self.assertIn("Calls at once, whole site", str(ctx.exception))

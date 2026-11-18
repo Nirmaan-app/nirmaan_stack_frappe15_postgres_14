@@ -126,6 +126,11 @@ recorded (cards and judge apart; never capped). A selected-row Suggest run match
 other row from the previous active match run at the same committed version; a resume matches the rows not yet
 matched. COMPLETE -> active=1, the prior active run retired (kept). NEVER TOUCH FRAPPE ON THE CALL RUNNER'S THREADS: the
 judge runs on its own thread and the job's thread reports progress (S4 attempt 1 died on "object is not bound").
+ONE SITE-WIDE LIMIT ON CALLS IN FLIGHT (#1718): every call the runner sends (judge and cards, every run, every worker)
+holds a lease slot in the site's cache Redis (`site_ai_slots`, setting `match_site_calls_at_once`, default 50); a
+run's own `match_calls_at_once` stays its ceiling. The slots' key is read from the site once, when the run starts, so
+the judge thread runs in a copy of the job thread's context (`match_run._judge_with_progress`); the call threads use
+only the process-wide `frappe.cache`, never `frappe.local` or the database.
 `tasks/match_run_healer.py` (*/5) halts a queued / running run past its clocks with no live job ("stale - worker
 gone"). Endpoints: `get_match_status` (OFF -> `{match_enabled: false}` only) and `get_match_results` (the active run).
 A TEST THAT DRIVES THE REAL SUGGEST WORKER MUST PIN THE SWITCH (patch `rate_match.match_enabled`): with dev2's

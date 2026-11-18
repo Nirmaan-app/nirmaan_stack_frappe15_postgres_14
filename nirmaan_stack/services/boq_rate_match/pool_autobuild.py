@@ -21,9 +21,9 @@ RETRIES (PR #1681 review F1; Nitesh 2026-11-10 "the pool should exist in product
 file, so the check keeps retrying until a file is usable, but waits longer after each failure: 10 min, 30 min, 1 h,
 2 h, then every 6 h. A one-off failure (a timeout behind other jobs, a DB blip) is retried within minutes; a failure
 that repeats (a data error) costs at most 4 tries a day after the first 4, instead of one every 5 minutes, each of
-which holds production's one worker for up to the 3600 s timeout and writes an Error Log. The failure time is RQ's
-own record of the fixed job id (a failed job stays 7 days; RQ stamps ended_at on every failure path), so a failed
-06:00 build also counts; the try count is a cache key, cleared as soon as a usable file is seen.
+which holds one of production's N `long` workers for up to the 3600 s timeout and writes an Error Log. The failure
+time is RQ's own record of the fixed job id (a failed job stays 7 days; RQ stamps ended_at on every failure path), so
+a failed 06:00 build also counts; the try count is a cache key, cleared as soon as a usable file is seen.
 
 It never fires while a usable pool exists, stale or not: a stale pool waits for 06:00 (B8, unchanged). A user's run
 still never builds or queues (match_run.job_pool, unchanged). Nothing is written to the database; no doctype, setting
