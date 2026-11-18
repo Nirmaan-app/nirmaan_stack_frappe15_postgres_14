@@ -15,11 +15,18 @@ Both inserts must commit. One case per doctype; a later ticket adds its doctype 
 that calls `assert_overlapping_inserts_both_commit`.
 """
 
+import threading
+import time
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
+from nirmaan_stack.api.boq.wizard.test_upload_file import _cleanup_for_project
+from nirmaan_stack.api.boq.wizard.test_upload_file import _make_project_fixture as _make_upload_project
+from nirmaan_stack.api.boq.wizard.test_upload_file import _run_worker as _run_upload_worker
 from nirmaan_stack.services.boq_fixture_teardown import fixture_boq_name
+from nirmaan_stack.services.series_lock import boq_series, recent_waits, series_lock
 
 SHEET = "__row_names_clash__"
 
@@ -111,3 +118,119 @@ class TestBackgroundRowNamesDoNotClash(FrappeTestCase):
                        "dedup_key": f"row-names-clash-{frappe.generate_hash(length=10)}-{n}"},
             on_boq=False,
         )
+
+
+class TestBoqNumbersStayCounted(FrappeTestCase):
+    """BoQ numbers keep their counter (`BOQ-.YY.-.#####`, users see them), so two operations that create BoQs
+    must not clash on it: each takes the BoQ series lock and starts its transaction after the lock is granted
+    (ADR 0048, #1659). The upload operation's lock also covers its Nirmaan Attachments row (`ATT-<project>-`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.projects = [_make_upload_project().name, _make_upload_project().name]
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.rollback()
+        for project in cls.projects:
+            _cleanup_for_project(project)
+            frappe.delete_doc("Projects", project, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def tearDown(self):
+        frappe.db.rollback()
+        for project in self.projects:
+            _cleanup_for_project(project)
+
+    def upload(self, project, n):
+        _run_upload_worker(project_id=project, file_url=f"/private/files/boq_clash_{n}.xlsx",
+                           file_name=f"Clash fixture {n}.xlsx", user="Administrator")
+
+    def assert_overlapping_uploads_both_commit(self, first_project, second_project):
+        """The second upload's transaction began before the first upload committed; both must commit."""
+        with self.secondary_connection():
+            frappe.db.sql("select count(*) from `tabBOQs`")  # takes this transaction's snapshot
+        with self.primary_connection():
+            self.upload(first_project, 1)
+        with self.secondary_connection():
+            try:
+                self.upload(second_project, 2)
+            except Exception as e:
+                self.fail(f"the second, overlapping BoQ upload did not commit: {type(e).__name__}: {e}")
+        frappe.db.rollback()
+        names = frappe.get_all("BOQs", filters={"project": ["in", self.projects]}, pluck="name", order_by="creation")
+        self.assertEqual(len(names), 2)
+        return names
+
+    def assert_counted(self, names):
+        """BoQ numbers stay counted: `BOQ-<yy>-<5 digits>`, the second one right after the first."""
+        for name in names:
+            self.assertRegex(name, r"^BOQ-\d{2}-\d{5}$")
+        first, second = (int(n.rsplit("-", 1)[1]) for n in names)
+        self.assertEqual(second, first + 1, names)
+
+    def test_two_overlapping_boq_uploads_both_commit_with_counted_numbers(self):
+        self.assert_counted(self.assert_overlapping_uploads_both_commit(*self.projects))
+
+    def test_two_overlapping_uploads_on_one_project_both_commit(self):
+        """Same project, so both uploads also take a number from the one `ATT-<project>-` counter."""
+        project = self.projects[0]
+        self.assert_counted(self.assert_overlapping_uploads_both_commit(project, project))
+        atts = frappe.get_all("Nirmaan Attachments", filters={"project": project, "associated_doctype": "BOQs"},
+                              pluck="associated_docname")
+        self.assertEqual(len(atts), 2)
+
+    def test_a_boq_creation_waits_for_the_lock_holder_then_takes_the_next_number(self):
+        """Two BoQ creations really at once: the second, on its own connection in a thread, waits on the series
+        lock while the first holds it, then commits the next number."""
+        site, sites_path = frappe.local.site, frappe.local.sites_path
+        second = {}
+
+        def create_second():
+            frappe.init(site=site, sites_path=sites_path)
+            frappe.connect()
+            try:
+                frappe.set_user("Administrator")
+                with series_lock(boq_series()):
+                    second["name"] = _new_boq(self.projects[1], "Clash fixture second")
+            except Exception as e:
+                second["error"] = f"{type(e).__name__}: {e}"
+            finally:
+                frappe.destroy()
+
+        thread = threading.Thread(target=create_second)
+        began = time.time()
+        with series_lock(boq_series()):
+            first = _new_boq(self.projects[0], "Clash fixture first")
+            thread.start()
+            waiting = _wait_for_an_advisory_lock_waiter()
+            self.assertTrue(waiting, "the second creation did not wait on the BoQ series lock")
+            self.assertTrue(thread.is_alive())
+        thread.join(30)
+        self.assertFalse(thread.is_alive(), "the second creation never finished")
+        self.assertNotIn("error", second)
+        self.assert_counted([first, second["name"]])
+        self.assertEqual(len(recent_waits(boq_series(), began)), 1, "the second creation's wait was not recorded")
+
+
+def _new_boq(project, boq_name):
+    doc = frappe.new_doc("BOQs")
+    doc.project = project
+    doc.boq_name = boq_name
+    doc.insert(ignore_permissions=True)
+    return doc.name
+
+
+def _wait_for_an_advisory_lock_waiter(timeout=10):
+    """True once another session of this database waits for an advisory lock (`pg_locks` shows live state)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if frappe.db.sql(
+            """select count(*) from pg_locks where locktype = 'advisory' and not granted
+               and pid <> pg_backend_pid() and database = (select oid from pg_database where datname = current_database())"""
+        )[0][0]:
+            return True
+        time.sleep(0.05)
+    return False

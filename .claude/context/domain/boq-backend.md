@@ -23,6 +23,13 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
 - `BoQ Committed Sheet Grid` (+ `... Row`) — faithful committed cell grid (all 6 classifications).
 - `BoQ Cell Pricing` — per-cell pricing layer; `BoQ Cell Amount Formula` — per-column amount formulas; `BoQ Cell Remark` / `BoQ Cell Color` — annotations; `BoQ Cell Dismissal` — per-row review-flag dismissal; `BoQ Cell Reconciliation Choice` — per-cell formula-vs-document choice; `BoQ Sheet Pricing Lock` — single-editor lock. (No separate audit doctype — audit goes through `Nirmaan Versions`.)
 
+- **A BoQ is created only under the BoQ series lock (#1659, ADR 0048):** BoQ numbers keep their counter
+  (`BOQ-.YY.-.#####`, users see them), so every code path that inserts a `BOQs` doc holds
+  `services/series_lock.series_lock(boq_series())` around it: the template create request around its shell insert, and
+  the upload worker for its whole operation, together with its attachment's `attachment_series(project)` lock. The
+  lock is a session advisory lock taken between two commits, so the holder's transaction starts after the grant; a
+  lock inside the transaction does not work. A new path that inserts a BoQ takes it the same way, or it fails (or
+  fails another) on the counter when two creations overlap.
 - **Committed read indexes (deploy invariant):** the two D3d read indexes -- `BoQ Committed Sheet Grid Row` `parent` and `BoQ Row Category` composite `(boq, sheet_name, committed_version, discipline, is_current)` -- are declared in each controller's `on_doctype_update` and applied to ALREADY-DEPLOYED databases by the patch module `nirmaan_stack.patches.v3_0.add_boq_read_indexes` (it CALLS the hooks -- single source of truth, not a re-inlined `add_index` -- and is idempotent). A plain migrate does NOT fire `on_doctype_update` for a controller-only change, so existing DBs need this patch; `BoQ Category Truth Snapshot`'s index is EXCLUDED (its hook shipped atomically with the new doctype, so a fresh sync always creates it). The `patches.txt` wiring line is added EXTERNALLY by the maintainer -- it is intentionally not part of the patch.
 
 ### Parser, review tree and commit

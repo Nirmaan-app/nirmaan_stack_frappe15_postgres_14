@@ -34,6 +34,7 @@ import json
 import math
 import signal
 import sys
+import threading
 import time
 
 import frappe
@@ -45,6 +46,7 @@ from nirmaan_stack.api.boq.wizard import classify, create_from_template, pricing
 from nirmaan_stack.api.boq.wizard.ai_settings import SETTINGS_DOCTYPE
 from nirmaan_stack.services.boq_category import persist
 from nirmaan_stack.services.boq_rate_master import extraction
+from nirmaan_stack.services.series_lock import boq_series, recent_waits
 
 ENGINES = ("Electrical", "HVAC")
 PROJECT_NAME = "Background operations check"
@@ -112,13 +114,46 @@ def clone_setup(workers):
     return {"project": check_project(), "sheet": sheet, "expected": expected, "at_once": workers}
 
 
+def at_once(calls):
+    """Run each call on its own thread and DB connection, all released together (N users clicking at once), as
+    Administrator; return their replies, or raise the first error."""
+    site, sites_path = frappe.local.site, frappe.local.sites_path
+    gate = threading.Barrier(len(calls))
+    replies = [None] * len(calls)
+
+    def one(i, call):
+        frappe.init(site=site, sites_path=sites_path)
+        frappe.connect()
+        try:
+            frappe.set_user("Administrator")
+            gate.wait()
+            replies[i] = call()
+            frappe.db.commit()
+        except Exception as e:
+            replies[i] = e
+        finally:
+            frappe.destroy()
+
+    threads = [threading.Thread(target=one, args=(i, c)) for i, c in enumerate(calls)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    for reply in replies:
+        if isinstance(reply, Exception):
+            raise reply
+    return replies
+
+
 def clone_run(ctx, run, timeout):
-    started = {}
-    for i in range(ctx["at_once"]):
-        reply = create_from_template.create_from_template(
+    """The N creates start at once, so their BoQ number inserts overlap on the BoQ series lock (#1659)."""
+    replies = at_once([
+        lambda i=i: create_from_template.create_from_template(
             project=ctx["project"], boq_name=f"Background operations check {run}-{i + 1}", sheet_names=[ctx["sheet"]]
         )
-        started[reply["job_id"]] = reply["boq_id"]
+        for i in range(ctx["at_once"])
+    ])
+    started = {reply["job_id"]: reply["boq_id"] for reply in replies}
 
     def read(job_id):
         status = create_from_template.get_clone_status(job_id)
@@ -250,6 +285,8 @@ def suggest_run(ctx, run, timeout):
     return wait_until(set(ctx["sheets"]), read, timeout)
 
 
+
+
 class VoterOff:
     """Switch the BoQ AI setting off for the flows (classify's voter, suggest's extraction, match's client), and put
     it back as it was."""
@@ -291,6 +328,7 @@ def main():
     frappe.set_user("Administrator")
     wait_for_workers(a.workers)
     result = {"workers": a.workers, "flows": {}}
+    started_at = time.time()
     with VoterOff():
         for flow in flows:
             setup, run_once, default_runs = FLOWS[flow]
@@ -307,6 +345,9 @@ def main():
             result["flows"][flow] = {
                 "runs": runs, "ok": sum(o["ok"] for o in ops), "failed": sum(not o["ok"] for o in ops), "operations": ops,
             }
+    waits = recent_waits(boq_series(), started_at)  # web requests' and workers' waits alike
+    result["boq_lock"] = {"waits": len(waits), "longest_wait_s": max(waits, default=0.0)}
+    print(f"BoQ series lock: {len(waits)} waits, the longest {max(waits, default=0.0):.3f} s", flush=True)
     print("JSON: " + json.dumps(result), flush=True)
 
 

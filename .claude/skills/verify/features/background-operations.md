@@ -14,6 +14,9 @@ the endpoints the screens call and reads each operation's outcome where the scre
   its own sheet: every engine's run finishes (#1656).
 - `n-worker-suggest` N rate suggests started at once, each on its own sheet: every suggest finishes with success,
   and the historical match run each one starts (when the match switch is on) ends without an error (#1657).
+- `n-worker-boq-lock` the N clones' BoQ creations start at once (N users clicking Create at once), so their BoQ
+  number inserts overlap on the BoQ series lock (`services/series_lock`, ADR 0048): every BoQ is created, numbers
+  stay counted, and the check reports the longest wait on that lock (#1659).
 - `n-worker-figures` the peak memory of each worker (its process plus the work horse it forks per operation) and the
   most Postgres connections the env DB held, the figures that set N per instance (#1672).
 
@@ -33,13 +36,15 @@ No browser: `BIN/walk_background_operations.py --task <task> [--workers N] [--ru
 `devenv.sh run <task> worker --queue long` (the way `card-import.md` runs one), runs
 `BIN/background_operations_flows.py` in the env with `devenv.sh script`, and stops the workers again, also when it
 fails or is stopped. The flows run as Administrator (setup, not a role walk) through the same endpoints (10 runs
-of clone and classify, 5 of suggest; `--runs` sets one count for all), and wait for each operation's status: clone
+of clone and classify, 5 of suggest; `--runs` sets one count for all), and wait for each operation's status. The N
+clone creates of a run start together, each on its own thread and DB connection. Clone
 status success and the row count; classify status success per engine; suggest status success for that sheet, then
 its match run's status without an error. A suggest whose status falls back to `idle` with no outcome (the spinning
 screen of a failed suggest before #1657) is a failure. It prints a line per run, `FAILED <operation>: <status>` for
-each failed one, the peak memory per worker and the most DB connections (the workers plus the flows script's own
-one), and exits 1 on any failed operation, 2 when it could not run. Run it at N=2 and at the largest N planned. A new
-flow (the BoQ lock's wait) is one more `<flow>_setup` / `<flow>_run` pair, with its default run count, in the flows
+each failed one, the peak memory per worker, the most DB connections (the workers, the flows script's own one and,
+for a moment, one per clone create) and the longest wait on the BoQ series lock (from the waits `series_lock` records in
+the cache, `recent_waits`), and exits 1 on any failed operation, 2 when it could not run. Run it at N=2 and at the largest N planned. A new
+flow is one more `<flow>_setup` / `<flow>_run` pair, with its default run count, in the flows
 script's `FLOWS`.
 
 ## Gotchas
@@ -63,4 +68,7 @@ script's `FLOWS`.
 - The clone flow needs the env's active master BoQ Template. The template tests (`test_template_admin`,
   `test_template_materialize`) delete every BoQ Template in the env DB, so after a `devenv.sh test` that ran them
   the flows stop with `clone: no active master template on this env`: `devenv.sh reset <task>` brings it back.
+- The BoQ upload, the other operation that takes the BoQ series lock (for its whole length, in a worker), cannot run
+  on an env: its worker fetches the workbook from the bucket only (`sheet_preview._fetch_boq_file_to_tempfile`), so
+  no flow drives it. Its lock is proven by `services/test_background_row_names` (`TestBoqNumbersStayCounted`).
 - Worker logs: `~/claude-artifacts/verify/<task>/n-worker-check-<time>/`.

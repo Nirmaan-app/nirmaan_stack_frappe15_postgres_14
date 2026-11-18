@@ -196,6 +196,8 @@ def main() -> int:
     if result is None:
         print(f"FAIL: the flows did not finish (exit {flows.returncode})")
         return 1
+    lock = result["boq_lock"]
+    print(f"longest wait on the BoQ series lock: {lock['longest_wait_s']:.3f} s ({lock['waits']} waits)")
     failed = 0
     for flow, r in result["flows"].items():
         at_once = f"{math.ceil(a.workers / 2)} clicks x 2 engines" if flow == "classify" else a.workers

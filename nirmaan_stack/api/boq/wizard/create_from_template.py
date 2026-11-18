@@ -43,6 +43,7 @@ from nirmaan_stack.api.boq.wizard.parse_run import _LIST_JSON_FIELDS
 from openpyxl.utils import column_index_from_string, get_column_letter
 from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
 from nirmaan_stack.integrations.controllers.boqs import assert_can_add_boq
+from nirmaan_stack.services.series_lock import boq_series, series_lock
 
 
 # ---------------------------------------------------------------------------
@@ -368,11 +369,12 @@ def create_from_template(project=None, boq_name=None, sheet_names=None, tax_trea
     # _validate_area_dimensions via json.loads). Write only when multi-area; blank == single-area.
     if areas:
         new_boq_doc.area_dimensions = json.dumps(areas)
-    new_boq_doc.insert(ignore_permissions=True)
-
-    # Commit the shell BEFORE enqueue so the (async, possibly cross-process) worker can
+    # The BoQ number is counted and users see it, so the insert holds the BoQ series lock (ADR 0048):
+    # an upload creating a BoQ at the same time would otherwise fail on the counter, or this would.
+    # The lock commits the shell BEFORE enqueue, so the (async, possibly cross-process) worker can
     # read the new BOQs row. CODING_STANDARDS.md: commit after DML in a whitelisted method.
-    frappe.db.commit()
+    with series_lock(boq_series()):
+        new_boq_doc.insert(ignore_permissions=True)
 
     job = frappe.enqueue(
         "nirmaan_stack.api.boq.wizard.create_from_template._clone_worker",
