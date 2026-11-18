@@ -28,13 +28,28 @@ past imports by source and month.
   and the import's job creates its Expense (Cashbook marker, `payment_ref` = its Txn Id) with its bills as the
   invoice. Walked by `BIN/walk_cashbook_collect.py` (seed `BIN/cashbook_collect_seed.py`, DB read
   `BIN/cashbook_collect_db.py`), as an Accountant.
-- `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (unpaired wallet refunds, wallet credits)
-  and `N paired wallet refunds …`; after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
+- `bit-cashbook-refunds` a Cashbook Review lists `N lines will stay open …` (wallet credits) and `N paired wallet
+  refunds …` (a refund giving back a whole Wallet Spend or Collect Payment on the same statement: both lines Skipped,
+  no Expense); after Create the open lines sit on `Not Matched – Inflow` with `Choose`, which
   offers the card-credit choices (project / non-project inflow, waiting or new vendor refund, Skip transfer) (#1594).
   The summary's `Received` counts them (all deposits, all undecided) and its counter matches the Inflow tab: a
   refund's raw status REFUNDED is money that moved, not a failed transfer (story 42).
   A non-project inflow needs the File folders `Home/Attachments`; a template without them refuses it with
   `Could not find Folder` (seed them with `frappe.core.doctype.file.utils.make_home_folder`).
+- `bit-cashbook-refund-expense` an unpaired wallet refund (#1709, ADR-0015 Amendment D) is listed apart on Review
+  (`N wallet refunds will be booked as minus expenses where their spends are booked`, each with `reduces <spend Txn
+  Id> (<its Expense> | no Expense yet | created by this import)`, its ledger, project and type); the header
+  (`N expense records`, ₹) counts the spends only. The job books it as a Paid Expense of minus its Credit on the
+  spend's Expense's ledger, project and type, else a Non Project Expense (type from its remark, else Petty Cash). It
+  reads green `−₹…` on Project / Non-Project Expenses -> Paid, has no Upload / Edit Inv on Payment Done (nor does a
+  card refund), is not in Pending Invoices Upload -> Cashbook, and Unreconcile (Admin, Accountant Lead) on
+  `Settled – Inflow` deletes it and reopens the line on `Not Matched – Inflow`.
+- `bit-cashbook-cutoff` a Cashbook line dated before 1 Apr 2026 is left out and not stored (#1707): Review, the
+  Create progress and the import's Import history row say `N lines before 1 Apr 2026 left out`; a file of only such
+  lines reads `Not imported. All N lines in '<file>' are dated before 1 Apr 2026 …` with `Create 0 records` disabled.
+- `bit-cashbook-1711` the stories above, with a Collect payment's pairing and its Skip by hand once open, are walked
+  by `BIN/walk_cashbook_refunds.py` (seed `BIN/cashbook_refunds_seed.py`, DB read `BIN/cashbook_refunds_db.py`), as
+  an Accountant and an Accountant Lead.
 
 ## How to get to it (user POV)
 
@@ -45,7 +60,9 @@ past imports by source and month.
 Preconditions:
 
 - An Accountant that `free_users.py` lists (on the 2026-10-08 template: `urgouroji@gmail.com`; every Accountant
-  Lead there is locked).
+  Lead there is locked). `free_users.py` counts any asset holder as locked; on the 2026-11-17 template it lists none,
+  yet `swathi@nirmaan.app` (Accountant) and `deepa@nirmaan.app` (Accountant Lead) sign in unlocked (no declaration
+  or audit due).
 
 - **Open the page.** `sidebar(page, "Bulk Import Transactions")`. The URL is `/bulk-import-transactions` and
   `heading "Bulk Import Transactions"` shows.
@@ -61,6 +78,11 @@ Preconditions:
   it in `timeout`). Delete the batch afterwards (`test_cashbook_import._purge`): its fixture Txn Ids break tests.
 
 ## Gotchas
+
+- The Import statement dialog opens on the source last used in the page: a second Cashbook import in one session
+  opens as `Import a petty cash statement` at once, with no `Import a bank statement` step.
+- The `Matched / Settled – Outflow` tab's name continues with its counts (`… 0 matched 0 settled`): match its start.
+- Unreconcile shows only to Admin and Accountant Lead; its dialog's button is `Reverse all <n>`.
 
 - The tab names hold an en dash (`–`), not a hyphen.
 - The tab is not in the URL, so a reload returns to the default tab.

@@ -51,7 +51,9 @@ order: `Sub-features`, `How to get to it (user POV)`, `Driving it with drive.py`
   (`--part drive|cpo|design|commission|billing`).
 - [Bulk Import Transactions](./bulk-import-transactions.md): bank, card and cashbook statement lines and their
   matches. A Cashbook Collect payment created like any wallet spend (#1708) is walked by
-  `BIN/walk_cashbook_collect.py`.
+  `BIN/walk_cashbook_collect.py`; spec #1711's Cashbook stories (a Collect payment's pairing and Skip by hand, lines
+  before 1 Apr 2026 left out, an unpaired wallet refund as a minus Expense where its spend is booked) by
+  `BIN/walk_cashbook_refunds.py`.
 - [Credit Card Statement import](./card-import.md): upload, Review with its Refunds list, Create, and the refund
   as a negative Non-Project Expense, and the dialog's Review / Creating / Finished / Needs another Create (spec
   #1653). Walked end to end by `BIN/walk_card_import.py`.
