@@ -5,7 +5,8 @@
 param(
   [Parameter(Mandatory)][string]$Name,
   [ValidateSet('start', 'resume')][string]$Mode = 'start',
-  [string]$SessionId = ''
+  [string]$SessionId = '',
+  [string]$Dir = ''             # CKP-4: another worktree of this environment to start in (default: the repo)
 )
 $here = Split-Path -Parent $PSCommandPath                    # <bench>\envsync\desktop
 $bench = Split-Path (Split-Path $here -Parent) -Parent
@@ -20,6 +21,7 @@ try {
   if (-not (Test-Path -LiteralPath $file)) { throw "missing $file" }
   # The prompt stays a single line with no quotes: PowerShell 5.1 mangles embedded quotes passed to native programs.
   $prompt = "Read the file $($file -replace '\\', '/') and follow it."
+  if ($Dir) { if (-not (Test-Path -LiteralPath (Join-Path $Dir '.git'))) { throw "-Dir $Dir is not a git checkout" }; $repo = $Dir }
   Set-Location $repo
   # Claude prints progress notes on stderr; turn each line into plain text, not a PowerShell error record.
   function Run { & $claude @args 2>&1 | ForEach-Object { "$_" } }

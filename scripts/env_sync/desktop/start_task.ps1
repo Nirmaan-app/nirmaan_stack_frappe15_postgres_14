@@ -7,6 +7,7 @@ param(
   [Parameter(Mandatory)][string]$Name,
   [ValidateSet('start', 'resume')][string]$Mode = 'start',
   [string]$SessionId = '',
+  [string]$Dir = '',            # CKP-4: start the session in another worktree of this environment (default: the repo)
   [switch]$PrintOnly
 )
 $here = Split-Path -Parent $PSCommandPath                    # <bench>\envsync\desktop
@@ -19,6 +20,7 @@ $root = $here
 foreach ($i in 1..4) { $root = Split-Path $root -Parent }
 $task = 'envsync-claude-launch-' + (Split-Path $root -Leaf)
 $argList = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$here\launch.ps1`" -Name $Name -Mode $Mode -SessionId `"$SessionId`""
+if ($Dir) { $argList += " -Dir `"$Dir`"" }
 if ($PrintOnly) { "task=$task"; "args=$argList"; exit 0 }
 Remove-Item -LiteralPath $out -ErrorAction SilentlyContinue
 

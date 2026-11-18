@@ -131,7 +131,9 @@ GITBASH="${ENV_SYNC_DESKTOP_GITBASH:-C:/Program Files/Git/bin/bash.exe}"   # the
 LAPTOP_CONTAINERS="${ENV_SYNC_LAPTOP_CONTAINERS:-frappe_docker_devcontainer-postgresql-1 frappe_docker_devcontainer-redis-cache-1 frappe_docker_devcontainer-redis-queue-1 frappe_docker_devcontainer-frappe-1}"
 SSH=/c/Windows/System32/OpenSSH/ssh.exe
 SCP=/c/Windows/System32/OpenSSH/scp.exe
-SSHO=(-o BatchMode=yes -o ConnectTimeout=20)
+# ConnectTimeout only covers CONNECTING. A connection that stalls afterwards (CKP-4, 2026-11-18 18:25: the copier's first
+# ssh hung for 10 minutes until it was killed by hand) is given up after 4 x 15 s without an answer from the desktop.
+SSHO=(-o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 
 die() { printf 'env_sync: %b\n' "$*" >&2; exit 2; }
 kv() { printf '%s\n' "$2" | sed -n "s/^$1=//p" | head -1; }

@@ -74,7 +74,12 @@ clear_env
 drive "$OLD" "$W/log_before"; drive "$NEW" "$W/log_after"
 # laptop: 8 scripts + start + ports + ping + destale + start + ports = 14 docker calls; desktop: the same 14 + the copy.
 check "the drive ran to the end (14 docker / 15 ssh commands)" '[ "$(grep -c "^docker" "$W/log_before")" = 14 ] && [ "$(grep -c "^ssh" "$W/log_before")" = 15 ]'
-if cmp -s "$W/log_before" "$W/log_after"; then ok "before == after, byte for byte"; else bad "before != after"; diff "$W/log_before" "$W/log_after" | head -20; fi
+# CKP-4 added two ssh keep-alive options to every ssh / scp (a stalled connection is given up after a minute). They are the
+# ONE intended difference from the base's commands: checked by name, then set aside for the byte-for-byte comparison.
+check "every ssh carries the keep-alive options (a stalled connection gives up after 4 x 15 s)" '
+  [ "$(grep -c "^ssh" "$W/log_after")" = "$(grep -c "^ssh .*\[-o\] \[ServerAliveInterval=15\] \[-o\] \[ServerAliveCountMax=4\]" "$W/log_after")" ]'
+sed -i 's/ \[-o\] \[ServerAliveInterval=15\] \[-o\] \[ServerAliveCountMax=4\]//' "$W/log_after"
+if cmp -s "$W/log_before" "$W/log_after"; then ok "before == after, byte for byte (keep-alive options aside)"; else bad "before != after"; diff "$W/log_before" "$W/log_after" | head -20; fi
 check "no setting leaks into main's commands" '! grep -q "ENV_SYNC_\|Host: " "$W/log_after"'
 cp "$W/log_after" "${KEEP_LOGS:-$W}/main_commands.log" 2>/dev/null
 
@@ -260,6 +265,7 @@ MR="C:/Users/USER/Documents/frappe_docker/development/frappe-bench/apps/nirmaan_
 cat > "$PW/bin/env_sync" <<'EOF'
 #!/usr/bin/env bash
 echo "env_sync $*" >> "$PW_LOG"
+cat > /dev/null     # like ssh, the real one reads its stdin: the copier must never hand it the unit list it is looping over
 slice=""; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --slice ] && slice="${a[$((i + 1))]}"; done
 case "$1" in
   units) [ -f "$PW_DIR/units_out" ] || exit 2; cat "$PW_DIR/units_out"; exit 0;;

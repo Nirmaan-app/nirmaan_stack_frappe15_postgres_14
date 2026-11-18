@@ -66,6 +66,10 @@ OPS_RELAY="${POLLER_OPS_RELAY:-$( [ -d "$RELAY_ROOT/_checkpoints" ] && echo "$RE
 mkdir -p "$(dirname "$HB")" "$(dirname "$LOG")"
 
 now() { date '+%F %T'; }
+# es <seconds> <env_sync arguments...>: every env_sync call goes through here. It gets a time limit (a stalled ssh is given
+# up, never left hanging) and its stdin from /dev/null: ssh reads stdin, and inside the per-unit loop it swallowed the rest
+# of the unit list, so only the first unit was copied (CKP-4 AC1, 2026-11-18 18:36).
+es() { local t="$1"; shift; timeout "$t" bash "$ENVSYNC" "$@" < /dev/null; }
 say() { echo "$(now) $*" >> "$LOG"; }
 one_line() { tr '\n' ' ' | sed 's/  */ /g' | cut -c1-"${1:-300}"; }
 relay() { [ -f "$OPS_RELAY" ] && printf '\n=== %s | CKP | UPDATE | id %s ===\n%s\n' "$(date '+%F %H:%M')" "$1" "$2" >> "$OPS_RELAY"; return 0; }
@@ -142,7 +146,7 @@ RUN_START=$(now)
 heartbeat "RUNNING since $RUN_START - asking the desktop which sessions are working" "not asked yet"
 
 # ---- detect -------------------------------------------------------------------------------------------------------
-UOUT=$(bash "$ENVSYNC" units 2>/dev/null | tr -d '\r')
+UOUT=$(es 180 units 2>/dev/null | tr -d '\r')
 if ! grep -q '^ssh=ok' <<< "$UOUT"; then
   if [ ! -f "$ST/offline" ]; then now > "$ST/offline"; say "OFFLINE the desktop does not answer; nothing is copied, everything is caught up by itself when it answers again"; fi
   DETECTED="unknown (the desktop does not answer)"
@@ -166,19 +170,19 @@ if [ "$LEAVING" = 1 ]; then
       # a session honours CHECKPOINT when it keeps a status file (our brief footer); a rehearsal may leave named ones alone
       [ "$sstate" = working ] && [ -n "$sfirst" ] && [ "$sname" != console ] || continue
       case " ${POLLER_LEAVING_SKIP:-} " in *" $sname "*) continue;; esac
-      bash "$ENVSYNC" tell --name "$sname" --text "CHECKPOINT $(date '+%F %H:%M') | the owner is leaving" > /dev/null 2>&1 && PAUSED_NAMES+=" $sname"
+      es 120 tell --name "$sname" --text "CHECKPOINT $(date '+%F %H:%M') | the owner is leaving" > /dev/null 2>&1 && PAUSED_NAMES+=" $sname"
     done
   done <<< "$UOUT"
   if [ -n "$PAUSED_NAMES" ]; then
     waited=0
     while [ "$waited" -lt "$LEAVING_WAIT" ]; do
-      pending=0; UNOW=$(bash "$ENVSYNC" units 2>/dev/null | tr -d '\r')
+      pending=0; UNOW=$(es 180 units 2>/dev/null | tr -d '\r')
       for n in $PAUSED_NAMES; do grep -q "[|,]$n:[0-9a-f]*:[a-z]*:CHECKPOINT" <<< "$UNOW" || pending=$((pending + 1)); done
       [ "$pending" = 0 ] && break
       sleep "${POLLER_LEAVING_STEP:-20}"; waited=$((waited + ${POLLER_LEAVING_STEP:-20}))
     done
     say "LEAVING: asked$PAUSED_NAMES to pause; $( [ "$pending" = 0 ] && echo "all at their safe point after $waited s" || echo "$pending not at a safe point after $waited s - copied as they stand" )"
-    UOUT=$(bash "$ENVSYNC" units 2>/dev/null | tr -d '\r')
+    UOUT=$(es 180 units 2>/dev/null | tr -d '\r')
   fi
 fi
 
@@ -211,7 +215,7 @@ while IFS='|' read -r tag env path branch head key changed sess; do
   [ "$mode" = due ] && args+=(--if-older "$B1_EVERY")
   if [ -n "${POLLER_FAIL_UNIT:-}" ] && [ "$POLLER_FAIL_UNIT" = "$id" ]; then ck="CHECKPOINT FAILED ($id): TEST failure forced on this unit (POLLER_FAIL_UNIT)"; rc=3
   elif [ "$mode" = leave ] && [ "$is_root" = 1 ]; then ck="(main dev's own checkout is captured by the leaving checkpoint below)"; rc=0
-  else ck=$(bash "$ENVSYNC" "${args[@]}" 2>&1); rc=$?; fi
+  else ck=$(es 900 "${args[@]}" 2>&1); rc=$?; fi   # a stalled copy is given up, never left hanging
   case "$ck" in
     *"checkpoint not due"*) r="B1 SKIP not due";;
     *"CHECKPOINT CODE"*) r="B1 OK"; echo "$key" > "$ST/units/$id.key"; rm -f "$ST/units/$id.failed"
@@ -250,18 +254,18 @@ if [ "$LEAVING" = 1 ] && [ -n "$MAIN_ID" ] && grep -q "^unit|main|" <<< "$UOUT";
   if engine_up; then
     find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null
     args=(checkpoint --slice "$MAIN_ID" --yes); [ -n "$lname" ] && args+=(--name "$lname")
-    out=$(bash "$ENVSYNC" "${args[@]}" 2>&1); rc=$?
+    out=$(es 10800 "${args[@]}" 2>&1); rc=$?
     printf '%s\n' "$(now) leaving checkpoint for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
   else out="Docker did not start on the laptop"; rc=9; fi
   engine_restore "$MAIN_ID"
-  for n in $PAUSED_NAMES; do [ "$n" = "$lname" ] || bash "$ENVSYNC" tell --name "$n" --text "CHECKPOINT TAKEN $(date '+%F %H:%M') | carry on" > /dev/null 2>&1; done
+  for n in $PAUSED_NAMES; do [ "$n" = "$lname" ] || es 120 tell --name "$n" --text "CHECKPOINT TAKEN $(date '+%F %H:%M') | carry on" > /dev/null 2>&1; done
   if grep -q '^CHECKPOINT READY' <<< "$out"; then
     echo "$(now) $MAIN_ID leaving-checkpoint" > "$ST/units/$MAIN_ID.last"
     LEAVE_LINES="- $MAIN_ID (main dev's checkout; paused at a safe point:${PAUSED_NAMES:- none}; every other session there copied as it stands): READY - code + database. $(grep '^CHECKPOINT READY' <<< "$out" | one_line 260)"$'\n'"$LEAVE_LINES"
     RESULT="LEAVING READY: main dev code + database; $RESULT"
   else
     # F2: a failed leaving checkpoint releases every waiting session at once
-    for n in $PAUSED_NAMES; do bash "$ENVSYNC" tell --name "$n" --text "CHECKPOINT FAILED $(date '+%F %H:%M') | carry on" > /dev/null 2>&1; done
+    for n in $PAUSED_NAMES; do es 120 tell --name "$n" --text "CHECKPOINT FAILED $(date '+%F %H:%M') | carry on" > /dev/null 2>&1; done
     LEAVE_LINES="- $MAIN_ID (main dev's checkout): FAILED - $(tail -3 <<< "$out" | one_line 220). The sessions were told to carry on."$'\n'"$LEAVE_LINES"
     RESULT="LEAVING FAILED for main dev (rc $rc); $RESULT"; NFAIL=$((NFAIL + 1))
   fi
@@ -283,7 +287,7 @@ elif [ -n "$POINT" ] && [ -n "$MAIN_ID" ]; then
       heartbeat "RUNNING since $RUN_START - $RESULT; B2 database copy of main dev started $(now) (10-15 minutes; this line is replaced by the result)" y
       if engine_up; then
         find "$BENCH_HOST/sites/localhost/locks" -name '*.lock' -size 0 -delete 2>/dev/null   # a lock left by an earlier pull fails the migrate
-        out=$(bash "$ENVSYNC" catch-up --slice "$MAIN_ID" --name "$PT_NAME" --checkout "$MAIN_PATH" --env main --yes 2>&1); rc=$?
+        out=$(es 10800 catch-up --slice "$MAIN_ID" --name "$PT_NAME" --checkout "$MAIN_PATH" --env main --yes 2>&1); rc=$?
         printf '%s\n' "$(now) B2 for $MAIN_ID (rc $rc)" "$out" > "$ST/b2_last_output.txt"
         rec2=$(last_b2); rec2_epoch=$( [ -n "$rec2" ] && date -d "$rec2" +%s 2>/dev/null || echo 0)
         if [ "$rec2_epoch" -ge "$pt_epoch" ]; then RESULT="$RESULT + B2 OK (covers: $(one_line 80 <<< "$POINT"))"; rm -f "$ST/b2_failed.txt"
